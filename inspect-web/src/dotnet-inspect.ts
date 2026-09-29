@@ -477,11 +477,14 @@ import {
 } from "./metadata-viewer.ts";
 import {
   bindSettingsPanel,
-  reconcileStyleTaste,
   renderSettingsView,
-  type StyleOption,
-  type StyleTier,
 } from "./settings-panel.ts";
+import {
+  findStyleChoice,
+  reconcileStyleTaste,
+  resolveStyleCatalog,
+  type ResolvedStyleCatalog,
+} from "./style-vocabulary.ts";
 import {
   bindProductNavigation,
   renderBrand,
@@ -1393,8 +1396,7 @@ const initialState = {
   selectedBodyTarget: null,
   graphSource: { status: "closed" as const },
   docViewer: { status: "closed" as const },
-  styleTiers: null,
-  styleOptions: null,
+  styleCatalog: null,
   styleCatalogError: "",
   taste: loadStoredTaste(),
   settings: false,
@@ -1494,8 +1496,7 @@ interface StateOverrides {
   selectedBodyTarget: BodyTarget | null;
   graphSource: GraphSourceState;
   docViewer: DocumentViewerState;
-  styleTiers: StyleTier[] | null;
-  styleOptions: StyleOption[] | null;
+  styleCatalog: ResolvedStyleCatalog | null;
   history: string[];
   retryAction: ErrorRetryAction;
   diag: RuntimeStartupDiagnostics | null;
@@ -1961,8 +1962,7 @@ function captureRetainedHostState() {
     spotlightChipIndex: state.spotlightChipIndex,
     spotlightCapabilitySearch: state.spotlightCapabilitySearch,
     spotlightPackageSearch: state.spotlightPackageSearch,
-    styleTiers: state.styleTiers,
-    styleOptions: state.styleOptions,
+    styleCatalog: state.styleCatalog,
     styleCatalogError: state.styleCatalogError,
     taste: state.taste,
     settings: state.settings,
@@ -20038,14 +20038,14 @@ function reloadVisibleSource() {
 }
 
 function toggleTaste(id: string) {
-  const option = (state.styleOptions || []).find(item => item.id === id);
+  const option = findStyleChoice(state.styleCatalog, id);
   if (state.taste.includes(id)) {
     state.taste = state.taste.filter(item => item !== id);
   } else {
-    if (option?.conflict_group) {
-      const groupIds = (state.styleOptions || [])
-        .filter(item => item.conflict_group === option.conflict_group)
-        .map(item => item.id);
+    if (option?.conflictGroup) {
+      const groupIds = (state.styleCatalog?.choices ?? [])
+        .filter(item => item.conflictGroup === option.conflictGroup)
+        .map(item => item.term.identity.value);
       state.taste = state.taste.filter(item => !groupIds.includes(item));
     }
     state.taste = [...state.taste, id];
@@ -20346,8 +20346,7 @@ function renderSettingsViewHtml() {
     theme: state.theme,
     settingsReturn: state.settingsReturn,
     styleCatalog: {
-      styleTiers: state.styleTiers,
-      styleOptions: state.styleOptions,
+      styleCatalog: state.styleCatalog,
       styleCatalogError: state.styleCatalogError,
       taste: state.taste,
     },
@@ -21968,21 +21967,6 @@ async function restoreInitialWorkspace() {
     navigationSeq);
 }
 
-function isStyleTier(value: unknown): value is StyleTier {
-  return isRecord(value)
-    && typeof value.id === "string"
-    && typeof value.title === "string"
-    && typeof value.summary === "string";
-}
-
-function isStyleOption(value: unknown): value is StyleOption {
-  return isRecord(value)
-    && typeof value.id === "string"
-    && typeof value.tier === "string"
-    && typeof value.title === "string"
-    && typeof value.summary === "string";
-}
-
 function showEngineFailure(error: unknown) {
   state.loading = false;
   state.engineReady = false;
@@ -22059,24 +22043,17 @@ async function bootstrap() {
       refreshPackageStats();
     }
     try {
-      const vocabulary = await engineClient.catalog.listVocabulary();
-      const sections = vocabulary?.sections || [];
-      state.styleTiers = (
-        sections.find(section => section.id === "csharp.style-tiers")?.values
-        || []).filter(isStyleTier);
-      state.styleOptions = (
-        sections.find(section => section.id === "csharp.style-choices")?.values
-        || []).filter(isStyleOption);
+      state.styleCatalog = resolveStyleCatalog(
+        await engineClient.catalog.inspectVocabulary());
       const reconciledTaste = reconcileStyleTaste(
         state.taste,
-        state.styleOptions);
+        state.styleCatalog);
       if (reconciledTaste.length !== state.taste.length) {
         state.taste = reconciledTaste;
         localStorage.setItem("inspect-taste", JSON.stringify(state.taste));
       }
     } catch (error) {
-      state.styleTiers = [];
-      state.styleOptions = [];
+      state.styleCatalog = null;
       state.styleCatalogError = errorMessage(error);
     }
     try {

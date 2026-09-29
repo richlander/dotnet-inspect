@@ -461,7 +461,11 @@ internal static class BrowserPackageWireProjection
             snapshot.MaxWorkspaceAssembliesPerRole,
             snapshot.ResidentBytes,
             snapshot.MaxResidentBytes,
-            snapshot.MaxWorkspaceRetainedImageBytes);
+            snapshot.MaxWorkspaceRetainedImageBytes,
+            snapshot.EntryStoreDurability,
+            snapshot.EntryStoreHits,
+            snapshot.EntryStoreWrites,
+            snapshot.EntryStoreError);
     }
 
     internal static BrowserPackageDocument Project(BrowserPackageDocumentEntry document)

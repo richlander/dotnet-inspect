@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindSettingsPanel,
-  reconcileStyleTaste,
   renderSettingsView,
   type SettingsPanelBindingActions,
   styleCatalogGroupsHtml,
 } from "../src/settings-panel.ts";
+import {
+  reconcileStyleTaste,
+  type ResolvedStyleCatalog,
+} from "../src/style-vocabulary.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
@@ -90,21 +93,68 @@ function escapeHtml(value: unknown) {
     .replaceAll('"', "&quot;");
 }
 
-const styleTiers = [
-  { id: "naming", title: "Naming", summary: "How identifiers are spelled." },
-  { id: "layout", title: "Layout", summary: "Whitespace and braces.", byte_divergent: true },
-];
+function term(
+  _vocabulary: string,
+  value: string,
+  displayLabel: string,
+  summary: string,
+) {
+  return {
+    identity: { value },
+    displayLabel,
+    summary,
+    mapEntries: [],
+  };
+}
 
-const styleOptions = [
-  { id: "readable-locals", tier: "naming", title: "Readable local names", summary: "Synthesize readable local names.", oracle_endorsed: true },
-  { id: "expanded-braces", tier: "layout", title: "Expanded braces", summary: "Always use braces." },
-];
+const readableLocals = {
+  term: term(
+    "csharp.style-choices",
+    "readable-locals",
+    "Readable local names",
+    "Synthesize readable local names."),
+  conflictGroup: null,
+  oracleEndorsed: true,
+};
+const expandedBraces = {
+  term: term(
+    "csharp.style-choices",
+    "expanded-braces",
+    "Expanded braces",
+    "Always use braces."),
+  conflictGroup: null,
+  oracleEndorsed: false,
+};
+const styleCatalog: ResolvedStyleCatalog = {
+  snapshotIdentity: `sha256:${"0".repeat(64)}`,
+  tiers: [
+    {
+      term: term(
+        "csharp.style-tiers",
+        "naming",
+        "Naming",
+        "How identifiers are spelled."),
+      byteDivergent: false,
+      choices: [readableLocals],
+    },
+    {
+      term: term(
+        "csharp.style-tiers",
+        "layout",
+        "Layout",
+        "Whitespace and braces."),
+      byteDivergent: true,
+      choices: [expandedBraces],
+    },
+  ],
+  choices: [readableLocals, expandedBraces],
+};
 
 test("style taste reconciliation drops retired catalog choices", () => {
   assert.deepEqual(
     reconcileStyleTaste(
       ["readable-local-names", "expanded-braces"],
-      styleOptions),
+      styleCatalog),
     ["expanded-braces"]);
 });
 
@@ -175,7 +225,7 @@ test("settings binding tolerates controls from the inactive surface being absent
 
 test("style catalog groups render tiers, byte-divergent badges, and checked state", () => {
   const html = styleCatalogGroupsHtml(
-    { styleTiers, styleOptions, styleCatalogError: "", taste: ["readable-locals"] },
+    { styleCatalog, styleCatalogError: "", taste: ["readable-locals"] },
     escapeHtml);
 
   assert.match(html, /Naming/);
@@ -191,8 +241,7 @@ test("settings renders the routed Diagnostics entry", () => {
     theme: "dark",
     settingsReturn: "workbench",
     styleCatalog: {
-      styleTiers,
-      styleOptions,
+      styleCatalog,
       styleCatalogError: "",
       taste: [],
     },
@@ -207,8 +256,35 @@ test("settings renders the routed Diagnostics entry", () => {
 test("style catalog groups escape untrusted tier and option text", () => {
   const html = styleCatalogGroupsHtml(
     {
-      styleTiers: [{ id: "naming", title: '<script>alert(1)</script>', summary: "\"quoted\" & <b>bold</b>" }],
-      styleOptions: [{ id: 'x"onmouseover=1', tier: "naming", title: "<img src=x>", summary: "<i>italic</i> & more" }],
+      styleCatalog: {
+        snapshotIdentity: `sha256:${"1".repeat(64)}`,
+        tiers: [{
+          term: term(
+            "csharp.style-tiers",
+            "naming",
+            "<script>alert(1)</script>",
+            "\"quoted\" & <b>bold</b>"),
+          byteDivergent: false,
+          choices: [{
+            term: term(
+              "csharp.style-choices",
+              'x"onmouseover=1',
+              "<img src=x>",
+              "<i>italic</i> & more"),
+            conflictGroup: null,
+            oracleEndorsed: false,
+          }],
+        }],
+        choices: [{
+          term: term(
+            "csharp.style-choices",
+            'x"onmouseover=1',
+            "<img src=x>",
+            "<i>italic</i> & more"),
+          conflictGroup: null,
+          oracleEndorsed: false,
+        }],
+      },
       styleCatalogError: "",
       taste: [],
     },
@@ -227,11 +303,21 @@ test("style catalog groups escape untrusted tier and option text", () => {
 test("style catalog groups hide a tier with no options", () => {
   const html = styleCatalogGroupsHtml(
     {
-      styleTiers: [
-        ...styleTiers,
-        { id: "empty-tier", title: "Empty Tier", summary: "Has no options." },
-      ],
-      styleOptions,
+      styleCatalog: {
+        ...styleCatalog,
+        tiers: [
+          ...styleCatalog.tiers,
+          {
+            term: term(
+              "csharp.style-tiers",
+              "empty-tier",
+              "Empty Tier",
+              "Has no options."),
+            byteDivergent: false,
+            choices: [],
+          },
+        ],
+      },
       styleCatalogError: "",
       taste: [],
     },
@@ -244,7 +330,7 @@ test("style catalog groups hide a tier with no options", () => {
 
 test("style catalog reports an error when the catalog failed to load", () => {
   const html = styleCatalogGroupsHtml(
-    { styleTiers: [], styleOptions: [], styleCatalogError: "network error", taste: [] },
+    { styleCatalog: null, styleCatalogError: "network error", taste: [] },
     escapeHtml);
 
   assert.match(html, /Style catalog unavailable: network error/);
@@ -252,7 +338,7 @@ test("style catalog reports an error when the catalog failed to load", () => {
 
 test("style catalog renders nothing when empty without an error", () => {
   const html = styleCatalogGroupsHtml(
-    { styleTiers: [], styleOptions: [], styleCatalogError: "", taste: [] },
+    { styleCatalog: null, styleCatalogError: "", taste: [] },
     escapeHtml);
 
   assert.equal(html, "");
@@ -262,7 +348,7 @@ test("settings view marks the active theme segment", () => {
   const html = renderSettingsView({
     theme: "light",
     settingsReturn: "home",
-    styleCatalog: { styleTiers, styleOptions, styleCatalogError: "", taste: [] },
+    styleCatalog: { styleCatalog, styleCatalogError: "", taste: [] },
     escapeHtml,
   });
 
@@ -274,7 +360,7 @@ test("settings view renders modal semantics and one close action", () => {
   const workbenchHtml = renderSettingsView({
     theme: "dark",
     settingsReturn: "workbench",
-    styleCatalog: { styleTiers: [], styleOptions: [], styleCatalogError: "", taste: [] },
+    styleCatalog: { styleCatalog: null, styleCatalogError: "", taste: [] },
     escapeHtml,
   });
   assert.match(workbenchHtml, /id="settings-dialog"/);
@@ -292,7 +378,7 @@ test("settings view reports the active style count and a reset control", () => {
   const html = renderSettingsView({
     theme: "dark",
     settingsReturn: "home",
-    styleCatalog: { styleTiers, styleOptions, styleCatalogError: "", taste: ["readable-locals", "expanded-braces"] },
+    styleCatalog: { styleCatalog, styleCatalogError: "", taste: ["readable-locals", "expanded-braces"] },
     escapeHtml,
   });
 
@@ -304,7 +390,7 @@ test("settings view shows the default badge and no reset control when taste is e
   const html = renderSettingsView({
     theme: "dark",
     settingsReturn: "home",
-    styleCatalog: { styleTiers, styleOptions, styleCatalogError: "", taste: [] },
+    styleCatalog: { styleCatalog, styleCatalogError: "", taste: [] },
     escapeHtml,
   });
 
@@ -317,7 +403,7 @@ test("settings view surfaces a loading message while the catalog is still empty"
   const html = renderSettingsView({
     theme: "dark",
     settingsReturn: "home",
-    styleCatalog: { styleTiers: [], styleOptions: [], styleCatalogError: "", taste: [] },
+    styleCatalog: { styleCatalog: null, styleCatalogError: "", taste: [] },
     escapeHtml,
   });
 
