@@ -278,8 +278,6 @@ internal static partial class MetadataRelationInspection
         int? occurrenceToken,
         bool relationshipAlreadyCharged = false)
     {
-        GenericContext? context = null;
-
         MetadataTypeDefinitionName? sourceName =
             ReadTypeName(
                 reader,
@@ -288,9 +286,28 @@ internal static partial class MetadataRelationInspection
                 diagnostics);
         if (sourceName is null)
             return;
-        context ??= GenericContext.ForType(
-            reader,
-            sourceDefinition);
+
+        GenericContext context;
+        try
+        {
+            context = GenericContext.ForType(
+                reader,
+                sourceDefinition);
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            diagnostics.Add(
+                MalformedDiagnostic(
+                    MetadataRelationFamily.Hierarchy,
+                    MetadataTokens.GetToken(sourceHandle),
+                    exception.Message));
+            return;
+        }
+
         MetadataTypeIdentityDecodeResult decoded =
             MetadataTypeIdentityDecoder.Decode(
                 reader,

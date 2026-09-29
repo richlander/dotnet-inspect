@@ -124,4 +124,66 @@ public static class HierarchyRelationSafetyFixtures
             .Serialize(image);
         return image.ToArray();
     }
+
+    public static byte[] BuildMalformedGenericContextHierarchy()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("MalformedGenericContext.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedGenericContext"),
+            new Version(1, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        AssemblyReferenceHandle dependency =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle target =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("Sample"),
+                metadata.GetOrAddString("Target"));
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle source =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Sample"),
+                metadata.GetOrAddString("Source`1"),
+                target,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddGenericParameter(
+            source,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 1);
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
+    }
 }

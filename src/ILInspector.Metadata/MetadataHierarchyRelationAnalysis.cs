@@ -259,6 +259,8 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                     interfaceMatched = true;
                     if (_request.MaterializeRows)
                     {
+                        _operation.Charge(
+                            MetadataOperationDimension.StructuredNodes);
                         (interfaceTokens ??=
                             ImmutableArray.CreateBuilder<int>())
                             .Add(token);
@@ -289,9 +291,21 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
             }
 
             MetadataTypeDefinitionNameReadResult read =
-                MetadataTypeDefinitionName.Read(
+                MetadataTypeDefinitionNameReader.Read(
                     _reader,
-                    handle);
+                    handle,
+                    beforeMaterialize: amount =>
+                        _operation.Charge(
+                            MetadataOperationDimension.StructuredNodes,
+                            amount),
+                    chargeChain: amount =>
+                        _operation.Charge(
+                            MetadataOperationDimension.RelationshipEdges,
+                            amount),
+                    chargeCharacters: amount =>
+                        _operation.Charge(
+                            MetadataOperationDimension.RetainedText,
+                            amount));
             if (read
                 is MetadataTypeDefinitionNameReadResult.Rejected rejected)
             {
@@ -313,6 +327,11 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                 MetadataTypeDefinitionAddress.FromHandle(
                     _reader,
                     handle);
+            if (baseMatched)
+            {
+                _operation.Charge(
+                    MetadataOperationDimension.StructuredNodes);
+            }
             return new(
                 IsExcluded: false,
                 baseMatched,
