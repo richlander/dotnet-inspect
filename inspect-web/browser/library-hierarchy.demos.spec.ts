@@ -377,10 +377,16 @@ test("package Call Graph demo applies the returned member and graph", async ({
   });
 });
 
-test("Platform Methods demo uses its non-first engine surface without reloading it", async ({
+test("Platform Methods demo retains its non-first engine surface while loading forwarders", async ({
   page,
 }) => {
   const share = await openHomeDemo(page, "Methods", "platform");
+  const publishedUrl = page.url();
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-forwarder-view", /.+/);
+  await expect(page.getByText("Loading forwarded Types...", { exact: true }))
+    .toHaveCount(0);
+  await expect(page).toHaveURL(publishedUrl);
   await expect(subjectTab(page, "type"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".inspected-target"))
@@ -388,8 +394,6 @@ test("Platform Methods demo uses its non-first engine surface without reloading 
   await expect(page.locator(
     `[data-type="${platformFocusType.id}"]`,
   )).toBeVisible();
-  await expect(page.locator("html"))
-    .not.toHaveAttribute("data-platform-library-request", /.+/);
   expect(share).toMatchObject({
     tabs: [{
       kind: "group",
@@ -411,11 +415,19 @@ test("Platform Call Graph demo publishes the exact Library and member", async ({
   page,
 }) => {
   const share = await openHomeDemo(page, "Call Graph", "platform");
+  const publishedUrl = page.url();
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-forwarder-view", /.+/);
+  await expect(page.getByText("Loading forwarded Types...", { exact: true }))
+    .toHaveCount(0);
+  await expect(page).toHaveURL(publishedUrl);
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await expect(inspectorTab(page, "data-member-section", "call-graph"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#call-graph-diagram svg")).toBeVisible();
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
   await chooseInspector(page, "data-member-section", "source", "Source");
   await expect(page.locator(".source-result")).toContainText(
     "public void Run() {}",
@@ -424,8 +436,6 @@ test("Platform Call Graph demo publishes the exact Library and member", async ({
     "data-platform-member-source-request",
     /platform-demo-context/,
   );
-  await expect(page.locator("html"))
-    .not.toHaveAttribute("data-platform-library-request", /.+/);
   expect(share).toMatchObject({
     view: {
       type: platformFocusType.id,

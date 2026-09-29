@@ -495,6 +495,10 @@ export interface BrowserPackageCacheStats {
   readonly residentBytes: number;
   readonly maxResidentBytes: number;
   readonly maxWorkspaceRetainedImageBytes: number;
+  readonly entryStoreDurability: string;
+  readonly entryStoreHits: number;
+  readonly entryStoreWrites: number;
+  readonly entryStoreError: string | null;
 }
 
 export interface BrowserPackageChangesAdvisoryAcquisition {

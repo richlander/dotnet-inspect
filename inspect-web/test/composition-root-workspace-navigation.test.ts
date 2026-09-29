@@ -349,7 +349,7 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /function applyMemberSection\(id: MemberSection\) \{[\s\S]*state\.memberSection === "call-graph" && id !== "call-graph"[\s\S]*invalidateMemberCallGraphWork\(state\)/);
   assert.match(
     appSource,
-    /function navigateToRuntimeMember\([\s\S]*const targetLibrary = libraryKey\(type\);\s*state\.libraryScope = targetLibrary \? new Set\(\[targetLibrary\]\) : null;[\s\S]*state\.typeCursor = Math\.max\(0, filteredTypes\(\)/);
+    /function navigateToRuntimeMember\([\s\S]*const targetLibrary = libraryKey\(type\);\s*state\.libraryScope = targetLibrary \? new Set\(\[targetLibrary\]\) : null;[\s\S]*state\.typeCursor = Math\.max\(0, filteredTypeRows\(\)/);
 });
 
 test("Type inventory filters preserve their focused control across rerenders", () => {
@@ -659,7 +659,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /platformLibraryMatchesDescriptor\(row, item\)[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\)[\s\S]*if \(scopeOnly\) return pkg/);
   assert.match(
     validateView,
-    /typeLensesFor\(pkg\)[\s\S]*deep\.section && !hasPortableMember/);
+    /typeLensesFor\(pkg, Boolean\(forwarder\)\)[\s\S]*deep\.section && !hasPortableMember/);
 });
 
 test("initial workspace packet resolution waits for the engine phase", () => {
@@ -823,7 +823,7 @@ test("package-root Open and selected-Type activation preserve local frame state"
     /if \(state\.atPackageRoot\) \{\s*if \(!enterRetainedLibrarySubject\(\)\) return;\s*showContentDetailAfterRender\(\);\s*render\(\);\s*return;/);
   assert.match(
     drillInSource,
-    /if \(state\.atLibraryRoot\) \{\s*if \(!enterTypeSubject\(selectedType\(\)\)\) return;\s*showContentDetailAfterRender\(\);\s*render\(\);/);
+    /if \(state\.atLibraryRoot\) \{\s*const forwarder = selectedForwarder\(\);\s*if \(forwarder\) enterForwardedType\(forwarder\);\s*else if \(!enterTypeSubject\(selectedType\(\)\)\) return;\s*showContentDetailAfterRender\(\);\s*render\(\);/);
   assert.match(
     drillInSource,
     /if \(navMode\(\) === "type"\) \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*if \(enterMemberScope\(\)\) \{\s*contentFramePane = "navigation";\s*render\(\);\s*restoreContentNavigationFocus\(focusGeneration\);/);
@@ -1028,7 +1028,7 @@ test("Spotlight package opening retains the active Workspace and publishes a fre
     /ensurePlatformCatalog\(tfm, version\)[\s\S]*installPlatformTarget\(target\)[\s\S]*state\.platformOpeningStatus = \{ loading: true/);
   assert.match(
     platformLibraryLoad,
-    /if \(!pkg\) throw new Error\(runtimeResult\.failureMessage[\s\S]*state\.platformOpeningStatus = \{ loading: false, error: `Could not open Platform Library:[\s\S]*platformLibraryRetry = options\.retryAction/);
+    /if \(forwarderResult\.status !== "opened" \|\| !forwarderResult\.view\)[\s\S]*throw new Error[\s\S]*state\.platformOpeningStatus = \{ loading: false, error: `Could not open Platform Library:[\s\S]*platformLibraryRetry = options\.retryAction/);
   assert.match(
     platformLibraryLoad,
     /const createsWorkspace = !scopeOnly && options\.inPlace !== true;[\s\S]*if \(createsWorkspace && !canPublishRetainedWorkspace\(\)\)[\s\S]*const construction = createsWorkspace\s*\? captureWorkspaceConstructionSnapshots\(navigationSeq\)\s*: null;[\s\S]*if \(construction\) prepareUnpublishedWorkspace\(\);/);
@@ -1824,7 +1824,7 @@ test("history validates saved type and member identity before restoring Member s
     /const memberHistory = restoreMemberHistoryState\(\s*view,\s*type,\s*member/);
   assert.match(
     applyView,
-    /state\.selectedTypeId = type\?\.id \?\? defaultVisibleTypeId\(pkg\);[\s\S]*state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*state\.memberAccessibilityFilter = memberHistory\.memberAccessibilityFilter;[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
+    /state\.selectedTypeId = type\?\.id \?\? forwarder\?\.id \?\? defaultVisibleTypeId\(pkg\);[\s\S]*state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*state\.memberAccessibilityFilter = memberHistory\.memberAccessibilityFilter;[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
   assert.match(
     applyView,
     /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
@@ -1842,7 +1842,7 @@ test("history validates saved type and member identity before restoring Member s
     /function captureView\(\): WorkspaceView \| null \{[\s\S]*bodyTarget: state\.selectedBodyTarget/);
   assert.match(
     appSource,
-    /else if \(state\.selectedTypeId !== current\.id\) \{\s*state\.selectedTypeId = current\.id;\s*state\.selectedMemberKey = "";\s*state\.memberBrowseTypeId = "";\s*state\.selectedOverloadIndex = null;\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\)/);
+    /else if \(current && state\.selectedTypeId !== current\.id\) \{\s*state\.selectedTypeId = current\.id;\s*state\.selectedMemberKey = "";\s*state\.memberBrowseTypeId = "";\s*state\.selectedOverloadIndex = null;\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\)/);
 });
 
 test("Platform scope restoration defers selection, rendering, and data loading", () => {
