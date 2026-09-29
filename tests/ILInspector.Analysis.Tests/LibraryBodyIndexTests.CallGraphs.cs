@@ -62,6 +62,108 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void DirectCallIncidence_InterleavedPopulationKeepsSourceOrder()
+    {
+        MethodIdentity a = LeverageMethod("A", 0x06000001);
+        MethodIdentity b = LeverageMethod("B", 0x06000002);
+        MethodIdentity c = LeverageMethod("C", 0x06000003);
+        MethodIdentity callee = LeverageMethod("Callee", 0x06000004);
+        DirectCall a1 = LeverageCall(a, callee);
+        DirectCall b1 = LeverageCall(b, callee);
+        DirectCall a2 = LeverageCall(a, callee) with { ILOffset = 4 };
+        DirectCall c1 = LeverageCall(c, callee);
+        DirectCall b2 = LeverageCall(b, callee) with { ILOffset = 4 };
+
+        // A reappears after B: contiguity is violated, so the kernel must
+        // still return exact source-ordered slices.
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>> incidence =
+            DirectCallIncidence.ByEvidenceMethod([a1, b1, a2, c1, b2]);
+
+        Assert.Equal(
+            [a.MetadataToken, b.MetadataToken, c.MetadataToken],
+            incidence.Keys);
+        Assert.Equal([a1, a2], incidence[a.MetadataToken]);
+        Assert.Equal([b1, b2], incidence[b.MetadataToken]);
+        Assert.Equal([c1], incidence[c.MetadataToken]);
+        Assert.Equal(3, incidence.Count);
+    }
+
+    [Fact]
+    public void DirectCallIncidence_ContiguousPopulationSlicesRuns()
+    {
+        MethodIdentity a = LeverageMethod("A", 0x06000001);
+        MethodIdentity b = LeverageMethod("B", 0x06000002);
+        MethodIdentity callee = LeverageMethod("Callee", 0x06000004);
+        DirectCall a1 = LeverageCall(a, callee);
+        DirectCall a2 = LeverageCall(a, callee) with { ILOffset = 4 };
+        DirectCall b1 = LeverageCall(b, callee);
+
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>> single =
+            DirectCallIncidence.ByEvidenceMethod([a1, a2]);
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>> incidence =
+            DirectCallIncidence.ByEvidenceMethod([a1, a2, b1]);
+
+        Assert.Equal([a1, a2], Assert.Single(single).Value);
+        Assert.Equal(
+            [a.MetadataToken, b.MetadataToken],
+            incidence.Keys);
+        Assert.Equal([a1, a2], incidence[a.MetadataToken]);
+        Assert.Equal([b1], incidence[b.MetadataToken]);
+        Assert.False(incidence.ContainsKey(callee.MetadataToken));
+        Assert.False(
+            incidence.TryGetValue(
+                callee.MetadataToken,
+                out ImmutableArray<DirectCall> missing));
+        Assert.True(missing.IsDefault);
+    }
+
+    [Fact]
+    public void DirectCallIncidence_MatchesReferenceGroupingOnProducerPopulation()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(LibraryBodyIndex).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        ImmutableArray<DirectCall> calls = index.DirectCalls;
+        Assert.NotEmpty(calls);
+
+        // Analysis appends each body's calls as one block, so the producer
+        // population is contiguous per evidence method. The kernel stays
+        // exact without this; the gate makes a producer change that loses
+        // the fast path visible.
+        int runs = 0;
+        for (int i = 0; i < calls.Length; i++)
+        {
+            if (i == 0
+                || calls[i].EvidenceMethod.MetadataToken
+                    != calls[i - 1].EvidenceMethod.MetadataToken)
+            {
+                runs++;
+            }
+        }
+
+        var reference = calls
+            .GroupBy(static call => call.EvidenceMethod.MetadataToken)
+            .ToList();
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>> incidence =
+            index.GetDirectCallsByEvidenceMethod();
+
+        Assert.Equal(reference.Count, runs);
+        Assert.Equal(reference.Count, incidence.Count);
+        Assert.Equal(reference.Select(static group => group.Key), incidence.Keys);
+        foreach (var group in reference)
+        {
+            Assert.True(
+                incidence.TryGetValue(
+                    group.Key,
+                    out ImmutableArray<DirectCall> slice));
+            Assert.Equal(group.Count(), slice.Length);
+            int position = 0;
+            foreach (DirectCall call in group)
+                Assert.Same(call, slice[position++]);
+        }
+    }
+
+    [Fact]
     public void BuildCallerTree_RendersReverseEdgesForSelectedRoot()
     {
         var index = LibraryBodyIndex.Open(typeof(CallerTreeFixtures).Assembly.Location);
