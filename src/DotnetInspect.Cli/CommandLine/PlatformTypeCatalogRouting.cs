@@ -173,6 +173,22 @@ internal static class PlatformTypeCatalogRouting
             string? dotnetRoot,
             CommandContext context,
             NuGetSourceOptions sourceOptions,
+            CancellationToken cancellationToken) =>
+        await RealizePopulationAsync(
+                dotnetRoot,
+                PlatformFamily.DotNetRuntime,
+                context,
+                sourceOptions,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal static async ValueTask<
+        PlatformPopulationArtifactMaterializationOutcome>
+        RealizePopulationAsync(
+            string? dotnetRoot,
+            PlatformFamily family,
+            CommandContext context,
+            NuGetSourceOptions sourceOptions,
             CancellationToken cancellationToken)
     {
         InstalledPlatformHouseAdapter? installed =
@@ -187,7 +203,7 @@ internal static class PlatformTypeCatalogRouting
         PackagePlatformHouseAdapter package =
             packageRuntime.CreateAdapter("cli-platform-type-routing-package");
         PlatformHouseRequest request =
-            CreateRequest(installed, package, cancellationToken);
+            CreateRequest(installed, package, family, cancellationToken);
 
         List<PlatformTargetDiscoverySource> discoverySources = [];
         List<PlatformReferencePopulationRealizationSource>
@@ -336,8 +352,18 @@ internal static class PlatformTypeCatalogRouting
     private static PlatformHouseRequest CreateRequest(
         InstalledPlatformHouseAdapter? installed,
         PackagePlatformHouseAdapter package,
+        PlatformFamily family,
         CancellationToken cancellationToken)
     {
+        string familyName = family switch
+        {
+            PlatformFamily.DotNetRuntime => "runtime",
+            PlatformFamily.AspNetCore => "aspnetcore",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(family),
+                family,
+                "Unsupported CLI Platform family."),
+        };
         PlatformTargetDiscoveryStage? preferred =
             installed is null
                 ? null
@@ -365,12 +391,12 @@ internal static class PlatformTypeCatalogRouting
 
         return new(
             PlatformHouseRequestIdentity.Create(
-                "cli-platform-type-routing"),
+                $"cli-platform-type-routing-{familyName}"),
             new PlatformTargetDemand.FamilyDefault(
-                PlatformFamily.DotNetRuntime,
+                family,
                 new PlatformVersionlessRuntimeTargetPolicy(
                     PlatformTargetSelectionPolicyIdentity.Create(
-                        "cli-versionless-runtime-default"),
+                        $"cli-versionless-{familyName}-default"),
                     PlatformTargetSelectionPolicyGeneration.Create(
                         "generation-1"),
                     PlatformVersion.Parse("10.0.1"),
@@ -381,13 +407,13 @@ internal static class PlatformTypeCatalogRouting
                     maxComparisons: 512)),
             new PlatformHouseRequestOrigin.Standalone(
                 PlatformStandaloneOperationIdentity.Create(
-                    "cli-platform-type-routing")),
+                    $"cli-platform-type-routing-{familyName}")),
             new PlatformHouseOperation.Realize(
                 new PlatformPopulationDemand.CompletePopulation(),
                 PlatformViewDemand.Reference),
             new PlatformSourcePlan(
                 PlatformSourcePlanIdentity.Create(
-                    "cli-platform-type-routing-sources"),
+                    $"cli-platform-type-routing-{familyName}-sources"),
                 PlatformSourcePolicyGeneration.Create("generation-1"),
                 [
                     new PlatformSourceSelection(

@@ -213,6 +213,9 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
         PackagePrefixSpecified ||
         PackagePrefix is not null;
 
+    internal bool UsesImplicitPlatform =>
+        SourceSelection?.UsesImplicitPlatform ?? !HasAnyScope;
+
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>

@@ -4,11 +4,13 @@
 #
 # Usage: measure-find-scope-cost.sh <dotnet-inspect-binary> <work-dir> [warm-samples] [cold-samples]
 #
-# Set ONLY="scenario ..." to run a subset.
+# Set ONLY="scenario ..." to run a subset. Set
+# TERMINALS="markdown json jsonl tsv table count rows" to measure every
+# supported Find output terminal; the default remains "tsv".
 # Scenarios (each with a direct hit, a miss that forces the census and
 # similarity path, and a member search):
 #   platform-installed  default scope, installed shared frameworks; cold is a
-#                       new user (fresh HOME), which acquires .NET Standard
+#                       new user with an empty cache
 #   platform-remote     default scope, empty DOTNET_ROOT (Browser/Wasm-like):
 #                       ref packs are acquired from nuget.org
 #   core-packages       the platform Workspace plan's former core packages
@@ -21,7 +23,8 @@
 # Every scenario runs cold, then warm. Cold samples use a fresh HOME and
 # NUGET_PACKAGES per sample. Each command is timed inside one Python process
 # around the child alone, so interpreter startup is excluded. Output is TSV on
-# stdout: scenario, state, query, sample, seconds, rows, exit, cache_mb.
+# stdout: scenario, state, query, terminal, sample, seconds, rows, exit,
+# cache_mb.
 set -euo pipefail
 
 bin=${1:?binary}
@@ -29,14 +32,35 @@ work=${2:?work dir}
 warm=${3:-5}
 cold=${4:-3}
 avalonia=Avalonia@12.1.3
+terminals=${TERMINALS:-tsv}
 
 mkdir -p "$work"
-printf 'scenario\tstate\tquery\tsample\tseconds\trows\texit\tcache_mb\n'
+printf 'scenario\tstate\tquery\tterminal\tsample\tseconds\trows\texit\tcache_mb\n'
+
+terminal_args() {
+  case "$1" in
+    markdown) printf '%s\0' --markdown ;;
+    json) printf '%s\0' --json --compact ;;
+    jsonl) printf '%s\0' --jsonl ;;
+    tsv) printf '%s\0' --tsv ;;
+    table) printf '%s\0' --table ;;
+    count) printf '%s\0' --count ;;
+    rows) printf '%s\0' --tsv --rows 1..3 ;;
+    *)
+      printf 'Unknown terminal: %s\n' "$1" >&2
+      return 1
+      ;;
+  esac
+}
 
 run() {
-  local scenario=$1 state=$2 query=$3 sample=$4 home=$5 dotnet_root=$6
-  shift 6
-  local out="$work/out.tsv" err="$work/err.txt" timing
+  local scenario=$1 state=$2 query=$3 terminal=$4 sample=$5 home=$6 dotnet_root=$7
+  shift 7
+  local out="$work/out.txt" err="$work/err.txt" timing
+  local -a format_args=()
+  while IFS= read -r -d '' arg; do
+    format_args+=("$arg")
+  done < <(terminal_args "$terminal")
   timing=$(HOME=$home NUGET_PACKAGES=$home/nuget DOTNET_ROOT=$dotnet_root \
     python3 -c '
 import subprocess, sys, time
@@ -44,12 +68,33 @@ with open(sys.argv[1], "wb") as o, open(sys.argv[2], "wb") as e:
     t = time.perf_counter()
     r = subprocess.run(sys.argv[3:], stdout=o, stderr=e)
     print(f"{time.perf_counter() - t:.2f} {r.returncode}")
-' "$out" "$err" "$bin" find "$query" "$@" --tsv)
+' "$out" "$err" "$bin" find "$query" "$@" "${format_args[@]}")
   local rows mb
-  rows=$(($(wc -l <"$out") > 0 ? $(wc -l <"$out") - 1 : 0))
+  case "$terminal" in
+    json)
+      rows=$(jq 'length' "$out")
+      ;;
+    jsonl)
+      rows=$(wc -l <"$out")
+      ;;
+    tsv|rows)
+      rows=$(($(wc -l <"$out") > 0 ? $(wc -l <"$out") - 1 : 0))
+      ;;
+    count)
+      rows=$(tr -d '[:space:]' <"$out")
+      ;;
+    markdown|table)
+      if HOME=$home NUGET_PACKAGES=$home/nuget DOTNET_ROOT=$dotnet_root \
+        "$bin" find "$query" "$@" --count >"$work/count.txt" 2>/dev/null; then
+        rows=$(tr -d '[:space:]' <"$work/count.txt")
+      else
+        rows=-1
+      fi
+      ;;
+  esac
   mb=$(du -sm "$home" 2>/dev/null | cut -f1)
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$scenario" "$state" "$query" "$sample" \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$scenario" "$state" "$query" "$terminal" "$sample" \
     "${timing% *}" "$rows" "${timing#* }" "$mb"
 }
 
@@ -57,21 +102,25 @@ scenario() {
   local name=$1 dotnet_root=$2 hit=$3 miss=$4 member=$5
   shift 5
   case " ${ONLY:-$name} " in *" $name "*) ;; *) return 0 ;; esac
-  local q
+  local q terminal
   for ((i = 1; i <= cold; i++)); do
     for q in "$hit" "$miss" "$member"; do
-      local home="$work/$name-cold-$i-${q//[^A-Za-z]/}"
-      rm -rf "$home"; mkdir -p "$home"
-      run "$name" cold "$q" "$i" "$home" "$dotnet_root" "$@"
-      rm -rf "$home"
+      for terminal in $terminals; do
+        local home="$work/$name-cold-$i-${q//[^A-Za-z]/}-$terminal"
+        rm -rf "$home"; mkdir -p "$home"
+        run "$name" cold "$q" "$terminal" "$i" "$home" "$dotnet_root" "$@"
+        rm -rf "$home"
+      done
     done
   done
   local warm_home="$work/$name-warm"
   rm -rf "$warm_home"; mkdir -p "$warm_home"
-  run "$name" prime "$hit" 0 "$warm_home" "$dotnet_root" "$@" >/dev/null
+  run "$name" prime "$hit" tsv 0 "$warm_home" "$dotnet_root" "$@" >/dev/null
   for ((i = 1; i <= warm; i++)); do
     for q in "$hit" "$miss" "$member"; do
-      run "$name" warm "$q" "$i" "$warm_home" "$dotnet_root" "$@"
+      for terminal in $terminals; do
+        run "$name" warm "$q" "$terminal" "$i" "$warm_home" "$dotnet_root" "$@"
+      done
     done
   done
 }

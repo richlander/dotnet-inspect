@@ -110,11 +110,10 @@ dotnet-inspect find System.Text.Json.Nodes
 It returns the public Types declared directly in
 `System.Text.Json.Nodes`, such as `JsonArray`, `JsonNode`, and `JsonObject`.
 It does not include Types from `System.Text.Json` or descendant namespaces.
-The rows use the `Namespace` match classification. In the default unscoped
-search, exact Platform prune evidence also admits the corresponding NuGet
-package, so equal package and Platform Type observations remain separate.
-Explicit source options remain authoritative; for example,
-`--platform System.Text.Json` does not add the package observation.
+The rows use the `Namespace` match classification. The default unscoped search
+uses the same House-realized Runtime and ASP.NET Core populations as other
+Type patterns. Explicit source options remain authoritative; for example,
+`--platform System.Text.Json` searches only that platform Library.
 
 Add a terminal `.*` to include the named namespace and its descendants:
 

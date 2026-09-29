@@ -39,9 +39,9 @@ names agree. For example, the `Source` column identifies a package coordinate
 such as `System.Text.Json@10.0.0` separately from a `runtime@...` version.
 The platform version depends on the selected installation/framework.
 
-Without an explicit source, `find` uses its implicit platform scope. An
-explicit package suppresses that default; add bare `--platform` when both
-sources should participate.
+Without an explicit source, `find` realizes the Runtime and ASP.NET Core
+populations from the platform Workspace. An explicit package suppresses that
+default; add bare `--platform` when both sources should participate.
 
 ## Package vs Platform Access
 
@@ -165,7 +165,8 @@ Search commands support these source groups:
 
 | Flag | What it searches |
 | ---- | ---------------- |
-| *(no source flags)* | Implicit platform scope: runtime, aspnetcore, netstandard |
+| *(no source flags), `find`* | Platform Workspace: Runtime and ASP.NET Core |
+| *(no source flags), other API search commands* | Implicit platform scope: runtime, aspnetcore, netstandard |
 | bare `--platform` | Explicit platform scope, including when packages are also selected |
 | `--extensions` | Current Microsoft.Extensions package set |
 | `--aspnetcore` | Current ASP.NET Core package set |

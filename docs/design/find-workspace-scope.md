@@ -2,8 +2,11 @@
 
 ## Status and owner
 
-Proposed. This is Find's host-adoption slice for the `Broad` candidate intent
-that [Search scope resolution](search-scope-resolution.md#default-activation)
+Partially adopted: the unscoped CLI default realizes the platform Workspace
+through PlatformHouse. Explicit selectors and Browser alignment remain in the
+ordered adoption plan below. This is Find's host-adoption slice for the `Broad`
+candidate intent that
+[Search scope resolution](search-scope-resolution.md#default-activation)
 leaves to each consumer, tracked by
 [#6761](https://github.com/richlander/dotnet-inspect/issues/6761). It owns one
 claim:
@@ -305,7 +308,9 @@ Breaking under CLI change classification:
 ## Reproduction
 
 - `eng/measure-find-scope-cost.sh <binary> <work-dir> [warm] [cold]`: scope
-  scenarios; `ONLY="..."` selects a subset. `perf-bounded.tsv` is
+  scenarios; `ONLY="..."` selects a subset and
+  `TERMINALS="markdown json jsonl tsv table count rows"` selects output
+  terminals (`tsv` by default). `perf-bounded.tsv` is
   `ONLY="platform-installed platform-remote core-packages package-sets
   package-named"` with 5 warm and 3 cold samples; `perf-prefix.tsv` is
   `ONLY=package-prefix` with 2 and 1.
