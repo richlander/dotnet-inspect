@@ -153,6 +153,45 @@ public sealed class TypeMemberCompositionTests
         Assert.Equal("private", attached.Accessibility);
     }
 
+    // A malformed extension fails only the requests whose receiver it
+    // reaches, whether a request classifies its own extensions or reads a
+    // module's shared incidence.
+    [Fact]
+    public void MalformedAttachedExtension_FailsOnlyItsReceiver()
+    {
+        byte[] image = BuildMalformedAttachedExtensionImage();
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        MetadataTypeDefinitionName good = Name("Fixtures", "Good");
+        MetadataTypeDefinitionName bad = Name("Fixtures", "Bad");
+        var module = new MetadataTypeMemberCompositionModule(reader);
+
+        foreach (MetadataTypeMemberCompositionModule? shared in new[] { null, module, module })
+        {
+            MetadataTypeMemberCompositionOutcome goodOutcome = shared is null
+                ? MetadataTypeMemberCompositionInspection.Read(
+                    reader, good, MetadataMemberSpelling.CSharp, includeHidden: true,
+                    MetadataMethodAccessibilityFilter.All)
+                : MetadataTypeMemberCompositionInspection.Read(
+                    reader, shared, good, MetadataMemberSpelling.CSharp, includeHidden: true,
+                    MetadataMethodAccessibilityFilter.All);
+            Assert.Equal(
+                1,
+                Assert.IsType<MetadataTypeMemberCompositionOutcome.Counted>(goodOutcome)
+                    .Composition.Extension);
+
+            MetadataTypeMemberCompositionOutcome badOutcome = shared is null
+                ? MetadataTypeMemberCompositionInspection.Read(
+                    reader, bad, MetadataMemberSpelling.CSharp, includeHidden: true,
+                    MetadataMethodAccessibilityFilter.All)
+                : MetadataTypeMemberCompositionInspection.Read(
+                    reader, shared, bad, MetadataMemberSpelling.CSharp, includeHidden: true,
+                    MetadataMethodAccessibilityFilter.All);
+            Assert.IsType<MetadataTypeMemberCompositionOutcome.Failed>(badOutcome);
+        }
+    }
+
     [Theory]
     [InlineData("packages", "System.Text.Json.10.0.0.dll")]
     [InlineData(null, "System.Private.CoreLib.dll")]
@@ -169,6 +208,9 @@ public sealed class TypeMemberCompositionTests
         using var stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
         MetadataReader reader = peReader.GetMetadataReader();
+        // One module state for every Type, as a session holds: the first
+        // request classifies its own extensions, later ones the incidence.
+        var module = new MetadataTypeMemberCompositionModule(reader);
         int checkedTypes = 0;
         var mismatches = new List<string>();
         foreach (ApiType type in all.Types)
@@ -182,6 +224,7 @@ public sealed class TypeMemberCompositionTests
 
             if (MetadataTypeMemberCompositionInspection.Read(
                     reader,
+                    module,
                     name,
                     MetadataMemberSpelling.CSharp,
                     includeHidden: true,
@@ -198,6 +241,7 @@ public sealed class TypeMemberCompositionTests
             if (publicRows.TryGetValue(name, out int publicRowCount)
                 && MetadataTypeMemberCompositionInspection.Read(
                     reader,
+                    module,
                     name,
                     MetadataMemberSpelling.CSharp,
                     includeHidden: false,
@@ -446,6 +490,129 @@ public sealed class TypeMemberCompositionTests
             extensions,
             extensionAttributeConstructor,
             attributeValue);
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
+    }
+
+    // Fixtures.Extensions extends Good with a public method and Bad with one
+    // whose access field holds the reserved value 7.
+    static byte[] BuildMalformedAttachedExtensionImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("MalformedExtension.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("2B0F1E7A-5C8D-4B61-9E3A-7D4C1F2A6B90")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedExtension"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle extensionAttribute = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("ExtensionAttribute"));
+        TypeReferenceHandle objectType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        var attributeConstructorSignature = new BlobBuilder();
+        new BlobEncoder(attributeConstructorSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                parameters => { });
+        MemberReferenceHandle extensionAttributeConstructor =
+            metadata.AddMemberReference(
+                extensionAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(attributeConstructorSignature));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle good = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("Good"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle bad = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("Bad"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        MethodDefinitionHandle AddExtension(
+            string name,
+            MethodAttributes access,
+            TypeDefinitionHandle receiver)
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(isInstanceMethod: false)
+                .Parameters(
+                    1,
+                    returnType => returnType.Void(),
+                    parameters => parameters
+                        .AddParameter()
+                        .Type()
+                        .Type(receiver, isValueType: false));
+            return metadata.AddMethodDefinition(
+                access | MethodAttributes.Static,
+                MethodImplAttributes.Runtime,
+                metadata.GetOrAddString(name),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset: 0,
+                parameterList: MetadataTokens.ParameterHandle(1));
+        }
+
+        MethodDefinitionHandle extend = AddExtension("Extend", MethodAttributes.Public, good);
+        MethodDefinitionHandle broken = AddExtension(
+            "Broken",
+            (MethodAttributes)7,
+            bad);
+        TypeDefinitionHandle extensions = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("Extensions"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            extend);
+
+        BlobHandle attributeValue =
+            metadata.GetOrAddBlob(new byte[] { 0x01, 0x00, 0x00, 0x00 });
+        metadata.AddCustomAttribute(extend, extensionAttributeConstructor, attributeValue);
+        metadata.AddCustomAttribute(broken, extensionAttributeConstructor, attributeValue);
+        metadata.AddCustomAttribute(extensions, extensionAttributeConstructor, attributeValue);
 
         var image = new BlobBuilder();
         new ManagedPEBuilder(
