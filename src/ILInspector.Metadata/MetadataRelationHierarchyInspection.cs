@@ -209,7 +209,8 @@ internal static partial class MetadataRelationInspection
                         evidence,
                         diagnostics,
                         occurrenceToken,
-                        relationshipAlreadyCharged: true);
+                        relationshipAlreadyCharged: true,
+                        retainedSourceName: row.SourceType);
                     if (diagnostics.Count != before)
                         failedSources.Add(row.Source);
                 }
@@ -276,14 +277,16 @@ internal static partial class MetadataRelationInspection
         ImmutableArray<MetadataRelationDiagnostic>.Builder
             diagnostics,
         int? occurrenceToken,
-        bool relationshipAlreadyCharged = false)
+        bool relationshipAlreadyCharged = false,
+        MetadataTypeDefinitionName? retainedSourceName = null)
     {
         MetadataTypeDefinitionName? sourceName =
-            ReadTypeName(
-                reader,
-                sourceHandle,
-                MetadataRelationFamily.Hierarchy,
-                diagnostics);
+            retainedSourceName
+            ?? ReadTypeName(
+                    reader,
+                    sourceHandle,
+                    MetadataRelationFamily.Hierarchy,
+                    diagnostics);
         if (sourceName is null)
             return;
 

@@ -749,6 +749,69 @@ public sealed class MetadataRelationInspectionTests
     }
 
     [Fact]
+    public void
+        HierarchyTargetSelectionReusesChargedSourceNameAcrossOccurrences()
+    {
+        string path =
+            FixtureCatalog.MetadataInterfaceImplFixtures.AssemblyPath();
+        MetadataTypeDefinitionAddress source =
+            Address(
+                path,
+                "ILInspector.Metadata.InterfaceImplFixtures",
+                "MultipleConstructedImplementation");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        var target = new MetadataHierarchyTargetSelection(
+            TypeName(
+                "ILInspector.Metadata.InterfaceImplContracts",
+                "IConstructed`1"),
+            MetadataHierarchyRelationKind.Interface);
+
+        var unbounded =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Hierarchy],
+                        MetadataOperationPolicy.Unbounded,
+                        typeScope: [source],
+                        hierarchyTarget: target),
+                    TestContext.Current.CancellationToken));
+        long retainedText =
+            unbounded.Result.Receipt.Counters.RetainedText;
+        Assert.True(retainedText > 0);
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Complete,
+            unbounded.Result.Hierarchy.Disposition);
+        Assert.Equal(2, unbounded.Result.Hierarchy.Evidence.Length);
+        Assert.Same(
+            unbounded.Result.Hierarchy.Evidence[0].SourceType,
+            unbounded.Result.Hierarchy.Evidence[1].SourceType);
+
+        var bounded =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Hierarchy],
+                        new MetadataOperationPolicy(
+                            maxMetadataRows: long.MaxValue,
+                            maxRetainedText: retainedText),
+                        typeScope: [source],
+                        hierarchyTarget: target),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Complete,
+            bounded.Result.Hierarchy.Disposition);
+        Assert.Equal(2, bounded.Result.Hierarchy.Evidence.Length);
+        Assert.Same(
+            bounded.Result.Hierarchy.Evidence[0].SourceType,
+            bounded.Result.Hierarchy.Evidence[1].SourceType);
+        Assert.Equal(
+            retainedText,
+            bounded.Result.Receipt.Counters.RetainedText);
+    }
+
+    [Fact]
     public void HierarchyTargetSelectionRetainsMatchingGenericTypeSpecifications()
     {
         string path = Path.Combine(
