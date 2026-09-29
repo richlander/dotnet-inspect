@@ -763,10 +763,11 @@ and disposes the stream while the acquired payload generation remains live.
 
 The Browser/Wasm package store still retains the complete admitted `.nupkg` in
 memory, and a displayed document may ultimately remain resident in the pane.
-The bounded path avoids a second complete expanded-entry `byte[]`; it does not
-promise zero-copy acquisition. A CLI host can copy the same stream to stdout
-or a file with one bounded transfer buffer. A Browser host can decode
-progressively into its final resident representation.
+Its bounded path avoids a second complete expanded-entry `byte[]`; it does not
+promise zero-copy acquisition. The CLI's detached content inspection instead
+owns one complete expanded-entry array, which its projections reuse without a
+second entry-sized copy. A Browser host can decode progressively into its
+final resident representation.
 
 This capability belongs only to `PackageHouseSettlement.Acquired`. The legacy
 `PackageExtractor`, extracted-file, `PackageFileContent`, and Source paths gain
@@ -780,18 +781,22 @@ owns. Filesystem content additionally
 requires a retained package archive: its declared entry size and CRC validate
 the extracted-file stream, while archive-less content is visibly unsupported.
 
-The first production consumer is exact-version online CLI export of one
-literal root `README.md` or `skills/**/SKILL.md` path to a file. The command
-acquires directly through the House, with ranged access and a
+The first production consumer is exact-version online CLI content for one
+literal root `README.md` or `skills/**/SKILL.md` path. The command acquires
+directly through the House, with ranged access and a
 [document demand](package-read-demand.md#document-demand) in the
-authority-scoped store, without invoking the legacy `PackageExtractor` route. A README copies progressively to the
-destination with the bounded exact-byte sink. A Skill decodes progressively
-into the existing containment-selected representation before that
-representation is written; it does not bypass Skill containment to preserve
-original bytes. Local archives, floating or range version selection, stdout,
-target-framework filters, path globs and roles, partial document scopes,
-.NET tool-wrapper redirection, and other package files retain their existing
-paths in this slice.
+authority-scoped store, without invoking the legacy `PackageExtractor` route.
+The host-neutral document-content inspection drains the pull read through EOF,
+so length and checksum validation complete, and returns detached immutable
+bytes up to the Browser-aligned 16 MiB document limit. The CLI then applies its
+existing separator, raw, JSONL, or Skill file projection; Skill output still
+passes through containment and link normalization. Exact README file output
+instead copies the resolved pull read directly to its destination with one
+bounded buffer, so a valid large README need not become an entry-sized
+allocation or decoded string. Local archives, floating or range version
+selection, target-framework filters, path globs and roles, partial document
+scopes, .NET tool-wrapper redirection, and other package files retain their
+existing paths in this slice.
 
 The second production consumer is the Browser/Wasm viewer for exact root
 `README.md` and `skills/**/*.md` document-manifest entries. The managed export
@@ -802,6 +807,13 @@ the final displayed string remain resident, but no second complete expanded
 entry `byte[]` is created. Root `PACKAGE.md` viewing retains its existing eager
 entry path in this slice, while the managed-to-TypeScript wire DTO and frontend
 call site remain unchanged.
+
+Both consumers use `PackageDocumentEntryResolver` for safe path validation,
+case-insensitive manifest matching, actual-path preservation, and visible
+missing or ambiguous selection. The CLI then detaches bytes while Browser/Wasm
+retains its bounded streaming decoder; exact README file output remains a
+bounded stream copy. Those host-specific representations do not duplicate
+House entry-selection logic.
 
 `PackageHouseExecutionTests.ExactPayloadRead_IsColdAndPullsFromTheHouseGeneration`
 gates cold start, pre-read cancellation, receipt association, and progressive
