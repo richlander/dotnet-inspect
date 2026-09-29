@@ -1296,6 +1296,9 @@ public partial class PackageCommand
             if (options.PackageLibrary != null)
             {
                 return await ExecutePackageLibraryAsync(
+                    client,
+                    logger,
+                    target,
                     extractPath,
                     target.IsLocalFile,
                     target.OriginalArgument,

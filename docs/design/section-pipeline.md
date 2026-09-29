@@ -68,10 +68,12 @@ The library catalog calls `WithoutComputedPoles`; it does not expose computed
 Content-shaped producers register an `InspectionQuery<T>` definition.
 Sections bind to that definition by object identity, and the host projects its
 typed result into the compatibility model.
-`ClassifiedMethodsQuery` is shared by `Library Info`, P/Invoke Methods, Async
-Methods, and Signals; one demand set executes it once against the command-owned
-`AssemblyInspectionSession`. `Signals` also binds `AuditMetadataQuery` and
-`AssemblyReferencesQuery`; the host applies all three typed results before
+`Library Info`, P/Invoke Methods, Async Methods, and Signals each bind their
+own method classification demand, which names only the counts or rows the
+section shows; the requested demands run as one `MethodClassificationQuery`
+request against the command-owned `AssemblyInspectionSession`. `Signals` also
+binds `AuditMetadataQuery` and `AssemblyReferencesQuery`; the host applies all
+three typed results before
 CLI-owned signal composition, then recomposes only model-derived rows after
 later source evidence lands. `Unsafe Members` binds the unbounded
 `UnsafeEvidenceQuery`, which consumes the command's shared Analysis body index

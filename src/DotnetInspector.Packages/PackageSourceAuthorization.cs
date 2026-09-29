@@ -104,6 +104,26 @@ public sealed record PackageSourceAuthorization
             denialReason: null);
     }
 
+    /// <summary>
+    /// Authorizes one host-admitted source using the exact association already
+    /// carried by its runtime client.
+    /// </summary>
+    public static PackageSourceAuthorization Authorize(
+        PackageSource source,
+        PackageSourceAssociation association)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(association);
+        return new PackageSourceAuthorization(
+            [
+                new ConfiguredPackageAuthority(
+                    source,
+                    association),
+            ],
+            failures: [],
+            denialReason: null);
+    }
+
     internal static PackageSourceAuthorization ObserveSources(
         IEnumerable<PackageSource> sources,
         IEnumerable<PackageAuthorityFailure> failures)

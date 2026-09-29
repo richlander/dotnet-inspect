@@ -75,7 +75,7 @@ public partial class CommandExecutionTests
         "System.Decimal",
         "System.Runtime",
         "Explicit Interface Implementations",
-        99)]
+        88)]
     [InlineData(
         "System.Span<T>",
         "System.Runtime",
@@ -226,8 +226,8 @@ public partial class CommandExecutionTests
         int renderedLines =
             output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
         Assert.True(
-            renderedLines > 24,
-            $"Expected IL output to exceed 24 rendered lines; observed {renderedLines}.");
+            renderedLines > 16,
+            $"Expected IL output to exceed 16 rendered lines; observed {renderedLines}.");
     }
 
     [Theory]

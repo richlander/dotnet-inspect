@@ -216,6 +216,22 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
+    /// Produces the qualified whole-Library Type-to-Type signature-use
+    /// population for this exact image.
+    /// </summary>
+    public MetadataLibrarySignatureUseOutcome LibrarySignatureUses(
+        MetadataLibrarySignatureUseRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _image.EnsureAlive();
+        return MetadataLibrarySignatureUseInspection.Execute(
+            _image.PEReader,
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// Finds exact TypeDef names by one simple ASCII leaf name without
     /// materializing unrelated declaration names.
     /// </summary>
@@ -367,9 +383,11 @@ public sealed class AssemblyInspectionSession :
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         ApiSurfaceExtractionScope scope,
-        ApiSurfaceExtractionBounds bounds)
+        ApiSurfaceExtractionBounds bounds,
+        bool includeCompilerGenerated = false)
         => ApiSurfaceExtractor.ExtractBounded(
-            _image.PEReader, source, catalog, bindingPolicy, scope, bounds);
+            _image.PEReader, source, catalog, bindingPolicy, scope, bounds,
+            includeCompilerGenerated);
 
     /// <summary>Manifest resources.</summary>
     public List<ManifestResourceInfo> Resources()
@@ -395,12 +413,6 @@ public sealed class AssemblyInspectionSession :
         return SwitchScanner.Scan(_image.PEReader);
     }
 
-    /// <summary>Classified methods (unsafe / P-Invoke / async).</summary>
-    public List<ClassifiedMethodInfo> ClassifiedMethods()
-    {
-        _image.EnsureAlive();
-        return MethodClassificationScanner.Scan(_image.PEReader);
-    }
 
     /// <summary>OpenTelemetry integration signals.</summary>
     public List<OpenTelemetrySignalInfo> OpenTelemetrySignals()
