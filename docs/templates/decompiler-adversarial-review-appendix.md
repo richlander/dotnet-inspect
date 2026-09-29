@@ -1,12 +1,4 @@
-# Decompiler adversarial-review appendix
-
-Append this text after the complete canonical
-[`docs/adversarial-review-prompt.md`](../adversarial-review-prompt.md) and its
-completed review frame. Use it for decompiler raising, validity, fidelity,
-corpus, and compile-back harness changes. It adds domain questions; it does not
-replace or weaken the repository review contract.
-
-## Evidence-integrity review
+# Decompiler evidence-integrity review
 
 Trace every source artifact the changed path parses, compiles, compares, or
 reports, from its owner to the resulting verdict.

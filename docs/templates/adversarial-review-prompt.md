@@ -7,6 +7,14 @@ every field. Use `Not applicable — <reason>` only when the reason identifies
 the relevant change classification and exact-head evidence; cite the owning
 design's exact section when it defines the boundary.
 
+After the completed frame, append every applicable domain-specific instruction
+file. Append
+[`decompiler-adversarial-review-appendix.md`](decompiler-adversarial-review-appendix.md)
+for every decompiler raise, structuring, typing, or printer change reviewed
+with validity, fidelity, corpus, or compile-back evidence, and for every change
+to those DecompilerHarness paths. The appendix is ready for direct
+concatenation; do not copy its text into this checklist.
+
 ## Required review frame
 
 - **Normative owner:** {document and section that own the reviewed claim}
