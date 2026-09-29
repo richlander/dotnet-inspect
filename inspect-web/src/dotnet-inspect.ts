@@ -3952,7 +3952,8 @@ function applyView(view: WorkspaceView) {
         pkg,
         type,
         navigationSequence.current(),
-        typeMemberPopulationKey(type)),
+        typeMemberPopulationKey(type),
+        viewSignature()),
       "Restoring a Member from navigation history");
     return true;
   }
@@ -3970,12 +3971,14 @@ async function restoreOrdinaryMemberHistory(
   type: AppTypeSurface,
   navigationSeq: number,
   populationKey: string,
+  sourceView: string,
 ) {
   await loadSelectedTypeMemberPopulation();
   if (!navigationSequence.isCurrent(navigationSeq)
     || state.package !== pkg
     || selectedType()?.id !== type.id
-    || typeMemberPopulationKey(type) !== populationKey) {
+    || typeMemberPopulationKey(type) !== populationKey
+    || viewSignature() !== sourceView) {
     return;
   }
   const member = memberGroups(type)
@@ -6347,6 +6350,7 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
     if (selected) {
       state.lens = selected[0];
       render();
+      loadCurrentSelectionData("Loading the selected Type");
     }
   } else if (workspaceScope === "member") {
     const member = selectedMember(selectedType());
@@ -7337,6 +7341,7 @@ function stepHorizontal(delta: number) {
     if (!next) return;
     state.lens = next[0];
     render();
+    loadCurrentSelectionData("Loading the selected Type");
   }
 }
 
@@ -11585,6 +11590,7 @@ function bindScopeBarEvents() {
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       render();
+      loadCurrentSelectionData("Loading the selected Type");
     },
   }, scopeBarState);
 }

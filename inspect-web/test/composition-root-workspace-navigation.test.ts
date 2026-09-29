@@ -1833,10 +1833,10 @@ test("history restores population intent before validating saved Member identity
     /const memberHistory = deferOrdinaryMemberRestore\s*\? \{[\s\S]*selectedMemberKey: view\.selectedMemberKey[\s\S]*memberAccessibilityFilter: state\.memberAccessibilityFilter[\s\S]*: restoreMemberHistoryState\(/);
   assert.match(
     applyView,
-    /if \(deferOrdinaryMemberRestore && type\) \{[\s\S]*render\(\);[\s\S]*restoreOrdinaryMemberHistory\([\s\S]*navigationSequence\.current\(\)/);
+    /if \(deferOrdinaryMemberRestore && type\) \{[\s\S]*render\(\);[\s\S]*restoreOrdinaryMemberHistory\([\s\S]*navigationSequence\.current\(\),[\s\S]*typeMemberPopulationKey\(type\),[\s\S]*viewSignature\(\)/);
   assert.match(
     applyView,
-    /async function restoreOrdinaryMemberHistory\([\s\S]*await loadSelectedTypeMemberPopulation\(\)[\s\S]*const member = memberGroups\(type\)[\s\S]*const restored = restoreMemberHistoryState\([\s\S]*loadMemberSectionContent\(state\.memberSection\)/);
+    /async function restoreOrdinaryMemberHistory\([\s\S]*sourceView: string[\s\S]*await loadSelectedTypeMemberPopulation\(\)[\s\S]*viewSignature\(\) !== sourceView[\s\S]*const member = memberGroups\(type\)[\s\S]*const restored = restoreMemberHistoryState\([\s\S]*loadMemberSectionContent\(state\.memberSection\)/);
   assert.match(
     applyView,
     /state\.selectedMemberKey && member\) \{\s*loadCurrentSelectionData\("Restoring a Member from navigation history"\)/);

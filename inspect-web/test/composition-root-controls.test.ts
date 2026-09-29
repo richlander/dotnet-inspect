@@ -1419,6 +1419,7 @@ test("typed scope bar owns its rendered control bindings", () => {
       'assign:state.selectedMemberKey = ""',
       'assign:state.memberBrowseTypeId = ""',
       "call:render()",
+      'call:loadCurrentSelectionData("Loading the selected Type")',
     ]);
   assert.match(
     scopeBarSource,

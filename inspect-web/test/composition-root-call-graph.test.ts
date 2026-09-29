@@ -886,6 +886,23 @@ test("Type transitions load the current lens selection after rendering", () => {
   assert.match(
     libraryScope,
     /normalizeLibrarySelection\(\);\s*renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Library Type"\)/);
+
+  const indexedLensSelection =
+    appSource.match(/function selectScopeLensByIndex\([\s\S]*?\n}\n\n\/\/ The resident runtime/)?.[0]
+    ?? "";
+  assert.match(
+    indexedLensSelection,
+    /workspaceScope === "type"[\s\S]*state\.lens = selected\[0\];\s*render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+
+  const horizontalLensSelection =
+    appSource.match(/function stepHorizontal\([\s\S]*?\n}\n\n\/\/ Enter drills/)?.[0]
+    ?? "";
+  assert.match(
+    horizontalLensSelection,
+    /state\.lens = next\[0\];\s*render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
+    /onTypeLensSelect:[\s\S]*?state\.lens = lens;[\s\S]*?render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
 });
 
 test("same-key Type population consumers join one current operation", () => {
