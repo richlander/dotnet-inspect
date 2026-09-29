@@ -15,7 +15,7 @@ async function openPublishedSite(page: Page): Promise<void> {
     await host.initializeRuntime(runtime);
     await packages.initializeRuntime(runtime);
     await source.initializeRuntime(runtime);
-    host.configureHost(origin);
+    await host.configureHost(origin);
     await host.runEntryPoint();
   }, new URL(site!).origin);
 }
