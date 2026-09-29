@@ -43,7 +43,8 @@ internal sealed class AnalysisLibraryBodyUseProducer
     internal static bool IsTypeInPopulation(
         MetadataReader reader,
         TypeDefinition type) =>
-        !(reader.StringComparer.Equals(type.Namespace, "")
+        !type.GetDeclaringType().IsNil
+        || !(reader.StringComparer.Equals(type.Namespace, "")
             && reader.StringComparer.Equals(type.Name, "<Module>"));
 
     internal override VisitFact Visit(

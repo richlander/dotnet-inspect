@@ -215,6 +215,56 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void ExecuteImage_ExcludesModuleTargetAndRetainsHealthyEvidence()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentGlobalMethod.dll",
+                    BuildIndependentGlobalMethodImage(),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Complete,
+            result.Disposition);
+        Assert.Equal(2, result.Coverage.OperandsConsidered);
+        Assert.Equal(2, result.Coverage.OperandsExamined);
+        Assert.Equal(0, result.Coverage.OperandsUnavailable);
+        AnalysisLibraryBodyUseOccurrence occurrence =
+            Assert.Single(result.Occurrences);
+        Assert.Equal(0, occurrence.IlOffset);
+        Assert.Equal(
+            "Independent.Target",
+            Name(occurrence.TargetType));
+    }
+
+    [Fact]
+    public void ExecuteImage_IncludesNestedTypeNamedModule()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentNestedModule.dll",
+                    BuildIndependentNestedModuleImage(),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Complete,
+            result.Disposition);
+        Assert.Equal(1, result.Coverage.BodiesConsidered);
+        AnalysisLibraryBodyUseOccurrence occurrence =
+            Assert.Single(result.Occurrences);
+        Assert.Equal(
+            "Independent.Owner+<Module>",
+            Name(occurrence.SourceType));
+        Assert.Equal(
+            "Independent.Target",
+            Name(occurrence.TargetType));
+    }
+
+    [Fact]
     public void ExecutePath_ReportsExactInstructionLimit()
     {
         AnalysisLibraryBodyUseResult result =
@@ -394,6 +444,39 @@ public sealed class AnalysisLibraryBodyUseTests
                     == AnalysisLibraryBodyUseDiagnosticKind
                         .UnresolvedOperand
                 && diagnostic.IlOffset == 6);
+    }
+
+    [Fact]
+    public void ExecuteImage_RejectsMethodMemberRefForFieldOperand()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [
+                            (byte)ILOpCode.Ldsfld,
+                            0x01, 0x00, 0x00, 0x0A,
+                            (byte)ILOpCode.Pop,
+                            (byte)ILOpCode.Ret,
+                        ],
+                        methodMemberReference: true),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(1, result.Coverage.OperandsConsidered);
+        Assert.Equal(0, result.Coverage.OperandsExamined);
+        Assert.Equal(1, result.Coverage.OperandsUnavailable);
+        Assert.Empty(result.Occurrences);
+        Assert.Single(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind
+                        .UnresolvedOperand);
     }
 
     [Fact]
@@ -603,7 +686,8 @@ public sealed class AnalysisLibraryBodyUseTests
     static ImmutableArray<byte> BuildIndependentImage(
         byte[] firstBody,
         bool unreadableSecondBody = false,
-        bool missingCurrentModuleTypeReference = false)
+        bool missingCurrentModuleTypeReference = false,
+        bool methodMemberReference = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -627,21 +711,36 @@ public sealed class AnalysisLibraryBodyUseTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddTypeDefinition(
-            TypeAttributes.Public
-                | TypeAttributes.Abstract
-                | TypeAttributes.Sealed,
-            metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("Independent"),
-            default,
-            MetadataTokens.FieldDefinitionHandle(1),
-            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle owner =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Independent"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
         if (missingCurrentModuleTypeReference)
         {
             metadata.AddTypeReference(
                 MetadataTokens.EntityHandle(0x00000001),
                 metadata.GetOrAddString("N"),
                 metadata.GetOrAddString("Missing"));
+        }
+        if (methodMemberReference)
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature()
+                .Parameters(
+                    0,
+                    static returnType => returnType.Void(),
+                    static _ => { });
+            metadata.AddMemberReference(
+                owner,
+                metadata.GetOrAddString("NotAField"),
+                metadata.GetOrAddBlob(signature));
         }
 
         var bodies = new BlobBuilder();
@@ -895,5 +994,173 @@ public sealed class AnalysisLibraryBodyUseTests
                 offset,
                 MetadataTokens.ParameterHandle(1));
         }
+    }
+
+    static ImmutableArray<byte> BuildIndependentGlobalMethodImage()
+    {
+        var metadata = CreateMetadata(
+            "IndependentGlobalMethod",
+            new Guid("3a65859f-6e0e-4fd1-8717-dba6012c9dfa"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Independent"),
+            metadata.GetOrAddString("Owner"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Independent"),
+            metadata.GetOrAddString("Target"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(3));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        AddMethod("Global", [(byte)ILOpCode.Ret]);
+        AddMethod(
+            "Use",
+            [
+                (byte)ILOpCode.Ldtoken,
+                0x03, 0x00, 0x00, 0x02,
+                (byte)ILOpCode.Pop,
+                (byte)ILOpCode.Call,
+                0x01, 0x00, 0x00, 0x06,
+                (byte)ILOpCode.Ret,
+            ]);
+        return Serialize(metadata, bodies);
+
+        void AddMethod(string name, byte[] il)
+        {
+            var code = new BlobBuilder();
+            code.WriteBytes(il);
+            int offset = encoder.AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+            AddVoidMethod(metadata, name, offset);
+        }
+    }
+
+    static ImmutableArray<byte> BuildIndependentNestedModuleImage()
+    {
+        var metadata = CreateMetadata(
+            "IndependentNestedModule",
+            new Guid("48ccb239-0746-462a-a99a-4ae8e7564b5e"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle owner =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Independent"),
+                metadata.GetOrAddString("Owner"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle nested =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Independent"),
+            metadata.GetOrAddString("Target"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddNestedType(nested, owner);
+
+        var code = new BlobBuilder();
+        code.WriteBytes(
+            new byte[]
+            {
+                (byte)ILOpCode.Ldtoken,
+                0x04, 0x00, 0x00, 0x02,
+                (byte)ILOpCode.Pop,
+                (byte)ILOpCode.Ret,
+            });
+        var bodies = new BlobBuilder();
+        int offset =
+            new MethodBodyStreamEncoder(bodies).AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+        AddVoidMethod(metadata, "Use", offset);
+        return Serialize(metadata, bodies);
+    }
+
+    static MetadataBuilder CreateMetadata(
+        string name,
+        Guid mvid)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString($"{name}.dll"),
+            metadata.GetOrAddGuid(mvid),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(name),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        return metadata;
+    }
+
+    static void AddVoidMethod(
+        MetadataBuilder metadata,
+        string name,
+        int bodyOffset)
+    {
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature()
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(name),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+    }
+
+    static ImmutableArray<byte> Serialize(
+        MetadataBuilder metadata,
+        BlobBuilder bodies)
+    {
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return ImmutableArray.Create(image.ToArray());
     }
 }

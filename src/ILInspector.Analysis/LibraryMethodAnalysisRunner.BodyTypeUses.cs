@@ -277,9 +277,15 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     && _infrastructure.TryResolveLocalTypeDefinition(
                         logicalMethod.DeclaringType,
                         out TypeDefinitionHandle source)
+                    && AnalysisLibraryBodyUseProducer.IsTypeInPopulation(
+                        _infrastructure.Reader,
+                        _infrastructure.Reader.GetTypeDefinition(source))
                     && _infrastructure.TryResolveLocalTypeDefinition(
                         type,
-                        out TypeDefinitionHandle target))
+                        out TypeDefinitionHandle target)
+                    && AnalysisLibraryBodyUseProducer.IsTypeInPopulation(
+                        _infrastructure.Reader,
+                        _infrastructure.Reader.GetTypeDefinition(target)))
                 {
                     rows.Add(
                         new(

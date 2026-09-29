@@ -53,10 +53,13 @@ Roslyn-authenticated logical owner.
 
 One result is bound to the assembly identity and non-empty module MVID read
 from the same image. Its Type inventory contains every TypeDef except the
-metadata `<Module>` pseudo-type, independent of accessibility.
-Bodies physically declared on `<Module>` are therefore outside the admitted
-body population: they have no Type endpoint and do not enter coverage,
-physical evidence, or occurrence projection.
+metadata `<Module>` pseudo-type, independent of accessibility. The pseudo-type
+is the top-level empty-namespace `<Module>` definition; an authored nested Type
+whose leaf name is `<Module>` remains in the population. Bodies physically
+declared on the pseudo-type are therefore outside the admitted body population:
+they have no Type endpoint and do not enter coverage, physical evidence, or
+occurrence projection. Typed operands that resolve to it likewise publish no
+relationship.
 
 MVID plus TypeDef token is the endpoint currency. Structured names support
 display, deterministic ordering, and exact same-image binding; they do not

@@ -778,9 +778,17 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                         TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, field.GetDeclaringType(), 0),
                         _reader.GetString(field.Name));
                 case HandleKind.MemberReference:
+                    MemberReference member =
+                        _reader.GetMemberReference(
+                            (MemberReferenceHandle)handle);
+                    if (member.GetKind()
+                        != MemberReferenceKind.Field)
+                    {
+                        return (null, null);
+                    }
                     return (
                         ResolveMemberReferenceParentType(handle, callerScope),
-                        _reader.GetString(_reader.GetMemberReference((MemberReferenceHandle)handle).Name));
+                        _reader.GetString(member.Name));
                 default:
                     return (null, null);
             }
