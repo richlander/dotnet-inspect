@@ -384,11 +384,11 @@ output and no available complete document. Per-row malformed or ambiguous
 untrusted evidence becomes an unknown row when the producer can still prove
 complete bounded enumeration.
 
-The producer preflights the compressed Portable PDB document-name components
-against the remaining total path-character budget before materializing the
-expanded path. Repeated component references therefore consume the same raw
-character budget as the expanded path without requiring an unbounded
-intermediate string.
+The producer uses state-advancing bounded UTF-8 decoding to preflight compressed
+Portable PDB document-name components against the remaining total
+path-character budget before materializing the expanded path. Repeated
+component references therefore consume the same raw character budget as the
+expanded path without requiring an unbounded intermediate string.
 
 The detached result retains no MetadataReader, PDB reader, stream, artifact
 lease, path authority, or source-content capability.

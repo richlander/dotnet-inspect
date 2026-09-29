@@ -1052,7 +1052,9 @@ public partial class PdbContext
         }
 
         byte separator = name.ReadByte();
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(4096);
+        byte[] byteBuffer = ArrayPool<byte>.Shared.Rent(4096);
+        char[] characterBuffer = ArrayPool<char>.Shared.Rent(4096);
+        Decoder decoder = Encoding.UTF8.GetDecoder();
         try
         {
             int count = 0;
@@ -1078,7 +1080,9 @@ public partial class PdbContext
                     if (!TryGetUtf8CharacterCount(
                             pdb.GetBlobReader(component),
                             maxCharacters - count,
-                            buffer,
+                            byteBuffer,
+                            characterBuffer,
+                            decoder,
                             out componentCharacters))
                     {
                         characterCount = 0;
@@ -1102,42 +1106,65 @@ public partial class PdbContext
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            ArrayPool<byte>.Shared.Return(byteBuffer);
+            ArrayPool<char>.Shared.Return(characterBuffer);
         }
     }
 
     private static bool TryGetUtf8CharacterCount(
         BlobReader value,
         int maxCharacters,
-        byte[] buffer,
+        byte[] byteBuffer,
+        char[] characterBuffer,
+        Decoder decoder,
         out int characterCount)
     {
-        Decoder decoder = Encoding.UTF8.GetDecoder();
+        decoder.Reset();
         int count = 0;
         while (value.RemainingBytes > 0)
         {
-            int length = Math.Min(value.RemainingBytes, buffer.Length);
-            value.ReadBytes(length, buffer, 0);
-            int chunkCharacters = decoder.GetCharCount(
-                buffer.AsSpan(0, length),
-                flush: false);
-            if (chunkCharacters > maxCharacters - count)
+            int length = Math.Min(value.RemainingBytes, byteBuffer.Length);
+            value.ReadBytes(length, byteBuffer, 0);
+            ReadOnlySpan<byte> input = byteBuffer.AsSpan(0, length);
+            while (!input.IsEmpty)
+            {
+                decoder.Convert(
+                    input,
+                    characterBuffer,
+                    flush: false,
+                    out int bytesUsed,
+                    out int charactersUsed,
+                    out _);
+                if (charactersUsed > maxCharacters - count)
+                {
+                    characterCount = 0;
+                    return false;
+                }
+                count += charactersUsed;
+                input = input[bytesUsed..];
+            }
+        }
+
+        bool completed;
+        do
+        {
+            decoder.Convert(
+                [],
+                characterBuffer,
+                flush: true,
+                out _,
+                out int charactersUsed,
+                out completed);
+            if (charactersUsed > maxCharacters - count)
             {
                 characterCount = 0;
                 return false;
             }
-            count += chunkCharacters;
+            count += charactersUsed;
         }
+        while (!completed);
 
-        int trailingCharacters = decoder.GetCharCount(
-            [],
-            flush: true);
-        if (trailingCharacters > maxCharacters - count)
-        {
-            characterCount = 0;
-            return false;
-        }
-        characterCount = count + trailingCharacters;
+        characterCount = count;
         return true;
     }
 

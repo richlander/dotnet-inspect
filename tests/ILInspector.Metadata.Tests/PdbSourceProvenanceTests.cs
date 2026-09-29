@@ -277,7 +277,8 @@ public class PdbSourceProvenanceTests
     public void CompositeDocumentNameExpansion_IsBoundedBeforeMaterialization()
     {
         (byte[] image, byte[] pdb) = BuildMarkerMetadata(
-            repeatedDocumentNameComponentLength: 128,
+            repeatedDocumentNameComponent:
+                Encoding.UTF8.GetBytes(new string('a', 128)),
             repeatedDocumentNameComponentCount: 16,
             appendInvalidDocumentNameComponent: true);
         ArtifactBoundAssembly artifact = CreateArtifact(image);
@@ -298,6 +299,56 @@ public class PdbSourceProvenanceTests
         Assert.IsType<PdbSourceProvenanceOutcome.Failed>(
             context.InspectSourceProvenance(
                 limits: new(maxTotalPathCharacters: 4096)));
+    }
+
+    [Fact]
+    public void DocumentNamePreflight_PreservesUtf8StateAcrossBufferChunks()
+    {
+        string component = new string('a', 4095) + "\u20AC";
+        (byte[] image, byte[] pdb) = BuildMarkerMetadata(
+            repeatedDocumentNameComponent: Encoding.UTF8.GetBytes(component),
+            repeatedDocumentNameComponentCount: 1,
+            documentNameSeparator: 0);
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+        context.LoadPdbFromStream(
+            new MemoryStream(pdb, writable: false));
+
+        PdbSourceProvenanceResult result =
+            Assert.IsType<PdbSourceProvenanceOutcome.Available>(
+                context.InspectSourceProvenance(
+                    limits: new(maxTotalPathCharacters: component.Length)))
+                .Result;
+
+        PdbSourceDocumentEvidence document =
+            Assert.Single(result.Documents);
+        Assert.Equal(component.Length, document.PathCharacterCount);
+        Assert.Equal(component, document.Path.ToString());
+    }
+
+    [Fact]
+    public void DocumentNamePreflight_ChargesIncompleteUtf8ReplacementCharacters()
+    {
+        (byte[] image, byte[] pdb) = BuildMarkerMetadata(
+            repeatedDocumentNameComponent: [0xE2],
+            repeatedDocumentNameComponentCount: 16,
+            documentNameSeparator: 0);
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+        context.LoadPdbFromStream(
+            new MemoryStream(pdb, writable: false));
+
+        var incomplete =
+            Assert.IsType<PdbSourceProvenanceOutcome.Incomplete>(
+                context.InspectSourceProvenance(
+                    limits: new(maxTotalPathCharacters: 1)));
+
+        Assert.Equal(
+            PdbSourceProvenanceIncompleteReason
+                .TotalPathCharacterLimitExceeded,
+            incomplete.Reason);
     }
 
     [Fact]
@@ -756,9 +807,10 @@ public class PdbSourceProvenanceTests
         string documentPath =
             "/repo/obj/Tool/Tool.ExampleGenerator/Hint.g.cs",
         bool includeCodeView = true,
-        int repeatedDocumentNameComponentLength = 0,
+        byte[]? repeatedDocumentNameComponent = null,
         int repeatedDocumentNameComponentCount = 0,
-        bool appendInvalidDocumentNameComponent = false)
+        bool appendInvalidDocumentNameComponent = false,
+        byte documentNameSeparator = (byte)'/')
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -973,13 +1025,14 @@ public class PdbSourceProvenanceTests
         rowCounts[(int)TableIndex.NestedClass] = 1;
         var pdbMetadata = new MetadataBuilder();
         BlobHandle documentName =
-            repeatedDocumentNameComponentCount == 0
+            repeatedDocumentNameComponent is null
                 ? pdbMetadata.GetOrAddDocumentName(documentPath)
                 : AddRepeatedDocumentName(
                     pdbMetadata,
-                    repeatedDocumentNameComponentLength,
+                    repeatedDocumentNameComponent,
                     repeatedDocumentNameComponentCount,
-                    appendInvalidDocumentNameComponent);
+                    appendInvalidDocumentNameComponent,
+                    documentNameSeparator);
         DocumentHandle document = pdbMetadata.AddDocument(
             documentName,
             default,
@@ -1079,16 +1132,17 @@ public class PdbSourceProvenanceTests
 
         static BlobHandle AddRepeatedDocumentName(
             MetadataBuilder metadata,
-            int componentLength,
+            byte[] componentBytes,
             int componentCount,
-            bool appendInvalidComponent)
+            bool appendInvalidComponent,
+            byte separator)
         {
             BlobHandle component = metadata.GetOrAddBlob(
-                Encoding.UTF8.GetBytes(new string('a', componentLength)));
+                componentBytes);
             int componentOffset =
                 MetadataTokens.GetHeapOffset(component);
             var name = new BlobBuilder();
-            name.WriteByte((byte)'/');
+            name.WriteByte(separator);
             for (int index = 0; index < componentCount; index++)
                 name.WriteCompressedInteger(componentOffset);
             if (appendInvalidComponent)
