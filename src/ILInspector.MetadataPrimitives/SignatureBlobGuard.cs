@@ -90,7 +90,6 @@ public static class SignatureBlobGuard
                 ref blob,
                 kind,
                 maxDepth,
-                rejectUndefinedTypeCodes: false,
                 ref measurements,
                 out _);
         }
@@ -141,7 +140,6 @@ public static class SignatureBlobGuard
                     ref blob,
                     kind,
                     maxDepth,
-                    rejectUndefinedTypeCodes: false,
                     ref measurements,
                     out CompleteValidationResult? failure))
             {
@@ -197,7 +195,6 @@ public static class SignatureBlobGuard
                     ref blob,
                     kind,
                     maxDepth,
-                    rejectUndefinedTypeCodes: true,
                     ref measurements,
                     out _)
                 && blob.RemainingBytes == 0;
@@ -266,7 +263,6 @@ public static class SignatureBlobGuard
                     ref blob,
                     kind,
                     maxDepth,
-                    rejectUndefinedTypeCodes: true,
                     ref measurements,
                     out CompleteValidationResult? failure))
             {
@@ -301,7 +297,6 @@ public static class SignatureBlobGuard
         ref BlobReader blob,
         Kind kind,
         int maxDepth,
-        bool rejectUndefinedTypeCodes,
         ref SignatureBlobGuardMeasurements measurements,
         out CompleteValidationResult? failure)
     {
@@ -340,7 +335,6 @@ public static class SignatureBlobGuard
                             item.Depth,
                             work,
                             ref remainingTypeNodes,
-                            rejectUndefinedTypeCodes,
                             ref failure))
                         return true;
                     break;
@@ -359,7 +353,6 @@ public static class SignatureBlobGuard
                             item,
                             work,
                             ref remainingTypeNodes,
-                            rejectUndefinedTypeCodes,
                             ref failure))
                         return true;
                     break;
@@ -560,7 +553,6 @@ public static class SignatureBlobGuard
         WorkItem item,
         Stack<WorkItem> work,
         ref int remainingTypeNodes,
-        bool rejectUndefinedTypeCodes,
         ref CompleteValidationResult? failure)
     {
         MethodState state = item.Method
@@ -585,7 +577,6 @@ public static class SignatureBlobGuard
             item.Depth,
             work,
             ref remainingTypeNodes,
-            rejectUndefinedTypeCodes,
             ref failure);
     }
 
@@ -599,7 +590,6 @@ public static class SignatureBlobGuard
         int depth,
         Stack<WorkItem> work,
         ref int remainingTypeNodes,
-        bool rejectUndefinedTypeCodes,
         ref CompleteValidationResult? failure)
     {
         byte code = blob.ReadByte();
@@ -685,28 +675,10 @@ public static class SignatureBlobGuard
                 blob.ReadCompressedInteger(); // generic parameter index
                 return false;
 
-            case ElementTypeVoid:
-            case ElementTypeBoolean:
-            case ElementTypeChar:
-            case ElementTypeI1:
-            case ElementTypeU1:
-            case ElementTypeI2:
-            case ElementTypeU2:
-            case ElementTypeI4:
-            case ElementTypeU4:
-            case ElementTypeI8:
-            case ElementTypeU8:
-            case ElementTypeR4:
-            case ElementTypeR8:
-            case ElementTypeString:
-            case ElementTypeTypedByRef:
-            case ElementTypeI:
-            case ElementTypeU:
-            case ElementTypeObject:
-                return false;
-
             default:
-                return rejectUndefinedTypeCodes;
+                // Primitive / VOID / OBJECT / STRING / TYPEDBYREF / I / U and anything else:
+                // a leaf that consumes no further bytes here.
+                return false;
         }
 
         static void ReadTypeDefOrRefOrSpec(ref BlobReader blob)
@@ -797,20 +769,6 @@ public static class SignatureBlobGuard
 
     // ECMA-335 II.23.1.16 element types, by raw byte value (the SignatureTypeCode enum does not
     // name the modifier / prefix codes we care about, so spell them all out to avoid ambiguity).
-    const byte ElementTypeVoid = 0x01;        // ELEMENT_TYPE_VOID
-    const byte ElementTypeBoolean = 0x02;     // ELEMENT_TYPE_BOOLEAN
-    const byte ElementTypeChar = 0x03;        // ELEMENT_TYPE_CHAR
-    const byte ElementTypeI1 = 0x04;          // ELEMENT_TYPE_I1
-    const byte ElementTypeU1 = 0x05;          // ELEMENT_TYPE_U1
-    const byte ElementTypeI2 = 0x06;          // ELEMENT_TYPE_I2
-    const byte ElementTypeU2 = 0x07;          // ELEMENT_TYPE_U2
-    const byte ElementTypeI4 = 0x08;          // ELEMENT_TYPE_I4
-    const byte ElementTypeU4 = 0x09;          // ELEMENT_TYPE_U4
-    const byte ElementTypeI8 = 0x0a;          // ELEMENT_TYPE_I8
-    const byte ElementTypeU8 = 0x0b;          // ELEMENT_TYPE_U8
-    const byte ElementTypeR4 = 0x0c;          // ELEMENT_TYPE_R4
-    const byte ElementTypeR8 = 0x0d;          // ELEMENT_TYPE_R8
-    const byte ElementTypeString = 0x0e;      // ELEMENT_TYPE_STRING
     const byte ElementTypePtr = 0x0f;         // ELEMENT_TYPE_PTR
     const byte ElementTypeByRef = 0x10;       // ELEMENT_TYPE_BYREF
     const byte ElementTypeValueType = 0x11;   // ELEMENT_TYPE_VALUETYPE
@@ -818,11 +776,7 @@ public static class SignatureBlobGuard
     const byte ElementTypeVar = 0x13;         // ELEMENT_TYPE_VAR
     const byte ElementTypeArray = 0x14;       // ELEMENT_TYPE_ARRAY
     const byte ElementTypeGenericInst = 0x15; // ELEMENT_TYPE_GENERICINST
-    const byte ElementTypeTypedByRef = 0x16;  // ELEMENT_TYPE_TYPEDBYREF
-    const byte ElementTypeI = 0x18;           // ELEMENT_TYPE_I
-    const byte ElementTypeU = 0x19;           // ELEMENT_TYPE_U
     const byte ElementTypeFnPtr = 0x1b;       // ELEMENT_TYPE_FNPTR
-    const byte ElementTypeObject = 0x1c;      // ELEMENT_TYPE_OBJECT
     const byte ElementTypeSzArray = 0x1d;     // ELEMENT_TYPE_SZARRAY
     const byte ElementTypeMVar = 0x1e;        // ELEMENT_TYPE_MVAR
     const byte ElementTypeCmodReqd = 0x1f;    // ELEMENT_TYPE_CMOD_REQD
