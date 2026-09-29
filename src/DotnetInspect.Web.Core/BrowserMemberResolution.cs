@@ -58,6 +58,16 @@ internal static class BrowserMemberResolution
         public ValueTask DisposeAsync() => Resolution.DisposeAsync();
     }
 
+    internal sealed record ScopedPlatformResolution(
+        BrowserPlatformScopeResolution Resolution,
+        Analysis.CallGraphMemberResolution Member) : IAsyncDisposable
+    {
+        internal BrowserPlatformScope Scope => Resolution.Scope;
+        internal WorkspaceContextMember Participant => Resolution.Participant;
+
+        public ValueTask DisposeAsync() => Resolution.DisposeAsync();
+    }
+
     /// <summary>
     /// Resolves one exact package/version/framework coordinate, reuses its workspace, and returns
     /// the reference-preferred participant for one product-selected compile asset.
@@ -215,6 +225,55 @@ internal static class BrowserMemberResolution
             return new ScopedPlatformDeclarationResolution(
                 resolution,
                 member);
+        }
+        catch
+        {
+            await resolution.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    internal static async Task<ScopedPlatformResolution>
+        PlatformImplementationMemberAsync(
+            string targetFramework,
+            string platformVersion,
+            string assemblyName,
+            string pack,
+            string typeId,
+            string memberName,
+            string selectorKey,
+            int metadataToken,
+            string? contextId = null,
+            CancellationToken cancellationToken = default)
+    {
+        BrowserPlatformScopeResolution resolution =
+            contextId is null
+                ? await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    targetFramework,
+                    platformVersion,
+                    assemblyName,
+                    pack,
+                    cancellationToken)
+                : await BrowserPlatformWorkspace.OpenRetainedContextAssemblyAsync(
+                    contextId,
+                    targetFramework,
+                    platformVersion,
+                    assemblyName,
+                    pack,
+                    cancellationToken);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Analysis.CallGraphMemberResolution member =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    (group, selected) => ResolveImplementationMember(
+                        ImplementationSurface(group, selected),
+                        typeId,
+                        memberName,
+                        selectorKey,
+                        metadataToken));
+            return new ScopedPlatformResolution(resolution, member);
         }
         catch
         {
