@@ -182,7 +182,7 @@ The design composes established repository contracts:
 | [DocumentationHouse](documentation-house.md) | Each documentation outcome has one exact library-scoped subject; multi-subject execution is only a bounded optimization over independent exact requests. |
 | [SourceHouse](source-house.md) | Authored and decompiled source remain typed producer attempts under explicit source and PDB policy. |
 | [Inspection operation composition](inspection-operation-composition.md) | Hosts lower gestures to typed requests and consume one completed host-neutral envelope. |
-| [Selective implementation metric Analysis](library-body-analysis-service.md) | Requested evidence, effective evidence, executable prerequisites, and actual producer participation remain distinct. |
+| [Selective implementation metric Analysis](library-body-analysis-service.md) | Requested metrics, required canonical facts, executable work stages, and actual producer participation remain distinct. |
 
 PR
 [#8411](https://github.com/richlander/dotnet-inspect/pull/8411)
@@ -953,7 +953,7 @@ contract as follows:
   population;
 - it does not expose QuerySpace Rows or Count, mirror the overload population,
   or repeat inherited Member predicates and ordering;
-- an unqualified request is rejected because no metric evidence was requested,
+- an unqualified request is rejected because no metric was requested,
   not because a metric Count lacks a predicate; and
 - hosts join results to settled overload Rows by exact identity, family
   binding, and generation, suppressing stale publication.
@@ -967,11 +967,11 @@ population queries.
 
 The selective Analysis owner remains responsible for:
 
-- requested versus effective evidence;
+- requested metrics versus required canonical facts;
 - semantic and executable prerequisites;
 - physical-body scope and logical/physical correspondence;
 - work bounds;
-- per-evidence completion; and
+- per-metric completion; and
 - actual producer-participation receipts.
 
 Its sibling-relationship result must identify exact Member endpoints and state
@@ -1297,7 +1297,7 @@ The implementation sequence must add Release gates proving:
 - sibling-relationship decoration consumes the settled exact-overload roster,
   returns exact endpoints, and changes neither membership nor order;
 - body-size-only and sibling-relationship metric requests execute only their
-  #8450/#8455 effective evidence and work prerequisites;
+  #8450/#8455 required facts and work stages;
 - Type and Member metrics routes expose no declaration Rows or Count;
 - CLI and Browser execute the same host-neutral document routes and preserve
   Content, Share, and diagnostics;
