@@ -214,6 +214,9 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
             cancellationToken.ThrowIfCancellationRequested();
             TypeDefinition type =
                 reader.GetTypeDefinition(typeHandle);
+            if (!AnalysisLibraryBodyUseProducer
+                    .IsTypeInPopulation(reader, type))
+                continue;
             TypeRef decodedType =
                 TypeRefDecoder.Instance.GetTypeFromDefinition(
                     reader,

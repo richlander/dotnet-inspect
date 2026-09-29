@@ -43,6 +43,15 @@ public static class BodyUseSource
         yield return new BodyUseTarget();
     }
 
+    public static Func<Task<BodyUseTarget>> AsyncLambdaUse(
+        BodyUseTarget target) =>
+        async () =>
+        {
+            await Task.Yield();
+            target.Touch();
+            return target;
+        };
+
     public static Type TargetType() => typeof(BodyUseTarget);
 
     static T Identity<T>(T value) => value;

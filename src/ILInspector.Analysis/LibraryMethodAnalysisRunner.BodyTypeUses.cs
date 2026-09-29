@@ -33,42 +33,9 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     methodHandle,
                     methodDefinition,
                     scope);
-            bool sourceGenerated =
-                _infrastructure.IsSourceGeneratedTypeOrEnclosing(
-                    typeHandle);
-            bool compilerGenerated =
-                _infrastructure.HasCompilerGeneratedAttribute(
-                    methodDefinition.GetCustomAttributes())
-                || _infrastructure.HasCompilerGeneratedAttribute(
-                    typeDefinition.GetCustomAttributes());
             DeclaredOwnerResolution resolution;
             MethodIdentity? logicalMethod;
             if (stateMachineByImplementation
-                is StateMachineRelationshipResult.Resolved stateMachine)
-            {
-                MethodDefinitionHandle kickoffHandle =
-                    stateMachine.Relationship.Kickoff.Handle;
-                MethodDefinition kickoffDefinition =
-                    _infrastructure.Reader.GetMethodDefinition(
-                        kickoffHandle);
-                TypeDefinitionHandle kickoffTypeHandle =
-                    kickoffDefinition.GetDeclaringType();
-                TypeDefinition kickoffType =
-                    _infrastructure.Reader.GetTypeDefinition(
-                        kickoffTypeHandle);
-                GenericScope kickoffScope =
-                    _infrastructure.CreateScope(
-                        kickoffType,
-                        kickoffDefinition);
-                logicalMethod =
-                    _infrastructure.CreateMethodIdentity(
-                        kickoffTypeHandle,
-                        kickoffHandle,
-                        kickoffDefinition,
-                        kickoffScope);
-                resolution = DeclaredOwnerResolution.Resolved;
-            }
-            else if (stateMachineByImplementation
                 is StateMachineRelationshipResult.Rejected)
             {
                 logicalMethod = null;
@@ -76,18 +43,56 @@ internal sealed partial class LibraryMethodAnalysisRunner
             }
             else
             {
+                MethodDefinitionHandle ownerHandle = methodHandle;
+                MethodDefinition ownerDefinition = methodDefinition;
+                TypeDefinitionHandle ownerTypeHandle = typeHandle;
+                TypeDefinition ownerType = typeDefinition;
+                MethodIdentity ownerMethod = physicalMethod;
+                if (stateMachineByImplementation
+                    is StateMachineRelationshipResult.Resolved stateMachine)
+                {
+                    ownerHandle =
+                        stateMachine.Relationship.Kickoff.Handle;
+                    ownerDefinition =
+                        _infrastructure.Reader.GetMethodDefinition(
+                            ownerHandle);
+                    ownerTypeHandle =
+                        ownerDefinition.GetDeclaringType();
+                    ownerType =
+                        _infrastructure.Reader.GetTypeDefinition(
+                            ownerTypeHandle);
+                    GenericScope ownerScope =
+                        _infrastructure.CreateScope(
+                            ownerType,
+                            ownerDefinition);
+                    ownerMethod =
+                        _infrastructure.CreateMethodIdentity(
+                            ownerTypeHandle,
+                            ownerHandle,
+                            ownerDefinition,
+                            ownerScope);
+                }
+
+                bool ownerSourceGenerated =
+                    _infrastructure.IsSourceGeneratedTypeOrEnclosing(
+                        ownerTypeHandle);
+                bool ownerCompilerGenerated =
+                    _infrastructure.HasCompilerGeneratedAttribute(
+                        ownerDefinition.GetCustomAttributes())
+                    || _infrastructure.HasCompilerGeneratedAttribute(
+                        ownerType.GetCustomAttributes());
                 resolution =
                     _infrastructure.ResolveUltimateDeclaredMethod(
-                        methodHandle,
-                        methodDefinition,
-                        physicalMethod,
-                        sourceGenerated,
+                        ownerHandle,
+                        ownerDefinition,
+                        ownerMethod,
+                        ownerSourceGenerated,
                         out _,
                         out AuthenticatedSourceOwner? ultimateOwner);
                 logicalMethod = resolution switch
                 {
                     DeclaredOwnerResolution.None
-                        when !compilerGenerated => physicalMethod,
+                        when !ownerCompilerGenerated => ownerMethod,
                     DeclaredOwnerResolution.Resolved =>
                         ultimateOwner!.Value.Method,
                     _ => null,
@@ -123,23 +128,77 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 in instructions)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (!TryClassify(
-                        instruction,
-                        out AnalysisLibraryBodyUseOperandKind kind))
-                {
+                if (!IsTypedOperand(instruction))
                     continue;
-                }
 
                 operandsConsidered++;
-                int token = checked((int)instruction.OperandValue);
-                ImmutableArray<TypeRef> roots;
                 try
                 {
-                    roots = ResolveOperandTypes(
-                        resolver,
-                        instruction,
-                        kind,
-                        token);
+                    if (!TryClassify(
+                            instruction,
+                            out AnalysisLibraryBodyUseOperandKind kind))
+                    {
+                        continue;
+                    }
+
+                    int token = checked((int)instruction.OperandValue);
+                    ImmutableArray<TypeRef> roots =
+                        ResolveOperandTypes(
+                            resolver,
+                            instruction,
+                            kind,
+                            token);
+                    string? unavailable = roots.IsDefaultOrEmpty
+                        ? "no typed root"
+                        : roots
+                            .Select(UnavailableTypeReason)
+                            .FirstOrDefault(
+                                static reason => reason is not null);
+                    if (unavailable is not null)
+                    {
+                        operandsUnavailable++;
+                        diagnostics.Add(
+                            new(
+                                AnalysisLibraryBodyUseDiagnosticKind
+                                    .UnresolvedOperand,
+                                methodToken,
+                                instruction.Offset,
+                                $"The {kind} operand 0x{token:X8} could not "
+                                    + $"be resolved ({unavailable})."));
+                        continue;
+                    }
+
+                    var operandRows =
+                        ImmutableArray.CreateBuilder<
+                            BodyTypeUseOccurrence>();
+                    int ordinal = 0;
+                    foreach (TypeRef root in roots)
+                    {
+                        CollectLocalDefinitions(
+                            root,
+                            kind,
+                            token,
+                            instruction.Offset,
+                            methodToken,
+                            logicalMethod,
+                            operandRows,
+                            ref ordinal);
+                    }
+                    long attempted = checked(
+                        (long)rows.Count + operandRows.Count);
+                    if (attempted > maximumOccurrences)
+                    {
+                        return BodyTypeUseMethodFact.CreateLimited(
+                            typeHandle,
+                            methodToken,
+                            attempted,
+                            maximumOccurrences,
+                            operandsConsidered,
+                            operandsExamined,
+                            operandsUnavailable);
+                    }
+                    rows.AddRange(operandRows);
+                    operandsExamined++;
                 }
                 catch (Exception exception)
                     when (IsRecoverableMethodFailure(exception))
@@ -152,53 +211,6 @@ internal sealed partial class LibraryMethodAnalysisRunner
                             methodToken,
                             instruction.Offset,
                             ProducerFailure.Describe(exception)));
-                    continue;
-                }
-
-                string? unavailable = roots.IsDefaultOrEmpty
-                    ? "no typed root"
-                    : roots
-                        .Select(UnavailableTypeReason)
-                        .FirstOrDefault(
-                            static reason => reason is not null);
-                if (unavailable is not null)
-                {
-                    operandsUnavailable++;
-                    diagnostics.Add(
-                        new(
-                            AnalysisLibraryBodyUseDiagnosticKind
-                                .UnresolvedOperand,
-                            methodToken,
-                            instruction.Offset,
-                            $"The {kind} operand 0x{token:X8} could not "
-                                + $"be resolved ({unavailable})."));
-                    continue;
-                }
-
-                operandsExamined++;
-                int ordinal = 0;
-                foreach (TypeRef root in roots)
-                {
-                    CollectLocalDefinitions(
-                        root,
-                        kind,
-                        token,
-                        instruction.Offset,
-                        methodToken,
-                        logicalMethod,
-                        rows,
-                        ref ordinal);
-                    if (rows.Count > maximumOccurrences)
-                    {
-                        return BodyTypeUseMethodFact.CreateLimited(
-                            typeHandle,
-                            methodToken,
-                            rows.Count,
-                            maximumOccurrences,
-                            operandsConsidered,
-                            operandsExamined,
-                            operandsUnavailable);
-                    }
                 }
             }
 
@@ -241,6 +253,12 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 ProducerFailure.Describe(exception));
         }
     }
+
+    static bool IsTypedOperand(DecodedInstruction instruction) =>
+        instruction.Operand is OperandKind.InlineMethod
+            or OperandKind.InlineField
+            or OperandKind.InlineType
+            or OperandKind.InlineTok;
 
     void CollectLocalDefinitions(
         TypeRef type,
@@ -372,10 +390,18 @@ internal sealed partial class LibraryMethodAnalysisRunner
         }
     }
 
-    static string? UnavailableTypeReason(TypeRef type)
+    string? UnavailableTypeReason(TypeRef type)
     {
         switch (type.Kind)
         {
+            case TypeRefKind.Definition:
+                return _infrastructure
+                        .CanCanonicalizeCurrentModuleReference(type)
+                    && !_infrastructure.TryResolveLocalTypeDefinition(
+                        type,
+                        out _)
+                        ? "current-image Type definition is unavailable"
+                        : null;
             case TypeRefKind.GenericInstance:
                 if (type.ElementType is null)
                     return "generic instance definition is unavailable";

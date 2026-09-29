@@ -167,6 +167,54 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void ExecutePath_AttributesAsyncLambdaToDeclaredType()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecutePath(
+                    FixturePath,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Contains(
+            result.Occurrences,
+            static occurrence =>
+                Name(occurrence.SourceType)
+                    == "AnalysisBodyUseFixtures.BodyUseSource"
+                && Name(occurrence.TargetType)
+                    == "AnalysisBodyUseFixtures.BodyUseTarget"
+                && occurrence.OperandKind
+                    == AnalysisLibraryBodyUseOperandKind.Call);
+        Assert.DoesNotContain(
+            result.Occurrences,
+            static occurrence =>
+                Name(occurrence.SourceType).Contains(
+                    "<>",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ExecuteImage_ExcludesModuleOwnedBodies()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentModuleInitializer.dll",
+                    BuildIndependentModuleInitializerImage(),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(1, result.Coverage.BodiesConsidered);
+        AnalysisLibraryBodyUsePhysicalEvidence evidence =
+            Assert.Single(result.PhysicalEvidence);
+        Assert.Equal(0x06000002, evidence.PhysicalMethodToken);
+        Assert.DoesNotContain(
+            result.Occurrences,
+            static occurrence =>
+                occurrence.PhysicalMethodToken == 0x06000001);
+    }
+
+    [Fact]
     public void ExecutePath_ReportsExactInstructionLimit()
     {
         AnalysisLibraryBodyUseResult result =
@@ -311,6 +359,87 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void ExecuteImage_ContainsInvalidMemberTokenPerOperand()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [
+                            (byte)ILOpCode.Ldtoken,
+                            0x02, 0x00, 0x00, 0x02,
+                            (byte)ILOpCode.Pop,
+                            (byte)ILOpCode.Ldtoken,
+                            0xFF, 0xFF, 0x00, 0x0A,
+                            (byte)ILOpCode.Pop,
+                            (byte)ILOpCode.Ret,
+                        ]),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(2, result.Coverage.OperandsConsidered);
+        Assert.Equal(1, result.Coverage.OperandsExamined);
+        Assert.Equal(1, result.Coverage.OperandsUnavailable);
+        AnalysisLibraryBodyUseOccurrence occurrence =
+            Assert.Single(result.Occurrences);
+        Assert.Equal(0, occurrence.IlOffset);
+        Assert.Single(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind
+                        .UnresolvedOperand
+                && diagnostic.IlOffset == 6);
+    }
+
+    [Fact]
+    public void ExecuteImage_ReportsFailedCurrentImageBinding()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [
+                            (byte)ILOpCode.Ldtoken,
+                            0x02, 0x00, 0x00, 0x02,
+                            (byte)ILOpCode.Pop,
+                            (byte)ILOpCode.Ldtoken,
+                            0x01, 0x00, 0x00, 0x01,
+                            (byte)ILOpCode.Pop,
+                            (byte)ILOpCode.Ret,
+                        ],
+                        missingCurrentModuleTypeReference: true),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(2, result.Coverage.OperandsConsidered);
+        Assert.Equal(1, result.Coverage.OperandsExamined);
+        Assert.Equal(1, result.Coverage.OperandsUnavailable);
+        AnalysisLibraryBodyUseOccurrence occurrence =
+            Assert.Single(result.Occurrences);
+        Assert.Equal(0, occurrence.IlOffset);
+        AnalysisLibraryBodyUseDiagnostic diagnostic =
+            Assert.Single(
+                result.Diagnostics,
+                static diagnostic =>
+                    diagnostic.Kind
+                        == AnalysisLibraryBodyUseDiagnosticKind
+                            .UnresolvedOperand);
+        Assert.Contains(
+            "current-image Type definition",
+            diagnostic.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExecuteImage_StopsBeforeUnadmittedMalformedInstruction()
     {
         AnalysisLibraryBodyUseResult result =
@@ -401,6 +530,63 @@ public sealed class AnalysisLibraryBodyUseTests
                         .UnresolvedOperand);
     }
 
+    [Fact]
+    public void Accumulator_DiscardsRowsRejectedByGlobalLimit()
+    {
+        var accumulator =
+            new AnalysisLibraryBodyUseProducer.Accumulator(
+                maximumOccurrences: 1);
+        accumulator.Add(
+            new(
+                Body(
+                    methodToken: 0x06000001,
+                    ilOffset: 0)));
+        accumulator.Add(
+            new(
+                Body(
+                    methodToken: 0x06000002,
+                    ilOffset: 1)));
+
+        AnalysisLibraryBodyUseProducer.Result result =
+            accumulator.Complete();
+
+        Assert.Single(result.Occurrences);
+        Assert.Equal(2, result.Bodies.Length);
+        Assert.All(
+            result.Bodies,
+            static body =>
+                Assert.IsType<BodyTypeUsePhysicalFact>(body));
+        Assert.Single(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind.Limit);
+
+        static BodyTypeUseMethodFact Body(
+            int methodToken,
+            int ilOffset) =>
+            new(
+                MetadataTokens.TypeDefinitionHandle(2),
+                methodToken,
+                AnalysisLibraryBodyUseFidelity.LogicalOwner,
+                [new(
+                    MetadataTokens.TypeDefinitionHandle(2),
+                    MetadataTokens.TypeDefinitionHandle(2),
+                    methodToken,
+                    AnalysisLibraryBodyUseOperandKind.TypeToken,
+                    MetadataTokens.GetToken(
+                        MetadataTokens.TypeDefinitionHandle(2)),
+                    ilOffset,
+                    0)],
+                [],
+                OperandsConsidered: 1,
+                OperandsExamined: 1,
+                OperandsUnavailable: 0,
+                Limited: false,
+                AttemptedCharge: null,
+                Limit: null);
+    }
+
     static string Name(
         ILInspector.Metadata.MetadataTypeDefinitionName name) =>
         name.ToEscapedFullName();
@@ -416,7 +602,8 @@ public sealed class AnalysisLibraryBodyUseTests
 
     static ImmutableArray<byte> BuildIndependentImage(
         byte[] firstBody,
-        bool unreadableSecondBody = false)
+        bool unreadableSecondBody = false,
+        bool missingCurrentModuleTypeReference = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -449,6 +636,13 @@ public sealed class AnalysisLibraryBodyUseTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        if (missingCurrentModuleTypeReference)
+        {
+            metadata.AddTypeReference(
+                MetadataTokens.EntityHandle(0x00000001),
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Missing"));
+        }
 
         var bodies = new BlobBuilder();
         var encoder = new MethodBodyStreamEncoder(bodies);
@@ -609,5 +803,97 @@ public sealed class AnalysisLibraryBodyUseTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return ImmutableArray.Create(image.ToArray());
+    }
+
+    static ImmutableArray<byte>
+        BuildIndependentModuleInitializerImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(
+                "IndependentModuleInitializer.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("40882445-e08e-4de3-8e0b-de1a61b0b486")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                "IndependentModuleInitializer"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Independent"),
+            metadata.GetOrAddString("Owner"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        AddMethod(
+            ".cctor",
+            [
+                (byte)ILOpCode.Ldtoken,
+                0x02, 0x00, 0x00, 0x02,
+                (byte)ILOpCode.Pop,
+                (byte)ILOpCode.Ret,
+            ],
+            MethodAttributes.Private
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName);
+        AddMethod(
+            "Healthy",
+            [(byte)ILOpCode.Ret],
+            MethodAttributes.Public | MethodAttributes.Static);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return ImmutableArray.Create(image.ToArray());
+
+        void AddMethod(
+            string name,
+            byte[] il,
+            MethodAttributes attributes)
+        {
+            var code = new BlobBuilder();
+            code.WriteBytes(il);
+            int offset = encoder.AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature()
+                .Parameters(
+                    0,
+                    static returnType => returnType.Void(),
+                    static _ => { });
+            metadata.AddMethodDefinition(
+                attributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(name),
+                metadata.GetOrAddBlob(signature),
+                offset,
+                MetadataTokens.ParameterHandle(1));
+        }
     }
 }

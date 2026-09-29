@@ -887,7 +887,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         };
     }
 
-    bool CanCanonicalizeCurrentModuleReference(TypeRef type)
+    internal bool CanCanonicalizeCurrentModuleReference(TypeRef type)
     {
         TypeRef definition = type.Kind == TypeRefKind.GenericInstance
             ? type.ElementType ?? type

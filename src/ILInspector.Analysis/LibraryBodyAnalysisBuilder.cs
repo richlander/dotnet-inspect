@@ -345,6 +345,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             type,
             out handle);
 
+    bool ILibraryMethodAnalysisInfrastructure
+        .CanCanonicalizeCurrentModuleReference(TypeRef type) =>
+        _primaryMetadataResolver
+            .CanCanonicalizeCurrentModuleReference(type);
+
     bool ILibraryMethodAnalysisInfrastructure.HasCompilerGeneratedAttribute(
         CustomAttributeHandleCollection attributes) =>
         _primaryMetadataResolver.HasCompilerGeneratedAttribute(

@@ -54,6 +54,9 @@ Roslyn-authenticated logical owner.
 One result is bound to the assembly identity and non-empty module MVID read
 from the same image. Its Type inventory contains every TypeDef except the
 metadata `<Module>` pseudo-type, independent of accessibility.
+Bodies physically declared on `<Module>` are therefore outside the admitted
+body population: they have no Type endpoint and do not enter coverage,
+physical evidence, or occurrence projection.
 
 MVID plus TypeDef token is the endpoint currency. Structured names support
 display, deterministic ordering, and exact same-image binding; they do not
@@ -71,9 +74,16 @@ operand produces `A -> B` when:
 A physical-only body retains qualified operand evidence but does not
 manufacture a logical source relationship.
 
+Authenticated state-machine implementation ownership first identifies the
+kickoff method, then resolves that method through the ultimate declared-owner
+relationship. This composition prevents an async lambda's generated kickoff
+Type from becoming a logical endpoint.
+
 Typed method, field, Type, and method-instantiation operands participate.
 Constructed shapes contribute every contained named definition. Intrinsic
 primitives and foreign definitions do not enter the Library-local population.
+A named reference whose exact scope identifies the current image but whose
+definition cannot be bound is unavailable evidence, not a foreign omission.
 
 Each occurrence retains:
 
@@ -137,6 +147,10 @@ collection proves no admitted local body-use occurrences.
 
 A failure that prevents exact image identity or a trustworthy Type inventory
 rejects the operation and publishes no population. Cancellation propagates.
+An operand's rows commit atomically after classification, resolution, nested
+shape validation, and same-image binding. A global occurrence rejection keeps
+only the body's fixed-size physical summary; rejected occurrence arrays do not
+remain retained.
 
 ## Shared and specialized work
 

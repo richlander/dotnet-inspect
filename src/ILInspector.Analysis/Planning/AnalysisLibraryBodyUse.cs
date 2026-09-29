@@ -33,6 +33,19 @@ internal sealed class AnalysisLibraryBodyUseProducer
         _cancellationToken = cancellationToken;
     }
 
+    internal override bool HasTypeScope => true;
+
+    internal override bool TypeInScope(
+        MetadataReader reader,
+        TypeDefinition type) =>
+        IsTypeInPopulation(reader, type);
+
+    internal static bool IsTypeInPopulation(
+        MetadataReader reader,
+        TypeDefinition type) =>
+        !(reader.StringComparer.Equals(type.Namespace, "")
+            && reader.StringComparer.Equals(type.Name, "<Module>"));
+
     internal override VisitFact Visit(
         scoped MethodDefinitionView view)
     {
@@ -89,7 +102,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
     internal sealed class Accumulator(int maximumOccurrences)
     {
         readonly List<BodyTypeUseOccurrence> _occurrences = [];
-        readonly List<BodyTypeUseMethodFact> _bodies = [];
+        readonly List<BodyTypeUsePhysicalFact> _bodies = [];
         readonly List<AnalysisLibraryBodyUseDiagnostic> _diagnostics = [];
         int _bodiesConsidered;
         int _bodiesExamined;
@@ -100,6 +113,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
         int _operandsExamined;
         int _operandsUnavailable;
         int _operandsLimited;
+        bool _occurrenceLimitReported;
 
         internal void Add(VisitFact visit)
         {
@@ -111,7 +125,11 @@ internal sealed class AnalysisLibraryBodyUseProducer
             _operandsExamined += body.OperandsExamined;
             _operandsUnavailable += body.OperandsUnavailable;
             _diagnostics.AddRange(body.Diagnostics);
-            _bodies.Add(body);
+            _bodies.Add(
+                new(
+                    body.PhysicalType,
+                    body.PhysicalMethodToken,
+                    body.Fidelity));
 
             if (body.Limited)
             {
@@ -141,14 +159,18 @@ internal sealed class AnalysisLibraryBodyUseProducer
             if (attempted > maximumOccurrences)
             {
                 _bodiesLimited++;
-                _diagnostics.Add(
-                    new(
-                        AnalysisLibraryBodyUseDiagnosticKind.Limit,
-                        body.PhysicalMethodToken,
-                        null,
-                        "The Library body-use occurrence limit was exceeded.",
-                        maximumOccurrences,
-                        attempted));
+                if (!_occurrenceLimitReported)
+                {
+                    _diagnostics.Add(
+                        new(
+                            AnalysisLibraryBodyUseDiagnosticKind.Limit,
+                            body.PhysicalMethodToken,
+                            null,
+                            "The Library body-use occurrence limit was exceeded.",
+                            maximumOccurrences,
+                            attempted));
+                    _occurrenceLimitReported = true;
+                }
                 return;
             }
 
@@ -183,7 +205,12 @@ internal sealed class AnalysisLibraryBodyUseProducer
 
     internal sealed record Result(
         ImmutableArray<BodyTypeUseOccurrence> Occurrences,
-        ImmutableArray<BodyTypeUseMethodFact> Bodies,
+        ImmutableArray<BodyTypeUsePhysicalFact> Bodies,
         ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics,
         AnalysisLibraryBodyUseCoverage Coverage);
 }
+
+internal sealed record BodyTypeUsePhysicalFact(
+    TypeDefinitionHandle PhysicalType,
+    int PhysicalMethodToken,
+    AnalysisLibraryBodyUseFidelity Fidelity);

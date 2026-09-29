@@ -95,6 +95,8 @@ internal interface ILibraryMethodAnalysisInfrastructure
         TypeRef type,
         out TypeDefinitionHandle handle);
 
+    bool CanCanonicalizeCurrentModuleReference(TypeRef type);
+
     bool HasCompilerGeneratedAttribute(
         CustomAttributeHandleCollection attributes);
 
