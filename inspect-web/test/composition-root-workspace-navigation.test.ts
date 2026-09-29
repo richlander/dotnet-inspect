@@ -167,7 +167,7 @@ test("bootstrap reconciles persisted style choices with the product catalog", ()
     )?.[0] ?? "";
   assert.match(
     bootstrap,
-    /state\.styleOptions = \([\s\S]*reconcileStyleTaste\(\s*state\.taste,\s*state\.styleOptions\);[\s\S]*state\.taste = reconciledTaste;[\s\S]*localStorage\.setItem\("inspect-taste", JSON\.stringify\(state\.taste\)\)/);
+    /state\.styleCatalog = resolveStyleCatalog\([\s\S]*engineClient\.catalog\.inspectVocabulary\(\)[\s\S]*reconcileStyleTaste\(\s*state\.taste,\s*state\.styleCatalog\);[\s\S]*state\.taste = reconciledTaste;[\s\S]*localStorage\.setItem\("inspect-taste", JSON\.stringify\(state\.taste\)\)/);
 });
 
 test("bare home paints before wasm engine download", () => {
@@ -349,7 +349,7 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /function applyMemberSection\(id: MemberSection\) \{[\s\S]*state\.memberSection === "call-graph" && id !== "call-graph"[\s\S]*invalidateMemberCallGraphWork\(state\)/);
   assert.match(
     appSource,
-    /function navigateToRuntimeMember\([\s\S]*const targetLibrary = libraryKey\(type\);\s*state\.libraryScope = targetLibrary \? new Set\(\[targetLibrary\]\) : null;[\s\S]*state\.typeCursor = Math\.max\(0, filteredTypes\(\)/);
+    /function navigateToRuntimeMember\([\s\S]*const targetLibrary = libraryKey\(type\);\s*state\.libraryScope = targetLibrary \? new Set\(\[targetLibrary\]\) : null;[\s\S]*state\.typeCursor = Math\.max\(0, filteredTypeRows\(\)/);
 });
 
 test("Type inventory filters preserve their focused control across rerenders", () => {
@@ -659,7 +659,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /platformLibraryMatchesDescriptor\(row, item\)[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\)[\s\S]*if \(scopeOnly\) return pkg/);
   assert.match(
     validateView,
-    /typeLensesFor\(pkg\)[\s\S]*deep\.section && !hasPortableMember/);
+    /typeLensesFor\(pkg, Boolean\(forwarder\)\)[\s\S]*deep\.section && !hasPortableMember/);
 });
 
 test("initial workspace packet resolution waits for the engine phase", () => {
@@ -670,7 +670,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     appSource,
     /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*state\.packageActivityOpen = isPackageActivityPath\(location\.pathname\);[\s\S]*state\.typeExplorerOpen = isTypeExplorerPath\(location\.pathname\);[\s\S]*const diagnosticsOpen = isDiagnosticsPath\(location\.pathname\);[\s\S]*const productHomeDemosOpen = isProductHomeDemosPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!diagnosticsOpen\s*&& !state\.packageQueryOpen\s*&& !state\.packageActivityOpen\s*&& !state\.typeExplorerOpen\s*&& !productHomeDemosOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
   const restore = appSource.match(
-    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
+    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction showEngineFailure/)?.[0]
     ?? "";
   assert.match(
     restore,
@@ -698,7 +698,7 @@ test("malformed package routes use the contained restore failure path", () => {
     /if \(loc\.routeFailure\) \{[\s\S]*if \(failureHandler\) \{\s*failureHandler\(loc\.routeFailure\.message\);\s*\} else \{\s*failWorkspaceRoute\(loc\.routeFailure\.message\);[\s\S]*return;\s*\}\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*if \(failureHandler\) \{\s*failureHandler\("The existing package route could not be cleared\."\);[\s\S]*render\(\);\s*return;\s*\}/);
 
   const initial = appSource.match(
-    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
+    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction showEngineFailure/)?.[0]
     ?? "";
   assert.match(
     initial,
@@ -823,7 +823,7 @@ test("package-root Open and selected-Type activation preserve local frame state"
     /if \(state\.atPackageRoot\) \{\s*if \(!enterRetainedLibrarySubject\(\)\) return;\s*showContentDetailAfterRender\(\);\s*render\(\);\s*return;/);
   assert.match(
     drillInSource,
-    /if \(state\.atLibraryRoot\) \{\s*if \(!enterTypeSubject\(selectedType\(\)\)\) return;\s*showContentDetailAfterRender\(\);\s*render\(\);/);
+    /if \(state\.atLibraryRoot\) \{\s*const forwarder = selectedForwarder\(\);\s*if \(forwarder\) enterForwardedType\(forwarder\);\s*else if \(!enterTypeSubject\(selectedType\(\)\)\) return;\s*showContentDetailAfterRender\(\);\s*render\(\);/);
   assert.match(
     drillInSource,
     /if \(navMode\(\) === "type"\) \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*if \(enterMemberScope\(\)\) \{\s*contentFramePane = "navigation";\s*render\(\);\s*restoreContentNavigationFocus\(focusGeneration\);/);
@@ -1028,7 +1028,7 @@ test("Spotlight package opening retains the active Workspace and publishes a fre
     /ensurePlatformCatalog\(tfm, version\)[\s\S]*installPlatformTarget\(target\)[\s\S]*state\.platformOpeningStatus = \{ loading: true/);
   assert.match(
     platformLibraryLoad,
-    /if \(!pkg\) throw new Error\(runtimeResult\.failureMessage[\s\S]*state\.platformOpeningStatus = \{ loading: false, error: `Could not open Platform Library:[\s\S]*platformLibraryRetry = options\.retryAction/);
+    /if \(forwarderResult\.status !== "opened" \|\| !forwarderResult\.view\)[\s\S]*throw new Error[\s\S]*state\.platformOpeningStatus = \{ loading: false, error: `Could not open Platform Library:[\s\S]*platformLibraryRetry = options\.retryAction/);
   assert.match(
     platformLibraryLoad,
     /const createsWorkspace = !scopeOnly && options\.inPlace !== true;[\s\S]*if \(createsWorkspace && !canPublishRetainedWorkspace\(\)\)[\s\S]*const construction = createsWorkspace\s*\? captureWorkspaceConstructionSnapshots\(navigationSeq\)\s*: null;[\s\S]*if \(construction\) prepareUnpublishedWorkspace\(\);/);
@@ -1821,10 +1821,13 @@ test("history restores population intent before validating saved Member identity
     /if \(view\.rootKind !== "platform" && view\.platform\) \{[\s\S]*state\.platformIndex\?\.target\([\s\S]*if \(!target\) return false;\s*retainPlatformPackageForTarget\(target\);/);
   assert.match(
     applyView,
-    /state\.selectedTypeId = type\?\.id \?\? defaultVisibleTypeId\(pkg\);[\s\S]*state\.memberAccessibilityFilter = isMemberAccessibility\(requestedAccessibility\)[\s\S]*const member = type\s*\? memberGroups\(type\)\.find/);
+    /state\.selectedTypeId = type\?\.id \?\? forwarder\?\.id \?\? defaultVisibleTypeId\(pkg\);[\s\S]*state\.memberAccessibilityFilter = isMemberAccessibility\(requestedAccessibility\)[\s\S]*const member = type\s*\? memberGroups\(type\)\.find/);
   assert.match(
     applyView,
     /const deferOrdinaryMemberRestore = Boolean\([\s\S]*view\.memberBrowseTypeId === type\.id[\s\S]*!historyGraphTarget[\s\S]*!member\)/);
+  assert.match(
+    applyView,
+    /state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*state\.memberAccessibilityFilter = isMemberAccessibility\([\s\S]*memberHistory\.memberAccessibilityFilter\)[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
   assert.match(
     applyView,
     /const memberHistory = deferOrdinaryMemberRestore\s*\? \{[\s\S]*selectedMemberKey: view\.selectedMemberKey[\s\S]*memberAccessibilityFilter: state\.memberAccessibilityFilter[\s\S]*: restoreMemberHistoryState\(/);
@@ -1848,7 +1851,7 @@ test("history restores population intent before validating saved Member identity
     /function captureView\(\): WorkspaceView \| null \{[\s\S]*bodyTarget: state\.selectedBodyTarget/);
   assert.match(
     appSource,
-    /else if \(state\.selectedTypeId !== current\.id\) \{\s*state\.selectedTypeId = current\.id;\s*state\.selectedMemberKey = "";\s*state\.memberBrowseTypeId = "";\s*state\.selectedOverloadIndex = null;\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\)/);
+    /else if \(current && state\.selectedTypeId !== current\.id\) \{\s*state\.selectedTypeId = current\.id;\s*state\.selectedMemberKey = "";\s*state\.memberBrowseTypeId = "";\s*state\.selectedOverloadIndex = null;\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\)/);
 });
 
 test("Platform scope restoration defers selection, rendering, and data loading", () => {
