@@ -90,12 +90,27 @@ The rule is linear in metadata: each host's methods and attributes are read
 once, attribute constructors, value blobs, and Type answers are memoized, and
 a declaring chain walk is bounded by
 `MetadataSafetyPolicy.MaxRelationshipNodes`. A state-machine name longer than
-`MetadataSafetyPolicy.MaxTypeNameCharacters` fails its host. An unreadable
-host fails every generated body it hosts visibly as malformed.
+`MetadataSafetyPolicy.MaxTypeNameCharacters` fails its host. A host whose
+scan fails fails every `<`-named nested body it hosts as malformed, including
+closure bodies unrelated to state machines. This breadth is intended: the scan
+cannot tell which of the host's generated bodies it would have attributed, so
+none is published as if the host were readable.
 
-Resolving a method operand's owner reads only its declaring Type and
-instantiation, but still decodes the whole method signature, so a malformed
-or truncated signature leaves the operand unavailable.
+Attribution changes only which Type a body's uses belong to. It does not narrow
+the visible-failure surface. These still make the body malformed or limited,
+or the operand unavailable, with a typed diagnostic:
+
+- an unreadable or over-limit IL body, and an instruction or occurrence limit;
+- an operand token that does not resolve, or resolves to the wrong kind;
+- a malformed or truncated method signature: owner-only resolution reads only
+  the declaring Type and instantiation, but still decodes the whole signature
+  under `SignatureBlobGuard`, as full member resolution does;
+- a malformed TypeSpec, and a MethodSpec invalid for its target or its
+  caller's generic scope; and
+- a current-image reference that cannot be bound.
+
+What a non-Roslyn input can change without a diagnostic is only the logical
+owner, as [Fidelity and security](#fidelity-and-security) allows.
 
 Attribution never requires the owner's body to reference the lifted body. A
 local function whose calls Roslyn elided, such as a `[Conditional("DEBUG")]`

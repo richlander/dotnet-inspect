@@ -193,6 +193,152 @@ public sealed class AnalysisLibraryBodyUseTests
                     StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(nameof(BodyUseLiftedShapes.CapturingLambdaInAsync))]
+    [InlineData(nameof(BodyUseLiftedShapes.AsyncLambdaInCache))]
+    [InlineData(nameof(BodyUseLiftedShapes.LocalFunctionInLambda))]
+    [InlineData(nameof(BodyUseLiftedShapes.LambdaInIterator))]
+    public void ExecutePath_AttributesRoslynLiftedShapeToDeclaringType(
+        string source)
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecutePath(
+                    FixturePath,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        using var image = new PEReader(File.OpenRead(FixturePath));
+        MetadataReader reader = image.GetMetadataReader();
+
+        // Every generated body produced for the source method: a lifted
+        // method named for it, or a member of a Type named for it.
+        string marker = $"<{source}>";
+        HashSet<int> generated =
+        [
+            .. reader.MethodDefinitions
+                .Where(handle =>
+                {
+                    MethodDefinition method =
+                        reader.GetMethodDefinition(handle);
+                    return reader.GetString(method.Name).Contains(
+                            marker,
+                            StringComparison.Ordinal)
+                        || reader.GetString(
+                                reader.GetTypeDefinition(
+                                    method.GetDeclaringType()).Name)
+                            .Contains(marker, StringComparison.Ordinal);
+                })
+                .Select(static handle => MetadataTokens.GetToken(handle)),
+        ];
+        Assert.NotEmpty(generated);
+
+        AnalysisLibraryBodyUseOccurrence[] uses =
+            [.. result.Occurrences.Where(
+                occurrence => generated.Contains(
+                    occurrence.PhysicalMethodToken))];
+        Assert.Contains(
+            uses,
+            static occurrence =>
+                Name(occurrence.TargetType)
+                    == "AnalysisBodyUseFixtures.BodyUseTarget"
+                && occurrence.OperandKind
+                    == AnalysisLibraryBodyUseOperandKind.Constructor);
+        Assert.All(
+            uses,
+            static occurrence => Assert.Equal(
+                "AnalysisBodyUseFixtures.BodyUseLiftedShapes",
+                Name(occurrence.SourceType)));
+    }
+
+    [Fact]
+    public void ExecutePath_BindsSharedMethodSpecAcrossCallerArities()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecutePath(
+                    FixturePath,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        using var image = new PEReader(File.OpenRead(FixturePath));
+        MetadataReader reader = image.GetMetadataReader();
+        string[] callers =
+        [
+            nameof(BodyUseSharedInstantiation.FromNonGeneric),
+            nameof(BodyUseSharedInstantiation.FromGeneric),
+            nameof(BodyUseSharedInstantiation.FromTwoGeneric),
+        ];
+
+        // Roslyn emits one MethodSpec for Pick<BodyUseTarget>, reached from
+        // callers of generic arity 0, 1, and 2. Each binds it identically.
+        var bindings = callers
+            .Select(caller =>
+            {
+                int token = MetadataTokens.GetToken(
+                    reader.MethodDefinitions.Single(handle =>
+                        reader.StringComparer.Equals(
+                            reader.GetMethodDefinition(handle).Name,
+                            caller)));
+                Assert.DoesNotContain(
+                    result.Diagnostics,
+                    diagnostic => diagnostic.MethodToken == token);
+                return result.Occurrences
+                    .Where(occurrence =>
+                        occurrence.PhysicalMethodToken == token
+                        && occurrence.OperandKind
+                            == AnalysisLibraryBodyUseOperandKind
+                                .GenericMethodInstantiation)
+                    .Select(static occurrence => (
+                        occurrence.OperandToken,
+                        occurrence.OccurrenceOrdinal,
+                        Target: Name(occurrence.TargetType)))
+                    .ToArray();
+            })
+            .ToArray();
+
+        Assert.Equal(
+            [
+                (bindings[0][0].OperandToken, 0,
+                    "AnalysisBodyUseFixtures.BodyUseSharedInstantiation"),
+                (bindings[0][0].OperandToken, 1,
+                    "AnalysisBodyUseFixtures.BodyUseTarget"),
+            ],
+            bindings[0]);
+        Assert.Equal(0x2B, bindings[0][0].OperandToken >>> 24);
+        Assert.All(
+            bindings,
+            binding => Assert.Equal(bindings[0], binding));
+    }
+
+    [Fact]
+    public void ExecuteImage_FailsMethodSpecOutsideLaterCallerScope()
+    {
+        // One MethodSpec, G<!!0>, is valid from the generic caller visited
+        // first and invalid from the non-generic caller visited second. The
+        // cached valid binding must not answer for the invalid caller.
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "MethodSpecScope.dll",
+                    BuildMethodSpecScopeImage(),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        AnalysisLibraryBodyUseOccurrence occurrence =
+            Assert.Single(result.Occurrences);
+        Assert.Equal(0x06000002, occurrence.PhysicalMethodToken);
+        Assert.Equal(0x2B000001, occurrence.OperandToken);
+        AnalysisLibraryBodyUseDiagnostic diagnostic =
+            Assert.Single(result.Diagnostics);
+        Assert.Equal(
+            AnalysisLibraryBodyUseDiagnosticKind.UnresolvedOperand,
+            diagnostic.Kind);
+        Assert.Equal(0x06000003, diagnostic.MethodToken);
+        Assert.Equal(1, result.Coverage.OperandsUnavailable);
+    }
+
     [Fact]
     public void ExecuteImage_ExcludesModuleOwnedBodies()
     {
@@ -1279,6 +1425,107 @@ public sealed class AnalysisLibraryBodyUseTests
                 maxStack: 1);
         AddVoidMethod(metadata, "Use", offset);
         return Serialize(metadata, bodies);
+    }
+
+    static ImmutableArray<byte> BuildMethodSpecScopeImage()
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "MethodSpecScope",
+            new Guid("b0e5f7a2-61c4-4d0e-8f3a-2d8c9e4b7a15"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Scope"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+
+        // 0x06000001: static void G<T>()
+        MethodDefinitionHandle generic = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("G"),
+            VoidSignature(genericParameters: 1),
+            Body([(byte)ILOpCode.Ret]),
+            MetadataTokens.ParameterHandle(1));
+
+        // 0x2B000001: G<!!0>
+        var instantiation = new BlobBuilder();
+        new BlobEncoder(instantiation)
+            .MethodSpecificationSignature(1)
+            .AddArgument()
+            .GenericMethodTypeParameter(0);
+        metadata.AddMethodSpecification(
+            generic,
+            metadata.GetOrAddBlob(instantiation));
+
+        byte[] call =
+        [
+            (byte)ILOpCode.Call,
+            0x01, 0x00, 0x00, 0x2B,
+            (byte)ILOpCode.Ret,
+        ];
+        // 0x06000002: static void Valid<U>() { G<U>(); }
+        MethodDefinitionHandle valid = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Valid"),
+            VoidSignature(genericParameters: 1),
+            Body(call),
+            MetadataTokens.ParameterHandle(1));
+        // 0x06000003: static void Invalid() { G<!!0>(); }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Invalid"),
+            VoidSignature(genericParameters: 0),
+            Body(call),
+            MetadataTokens.ParameterHandle(1));
+
+        metadata.AddGenericParameter(
+            generic,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            0);
+        metadata.AddGenericParameter(
+            valid,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("U"),
+            0);
+        return Serialize(metadata, bodies);
+
+        int Body(byte[] il)
+        {
+            var code = new BlobBuilder();
+            code.WriteBytes(il);
+            return encoder.AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+        }
+
+        BlobHandle VoidSignature(int genericParameters)
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(genericParameterCount: genericParameters)
+                .Parameters(
+                    0,
+                    static returnType => returnType.Void(),
+                    static _ => { });
+            return metadata.GetOrAddBlob(signature);
+        }
     }
 
     static ImmutableArray<byte> BuildOversizedStateMachineNameImage(
