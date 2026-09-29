@@ -286,10 +286,10 @@ rows; they never reorder them.
 The member navigation list shows an expanded family as its parent member row
 followed by nested overload rows. Nested rows carry no branch glyph: they sit
 under their family row and spend the width on parameters. The selected nested
-row shows its measured size at the right edge; other rows carry it only in
-their accessible description. Selecting an overloaded method is the
-expansion. Heat and the hub strip annotate the nested rows; the parent row
-carries family-level status text.
+row and its siblings show each available measured size at the right edge as
+`nIL`, with a tooltip that expands the suffix to IL instructions. Selecting an
+overloaded method is the expansion. Heat and the hub strip annotate the nested
+rows; the parent row carries family-level status text.
 
 A nested row carries only enough to tell its siblings apart. The return type
 rarely differs between overloads, and parameter names never do, so both stay in
@@ -459,8 +459,9 @@ The following gates enforce this design:
    synthetic incomplete, bodyless, generated-body, and non-public-callee
    boundaries.
 6. Member-list rendering and accessibility tests prove roster order,
-   right-anchored heat with at most 75% reach, the hub strip, parent-row status
-   text and tokens, accessible descriptions, and every visible state.
+   per-overload `nIL` size labels, right-anchored heat with at most 75% reach,
+   the hub strip, parent-row status text and tokens, accessible descriptions,
+   and every visible state.
 7. The Inspect Web authored typecheck, lint, `knip`, build, and focused Browser
    tests gate the production composition; Browser tests run against a fresh
    build.
