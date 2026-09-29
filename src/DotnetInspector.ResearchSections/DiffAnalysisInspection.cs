@@ -80,11 +80,14 @@ public sealed record DiffAnalysisDocument
         ImmutableArray<DiffAnalysisDocumentOutcome> outcomes,
         ApiDiff? changes,
         ImmutableArray<DiffAnalysisSummaryRow>? summary,
-        ImmutableArray<DiffAnalysisTransitionRow>? transitions)
+        ImmutableArray<DiffAnalysisTransitionRow>? transitions,
+        ApiDiff? apiResult = null)
     {
         Comparison = comparison;
         Outcomes = outcomes;
         _apiChanges = changes;
+        ApiInspectionFailures = ProjectApiInspectionFailures(
+            apiResult ?? changes);
         Changes = changes is null
             ? null
             : DiffAnalysisChangesDocument.Create(changes);
@@ -94,17 +97,35 @@ public sealed record DiffAnalysisDocument
 
     public DiffAnalysisComparisonContext Comparison { get; }
     public ImmutableArray<DiffAnalysisDocumentOutcome> Outcomes { get; }
+    public ImmutableArray<DiffAnalysisApiInspectionFailure>
+        ApiInspectionFailures { get; }
     public DiffAnalysisChangesDocument? Changes { get; }
     public ImmutableArray<DiffAnalysisSummaryRow>? Summary { get; }
     public ImmutableArray<DiffAnalysisTransitionRow>? Transitions { get; }
 
     public ApiDiff? GetApiChanges() => _apiChanges;
+
+    private static ImmutableArray<DiffAnalysisApiInspectionFailure>
+        ProjectApiInspectionFailures(ApiDiff? result)
+        => result is null
+            ? []
+            : [
+                .. result.InspectionFailures.Select(failure =>
+                    new DiffAnalysisApiInspectionFailure(
+                        failure.Side,
+                        failure.Operation,
+                        failure.SubjectToken,
+                        failure.Mechanism,
+                        failure.Kind,
+                        failure.Detail,
+                        failure.SubjectAssembly?.ToString(),
+                        failure.DependencyAssembly?.ToString())),
+            ];
 }
 
 /// <summary>Portable API Changes payload retained by a Diff analysis document.</summary>
 public sealed record DiffAnalysisChangesDocument(
     ImmutableArray<DiffAnalysisChangedType> Types,
-    ImmutableArray<DiffAnalysisApiInspectionFailure> InspectionFailures,
     int TotalBreaking,
     int TotalAdditive,
     int TotalPotentiallyBreaking)
@@ -132,18 +153,6 @@ public sealed record DiffAnalysisChangesDocument(
                                         change.Subject.OldMember?.Identity,
                                         change.Subject.NewMember?.Identity))),
                     ])),
-            ],
-            [
-                .. diff.InspectionFailures.Select(failure =>
-                    new DiffAnalysisApiInspectionFailure(
-                        failure.Side,
-                        failure.Operation,
-                        failure.SubjectToken,
-                        failure.Mechanism,
-                        failure.Kind,
-                        failure.Detail,
-                        failure.SubjectAssembly?.ToString(),
-                        failure.DependencyAssembly?.ToString())),
             ],
             diff.TotalBreaking,
             diff.TotalAdditive,
@@ -250,7 +259,8 @@ public static class DiffAnalysisInspection
                 : null,
             request.Views.HasFlag(DiffAnalysisDocumentViews.Transitions)
                 ? [.. projections.SelectMany(projection => projection.Transitions)]
-                : null);
+                : null,
+            apiResult: apiDiff);
 
         return new(
             document,

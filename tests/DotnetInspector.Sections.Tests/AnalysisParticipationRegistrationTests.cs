@@ -301,6 +301,71 @@ public sealed class AnalysisParticipationRegistrationTests
         Assert.False(parsed.RootElement.TryGetProperty("transitions", out _));
     }
 
+    [Fact]
+    public void DiffAnalysisInspection_RetainsApiFailuresWithoutChangesView()
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Type,
+                targetCount: 1,
+                ["api"]));
+        var before = new ApiSurface();
+        before.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+            "resolve malformed AssemblyRef",
+            0x23000001,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "InvalidAssemblyReference",
+            "invalid AssemblyRef row"));
+        var after = new ApiSurface();
+        after.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+            "resolve malformed AssemblyRef",
+            0x23000001,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "InvalidAssemblyReference",
+            "invalid AssemblyRef row"));
+        var input = new DiffAnalysisInput(
+            before,
+            after,
+            [],
+            [],
+            new HashSet<string>(["N.Healthy"]),
+            ["N.Healthy"],
+            memberTargetIdentities: null,
+            prepareBodySignals: null);
+
+        InspectionEnvelope<DiffAnalysisDocument> inspection =
+            DiffAnalysisInspection.Execute(
+                new DiffAnalysisInspectionRequest(
+                    "Sample",
+                    "1.0.0",
+                    "2.0.0",
+                    catalog,
+                    accepted,
+                    input,
+                    DiffAnalysisDocumentViews.Transitions));
+
+        Assert.Null(inspection.Content.Changes);
+        Assert.NotEmpty(inspection.Content.ApiInspectionFailures);
+        Assert.All(
+            inspection.Content.ApiInspectionFailures,
+            failure => Assert.Contains(
+                "invalid AssemblyRef row",
+                failure.Detail,
+                StringComparison.Ordinal));
+        string json = JsonSerializer.Serialize(
+            inspection.Content,
+            DiffAnalysisInspectionJsonContext.Default.DiffAnalysisDocument);
+        using var parsed = JsonDocument.Parse(json);
+        Assert.True(
+            parsed.RootElement.TryGetProperty(
+                "apiInspectionFailures",
+                out JsonElement failures));
+        Assert.NotEmpty(failures.EnumerateArray());
+        Assert.False(parsed.RootElement.TryGetProperty("changes", out _));
+    }
+
     static DiffAnalysisInput Input(
         Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>? prepareBodySignals)
         => new(

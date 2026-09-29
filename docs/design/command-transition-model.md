@@ -1030,9 +1030,9 @@ producer result, not a universal diff type. `DiffAnalysisInspection` projects
 that result into one
 `InspectionEnvelope<DiffAnalysisDocument>` for host delivery. The Document
 retains the comparison context, selected analyses and views, flattened outcome
-state, the selected API Changes payload, selected Summary rows, and selected
-Transitions rows. Each outcome names its analysis identity and is exactly one
-of:
+state, typed API inspection failures independently of the selected view, the
+selected API Changes payload, selected Summary rows, and selected Transitions
+rows. Each outcome names its analysis identity and is exactly one of:
 
 - **Compared.** The analysis's native keyed comparison, such as
   `ApiFindingComparison` or `FindingComparison<T>`. Research keeps the

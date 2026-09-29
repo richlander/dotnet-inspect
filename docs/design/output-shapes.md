@@ -84,9 +84,10 @@ Analysis-selected Diff registers `result_kind` `diff-analysis` at
 `schema_version` `1`. `DiffAnalysisInspectionJsonContext` serializes the same
 host-neutral `DiffAnalysisDocument` for Content-only `--json` and the Content
 subtree of `--envelope`. The Document retains comparison context, ordered
-analysis outcomes, and only the requested Changes, Summary, and Transitions
-payloads. Type and Member targets shape that semantic Content; presentation
-projection is not admitted on the complete transport.
+analysis outcomes, typed API inspection failures, and only the requested
+Changes, Summary, and Transitions payloads. Type and Member targets shape that
+semantic Content; presentation projection is not admitted on the complete
+transport.
 
 Debug asset-mode `depends` adopts `--evidence-envelope <path>` for
 `DependencyInspectionContent` and `DependencyInspectionEvidenceDocument`.
