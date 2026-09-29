@@ -308,15 +308,18 @@ root `README.md` and the Markdown under `skills/`. Two consumers read them:
 | Command | Demand | Access at this head |
 | --- | --- | --- |
 | `find` member search, `implements`, `extensions`, `depends`, with one `--package ID@VERSION` and `--tfm` | `Surface` | ranged, size first |
-| `type`, `member`, `library` | `SurfaceAndImplementation` | complete |
+| `library address` with one exact package Library and non-JSON output | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB when source location is selected | ranged, size first |
+| `library address --json` | `SurfaceAndImplementation` plus the established complete Library JSON metadata | complete |
+| `type`, `member`, and other `library` operations | `SurfaceAndImplementation` | complete |
 | `graph` | `SurfaceAndImplementation` | complete |
 | `package` | the whole archive | complete |
 | `package ID@VERSION --content --out` of a root `README.md` or `skills/**/SKILL.md` | a document demand | ranged, size first |
 | `diff --history`, Metadata cells (API findings) | `Surface` | ranged, size first |
 | `diff --history`, Analysis cells (IL-body findings) | `SurfaceAndImplementation` | ranged, size first |
 
-The first row and the last three rows adopt ranged access. The others keep their current
-complete acquisition until they adopt ranged access (see
+The first two command families and the last three rows adopt ranged access,
+except that `library address --json` retains complete acquisition. The others
+keep their current complete acquisition until they adopt ranged access (see
 [Adoption](#adoption)).
 
 ## Pathological cases and gates
@@ -346,34 +349,41 @@ All gates run in Release.
 | 19. A named implementation Library requests its listed adjacent Portable PDB | the implementation DLL remains a block anchor, the PDB is retained as an exact entry, and its neighboring entry is not materialized | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandRetainsExactCompanion`, using the real `System.Text.Json` implementation assembly in a boundary archive |
 | 20. The requested adjacent Portable PDB is absent | realization and the selected Library handoff still settle without a PDB entry | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandAllowsAbsentCompanion` |
 | 21. A selected reference Library has no implementation counterpart | companion demand invents neither an implementation asset nor a PDB; the reference-only handoff settles | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandDoesNotInventImplementation` |
+| 22. CLI Address selects an exact Library from a pinned or latest configured package | both version policies use PackageHouse and render the same Member context | `ConfiguredPayloadAcquisitionTests.LibraryAddressCommand_ConfiguredPackageUsesHouseSelection` |
+| 23. CLI Address selects an exact Library from a local archive and requests source location | the exact archive is admitted by its embedded identity and the adjacent Portable PDB supplies source evidence | `CommandExecutionTests.LibraryAddressCommand_PackageSourceLocationUsesAdjacentPortablePdb` |
+| 24. A local archive lacks embedded package identity | exact-source admission fails visibly before Address inspection | `CommandExecutionTests.LibraryAddressCommand_LocalArchiveRequiresEmbeddedPackageIdentity` |
 
 ## Adoption
 
 1. This document, `PackageAssetDemand`, the folder unit, and the
    exact-package search Root realized with `Surface`.
 2. Named implementation demand and aligned blocks in the House and the
-   acquisition step, with gates 6 to 10. No command sets names yet.
-3. `type`, `member`, and `library` adopt ranged access with
-   `SurfaceAndImplementation`, naming the assemblies that define what they
-   inspect, and reusing the folders a surface search cached. Moving these
-   commands onto the House is separate work; this step only sets their demand.
-4. `graph` adopts ranged access with `SurfaceAndImplementation`.
-5. Runtime packs are realized with named implementation demand once the
+   acquisition step, with gates 6 to 10.
+3. `library address` adopts ranged access with
+   `SurfaceAndImplementation`, one named implementation, selected Library
+   handoffs, and source-sensitive companion demand for non-JSON output. JSON
+   retains the complete path until the shared Address result owns its existing
+   Library metadata schema.
+4. `type`, `member`, and the remaining `library` operations adopt ranged
+   access, naming the assemblies that define what they inspect and reusing the
+   folders a surface search cached.
+5. `graph` adopts ranged access with `SurfaceAndImplementation`.
+6. Runtime packs are realized with named implementation demand once the
    [package-backed platform source](package-backed-platform-realization.md)
    no longer reads every member's identity at realization. That change belongs
    to its owner.
-6. Document demand and pull reads over ranged content, adopted by the exact
+7. Document demand and pull reads over ranged content, adopted by the exact
    `package --content --out` export of a root `README.md` or
    `skills/**/SKILL.md` path. The Browser/Wasm document viewer keeps
    complete `Acquire` until Inspect Web adopts ranged access.
-7. `diff --history` realizes each version cell with ranged access: Metadata
+8. `diff --history` realizes each version cell with ranged access: Metadata
    cells with `Surface`, whose package Root prepares no implementation role,
    and Analysis cells with `SurfaceAndImplementation`. A history over the
    versions of a large package then reads each version's surface folder, or
    its surface and implementation folders, instead of its whole archive, and
    a repeated history reads nothing it already holds.
 
-`package` keeps complete acquisition, except its document export (step 6).
+`package` keeps complete acquisition, except its document export (step 7).
 
 ## Non-claims
 

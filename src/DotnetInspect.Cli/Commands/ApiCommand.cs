@@ -1318,20 +1318,20 @@ public partial class ApiCommand
             CommandError.WriteNote($"{empty.Count} sections have no data for {type.FullName}{suffix}: {string.Join(", ", empty)}.");
     }
 
+    // The Metadata owner's admission decides which declarations are
+    // compiler-generated; a host does not narrow the population further by name
+    // (docs/design/api-population-scope.md#accessibility-within-api-visibility-scope).
     internal static ApiType BuildFilteredTypeForSections(ApiType type, ApiOptions options)
-        => BuildFilteredType(type, options, excludeCompilerGeneratedNames: true);
+        => BuildFilteredType(type, options);
 
     internal static ApiType BuildFilteredTypeForBodyShapes(ApiType type, ApiOptions options)
-        => BuildFilteredType(type, options, excludeCompilerGeneratedNames: false);
+        => BuildFilteredType(type, options);
 
     private static ApiType BuildFilteredType(
         ApiType type,
-        ApiOptions options,
-        bool excludeCompilerGeneratedNames)
+        ApiOptions options)
     {
         IEnumerable<ApiMember> members = type.Members;
-        if (excludeCompilerGeneratedNames)
-            members = members.Where(m => !MemberFilters.IsCompilerGenerated(m.Name));
 
         if (options.MemberFilter.Count > 0)
             members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter));

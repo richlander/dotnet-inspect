@@ -10,6 +10,7 @@ public sealed class MetadataDeclarationSession : IDisposable
     MetadataImageAdmissionResult? _imageAdmission;
     MetadataTypeDefinitionIndex? _typeDefinitionIndex;
     MemorySafetyMetadataIndex? _memorySafetyIndex;
+    MetadataTypeMemberCompositionModule? _compositionModule;
     MethodSemanticsAssociationSession? _methodSemanticsAssociations;
     Dictionary<
         MetadataAccessorDeclarationRequest,
@@ -82,6 +83,32 @@ public sealed class MetadataDeclarationSession : IDisposable
             includeHidden,
             maximumMembers,
             maximumRetainedTextCharacters);
+    }
+
+    /// <summary>
+    /// Counts one Type's Member population per accessibility bucket and
+    /// receiver form in the requested spelling and hidden admission
+    /// (docs/design/type-member-inspection-documents.md#composition-count).
+    /// </summary>
+    public MetadataTypeMemberCompositionOutcome InspectTypeMemberComposition(
+        MetadataTypeDefinitionName type,
+        MetadataMemberSpelling spelling,
+        bool includeHidden,
+        MetadataMethodAccessibilityFilter accessibility)
+    {
+        EnsureAccess();
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
+            return new MetadataTypeMemberCompositionOutcome.Failed();
+
+        MetadataReader reader =
+            _assemblySession!.GetMetadataReaderForDeclarationSession();
+        return MetadataTypeMemberCompositionInspection.Read(
+            reader,
+            _compositionModule ??= new MetadataTypeMemberCompositionModule(reader),
+            type,
+            spelling,
+            includeHidden,
+            accessibility);
     }
 
     public MetadataMethodDeclarationResult PostMethodDeclaration(

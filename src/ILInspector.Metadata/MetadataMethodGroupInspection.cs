@@ -83,6 +83,428 @@ public abstract record MetadataMethodGroupInspectionOutcome
 
 internal static class MetadataMethodGroupInspection
 {
+    internal enum CandidateKind
+    {
+        OutsideGroup,
+        Filtered,
+        Selected,
+    }
+
+    internal abstract record PreparationResult
+    {
+        private PreparationResult()
+        {
+        }
+
+        internal sealed record Prepared(Analysis Model)
+            : PreparationResult;
+
+        internal sealed record Rejected(
+            MetadataMethodGroupInspectionOutcome Outcome)
+            : PreparationResult;
+    }
+
+    internal sealed class Analysis
+    {
+        private readonly HashSet<MethodDefinitionHandle> _accessors;
+        private readonly HashSet<MethodDefinitionHandle>
+            _explicitImplementationBodies;
+        private readonly Dictionary<
+            MethodDefinitionHandle,
+            ApiSurfaceExtractor.InterfaceImplementationAccess>
+            _interfaceImplementations;
+
+        internal Analysis(
+            MetadataReader reader,
+            MetadataTypeDefinitionName declaringType,
+            TypeDefinitionHandle typeHandle,
+            TypeDefinition type,
+            string methodName,
+            HashSet<MethodDefinitionHandle> accessors,
+            HashSet<MethodDefinitionHandle> explicitImplementationBodies,
+            Dictionary<
+                MethodDefinitionHandle,
+                ApiSurfaceExtractor.InterfaceImplementationAccess>
+                interfaceImplementations)
+        {
+            Reader = reader;
+            DeclaringType = declaringType;
+            TypeHandle = typeHandle;
+            Type = type;
+            MethodName = methodName;
+            _accessors = accessors;
+            _explicitImplementationBodies =
+                explicitImplementationBodies;
+            _interfaceImplementations = interfaceImplementations;
+        }
+
+        internal MetadataReader Reader { get; }
+        internal MetadataTypeDefinitionName DeclaringType { get; }
+        internal TypeDefinitionHandle TypeHandle { get; }
+        internal TypeDefinition Type { get; }
+        internal string MethodName { get; }
+
+        internal MethodDefinitionHandleCollection Methods =>
+            Type.GetMethods();
+
+        internal MethodDefinition GetMethod(
+            MethodDefinitionHandle handle) =>
+            Reader.GetMethodDefinition(handle);
+
+        internal CandidateKind Classify(
+            MethodDefinitionHandle handle,
+            MethodDefinition method,
+            MetadataMethodAccessibilityFilter accessibility,
+            MetadataMethodReceiverFilter receiver,
+            bool includeHidden,
+            ref bool? extensionContainer)
+        {
+            if (!Reader.StringComparer.Equals(
+                    method.Name,
+                    MethodName)
+                || !IsOrdinaryMethodName(MethodName)
+                || _accessors.Contains(handle))
+            {
+                return CandidateKind.OutsideGroup;
+            }
+
+            if (!MatchesAccessibility(
+                    ApiSurfaceExtractor.MethodEffectiveAccess(
+                        method.Attributes
+                            & MethodAttributes.MemberAccessMask,
+                        handle,
+                        _interfaceImplementations),
+                    accessibility)
+                || !MatchesReceiver(
+                    Reader,
+                    Type,
+                    method,
+                    receiver,
+                    ref extensionContainer)
+                || (!includeHidden
+                    && ApiSurfaceExtractor.IsHiddenMethod(
+                        Reader,
+                        method.GetCustomAttributes(),
+                        _explicitImplementationBodies.Contains(
+                            handle))))
+            {
+                return CandidateKind.Filtered;
+            }
+
+            return CandidateKind.Selected;
+        }
+
+        internal bool ExtensionContainer() =>
+            AttributeReader.HasExtensionAttribute(
+                Reader,
+                Type.GetCustomAttributes());
+
+        internal MetadataMethodGroupRow Project(
+            MethodDefinitionHandle handle,
+            MetadataMethodReceiver receiver)
+        {
+            MethodDefinition method =
+                Reader.GetMethodDefinition(handle);
+            MetadataMethodDeclaration declaration =
+                MetadataDeclarationQuery.GetMethod(
+                    Reader,
+                    Type,
+                    method);
+            MemberAnchor anchor =
+                ApiMemberIdentity.CreateMethodAnchor(
+                    Reader,
+                    TypeHandle,
+                    method,
+                    receiver
+                        is MetadataMethodReceiver.Extension);
+            return new(
+                MetadataTokens.GetToken(handle),
+                MetadataDeclarationQuery.GetMethodSignatureText(
+                    declaration),
+                anchor.CanonicalSignature,
+                anchor.Fingerprint,
+                declaration.Accessibility,
+                receiver);
+        }
+    }
+
+    internal sealed class Selection
+    {
+        private bool? _extensionContainer;
+
+        internal Selection(
+            Analysis model,
+            MetadataMethodAccessibilityFilter accessibility,
+            MetadataMethodReceiverFilter receiver,
+            bool includeHidden)
+        {
+            Model = model;
+            Accessibility = accessibility;
+            Receiver = receiver;
+            IncludeHidden = includeHidden;
+        }
+
+        internal Analysis Model { get; }
+        internal MetadataMethodAccessibilityFilter Accessibility { get; }
+        internal MetadataMethodReceiverFilter Receiver { get; }
+        internal bool IncludeHidden { get; }
+
+        internal CandidateKind Classify(
+            MethodDefinitionHandle handle,
+            MethodDefinition method) =>
+            Model.Classify(
+                handle,
+                method,
+                Accessibility,
+                Receiver,
+                IncludeHidden,
+                ref _extensionContainer);
+
+        internal MetadataMethodReceiver ReceiverFor(
+            MethodDefinition method)
+        {
+            if (Receiver is MetadataMethodReceiverFilter.This)
+                return MetadataMethodReceiver.This;
+            if (Receiver is MetadataMethodReceiverFilter.Static)
+                return MetadataMethodReceiver.Static;
+            if (Receiver is MetadataMethodReceiverFilter.Extension)
+                return MetadataMethodReceiver.Extension;
+            _extensionContainer ??= Model.ExtensionContainer();
+            return ClassifyReceiver(
+                Model.Reader,
+                method,
+                _extensionContainer.Value);
+        }
+    }
+
+    internal sealed class Fold
+    {
+        private readonly Analysis _model;
+        private readonly Selection _selection;
+        private readonly int _startOrdinal;
+        private readonly int _maximumRows;
+        private readonly int _maximumMembers;
+        private readonly int _maximumRetainedTextCharacters;
+        private readonly List<MethodDefinitionHandle>? _rowHandles;
+        private bool _groupExists;
+        private int _matchCount;
+        private MetadataMethodGroupInspectionOutcome? _terminal;
+
+        internal Fold(
+            Analysis model,
+            Selection selection,
+            int startOrdinal,
+            int maximumRows,
+            bool materializeRows,
+            int maximumMembers,
+            int maximumRetainedTextCharacters)
+        {
+            _model = model;
+            _selection = selection;
+            _startOrdinal = startOrdinal;
+            _maximumRows = maximumRows;
+            _maximumMembers = maximumMembers;
+            _maximumRetainedTextCharacters =
+                maximumRetainedTextCharacters;
+            _rowHandles = materializeRows
+                ? []
+                : null;
+        }
+
+        internal bool Accept(MethodDefinitionHandle handle)
+        {
+            if (_terminal is not null)
+                return false;
+
+            MethodDefinition method =
+                _model.GetMethod(handle);
+            CandidateKind kind =
+                _selection.Classify(handle, method);
+            if (kind is CandidateKind.OutsideGroup)
+                return true;
+            _groupExists = true;
+            if (kind is CandidateKind.Filtered)
+                return true;
+
+            if (_rowHandles is not null
+                && _matchCount >= _startOrdinal
+                && _rowHandles.Count < _maximumRows)
+            {
+                _rowHandles.Add(handle);
+            }
+            _matchCount++;
+            if (_matchCount > _maximumMembers)
+            {
+                _terminal =
+                    new MetadataMethodGroupInspectionOutcome.Incomplete(
+                        MetadataMethodGroupInspectionBound.Members,
+                        _maximumMembers,
+                        _matchCount);
+                return false;
+            }
+
+            return true;
+        }
+
+        internal MetadataMethodGroupInspectionOutcome Complete()
+        {
+            if (_terminal is not null)
+                return _terminal;
+            if (!_groupExists)
+            {
+                return new MetadataMethodGroupInspectionOutcome
+                    .MemberGroupNotFound();
+            }
+            if (_startOrdinal > _matchCount
+                || (_startOrdinal == _matchCount
+                    && _matchCount != 0))
+            {
+                return Read(
+                    [],
+                    nextOrdinal: null,
+                    continuationOutOfRange: true);
+            }
+
+            int rowCount = _rowHandles?.Count ?? 0;
+            var rows =
+                ImmutableArray.CreateBuilder<MetadataMethodGroupRow>(
+                    rowCount);
+            long retainedTextCharacters = 0;
+            for (int index = 0; index < rowCount; index++)
+            {
+                MethodDefinitionHandle handle =
+                    _rowHandles![index];
+                MethodDefinition method =
+                    _model.GetMethod(handle);
+                MetadataMethodGroupRow row;
+                try
+                {
+                    row =
+                        _model.Project(
+                            handle,
+                            _selection.ReceiverFor(method));
+                }
+                catch (Exception exception) when (
+                    exception is BadImageFormatException
+                        or ArgumentOutOfRangeException
+                        or OverflowException)
+                {
+                    return Read(
+                        [],
+                        nextOrdinal: null,
+                        rowsFailed: true);
+                }
+                retainedTextCharacters = checked(
+                    retainedTextCharacters
+                        + row.DisplaySignature.Length
+                        + row.CanonicalSignature.Length
+                        + row.Fingerprint.Length
+                        + row.Accessibility.Length);
+                if (retainedTextCharacters
+                    > _maximumRetainedTextCharacters)
+                {
+                    return Read(
+                        [],
+                        nextOrdinal: null,
+                        incompleteRetainedTextCharacters:
+                            retainedTextCharacters);
+                }
+                rows.Add(row);
+            }
+
+            int nextOrdinal =
+                checked(_startOrdinal + rowCount);
+            return Read(
+                rows.MoveToImmutable(),
+                _rowHandles is not null
+                    && nextOrdinal < _matchCount
+                        ? nextOrdinal
+                        : null);
+        }
+
+        private MetadataMethodGroupInspectionOutcome.Read Read(
+            ImmutableArray<MetadataMethodGroupRow> rows,
+            int? nextOrdinal,
+            bool continuationOutOfRange = false,
+            long? incompleteRetainedTextCharacters = null,
+            bool rowsFailed = false) =>
+            new(
+                _model.DeclaringType,
+                MetadataTokens.GetToken(_model.TypeHandle),
+                _matchCount,
+                rows,
+                nextOrdinal,
+                continuationOutOfRange,
+                incompleteRetainedTextCharacters,
+                rowsFailed);
+    }
+
+    internal static PreparationResult Prepare(
+        MetadataReader reader,
+        MetadataMethodSemanticsAssociationResult methodSemantics,
+        MetadataTypeDefinitionName declaringType,
+        string methodName)
+    {
+        TypeDefinitionHandle typeHandle = default;
+        foreach (TypeDefinitionHandle candidate
+            in reader.TypeDefinitions)
+        {
+            MetadataTypeDefinitionNameMatchResult match =
+                MetadataTypeDefinitionName.Matches(
+                    reader,
+                    candidate,
+                    declaringType,
+                    out _);
+            if (match is MetadataTypeDefinitionNameMatchResult.Rejected)
+            {
+                return new PreparationResult.Rejected(
+                    new MetadataMethodGroupInspectionOutcome.Failed());
+            }
+            if (match is not MetadataTypeDefinitionNameMatchResult.Match)
+                continue;
+            if (!typeHandle.IsNil)
+            {
+                return new PreparationResult.Rejected(
+                    new MetadataMethodGroupInspectionOutcome
+                        .TypeAmbiguous());
+            }
+            typeHandle = candidate;
+        }
+        if (typeHandle.IsNil)
+        {
+            return new PreparationResult.Rejected(
+                new MetadataMethodGroupInspectionOutcome.TypeNotFound());
+        }
+
+        TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+        if (!TryGetAccessorMethods(
+                reader,
+                typeHandle,
+                type,
+                methodName,
+                methodSemantics,
+                out HashSet<MethodDefinitionHandle> accessors,
+                out MetadataMethodGroupInspectionOutcome? failure))
+        {
+            return new PreparationResult.Rejected(failure!);
+        }
+
+        return new PreparationResult.Prepared(
+            new(
+                reader,
+                declaringType,
+                typeHandle,
+                type,
+                methodName,
+                accessors,
+                ApiSurfaceExtractor.GetExplicitImplementationBodies(
+                    reader,
+                    type),
+                ApiSurfaceExtractor.GetInterfaceImplementations(
+                    reader,
+                    type)));
+    }
+
     public static MetadataMethodGroupInspectionOutcome Read(
         MetadataReader reader,
         MetadataMethodSemanticsAssociationResult methodSemantics,
@@ -123,246 +545,31 @@ internal static class MetadataMethodGroupInspection
 
         try
         {
-            MetadataTypeDefinitionIndex index =
-                MetadataTypeDefinitionIndex.Create(reader);
-            if (!index.TryGetDefinitions(
-                    declaringType,
-                    out ImmutableArray<TypeDefinitionHandle> definitions,
-                    out bool ambiguous))
-            {
-                return new MetadataMethodGroupInspectionOutcome.TypeNotFound();
-            }
-            if (ambiguous || definitions.Length != 1)
-            {
-                return new MetadataMethodGroupInspectionOutcome.TypeAmbiguous();
-            }
-
-            TypeDefinitionHandle typeHandle = definitions[0];
-            TypeDefinition type = reader.GetTypeDefinition(typeHandle);
-            if (!TryGetAccessorMethods(
+            PreparationResult preparation =
+                Prepare(
                     reader,
-                    typeHandle,
-                    type,
-                    methodName,
                     methodSemantics,
-                    out HashSet<MethodDefinitionHandle> accessors,
-                    out MetadataMethodGroupInspectionOutcome? failure))
-            {
-                return failure!;
-            }
-            int matchCount = 0;
-            List<MethodDefinitionHandle>? rowHandles =
-                materializeRows
-                    ? []
-                    : null;
-            bool groupExists = false;
-            bool? extensionContainerForFilter = null;
-            HashSet<MethodDefinitionHandle> explicitImplementationBodies =
-                ApiSurfaceExtractor.GetExplicitImplementationBodies(
-                    reader,
-                    type);
-            Dictionary<
-                MethodDefinitionHandle,
-                ApiSurfaceExtractor.InterfaceImplementationAccess>
-                interfaceImplementations =
-                    ApiSurfaceExtractor.GetInterfaceImplementations(
-                        reader,
-                        type);
-            foreach (MethodDefinitionHandle handle in type.GetMethods())
-            {
-                MethodDefinition method =
-                    reader.GetMethodDefinition(handle);
-                if (!reader.StringComparer.Equals(
-                        method.Name,
-                        methodName)
-                    || !IsOrdinaryMethodName(methodName))
-                {
-                    continue;
-                }
-                if (accessors.Contains(handle))
-                    continue;
-                groupExists = true;
-                if (!MatchesAccessibility(
-                        ApiSurfaceExtractor.MethodEffectiveAccess(
-                            method.Attributes
-                                & MethodAttributes.MemberAccessMask,
-                            handle,
-                            interfaceImplementations),
-                        accessibility)
-                    || !MatchesReceiver(
-                        reader,
-                        type,
-                        method,
-                        receiver,
-                        ref extensionContainerForFilter)
-                    || (!includeHidden
-                        && ApiSurfaceExtractor.IsHiddenMethod(
-                            reader,
-                            method.GetCustomAttributes(),
-                            explicitImplementationBodies.Contains(handle))))
-                {
-                    continue;
-                }
-
-                if (rowHandles is not null
-                    && matchCount >= startOrdinal
-                    && rowHandles.Count < maximumRows)
-                {
-                    rowHandles.Add(handle);
-                }
-                matchCount++;
-                if (matchCount > maximumMembers)
-                {
-                    return new MetadataMethodGroupInspectionOutcome.Incomplete(
-                        MetadataMethodGroupInspectionBound.Members,
-                        maximumMembers,
-                        matchCount);
-                }
-            }
-
-            if (!groupExists)
-            {
-                return new MetadataMethodGroupInspectionOutcome
-                    .MemberGroupNotFound();
-            }
-            if (startOrdinal > matchCount
-                || (startOrdinal == matchCount && matchCount != 0))
-            {
-                return new MetadataMethodGroupInspectionOutcome.Read(
                     declaringType,
-                    MetadataTokens.GetToken(typeHandle),
-                    matchCount,
-                    [],
-                    NextOrdinal: null,
-                    ContinuationOutOfRange: true);
-            }
-
-            int rowCount = rowHandles?.Count ?? 0;
-            var rows =
-                ImmutableArray.CreateBuilder<MetadataMethodGroupRow>(
-                    rowCount);
-            bool extensionContainer;
-            try
+                    methodName);
+            if (preparation
+                is PreparationResult.Rejected rejected)
             {
-                extensionContainer =
-                    receiver
-                        is MetadataMethodReceiverFilter.Static
-                            or MetadataMethodReceiverFilter.Extension
-                    ? extensionContainerForFilter ?? false
-                    : receiver is MetadataMethodReceiverFilter.All
-                        && rowCount != 0
-                    && AttributeReader.HasExtensionAttribute(
-                        reader,
-                        type.GetCustomAttributes());
+                return rejected.Outcome;
             }
-            catch (Exception exception) when (
-                exception is BadImageFormatException
-                    or ArgumentOutOfRangeException
-                    or OverflowException)
-            {
-                return new MetadataMethodGroupInspectionOutcome.Read(
-                    declaringType,
-                    MetadataTokens.GetToken(typeHandle),
-                    matchCount,
-                    [],
-                    NextOrdinal: null,
-                    RowsFailed: true);
-            }
-            long retainedTextCharacters = 0;
-            for (int indexInGroup = 0;
-                indexInGroup < rowCount;
-                indexInGroup++)
-            {
-                MethodDefinitionHandle handle =
-                    rowHandles![indexInGroup];
-                MethodDefinition method =
-                    reader.GetMethodDefinition(handle);
-                MetadataMethodReceiver rowReceiver;
-                MetadataMethodDeclaration declaration;
-                MemberAnchor anchor;
-                try
-                {
-                    rowReceiver = receiver switch
-                    {
-                        MetadataMethodReceiverFilter.This =>
-                            MetadataMethodReceiver.This,
-                        MetadataMethodReceiverFilter.Static =>
-                            MetadataMethodReceiver.Static,
-                        MetadataMethodReceiverFilter.Extension =>
-                            MetadataMethodReceiver.Extension,
-                        MetadataMethodReceiverFilter.All =>
-                            ClassifyReceiver(
-                                reader,
-                                method,
-                                extensionContainer),
-                        _ => throw new InvalidOperationException(
-                            "Unknown Method-group receiver filter."),
-                    };
-                    declaration =
-                        MetadataDeclarationQuery.GetMethod(
-                            reader,
-                            type,
-                            method);
-                    anchor =
-                        ApiMemberIdentity.CreateMethodAnchor(
-                            reader,
-                            typeHandle,
-                            method,
-                            rowReceiver
-                                is MetadataMethodReceiver.Extension);
-                }
-                catch (Exception exception) when (
-                    exception is BadImageFormatException
-                        or ArgumentOutOfRangeException
-                        or OverflowException)
-                {
-                    return new MetadataMethodGroupInspectionOutcome.Read(
-                        declaringType,
-                        MetadataTokens.GetToken(typeHandle),
-                        matchCount,
-                        [],
-                        NextOrdinal: null,
-                        RowsFailed: true);
-                }
-                string displaySignature = MetadataDeclarationQuery
-                    .GetMethodSignatureText(declaration);
-                retainedTextCharacters = checked(
-                    retainedTextCharacters
-                        + displaySignature.Length
-                        + anchor.CanonicalSignature.Length
-                        + anchor.Fingerprint.Length
-                        + declaration.Accessibility.Length);
-                if (retainedTextCharacters
-                    > maximumRetainedTextCharacters)
-                {
-                    return new MetadataMethodGroupInspectionOutcome.Read(
-                        declaringType,
-                        MetadataTokens.GetToken(typeHandle),
-                        matchCount,
-                        [],
-                        NextOrdinal: null,
-                        IncompleteRetainedTextCharacters:
-                            retainedTextCharacters);
-                }
-                rows.Add(
-                    new(
-                        MetadataTokens.GetToken(handle),
-                        displaySignature,
-                        anchor.CanonicalSignature,
-                        anchor.Fingerprint,
-                        declaration.Accessibility,
-                        rowReceiver));
-            }
-
-            int nextOrdinal = checked(startOrdinal + rowCount);
-            return new MetadataMethodGroupInspectionOutcome.Read(
-                declaringType,
-                MetadataTokens.GetToken(typeHandle),
-                matchCount,
-                rows.MoveToImmutable(),
-                materializeRows && nextOrdinal < matchCount
-                    ? nextOrdinal
-                    : null);
+            Analysis model =
+                ((PreparationResult.Prepared)preparation).Model;
+            return Execute(
+                model,
+                new(
+                    model,
+                    accessibility,
+                    receiver,
+                    includeHidden),
+                startOrdinal,
+                maximumRows,
+                materializeRows,
+                maximumMembers,
+                maximumRetainedTextCharacters);
         }
         catch (Exception exception) when (
             exception is BadImageFormatException
@@ -371,6 +578,89 @@ internal static class MetadataMethodGroupInspection
         {
             return new MetadataMethodGroupInspectionOutcome.Failed();
         }
+    }
+
+    internal static MetadataMethodGroupInspectionOutcome Execute(
+        Analysis model,
+        Selection selection,
+        int startOrdinal,
+        int maximumRows,
+        bool materializeRows,
+        int maximumMembers,
+        int maximumRetainedTextCharacters)
+    {
+        if (!materializeRows)
+        {
+            return ExecuteCount(
+                model,
+                selection,
+                startOrdinal,
+                maximumMembers);
+        }
+
+        var fold =
+            new Fold(
+                model,
+                selection,
+                startOrdinal,
+                maximumRows,
+                materializeRows,
+                maximumMembers,
+                maximumRetainedTextCharacters);
+        foreach (MethodDefinitionHandle handle in model.Methods)
+        {
+            if (!fold.Accept(handle))
+                break;
+        }
+        return fold.Complete();
+    }
+
+    private static MetadataMethodGroupInspectionOutcome ExecuteCount(
+        Analysis model,
+        Selection selection,
+        int startOrdinal,
+        int maximumMembers)
+    {
+        bool groupExists = false;
+        int matchCount = 0;
+        foreach (MethodDefinitionHandle handle in model.Methods)
+        {
+            MethodDefinition method =
+                model.GetMethod(handle);
+            CandidateKind kind =
+                selection.Classify(handle, method);
+            if (kind is CandidateKind.OutsideGroup)
+                continue;
+            groupExists = true;
+            if (kind is CandidateKind.Filtered)
+                continue;
+
+            matchCount++;
+            if (matchCount > maximumMembers)
+            {
+                return new MetadataMethodGroupInspectionOutcome.Incomplete(
+                    MetadataMethodGroupInspectionBound.Members,
+                    maximumMembers,
+                    matchCount);
+            }
+        }
+
+        if (!groupExists)
+        {
+            return new MetadataMethodGroupInspectionOutcome
+                .MemberGroupNotFound();
+        }
+
+        bool continuationOutOfRange =
+            startOrdinal > matchCount
+                || (startOrdinal == matchCount && matchCount != 0);
+        return new MetadataMethodGroupInspectionOutcome.Read(
+            model.DeclaringType,
+            MetadataTokens.GetToken(model.TypeHandle),
+            matchCount,
+            [],
+            NextOrdinal: null,
+            ContinuationOutOfRange: continuationOutOfRange);
     }
 
     private static bool TryGetAccessorMethods(
@@ -541,22 +831,7 @@ internal static class MetadataMethodGroupInspection
         MetadataMethodAccessibilityFilter filter)
     {
         MetadataMethodAccessibilityFilter actual =
-            effectiveAccess switch
-            {
-                MethodAttributes.Public =>
-                    MetadataMethodAccessibilityFilter.Public,
-                MethodAttributes.Family
-                    or MethodAttributes.FamANDAssem
-                    or MethodAttributes.FamORAssem =>
-                    MetadataMethodAccessibilityFilter.Protected,
-                MethodAttributes.Assembly =>
-                    MetadataMethodAccessibilityFilter.Internal,
-                MethodAttributes.Private
-                    or MethodAttributes.PrivateScope =>
-                    MetadataMethodAccessibilityFilter.Private,
-                _ => throw new BadImageFormatException(
-                    "The MethodDef accessibility is invalid."),
-            };
+            ApiSurfaceExtractor.AccessibilityBucket(effectiveAccess);
         return filter is MetadataMethodAccessibilityFilter.All
             || filter == actual;
     }
