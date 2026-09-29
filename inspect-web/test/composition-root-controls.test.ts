@@ -338,7 +338,7 @@ test("platform library selection remains distinct from canonical Platform identi
     /id: "Microsoft\.NETCore\.App"/);
   assert.match(
     appSource,
-    /platformLibraryKey\(row\) === assembly[\s\S]*target\.tfm, platformAssemblyRequest\(row\), row\.pack/);
+    /platformLibraryKey\(row\) === assembly[\s\S]*target\.tfm, target\.version, platformAssemblyRequest\(row\), row\.pack/);
 });
 
 test("platform inspection notices survive cumulative surface loads", () => {
@@ -682,7 +682,7 @@ test("typed package view owns package navigation bindings", () => {
   for (const source of [kindJump, namespaceJump]) {
     assert.match(
       source,
-      /state\.typeFilter = "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.memberBrowseTypeId = "";[\s\S]*resetMemberFilters\(\);[\s\S]*state\.typeCursor = 0;[\s\S]*const first = filteredTypes\(\)\[0\];[\s\S]*if \(first\) state\.selectedTypeId = first\.id;[\s\S]*render\(\)/);
+      /state\.typeFilter = "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.memberBrowseTypeId = "";[\s\S]*resetMemberFilters\(\);[\s\S]*state\.typeCursor = 0;[\s\S]*const first = filteredTypeRows\(\)\[0\];[\s\S]*if \(first\) state\.selectedTypeId = first\.id;[\s\S]*render\(\)/);
     assert.equal(source.match(/\brender\(\)/g)?.length, 1);
   }
   assert.equal(libraryJump.match(/\brender\(\)/g)?.length, 1);
@@ -1380,10 +1380,15 @@ test("typed scope bar owns its rendered control bindings", () => {
                     if: 'target === "type"',
                     whenTrue: [
                       "assign:state.workspaceSubjectOpen = false",
+                      "declare:const forwarder = selectedForwarder()",
                       {
-                        if: "!enterTypeSubject(selectedType())",
-                        whenTrue: ["statement:ReturnStatement:return;"],
-                        whenFalse: [],
+                        if: "forwarder",
+                        whenTrue: ["call:enterForwardedType(forwarder)"],
+                        whenFalse: [{
+                          if: "!enterTypeSubject(selectedType())",
+                          whenTrue: ["statement:ReturnStatement:return;"],
+                          whenFalse: [],
+                        }],
                       },
                       'assign:state.selectedMemberKey = ""',
                       'assign:state.memberBrowseTypeId = ""',
