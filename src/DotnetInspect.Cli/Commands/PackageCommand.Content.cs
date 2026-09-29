@@ -25,6 +25,7 @@ using Markout;
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace DotnetInspect.Cli.Commands;
@@ -431,7 +432,8 @@ public partial class PackageCommand
         }
 
         PackageDocumentContentDocument document = inspection.Content;
-        byte[] exactContent = document.Content.ToArray();
+        byte[] exactContent =
+            ImmutableCollectionsMarshal.AsArray(document.Content) ?? [];
         var file = new PackageFile(
             document.Path!,
             document.Size,

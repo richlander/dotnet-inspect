@@ -763,10 +763,11 @@ and disposes the stream while the acquired payload generation remains live.
 
 The Browser/Wasm package store still retains the complete admitted `.nupkg` in
 memory, and a displayed document may ultimately remain resident in the pane.
-The bounded path avoids a second complete expanded-entry `byte[]`; it does not
-promise zero-copy acquisition. A CLI host can copy the same stream to stdout
-or a file with one bounded transfer buffer. A Browser host can decode
-progressively into its final resident representation.
+Its bounded path avoids a second complete expanded-entry `byte[]`; it does not
+promise zero-copy acquisition. The CLI's detached content inspection instead
+owns one complete expanded-entry array, which its projections reuse without a
+second entry-sized copy. A Browser host can decode progressively into its
+final resident representation.
 
 This capability belongs only to `PackageHouseSettlement.Acquired`. The legacy
 `PackageExtractor`, extracted-file, `PackageFileContent`, and Source paths gain
