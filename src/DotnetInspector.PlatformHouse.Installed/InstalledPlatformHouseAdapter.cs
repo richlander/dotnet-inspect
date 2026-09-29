@@ -331,6 +331,12 @@ public sealed class InstalledPlatformHouseAdapter
                     Value: PlatformLibraryDemand.Assembly assembly
                 } => new InstalledReferencePopulationDemand.Assembly(
                     assembly.Identity),
+                PlatformPopulationDemand.Library
+                {
+                    Value:
+                        PlatformLibraryDemand.AssemblyReferenceBinding binding
+                } => new InstalledReferencePopulationDemand
+                    .AssemblyReferenceBinding(binding.Identity),
                 PlatformPopulationDemand.CompletePopulation =>
                     new InstalledReferencePopulationDemand
                         .CompletePopulation(),
@@ -710,7 +716,7 @@ public sealed class InstalledPlatformHouseAdapter
                         AssemblyBindingTarget.AssemblyReference target,
                 }:
                 population = new PlatformPopulationDemand.Library(
-                    new PlatformLibraryDemand.Assembly(
+                    new PlatformLibraryDemand.AssemblyReferenceBinding(
                         target.Identity));
                 return true;
             default:
