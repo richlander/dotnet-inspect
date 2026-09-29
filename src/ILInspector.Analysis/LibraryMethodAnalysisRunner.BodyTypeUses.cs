@@ -532,7 +532,7 @@ internal sealed record BodyTypeUseOperandBinding(
     string? Unavailable,
     ImmutableArray<BodyTypeUseOperandTarget> Targets);
 
-internal sealed record BodyTypeUseOccurrence(
+internal readonly record struct BodyTypeUseOccurrence(
     TypeDefinitionHandle Source,
     TypeDefinitionHandle Target,
     int PhysicalMethodToken,

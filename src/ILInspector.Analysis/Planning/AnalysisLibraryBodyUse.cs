@@ -209,7 +209,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
         AnalysisLibraryBodyUseCoverage Coverage);
 }
 
-internal sealed record BodyTypeUsePhysicalFact(
+internal readonly record struct BodyTypeUsePhysicalFact(
     TypeDefinitionHandle PhysicalType,
     int PhysicalMethodToken,
     AnalysisLibraryBodyUseFidelity Fidelity);
