@@ -881,8 +881,10 @@ public sealed class LocalFunctionRaisingPass : IIrPass
     {
         foreach (var node in function.Descendants)
         {
-            MethodRef method;
-            IrExpression receiver;
+            MethodRef? method = null;
+            IrExpression? receiver = null;
+            string memberName;
+            bool isHostReceiver = false;
             switch (node)
             {
                 case Call
@@ -892,6 +894,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 } call:
                     method = call.Callee;
                     receiver = call.Arguments[0];
+                    memberName = CSharpNaming.SourceMethodName(method);
                     break;
                 case DelegateCreation
                 {
@@ -899,6 +902,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 } creation:
                     method = creation.Method;
                     receiver = creation.Target;
+                    memberName = CSharpNaming.SourceMethodName(method);
                     break;
                 case LoadFunctionPointer
                 {
@@ -907,23 +911,116 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 } pointer:
                     method = pointer.Method;
                     receiver = instance;
+                    memberName = CSharpNaming.SourceMethodName(method);
+                    break;
+                case LoadField
+                {
+                    UsesAccessorStorage: false,
+                    Field.BackingPropertyName: null,
+                    Instance: { } instance,
+                } field:
+                    memberName = SourceFieldName(field.Field);
+                    receiver = instance;
+                    break;
+                case StoreField
+                {
+                    Field.BackingPropertyName: null,
+                    Instance: { } instance,
+                } field:
+                    memberName = SourceFieldName(field.Field);
+                    receiver = instance;
+                    break;
+                case LoadFieldAddress
+                {
+                    Field.BackingPropertyName: null,
+                    Instance: { } instance,
+                } field:
+                    memberName = SourceFieldName(field.Field);
+                    receiver = instance;
+                    break;
+                case NullCoalescingFieldAssignment
+                {
+                    Field.BackingPropertyName: null,
+                    Instance: { } instance,
+                } field:
+                    memberName = SourceFieldName(field.Field);
+                    receiver = instance;
+                    break;
+                case NullCoalescingFieldAssignmentExpression
+                {
+                    Field.BackingPropertyName: null,
+                    Instance: { } instance,
+                } field:
+                    memberName = SourceFieldName(field.Field);
+                    receiver = instance;
+                    break;
+                case LoadProperty
+                {
+                    Instance: { } instance,
+                    IndexArguments.Count: 0,
+                } property:
+                    memberName = property.PropertyName;
+                    receiver = instance;
+                    break;
+                case StoreProperty
+                {
+                    Instance: { } instance,
+                    IndexArguments.Count: 0,
+                } property:
+                    memberName = property.PropertyName;
+                    receiver = instance;
+                    break;
+                case NullCoalescingPropertyAssignment
+                {
+                    Instance: { } instance,
+                    IndexArguments.Count: 0,
+                } property:
+                    memberName = property.PropertyName;
+                    receiver = instance;
+                    break;
+                case EventSubscription
+                {
+                    Instance: { } instance,
+                } subscription:
+                    memberName = subscription.EventName;
+                    receiver = instance;
+                    break;
+                case DeconstructionTarget
+                {
+                    Kind: DeconstructionTargetKind.Field,
+                    Field.BackingPropertyName: null,
+                    Field: { } field,
+                    IsThisInstance: true,
+                }:
+                    memberName = SourceFieldName(field);
+                    isHostReceiver = true;
+                    break;
+                case DeconstructionTarget
+                {
+                    Kind: DeconstructionTargetKind.Property,
+                    Instance: { } instance,
+                    IndexArguments.Count: 0,
+                } property:
+                    memberName = property.PropertyName;
+                    receiver = instance;
                     break;
                 default:
                     continue;
             }
 
-            if (!SameLocalFunctionMethod(method, localMethod)
-                && IsHostReceiver(function, receiver)
-                && string.Equals(
-                    CSharpNaming.SourceMethodName(method),
-                    localName,
-                    StringComparison.Ordinal))
+            if ((method is null || !SameLocalFunctionMethod(method, localMethod))
+                && (isHostReceiver
+                    || receiver is not null && IsHostReceiver(function, receiver))
+                && string.Equals(memberName, localName, StringComparison.Ordinal))
             {
                 return true;
             }
         }
         return false;
     }
+
+    static string SourceFieldName(FieldRef field)
+        => CSharpNaming.PrimaryConstructorCaptureName(field.Name) ?? field.Name;
 
     static bool CallsUseHostReceiver(IrFunction function, IEnumerable<Call> calls)
         => function.Signature.HasThis

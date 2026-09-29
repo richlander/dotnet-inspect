@@ -296,6 +296,28 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void InstanceLocalFunctionShadowingInstanceField_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionShadowingInstanceField),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("g___read", output);
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionShadowingInstanceProperty_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionShadowingInstanceProperty),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("g__Result", output);
+    }
+
+    [Fact]
     public void SiblingInstanceLocalFunctionShadowingMember_DeclinesShadowingDeclaration()
     {
         string output = PrintRaised(

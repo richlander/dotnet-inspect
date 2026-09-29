@@ -2433,6 +2433,8 @@ public class CfgSampleClass
     }
 
     int Read(int value) => value + 10;
+    int _read = 10;
+    int Result { get; set; } = 10;
 
     // The authored `this.Read` must not become a recursive call to the recovered
     // local declaration after the printer removes an otherwise optional `this.`.
@@ -2464,6 +2466,23 @@ public class CfgSampleClass
             Func<int, int> callback = this.Read;
             return callback(current) + _localFunctionState;
         }
+    }
+
+    // Field spelling drops the exact-this receiver too, so the recovered
+    // declaration would otherwise turn the field read into a method group.
+    public int InstanceLocalFunctionShadowingInstanceField(int value)
+    {
+        return _read(value);
+
+        int _read(int current) => this._read + current;
+    }
+
+    // Property spelling has the same declaration-scope binding requirement.
+    public int InstanceLocalFunctionShadowingInstanceProperty(int value)
+    {
+        return Result(value);
+
+        int Result(int current) => this.Result + current;
     }
 
     // Both local functions flatten into one declaration scope. The authored
