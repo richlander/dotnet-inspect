@@ -64,6 +64,7 @@
     <Content Include="..\..\inspect-web\assets\bots\*.png" Link="wwwroot\assets\bots\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
     <Content Include="..\..\inspect-web\assets\platform-index.json" Link="wwwroot\assets\platform-index.json" CopyToOutputDirectory="PreserveNewest" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
     <Content Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\runtime-loader.js" Link="wwwroot\runtime-loader.js" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
+    <Content Include="..\..\inspect-web\dist\browser-package-entry-cache.js" Link="wwwroot\browser-package-entry-cache.js" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
     <Content Remove="wwwroot\inspect-web-*.js" />
     <_InspectWebGeneratedFacadeModule Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\inspect-web-host.js" />
     <_InspectWebGeneratedFacadeModule Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\inspect-web-package.js" />

@@ -275,13 +275,18 @@ public sealed partial class PackageRangedRealizationTests
         IPackageEntryStore entries = store;
         if (directory)
         {
-            Assert.True(entries.TryReadDirectory(PclStorage, PclStorageVersion, out ReadOnlyMemory<byte> region, out _));
-            Assert.Equal(new byte[] { 1, 2, 3 }, region.ToArray());
+            PackageEntryDirectory? cached =
+                await entries.ReadDirectoryAsync(PclStorage, PclStorageVersion);
+            Assert.NotNull(cached);
+            Assert.Equal(new byte[] { 1, 2, 3 }, cached.Region.ToArray());
         }
         else
         {
-            Assert.True(entries.TryReadEntry(
-                PclStorage, PclStorageVersion, "lib/net45/PCLStorage.dll", out byte[] content));
+            byte[]? content = await entries.ReadEntryAsync(
+                PclStorage,
+                PclStorageVersion,
+                "lib/net45/PCLStorage.dll");
+            Assert.NotNull(content);
             Assert.Equal(new byte[] { 1, 2, 3 }, content);
         }
 
@@ -350,13 +355,18 @@ public sealed partial class PackageRangedRealizationTests
         // The cached directory still describes the original archive, and the
         // entry the changed read lacked was not published from it.
         IPackageEntryStore entries = store;
-        Assert.True(entries.TryReadDirectory(PclStorage, PclStorageVersion, out ReadOnlyMemory<byte> region, out long length));
-        Assert.Equal(archive.Length, length);
+        PackageEntryDirectory? cached =
+            await entries.ReadDirectoryAsync(PclStorage, PclStorageVersion);
+        Assert.NotNull(cached);
+        Assert.Equal(archive.Length, cached.ArchiveLength);
         Assert.NotNull(ZipFetch.ZipArchiveReader.ReadDirectoryFromRegion(
-                region, length, new ZipFetch.ZipReadLimits())
+                cached.Region, cached.ArchiveLength, new ZipFetch.ZipReadLimits())
             .Find("lib/sl5/PCLStorage.xml"));
-        Assert.False(entries.TryReadEntry(
-            PclStorage, PclStorageVersion, "lib/net45/PCLStorage.xml", out _));
+        Assert.Null(
+            await entries.ReadEntryAsync(
+                PclStorage,
+                PclStorageVersion,
+                "lib/net45/PCLStorage.xml"));
 
         await AssertLaterReadIsServedFromTheCompleteStoreAsync(store, changed);
     }
