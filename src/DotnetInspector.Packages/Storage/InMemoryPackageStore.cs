@@ -141,54 +141,56 @@ public sealed class InMemoryPackageStore : IPackageStore, IPreparedPackageStore,
     private static string EntryKey(string packageId, string version) =>
         $"{packageId.ToLowerInvariant()}@{version.ToLowerInvariant()}";
 
-    bool IPackageEntryStore.TryReadDirectory(
+    ValueTask<PackageEntryDirectory?> IPackageEntryStore.ReadDirectoryAsync(
         string packageId,
-        string version,
-        out ReadOnlyMemory<byte> region,
-        out long archiveLength)
+        string version)
     {
         bool found = _directories.TryGetValue(
             EntryKey(packageId, version),
             out (ReadOnlyMemory<byte> Region, long Length) directory);
-        region = directory.Region;
-        archiveLength = directory.Length;
-        return found;
+        return ValueTask.FromResult<PackageEntryDirectory?>(
+            found
+                ? new(directory.Region, directory.Length)
+                : null);
     }
 
-    void IPackageEntryStore.PublishDirectory(
+    ValueTask IPackageEntryStore.PublishDirectoryAsync(
         string packageId,
         string version,
         ReadOnlyMemory<byte> region,
-        long archiveLength) =>
+        long archiveLength)
+    {
         _directories.TryAdd(
             EntryKey(packageId, version),
             (region.ToArray(), archiveLength));
+        return ValueTask.CompletedTask;
+    }
 
-    bool IPackageEntryStore.TryReadEntry(
+    ValueTask<byte[]?> IPackageEntryStore.ReadEntryAsync(
         string packageId,
         string version,
-        string entryPath,
-        out byte[] content)
+        string entryPath)
     {
         if (_entries.TryGetValue(
                 $"{EntryKey(packageId, version)}/{PackageEntryStoreNames.EntryFileName(entryPath)}",
                 out byte[]? stored))
         {
-            content = stored.ToArray();
-            return true;
+            return ValueTask.FromResult<byte[]?>(stored.ToArray());
         }
-        content = [];
-        return false;
+        return ValueTask.FromResult<byte[]?>(null);
     }
 
-    void IPackageEntryStore.PublishEntry(
+    ValueTask IPackageEntryStore.PublishEntryAsync(
         string packageId,
         string version,
         string entryPath,
-        ReadOnlyMemory<byte> content) =>
+        ReadOnlyMemory<byte> content)
+    {
         _entries.TryAdd(
             $"{EntryKey(packageId, version)}/{PackageEntryStoreNames.EntryFileName(entryPath)}",
             content.ToArray());
+        return ValueTask.CompletedTask;
+    }
 
     /// <summary>Test seam: forgets a cached entry, as if it had never been read.</summary>
     internal void RemoveEntryForTesting(string packageId, string version, string entryPath) =>

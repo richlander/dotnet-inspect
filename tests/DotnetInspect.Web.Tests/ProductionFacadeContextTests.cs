@@ -180,7 +180,7 @@ public sealed class ProductionFacadeContextTests
             "DescribeWorkspacePackageSources",
             "EncodeWorkspaceShareState",
             "ListHomeDemos",
-            "ListVocabulary",
+            "InspectVocabulary",
             "ObserveRetainedWorkspaceSettlement",
             "PrepareRetainedWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinitionWithCredentials",

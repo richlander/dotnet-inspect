@@ -1017,8 +1017,7 @@ app.innerHTML = `
     theme: "dark",
     settingsReturn: "workbench",
     styleCatalog: {
-      styleTiers: [],
-      styleOptions: [],
+      styleCatalog: null,
       styleCatalogError: "",
       taste: [],
     },

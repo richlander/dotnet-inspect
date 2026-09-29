@@ -21,7 +21,7 @@ declare global {
   >;
   var engineWorkerStartupGate: {
     host: Pick<typeof import("/inspect-web-host.js"), "buildIdentity">;
-    catalog: Pick<typeof import("/inspect-web-catalog.js"), "listVocabulary" | "listHomeDemos">;
+    catalog: Pick<typeof import("/inspect-web-catalog.js"), "inspectVocabulary" | "listHomeDemos">;
     package: Pick<
       typeof import("/inspect-web-package.js"),
       "listPackageActivityEcosystems" | "listPackageQueryCatalog"
@@ -161,7 +161,7 @@ async function startStartupClient(page: Page) {
     });
     const client = window.engineWorkerStartup.client;
     window.engineWorkerStartupPending = Promise.allSettled([
-      client.host.buildIdentity(), client.catalog.listVocabulary(), client.catalog.listHomeDemos(),
+      client.host.buildIdentity(), client.catalog.inspectVocabulary(), client.catalog.listHomeDemos(),
       client.package.listPackageActivityEcosystems(),
       client.package.listPackageQueryCatalog(),
     ]);
@@ -181,7 +181,7 @@ test("five concurrent startup reads preserve actual generated results in one Wor
   const expected = await worker.evaluate(() => {
     const facades = globalThis.engineWorkerStartupGate;
     return [
-      facades.host.buildIdentity(), facades.catalog.listVocabulary(), facades.catalog.listHomeDemos(),
+      facades.host.buildIdentity(), facades.catalog.inspectVocabulary(), facades.catalog.listHomeDemos(),
       facades.package.listPackageActivityEcosystems(),
       facades.package.listPackageQueryCatalog(),
     ];

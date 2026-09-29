@@ -520,7 +520,7 @@ public partial class PackageCommand
                     packageArgs[0],
                     explicitVersion);
             int? houseResult =
-                await TryWriteLiteralHouseDocumentExportAsync(
+                await TryWriteLiteralHouseDocumentContentAsync(
                         [houseTarget],
                         options,
                         context)

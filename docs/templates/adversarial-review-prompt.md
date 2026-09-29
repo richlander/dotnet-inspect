@@ -7,6 +7,14 @@ every field. Use `Not applicable — <reason>` only when the reason identifies
 the relevant change classification and exact-head evidence; cite the owning
 design's exact section when it defines the boundary.
 
+After the completed frame, append every applicable domain-specific instruction
+file. Append
+[`decompiler-adversarial-review-appendix.md`](decompiler-adversarial-review-appendix.md)
+for every decompiler raise, structuring, typing, or printer change reviewed
+with validity, fidelity, corpus, or compile-back evidence, and for every change
+to those DecompilerHarness paths. The appendix is ready for direct
+concatenation; do not copy its text into this checklist.
+
 ## Required review frame
 
 - **Normative owner:** {document and section that own the reviewed claim}
@@ -47,8 +55,9 @@ design's exact section when it defines the boundary.
   measured cost and expected-consumer evidence that justify the boundary; for
   Analysis, the exact LINQ, NLinq, and Planner source locations and provenance,
   Roslyn fidelity gates, ECMA safety gates, fair oracle basis, and whether each
-  safety check is shared upstream or producer-specific; or why this field does
-  not apply}
+  safety check is general format admission, shared decoding containment, or
+  producer-specific containment or semantics, naming the exact owner; or why
+  this field does not apply}
 - **Performance evidence:** {exact base/head NativeAOT numbers for every
   supported terminal, plus where those numbers appear in the visible agent
   session and PR body; identify explanatory non-NativeAOT evidence as
@@ -107,7 +116,9 @@ reviewer to grant an approval supplied by candidate formation.}
 
 {List earlier findings that must be verified at this head. Distinguish accepted
 findings, dismissed findings, disclosed limitations, and out-of-scope
-proposals. Do not invite variants outside the review frame.}
+proposals. Require the review report to give every listed item an explicit
+disposition: still present, resolved, reclassified, or dismissed. Do not invite
+variants outside the review frame.}
 
 ### Required real-run evidence
 
