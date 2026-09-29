@@ -110,19 +110,19 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 MemberOverloadOrdering.Metadata,
                 terminal);
 
-        MemberOverloadPopulationQueryPlan plan =
+        MemberOverloadPopulationQueryRequestResult.Accepted accepted =
             Assert.IsType<
                     MemberOverloadPopulationQueryRequestResult.Accepted>(
                     MemberOverloadPopulationQuery.ResolveRequest(
                         request,
-                        TestContext.Current.CancellationToken))
-                .Plan;
+                        TestContext.Current.CancellationToken));
+        MemberOverloadPopulationQueryPlan plan = accepted.Plan;
 
         Assert.Equal(accessibility, plan.Accessibility);
         Assert.Equal(receiver, plan.Receiver);
         Assert.Equal(includeHidden, plan.IncludeHidden);
         Assert.Equal(MemberOverloadOrdering.Metadata, plan.Ordering);
-        Assert.Equal(terminal, plan.Terminal);
+        Assert.Equal(terminal, accepted.Terminal);
         Assert.Equal(3, plan.Intent.Terms.Count);
         Assert.Empty(plan.Intent.Bounds);
         Assert.Empty(plan.Intent.Stages);
@@ -194,6 +194,41 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             MemberOverloadPopulationQueryRequestRejectionKind
                 .QuerySpaceMismatch,
             rejected.Kind);
+    }
+
+    [Fact]
+    public void CountAndRowsPlanning_ResolvesAcquisitionOnce()
+    {
+        var subject = new MemberGroupSubject(
+            Name("System.Text.Json", "JsonSerializer"),
+            "Deserialize");
+        var count = new MemberOverloadPopulationRequest(
+            new MemberOverloadCountRequest(),
+            rows: null,
+            MemberOverloadAccessibilityFilter.Public,
+            MemberOverloadReceiverFilter.All,
+            includeHidden: false);
+        var countAndRows = new MemberOverloadPopulationRequest(
+            new MemberOverloadCountRequest(),
+            new(maximumRows: 20),
+            MemberOverloadAccessibilityFilter.Public,
+            MemberOverloadReceiverFilter.All,
+            includeHidden: false);
+
+        _ = PlanningAllocations(subject, count, iterations: 10);
+        _ = PlanningAllocations(subject, countAndRows, iterations: 10);
+
+        const int Iterations = 100;
+        long countAllocation =
+            PlanningAllocations(subject, count, Iterations);
+        long countAndRowsAllocation =
+            PlanningAllocations(subject, countAndRows, Iterations);
+
+        Assert.True(
+            countAndRowsAllocation <= countAllocation * 3 / 2,
+            $"Combined Count and Rows repeated operation planning: "
+                + $"count={countAllocation:N0} bytes, "
+                + $"combined={countAndRowsAllocation:N0} bytes.");
     }
 
     [Fact]
@@ -1326,6 +1361,23 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             maxMetadataRows: 1_000_000,
             maxRetainedTextCharacters:
                 maximumRetainedTextCharacters);
+
+    private static long PlanningAllocations(
+        MemberGroupSubject subject,
+        MemberOverloadPopulationRequest request,
+        int iterations)
+    {
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < iterations; index++)
+        {
+            GC.KeepAlive(
+                new MemberOverloadPopulationInspectionPlan(
+                    subject,
+                    request,
+                    s_bounds));
+        }
+        return GC.GetAllocatedBytesForCurrentThread() - before;
+    }
 
     private static byte[] BuildMethodGroupImage(
         string methodName,

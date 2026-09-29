@@ -12,8 +12,7 @@ public sealed record MemberOverloadPopulationQueryPlan(
     MemberOverloadAccessibilityFilter Accessibility,
     MemberOverloadReceiverFilter Receiver,
     bool IncludeHidden,
-    MemberOverloadOrdering Ordering,
-    QuerySpaceTerminalRequirement Terminal);
+    MemberOverloadOrdering Ordering);
 
 public enum MemberOverloadPopulationQueryRequestRejectionKind
 {
@@ -30,7 +29,9 @@ public abstract record MemberOverloadPopulationQueryRequestResult
     {
     }
 
-    public sealed record Accepted(MemberOverloadPopulationQueryPlan Plan)
+    public sealed record Accepted(
+        MemberOverloadPopulationQueryPlan Plan,
+        QuerySpaceTerminalRequirement Terminal)
         : MemberOverloadPopulationQueryRequestResult;
 
     public sealed record Rejected(
@@ -72,42 +73,13 @@ public static class MemberOverloadPopulationQuery
         "member-overload-population.term.receiver";
     private const string IncludeHiddenTermIdentity =
         "member-overload-population.term.include-hidden";
-    private static readonly QuerySpaceRowScopeBinding<MemberOverloadShape>
-        s_rowScope =
-            new(
-                new(
-                    RowScopeIdentity,
-                    RowVocabularyIdentity,
-                    [RowSet],
-                    [],
-                    [],
-                    []),
-                RowQueryVocabulary<MemberOverloadShape>.Create(
-                    RowQueryVocabularyIdentity.Create(),
-                    [],
-                    []));
+    private static readonly Lazy<QuerySpaceBinding> s_querySpace =
+        new(CreateQuerySpace);
 
     public static IQueryOperationRoute OperationRoute =>
         OperationRegistration.Route;
 
-    public static QuerySpaceBinding QuerySpace { get; } =
-        QuerySpaceBinding.Create(
-            QuerySpaceIdentity,
-            OperationRegistration.Route,
-            [s_rowScope],
-            [
-                QuerySpaceTerminalRequirement.Rows,
-                QuerySpaceTerminalRequirement.Count,
-            ],
-            acceptsContinuation: true,
-            [
-                new(
-                    QuerySpaceTerminalRequirement.Rows,
-                    RowsResultContract),
-                new(
-                    QuerySpaceTerminalRequirement.Count,
-                    CountResultContract),
-            ]);
+    public static QuerySpaceBinding QuerySpace => s_querySpace.Value;
 
     public static QuerySpaceRequest CreateRequest(
         MemberOverloadAccessibilityFilter accessibility,
@@ -199,10 +171,8 @@ public static class MemberOverloadPopulationQuery
                     cancellationToken);
         return resolution.IsResolved
             ? new MemberOverloadPopulationQueryRequestResult.Accepted(
-                resolution.Plan with
-                {
-                    Terminal = request.Terminal,
-                })
+                resolution.Plan,
+                request.Terminal)
             : new MemberOverloadPopulationQueryRequestResult.IntentRejected(
                 resolution.Failure);
     }
@@ -212,69 +182,41 @@ public static class MemberOverloadPopulationQuery
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        MemberOverloadPopulationQueryPlan? count =
-            request.Count is null
-                ? null
-                : ResolveOwnerRequest(
-                    CreateRequest(
-                        request.Accessibility,
-                        request.Receiver,
-                        request.IncludeHidden,
-                        request.Rows?.Ordering
-                            ?? MemberOverloadOrdering.Metadata,
-                        QuerySpaceTerminalRequirement.Count));
-        MemberOverloadPopulationQueryPlan? rows =
-            request.Rows is null
-                ? null
-                : ResolveOwnerRequest(
-                    CreateRequest(
-                        request.Accessibility,
-                        request.Receiver,
-                        request.IncludeHidden,
-                        request.Rows.Ordering,
-                        QuerySpaceTerminalRequirement.Rows));
-        MemberOverloadPopulationQueryPlan resolved = rows ?? count
-            ?? throw new InvalidOperationException(
-                "An exact-Member population requires a terminal.");
-        if (count is not null
-            && !SameAcquisition(count, resolved))
+        bool includesCount = request.Count is not null;
+        bool includesRows = request.Rows is not null;
+        if (!includesCount && !includesRows)
         {
             throw new InvalidOperationException(
-                "Exact-Member Count and Rows resolved to different acquisition plans.");
+                "An exact-Member population requires a terminal.");
         }
+
+        MemberOverloadPopulationQueryPlan resolved =
+            ResolveOwnerIntent(
+                CreateRequestIntent(
+                    request.Accessibility,
+                    request.Receiver,
+                    request.IncludeHidden));
 
         return new(
             resolved.Accessibility,
             resolved.Receiver,
             resolved.IncludeHidden,
             resolved.Ordering,
-            count is not null,
-            rows is not null);
+            includesCount,
+            includesRows);
     }
 
-    private static MemberOverloadPopulationQueryPlan ResolveOwnerRequest(
-        QuerySpaceRequest request) =>
-        ResolveRequest(request) switch
-        {
-            MemberOverloadPopulationQueryRequestResult.Accepted accepted =>
-                accepted.Plan,
-            MemberOverloadPopulationQueryRequestResult.IntentRejected =>
-                throw new InvalidOperationException(
-                    "An owner-issued exact-Member intent did not resolve."),
-            MemberOverloadPopulationQueryRequestResult.Rejected =>
-                throw new InvalidOperationException(
-                    "An owner-issued exact-Member request did not match its QuerySpace binding."),
-            _ => throw new InvalidOperationException(
-                "Unknown exact-Member QuerySpace request result."),
-        };
-
-    private static bool SameAcquisition(
-        MemberOverloadPopulationQueryPlan first,
-        MemberOverloadPopulationQueryPlan second) =>
-        first.Accessibility == second.Accessibility
-        && first.Receiver == second.Receiver
-        && first.IncludeHidden == second.IncludeHidden
-        && first.Ordering == second.Ordering;
+    private static MemberOverloadPopulationQueryPlan ResolveOwnerIntent(
+        PortableQueryIntent intent)
+    {
+        PortableQueryResolution<MemberOverloadPopulationQueryPlan>
+            resolution =
+                OperationRegistration.Route.Resolve(intent);
+        return resolution.IsResolved
+            ? resolution.Plan
+            : throw new InvalidOperationException(
+                "An owner-issued exact-Member intent did not resolve.");
+    }
 
     private static PortableQueryTerm Term(string key, string value) =>
         new(key, PortableQueryOperator.Equal, value);
@@ -503,9 +445,42 @@ public static class MemberOverloadPopulationQuery
                 accessibility,
                 receiver,
                 includeHidden,
-                MemberOverloadOrdering.Metadata,
-                default);
+                MemberOverloadOrdering.Metadata);
         }
+    }
+
+    private static QuerySpaceBinding CreateQuerySpace()
+    {
+        var rowScope =
+            new QuerySpaceRowScopeBinding<MemberOverloadShape>(
+                new(
+                    RowScopeIdentity,
+                    RowVocabularyIdentity,
+                    [RowSet],
+                    [],
+                    [],
+                    []),
+                RowQueryVocabulary<MemberOverloadShape>.Create(
+                    RowQueryVocabularyIdentity.Create(),
+                    [],
+                    []));
+        return QuerySpaceBinding.Create(
+            QuerySpaceIdentity,
+            OperationRegistration.Route,
+            [rowScope],
+            [
+                QuerySpaceTerminalRequirement.Rows,
+                QuerySpaceTerminalRequirement.Count,
+            ],
+            acceptsContinuation: true,
+            [
+                new(
+                    QuerySpaceTerminalRequirement.Rows,
+                    RowsResultContract),
+                new(
+                    QuerySpaceTerminalRequirement.Count,
+                    CountResultContract),
+            ]);
     }
 
     private static Predicate? BindAccessibility(string value) =>
