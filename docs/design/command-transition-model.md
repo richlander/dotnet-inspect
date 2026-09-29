@@ -1032,7 +1032,10 @@ that result into one
 retains the comparison context, selected analyses and views, flattened outcome
 state, typed API inspection failures independently of the selected view, the
 selected API Changes payload, selected Summary rows, and selected Transitions
-rows. Each outcome names its analysis identity and is exactly one of:
+rows. API Changes retain both compatibility-classified rows and unmatched
+producer correspondence such as a changed Type definition or member without a
+compatibility classification. Each outcome names its analysis identity and is
+exactly one of:
 
 - **Compared.** The analysis's native keyed comparison, such as
   `ApiFindingComparison` or `FindingComparison<T>`. Research keeps the
@@ -1065,6 +1068,11 @@ ordered diagnostics. Type and Member targets remain semantic request inputs;
 presentation-only columns, fields, row or line clipping, and tabular formats
 are rejected before acquisition. Browser/Wasm consumption of the same
 envelope remains a later adoption slice.
+
+For rendered output, explicit `--analysis api` changes delivery ownership, not
+presentation intent. Without an explicit Changes section, table, TSV, and
+JSONL retain the established changed-Type summary rows; an explicit Changes
+section selects detailed compatibility and unclassified evidence rows.
 
 #### Demo and evidence
 

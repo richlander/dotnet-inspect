@@ -81,7 +81,9 @@ public sealed record DiffAnalysisDocument
         ApiDiff? changes,
         ImmutableArray<DiffAnalysisSummaryRow>? summary,
         ImmutableArray<DiffAnalysisTransitionRow>? transitions,
-        ApiDiff? apiResult = null)
+        ApiDiff? apiResult = null,
+        ImmutableArray<DiffAnalysisUnclassifiedApiChange>
+            unclassifiedChanges = default)
     {
         Comparison = comparison;
         Outcomes = outcomes;
@@ -90,7 +92,9 @@ public sealed record DiffAnalysisDocument
             apiResult ?? changes);
         Changes = changes is null
             ? null
-            : DiffAnalysisChangesDocument.Create(changes);
+            : DiffAnalysisChangesDocument.Create(
+                changes,
+                unclassifiedChanges.IsDefault ? [] : unclassifiedChanges);
         Summary = summary;
         Transitions = transitions;
     }
@@ -130,29 +134,42 @@ public sealed record DiffAnalysisChangesDocument(
     int TotalAdditive,
     int TotalPotentiallyBreaking)
 {
-    internal static DiffAnalysisChangesDocument Create(ApiDiff diff)
+    internal static DiffAnalysisChangesDocument Create(
+        ApiDiff diff,
+        ImmutableArray<DiffAnalysisUnclassifiedApiChange> unclassified)
         => new(
             [
-                .. diff.TypeDiffs.Select(type => new DiffAnalysisChangedType(
-                    type.TypeFullName,
-                    [
-                        .. type.Changes.Select(change =>
-                            new DiffAnalysisApiChange(
-                                change.Kind,
-                                change.Classification,
-                                change.Message,
-                                change.OldValue,
-                                change.NewValue,
-                                change.Category,
-                                change.Subject is null
-                                    ? null
-                                    : new DiffAnalysisApiChangeSubject(
-                                        change.Subject.Kind,
-                                        change.Subject.OldType?.TypeFullName,
-                                        change.Subject.NewType?.TypeFullName,
-                                        change.Subject.OldMember?.Identity,
-                                        change.Subject.NewMember?.Identity))),
-                    ])),
+                .. diff.TypeDiffs.Select(type => type.TypeFullName)
+                    .Concat(unclassified.Select(change => change.Type))
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal)
+                    .Select(typeName => new DiffAnalysisChangedType(
+                        typeName,
+                        [
+                            .. diff.TypeDiffs
+                                .Where(type => type.TypeFullName == typeName)
+                                .SelectMany(type => type.Changes)
+                                .Select(change =>
+                                    new DiffAnalysisApiChange(
+                                        change.Kind,
+                                        change.Classification,
+                                        change.Message,
+                                        change.OldValue,
+                                        change.NewValue,
+                                        change.Category,
+                                        change.Subject is null
+                                            ? null
+                                            : new DiffAnalysisApiChangeSubject(
+                                                change.Subject.Kind,
+                                                change.Subject.OldType?.TypeFullName,
+                                                change.Subject.NewType?.TypeFullName,
+                                                change.Subject.OldMember?.Identity,
+                                                change.Subject.NewMember?.Identity))),
+                        ],
+                        [
+                            .. unclassified.Where(change =>
+                                change.Type == typeName),
+                        ])),
             ],
             diff.TotalBreaking,
             diff.TotalAdditive,
@@ -161,7 +178,22 @@ public sealed record DiffAnalysisChangesDocument(
 
 public sealed record DiffAnalysisChangedType(
     string Type,
-    ImmutableArray<DiffAnalysisApiChange> Changes);
+    ImmutableArray<DiffAnalysisApiChange> Changes,
+    ImmutableArray<DiffAnalysisUnclassifiedApiChange> UnclassifiedChanges);
+
+public enum DiffAnalysisUnclassifiedApiChangeKind
+{
+    TypeDefinitionChanged,
+    MemberAdded,
+    MemberRemoved,
+    MemberChanged,
+}
+
+public sealed record DiffAnalysisUnclassifiedApiChange(
+    string Type,
+    string? Member,
+    DiffAnalysisUnclassifiedApiChangeKind Kind,
+    string Detail);
 
 public sealed record DiffAnalysisApiChange(
     ChangeKind Kind,
@@ -241,6 +273,20 @@ public static class DiffAnalysisInspection
                 && request.Views.HasFlag(DiffAnalysisDocumentViews.Changes)
             ? FilterApiChanges(apiDiff, request.Input)
             : null;
+        ImmutableArray<DiffAnalysisUnclassifiedApiChange>
+            unclassifiedApiChanges =
+            selectedApiDiff is not null
+                && result.Outcomes
+                    .OfType<DiffAnalysisOutcome.Compared>()
+                    .Select(outcome => outcome.Comparison)
+                    .OfType<KeyedFindingComparison.Api>()
+                    .Select(comparison => comparison.Comparison)
+                    .FirstOrDefault() is { } apiComparison
+            ? ProjectUnclassifiedApiChanges(
+                apiComparison,
+                selectedApiDiff,
+                request.Input)
+            : [];
 
         var document = new DiffAnalysisDocument(
             new DiffAnalysisComparisonContext(
@@ -260,7 +306,8 @@ public static class DiffAnalysisInspection
             request.Views.HasFlag(DiffAnalysisDocumentViews.Transitions)
                 ? [.. projections.SelectMany(projection => projection.Transitions)]
                 : null,
-            apiResult: apiDiff);
+            apiResult: apiDiff,
+            unclassifiedChanges: unclassifiedApiChanges);
 
         return new(
             document,
@@ -319,6 +366,135 @@ public static class DiffAnalysisInspection
                 filtered.Sum(type => type.PotentiallyBreakingCount),
         };
     }
+
+    private static ImmutableArray<DiffAnalysisUnclassifiedApiChange>
+        ProjectUnclassifiedApiChanges(
+            ApiFindingComparison comparison,
+            ApiDiff selectedChanges,
+            DiffAnalysisInput input)
+    {
+        var selectedTypes = input.TypeNames.ToHashSet(StringComparer.Ordinal);
+        var rows = ImmutableArray.CreateBuilder<
+            DiffAnalysisUnclassifiedApiChange>();
+
+        if (comparison.Types
+            is FindingComparison<ApiTypeHandle>.Complete types)
+        {
+            foreach (PairFinding<ApiTypeHandle> pair in types.Pairs)
+            {
+                if (pair is not PairFinding<ApiTypeHandle>.Changed changed)
+                    continue;
+
+                string typeName = changed.New.Payload.TypeFullName;
+                if (!IncludesType(typeName)
+                    || HasClassifiedTypeChange(selectedChanges, typeName))
+                {
+                    continue;
+                }
+
+                rows.Add(new(
+                    typeName,
+                    Member: null,
+                    DiffAnalysisUnclassifiedApiChangeKind.TypeDefinitionChanged,
+                    "Type definition changed without a compatibility classification."));
+            }
+        }
+
+        if (comparison.Members
+            is FindingComparison<ApiMemberHandle>.Complete members)
+        {
+            foreach (PairFinding<ApiMemberHandle> pair in members.Pairs)
+            {
+                (ApiMemberHandle? oldMember, ApiMemberHandle? newMember,
+                    DiffAnalysisUnclassifiedApiChangeKind kind) = pair switch
+                {
+                    PairFinding<ApiMemberHandle>.Added added =>
+                        (null, added.New.Payload,
+                            DiffAnalysisUnclassifiedApiChangeKind.MemberAdded),
+                    PairFinding<ApiMemberHandle>.Removed removed =>
+                        (removed.Old.Payload, null,
+                            DiffAnalysisUnclassifiedApiChangeKind.MemberRemoved),
+                    PairFinding<ApiMemberHandle>.Changed changed =>
+                        (changed.Old.Payload, changed.New.Payload,
+                            DiffAnalysisUnclassifiedApiChangeKind.MemberChanged),
+                    _ => (null, null, default),
+                };
+                if (oldMember is null && newMember is null)
+                    continue;
+
+                string typeName =
+                    newMember?.TypeFullName ?? oldMember!.TypeFullName;
+                if (!IncludesType(typeName)
+                    || !IncludesMember(oldMember, newMember)
+                    || HasClassifiedMemberChange(
+                        selectedChanges,
+                        oldMember,
+                        newMember))
+                {
+                    continue;
+                }
+
+                string member =
+                    newMember?.Identity ?? oldMember!.Identity;
+                string transition = kind switch
+                {
+                    DiffAnalysisUnclassifiedApiChangeKind.MemberAdded =>
+                        "added",
+                    DiffAnalysisUnclassifiedApiChangeKind.MemberRemoved =>
+                        "removed",
+                    DiffAnalysisUnclassifiedApiChangeKind.MemberChanged =>
+                        "changed",
+                    _ => throw new InvalidOperationException(
+                        "The unclassified member transition is unknown."),
+                };
+                rows.Add(new(
+                    typeName,
+                    member,
+                    kind,
+                    $"Member {transition} without a compatibility classification."));
+            }
+        }
+
+        return [
+            .. rows.OrderBy(row => row.Type, StringComparer.Ordinal)
+                .ThenBy(row => row.Member, StringComparer.Ordinal)
+                .ThenBy(row => row.Kind),
+        ];
+
+        bool IncludesType(string typeName)
+            => selectedTypes.Count == 0 || selectedTypes.Contains(typeName);
+
+        bool IncludesMember(
+            ApiMemberHandle? oldMember,
+            ApiMemberHandle? newMember)
+            => input.MemberTargetIdentities is null
+                || oldMember is not null
+                    && input.MemberTargetIdentities.Contains(oldMember.Identity)
+                || newMember is not null
+                    && input.MemberTargetIdentities.Contains(newMember.Identity);
+    }
+
+    private static bool HasClassifiedTypeChange(
+        ApiDiff changes,
+        string typeName)
+        => changes.TypeDiffs
+            .Where(type => type.TypeFullName == typeName)
+            .SelectMany(type => type.Changes)
+            .Any(change =>
+                change.Subject?.Kind == ApiChangeSubjectKind.Type);
+
+    private static bool HasClassifiedMemberChange(
+        ApiDiff changes,
+        ApiMemberHandle? oldMember,
+        ApiMemberHandle? newMember)
+        => changes.TypeDiffs
+            .SelectMany(type => type.Changes)
+            .Any(change =>
+                change.Subject?.Kind == ApiChangeSubjectKind.Member
+                && (oldMember is not null
+                    && change.Subject.OldIdentity == oldMember.Identity
+                    || newMember is not null
+                    && change.Subject.NewIdentity == newMember.Identity));
 
     private static bool MatchesMemberTarget(
         string typeFullName,

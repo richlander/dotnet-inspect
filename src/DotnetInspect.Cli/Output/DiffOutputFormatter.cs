@@ -43,6 +43,21 @@ public static class DiffOutputFormatter
     }
 
     public static DiffTableView BuildTableView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+        => BuildTableView(
+            name,
+            typeDiffs,
+            fromVersion,
+            toVersion,
+            additionalRows: null,
+            summary: null);
+
+    internal static DiffTableView BuildTableView(
+        string name,
+        IReadOnlyList<TypeDiff> typeDiffs,
+        string fromVersion,
+        string toVersion,
+        IReadOnlyList<DiffTableRow>? additionalRows,
+        string? summary)
     {
         int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0;
         foreach (var td in typeDiffs)
@@ -82,21 +97,40 @@ public static class DiffOutputFormatter
                 DiffViewText.Field(symbol),
                 DiffViewText.Field(TypeMatcher.GetSimpleName(td.TypeFullName)),
                 DiffViewText.Field(detail));
-        }).ToList();
+        }).Concat(additionalRows ?? [])
+            .OrderBy(row => row.Type, StringComparer.Ordinal)
+            .ToList();
 
         return new DiffTableView(
             DiffViewText.Field($"API Diff: {name}"),
             DiffViewText.Field($"{fromVersion} -> {toVersion}"),
-            DiffViewText.Field(FormatSummaryCounts(
-                totalBreaking,
-                totalAdditive,
-                totalPotentiallyBreaking)))
+            DiffViewText.Field(
+                summary
+                    ?? FormatSummaryCounts(
+                        totalBreaking,
+                        totalAdditive,
+                        totalPotentiallyBreaking)))
         {
             Rows = rows.Count > 0 ? rows : null
         };
     }
 
     public static DiffDetailedChangesView BuildDetailedChangesView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+        => BuildDetailedChangesView(
+            name,
+            typeDiffs,
+            fromVersion,
+            toVersion,
+            additionalRows: null,
+            summary: null);
+
+    internal static DiffDetailedChangesView BuildDetailedChangesView(
+        string name,
+        IReadOnlyList<TypeDiff> typeDiffs,
+        string fromVersion,
+        string toVersion,
+        IReadOnlyList<DiffDetailedChangeRow>? additionalRows,
+        string? summary)
     {
         int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0;
         foreach (var td in typeDiffs)
@@ -109,15 +143,19 @@ public static class DiffOutputFormatter
         var rows = typeDiffs
             .OrderBy(td => td.TypeFullName, StringComparer.Ordinal)
             .SelectMany(td => td.Changes.Select(change => BuildDetailedRow(td.TypeFullName, change)))
+            .Concat(additionalRows ?? [])
+            .OrderBy(row => row.Type, StringComparer.Ordinal)
             .ToList();
 
         return new DiffDetailedChangesView(
             DiffViewText.Field($"API Diff: {name}"),
             DiffViewText.Field($"{fromVersion} -> {toVersion}"),
-            DiffViewText.Field(FormatSummaryCounts(
-                totalBreaking,
-                totalAdditive,
-                totalPotentiallyBreaking)))
+            DiffViewText.Field(
+                summary
+                    ?? FormatSummaryCounts(
+                        totalBreaking,
+                        totalAdditive,
+                        totalPotentiallyBreaking)))
         {
             Rows = rows.Count > 0 ? rows : null
         };
@@ -594,6 +632,32 @@ public static class DiffOutputFormatter
     public static string RenderFullMarkdown(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion, MarkoutWriterOptions? options = null)
     {
         var view = BuildFullView(name, typeDiffs, fromVersion, toVersion);
+        var writer = new MarkoutWriter(new MarkdownFormatter(), options);
+        DiffViewContext.Default.Serialize(view, writer);
+        return writer.Complete().TrimEnd();
+    }
+
+    internal static string RenderFullMarkdown(
+        string name,
+        IReadOnlyList<TypeDiff> typeDiffs,
+        IReadOnlyList<DiffChangeRow> otherChanges,
+        string summary,
+        string fromVersion,
+        string toVersion,
+        MarkoutWriterOptions? options = null)
+    {
+        DiffFullView view = BuildFullView(
+            name,
+            typeDiffs,
+            fromVersion,
+            toVersion);
+        if (otherChanges.Count > 0)
+        {
+            view.Status = default;
+            view.OtherChanges = [.. otherChanges];
+        }
+        if (typeDiffs.Count > 0 || otherChanges.Count > 0)
+            view.SummaryText = DiffViewText.Field($"**Summary:** {summary}");
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
         return writer.Complete().TrimEnd();
@@ -1538,7 +1602,9 @@ public static class DiffOutputFormatter
         return rows.Count > 0 ? rows : null;
     }
 
-    private static DiffDetailedChangeRow BuildDetailedRow(string typeFullName, ApiChange change)
+    internal static DiffDetailedChangeRow BuildDetailedRow(
+        string typeFullName,
+        ApiChange change)
         => BuildDetailedRow(
             typeFullName,
             change.Kind,

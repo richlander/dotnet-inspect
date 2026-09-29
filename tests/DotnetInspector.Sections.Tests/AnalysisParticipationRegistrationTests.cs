@@ -366,6 +366,72 @@ public sealed class AnalysisParticipationRegistrationTests
         Assert.False(parsed.RootElement.TryGetProperty("changes", out _));
     }
 
+    [Fact]
+    public void DiffAnalysisInspection_RetainsUnclassifiedApiChanges()
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Type,
+                targetCount: 1,
+                ["api"]));
+        var before = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "N",
+                    Name = "Widget",
+                    Kind = "struct",
+                },
+            ],
+        };
+        var after = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "N",
+                    Name = "Widget",
+                    Kind = "struct",
+                    IsByRefLike = true,
+                },
+            ],
+        };
+        var input = new DiffAnalysisInput(
+            before,
+            after,
+            [],
+            [],
+            new HashSet<string>(["N.Widget"]),
+            ["N.Widget"],
+            memberTargetIdentities: null,
+            prepareBodySignals: null);
+
+        InspectionEnvelope<DiffAnalysisDocument> inspection =
+            DiffAnalysisInspection.Execute(
+                new DiffAnalysisInspectionRequest(
+                    "Sample",
+                    "1.0.0",
+                    "2.0.0",
+                    catalog,
+                    accepted,
+                    input,
+                    DiffAnalysisDocumentViews.Changes));
+
+        DiffAnalysisChangedType type = Assert.Single(
+            inspection.Content.Changes!.Types);
+        Assert.Empty(type.Changes);
+        DiffAnalysisUnclassifiedApiChange change = Assert.Single(
+            type.UnclassifiedChanges);
+        Assert.Equal(
+            DiffAnalysisUnclassifiedApiChangeKind.TypeDefinitionChanged,
+            change.Kind);
+    }
+
     static DiffAnalysisInput Input(
         Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>? prepareBodySignals)
         => new(

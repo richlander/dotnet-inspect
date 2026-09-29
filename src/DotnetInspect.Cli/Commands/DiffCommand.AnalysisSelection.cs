@@ -5,10 +5,12 @@ using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
+using ILInspector.CSharp;
 using ILInspector.Decompiler;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using InertText;
 using Inspector.Findings;
 using Markout;
 using Markout.Formatting;
@@ -25,7 +27,8 @@ public partial class DiffCommand
     /// <summary>A validated analysis set and the admitted views of its result.</summary>
     internal sealed record DiffAnalysisPlan(
         AnalysisSetValidationResult.Accepted Selection,
-        IReadOnlyList<string> Views);
+        IReadOnlyList<string> Views,
+        bool DetailedChanges = false);
 
     static readonly string[] RoutesOutsideAnalysisSelection =
     [
@@ -180,7 +183,12 @@ public partial class DiffCommand
             return true;
         }
 
-        plan = new DiffAnalysisPlan(selection, views);
+        plan = new DiffAnalysisPlan(
+            selection,
+            views,
+            DetailedChanges:
+                options.ExactIncludeSections?.Contains(
+                    DiffSections.Changes.Name) == true);
         return true;
     }
 
@@ -613,11 +621,21 @@ public partial class DiffCommand
                     ? summaryView!
                     : onlyView == DiffSections.Transitions.Name
                         ? transitionsView!
-                        : DiffOutputFormatter.BuildDetailedChangesView(
-                            name,
-                            ApplyFilters(changes ?? new ApiDiff(), options),
-                            fromVersion,
-                            toVersion);
+                        : plan.DetailedChanges
+                            ? BuildAnalysisDetailedChangesView(
+                                name,
+                                document.Changes!,
+                                changes ?? new ApiDiff(),
+                                fromVersion,
+                                toVersion,
+                                options)
+                            : BuildAnalysisChangesTableView(
+                                name,
+                                document.Changes!,
+                                changes ?? new ApiDiff(),
+                                fromVersion,
+                                toVersion,
+                                options);
                 OutputFormatter.WriteProjectedTable(
                     Console.Out,
                     !options.NoHeader,
@@ -642,8 +660,9 @@ public partial class DiffCommand
                             ? DiffOutputFormatter.RenderTransitionsView(
                                 transitionsView!,
                                 OutputFormatter.CreateWindowedOptions(options.Rows))
-                            : RenderDiff(
+                            : RenderAnalysisChanges(
                                 name,
+                                document.Changes!,
                                 changes ?? new ApiDiff(),
                                 fromVersion,
                                 toVersion,
@@ -656,11 +675,13 @@ public partial class DiffCommand
 
         DiffDetailedChangesView? changesView = changes is null
             ? null
-            : DiffOutputFormatter.BuildDetailedChangesView(
+            : BuildAnalysisDetailedChangesView(
                 name,
-                ApplyFilters(changes, options),
+                document.Changes!,
+                changes,
                 fromVersion,
-                toVersion);
+                toVersion,
+                options);
         Console.WriteLine(
             DiffOutputFormatter.RenderDocumentView(
                 DiffOutputFormatter.BuildDocumentView(
@@ -675,6 +696,212 @@ public partial class DiffCommand
                     transitions: transitionsView),
                 OutputFormatter.CreateWindowedOptions(options.Rows)));
         return failed ? 1 : 0;
+    }
+
+    private static DiffDetailedChangesView BuildAnalysisDetailedChangesView(
+        string name,
+        DiffAnalysisChangesDocument document,
+        ApiDiff changes,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options)
+    {
+        IReadOnlyList<TypeDiff> classified =
+            FilterAnalysisClassifiedChanges(changes, options);
+        var classifiedByType = classified.ToDictionary(
+            type => type.TypeFullName,
+            StringComparer.Ordinal);
+        bool includeUnclassified = !options.Breaking && !options.Additive;
+        int typeCount = ChangedTypeCount(
+            document,
+            classifiedByType,
+            includeUnclassified);
+        return DiffOutputFormatter.BuildDetailedChangesView(
+            name,
+            classified,
+            fromVersion,
+            toVersion,
+            includeUnclassified
+                ? [
+                    .. document.Types.SelectMany(type =>
+                        type.UnclassifiedChanges.Select(change =>
+                            new DiffDetailedChangeRow(
+                                DiffViewText.Field("~"),
+                                DiffViewText.Field("unclassified"),
+                                DiffViewText.Field(
+                                    TypeMatcher.GetSimpleName(type.Type)),
+                                DiffViewText.Field(change.Member ?? ""),
+                                DiffViewText.Field(change.Kind.ToString()),
+                                DiffViewText.Field(change.Detail),
+                                InertString.Empty,
+                                InertString.Empty))),
+                ]
+                : [],
+            AnalysisChangesSummary(classified, typeCount));
+    }
+
+    private static DiffTableView BuildAnalysisChangesTableView(
+        string name,
+        DiffAnalysisChangesDocument document,
+        ApiDiff changes,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options)
+    {
+        IReadOnlyList<TypeDiff> classified =
+            FilterAnalysisClassifiedChanges(changes, options);
+        var classifiedByType = classified.ToDictionary(
+            type => type.TypeFullName,
+            StringComparer.Ordinal);
+        bool includeUnclassified = !options.Breaking && !options.Additive;
+        List<DiffTableRow> additionalRows =
+        [
+            .. document.Types
+                .Where(type =>
+                    includeUnclassified
+                    && !classifiedByType.ContainsKey(type.Type)
+                    && !type.UnclassifiedChanges.IsEmpty)
+                .Select(type =>
+                    new DiffTableRow(
+                        "~",
+                        TypeMatcher.GetSimpleName(type.Type),
+                        "unclassified API changes")),
+        ];
+        int typeCount = ChangedTypeCount(
+            document,
+            classifiedByType,
+            includeUnclassified);
+        return DiffOutputFormatter.BuildTableView(
+            name,
+            classified,
+            fromVersion,
+            toVersion,
+            additionalRows,
+            AnalysisChangesSummary(classified, typeCount));
+    }
+
+    private static string RenderAnalysisChanges(
+        string name,
+        DiffAnalysisChangesDocument document,
+        ApiDiff changes,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options)
+    {
+        IReadOnlyList<TypeDiff> classified =
+            FilterAnalysisClassifiedChanges(changes, options);
+        var classifiedByType = classified.ToDictionary(
+            type => type.TypeFullName,
+            StringComparer.Ordinal);
+        bool includeUnclassified = !options.Breaking && !options.Additive;
+        int typeCount = ChangedTypeCount(
+            document,
+            classifiedByType,
+            includeUnclassified);
+
+        if (options.NameOnly)
+        {
+            return OutputFormatter.RenderTable(
+                showHeader: false,
+                (writer, formatter) =>
+                {
+                    var nameWriter = new MarkoutWriter(
+                        writer,
+                        formatter,
+                        OutputFormatter.CreateTableWriterOptions(
+                            options.Tsv,
+                            options.Jsonl));
+                    foreach (DiffAnalysisChangedType type in document.Types)
+                    {
+                        if (classifiedByType.ContainsKey(type.Type)
+                            || includeUnclassified
+                                && !type.UnclassifiedChanges.IsEmpty)
+                        {
+                            nameWriter.WriteListItem(
+                                CSharpIdentifier.ContainRenderedText(
+                                    type.Type));
+                        }
+                    }
+                    nameWriter.Flush();
+                });
+        }
+
+        return DiffOutputFormatter.RenderFullMarkdown(
+            name,
+            classified,
+            includeUnclassified
+                ? [
+                    .. document.Types
+                        .SelectMany(type => type.UnclassifiedChanges)
+                        .Select(change => new DiffChangeRow(
+                            DiffViewText.Field(
+                                TypeMatcher.GetSimpleName(change.Type)),
+                            DiffViewText.Field(change.Detail))),
+                ]
+                : [],
+            AnalysisChangesSummary(classified, typeCount),
+            fromVersion,
+            toVersion,
+            OutputFormatter.CreateWindowedOptions(options.Rows));
+    }
+
+    private static IReadOnlyList<TypeDiff> FilterAnalysisClassifiedChanges(
+        ApiDiff changes,
+        DiffOptions options)
+    {
+        if (!options.Breaking && !options.Additive)
+            return changes.TypeDiffs;
+
+        List<TypeDiff> filtered =
+        [
+            .. changes.TypeDiffs.Select(type => new TypeDiff(
+                type.TypeFullName,
+                [
+                    .. type.Changes.Where(change =>
+                        options.Breaking
+                            && change.Classification
+                                == ChangeClassification.Breaking
+                        || options.Additive
+                            && change.Classification
+                                == ChangeClassification.Additive),
+                ]))
+                .Where(type => type.Changes.Count > 0),
+        ];
+        if (changes.TypeDiffs.Count > 0 && filtered.Count == 0)
+        {
+            CommandError.WriteNote(
+                "classification filter removed all changes after "
+                    + "type/member filters.");
+        }
+        return filtered;
+    }
+
+    private static int ChangedTypeCount(
+        DiffAnalysisChangesDocument document,
+        IReadOnlyDictionary<string, TypeDiff> classified,
+        bool includeUnclassified)
+        => document.Types.Count(type =>
+            classified.ContainsKey(type.Type)
+            || includeUnclassified && !type.UnclassifiedChanges.IsEmpty);
+
+    private static string AnalysisChangesSummary(
+        IReadOnlyList<TypeDiff> classified,
+        int typeCount)
+    {
+        if (typeCount == 0)
+            return "no changes";
+        int breaking = classified.Sum(type => type.BreakingCount);
+        int additive = classified.Sum(type => type.AdditiveCount);
+        int potentiallyBreaking =
+            classified.Sum(type => type.PotentiallyBreakingCount);
+        string counts =
+            breaking == 0 && additive == 0 && potentiallyBreaking == 0
+                ? "unclassified API changes"
+                : DiffOutputFormatter.FormatSummaryCounts(
+                    breaking,
+                    additive,
+                    potentiallyBreaking);
+        return $"{counts} across {typeCount} types";
     }
 
     static void SerializeAnalysisView(
@@ -692,6 +919,9 @@ public partial class DiffCommand
                 MarkoutSerializer.Serialize(transitions, writer, formatter, DiffViewContext.Default, writerOptions);
                 break;
             case DiffDetailedChangesView changes:
+                MarkoutSerializer.Serialize(changes, writer, formatter, DiffViewContext.Default, writerOptions);
+                break;
+            case DiffTableView changes:
                 MarkoutSerializer.Serialize(changes, writer, formatter, DiffViewContext.Default, writerOptions);
                 break;
             default:

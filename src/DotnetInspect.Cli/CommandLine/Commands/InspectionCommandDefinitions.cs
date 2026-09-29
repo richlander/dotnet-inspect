@@ -187,6 +187,8 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(opts.Schema);
         diffCommand.Options.Add(opts.Tree);
         diffCommand.Options.Add(opts.Select);
+        diffCommand.Options.Add(opts.Columns);
+        diffCommand.Options.Add(opts.Fields);
         opts.AddEnvelopeOptionTo(
             diffCommand,
             opts.Discover, opts.Verbosity,

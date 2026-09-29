@@ -85,9 +85,11 @@ Analysis-selected Diff registers `result_kind` `diff-analysis` at
 host-neutral `DiffAnalysisDocument` for Content-only `--json` and the Content
 subtree of `--envelope`. The Document retains comparison context, ordered
 analysis outcomes, typed API inspection failures, and only the requested
-Changes, Summary, and Transitions payloads. Type and Member targets shape that
-semantic Content; presentation projection is not admitted on the complete
-transport.
+Changes, Summary, and Transitions payloads. API Changes include
+compatibility-classified rows and producer correspondence that has no
+compatibility classification, such as a changed Type definition. Type and
+Member targets shape that semantic Content; presentation projection is not
+admitted on the complete transport.
 
 Debug asset-mode `depends` adopts `--evidence-envelope <path>` for
 `DependencyInspectionContent` and `DependencyInspectionEvidenceDocument`.
