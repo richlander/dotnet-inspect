@@ -34,13 +34,13 @@ contains `packs`, and set process-scoped `DOTNET_ROOT`:
 
 ```bash
 dotnet_root=/absolute/path/to/dotnet-root
-test -d "$dotnet_root/packs"
-DOTNET_ROOT="$dotnet_root" dnx dotnet-inspect -y -- find JsonSerializer
+test -d "$dotnet_root/packs" &&
+  DOTNET_ROOT="$dotnet_root" dnx dotnet-inspect -y -- find JsonSerializer
 ```
 
 ```powershell
 $dotnetRoot = "C:\absolute\path\to\dotnet-root"
-if (-not (Test-Path (Join-Path $dotnetRoot "packs"))) {
+if (-not (Test-Path -Path (Join-Path $dotnetRoot "packs") -PathType Container)) {
     throw "The selected .NET root does not contain packs."
 }
 $env:DOTNET_ROOT = $dotnetRoot
