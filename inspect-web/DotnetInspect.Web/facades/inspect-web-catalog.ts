@@ -2,9 +2,15 @@ import { dotnet } from "./runtime-loader.js";
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
-export type BrowserWorkspacePackageSourceAuthentication = "Anonymous" | "AuthenticationRequired" | number;
+export type BrowserVocabularyDiagnosticSeverity = "Information" | "Warning" | "Error" | number;
 
-export type JsonValueKind = number;
+export type BrowserVocabularyMapCardinality = "ExactlyOne" | "OptionalOne" | "OneOrMore" | "ZeroOrMore" | number;
+
+export type BrowserVocabularyMapCoverage = "Complete" | "Partial" | number;
+
+export type BrowserVocabularyScalarKind = "Text" | "Integer" | "Boolean" | number;
+
+export type BrowserWorkspacePackageSourceAuthentication = "Anonymous" | "AuthenticationRequired" | number;
 
 export interface BrowserAccessibilityDescriptor {
   readonly id: string;
@@ -660,26 +666,83 @@ export interface BrowserTypeSurface {
   readonly platformPack: string | null;
 }
 
-export interface BrowserVocabularyDocument {
-  readonly schema_version: number;
-  readonly sections: ReadonlyArray<BrowserVocabularySection>;
+export interface BrowserVocabularyCatalogIdentity {
+  readonly value: string;
 }
 
-export interface BrowserVocabularyField {
-  readonly id: string;
-  readonly label: string;
-  readonly summary: string;
-  readonly type: string;
-  readonly operators: ReadonlyArray<string>;
+export interface BrowserVocabularyDefinition {
+  readonly identity: BrowserVocabularyDefinitionIdentity;
+  readonly displayLabel: string;
+  readonly summary: string | null;
+  readonly maps: ReadonlyArray<BrowserVocabularyMapDefinition>;
+  readonly terms: ReadonlyArray<BrowserVocabularyTerm>;
 }
 
-export interface BrowserVocabularySection {
-  readonly id: string;
-  readonly name: string;
+export interface BrowserVocabularyDefinitionIdentity {
+  readonly value: string;
+}
+
+export interface BrowserVocabularyIdentity {
+  readonly catalog: BrowserVocabularyCatalogIdentity;
+  readonly value: string;
+}
+
+export interface BrowserVocabularyInspection {
+  readonly content: BrowserVocabularySnapshot;
+  readonly share: BrowserVocabularyInspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserVocabularyInspectionDiagnostic>;
+}
+
+export interface BrowserVocabularyInspectionDiagnostic {
+  readonly code: string;
+  readonly severity: BrowserVocabularyDiagnosticSeverity;
   readonly summary: string;
-  readonly accepted_by: ReadonlyArray<string>;
-  readonly fields: ReadonlyArray<BrowserVocabularyField>;
-  readonly values: ReadonlyArray<unknown>;
+  readonly correspondence: string | null;
+}
+
+export interface BrowserVocabularyMapDefinition {
+  readonly identity: BrowserVocabularyMapDefinitionIdentity;
+  readonly displayLabel: string;
+  readonly summary: string;
+  readonly target: BrowserVocabularyMapTarget;
+  readonly cardinality: BrowserVocabularyMapCardinality;
+  readonly coverage: BrowserVocabularyMapCoverage;
+}
+
+export interface BrowserVocabularyMapDefinitionIdentity {
+  readonly value: string;
+}
+
+export interface BrowserVocabularyMapEntry {
+  readonly map: BrowserVocabularyMapDefinitionIdentity;
+  readonly values: ReadonlyArray<BrowserVocabularyMapValue>;
+}
+
+export interface BrowserVocabularySnapshot {
+  readonly formatVersion: number;
+  readonly catalog: BrowserVocabularyCatalogIdentity;
+  readonly identity: BrowserVocabularySnapshotIdentity;
+  readonly vocabularies: ReadonlyArray<BrowserVocabularyDefinition>;
+}
+
+export interface BrowserVocabularySnapshotIdentity {
+  readonly value: string;
+}
+
+export interface BrowserVocabularyTerm {
+  readonly identity: BrowserVocabularyTermDefinitionIdentity;
+  readonly displayLabel: string;
+  readonly summary: string | null;
+  readonly mapEntries: ReadonlyArray<BrowserVocabularyMapEntry>;
+}
+
+export interface BrowserVocabularyTermDefinitionIdentity {
+  readonly value: string;
+}
+
+export interface BrowserVocabularyTermIdentity {
+  readonly vocabulary: BrowserVocabularyIdentity;
+  readonly value: string;
 }
 
 export interface BrowserWorkspacePackageSourceRequirement {
@@ -742,6 +805,67 @@ export interface BrowserWorkspaceShareView {
   readonly libraries: ReadonlyArray<string>;
 }
 
+export interface BrowserVocabularyAvailableShare {
+  readonly kind: "available";
+  readonly fullUrl: string;
+  readonly packet: string;
+}
+
+export interface BrowserVocabularyNonProjectableShare {
+  readonly kind: "nonProjectable";
+  readonly path: string;
+  readonly reason: string;
+}
+
+export type BrowserVocabularyInspectionShare = BrowserVocabularyAvailableShare | BrowserVocabularyNonProjectableShare;
+
+export interface BrowserVocabularyScalarMapTarget {
+  readonly kind: "scalar";
+  readonly scalarKind: BrowserVocabularyScalarKind;
+}
+
+export interface BrowserVocabularyTermsMapTarget {
+  readonly kind: "terms";
+  readonly reference: BrowserVocabularyTermSetReference;
+}
+
+export type BrowserVocabularyMapTarget = BrowserVocabularyScalarMapTarget | BrowserVocabularyTermsMapTarget;
+
+export interface BrowserVocabularyBooleanMapValue {
+  readonly kind: "boolean";
+  readonly value: boolean;
+}
+
+export interface BrowserVocabularyIntegerMapValue {
+  readonly kind: "integer";
+  readonly value: number;
+}
+
+export interface BrowserVocabularyTermMapValue {
+  readonly kind: "term";
+  readonly identity: BrowserVocabularyTermIdentity;
+}
+
+export interface BrowserVocabularyTextMapValue {
+  readonly kind: "text";
+  readonly value: string;
+}
+
+export type BrowserVocabularyMapValue = BrowserVocabularyTextMapValue | BrowserVocabularyIntegerMapValue | BrowserVocabularyBooleanMapValue | BrowserVocabularyTermMapValue;
+
+export interface BrowserVocabularyExternalTermSetReference {
+  readonly kind: "external";
+  readonly snapshot: BrowserVocabularySnapshotIdentity;
+  readonly vocabulary: BrowserVocabularyIdentity;
+}
+
+export interface BrowserVocabularyLocalTermSetReference {
+  readonly kind: "local";
+  readonly vocabulary: BrowserVocabularyDefinitionIdentity;
+}
+
+export type BrowserVocabularyTermSetReference = BrowserVocabularyLocalTermSetReference | BrowserVocabularyExternalTermSetReference;
+
 type $ManagedExports = {
   readonly "DotnetInspect": {
     readonly "Web": {
@@ -765,8 +889,8 @@ type $ManagedExports = {
             readonly "DecodeWorkspaceShareState.304094707": (encoded: string) => string;
             readonly "DescribeWorkspacePackageSources.304094707": (canonicalPacket: string) => string;
             readonly "EncodeWorkspaceShareState.304094707": (stateJson: string) => string;
+            readonly "InspectVocabulary.1310674786": () => string;
             readonly "ListHomeDemos.1310674786": () => string;
-            readonly "ListVocabulary.1310674786": () => string;
             readonly "ObserveRetainedWorkspaceSettlement.976702342": (settlementId: string) => Promise<string>;
             readonly "PrepareRetainedWorkspaceDefinition.1579276339": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string) => Promise<string>;
             readonly "PrepareRetainedWorkspaceDefinitionWithCredentials.1330709314": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourceCredentialsJson: string) => Promise<string>;
@@ -1034,9 +1158,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Catalog");
     value = $ownDataProperty(value, "CatalogExports");
-    value = $ownDataProperty(value, "ListHomeDemos.1310674786");
+    value = $ownDataProperty(value, "InspectVocabulary.1310674786");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ListHomeDemos.1310674786\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.InspectVocabulary.1310674786\u0027 is not callable.");
     }
   }
   {
@@ -1046,9 +1170,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Catalog");
     value = $ownDataProperty(value, "CatalogExports");
-    value = $ownDataProperty(value, "ListVocabulary.1310674786");
+    value = $ownDataProperty(value, "ListHomeDemos.1310674786");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ListVocabulary.1310674786\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ListHomeDemos.1310674786\u0027 is not callable.");
     }
   }
   {
@@ -1284,16 +1408,16 @@ export function encodeWorkspaceShareState(stateJson: BrowserWorkspaceShareState)
   return $parsed as BrowserWorkspaceShareEncodeResult;
 }
 
+export function inspectVocabulary(): BrowserVocabularyInspection {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["InspectVocabulary.1310674786"]();
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserVocabularyInspection;
+}
+
 export function listHomeDemos(): BrowserHomeDemoCatalog {
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ListHomeDemos.1310674786"]();
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserHomeDemoCatalog;
-}
-
-export function listVocabulary(): BrowserVocabularyDocument {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ListVocabulary.1310674786"]();
-  const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserVocabularyDocument;
 }
 
 export async function observeRetainedWorkspaceSettlement(settlementId: string): Promise<BrowserRetainedWorkspaceSettlementResult> {
