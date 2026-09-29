@@ -444,6 +444,13 @@ An opaque PlatformHouse `PlatformLibraryIdentity` cannot be projected to a
 package member. The adapter rejects that demand until a source-issued library
 identity correspondence exists.
 
+An arbitrary source `AssemblyRef` whose version may differ from the selected
+target does not enter this exact demand directly.
+[Platform assembly-reference binding](platform-assembly-reference-binding.md)
+owns the distinct namesake Reference binding demand and returns the canonical
+target identity. Subsequent exact Reference or implementation realization
+uses that identity through this contract unchanged.
+
 ## Step 5b: implementation coordinate and closure
 
 Step 5b adds one exact implementation source coordinate:
