@@ -270,12 +270,82 @@ public sealed class WorkspaceDeclarationPopulation
         _workspace = workspace;
         Receipt = receipt;
         _access = access;
+        RelationAuthority =
+            SubjectRelationPopulationAuthority.Capture(
+                StructuralSubjectIdentity.ForWorkspace(receipt.Workspace),
+                receipt.Identity);
     }
 
     public WorkspaceDeclarationPopulationReceipt Receipt { get; }
 
+    internal SubjectRelationPopulationAuthority RelationAuthority { get; }
+
     internal WorkspaceDeclarationPopulationFailure? Availability() =>
         _workspace.DeclarationPopulationAvailability();
+
+    internal bool TryGetAccess(
+        WorkspaceDeclarationOccurrence occurrence,
+        out WorkspaceDeclarationMember? member,
+        out AssemblyContextGroup? group,
+        out ResolvedAssemblyReference? assembly)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        member = Receipt.Members.FirstOrDefault(candidate =>
+            ReferenceEquals(candidate.Occurrence, occurrence));
+        if (member is null
+            || !_access.TryGetValue(occurrence, out var access)
+            || access
+                is not WorkspaceDeclarationMemberAccess.AssemblyContext
+                    assemblyContext)
+        {
+            group = null;
+            assembly = null;
+            return false;
+        }
+
+        group = assemblyContext.Group;
+        assembly = assemblyContext.Assembly;
+        return true;
+    }
+
+    internal IEnumerable<(
+        WorkspaceDeclarationMember Member,
+        AssemblyContextGroup Group,
+        ResolvedAssemblyReference Assembly)> ReadAccesses()
+    {
+        foreach (WorkspaceDeclarationMember member in Receipt.Members)
+        {
+            if (_access.TryGetValue(
+                    member.Occurrence,
+                    out var access)
+                && access
+                    is WorkspaceDeclarationMemberAccess.AssemblyContext
+                        assemblyContext)
+            {
+                yield return (
+                    member,
+                    assemblyContext.Group,
+                    assemblyContext.Assembly);
+            }
+        }
+    }
+
+    public WorkspaceDeclarationOccurrence? FindOccurrence(
+        AssemblyAcquisitionRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        foreach (var (member, _, assembly) in ReadAccesses())
+        {
+            if (ReferenceEquals(
+                    assembly.Registration,
+                    registration))
+            {
+                return member.Occurrence;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>Inspects one selected occurrence through its existing group owner.</summary>
     public WorkspaceDeclarationInventoryOutcome ReadDeclarations(

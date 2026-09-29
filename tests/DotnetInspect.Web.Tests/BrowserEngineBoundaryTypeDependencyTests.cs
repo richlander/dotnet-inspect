@@ -59,6 +59,120 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryTypeProjection_ProjectsSubjectRelationImplementers()
+    {
+        const string packageId = "Browser.TypeRelations";
+        const string interfaceName =
+            "Browser.TypeRelations.IService";
+        const string implementerName =
+            "Browser.TypeRelations.Service";
+        _ = await Coordinate(
+            packageId,
+            Package(
+                BuildInterfaceImplementationImage(
+                    packageId,
+                    interfaceName,
+                    implementerName),
+                $"lib/net11.0/{packageId}.dll"));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{packageId}.dll",
+            interfaceName,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """);
+
+        Assert.Equal([implementerName], metadata.Implementers);
+        Assert.Empty(metadata.DerivedTypes);
+        Assert.DoesNotContain(
+            metadata.InspectionFailures,
+            failure => failure.StartsWith(
+                "Subject Relations:",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task QueryTypeProjection_UsesNestedTypeQueryIdentity()
+    {
+        const string packageId = "Browser.NestedTypeRelations";
+        const string interfaceName =
+            "Browser.NestedTypeRelations.IService";
+        const string outerName =
+            "Browser.NestedTypeRelations.Container";
+        const string nestedName = "Service";
+        _ = await Coordinate(
+            packageId,
+            Package(
+                BuildNestedInterfaceImplementationImage(
+                    packageId,
+                    interfaceName,
+                    outerName,
+                    nestedName),
+                $"lib/net11.0/{packageId}.dll"));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{packageId}.dll",
+            interfaceName,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """);
+
+        Assert.Equal(
+            [$"{outerName}.{nestedName}"],
+            metadata.Implementers);
+    }
+
+    [Fact]
+    public async Task QueryTypeProjection_UsesGenericTypeQueryIdentity()
+    {
+        const string packageId = "Browser.GenericTypeRelations";
+        const string interfaceName =
+            "Browser.GenericTypeRelations.IService";
+        const string implementerName =
+            "Browser.GenericTypeRelations.Service";
+        _ = await Coordinate(
+            packageId,
+            Package(
+                BuildGenericInterfaceImplementationImage(
+                    packageId,
+                    interfaceName,
+                    implementerName),
+                $"lib/net11.0/{packageId}.dll"));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{packageId}.dll",
+            interfaceName,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """);
+
+        Assert.Equal(
+            [$"{implementerName}`1"],
+            metadata.Implementers);
+    }
+
+    [Fact]
     public async Task QueryTypeProjection_ExpandsDependenciesAcrossWorkspacePackages()
     {
         const string rootPackageId =
@@ -461,6 +575,11 @@ public sealed partial class BrowserEngineBoundaryTests
                     "rejected",
                     StringComparison.OrdinalIgnoreCase));
         Assert.Contains(
+            metadata.InspectionFailures,
+            failure => failure.StartsWith(
+                "Subject Relations:",
+                StringComparison.Ordinal));
+        Assert.Contains(
             metadata.GraphEdges,
             edge => edge.FromId == typeName
                 && edge.ToId
@@ -535,12 +654,16 @@ public sealed partial class BrowserEngineBoundaryTests
             metadata.GraphEdges,
             edge => edge.FromId == typeName
                 && edge.ToId == typeof(IAsyncDisposable).FullName);
-        Assert.Empty(metadata.InspectionFailures);
+        Assert.True(
+            metadata.InspectionFailures.Length == 0,
+            string.Join(Environment.NewLine, metadata.InspectionFailures));
 
         const string authenticPackageId =
             "Browser.TypeDependencies.System.Text.Json";
         const string nestedType =
             "System.Collections.Generic.OrderedDictionary`2.KeyCollection";
+        const string nestedDefinition =
+            "System.Collections.Generic.OrderedDictionary`2+KeyCollection";
         _ = await Coordinate(
             authenticPackageId,
             Package(
@@ -562,14 +685,19 @@ public sealed partial class BrowserEngineBoundaryTests
                 "framework": "net11.0"
               }
             ]
-            """);
+            """,
+            nestedDefinition);
 
         Assert.Contains(
             authentic.GraphEdges,
             edge => edge.FromId == nestedType
                 && edge.ToId
                     == "System.Collections.Generic.IList<TKey>");
-        Assert.Empty(authentic.InspectionFailures);
+        Assert.True(
+            authentic.InspectionFailures.Length == 0,
+            string.Join(
+                Environment.NewLine,
+                authentic.InspectionFailures));
     }
 
     [Fact]
@@ -636,6 +764,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.DoesNotContain(
             typeof(IAsyncDisposable).FullName!,
             exactType.Interfaces);
+        Assert.Empty(metadata.InspectionFailures);
     }
 
     [Fact]
@@ -913,6 +1042,90 @@ public sealed partial class BrowserEngineBoundaryTests
         foreach (Type dependency in dependencies)
             type.AddInterfaceImplementation(dependency);
         type.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildInterfaceImplementationImage(
+        string assemblyName,
+        string interfaceName,
+        string implementerName)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder contract = module.DefineType(
+            interfaceName,
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Interface);
+        Type interfaceType = contract.CreateType();
+        TypeBuilder implementer = module.DefineType(
+            implementerName,
+            TypeAttributes.Public | TypeAttributes.Class);
+        implementer.AddInterfaceImplementation(interfaceType);
+        implementer.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildNestedInterfaceImplementationImage(
+        string assemblyName,
+        string interfaceName,
+        string outerName,
+        string nestedName)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder contract = module.DefineType(
+            interfaceName,
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Interface);
+        Type interfaceType = contract.CreateType();
+        TypeBuilder outer = module.DefineType(
+            outerName,
+            TypeAttributes.Public | TypeAttributes.Class);
+        TypeBuilder nested = outer.DefineNestedType(
+            nestedName,
+            TypeAttributes.NestedPublic | TypeAttributes.Class);
+        nested.AddInterfaceImplementation(interfaceType);
+        nested.CreateType();
+        outer.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildGenericInterfaceImplementationImage(
+        string assemblyName,
+        string interfaceName,
+        string implementerName)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder contract = module.DefineType(
+            interfaceName,
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Interface);
+        Type interfaceType = contract.CreateType();
+        TypeBuilder implementer = module.DefineType(
+            $"{implementerName}`1",
+            TypeAttributes.Public | TypeAttributes.Class);
+        implementer.DefineGenericParameters("T");
+        implementer.AddInterfaceImplementation(interfaceType);
+        implementer.CreateType();
 
         using var stream = new MemoryStream();
         assembly.Save(stream);

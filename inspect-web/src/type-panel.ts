@@ -237,6 +237,7 @@ export interface TypeParameterSummary {
 
 export interface TypeMetadata {
   exactTypeInspection?: BrowserTypeMetadata["exactTypeInspection"];
+  implementers?: readonly string[];
   derivedTypes?: readonly string[];
   graphNodes?: readonly unknown[];
   inspectionFailures?: readonly string[];
@@ -999,6 +1000,14 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       </section>`
     : "";
 
+  const implementers = meta.implementers ?? [];
+  const implementations = implementers.length
+    ? `<section class="document-section">
+        <div class="section-title"><h2>Known implementers</h2><span>${implementers.length} in ${escapeHtml(exactAssembly || item.assembly)}</span></div>
+        <div class="type-chip-list">${implementers.map(name => relatedTypeChip(name)).join("")}</div>
+      </section>`
+    : "";
+
   const derivedTypes = meta.derivedTypes ?? [];
   const derived = derivedTypes.length
     ? `<section class="document-section">
@@ -1056,6 +1065,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     ${exactDiagnostics}
     ${composition}
     ${interfaces}
+    ${implementations}
     ${derived}
     ${attributes}
     ${graph}`);

@@ -283,6 +283,14 @@ public sealed class SubjectRelationsInspectionRequest
                 StructuralSubjectIdentity.TypeSubject) =>
                 true,
             (
+                SubjectRelationsRouteKind.Type,
+                StructuralSubjectIdentity.ContextTypeSubject) =>
+                true,
+            (
+                SubjectRelationsRouteKind.Type,
+                StructuralSubjectIdentity.ReferencedTypeSubject) =>
+                true,
+            (
                 SubjectRelationsRouteKind.Member,
                 StructuralSubjectIdentity.MemberSubject) =>
                 true,
@@ -671,6 +679,7 @@ public static class SubjectRelationsPopulationOperation
                 .Where(static producer =>
                     producer.Disposition is
                         SubjectRelationProducerDisposition.Complete
+                        or SubjectRelationProducerDisposition.Stopped
                         or SubjectRelationProducerDisposition.Partial)
                 .SelectMany(static producer => producer.Relationships)
                 .ToHashSet<InspectionGraphRelationshipDescriptor>(

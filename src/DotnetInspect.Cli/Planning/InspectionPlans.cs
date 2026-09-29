@@ -285,6 +285,32 @@ public sealed record ResolvedMemberInspectionPlan(
                 ? targetRequirement
                 : baseRequirement);
         ApiInspectionCatalog descriptor = ApiInspectionCatalogRegistry.Get(catalog);
+        IReadOnlyList<string> sectionNames = descriptor.SectionNames;
+        IReadOnlyDictionary<string, string[]> categories =
+            descriptor.Categories;
+        if (intent.Surface == InspectionSurface.Type
+            && catalog == InspectionCatalogIdentity.ApiMember)
+        {
+            string[] relationSections =
+            [
+                SectionNames.Implementers,
+                SectionNames.DerivedTypes,
+            ];
+            sectionNames =
+            [
+                .. sectionNames,
+                .. relationSections,
+            ];
+            Dictionary<string, string[]> typeCategories =
+                descriptor.Categories
+                .ToDictionary(
+                    static pair => pair.Key,
+                    static pair => pair.Value,
+                    StringComparer.OrdinalIgnoreCase);
+            typeCategories[SectionCategoryNames.Relations] =
+                relationSections;
+            categories = typeCategories;
+        }
         IReadOnlyList<string> defaultSections =
             intent.Surface == InspectionSurface.Type
             && catalog == InspectionCatalogIdentity.ApiMember
@@ -294,9 +320,9 @@ public sealed record ResolvedMemberInspectionPlan(
                 : descriptor.DefaultSectionNames;
         SelectResult resolved = SelectResolver.ResolveSelectAsSections(
             [.. demandSelectors],
-            descriptor.SectionNames,
+            sectionNames,
             defaultSections,
-            descriptor.Categories,
+            categories,
             intent.Sections.SelectDefault,
             catalog == InspectionCatalogIdentity.ApiType
                 ? null
@@ -555,6 +581,8 @@ public static class ApiSectionDemandIndex
             "Type Parameters",
             "Interfaces",
             "Baseclass",
+            SectionNames.Implementers,
+            SectionNames.DerivedTypes,
             SectionNames.ApiDeclarations);
         Declare(
             declarations,
@@ -614,6 +642,11 @@ public static class ApiSectionDemandIndex
                 .Where(catalog =>
                     catalog.Identity != InspectionCatalogIdentity.ApiType)
                 .SelectMany(catalog => catalog.SectionNames)
+                .Concat(
+                [
+                    SectionNames.Implementers,
+                    SectionNames.DerivedTypes,
+                ])
                 .Distinct(StringComparer.OrdinalIgnoreCase),
         ];
         string[] missing =

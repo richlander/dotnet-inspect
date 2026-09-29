@@ -39,7 +39,14 @@ public class QueryDiscoveryTests
             Assert.Equal("Query: " + section.GetProperty("section").GetString(),
                 section.GetProperty("query_section").GetString());
             Assert.False(section.TryGetProperty("facets", out _));
-            Assert.True(section.GetProperty("facet_count").GetInt32() > 0);
+            string sectionName =
+                section.GetProperty("section").GetString()!;
+            int facetCount =
+                section.GetProperty("facet_count").GetInt32();
+            if (sectionName is "Implementers" or "Derived Types")
+                Assert.Equal(0, facetCount);
+            else
+                Assert.True(facetCount > 0);
         }
     }
 
@@ -704,7 +711,7 @@ public class QueryDiscoveryTests
         Assert.Equal("2", result.Output.Trim());
         var bare = await Run("type", "-Q", "--count");
         Assert.Equal(0, bare.ExitCode);
-        Assert.Equal("4", bare.Output.Trim());
+        Assert.Equal("6", bare.Output.Trim());
     }
 
     [Fact]

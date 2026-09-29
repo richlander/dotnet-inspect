@@ -42,6 +42,7 @@ public enum SubjectRelationProducerDisposition
     Partial,
     Unavailable,
     Failed,
+    Stopped,
 }
 
 /// <summary>The kind of one producer-owned completion diagnostic.</summary>
@@ -605,10 +606,17 @@ public sealed class SubjectRelationPopulationEvidence
             producer.Disposition
                 == SubjectRelationProducerDisposition.Complete);
 
+    public bool IsSatisfied =>
+        Producers.All(static producer =>
+            producer.Disposition is
+                SubjectRelationProducerDisposition.Complete
+                or SubjectRelationProducerDisposition.Stopped);
+
     public bool HasUsableRows =>
         Producers.IsEmpty
         || Producers.Any(static producer =>
             producer.Disposition is
                 SubjectRelationProducerDisposition.Complete
+                or SubjectRelationProducerDisposition.Stopped
                 or SubjectRelationProducerDisposition.Partial);
 }

@@ -90,6 +90,7 @@ public sealed record BrowserTypeFindResult(
 /// </summary>
 public sealed record BrowserTypeMetadata(
     InspectionEnvelope<ExactTypeInspectionResult> ExactTypeInspection,
+    string[] Implementers,
     string[] DerivedTypes,
     BrowserTypeGraphNode[] GraphNodes,
     BrowserTypeGraphEdge[] GraphEdges,

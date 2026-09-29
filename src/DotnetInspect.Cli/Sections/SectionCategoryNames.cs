@@ -5,6 +5,8 @@ namespace DotnetInspect.Cli.Sections;
 /// </summary>
 public static class SectionCategoryNames
 {
+    public const string Relations = "@Relations";
+
     /// <summary>
     /// The library command's ordinary identity, relationship, diagnostic, and dense-signal
     /// sections. Together with <see cref="Surface"/>, this forms the library base scope.

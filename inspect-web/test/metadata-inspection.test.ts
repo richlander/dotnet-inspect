@@ -69,6 +69,7 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
       },
       diagnostics: [],
     },
+    implementers: [],
     derivedTypes: [],
     graphNodes: [],
     graphEdges: [],

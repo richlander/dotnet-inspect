@@ -279,6 +279,26 @@ public static class ApiMemberSectionDescriptors
                && model.BaseType != "System.Enum";
     }
 
+    public sealed class Implementers : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Implementers;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static bool CanRender(ApiType model) => false;
+    }
+
+    public sealed class DerivedTypes : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.DerivedTypes;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static bool CanRender(ApiType model) => false;
+    }
+
     // ===== Member sections (rendered via PopulateMemberSections) =====
 
     public sealed class Constructors : ISectionDescriptor<ApiType>
@@ -825,13 +845,24 @@ public static class ApiMemberSectionPipelines
     }
 
     public static SectionPipeline<ApiType> Create(ApiOptions options)
-        => UsesDetailPipeline(options)
+        => options is TypeOptions
+            ? CreateTypePipeline()
+            : UsesDetailPipeline(options)
             ? ApiMemberDetailSectionDescriptors.CreatePipeline(
                 (options as MemberOptions)?.OverloadIndex)
             : UsesOverloadInventoryPipeline(options)
                 ? ApiMemberOverloadSectionDescriptors.CreatePipeline(
                     (options as MemberOptions)?.OverloadIndex)
             : ApiMemberSectionDescriptors.CreatePipeline();
+
+    internal static SectionPipeline<ApiType> CreateTypePipeline() =>
+        ApiMemberSectionDescriptors.CreatePipeline()
+            .Add<ApiMemberSectionDescriptors.Implementers>()
+            .Add<ApiMemberSectionDescriptors.DerivedTypes>()
+            .AddCategory(
+                SectionCategoryNames.Relations,
+                SectionNames.Implementers,
+                SectionNames.DerivedTypes);
 
     public static bool UsesDetailPipeline(ApiOptions options)
         => options is MemberOptions { OverloadIndex: not null }

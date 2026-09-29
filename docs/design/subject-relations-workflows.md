@@ -327,7 +327,87 @@ identity. They are not duplicated as a second set of public `request-*` keys.
 A compatible row-query binding may apply residual shaping to a returned
 segment, but it cannot widen acquisition, authorize another producer, change
 the canonical population, or strengthen completion. Sections and convenience
-commands lower their gestures to the same typed population request.
+commands lower their gestures to the same typed population request. Type
+relation row selection and its Count terminal execute in the shared section
+operation over the canonical per-form candidate ordering; the CLI formats a
+typed semantic failure but does not order, select, or count a private copy of
+the candidate population. An exact single-form Count applies head, tail, and
+window stages to exact producer cardinality without constructing Rows.
+Residual selection remains exhaustive when its ordering cannot be proven from
+a producer prefix.
+
+For incoming Type hierarchy relations, the exact focused metadata Type name
+and selected Interface or Base Type form reach the Metadata producer. Metadata
+compares unrelated edge targets without materializing their names and projects
+source identities only for matching edges. Workspace correspondence resolves
+only those producer-returned candidates; current-module targets use their
+already-established assembly identity directly, while external and forwarded
+targets retain binding-policy resolution. A Count-only request groups exact
+candidate identities without lowering canonical Rows. Exact simple-name focus
+selection likewise probes matching TypeDefs without first retaining the whole
+declaration-name inventory; richer selection gestures retain the general
+inventory path.
+
+The targeted Metadata producer and its NLinq performance oracle execute the
+same hierarchy analysis: enumerate externally visible, non-hidden Type
+definitions; inspect the selected base-Type or interface edges; compare the
+outer definition of direct and constructed targets; and project the matching
+source definition identity. Count performs that analysis without materializing
+source rows. Full relation evidence adds constructed target decoding and graph
+projection only after this shared analysis has selected an occurrence. The
+LINQ, NLinq, and Planner call the same product-owned analysis pass for this
+scope, matching, guarded decoding, budget charging, and row projection, as
+required by the
+[performance-oracle rule](../evidence-and-validation.md#performance-oracles-for-queryspace-enablement).
+Every standard scorecard column starts from the same session-owned admitted
+metadata image. General format classification and `MetadataReader`
+construction occur once when the asset session opens; LINQ and NLinq construct
+their shared pass from that session, while Planner consumes the same retained
+reader without repeating admission. The scorecard therefore measures reader
+and terminal machinery after a common admission boundary. Exact end-to-end
+measurements separately retain acquisition and admission cost.
+The scorecard answer gate includes the producer's malformed generic-TypeSpec
+fixture and compares diagnostics and operation counters as well as benign rows.
+The scorecard measures the shipping analysis stage; exact NativeAOT base/head
+measurements cover its production composition and host lowering. Measurements
+from any lighter oracle loop remain labeled frontier evidence until that
+algorithm is ported into the product pass and therefore shared by all standard
+columns.
+
+Terminal work elimination is separate from analysis throughput. Count,
+complete Rows, and Tail exhaust the selected source. The analysis scorecard
+derives a typed forward plan for Exists, Head(N), and supported strict forward
+windows; the result retains that exact plan and reports whether production
+stopped after satisfying it. A zero-finding answer still exhausts the source.
+
+Production Rows derives its typed forward plan from the resolved Subject
+Relations request. It stops only after exact Workspace assembly correspondence
+has established the requested segment plus one lookahead candidate. The
+lookahead proves that a continuation exists without claiming an exact total;
+the producer outcome is `Stopped`, distinct from incomplete or failed work.
+Within one participant, Metadata and correspondence still finish together: a
+Metadata name match alone cannot establish that an identically named target
+belongs to the focused assembly. Exact Count, residual selection, and
+unsupported plan shapes retain exhaustive execution rather than acquiring ad
+hoc source semantics.
+
+The fast definition matcher is fidelity-bearing for canonical TypeDef, TypeRef,
+and generic TypeSpec shapes emitted by Roslyn. Untrusted and malformed metadata
+remains subject to bounded image admission, relationship/name traversal, and
+blob reads; it must not create unbounded work, unsafe memory behavior, assembly
+loading, or another containment failure. A malformed or non-canonical target
+may be rejected as incomplete and is not promised an exact semantic answer.
+Its failure remains visible in producer disposition and diagnostics. Hierarchy
+production is responsible for high-fidelity answers on Roslyn-produced
+assemblies and secure, bounded behavior on every admitted assembly. The
+session-owned image, not the hierarchy producer, rejects unsupported Windows
+Metadata and malformed metadata-reader construction before the producer runs.
+Within an admitted reader, guarded decoding and operation budgets remain the
+producer's responsibility. Hierarchy analysis uses one lazy, memoized
+nested-Type visibility resolver per admitted image. It charges declaring-Type edges
+to the relationship budget, detects cycles by identity, and aborts that
+malformed family instead of repeating a declaring-Type walk for each
+candidate.
 
 The canonical row unit is one logical relation. Each row preserves:
 

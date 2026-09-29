@@ -172,7 +172,31 @@ public sealed partial class WorkspaceContextLoaderTests
         Assert.False(mixed.Receipt.IsRealizationComplete);
         Assert.Single(mixed.Receipt.Members);
         Assert.Same(failed.Receipt, mixed.Receipt.Contexts[0]);
-        Assert.NotEmpty(ReadDeclarations(mixed, mixed.Receipt.Members[0]).Declarations);
+        AssemblyTypeDeclarationInventory mixedInventory =
+            ReadDeclarations(mixed, mixed.Receipt.Members[0]);
+        Assert.NotEmpty(mixedInventory.Declarations);
+        var unresolvedFocus =
+            Assert.IsType<WorkspaceExactTypeFocusOutcome.Unavailable>(
+                WorkspaceExactTypeFocusQuery.Execute(
+                    mixed,
+                    mixedInventory.Definitions[0].ToMetadataFullName(),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+        Assert.Contains(
+            "incomplete",
+            unresolvedFocus.Detail,
+            StringComparison.OrdinalIgnoreCase);
+        var unresolvedSimpleFocus =
+            Assert.IsType<WorkspaceExactTypeFocusOutcome.Unavailable>(
+                WorkspaceExactTypeFocusQuery.Execute(
+                    mixed,
+                    mixedInventory.Definitions[0].Segments[^1].ToString(),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+        Assert.Contains(
+            "incomplete",
+            unresolvedSimpleFocus.Detail,
+            StringComparison.OrdinalIgnoreCase);
 
         WorkspaceDeclarationPopulation empty = CaptureDeclarations(workspace);
         Assert.True(empty.Receipt.IsRealizationComplete);

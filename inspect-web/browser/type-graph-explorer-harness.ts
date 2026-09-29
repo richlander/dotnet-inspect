@@ -121,6 +121,7 @@ function metadata() {
       { fromId: "Example.Type", toId: "Example.Derived" },
     ],
     inspectionFailures: state === "partial" ? ["Fixture relationship could not be projected."] : [],
+    implementers: [],
     derivedTypes: ["Example.Derived"],
   };
 }
