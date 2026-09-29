@@ -8,7 +8,8 @@ The pattern is designed. Core construction and Product Vocabulary CLI adoption
 are implemented by
 [#8754](https://github.com/richlander/dotnet-inspect/issues/8754); Inspect Web
 adoption and retirement of its superseded local shape are tracked by
-[#8755](https://github.com/richlander/dotnet-inspect/issues/8755).
+[#8755](https://github.com/richlander/dotnet-inspect/issues/8755) and implemented
+by [#8861](https://github.com/richlander/dotnet-inspect/pull/8861).
 
 [Product Vocabulary](vocabulary.md) is the first adopter. Its existing CLI
 output and Browser catalog prove the need and supply the first production data.
@@ -198,6 +199,8 @@ choice vocabulary: csharp.style-choices
 tier vocabulary:   csharp.style-tiers
 tier map:           tier
 conflict map:       conflict_group
+choice badge map:   oracle_endorsed
+tier badge map:     byte_divergent
 ```
 
 This knowledge is part of the Settings feature contract. The Browser does not
@@ -453,6 +456,10 @@ The snapshot is data, not rendered output.
   projection.
 - Browser/Wasm receives generated JSON-wire declarations and owns interaction
   and HTML presentation.
+- The Browser wire scopes vocabulary, term-definition, and map-definition
+  identities to their containing snapshot or vocabulary. Cross-vocabulary
+  values retain their full typed identity, so the compact encoding is
+  lossless rather than a second semantic model.
 - Hosts may select, search, group, or omit terms for a specific experience.
   They do not rename identities, restate labels, invent mappings, or infer
   relationships from scalar equality.
