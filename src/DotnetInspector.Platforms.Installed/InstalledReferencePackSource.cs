@@ -452,12 +452,19 @@ public sealed class InstalledReferencePackSource
         string? path;
         try
         {
-            path = FindExactChild(
-                referenceDirectory,
-                fileName!,
-                InstalledEntryKind.File,
-                observation,
-                cancellationToken);
+            path = requireExactIdentity
+                ? FindExactChild(
+                    referenceDirectory,
+                    fileName!,
+                    InstalledEntryKind.File,
+                    observation,
+                    cancellationToken)
+                : FindUniqueChildIgnoringCase(
+                    referenceDirectory,
+                    fileName!,
+                    InstalledEntryKind.File,
+                    observation,
+                    cancellationToken);
         }
         catch (InstalledInvalidLayoutException)
         {

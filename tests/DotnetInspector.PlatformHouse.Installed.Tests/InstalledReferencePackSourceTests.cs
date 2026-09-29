@@ -434,7 +434,11 @@ public sealed class InstalledReferencePackSourceTests
         AssemblyReferenceIdentity targetIdentity =
             ReadIdentity(assemblyPath);
         AssemblyReferenceIdentity sourceIdentity =
-            targetIdentity with { Version = new Version(1, 0, 0, 0) };
+            targetIdentity with
+            {
+                Name = targetIdentity.Name.ToLowerInvariant(),
+                Version = new Version(1, 0, 0, 0),
+            };
         var demand = new InstalledReferencePopulationDemand
             .AssemblyReferenceBinding(sourceIdentity);
 
@@ -454,6 +458,53 @@ public sealed class InstalledReferencePackSourceTests
 
         Assert.Same(demand, succeeded.Value.Population);
         Assert.Equal(targetIdentity, library.Identity);
+    }
+
+    [Fact]
+    public async Task
+        RealizeAssemblyReferenceBinding_RejectsCaseVariantCollision()
+    {
+        using var hive = new TestHive();
+        string directory = hive.CreateReferencePack(
+            "Microsoft.NETCore.App.Ref",
+            "11.0.0",
+            "net11.0");
+        string source =
+            typeof(InstalledReferencePackSourceTests).Assembly.Location;
+        AssemblyReferenceIdentity identity = ReadIdentity(source);
+        string canonical = Path.Combine(
+            directory,
+            $"{identity.Name}.dll");
+        string variant = Path.Combine(
+            directory,
+            $"{identity.Name.ToLowerInvariant()}.dll");
+        File.Copy(source, canonical);
+        try
+        {
+            File.Copy(source, variant);
+        }
+        catch (IOException) when (File.Exists(variant))
+        {
+            Assert.Skip(
+                "The filesystem cannot represent case-variant sibling names.");
+        }
+
+        var rejected = Assert.IsType<
+            InstalledPlatformSourceOutcome<
+                InstalledReferenceRealization>.Rejected>(
+                    await hive.CreateSource().RealizeAsync(
+                        new InstalledReferenceRealizationRequest(
+                            hive.Coordinate(),
+                            new InstalledReferencePopulationDemand
+                                .AssemblyReferenceBinding(identity),
+                            new InstalledReferenceWorkBudget(
+                                maxAssemblies: 1,
+                                maxBytes: 32 * 1024 * 1024)),
+                        TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            InstalledPlatformSourceDiagnosticKind.InvalidLayout,
+            rejected.Diagnostic.Kind);
     }
 
     [Fact]
