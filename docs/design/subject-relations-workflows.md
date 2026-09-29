@@ -313,6 +313,15 @@ population plan. Reconstructing an equal `StructuralSubjectIdentity` wrapper
 does not change that exact subject; process-local candidate-population
 authority remains reference-bound to its captured generation.
 
+Metadata-backed hierarchy production consumes Assembly Inspection's
+[session-owned format-admission](assembly-inspection-query.md#session-owned-format-admission)
+precondition rather than defining another admission contract. Standard LINQ,
+NLinq, and Planner scorecard columns begin from the same admitted session
+reader, so they compare analysis and terminal machinery after admission.
+Exact end-to-end measurements separately retain acquisition and admission
+cost. Subject Relations does not redefine reader construction, format
+classification, lifetime, or admission failure semantics.
+
 Public population facets select producer work and become part of population
 identity. They are not duplicated as a second set of public `request-*` keys.
 A compatible row-query binding may apply residual shaping to a returned

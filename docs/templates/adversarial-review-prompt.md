@@ -47,8 +47,9 @@ design's exact section when it defines the boundary.
   measured cost and expected-consumer evidence that justify the boundary; for
   Analysis, the exact LINQ, NLinq, and Planner source locations and provenance,
   Roslyn fidelity gates, ECMA safety gates, fair oracle basis, and whether each
-  safety check is shared upstream or producer-specific; or why this field does
-  not apply}
+  safety check is general format admission, shared decoding containment, or
+  producer-specific containment or semantics, naming the exact owner; or why
+  this field does not apply}
 - **Performance evidence:** {exact base/head NativeAOT numbers for every
   supported terminal, plus where those numbers appear in the visible agent
   session and PR body; identify explanatory non-NativeAOT evidence as
@@ -107,7 +108,9 @@ reviewer to grant an approval supplied by candidate formation.}
 
 {List earlier findings that must be verified at this head. Distinguish accepted
 findings, dismissed findings, disclosed limitations, and out-of-scope
-proposals. Do not invite variants outside the review frame.}
+proposals. Require the review report to give every listed item an explicit
+disposition: still present, resolved, reclassified, or dismissed. Do not invite
+variants outside the review frame.}
 
 ### Required real-run evidence
 

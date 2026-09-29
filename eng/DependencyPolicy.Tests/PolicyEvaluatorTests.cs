@@ -925,6 +925,178 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void CheckedInCliProjectRuleMatchesInitialHostRatchet()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "dotnet-inspect-cli-project-dependencies-stay-within-host-ratchet");
+
+        Assert.Equal(
+            [DependencyGraphKind.Project],
+            rule.Graphs);
+        Assert.Equal(["DotnetInspect.Cli"], rule.Targets);
+        Assert.Equal(
+            ["src/DotnetInspect.Cli/DotnetInspect.Cli.csproj"],
+            rule.ProjectPaths);
+        string[] allowOnly = Assert.IsType<string[]>(rule.AllowOnly);
+        Assert.Equal(
+            [
+                "CSharpText",
+                "CSharpText.MemberSlicing",
+                "DotnetInspector.Cache",
+                "DotnetInspector.DocumentationHouse.Direct",
+                "DotnetInspector.Ecosystems",
+                "DotnetInspector.Libraries",
+                "DotnetInspector.LibraryMetadata",
+                "DotnetInspector.MetadataRendering",
+                "DotnetInspector.Networking",
+                "DotnetInspector.PackageQueries",
+                "DotnetInspector.Packages",
+                "DotnetInspector.PlatformHouse",
+                "DotnetInspector.PlatformHouse.Execution.Installed",
+                "DotnetInspector.PlatformHouse.Execution.Packages",
+                "DotnetInspector.PlatformHouse.Installed",
+                "DotnetInspector.PlatformHouse.Packages",
+                "DotnetInspector.PlatformQueries",
+                "DotnetInspector.Platforms",
+                "DotnetInspector.Platforms.Installed",
+                "DotnetInspector.Platforms.Packages",
+                "DotnetInspector.Presentation",
+                "DotnetInspector.Queries",
+                "DotnetInspector.ResearchQueries",
+                "DotnetInspector.ResearchSections",
+                "DotnetInspector.Sections",
+                "DotnetInspector.Sections.Installed",
+                "DotnetInspector.Services",
+                "DotnetInspector.SourceSelection",
+                "DotnetInspector.Vocabulary",
+                "ILInspector.Analysis",
+                "ILInspector.CallGraph",
+                "ILInspector.CSharp",
+                "ILInspector.Decompiler",
+                "ILInspector.ILDiff",
+                "ILInspector.Instructions",
+                "ILInspector.Metadata",
+                "ILInspector.Research",
+                "ILInspector.SourceLink",
+                "InertText",
+                "Inspector.Artifacts.Local",
+                "Inspector.Artifacts.Workspaces",
+                "Inspector.Findings",
+                "Inspector.Text",
+                "QuerySpace",
+            ],
+            allowOnly);
+        Assert.Null(rule.Deny);
+        Assert.Empty(rule.ExcludeTargets);
+        Assert.Empty(rule.ExcludeProjectPaths);
+        Assert.Empty(rule.Except);
+
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            "dotnet-inspect-cli-project-dependencies-stay-within-host-ratchet",
+            "DotnetInspect.Cli",
+            "DotnetInspector.DocumentationHouse.Contracts",
+            DependencyGraphKind.Project,
+            "src/DotnetInspect.Cli/DotnetInspect.Cli.csproj");
+    }
+
+    [Fact]
+    public void CheckedInCliAssemblyRuleMatchesInitialHostRatchet()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "dotnet-inspect-cli-assembly-dependencies-stay-within-host-ratchet");
+
+        Assert.Equal(
+            [DependencyGraphKind.Assembly],
+            rule.Graphs);
+        Assert.Equal(["DotnetInspect.Cli"], rule.Targets);
+        Assert.Equal(
+            ["src/DotnetInspect.Cli/DotnetInspect.Cli.csproj"],
+            rule.ProjectPaths);
+        string[] allowOnly = Assert.IsType<string[]>(rule.AllowOnly);
+        Assert.Equal(
+            [
+                "$platform",
+                "CSharpText",
+                "DotnetInspector.Cache",
+                "DotnetInspector.DocumentationHouse.Contracts",
+                "DotnetInspector.DocumentationHouse.Direct",
+                "DotnetInspector.Ecosystems",
+                "DotnetInspector.Libraries",
+                "DotnetInspector.LibraryMetadata",
+                "DotnetInspector.MetadataRendering",
+                "DotnetInspector.Networking",
+                "DotnetInspector.PackageQueries",
+                "DotnetInspector.Packages",
+                "DotnetInspector.PlatformHouse",
+                "DotnetInspector.PlatformHouse.Execution",
+                "DotnetInspector.PlatformHouse.Execution.Installed",
+                "DotnetInspector.PlatformHouse.Execution.Packages",
+                "DotnetInspector.PlatformHouse.Installed",
+                "DotnetInspector.PlatformHouse.Packages",
+                "DotnetInspector.PlatformQueries",
+                "DotnetInspector.Platforms",
+                "DotnetInspector.Platforms.Installed",
+                "DotnetInspector.Platforms.Packages",
+                "DotnetInspector.Presentation",
+                "DotnetInspector.Queries",
+                "DotnetInspector.ResearchQueries",
+                "DotnetInspector.ResearchSections",
+                "DotnetInspector.Sections",
+                "DotnetInspector.Sections.Installed",
+                "DotnetInspector.Services",
+                "DotnetInspector.SourceHouse",
+                "DotnetInspector.SourceSelection",
+                "DotnetInspector.Vocabulary",
+                "ILInspector.Analysis",
+                "ILInspector.CSharp",
+                "ILInspector.CallGraph",
+                "ILInspector.Decompiler",
+                "ILInspector.ILDiff",
+                "ILInspector.Instructions",
+                "ILInspector.Metadata",
+                "ILInspector.MetadataPrimitives",
+                "ILInspector.Research",
+                "ILInspector.SourceLink",
+                "InertText",
+                "Inspector.Artifacts",
+                "Inspector.Artifacts.Local",
+                "Inspector.Artifacts.Workspaces",
+                "Inspector.Findings",
+                "Inspector.Graph",
+                "Inspector.Resources",
+                "Inspector.Text",
+                "Markout",
+                "NuGet.Frameworks",
+                "NuGet.Versioning",
+                "NuGetFetch",
+                "QuerySpace",
+                "System.CommandLine",
+            ],
+            allowOnly);
+        Assert.Null(rule.Deny);
+        Assert.Empty(rule.ExcludeTargets);
+        Assert.Empty(rule.ExcludeProjectPaths);
+        Assert.Empty(rule.Except);
+
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            "dotnet-inspect-cli-assembly-dependencies-stay-within-host-ratchet",
+            "DotnetInspect.Cli",
+            "CSharpText.MemberSlicing",
+            DependencyGraphKind.Assembly,
+            "src/DotnetInspect.Cli/DotnetInspect.Cli.csproj");
+    }
+
+    [Fact]
     public void CheckedInInspectWebExecutableRuleMatchesManagedPartition()
     {
         string repository = FindRepositoryRoot();
@@ -1024,7 +1196,8 @@ public sealed class PolicyEvaluatorTests
     private static void AssertCheckedInRuleRejectsRepositoryDependency(
         string ruleId,
         string target,
-        string dependency)
+        string dependency,
+        string? targetProjectPath = null)
     {
         string repository = FindRepositoryRoot();
         DependencyPolicyDocument policy = PolicyLoader.Load(
@@ -1036,6 +1209,7 @@ public sealed class PolicyEvaluatorTests
             [
                 Node(
                     target,
+                    projectPath: targetProjectPath,
                     projectReferences: [dependency],
                     assemblyReferences: [dependency]),
                 Node(dependency),
@@ -1060,6 +1234,50 @@ public sealed class PolicyEvaluatorTests
         Assert.Contains(
             violations,
             violation => violation.Graph == DependencyGraphKind.Assembly);
+    }
+
+    private static void AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+        string ruleId,
+        string target,
+        string dependency,
+        DependencyGraphKind graph,
+        string targetProjectPath)
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id == ruleId);
+        RepositoryDependencyGraph dependencyGraph =
+            RepositoryDependencyGraph.Create(
+                [
+                    Node(
+                        target,
+                        projectPath: targetProjectPath,
+                        projectReferences: graph == DependencyGraphKind.Project
+                            ? [dependency]
+                            : [],
+                        assemblyReferences: graph == DependencyGraphKind.Assembly
+                            ? [dependency]
+                            : []),
+                    Node(dependency),
+                ]);
+
+        DependencyViolation violation = Assert.Single(
+            PolicyEvaluator.Evaluate(
+                new DependencyPolicyDocument
+                {
+                    SchemaVersion = policy.SchemaVersion,
+                    Solution = policy.Solution,
+                    Configuration = policy.Configuration,
+                    Rules = [rule],
+                },
+                dependencyGraph));
+
+        Assert.Equal(graph, violation.Graph);
+        Assert.Equal(target, violation.Target);
+        Assert.Equal(dependency, violation.Dependency);
     }
 
     private static string FindRepositoryRoot()
