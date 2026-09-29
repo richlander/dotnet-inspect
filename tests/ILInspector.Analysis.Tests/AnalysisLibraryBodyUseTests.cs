@@ -826,6 +826,48 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void ExecuteImage_RepeatedOperandFailureGrowsLinearly()
+    {
+        // Every call to one truncated MemberRef fails visibly; the retained
+        // failure is reported per use without rethrowing one shared exception.
+        long Allocated(int calls)
+        {
+            byte[] il = new byte[(calls * 5) + 1];
+            for (int i = 0; i < calls; i++)
+            {
+                il[i * 5] = (byte)ILOpCode.Call;
+                il[(i * 5) + 1] = 0x01;
+                il[(i * 5) + 4] = 0x0A;
+            }
+            il[^1] = (byte)ILOpCode.Ret;
+            ImmutableArray<byte> image = BuildIndependentImage(
+                il,
+                truncatedMethodMemberReference: true);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            AnalysisLibraryBodyUseResult result =
+                Available(
+                    AnalysisLibraryBodyUseService.ExecuteImage(
+                        "IndependentEcma335.dll",
+                        image,
+                        new(),
+                        TestContext.Current.CancellationToken)).Result;
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.Equal(calls, result.Coverage.OperandsUnavailable);
+            Assert.Equal(calls, result.Diagnostics.Length);
+            return allocated;
+        }
+
+        _ = Allocated(64);
+        long small = Allocated(512);
+        long large = Allocated(2048);
+
+        // About 1 KB per extra call; one growing shared exception costs
+        // hundreds of MB here.
+        Assert.InRange(large - small, 0, 1536 * 4096);
+    }
+
+    [Fact]
     public void ExecuteImage_BoundsStateMachineAttributeNames()
     {
         AnalysisLibraryBodyUseResult result =

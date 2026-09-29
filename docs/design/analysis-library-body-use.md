@@ -114,8 +114,9 @@ What a non-Roslyn input can change without a diagnostic is only the logical
 owner, as [Fidelity and security](#fidelity-and-security) allows.
 
 Each signature blob's decode outcome, and each operand's binding, is retained
-per execution, a recoverable failure included. A malformed blob or operand
-therefore fails every use visibly without repeating its decode.
+per execution, a recoverable failure included as its diagnostic description.
+A malformed blob or operand therefore fails every use visibly, with the same
+detail, without repeating its decode or rethrowing a shared exception.
 
 Attribution never requires the owner's body to reference the lifted body. A
 local function whose calls Roslyn elided, such as a `[Conditional("DEBUG")]`

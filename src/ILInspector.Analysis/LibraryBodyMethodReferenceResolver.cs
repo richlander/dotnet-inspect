@@ -873,7 +873,10 @@ internal sealed class LibraryBodyMethodReferenceResolver
                 when (LibraryMethodAnalysisRunner
                     .IsRecoverableMethodFailure(exception))
             {
-                outcome = new(Safe: true, 0, exception);
+                outcome = new(
+                    Safe: true,
+                    0,
+                    Planning.ProducerFailure.Describe(exception));
             }
         }
         return _methodSignatures.GetOrAdd(signature, outcome);
@@ -1008,14 +1011,26 @@ internal sealed class LibraryBodyMethodReferenceResolver
 internal sealed record MethodSignatureOutcome(
     bool Safe,
     int GenericArity,
-    Exception? Failure)
+    string? Failure)
 {
     internal static MethodSignatureOutcome Unsafe { get; } =
         new(Safe: false, 0, Failure: null);
 
+    /// <summary>
+    /// Raises a fresh exception carrying the retained failure's description,
+    /// so repeated failures neither re-decode nor grow one shared exception.
+    /// </summary>
     internal void ThrowIfFailed()
     {
         if (Failure is not null)
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(Failure);
+            throw new MethodSignatureFailureException(Failure);
     }
+}
+
+/// <summary>A retained method-signature decode failure.</summary>
+internal sealed class MethodSignatureFailureException(string description)
+    : BadImageFormatException(description)
+{
+    /// <summary>The original failure, as <c>ProducerFailure.Describe</c> spelled it.</summary>
+    internal string Description { get; } = description;
 }

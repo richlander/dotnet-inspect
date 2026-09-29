@@ -45,8 +45,14 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 methodDefinition);
             // The body's own signature is decoded as the full method identity
             // decodes it, so a malformed one still fails the body visibly.
-            _infrastructure.MethodSignature(methodDefinition.Signature)
-                .ThrowIfFailed();
+            if (_infrastructure.MethodSignature(methodDefinition.Signature)
+                    .Failure is { } signatureFailure)
+            {
+                return BodyTypeUseMethodFact.Unavailable(
+                    typeHandle,
+                    methodToken,
+                    signatureFailure);
+            }
             _bodyUseOwners ??= new(_infrastructure.Reader);
             BodyUseOwner owner = _bodyUseOwners.Attribute(methodHandle);
             TypeDefinitionHandle? source =
@@ -92,6 +98,18 @@ internal sealed partial class LibraryMethodAnalysisRunner
                             scope,
                             OperandPathOf(instruction, kind),
                             token);
+                    if (binding.Failure is { } failure)
+                    {
+                        operandsUnavailable++;
+                        diagnostics.Add(
+                            new(
+                                AnalysisLibraryBodyUseDiagnosticKind
+                                    .UnresolvedOperand,
+                                methodToken,
+                                instruction.Offset,
+                                failure));
+                        continue;
+                    }
                     if (binding.Unavailable is { } unavailable)
                     {
                         operandsUnavailable++;
@@ -384,16 +402,12 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 key,
                 out BodyTypeUseOperandBinding? binding))
         {
-            if (binding.Failure is { } failure)
-            {
-                System.Runtime.ExceptionServices.ExceptionDispatchInfo
-                    .Throw(failure);
-            }
             return binding;
         }
 
-        // A recoverable failure is retained too, so a malformed operand fails
-        // every use without repeating its resolution.
+        // A recoverable failure is retained as its description, so a malformed
+        // operand fails every use visibly without repeating its resolution or
+        // rethrowing.
         try
         {
             ImmutableArray<TypeRef> roots =
@@ -418,8 +432,12 @@ internal sealed partial class LibraryMethodAnalysisRunner
         catch (Exception exception)
             when (IsRecoverableMethodFailure(exception))
         {
-            _bodyUseOperandBindings.Add(key, new(null, [], exception));
-            throw;
+            binding = new(
+                null,
+                [],
+                exception is MethodSignatureFailureException signature
+                    ? signature.Description
+                    : ProducerFailure.Describe(exception));
         }
         _bodyUseOperandBindings.Add(key, binding);
         return binding;
@@ -551,7 +569,7 @@ internal readonly record struct BodyTypeUseOperandTarget(
 internal sealed record BodyTypeUseOperandBinding(
     string? Unavailable,
     ImmutableArray<BodyTypeUseOperandTarget> Targets,
-    Exception? Failure = null);
+    string? Failure = null);
 
 internal readonly record struct BodyTypeUseOccurrence(
     TypeDefinitionHandle Source,
