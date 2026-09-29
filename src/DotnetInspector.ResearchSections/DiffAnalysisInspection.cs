@@ -373,11 +373,13 @@ public static class DiffAnalysisInspection
             ApiDiff selectedChanges,
             DiffAnalysisInput input)
     {
+        AnalysisReportSurfaceKind surface = SurfaceOf(input);
         var selectedTypes = input.TypeNames.ToHashSet(StringComparer.Ordinal);
         var rows = ImmutableArray.CreateBuilder<
             DiffAnalysisUnclassifiedApiChange>();
 
-        if (comparison.Types
+        if (surface != AnalysisReportSurfaceKind.Member
+            && comparison.Types
             is FindingComparison<ApiTypeHandle>.Complete types)
         {
             foreach (PairFinding<ApiTypeHandle> pair in types.Pairs)
@@ -429,7 +431,11 @@ public static class DiffAnalysisInspection
                     || HasClassifiedMemberChange(
                         selectedChanges,
                         oldMember,
-                        newMember))
+                        newMember)
+                    || HasClassifiedContainingTypeChange(
+                        selectedChanges,
+                        typeName,
+                        kind))
                 {
                     continue;
                 }
@@ -495,6 +501,26 @@ public static class DiffAnalysisInspection
                     && change.Subject.OldIdentity == oldMember.Identity
                     || newMember is not null
                     && change.Subject.NewIdentity == newMember.Identity));
+
+    private static bool HasClassifiedContainingTypeChange(
+        ApiDiff changes,
+        string typeName,
+        DiffAnalysisUnclassifiedApiChangeKind memberChangeKind)
+    {
+        ChangeKind? typeChangeKind = memberChangeKind switch
+        {
+            DiffAnalysisUnclassifiedApiChangeKind.MemberAdded =>
+                ChangeKind.TypeAdded,
+            DiffAnalysisUnclassifiedApiChangeKind.MemberRemoved =>
+                ChangeKind.TypeRemoved,
+            _ => null,
+        };
+        return typeChangeKind is not null
+            && changes.TypeDiffs
+                .Where(type => type.TypeFullName == typeName)
+                .SelectMany(type => type.Changes)
+                .Any(change => change.Kind == typeChangeKind);
+    }
 
     private static bool MatchesMemberTarget(
         string typeFullName,

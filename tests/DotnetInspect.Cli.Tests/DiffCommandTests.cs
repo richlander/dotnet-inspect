@@ -315,6 +315,28 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildTableView_OrdersByFullTypeNameBeforeDisplayLowering()
+    {
+        var change = new ApiChange(
+            ChangeKind.MemberAdded,
+            ChangeClassification.Additive,
+            "Member was added");
+
+        DiffTableView view = DiffOutputFormatter.BuildTableView(
+            "Sample",
+            [
+                new TypeDiff("Z.JsonArray", [change]),
+                new TypeDiff("A.JsonMarshal", [change]),
+            ],
+            "1.0.0",
+            "2.0.0");
+
+        Assert.Equal(
+            ["JsonMarshal", "JsonArray"],
+            view.Rows!.Select(row => row.Type));
+    }
+
+    [Fact]
     public void ApiChangeText_WithLiteralEscapeSpellings_RemainsRenderable()
     {
         const string literalEscapes = @"C:\x\t\u0041";
@@ -3091,6 +3113,68 @@ public class DiffCommandTests
             unclassified.GetProperty("kind").GetString());
     }
 
+    [Fact]
+    public async Task ExecuteAsync_ApiAnalysisMemberScopeExcludesTypeDefinitionChanges()
+    {
+        string v1 = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = $"{v1}..{v2}",
+                    Analysis = ["api"],
+                    TypeFilter = ["TypeDefinitionOnly"],
+                    MemberFilter = ["Value"],
+                    JsonOutput = true,
+                }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(
+            "Member",
+            document.RootElement.GetProperty("comparison")
+                .GetProperty("surface").GetString());
+        Assert.Empty(
+            document.RootElement.GetProperty("changes")
+                .GetProperty("types").EnumerateArray());
+    }
+
+    [Theory]
+    [InlineData("AddedType", "TypeAdded")]
+    [InlineData("RemovedType", "TypeRemoved")]
+    public async Task ExecuteAsync_ApiAnalysisWholeTypeChangesDoNotDuplicateMembers(
+        string typeName,
+        string expectedKind)
+    {
+        string v1 = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = $"{v1}..{v2}",
+                    Analysis = ["api"],
+                    TypeFilter = [typeName],
+                    JsonOutput = true,
+                }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement type = Assert.Single(
+            document.RootElement.GetProperty("changes")
+                .GetProperty("types").EnumerateArray());
+        Assert.Equal(
+            expectedKind,
+            Assert.Single(type.GetProperty("changes").EnumerateArray())
+                .GetProperty("kind").GetString());
+        Assert.Empty(type.GetProperty("unclassifiedChanges").EnumerateArray());
+    }
+
     [Theory]
     [InlineData("table")]
     [InlineData("tsv")]
@@ -3134,6 +3218,55 @@ public class DiffCommandTests
         Assert.Contains("unclassified API changes", explicitOutput);
         if (jsonl)
             Assert.DoesNotContain("\"classification\":", explicitOutput);
+    }
+
+    [Theory]
+    [InlineData("tsv")]
+    [InlineData("jsonl")]
+    public async Task ExecuteAsync_ExplicitApiPreservesNameOnlyPrecedence(
+        string format)
+    {
+        string v1 = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+        string range = $"{v1}..{v2}";
+        bool tsv = format == "tsv";
+        bool jsonl = format == "jsonl";
+
+        var (implicitExit, implicitOutput, implicitError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    TypeFilter = ["HardChangedType"],
+                    NameOnly = true,
+                    Tabular = true,
+                    Tsv = tsv,
+                    Jsonl = jsonl,
+                }));
+        var (explicitExit, explicitOutput, explicitError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    Analysis = ["api"],
+                    TypeFilter = ["HardChangedType"],
+                    NameOnly = true,
+                    Tabular = true,
+                    Tsv = tsv,
+                    Jsonl = jsonl,
+                }));
+
+        Assert.Equal(0, implicitExit);
+        Assert.Equal(0, explicitExit);
+        Assert.Empty(implicitError);
+        Assert.Empty(explicitError);
+        Assert.Equal(implicitOutput, explicitOutput);
+        Assert.Contains(
+            "LibraryApiDiffFixture.HardChangedType",
+            explicitOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Versions", explicitOutput);
+        Assert.DoesNotContain("change", explicitOutput);
     }
 
     [Theory]

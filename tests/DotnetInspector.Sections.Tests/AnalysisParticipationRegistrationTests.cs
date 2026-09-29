@@ -432,6 +432,162 @@ public sealed class AnalysisParticipationRegistrationTests
             change.Kind);
     }
 
+    [Fact]
+    public void DiffAnalysisInspection_MemberScopeExcludesTypeDefinitionChanges()
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Member,
+                targetCount: 1,
+                ["api"]));
+        var beforeMember = new ApiMember
+        {
+            Name = "Value",
+            Kind = "field",
+            ReturnType = "System.Int32",
+        };
+        var afterMember = new ApiMember
+        {
+            Name = "Value",
+            Kind = "field",
+            ReturnType = "System.Int32",
+        };
+        var beforeType = new ApiType
+        {
+            Namespace = "N",
+            Name = "Widget",
+            Kind = "struct",
+            Members = [beforeMember],
+        };
+        var afterType = new ApiType
+        {
+            Namespace = "N",
+            Name = "Widget",
+            Kind = "struct",
+            IsByRefLike = true,
+            Members = [afterMember],
+        };
+        string memberIdentity =
+            ApiMemberIdentity.CreateHandle(beforeType, beforeMember).Identity;
+        var input = new DiffAnalysisInput(
+            new ApiSurface { Types = [beforeType] },
+            new ApiSurface { Types = [afterType] },
+            [],
+            [],
+            new HashSet<string>(["N.Widget"]),
+            ["N.Widget"],
+            new HashSet<string>([memberIdentity]),
+            prepareBodySignals: null);
+
+        InspectionEnvelope<DiffAnalysisDocument> inspection =
+            DiffAnalysisInspection.Execute(
+                new DiffAnalysisInspectionRequest(
+                    "Sample",
+                    "1.0.0",
+                    "2.0.0",
+                    catalog,
+                    accepted,
+                    input,
+                    DiffAnalysisDocumentViews.Changes));
+
+        Assert.Empty(inspection.Content.Changes!.Types);
+    }
+
+    [Fact]
+    public void DiffAnalysisInspection_WholeTypeChangesSubsumeMemberChanges()
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Library,
+                targetCount: 1,
+                ["api"]));
+        var before = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "N",
+                    Name = "Removed",
+                    Kind = "class",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "Run",
+                            Kind = "method",
+                            Signature = "void Run()",
+                        },
+                    ],
+                },
+            ],
+        };
+        var after = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "N",
+                    Name = "Added",
+                    Kind = "class",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "Run",
+                            Kind = "method",
+                            Signature = "void Run()",
+                        },
+                    ],
+                },
+            ],
+        };
+        var input = new DiffAnalysisInput(
+            before,
+            after,
+            [],
+            [],
+            new HashSet<string>(),
+            [],
+            memberTargetIdentities: null,
+            prepareBodySignals: null);
+
+        InspectionEnvelope<DiffAnalysisDocument> inspection =
+            DiffAnalysisInspection.Execute(
+                new DiffAnalysisInspectionRequest(
+                    "Sample",
+                    "1.0.0",
+                    "2.0.0",
+                    catalog,
+                    accepted,
+                    input,
+                    DiffAnalysisDocumentViews.Changes));
+
+        Assert.Collection(
+            inspection.Content.Changes!.Types,
+            type =>
+            {
+                Assert.Equal("N.Added", type.Type);
+                Assert.Equal(
+                    ChangeKind.TypeAdded,
+                    Assert.Single(type.Changes).Kind);
+                Assert.Empty(type.UnclassifiedChanges);
+            },
+            type =>
+            {
+                Assert.Equal("N.Removed", type.Type);
+                Assert.Equal(
+                    ChangeKind.TypeRemoved,
+                    Assert.Single(type.Changes).Kind);
+                Assert.Empty(type.UnclassifiedChanges);
+            });
+    }
+
     static DiffAnalysisInput Input(
         Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>? prepareBodySignals)
         => new(

@@ -615,6 +615,19 @@ public partial class DiffCommand
 
         if (plan.Views is [var onlyView])
         {
+            if (options.NameOnly)
+            {
+                Console.WriteLine(
+                    RenderAnalysisChanges(
+                        name,
+                        document.Changes!,
+                        changes ?? new ApiDiff(),
+                        fromVersion,
+                        toVersion,
+                        options));
+                WriteIncompleteComparisonDiagnostic(inspectionFailures);
+                return failed ? 1 : 0;
+            }
             if (options.Tabular || options.Tsv || options.Jsonl)
             {
                 object view = onlyView == DiffSections.Summary.Name
@@ -649,7 +662,7 @@ public partial class DiffCommand
                 WriteIncompleteComparisonDiagnostic(inspectionFailures);
                 return failed ? 1 : 0;
             }
-            if (inspectionFailures.Count == 0 || options.NameOnly)
+            if (inspectionFailures.Count == 0)
             {
                 Console.WriteLine(
                     onlyView == DiffSections.Summary.Name
@@ -667,8 +680,6 @@ public partial class DiffCommand
                                 fromVersion,
                                 toVersion,
                                 options));
-                if (options.NameOnly)
-                    WriteIncompleteComparisonDiagnostic(inspectionFailures);
                 return failed ? 1 : 0;
             }
         }
@@ -725,16 +736,18 @@ public partial class DiffCommand
                 ? [
                     .. document.Types.SelectMany(type =>
                         type.UnclassifiedChanges.Select(change =>
-                            new DiffDetailedChangeRow(
-                                DiffViewText.Field("~"),
-                                DiffViewText.Field("unclassified"),
-                                DiffViewText.Field(
-                                    TypeMatcher.GetSimpleName(type.Type)),
-                                DiffViewText.Field(change.Member ?? ""),
-                                DiffViewText.Field(change.Kind.ToString()),
-                                DiffViewText.Field(change.Detail),
-                                InertString.Empty,
-                                InertString.Empty))),
+                            new DiffOutputFormatter.OrderedDetailedChangeRow(
+                                type.Type,
+                                new DiffDetailedChangeRow(
+                                    DiffViewText.Field("~"),
+                                    DiffViewText.Field("unclassified"),
+                                    DiffViewText.Field(
+                                        TypeMatcher.GetSimpleName(type.Type)),
+                                    DiffViewText.Field(change.Member ?? ""),
+                                    DiffViewText.Field(change.Kind.ToString()),
+                                    DiffViewText.Field(change.Detail),
+                                    InertString.Empty,
+                                    InertString.Empty)))),
                 ]
                 : [],
             AnalysisChangesSummary(classified, typeCount));
@@ -754,7 +767,7 @@ public partial class DiffCommand
             type => type.TypeFullName,
             StringComparer.Ordinal);
         bool includeUnclassified = !options.Breaking && !options.Additive;
-        List<DiffTableRow> additionalRows =
+        List<DiffOutputFormatter.OrderedTableRow> additionalRows =
         [
             .. document.Types
                 .Where(type =>
@@ -762,10 +775,12 @@ public partial class DiffCommand
                     && !classifiedByType.ContainsKey(type.Type)
                     && !type.UnclassifiedChanges.IsEmpty)
                 .Select(type =>
-                    new DiffTableRow(
-                        "~",
-                        TypeMatcher.GetSimpleName(type.Type),
-                        "unclassified API changes")),
+                    new DiffOutputFormatter.OrderedTableRow(
+                        type.Type,
+                        new DiffTableRow(
+                            "~",
+                            TypeMatcher.GetSimpleName(type.Type),
+                            "unclassified API changes"))),
         ];
         int typeCount = ChangedTypeCount(
             document,

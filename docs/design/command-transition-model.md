@@ -1073,6 +1073,11 @@ For rendered output, explicit `--analysis api` changes delivery ownership, not
 presentation intent. Without an explicit Changes section, table, TSV, and
 JSONL retain the established changed-Type summary rows; an explicit Changes
 section selects detailed compatibility and unclassified evidence rows.
+Member-surface Changes exclude unmatched Type-definition correspondence, and a
+classified whole-Type addition or removal subsumes unmatched constituent
+member additions or removals. Hosts order rows by the full Type identity before
+lowering the displayed Type name or applying a row window. `--name-only`
+continues to take precedence over table, TSV, and JSONL shape selection.
 
 #### Demo and evidence
 
