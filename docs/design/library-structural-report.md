@@ -92,8 +92,9 @@ missing profiles or presentation rows.
 Type structural leverage additionally consumes two complete, separately
 qualified relationship populations:
 
-- Metadata owns signature relationships from base Types, implemented
-  interfaces, generic constraints, and member signatures.
+- [Metadata Library Signature Use](metadata-library-signature-use.md) owns
+  signature relationships from base Types, implemented interfaces, generic
+  constraints, and member signatures.
 - Analysis owns body relationships from resolved Type-bearing IL operands and
   the logical declared-Type owner of each physical body.
 
@@ -549,8 +550,9 @@ stack. Each slice has one normative owner and lands a usable typed contract:
 
 1. Graph publishes closed-document selected incoming/outgoing adjacency,
    directed distinct-neighbor degree, union selection, and work receipts.
-2. Metadata publishes the complete qualified Library signature-use
-   relationship population and exact Type-definition identities.
+2. [Metadata Library Signature Use](metadata-library-signature-use.md)
+   publishes the complete qualified Library signature-use relationship
+   population and exact Type-definition identities.
 3. Analysis publishes the complete qualified Library body-use relationship
    population with logical declared-Type ownership.
 4. Research composes both populations through Graph, publishes canonical

@@ -67,6 +67,7 @@ public static class ChangeDetectionApp
             repository,
             workflowText,
             validateProvenancePin: true);
+        MainCiWorkflowContract.Validate(repository);
         WorkflowContract.AssertWorkingDirectoryMutations(
             repository,
             workflowText);

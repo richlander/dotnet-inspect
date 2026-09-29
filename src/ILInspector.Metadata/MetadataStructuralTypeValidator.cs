@@ -20,7 +20,7 @@ internal static class MetadataStructuralTypeValidator
         string? failure = ValidateSignatureType(
             signature.ReturnType,
             allowByReference: true,
-            allowVoid: false,
+            allowVoid: true,
             allowTypedReference: true,
             $"{subject} value type");
         if (failure is not null)
@@ -73,23 +73,32 @@ internal static class MetadataStructuralTypeValidator
             methodParameterCount,
             subject);
 
-    internal static string? ValidateAccessorMethodSignature(
+    internal static string? ValidateMethodSignature(
         MethodSignature<TypeNode> signature,
         int typeParameterCount,
+        int methodParameterCount,
         string subject)
     {
         SignatureHeader header = signature.Header;
         if ((header.RawValue & 0x80) != 0
             || header.Kind != SignatureKind.Method
-            || header.HasExplicitThis
+            || header.HasExplicitThis && !header.IsInstance
+            || header.CallingConvention is not (
+                SignatureCallingConvention.Default
+                or SignatureCallingConvention.VarArgs)
             || header.IsGeneric
-            || header.CallingConvention
-                != SignatureCallingConvention.Default
-            || signature.GenericParameterCount != 0
+                != (signature.GenericParameterCount > 0)
+            || signature.GenericParameterCount
+                != methodParameterCount
+            || signature.RequiredParameterCount < 0
             || signature.RequiredParameterCount
-                != signature.ParameterTypes.Length)
+                > signature.ParameterTypes.Length
+            || signature.RequiredParameterCount
+                    != signature.ParameterTypes.Length
+                && header.CallingConvention
+                    != SignatureCallingConvention.VarArgs)
         {
-            return $"{subject} does not carry a complete ordinary method signature.";
+            return $"{subject} does not carry a valid MethodDefSig.";
         }
 
         string? failure = ValidateSignatureType(
@@ -104,7 +113,7 @@ internal static class MetadataStructuralTypeValidator
         failure = Validate(
             signature.ReturnType,
             typeParameterCount,
-            methodParameterCount: 0,
+            methodParameterCount,
             $"{subject} return type");
         if (failure is not null)
             return failure;
@@ -123,7 +132,7 @@ internal static class MetadataStructuralTypeValidator
             failure = Validate(
                 parameter,
                 typeParameterCount,
-                methodParameterCount: 0,
+                methodParameterCount,
                 $"{subject} parameter");
             if (failure is not null)
                 return failure;
@@ -281,6 +290,8 @@ internal static class MetadataStructuralTypeValidator
         if ((header.RawValue & 0x80) != 0
             || header.Kind != SignatureKind.Method
             || header.HasExplicitThis && !header.IsInstance
+            || header.IsGeneric
+                != (signature.GenericParameterCount > 0)
             || signature.RequiredParameterCount < 0
             || signature.RequiredParameterCount
                 > signature.ParameterTypes.Length

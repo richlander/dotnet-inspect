@@ -119,6 +119,13 @@ public partial class LibraryCommand
         new("References applicability", AssemblyReferencesQuery.Definition),
     ];
 
+    /// <summary>
+    /// The <c>--json</c> model dump shows every method classification count;
+    /// lists appear only when a row section asks for them.
+    /// </summary>
+    internal static readonly HostQueryDemand ModelDumpCountsDemand =
+        new("--json model counts", MethodClassificationDemand.ModelCounts);
+
     internal static readonly HostQueryDemand[]
         BareDiscoveryQueries =
         [
@@ -158,7 +165,9 @@ public partial class LibraryCommand
         }
 
         options = source!.ApplyTo(options);
-        if (DirectLibraryInspectionCommand.ShouldExecute(options))
+        if (DirectLibraryInspectionCommand.ShouldExecute(options)
+            && !(source.Selector is SourceSelector.PackageSource
+                && options.AddressRequest is not null))
         {
             return await DirectLibraryInspectionCommand.ExecuteAsync(
                     options,
@@ -171,7 +180,13 @@ public partial class LibraryCommand
         {
             return 1;
         }
+        bool packageAddress =
+            ShouldExecutePackageAddress(
+                options,
+                source,
+                preResolvedPackage: null);
         if (source.Selector is SourceSelector.PackageSource
+            && !packageAddress
             && (options.WorkspacePacket is not null
                 || options.NamesakeLibrary
                 || string.IsNullOrWhiteSpace(options.AssemblyName)
@@ -189,7 +204,76 @@ public partial class LibraryCommand
         return await ExecuteBoundAsync(
             options,
             source,
-            preResolvedPackage: null).ConfigureAwait(false);
+            preResolvedPackage: null,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static bool ShouldExecutePackageAddress(
+        LibraryOptions options,
+        LibrarySourceBinding source,
+        PackageExtractionResult? preResolvedPackage) =>
+        source.Selector is SourceSelector.PackageSource
+        && preResolvedPackage is null
+        && options.AddressRequest is not null
+        && options.WorkspacePacket is null
+        && !options.JsonOutput
+        && !options.NamesakeLibrary
+        && !string.IsNullOrWhiteSpace(options.AssemblyName)
+        && TryGetPackageCompileLibrarySelection(
+            options.AssemblyName,
+            out _)
+        && HasOnlyPackageAddressSections(options)
+        && options.Discover is not { Length: 0 }
+        && !string.Equals(
+            options.Tfm,
+            "all",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryGetPackageCompileLibrarySelection(
+        string assemblyName,
+        out string? targetFramework)
+    {
+        targetFramework = null;
+        string path = assemblyName.Replace('\\', '/');
+        if (!path.Contains('/'))
+            return false;
+        if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            path += ".dll";
+
+        string[] segments = path.Split('/');
+        if (segments.Length != 3
+            || (!segments[0].Equals(
+                    "lib",
+                    StringComparison.OrdinalIgnoreCase)
+                && !segments[0].Equals(
+                    "ref",
+                    StringComparison.OrdinalIgnoreCase))
+            || !TfmResolver.IsTfmLike(segments[1])
+            || Path.GetFileNameWithoutExtension(segments[^1]).Length == 0)
+        {
+            return false;
+        }
+
+        targetFramework = segments[1];
+        return true;
+    }
+
+    private static bool HasOnlyPackageAddressSections(
+        LibraryOptions options)
+    {
+        if (options.IncludeSections is not { Count: > 0 } sections)
+            return true;
+
+        return options.AddressRequest
+            is LibraryAddressRequest.HeapPoint
+                ? sections.All(section =>
+                    section.Equals(
+                        MetadataSectionNames.Heap,
+                        StringComparison.OrdinalIgnoreCase))
+                : sections.All(section =>
+                    ILCoordinateSections.Contains(
+                        section,
+                        StringComparer.OrdinalIgnoreCase));
     }
 
     internal static async Task<int> ExecuteResolvedPackageAsync(
@@ -218,13 +302,15 @@ public partial class LibraryCommand
         return await ExecuteBoundAsync(
             options,
             source,
-            resolution).ConfigureAwait(false);
+            resolution,
+            CancellationToken.None).ConfigureAwait(false);
     }
 
     static async Task<int> ExecuteBoundAsync(
         LibraryOptions options,
         LibrarySourceBinding source,
-        PackageExtractionResult? preResolvedPackage)
+        PackageExtractionResult? preResolvedPackage,
+        CancellationToken cancellationToken)
     {
         if (!options.Trace)
         {
@@ -232,7 +318,8 @@ public partial class LibraryCommand
                 options,
                 source,
                 trace: null,
-                preResolvedPackage).ConfigureAwait(false);
+                preResolvedPackage,
+                cancellationToken).ConfigureAwait(false);
         }
 
         // Rendered in a finally so a failed run still reports the work it did before failing —
@@ -255,7 +342,8 @@ public partial class LibraryCommand
                 options,
                 source,
                 trace,
-                preResolvedPackage).ConfigureAwait(false);
+                preResolvedPackage,
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -294,7 +382,8 @@ public partial class LibraryCommand
         LibraryOptions options,
         LibrarySourceBinding source,
         InspectionTrace? trace,
-        PackageExtractionResult? preResolvedPackage)
+        PackageExtractionResult? preResolvedPackage,
+        CancellationToken cancellationToken)
     {
         if (!LibraryNamespaceListingCommand.ValidateOptions(options))
             return 1;
@@ -979,6 +1068,10 @@ public partial class LibraryCommand
                     OptimizationOpportunitiesQuery.Definition));
         }
 
+        if (!discoveryInspection
+            && LibraryMetadataService.WritesDefaultModelDump(options))
+            commandQueryDemand.Add(ModelDumpCountsDemand);
+
         HashSet<InspectionQueryDefinition> queries =
             sectionPlan.Activate(trace, commandQueryDemand);
         var inspectionOptions = fullEffectiveDiscovery
@@ -1227,6 +1320,23 @@ public partial class LibraryCommand
             else if (source.Selector
                 is SourceSelector.PackageSource)
             {
+                if (ShouldExecutePackageAddress(
+                        options,
+                        source,
+                        preResolvedPackage))
+                {
+                    return await ExecutePackageAddressAsync(
+                        source.PackageTarget!,
+                        options,
+                        pipeline,
+                        userVerbosity,
+                        discoveryInspection,
+                        fullEffectiveDiscovery,
+                        discoveryExecutionScope,
+                        context,
+                        cancellationToken);
+                }
+
                 // Extract from package
                 var extractResult = await ExtractFromPackageAsync(
                     assemblyPath,
@@ -2617,7 +2727,7 @@ public partial class LibraryCommand
         return true;
     }
 
-    private static void ApplyLibraryEcosystemDependencies(
+    internal static void ApplyLibraryEcosystemDependencies(
         LibraryInspection inspection,
         LibraryInspectionSubject subject,
         bool wantsEcosystemDependencies,
@@ -2634,18 +2744,24 @@ public partial class LibraryCommand
         }
         if (subject.AssemblyReference is not { } assembly)
         {
-            CommandError.WriteWarning(
-                "Library ecosystem recognition is unavailable because the "
-                + "selected input is not an assembly.");
+            if (discloseEmptyDetailDiagnostics)
+            {
+                CommandError.WriteWarning(
+                    "Library ecosystem recognition is unavailable because the "
+                    + "selected input is not an assembly.");
+            }
             return;
         }
         if (!TryCreateExactLibrarySourceCoordinate(
                 assembly,
                 out ExactLibrarySourceCoordinate? source))
         {
-            CommandError.WriteWarning(
-                "Library ecosystem recognition is unavailable because the "
-                + "selected source does not have an exact Library coordinate.");
+            if (discloseEmptyDetailDiagnostics)
+            {
+                CommandError.WriteWarning(
+                    "Library ecosystem recognition is unavailable because the "
+                    + "selected source does not have an exact Library coordinate.");
+            }
             return;
         }
 
@@ -2736,7 +2852,7 @@ public partial class LibraryCommand
         return false;
     }
 
-    private static bool RequiresLibraryEcosystemDiagnosticDisclosure(
+    internal static bool RequiresLibraryEcosystemDiagnosticDisclosure(
         LibraryOptions options) =>
         options.IncludeSections is { } sections
         && sections.Contains(SectionNames.EcosystemDependencies)
@@ -4646,9 +4762,11 @@ public partial class LibraryCommand
         return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
     }
 
-    private sealed record ToolPayloadResolution(PackageExtractionResult? Result, string? Error);
+    internal sealed record ToolPayloadResolution(
+        PackageExtractionResult? Result,
+        string? Error);
 
-    private static async Task<ToolPayloadResolution> TryResolveToolPayloadPackageAsync(
+    internal static async Task<ToolPayloadResolution> TryResolveToolPayloadPackageAsync(
         PackageExtractionResult package,
         PackageReferenceTarget originalPackageTarget,
         NuGetSourceOptions? sourceOptions,

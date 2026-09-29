@@ -37,7 +37,7 @@ internal static class GuardedSignatureText
         => GuardedSignatureDecoder.Decode(
             reader,
             property.Signature,
-            SignatureBlobGuard.Kind.Method,
+            SignatureBlobGuard.Kind.Property,
             () => property.DecodeSignature(SignatureDecoder.Instance, context));
 
     public static SignatureDecodeResult<string> FieldText(

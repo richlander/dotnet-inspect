@@ -18,29 +18,10 @@ public sealed class PlatformPopulationLibraryContentSelection
         ArtifactAssemblyProjection projection,
         PlatformPopulationMemberAttribution attribution)
     {
-        ArgumentNullException.ThrowIfNull(content);
-        ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(attribution);
-        if (content.Provenance
-                is not PlatformLibraryArtifactProvenance provenance)
-        {
-            throw new ArgumentException(
-                "Selected population content must retain its Platform source realization as Artifact provenance.",
-                nameof(content));
-        }
+        Evidence = new(content, projection);
         PlatformSourceContribution.Realization contribution =
-            provenance.Contribution;
-        if (!ReferenceEquals(
-                projection.Registration.Generation,
-                content.Generation)
-            || !ReferenceEquals(
-                projection.Registration.Artifact,
-                content.Artifact))
-        {
-            throw new ArgumentException(
-                "Selected population content requires the Metadata projection issued for its exact Artifact.",
-                nameof(projection));
-        }
+            Evidence.Contribution;
         if (contribution.Request.Operation
                 is not PlatformHouseOperationSnapshot.Realize
                 {
@@ -58,26 +39,16 @@ public sealed class PlatformPopulationLibraryContentSelection
                 nameof(content));
         }
 
-        var assemblyIdentity =
-            new ManagedMetadataIdentity.Assembly(projection.Identity);
-        if (assemblyIdentity.Identity.Version is null)
-        {
-            throw new ArgumentException(
-                "Selected population content requires an exact assembly version.",
-                nameof(projection));
-        }
-
-        Contribution = contribution;
-        Content = content;
-        Projection = projection;
-        AssemblyIdentity = assemblyIdentity;
         Attribution = attribution;
     }
 
-    public PlatformSourceContribution.Realization Contribution { get; }
-    public ArtifactContentReference Content { get; }
-    public ArtifactAssemblyProjection Projection { get; }
-    public ManagedMetadataIdentity.Assembly AssemblyIdentity { get; }
+    internal PlatformLibraryContentSelectionEvidence Evidence { get; }
+    public PlatformSourceContribution.Realization Contribution =>
+        Evidence.Contribution;
+    public ArtifactContentReference Content => Evidence.Content;
+    public ArtifactAssemblyProjection Projection => Evidence.Projection;
+    public ManagedMetadataIdentity.Assembly AssemblyIdentity =>
+        Evidence.AssemblyIdentity;
     public PlatformPopulationMemberAttribution Attribution { get; }
 }
 
@@ -97,12 +68,9 @@ public sealed class PlatformPopulationRealizationValue
                 nameof(members));
         }
         Members = Array.AsReadOnly([.. members]);
-        Libraries = Array.AsReadOnly(
-            members.Select(static member => member.Library).ToArray());
     }
 
     public IReadOnlyList<PlatformPopulationMember> Members { get; }
-    public IReadOnlyList<LibraryReference> Libraries { get; }
 }
 
 /// <summary>
@@ -134,17 +102,10 @@ public sealed class PlatformPopulationRealizationReceipt
         RealizedMembers = realizedMembers is null
             ? null
             : Array.AsReadOnly([.. realizedMembers]);
-        RealizedLibraries = realizedMembers is null
-            ? null
-            : Array.AsReadOnly(
-                realizedMembers
-                    .Select(static member => member.Library)
-                    .ToArray());
     }
 
     public PlatformHouseReceipt HouseReceipt { get; }
     public IReadOnlyList<PlatformPopulationMember>? RealizedMembers { get; }
-    public IReadOnlyList<LibraryReference>? RealizedLibraries { get; }
 }
 
 /// <summary>
@@ -202,7 +163,7 @@ public abstract class PlatformPopulationRealizationResult
                     outcome.Value.Members[index];
                 if (!ReferenceEquals(
                         owners[index].Reference,
-                        member.Library)
+                        member.PlatformLibrary.Library)
                     || !ReferenceEquals(
                         receipt.RealizedMembers[index],
                         member))
@@ -237,10 +198,10 @@ public abstract class PlatformPopulationRealizationResult
                     "A completed population outcome requires transferred owners.",
                     nameof(outcome));
             }
-            if (receipt.RealizedLibraries is not null)
+            if (receipt.RealizedMembers is not null)
             {
                 throw new ArgumentException(
-                    "A terminal population receipt cannot retain realized Libraries.",
+                    "A terminal population receipt cannot retain realized members.",
                     nameof(receipt));
             }
         }
@@ -542,8 +503,21 @@ public static class PlatformHousePopulationRealizer
                     .ConfigureAwait(false);
             }
 
-            var members = new List<PlatformPopulationMember>(
-                selected.Length);
+            PlatformViewCorrespondenceEvidence? viewCorrespondence =
+                expectedView switch
+                {
+                    PlatformViewDemand.Reference => null,
+                    PlatformViewDemand.Implementation =>
+                        new PlatformPopulationImplementationDeclarationSurface(
+                            implementationSelections),
+                    PlatformViewDemand.ReferenceAndImplementation =>
+                        new PlatformPopulationReferenceAndImplementationCorrespondence(
+                            referenceSelections,
+                            implementationSelections),
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(expectedView)),
+                };
+            var members = new List<PlatformPopulationMember>(selected.Length);
             if (expectedView == PlatformViewDemand.Reference)
             {
                 for (int index = 0;
@@ -556,6 +530,7 @@ public static class PlatformHousePopulationRealizer
                         acceptedReferenceLeases[index],
                         implementation: null,
                         implementationLease: null,
+                        viewCorrespondenceIdentity: null,
                         owners,
                         members);
                 }
@@ -572,6 +547,9 @@ public static class PlatformHousePopulationRealizer
                         acceptedImplementationLeases[index],
                         implementationSelections[index],
                         acceptedImplementationLeases[index],
+                        viewCorrespondence?.Identity
+                            ?? throw new InvalidOperationException(
+                                "Implementation realization requires correspondence evidence."),
                         owners,
                         members);
                 }
@@ -584,24 +562,13 @@ public static class PlatformHousePopulationRealizer
                     acceptedReferenceLeases,
                     implementationSelections,
                     acceptedImplementationLeases,
+                    viewCorrespondence?.Identity
+                        ?? throw new InvalidOperationException(
+                            "Paired realization requires correspondence evidence."),
                     owners,
                     members);
             }
 
-            PlatformViewCorrespondenceEvidence? viewCorrespondence =
-                expectedView switch
-                {
-                    PlatformViewDemand.Reference => null,
-                    PlatformViewDemand.Implementation =>
-                        new PlatformPopulationImplementationDeclarationSurface(
-                            implementationSelections),
-                    PlatformViewDemand.ReferenceAndImplementation =>
-                        new PlatformPopulationReferenceAndImplementationCorrespondence(
-                            referenceSelections,
-                            implementationSelections),
-                    _ => throw new ArgumentOutOfRangeException(
-                        nameof(expectedView)),
-                };
             var completion = new PlatformHouseCompletion.Realization(
                 (PlatformHouseOperationSnapshot.Realize)
                     request.Snapshot.Operation,
@@ -873,6 +840,7 @@ public static class PlatformHousePopulationRealizer
         IReadOnlyList<PlatformPopulationLibraryContentSelection>
             implementations,
         IReadOnlyList<ArtifactContentLease> implementationLeases,
+        PlatformViewCorrespondenceIdentity viewCorrespondenceIdentity,
         ICollection<LibraryContentOwner> owners,
         ICollection<PlatformPopulationMember> members)
     {
@@ -902,6 +870,7 @@ public static class PlatformHousePopulationRealizer
                     referenceLeases[index],
                     implementations[implementationIndex],
                     implementationLeases[implementationIndex],
+                    viewCorrespondenceIdentity,
                     owners,
                     members);
             }
@@ -912,6 +881,7 @@ public static class PlatformHousePopulationRealizer
                     referenceLeases[index],
                     implementation: null,
                     implementationLease: null,
+                    viewCorrespondenceIdentity: null,
                     owners,
                     members);
             }
@@ -927,6 +897,7 @@ public static class PlatformHousePopulationRealizer
                 implementationLeases[index],
                 implementations[index],
                 implementationLeases[index],
+                viewCorrespondenceIdentity,
                 owners,
                 members);
         }
@@ -937,6 +908,7 @@ public static class PlatformHousePopulationRealizer
         ArtifactContentLease apiLease,
         PlatformPopulationLibraryContentSelection? implementation,
         ArtifactContentLease? implementationLease,
+        PlatformViewCorrespondenceIdentity? viewCorrespondenceIdentity,
         ICollection<LibraryContentOwner> owners,
         ICollection<PlatformPopulationMember> members)
     {
@@ -967,10 +939,19 @@ public static class PlatformHousePopulationRealizer
             ? [apiLease]
             : [apiLease, implementationLease];
         owners.Add(new LibraryContentOwner(library, leases));
+        PlatformLibraryContentSelectionEvidence[] certificationSelections =
+            implementation is null || ReferenceEquals(api, implementation)
+                ? [api.Evidence]
+                : [api.Evidence, implementation.Evidence];
+        var platformLibrary = new PlatformLibraryReference(
+            library,
+            api.Attribution.Target,
+            certificationSelections,
+            viewCorrespondenceIdentity);
         members.Add(
             new PlatformPopulationMember(
-                library,
-                api.Attribution));
+                platformLibrary,
+                api.Attribution.Role));
     }
 
     static PlatformSourceContribution.Realization[] DistinctContributions(

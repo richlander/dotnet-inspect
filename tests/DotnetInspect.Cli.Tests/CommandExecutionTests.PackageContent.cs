@@ -937,8 +937,8 @@ public partial class CommandExecutionTests
             "-t", "JsonReader",
             "--rows", "2..", "--count", "--tips", "q");
 
-        Assert.Equal(0, alias.Exit);
         Assert.Empty(alias.Error);
+        Assert.Equal(0, alias.Exit);
         Assert.Equal("1", alias.Output.Trim());
         Assert.Equal(0, typeSugar.Exit);
         Assert.Empty(typeSugar.Error);
@@ -1470,8 +1470,8 @@ public partial class CommandExecutionTests
                 "--paths",
                 "--tips", "q");
 
-            Assert.Equal(0, alias.Exit);
             Assert.Empty(alias.Error);
+            Assert.Equal(0, alias.Exit);
             Assert.Equal("README.md", alias.Output.Trim());
             Assert.Equal(0, path.Exit);
             Assert.Empty(path.Error);

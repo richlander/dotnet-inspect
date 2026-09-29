@@ -159,6 +159,7 @@ function memberSurface(): BrowserMemberSurface {
     anchorDigest: "value",
     canonicalSignature: "int Example.Widget.Value",
     anchorTypeFullName: "Example.Widget",
+    declaringTypeDefinitionId: null,
     graphSelectorKey: "Value",
     bodySelectors: [{
       token: 0x06000001,

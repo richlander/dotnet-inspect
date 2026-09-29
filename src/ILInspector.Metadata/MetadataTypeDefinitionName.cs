@@ -878,11 +878,16 @@ internal static class MetadataTypeDefinitionNameReader
                         namespaceHandle,
                         delimiterChars: 0,
                         beforeMaterialize,
-                        out @namespace);
+                        out @namespace,
+                        out MetadataTypeNameBudgetFailure
+                            namespaceFailure);
                     chargeCharacters?.Invoke(@namespace.Length);
                     if (!namespaceRead)
                     {
-                        return NameTooLong(TRow.ToEntity(handle), i + 1);
+                        return NameTooLong(
+                            TRow.ToEntity(handle),
+                            i + 1,
+                            namespaceFailure);
                     }
                 }
 
@@ -891,11 +896,15 @@ internal static class MetadataTypeDefinitionNameReader
                     nameHandle,
                     delimiterChars: 1,
                     beforeMaterialize,
-                    out string segment);
+                    out string segment,
+                    out MetadataTypeNameBudgetFailure segmentFailure);
                 chargeCharacters?.Invoke(segment.Length + 1);
                 if (!segmentRead)
                 {
-                    return NameTooLong(TRow.ToEntity(handle), i + 1);
+                    return NameTooLong(
+                        TRow.ToEntity(handle),
+                        i + 1,
+                        segmentFailure);
                 }
 
                 segments.Add(segment);
@@ -927,15 +936,13 @@ internal static class MetadataTypeDefinitionNameReader
 
     static MetadataTypeDefinitionNameReadResult NameTooLong(
         EntityHandle subject,
-        int consumedNodes) =>
+        int consumedNodes,
+        MetadataTypeNameBudgetFailure budget) =>
         new MetadataTypeDefinitionNameReadResult.Rejected(
-            MetadataTypeNameFailure.From(
-                new RelationshipTraversalRejection(
-                    RelationshipTraversalRejectionKind.NameBudget,
-                    $"The structured type name exceeds "
-                    + $"{MetadataSafetyPolicy.MaxTypeNameCharacters} characters.",
-                    subject,
-                    consumedNodes)));
+            MetadataTypeNameFailure.NameBudget(
+                subject,
+                consumedNodes,
+                budget));
 
     static MetadataTypeDefinitionNameReadResult RejectedTraversal(
         RelationshipTraversalRejection rejection) =>
