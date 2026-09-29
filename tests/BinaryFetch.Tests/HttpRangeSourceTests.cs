@@ -108,8 +108,18 @@ public sealed class HttpRangeSourceTests
     {
         byte[] representation = Representation(50_000);
         var handler = new RangeHandler(representation) { ETag = "\"v1\"" };
-        await using HttpRangeSource source = Source(
-            handler,
+        var client = new HttpClient(handler);
+        var kinds = new List<RangeRequestKind>();
+        await using var source = new HttpRangeSource(
+            new Uri("https://range.example/archive.bin"),
+            (request, kind, token) =>
+            {
+                kinds.Add(kind);
+                return client.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    token);
+            },
             new()
             {
                 KnownLength = representation.Length,
@@ -135,6 +145,38 @@ public sealed class HttpRangeSourceTests
             handler.Requests[1].Headers.Range!.ToString());
         Assert.All(handler.Requests, request =>
             Assert.Null(request.Headers.IfRange));
+        Assert.Equal(
+            [RangeRequestKind.Tail, RangeRequestKind.Exact],
+            kinds);
+    }
+
+    [Fact]
+    public async Task PreflightFreeTail_RefusesAContradictoryVisibleRangeWithAnUnknownTotal()
+    {
+        byte[] representation = Representation(50_000);
+        var handler = new RangeHandler(representation)
+        {
+            Defect = "range",
+            UnknownTotal = true,
+        };
+        await using HttpRangeSource source = Source(
+            handler,
+            new()
+            {
+                KnownLength = representation.Length,
+                UsePreflightFreeRequests = true,
+            });
+
+        RangeFetchException refused =
+            await Assert.ThrowsAsync<RangeFetchException>(
+                () => source.ReadTailAsync(
+                        100,
+                        TestContext.Current.CancellationToken)
+                    .AsTask());
+
+        Assert.Equal(
+            RangeFetchFailure.InvalidResponse,
+            refused.Failure);
     }
 
     [Fact]
@@ -422,7 +464,9 @@ public sealed class HttpRangeSourceTests
             if (!HideContentRange)
             {
                 content.Headers.ContentRange = Defect == "range"
-                    ? new ContentRangeHeaderValue(from + 1, to + 1, total)
+                    ? UnknownTotal
+                        ? new ContentRangeHeaderValue(from + 1, to + 1)
+                        : new ContentRangeHeaderValue(from + 1, to + 1, total)
                     : UnknownTotal
                         ? new ContentRangeHeaderValue(from, to)
                         : new ContentRangeHeaderValue(from, to, total);

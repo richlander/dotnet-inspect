@@ -311,6 +311,7 @@ internal sealed class PackageArchiveRangeSession : IDisposable
     /// </summary>
     public async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
+        RangeRequestKind kind,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -323,7 +324,7 @@ internal sealed class PackageArchiveRangeSession : IDisposable
                 deadline,
                 async requestToken =>
                 {
-                    PackageArchiveRequestLog.Entry? logged = BeginLogged(request);
+                    PackageArchiveRequestLog.Entry? logged = BeginLogged(request, kind);
                     HttpResponseMessage sent;
                     try
                     {
@@ -476,7 +477,9 @@ internal sealed class PackageArchiveRangeSession : IDisposable
         where T : class =>
         new(_results.FailedPackage(Coordinate, kind).Failure!);
 
-    private PackageArchiveRequestLog.Entry? BeginLogged(HttpRequestMessage request)
+    private PackageArchiveRequestLog.Entry? BeginLogged(
+        HttpRequestMessage request,
+        RangeRequestKind kind)
     {
         if (_requestLog is null)
             return null;
@@ -490,7 +493,7 @@ internal sealed class PackageArchiveRangeSession : IDisposable
                 : (range.To ?? start.Value) - start.Value + 1;
         PackageArchiveRequestPurpose purpose = _readingEntries
             ? PackageArchiveRequestPurpose.EntrySpan
-            : start is null
+            : kind == RangeRequestKind.Tail
                 ? PackageArchiveRequestPurpose.DirectoryTail
                 : PackageArchiveRequestPurpose.DirectoryHead;
         return _requestLog.Begin(purpose, start, length);

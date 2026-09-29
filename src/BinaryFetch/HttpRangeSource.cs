@@ -46,7 +46,7 @@ public sealed record HttpRangeSourceOptions
 /// </remarks>
 public sealed class HttpRangeSource : RandomAccessSource
 {
-    private readonly RangeRequestSender _send;
+    private readonly ClassifiedRangeRequestSender _send;
     private readonly Uri _uri;
     private readonly bool _usePreflightFreeRequests;
     private readonly long? _externallyKnownLength;
@@ -70,6 +70,22 @@ public sealed class HttpRangeSource : RandomAccessSource
     public HttpRangeSource(
         Uri uri,
         RangeRequestSender send,
+        HttpRangeSourceOptions? options = null)
+        : this(
+            uri,
+            (request, _, cancellationToken) => send(request, cancellationToken),
+            options)
+    {
+        ArgumentNullException.ThrowIfNull(send);
+    }
+
+    /// <summary>
+    /// Creates a source whose every ranged request and issuing operation go
+    /// through <paramref name="send"/>.
+    /// </summary>
+    public HttpRangeSource(
+        Uri uri,
+        ClassifiedRangeRequestSender send,
         HttpRangeSourceOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(uri);
@@ -99,7 +115,7 @@ public sealed class HttpRangeSource : RandomAccessSource
         HttpRangeSourceOptions? options = null)
         : this(
             uri,
-            (request, cancellationToken) => client.SendAsync(
+            (request, _, cancellationToken) => client.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken),
@@ -122,13 +138,18 @@ public sealed class HttpRangeSource : RandomAccessSource
         CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxLength);
-        RangeHeaderValue range = _usePreflightFreeRequests
-            ? new RangeHeaderValue(
-                Math.Max(0, Length!.Value - maxLength),
-                Length.Value - 1)
-            : new RangeHeaderValue(null, maxLength);
+        long? absoluteFrom = _usePreflightFreeRequests
+            ? Math.Max(0, Length!.Value - maxLength)
+            : null;
+        long rangeEndOrSuffix = _usePreflightFreeRequests
+            ? Length!.Value - 1
+            : maxLength;
+        var range = new RangeHeaderValue(absoluteFrom, rangeEndOrSuffix);
         using HttpRequestMessage request = CreateRequest(range);
-        using HttpResponseMessage response = await _send(request, cancellationToken)
+        using HttpResponseMessage response = await _send(
+                request,
+                RangeRequestKind.Tail,
+                cancellationToken)
             .ConfigureAwait(false);
         // A tail request carries no If-Range, so a 200 here always means the
         // source ignored the range.
@@ -143,13 +164,24 @@ public sealed class HttpRangeSource : RandomAccessSource
         if (contentRange is not null)
         {
             RequireByteUnit(contentRange);
-            if (visibleTotal is { } total)
+            if (visibleTotal is { } observedTotal)
+                ConfirmObservedTotal(observedTotal);
+
+            if (absoluteFrom is { } requestedFrom)
             {
-                ConfirmObservedTotal(total);
-                long expectedFrom = Math.Max(0, total - maxLength);
+                if (contentRange.From != requestedFrom
+                    || contentRange.To != rangeEndOrSuffix
+                    || body.Length != rangeEndOrSuffix - requestedFrom + 1)
+                {
+                    throw Invalid("The tail response does not carry the requested range.");
+                }
+            }
+            else if (visibleTotal is { } visibleLength)
+            {
+                long expectedFrom = Math.Max(0, visibleLength - maxLength);
                 if (contentRange.From != expectedFrom
-                    || contentRange.To != total - 1
-                    || body.Length != total - expectedFrom)
+                    || contentRange.To != visibleLength - 1
+                    || body.Length != visibleLength - expectedFrom)
                 {
                     throw Invalid("The tail response does not carry the requested range.");
                 }
@@ -191,7 +223,10 @@ public sealed class HttpRangeSource : RandomAccessSource
         using HttpRequestMessage request = CreateRequest(
             new RangeHeaderValue(offset, last));
         bool conditional = ApplyIfRange(request);
-        using HttpResponseMessage response = await _send(request, cancellationToken)
+        using HttpResponseMessage response = await _send(
+                request,
+                RangeRequestKind.Exact,
+                cancellationToken)
             .ConfigureAwait(false);
         // Only a request that carried If-Range can have its 200 mean "the
         // representation changed"; without one, a 200 is the range ignored.
