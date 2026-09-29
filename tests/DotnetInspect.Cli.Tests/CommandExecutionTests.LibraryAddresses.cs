@@ -1534,7 +1534,7 @@ public partial class CommandExecutionTests
                 "--library",
                 "lib/net11.0/Coordinate.Package.dll",
                 "-D",
-                "@Context",
+                "Context: Member,Context: Instruction",
                 "--effective",
                 "--tips",
                 "q");
