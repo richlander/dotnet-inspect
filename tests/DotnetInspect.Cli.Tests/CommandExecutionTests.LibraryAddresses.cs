@@ -1539,8 +1539,10 @@ public partial class CommandExecutionTests
                 "--tips",
                 "q");
 
-            Assert.Empty(error);
             Assert.Equal(0, exit);
+            Assert.Contains(
+                "section 'Context: Instruction' has no data",
+                error);
             Assert.Contains("Context: Member", output);
             Assert.DoesNotContain("Context: Instruction", output);
             Assert.DoesNotContain("## IL Coordinates", output);
