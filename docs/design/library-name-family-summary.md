@@ -145,8 +145,9 @@ when separately malformed metadata gives the Type a different parameter
 count. Metadata validity remains with Metadata; this summary neither repairs
 nor reclassifies it.
 
-Word and separator spans index the name stem. Namespace segments and
-enclosing-Type names do not enter the suffix family of a nested Type.
+Word, ordinal, separator, and unresolved spans index the name stem. Namespace
+segments and enclosing-Type names do not enter the suffix family of a nested
+Type.
 
 ### Identifier-word grammar
 
@@ -156,8 +157,8 @@ The required CSharpText input supplies:
 - immutable recognized atoms and compounds;
 - any explicit Library-local numbered-family evidence;
 - an ordinal, culture-independent break operation; and
-- source spans classified as admitted words, separators, or unresolved runs,
-  with owner-issued rule evidence.
+- gap-free source spans classified as admitted words, numbered-family
+  ordinals, separators, or unresolved runs, with owner-issued rule evidence.
 
 Research neither rebuilds the runtime oracle nor repairs a break result.
 The returned spans cover the name stem exactly once.
@@ -171,9 +172,11 @@ baseline comparison.
 Library-local numbered-family evidence is derived once from the exact ordered
 name-stem population and passed to CSharpText as explicit textual context.
 Research associates that context with the `LibraryImageBinding`, exact Type
-count, and grammar version in its own receipt. CSharpText neither references
-Metadata identity nor learns what a Library is. Research rejects results from
-another grammar version.
+count, population digest, and grammar version in its own receipt. Research
+recomputes and compares the CSharpText-issued context receipt at this binding
+boundary. CSharpText neither references Metadata identity nor learns what a
+Library is. Research rejects results from another population or grammar
+version.
 
 ### Source provenance
 
@@ -206,20 +209,29 @@ The document retains one row for every Type definition. A row contains:
 
 - exact Type identity;
 - metadata simple name and name stem;
-- ordered word and separator spans;
+- ordered word, ordinal, separator, and unresolved spans;
 - the rule evidence for each span;
-- the one-word suffix family, when the final span is an admitted word;
-- the two-word suffix family, when the final span and preceding nonseparator
-  span are admitted words and every span between them is a separator;
+- the one-word suffix family, when the suffix terminus is an admitted word;
+- the two-word suffix family, when the suffix terminus and preceding
+  nonseparator span are admitted words and every span between them is a
+  separator;
 - namespace, accessibility, and Type kind; and
 - source provenance when supplied.
+
+A row's **suffix terminus** is its final span, except that an owner-issued
+trailing `Ordinal` selects the immediately preceding span. CSharpText admits
+that exception only from explicit numbered-family context. For example,
+`DelegateInvoker1` retains word `Delegate`, word `Invoker`, and ordinal `1`;
+its one-word suffix is `Invoker`, not `1`, and its two-word suffix is
+`DelegateInvoker`.
 
 A Type with no admitted suffix word still has a row. Its exact names and
 unresolved or separator spans remain inspectable, and it contributes to the
 applicable partition's residual count. An unresolved final run is never
 promoted to a word or family identity. A trailing separator likewise prevents
-a suffix-family assignment. Earlier admitted words do not replace the actual
-unresolved or separator-terminated suffix.
+a suffix-family assignment. A trailing ordinal does not bypass an unresolved
+suffix terminus. Earlier admitted words do not replace the actual unresolved
+or separator-terminated suffix.
 
 The document does not remove a leading `I` from interfaces, singularize or
 pluralize words, merge synonyms, translate words, or normalize acronyms.
@@ -234,7 +246,7 @@ NameFamilyIdentity
   MethodologyVersion
   WordGrammarVersion
   Kind                 OneWordSuffix | TwoWordSuffix
-  Words[]              exact ordinal word spellings
+  Words[]              exact word spellings under ordinal comparison
   Separator?           exact intervening separator spelling for two words
 ```
 
@@ -243,11 +255,11 @@ families. A consumer may interpret them as related, but the tool does not
 silently merge them. `FooBar` and `Foo_Bar` also remain distinct two-word
 families; both belong to the exact one-word `Bar` family.
 
-Every Type whose final span is an admitted word belongs to exactly one
-one-word suffix family. Every Type whose final two nonseparator spans are
-admitted words, with only separators between them, belongs to exactly one
-two-word suffix family. These two partitions are independent; membership in
-one never replaces membership in the other.
+Every Type whose suffix terminus is an admitted word belongs to exactly one
+one-word suffix family. Every Type whose suffix terminus and preceding
+nonseparator span are admitted words, with only separators between them,
+belongs to exactly one two-word suffix family. These two partitions are
+independent; membership in one never replaces membership in the other.
 
 ### Family rows
 
@@ -265,14 +277,15 @@ Each named population carries separate one-word and two-word partition
 receipts. A receipt records the total Type denominator, eligible Type count,
 residual Type count, and residual counts by a closed reason:
 
-- one-word residuals: empty stem, final separator, or final unresolved run;
-- two-word residuals: fewer than two suffix words, final separator, final
-  unresolved run, or preceding unresolved run.
+- one-word residuals: empty stem, separator terminus, or unresolved terminus;
+- two-word residuals: fewer than two suffix words, separator terminus,
+  unresolved terminus, or preceding unresolved run.
 
 Family Type counts sum exactly to that partition's eligible count. A one-word
 Type is therefore eligible for the one-word partition and a stated
 fewer-than-two residual in the two-word partition, not globally
-"unclassified."
+"unclassified." A trailing owner-issued ordinal does not change either
+partition denominator or become a family word.
 
 Rows sort by descending Type count, then descending distinct namespace count,
 then exact ordinal family identity. Type references sort by exact Type
@@ -406,8 +419,13 @@ product-owned Metadata inventory and CSharpText word results:
   while zero, leading-zero, literal, trailing, and out-of-range backtick forms
   remain in the name stem.
 - `LibraryNameFamilies_PreservesWordRuleEvidence`: every owner-issued word,
-  separator, unresolved-run disposition, and detailed rule value survives
-  Research aggregation unchanged.
+  ordinal, separator, unresolved-run disposition, and detailed rule value
+  survives Research aggregation unchanged.
+- `LibraryNameFamilies_UsesTrailingNumberedFamilyOrdinals`:
+  `DelegateInvoker1..10` and `LookupType3/4/5/8` retain exact ordinal spans
+  while grouping under `Invoker` and `Type` suffix families; `Adler32`,
+  internal digits, and digits across separators remain governed by their
+  distinct CSharpText evidence.
 - `LibraryNameFamilies_SeparatesExactSpellings`: acronym, casing, and plural
   variants remain separate ordinal families.
 - `LibraryNameFamilies_RejectsIncompleteOrMismatchedInventory`: scoped,
