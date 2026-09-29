@@ -110,6 +110,12 @@ public sealed class TypeMemberCompositionTests
             ApiSurfaceExtractor.Extract(peReader, includeAll: false).Types,
             candidate => candidate.DefinitionName == type);
         Assert.Empty(publicType.Members);
+
+        ApiMember allRow = Assert.Single(
+            Extract(image, includeAll: true).Types
+                .Single(candidate => candidate.DefinitionName == type)
+                .Members);
+        Assert.Equal("private", allRow.Accessibility);
     }
 
     [Fact]
@@ -138,6 +144,13 @@ public sealed class TypeMemberCompositionTests
         Assert.Equal(0, @public.Extension);
         Assert.Equal(0, @protected.Extension);
         Assert.Equal(1, @private.Extension);
+
+        ApiMember attached = Assert.Single(
+            Extract(image, includeAll: true).Types
+                .Single(candidate => candidate.DefinitionName == type)
+                .Members,
+            member => member.IsExtension);
+        Assert.Equal("private", attached.Accessibility);
     }
 
     [Theory]
@@ -258,6 +271,13 @@ public sealed class TypeMemberCompositionTests
         return ApiSurfaceExtractor.Extract(peReader, includeAll);
     }
 
+    static ApiSurface Extract(byte[] image, bool includeAll)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        return ApiSurfaceExtractor.Extract(peReader, includeAll);
+    }
+
     static string Pinned(params string[] parts)
         => Path.Combine([AppContext.BaseDirectory, "PinnedArtifacts", .. parts]);
 
@@ -278,6 +298,17 @@ public sealed class TypeMemberCompositionTests
             default,
             default,
             default);
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle objectType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
 
         var signature = new BlobBuilder();
         new BlobEncoder(signature)
@@ -305,7 +336,7 @@ public sealed class TypeMemberCompositionTests
             TypeAttributes.Public,
             metadata.GetOrAddString("Fixtures"),
             metadata.GetOrAddString("PrivateScopeType"),
-            default,
+            objectType,
             MetadataTokens.FieldDefinitionHandle(1),
             method);
 
@@ -348,6 +379,10 @@ public sealed class TypeMemberCompositionTests
             runtime,
             metadata.GetOrAddString("System.Runtime.CompilerServices"),
             metadata.GetOrAddString("ExtensionAttribute"));
+        TypeReferenceHandle objectType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
         var attributeConstructorSignature = new BlobBuilder();
         new BlobEncoder(attributeConstructorSignature)
             .MethodSignature(isInstanceMethod: true)
@@ -372,7 +407,7 @@ public sealed class TypeMemberCompositionTests
             TypeAttributes.Public,
             metadata.GetOrAddString("Fixtures"),
             metadata.GetOrAddString("Receiver"),
-            default,
+            objectType,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
 
@@ -397,7 +432,7 @@ public sealed class TypeMemberCompositionTests
             TypeAttributes.Abstract | TypeAttributes.Sealed,
             metadata.GetOrAddString("Fixtures"),
             metadata.GetOrAddString("Extensions"),
-            default,
+            objectType,
             MetadataTokens.FieldDefinitionHandle(1),
             method);
 

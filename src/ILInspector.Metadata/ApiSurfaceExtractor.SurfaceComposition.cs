@@ -77,7 +77,7 @@ public static partial class ApiSurfaceExtractor
                 // attached extension, so that bounds its bucket; its spelling
                 // keeps the declared modifier
                 // (docs/design/api-population-scope.md#spelling-within-api-visibility-scope).
-                string? attachedAccessibility = GetAccessibility(
+                string? attachedAccessibility = GetPopulationAccessibility(
                     NarrowerAccess(
                         AccessOf(extension.Accessibility),
                         AccessOf(declaringType.Accessibility)));
