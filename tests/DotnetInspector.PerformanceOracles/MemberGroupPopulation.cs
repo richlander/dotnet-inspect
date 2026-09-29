@@ -1,19 +1,30 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using NLinq;
 
 namespace DotnetInspector.PerformanceOracles;
 
+public enum MemberGroupTerminal
+{
+    Count,
+    Rows,
+    CountAndRows,
+}
+
 public sealed record MemberGroupScorecardScenario(
     string Name,
+    string Assembly,
+    string Namespace,
     string TypeName,
     string MethodName,
     MetadataMethodAccessibilityFilter Accessibility,
     MetadataMethodReceiverFilter Receiver,
-    int ExpectedCount);
+    int? ExpectedCount);
 
 public sealed record MemberGroupProjectionRow(
     int MetadataToken,
@@ -39,7 +50,10 @@ public sealed record MemberGroupScorecardMismatch(
 public sealed record MemberGroupScorecardAnswerHash(
     string Scenario,
     string Terminal,
-    string Hash);
+    string Hash,
+    int Count,
+    int Rows,
+    int TypeMethods);
 
 public sealed record MemberGroupScorecardCheck(
     int Compared,
@@ -63,335 +77,224 @@ public sealed record MemberGroupScorecardResult(
 
 public static class MemberGroupPopulation
 {
+    public const string SystemTextJson = "System.Text.Json";
+    public const string CoreLib = "System.Private.CoreLib";
+    private const int MaximumRows = 100;
+    private const int MaximumMembers = 100_000;
+    private const int MaximumRetainedTextCharacters = 20_000_000;
+
     public static IReadOnlyList<MemberGroupScorecardScenario>
         Scenarios { get; } =
         [
-            new(
-                "Deserialize public/all",
-                "JsonSerializer",
-                "Deserialize",
-                MetadataMethodAccessibilityFilter.Public,
-                MetadataMethodReceiverFilter.All,
-                40),
-            new(
-                "Deserialize public/static",
-                "JsonSerializer",
-                "Deserialize",
-                MetadataMethodAccessibilityFilter.Public,
-                MetadataMethodReceiverFilter.Static,
-                25),
-            new(
-                "Deserialize public/extension",
-                "JsonSerializer",
-                "Deserialize",
-                MetadataMethodAccessibilityFilter.Public,
-                MetadataMethodReceiverFilter.Extension,
-                15),
-            new(
-                "Deserialize public/this",
-                "JsonSerializer",
-                "Deserialize",
-                MetadataMethodAccessibilityFilter.Public,
-                MetadataMethodReceiverFilter.This,
-                0),
-            new(
-                "Parse public/all",
-                "JsonDocument",
-                "Parse",
-                MetadataMethodAccessibilityFilter.Public,
-                MetadataMethodReceiverFilter.All,
-                5),
-            new(
-                "Parse private/all",
-                "JsonDocument",
-                "Parse",
-                MetadataMethodAccessibilityFilter.Private,
-                MetadataMethodReceiverFilter.All,
-                2),
-            new(
-                "Parse all/all",
-                "JsonDocument",
-                "Parse",
-                MetadataMethodAccessibilityFilter.All,
-                MetadataMethodReceiverFilter.All,
-                7),
+            Json("Deserialize public/all", "JsonSerializer", "Deserialize", MetadataMethodAccessibilityFilter.Public, MetadataMethodReceiverFilter.All, 40),
+            Json("Deserialize public/static", "JsonSerializer", "Deserialize", MetadataMethodAccessibilityFilter.Public, MetadataMethodReceiverFilter.Static, 25),
+            Json("Deserialize public/extension", "JsonSerializer", "Deserialize", MetadataMethodAccessibilityFilter.Public, MetadataMethodReceiverFilter.Extension, 15),
+            Json("Deserialize public/this", "JsonSerializer", "Deserialize", MetadataMethodAccessibilityFilter.Public, MetadataMethodReceiverFilter.This, 0),
+            Json("Parse public/all", "JsonDocument", "Parse", MetadataMethodAccessibilityFilter.Public, MetadataMethodReceiverFilter.All, 5),
+            Json("Parse private/all", "JsonDocument", "Parse", MetadataMethodAccessibilityFilter.Private, MetadataMethodReceiverFilter.All, 2),
+            Json("Parse all/all", "JsonDocument", "Parse", MetadataMethodAccessibilityFilter.All, MetadataMethodReceiverFilter.All, 7),
+            new("CoreLib String.Concat public/all", CoreLib, "System", "String", "Concat", MetadataMethodAccessibilityFilter.Public, MetadataMethodReceiverFilter.All, 15),
+            new("CoreLib Convert.ToString public/all", CoreLib, "System", "Convert", "ToString", MetadataMethodAccessibilityFilter.Public, MetadataMethodReceiverFilter.All, 36),
+            new("CoreLib MemoryExtensions.IndexOfAny public/extension", CoreLib, "System", "MemoryExtensions", "IndexOfAny", MetadataMethodAccessibilityFilter.Public, MetadataMethodReceiverFilter.Extension, 13),
+            new("CoreLib Vector128.Create public/all", CoreLib, "System.Runtime.Intrinsics", "Vector128", "Create", MetadataMethodAccessibilityFilter.Public, MetadataMethodReceiverFilter.All, 40),
+            new("CoreLib AdvSimd.Store public/all", CoreLib, "System.Runtime.Intrinsics.Arm", "AdvSimd", "Store", MetadataMethodAccessibilityFilter.Public, MetadataMethodReceiverFilter.All, 41),
         ];
 
-    private static IReadOnlyList<Column> Columns { get; } =
+    private static MemberGroupScorecardScenario Json(
+        string name, string type, string method,
+        MetadataMethodAccessibilityFilter accessibility,
+        MetadataMethodReceiverFilter receiver, int expected) =>
+        new(name, SystemTextJson, SystemTextJson, type, method, accessibility, receiver, expected);
+
+    private static readonly MemberGroupTerminal[] s_terminals =
+        [MemberGroupTerminal.Count, MemberGroupTerminal.Rows, MemberGroupTerminal.CountAndRows];
+
+    // Model columns run over a prepared Analysis (Kernel) or prepare it first
+    // on the shared open session (Composed). Host columns always start from
+    // the request and the assembly bytes, so they appear in Composed only.
+    private static IReadOnlyList<Column> ModelColumns { get; } =
         [
-            new("LINQ", Linq),
-            new("NLinq", NLinq),
-            new("Planner", Planner),
+            new("Planner", Planner, Host: false),
+            new("LINQ", Linq, Host: false),
+            new("NLinq", NLinq, Host: false),
+            new("NLinq-idiom", NLinqIdiomatic, Host: false),
         ];
 
-    public static MemberGroupScorecardCheck Check(
-        string path)
+    private static IReadOnlyList<Column> HostColumns { get; } =
+        [
+            new("Route", Route, Host: true),
+            new("Fresh-session", FreshSession, Host: true),
+        ];
+
+    private static IEnumerable<Column> AllColumns => ModelColumns.Concat(HostColumns);
+
+    public static MemberGroupScorecardCheck Check(IReadOnlyDictionary<string, string> assemblies)
     {
-        using var asset = Asset.Open(path);
-        return Check(asset);
+        using var assets = Assets.Open(assemblies);
+        return Check(assets);
     }
 
-    public static long PreparationAllocatedBytes(
-        string path,
-        MemberGroupScorecardScenario scenario)
+    public static MemberGroupScorecardResult Measure(IReadOnlyDictionary<string, string> assemblies)
     {
-        using var asset = Asset.Open(path);
-        MetadataTypeDefinitionName declaringType =
-            TypeName(scenario.TypeName);
-        for (int warmup = 0; warmup < 5; warmup++)
-        {
-            GC.KeepAlive(
-                asset.Prepare(
-                    declaringType,
-                    scenario.MethodName));
-        }
-        return Measure(
-            () => asset.Prepare(
-                declaringType,
-                scenario.MethodName))
-            .AllocatedBytes;
-    }
-
-    public static MemberGroupScorecardResult Measure(
-        string path)
-    {
-        using var asset = Asset.Open(path);
-        MemberGroupScorecardCheck check = Check(asset);
+        using var assets = Assets.Open(assemblies);
+        MemberGroupScorecardCheck check = Check(assets);
         if (!check.Agrees)
             return new(check, []);
 
         var cells = new List<MemberGroupScorecardCell>();
-        for (int scenarioIndex = 0;
-            scenarioIndex < Scenarios.Count;
-            scenarioIndex++)
+        int index = 0;
+        foreach (MemberGroupScorecardScenario scenario in assets.Scenarios)
         {
-            MemberGroupScorecardScenario scenario =
-                Scenarios[scenarioIndex];
-            MetadataTypeDefinitionName declaringType =
-                TypeName(scenario.TypeName);
-            MetadataMethodGroupInspection.Analysis model =
-                asset.Prepare(
-                    declaringType,
-                    scenario.MethodName);
-            cells.Add(
-                MeasurePreparation(
-                    asset,
-                    scenario.Name,
-                    declaringType,
-                    scenario.MethodName));
-            foreach (bool rows in new[] { false, true })
+            Asset asset = assets[scenario.Assembly];
+            MetadataTypeDefinitionName declaringType = TypeName(scenario);
+            MetadataMethodGroupInspection.Analysis model = asset.Prepare(declaringType, scenario.MethodName);
+            cells.Add(MeasurePreparation(asset, scenario.Name, declaringType, scenario.MethodName));
+            foreach (MemberGroupTerminal terminal in s_terminals)
             {
-                bool composedFirst =
-                    ((scenarioIndex + (rows ? 1 : 0)) & 1) != 0;
+                bool composedFirst = ((index++) & 1) != 0;
                 if (composedFirst)
                     MeasureComposed();
                 MeasureKernel();
                 if (!composedFirst)
                     MeasureComposed();
+                MeasurePlan();
 
                 void MeasureKernel() =>
-                    MeasurePhase(
-                        cells,
-                        scenario,
-                        rows,
-                        "Kernel",
-                        column =>
-                            column.Execute(
-                                model,
-                                scenario.Accessibility,
-                                scenario.Receiver,
-                                rows));
+                    MeasurePhase(cells, scenario, terminal, "Kernel", ModelColumns,
+                        column => column.Execute(asset, scenario, declaringType, model, terminal));
 
                 void MeasureComposed() =>
-                    MeasurePhase(
-                        cells,
-                        scenario,
-                        rows,
-                        "Composed",
-                        column =>
-                        {
-                            MetadataMethodGroupInspection.Analysis fresh =
-                                asset.Prepare(
-                                    declaringType,
-                                    scenario.MethodName);
-                            return column.Execute(
-                                fresh,
-                                scenario.Accessibility,
-                                scenario.Receiver,
-                                rows);
-                        });
+                    MeasurePhase(cells, scenario, terminal, "Composed", [.. AllColumns],
+                        column => column.Execute(
+                            asset, scenario, declaringType,
+                            column.Host ? null : asset.Prepare(declaringType, scenario.MethodName),
+                            terminal));
+
+                void MeasurePlan() =>
+                    MeasurePhase(cells, scenario, terminal, "Plan", [new("Route-plan", RoutePlan, Host: true)],
+                        column => column.Execute(asset, scenario, declaringType, null, terminal));
             }
         }
 
         return new(check, cells);
     }
 
-    public static string Report(
-        MemberGroupScorecardResult result)
+    private static readonly string[] s_reportColumns =
+        ["Planner", "LINQ", "NLinq", "NLinq-idiom", "Route", "Fresh-session"];
+
+    public static string Report(MemberGroupScorecardResult result)
     {
-        using var writer = new StringWriter(
-            System.Globalization.CultureInfo.InvariantCulture);
-        writer.WriteLine(
-            $"# answers: {result.Check.Compared} compared, "
-                + $"{result.Check.Mismatches.Count} mismatches");
-        foreach (MemberGroupScorecardAnswerHash answer
-            in result.Check.AnswerHashes)
-        {
-            writer.WriteLine(
-                $"# answer: {answer.Scenario} / "
-                    + $"{answer.Terminal} = {answer.Hash}");
-        }
-        foreach (MemberGroupScorecardMismatch mismatch
-            in result.Check.Mismatches)
-        {
-            writer.WriteLine(
-                $"mismatch\t{mismatch.Scenario}\t"
-                    + $"{mismatch.Terminal}\t{mismatch.Column}");
-        }
+        using var writer = new StringWriter(CultureInfo.InvariantCulture);
+        writer.WriteLine($"# answers: {result.Check.Compared} compared, {result.Check.Mismatches.Count} mismatches");
+        foreach (MemberGroupScorecardAnswerHash answer in result.Check.AnswerHashes)
+            writer.WriteLine($"# answer: {answer.Scenario} / {answer.Terminal} = {answer.Hash} (count {answer.Count}, rows {answer.Rows}, type methods {answer.TypeMethods})");
+        foreach (MemberGroupScorecardMismatch mismatch in result.Check.Mismatches)
+            writer.WriteLine($"mismatch\t{mismatch.Scenario}\t{mismatch.Terminal}\t{mismatch.Column}");
         if (!result.Check.Agrees)
             return writer.ToString();
 
-        writer.WriteLine(
-            "| Scenario | Terminal | Phase | LINQ | NLinq | Planner | Planner alloc |");
-        writer.WriteLine(
-            "| --- | --- | --- | ---: | ---: | ---: | ---: |");
-        foreach (MemberGroupScorecardScenario scenario
-            in Scenarios)
+        writer.WriteLine("| Scenario | Terminal | Phase | " + string.Join(" | ", s_reportColumns) + " | Route plan |");
+        writer.WriteLine("| --- | --- | --- |" + string.Concat(Enumerable.Repeat(" ---: |", s_reportColumns.Length + 1)));
+        foreach (IGrouping<string, MemberGroupScorecardCell> scenario
+            in result.Cells.Where(c => c.Phase != "Preparation").GroupBy(c => c.Scenario))
         {
-            foreach (string terminal in new[] { "Count", "Rows" })
+            foreach (MemberGroupTerminal terminal in s_terminals)
             {
                 foreach (string phase in new[] { "Kernel", "Composed" })
                 {
                     MemberGroupScorecardCell[] selected =
-                        [.. result.Cells.Where(cell =>
-                            cell.Scenario == scenario.Name
-                            && cell.Terminal == terminal
-                            && cell.Phase == phase)];
-                    double oracle =
-                        selected.Single(cell =>
-                                cell.Column == "NLinq")
-                            .Microseconds;
-                    MemberGroupScorecardCell planner =
-                        selected.Single(cell =>
-                            cell.Column == "Planner");
-                    writer.WriteLine(
-                        $"| {scenario.Name} | {terminal} | {phase} | "
-                            + $"{Ratio(selected, "LINQ", oracle):F2}x | "
-                            + $"1.00x ({oracle:F3} us) | "
-                            + $"{planner.Microseconds / oracle:F2}x "
-                            + $"({planner.Microseconds:F3} us) | "
-                            + $"{planner.AllocatedBytes:N0} B |");
+                        [.. scenario.Where(c => c.Terminal == terminal.ToString() && c.Phase == phase)];
+                    double oracle = selected.Single(c => c.Column == "NLinq").Microseconds;
+                    var parts = new List<string>();
+                    foreach (string column in s_reportColumns)
+                    {
+                        MemberGroupScorecardCell? cell = selected.SingleOrDefault(c => c.Column == column);
+                        parts.Add(cell is null
+                            ? "-"
+                            : $"{cell.Microseconds:F2} us ({cell.Microseconds / oracle:F2}x)");
+                    }
+                    MemberGroupScorecardCell? plan = phase == "Kernel"
+                        ? scenario.SingleOrDefault(c => c.Terminal == terminal.ToString() && c.Phase == "Plan")
+                        : null;
+                    parts.Add(plan is null ? "-" : $"{plan.Microseconds:F2} us");
+                    writer.WriteLine($"| {scenario.Key} | {terminal} | {phase} | " + string.Join(" | ", parts) + " |");
                 }
             }
         }
+
         writer.WriteLine();
-        writer.WriteLine(
-            "| Scenario | Preparation | Preparation alloc |");
-        writer.WriteLine("| --- | ---: | ---: |");
-        foreach (MemberGroupScorecardCell cell
-            in result.Cells.Where(cell =>
-                cell.Phase == "Preparation"))
+        writer.WriteLine("| Scenario | Terminal | Phase | " + string.Join(" | ", s_reportColumns.Select(c => c + " B")) + " | Route plan B |");
+        writer.WriteLine("| --- | --- | --- |" + string.Concat(Enumerable.Repeat(" ---: |", s_reportColumns.Length + 1)));
+        foreach (IGrouping<string, MemberGroupScorecardCell> scenario
+            in result.Cells.Where(c => c.Phase != "Preparation").GroupBy(c => c.Scenario))
         {
-            writer.WriteLine(
-                $"| {cell.Scenario} | {cell.Microseconds:F3} us | "
-                    + $"{cell.AllocatedBytes:N0} B |");
-        }
-        writer.WriteLine();
-        writer.WriteLine(
-            "| Terminal | Phase | LINQ geo mean | Planner geo mean |");
-        writer.WriteLine("| --- | --- | ---: | ---: |");
-        foreach (string terminal in new[] { "Count", "Rows" })
-        {
-            foreach (string phase in new[] { "Kernel", "Composed" })
+            foreach (MemberGroupTerminal terminal in s_terminals)
             {
-                MemberGroupScorecardCell[] selected =
-                    [.. result.Cells.Where(cell =>
-                        cell.Terminal == terminal
-                        && cell.Phase == phase)];
-                writer.WriteLine(
-                    $"| {terminal} | {phase} | "
-                        + $"{GeometricRatio(selected, "LINQ"):F2}x | "
-                        + $"{GeometricRatio(selected, "Planner"):F2}x |");
+                foreach (string phase in new[] { "Kernel", "Composed" })
+                {
+                    MemberGroupScorecardCell[] selected =
+                        [.. scenario.Where(c => c.Terminal == terminal.ToString() && c.Phase == phase)];
+                    var parts = s_reportColumns
+                        .Select(column => selected.SingleOrDefault(c => c.Column == column) is { } cell
+                            ? cell.AllocatedBytes.ToString("N0", CultureInfo.InvariantCulture)
+                            : "-")
+                        .ToList();
+                    MemberGroupScorecardCell? plan = phase == "Kernel"
+                        ? scenario.SingleOrDefault(c => c.Terminal == terminal.ToString() && c.Phase == "Plan")
+                        : null;
+                    parts.Add(plan is null ? "-" : plan.AllocatedBytes.ToString("N0", CultureInfo.InvariantCulture));
+                    writer.WriteLine($"| {scenario.Key} | {terminal} | {phase} | " + string.Join(" | ", parts) + " |");
+                }
             }
         }
+
+        writer.WriteLine();
+        writer.WriteLine("| Scenario | Preparation | Preparation alloc |");
+        writer.WriteLine("| --- | ---: | ---: |");
+        foreach (MemberGroupScorecardCell cell in result.Cells.Where(c => c.Phase == "Preparation"))
+            writer.WriteLine($"| {cell.Scenario} | {cell.Microseconds:F2} us | {cell.AllocatedBytes:N0} B |");
+
+        writer.WriteLine();
+        writer.WriteLine("# raw\tscenario\tterminal\tphase\tcolumn\tus\tbytes");
+        foreach (MemberGroupScorecardCell cell in result.Cells)
+            writer.WriteLine($"raw\t{cell.Scenario}\t{cell.Terminal}\t{cell.Phase}\t{cell.Column}\t{cell.Microseconds:F3}\t{cell.AllocatedBytes}");
         return writer.ToString();
     }
 
-    public static MemberGroupProjectionAnswer Execute(
-        string path,
-        MemberGroupScorecardScenario scenario,
-        string column,
-        bool rows)
+    private static MemberGroupScorecardCheck Check(Assets assets)
     {
-        using var asset = Asset.Open(path);
-        MetadataMethodGroupInspection.Analysis model =
-            asset.Prepare(
-                TypeName(scenario.TypeName),
-                scenario.MethodName);
-        Column selected = Columns.Single(item =>
-            item.Name == column);
-        return Normalize(
-            selected.Execute(
-                model,
-                scenario.Accessibility,
-                scenario.Receiver,
-                rows));
-    }
-
-    private static MemberGroupScorecardCheck Check(
-        Asset asset)
-    {
-        var mismatches =
-            new List<MemberGroupScorecardMismatch>();
-        var answerHashes =
-            new List<MemberGroupScorecardAnswerHash>();
+        var mismatches = new List<MemberGroupScorecardMismatch>();
+        var answerHashes = new List<MemberGroupScorecardAnswerHash>();
         int compared = 0;
-        foreach (MemberGroupScorecardScenario scenario
-            in Scenarios)
+        foreach (MemberGroupScorecardScenario scenario in assets.Scenarios)
         {
-            MetadataMethodGroupInspection.Analysis model =
-                asset.Prepare(
-                    TypeName(scenario.TypeName),
-                    scenario.MethodName);
-            foreach (bool rows in new[] { false, true })
+            Asset asset = assets[scenario.Assembly];
+            MetadataTypeDefinitionName declaringType = TypeName(scenario);
+            foreach (MemberGroupTerminal terminal in s_terminals)
             {
-                MemberGroupProjectionAnswer expected =
-                    Normalize(
-                        NLinq(
-                            model,
-                            scenario.Accessibility,
-                            scenario.Receiver,
-                            rows));
-                if (expected.Count != scenario.ExpectedCount)
+                MemberGroupProjectionAnswer expected = Normalize(
+                    Planner(asset, scenario, declaringType, asset.Prepare(declaringType, scenario.MethodName), terminal),
+                    terminal);
+                if (terminal is MemberGroupTerminal.Count
+                    && scenario.ExpectedCount is { } expectedCount
+                    && expected.Count != expectedCount)
                 {
                     throw new InvalidOperationException(
-                        $"{scenario.Name} returned "
-                            + $"{expected.Count}, expected "
-                            + $"{scenario.ExpectedCount}.");
+                        $"{scenario.Name} returned {expected.Count}, expected {expectedCount}.");
                 }
-                answerHashes.Add(
-                    new(
-                        scenario.Name,
-                        rows ? "Rows" : "Count",
-                        AnswerHash(expected)));
-                foreach (Column column in Columns)
+                answerHashes.Add(new(scenario.Name, terminal.ToString(), AnswerHash(expected), expected.Count, expected.Rows.Count,
+                    asset.Prepare(declaringType, scenario.MethodName).Methods.Count));
+                foreach (Column column in AllColumns)
                 {
-                    MemberGroupProjectionAnswer actual =
-                        Normalize(
-                            column.Execute(
-                                model,
-                                scenario.Accessibility,
-                                scenario.Receiver,
-                                rows));
+                    MemberGroupProjectionAnswer actual = Normalize(
+                        column.Execute(
+                            asset, scenario, declaringType,
+                            column.Host ? null : asset.Prepare(declaringType, scenario.MethodName),
+                            terminal),
+                        terminal);
                     compared++;
                     if (!Same(expected, actual))
-                    {
-                        mismatches.Add(
-                            new(
-                                scenario.Name,
-                                rows ? "Rows" : "Count",
-                                column.Name));
-                    }
+                        mismatches.Add(new(scenario.Name, terminal.ToString(), column.Name));
                 }
             }
         }
@@ -399,33 +302,27 @@ public static class MemberGroupPopulation
         return new(compared, mismatches, answerHashes);
     }
 
-    private static MetadataMethodGroupInspectionOutcome Planner(
-        MetadataMethodGroupInspection.Analysis model,
-        MetadataMethodAccessibilityFilter accessibility,
-        MetadataMethodReceiverFilter receiver,
-        bool rows) =>
+    private static object Planner(
+        Asset asset, MemberGroupScorecardScenario scenario, MetadataTypeDefinitionName type,
+        MetadataMethodGroupInspection.Analysis? model, MemberGroupTerminal terminal) =>
         MetadataMethodGroupInspection.Execute(
-            model,
-            Selection(model, accessibility, receiver),
+            model!,
+            Selection(model!, scenario),
             startOrdinal: 0,
-            maximumRows: 100,
-            materializeRows: rows,
-            maximumMembers: 100_000,
-            maximumRetainedTextCharacters: 20_000_000);
+            maximumRows: MaximumRows,
+            materializeRows: terminal is not MemberGroupTerminal.Count,
+            maximumMembers: MaximumMembers,
+            maximumRetainedTextCharacters: MaximumRetainedTextCharacters);
 
-    private static MetadataMethodGroupInspectionOutcome Linq(
-        MetadataMethodGroupInspection.Analysis model,
-        MetadataMethodAccessibilityFilter accessibility,
-        MetadataMethodReceiverFilter receiver,
-        bool rows)
+    private static object Linq(
+        Asset asset, MemberGroupScorecardScenario scenario, MetadataTypeDefinitionName type,
+        MetadataMethodGroupInspection.Analysis? model, MemberGroupTerminal terminal)
     {
-        var fold =
-            Fold(model, accessibility, receiver, rows);
         MetadataMethodGroupInspection.Fold completed =
-            model.Methods
+            model!.Methods
                 .Select(static handle => handle)
                 .Aggregate(
-                    fold,
+                    Fold(model, scenario, terminal),
                     static (current, handle) =>
                     {
                         _ = current.Accept(handle);
@@ -434,95 +331,120 @@ public static class MemberGroupPopulation
         return completed.Complete();
     }
 
-    private static MetadataMethodGroupInspectionOutcome NLinq(
-        MetadataMethodGroupInspection.Analysis model,
-        MetadataMethodAccessibilityFilter accessibility,
-        MetadataMethodReceiverFilter receiver,
-        bool rows)
+    private static object NLinq(
+        Asset asset, MemberGroupScorecardScenario scenario, MetadataTypeDefinitionName type,
+        MetadataMethodGroupInspection.Analysis? model, MemberGroupTerminal terminal)
     {
-        var source = new MethodHandles(model.Methods);
+        var source = new MethodHandles(model!.Methods);
         MetadataMethodGroupInspection.Fold completed =
-            source.Fold<
-                MethodHandles,
-                MethodDefinitionHandle,
-                MetadataMethodGroupInspection.Fold,
-                Accept>(
-                    Fold(model, accessibility, receiver, rows),
-                    default);
+            source.Fold<MethodHandles, MethodDefinitionHandle, MetadataMethodGroupInspection.Fold, Accept>(
+                Fold(model, scenario, terminal),
+                default);
         return completed.Complete();
     }
 
+    private static object NLinqIdiomatic(
+        Asset asset, MemberGroupScorecardScenario scenario, MetadataTypeDefinitionName type,
+        MetadataMethodGroupInspection.Analysis? model, MemberGroupTerminal terminal) =>
+        MemberGroupIdiomatic.Execute(
+            model!,
+            Selection(model!, scenario),
+            startOrdinal: 0,
+            maximumRows: MaximumRows,
+            materializeRows: terminal is not MemberGroupTerminal.Count,
+            maximumMembers: MaximumMembers,
+            maximumRetainedTextCharacters: MaximumRetainedTextCharacters);
+
+    private static object Route(
+        Asset asset, MemberGroupScorecardScenario scenario, MetadataTypeDefinitionName type,
+        MetadataMethodGroupInspection.Analysis? model, MemberGroupTerminal terminal) =>
+        asset.Route.Execute(scenario, type, terminal, MaximumRows);
+
+    private static object RoutePlan(
+        Asset asset, MemberGroupScorecardScenario scenario, MetadataTypeDefinitionName type,
+        MetadataMethodGroupInspection.Analysis? model, MemberGroupTerminal terminal) =>
+        MemberGroupRoute.Plan(scenario, type, terminal, MaximumRows);
+
+    private static object FreshSession(
+        Asset asset, MemberGroupScorecardScenario scenario, MetadataTypeDefinitionName type,
+        MetadataMethodGroupInspection.Analysis? model, MemberGroupTerminal terminal) =>
+        asset.Route.FreshSession(scenario, type, terminal, MaximumRows);
+
     private static MetadataMethodGroupInspection.Selection Selection(
-        MetadataMethodGroupInspection.Analysis model,
-        MetadataMethodAccessibilityFilter accessibility,
-        MetadataMethodReceiverFilter receiver) =>
-        new(
-            model,
-            accessibility,
-            receiver,
-            includeHidden: false);
+        MetadataMethodGroupInspection.Analysis model, MemberGroupScorecardScenario scenario) =>
+        new(model, scenario.Accessibility, scenario.Receiver, includeHidden: false);
 
     private static MetadataMethodGroupInspection.Fold Fold(
-        MetadataMethodGroupInspection.Analysis model,
-        MetadataMethodAccessibilityFilter accessibility,
-        MetadataMethodReceiverFilter receiver,
-        bool rows) =>
+        MetadataMethodGroupInspection.Analysis model, MemberGroupScorecardScenario scenario, MemberGroupTerminal terminal) =>
         new(
             model,
-            Selection(model, accessibility, receiver),
+            Selection(model, scenario),
             startOrdinal: 0,
-            maximumRows: 100,
-            materializeRows: rows,
-            maximumMembers: 100_000,
-            maximumRetainedTextCharacters: 20_000_000);
+            maximumRows: MaximumRows,
+            materializeRows: terminal is not MemberGroupTerminal.Count,
+            maximumMembers: MaximumMembers,
+            maximumRetainedTextCharacters: MaximumRetainedTextCharacters);
 
-    private static MemberGroupProjectionAnswer Normalize(
-        MetadataMethodGroupInspectionOutcome outcome)
+    private static MemberGroupProjectionAnswer Normalize(object outcome, MemberGroupTerminal terminal)
     {
-        if (outcome
-            is not MetadataMethodGroupInspectionOutcome.Read read)
+        MemberGroupProjectionAnswer answer = outcome switch
         {
-            throw new InvalidOperationException(
-                $"Expected a read outcome, got {outcome}.");
-        }
-        return new(
-            read.Count,
-            [.. read.Rows.Select(static row =>
-                new MemberGroupProjectionRow(
-                    row.MetadataToken,
-                    row.DisplaySignature,
-                    row.CanonicalSignature,
-                    row.Fingerprint,
-                    row.Accessibility,
-                    row.Receiver))],
-            read.NextOrdinal,
-            read.ContinuationOutOfRange,
-            read.IncompleteRetainedTextCharacters,
-            read.RowsFailed);
+            MetadataMethodGroupInspectionOutcome.Read read => new(
+                read.Count,
+                [.. read.Rows.Select(static row => new MemberGroupProjectionRow(
+                    row.MetadataToken, row.DisplaySignature, row.CanonicalSignature,
+                    row.Fingerprint, row.Accessibility, row.Receiver))],
+                read.NextOrdinal,
+                read.ContinuationOutOfRange,
+                read.IncompleteRetainedTextCharacters,
+                read.RowsFailed),
+            MemberOverloadPopulationInspectionOutcome.Available available => Normalize(available.Content.Overloads),
+            _ => throw new InvalidOperationException($"Expected a read outcome, got {outcome}."),
+        };
+        // A Rows-only request makes no Count claim; the fold always counts.
+        return terminal is MemberGroupTerminal.Rows ? answer with { Count = -1 } : answer;
     }
 
-    private static bool Same(
-        MemberGroupProjectionAnswer first,
-        MemberGroupProjectionAnswer second) =>
+    private static MemberGroupProjectionAnswer Normalize(MemberOverloadPopulationResult result)
+    {
+        int count = result.Count is MemberOverloadCountOutcome.Counted counted ? counted.Value : -1;
+        return result.Rows switch
+        {
+            null => new(count, [], null, false, null, false),
+            MemberOverloadRowsOutcome.Read read => new(
+                count,
+                [.. read.Items.Select(static item => new MemberGroupProjectionRow(
+                    item.MetadataToken,
+                    item.DisplaySignature.ToString(),
+                    item.CanonicalSignature.ToString(),
+                    item.Fingerprint.ToString(),
+                    item.Accessibility.ToString(),
+                    (MetadataMethodReceiver)(int)item.Receiver))],
+                read.Continuation?.NextOrdinal,
+                false, null, false),
+            MemberOverloadRowsOutcome.Rejected { Reason: MemberOverloadRowsRejection.ContinuationOutOfRange } =>
+                new(count, [], null, true, null, false),
+            MemberOverloadRowsOutcome.Incomplete incomplete => new(count, [], null, false, incomplete.Measured, false),
+            MemberOverloadRowsOutcome.Failed => new(count, [], null, false, null, true),
+            _ => throw new InvalidOperationException($"Unexpected rows outcome {result.Rows}."),
+        };
+    }
+
+    private static bool Same(MemberGroupProjectionAnswer first, MemberGroupProjectionAnswer second) =>
         first.Count == second.Count
         && first.Rows.SequenceEqual(second.Rows)
         && first.NextOrdinal == second.NextOrdinal
-        && first.ContinuationOutOfRange
-            == second.ContinuationOutOfRange
-        && first.IncompleteRetainedTextCharacters
-            == second.IncompleteRetainedTextCharacters
+        && first.ContinuationOutOfRange == second.ContinuationOutOfRange
+        && first.IncompleteRetainedTextCharacters == second.IncompleteRetainedTextCharacters
         && first.RowsFailed == second.RowsFailed;
 
-    private static string AnswerHash(
-        MemberGroupProjectionAnswer answer)
+    private static string AnswerHash(MemberGroupProjectionAnswer answer)
     {
         ulong hash = 14695981039346656037;
         AddLong(answer.Count);
         AddLong(answer.NextOrdinal ?? -1);
         AddLong(answer.ContinuationOutOfRange ? 1 : 0);
-        AddLong(
-            answer.IncompleteRetainedTextCharacters
-                ?? -1);
+        AddLong(answer.IncompleteRetainedTextCharacters ?? -1);
         AddLong(answer.RowsFailed ? 1 : 0);
         foreach (MemberGroupProjectionRow row in answer.Rows)
         {
@@ -555,31 +477,23 @@ public static class MemberGroupPopulation
         }
     }
 
-    private static MetadataTypeDefinitionName TypeName(
-        string typeName) =>
-        MetadataTypeDefinitionName.Create(
-            "System.Text.Json",
-            [typeName])
-        is MetadataTypeDefinitionNameResult.Valid valid
+    private static MetadataTypeDefinitionName TypeName(MemberGroupScorecardScenario scenario) =>
+        MetadataTypeDefinitionName.Create(scenario.Namespace, [scenario.TypeName])
+            is MetadataTypeDefinitionNameResult.Valid valid
             ? valid.Name
-            : throw new InvalidOperationException(
-                "The scorecard Type name was invalid.");
+            : throw new InvalidOperationException("The scorecard Type name was invalid.");
 
     private static void MeasurePhase(
         List<MemberGroupScorecardCell> cells,
         MemberGroupScorecardScenario scenario,
-        bool rows,
+        MemberGroupTerminal terminal,
         string phase,
-        Func<Column, MetadataMethodGroupInspectionOutcome>
-            execute)
+        IReadOnlyList<Column> columns,
+        Func<Column, object> execute)
     {
-        var times = Columns.ToDictionary(
-            static column => column.Name,
-            static _ => new List<double>());
-        var allocations = Columns.ToDictionary(
-            static column => column.Name,
-            static _ => new List<long>());
-        foreach (Column column in Columns)
+        var times = columns.ToDictionary(static column => column.Name, static _ => new List<double>());
+        var allocations = columns.ToDictionary(static column => column.Name, static _ => new List<long>());
+        foreach (Column column in columns)
         {
             for (int warmup = 0; warmup < 5; warmup++)
                 GC.KeepAlive(execute(column));
@@ -587,39 +501,29 @@ public static class MemberGroupPopulation
 
         for (int round = 0; round < 6; round++)
         {
-            for (int offset = 0;
-                offset < Columns.Count;
-                offset++)
+            for (int offset = 0; offset < columns.Count; offset++)
             {
-                Column column =
-                    Columns[(round + offset) % Columns.Count];
-                Measurement measurement =
-                    Measure(() => execute(column));
-                times[column.Name].Add(
-                    measurement.Microseconds);
-                allocations[column.Name].Add(
-                    measurement.AllocatedBytes);
+                Column column = columns[(round + offset) % columns.Count];
+                Measurement measurement = Measure(() => execute(column));
+                times[column.Name].Add(measurement.Microseconds);
+                allocations[column.Name].Add(measurement.AllocatedBytes);
             }
         }
 
-        foreach (Column column in Columns)
+        foreach (Column column in columns)
         {
-            cells.Add(
-                new(
-                    scenario.Name,
-                    rows ? "Rows" : "Count",
-                    phase,
-                    column.Name,
-                    Median(times[column.Name]),
-                    Median(allocations[column.Name])));
+            cells.Add(new(
+                scenario.Name,
+                terminal.ToString(),
+                phase,
+                column.Name,
+                Median(times[column.Name]),
+                Median(allocations[column.Name])));
         }
     }
 
     private static MemberGroupScorecardCell MeasurePreparation(
-        Asset asset,
-        string scenario,
-        MetadataTypeDefinitionName declaringType,
-        string methodName)
+        Asset asset, string scenario, MetadataTypeDefinitionName declaringType, string methodName)
     {
         for (int warmup = 0; warmup < 5; warmup++)
             GC.KeepAlive(asset.Prepare(declaringType, methodName));
@@ -627,21 +531,11 @@ public static class MemberGroupPopulation
         var allocations = new List<long>(6);
         for (int round = 0; round < 6; round++)
         {
-            Measurement measurement =
-                Measure(
-                    () => asset.Prepare(
-                        declaringType,
-                        methodName));
+            Measurement measurement = Measure(() => asset.Prepare(declaringType, methodName));
             times.Add(measurement.Microseconds);
             allocations.Add(measurement.AllocatedBytes);
         }
-        return new(
-            scenario,
-            "",
-            "Preparation",
-            "Shared",
-            Median(times),
-            Median(allocations));
+        return new(scenario, "", "Preparation", "Shared", Median(times), Median(allocations));
     }
 
     private static Measurement Measure(Func<object> execute)
@@ -650,22 +544,17 @@ public static class MemberGroupPopulation
         var allocations = new long[101];
         for (int sample = 0; sample < times.Length; sample++)
         {
-            long before =
-                GC.GetAllocatedBytesForCurrentThread();
+            long before = GC.GetAllocatedBytesForCurrentThread();
             long started = Stopwatch.GetTimestamp();
             object result = execute();
             long elapsed = Stopwatch.GetTimestamp() - started;
-            allocations[sample] =
-                GC.GetAllocatedBytesForCurrentThread() - before;
-            times[sample] =
-                elapsed * 1_000_000.0 / Stopwatch.Frequency;
+            allocations[sample] = GC.GetAllocatedBytesForCurrentThread() - before;
+            times[sample] = elapsed * 1_000_000.0 / Stopwatch.Frequency;
             GC.KeepAlive(result);
         }
         Array.Sort(times);
         Array.Sort(allocations);
-        return new(
-            times[times.Length / 2],
-            allocations[allocations.Length / 2]);
+        return new(times[times.Length / 2], allocations[allocations.Length / 2]);
     }
 
     private static double Median(List<double> values)
@@ -680,87 +569,62 @@ public static class MemberGroupPopulation
         return values[values.Count / 2];
     }
 
-    private static double Ratio(
-        MemberGroupScorecardCell[] cells,
-        string column,
-        double oracle) =>
-        cells.Single(cell => cell.Column == column)
-            .Microseconds
-            / oracle;
+    private sealed record Column(string Name, Executor Execute, bool Host);
 
-    private static double GeometricRatio(
-        MemberGroupScorecardCell[] cells,
-        string column)
-    {
-        double logarithms = 0;
-        int count = 0;
-        foreach (IGrouping<string, MemberGroupScorecardCell>
-            scenario in cells.GroupBy(static cell =>
-                cell.Scenario))
-        {
-            double oracle =
-                scenario.Single(cell =>
-                        cell.Column == "NLinq")
-                    .Microseconds;
-            logarithms += Math.Log(
-                scenario.Single(cell =>
-                        cell.Column == column)
-                    .Microseconds
-                    / oracle);
-            count++;
-        }
-        return Math.Exp(logarithms / count);
-    }
+    private delegate object Executor(
+        Asset asset,
+        MemberGroupScorecardScenario scenario,
+        MetadataTypeDefinitionName declaringType,
+        MetadataMethodGroupInspection.Analysis? model,
+        MemberGroupTerminal terminal);
 
-    private sealed record Column(
-        string Name,
-        Executor Execute);
+    private readonly record struct Measurement(double Microseconds, long AllocatedBytes);
 
-    private delegate MetadataMethodGroupInspectionOutcome Executor(
-        MetadataMethodGroupInspection.Analysis model,
-        MetadataMethodAccessibilityFilter accessibility,
-        MetadataMethodReceiverFilter receiver,
-        bool rows);
-
-    private readonly record struct Measurement(
-        double Microseconds,
-        long AllocatedBytes);
-
-    private struct MethodHandles
-        : NLinq.IEnumerator<
-            MethodHandles,
-            MethodDefinitionHandle>
+    private struct MethodHandles : NLinq.IEnumerator<MethodHandles, MethodDefinitionHandle>
     {
         private MethodDefinitionHandleCollection.Enumerator _handles;
 
-        internal MethodHandles(
-            MethodDefinitionHandleCollection handles)
+        internal MethodHandles(MethodDefinitionHandleCollection handles)
         {
             _handles = handles.GetEnumerator();
         }
 
-        public MethodDefinitionHandle TryGetNext(
-            out bool hasMore)
+        public MethodDefinitionHandle TryGetNext(out bool hasMore)
         {
             hasMore = _handles.MoveNext();
-            return hasMore
-                ? _handles.Current
-                : default;
+            return hasMore ? _handles.Current : default;
         }
     }
 
     private readonly struct Accept
-        : IFunc<
-            MetadataMethodGroupInspection.Fold,
-            MethodDefinitionHandle,
-            MetadataMethodGroupInspection.Fold>
+        : IFunc<MetadataMethodGroupInspection.Fold, MethodDefinitionHandle, MetadataMethodGroupInspection.Fold>
     {
         public MetadataMethodGroupInspection.Fold Invoke(
-            MetadataMethodGroupInspection.Fold fold,
-            MethodDefinitionHandle handle)
+            MetadataMethodGroupInspection.Fold fold, MethodDefinitionHandle handle)
         {
             _ = fold.Accept(handle);
             return fold;
+        }
+    }
+
+    private sealed class Assets : IDisposable
+    {
+        private readonly Dictionary<string, Asset> _assets;
+
+        private Assets(Dictionary<string, Asset> assets) => _assets = assets;
+
+        internal Asset this[string key] => _assets[key];
+
+        internal IEnumerable<MemberGroupScorecardScenario> Scenarios =>
+            MemberGroupPopulation.Scenarios.Where(s => _assets.ContainsKey(s.Assembly));
+
+        internal static Assets Open(IReadOnlyDictionary<string, string> paths) =>
+            new(paths.ToDictionary(pair => pair.Key, pair => Asset.Open(pair.Value)));
+
+        public void Dispose()
+        {
+            foreach (Asset asset in _assets.Values)
+                asset.Dispose();
         }
     }
 
@@ -779,7 +643,8 @@ public static class MemberGroupPopulation
             MetadataOperationContext operation,
             MetadataDeclarationSession declaration,
             MetadataReader reader,
-            MetadataMethodSemanticsAssociationResult methodSemantics)
+            MetadataMethodSemanticsAssociationResult methodSemantics,
+            MemberGroupRoute route)
         {
             _stream = stream;
             _peReader = peReader;
@@ -788,11 +653,12 @@ public static class MemberGroupPopulation
             _declaration = declaration;
             Reader = reader;
             MethodSemantics = methodSemantics;
+            Route = route;
         }
 
         internal MetadataReader Reader { get; }
-        internal MetadataMethodSemanticsAssociationResult
-            MethodSemantics { get; }
+        internal MetadataMethodSemanticsAssociationResult MethodSemantics { get; }
+        internal MemberGroupRoute Route { get; }
 
         internal static Asset Open(string path)
         {
@@ -804,24 +670,14 @@ public static class MemberGroupPopulation
             MetadataDeclarationSession? declaration = null;
             try
             {
-                MetadataReader reader =
-                    peReader.GetMetadataReader();
+                MetadataReader reader = peReader.GetMetadataReader();
                 assembly = AssemblyInspectionSession.Open(path);
-                operation = new MetadataOperationContext(
-                    MetadataOperationPolicy.Unbounded);
-                declaration =
-                    assembly.CreateDeclarationSession(operation);
-                MetadataMethodSemanticsAssociationResult
-                    methodSemantics =
-                        declaration.MethodSemanticsAssociations.Post();
-                return new(
-                    stream,
-                    peReader,
-                    assembly,
-                    operation,
-                    declaration,
-                    reader,
-                    methodSemantics);
+                operation = new MetadataOperationContext(MetadataOperationPolicy.Unbounded);
+                declaration = assembly.CreateDeclarationSession(operation);
+                MetadataMethodSemanticsAssociationResult methodSemantics =
+                    declaration.MethodSemanticsAssociations.Post();
+                return new(stream, peReader, assembly, operation, declaration, reader, methodSemantics,
+                    MemberGroupRoute.Create(path));
             }
             catch
             {
@@ -835,21 +691,15 @@ public static class MemberGroupPopulation
         }
 
         internal MetadataMethodGroupInspection.Analysis Prepare(
-            MetadataTypeDefinitionName declaringType,
-            string methodName) =>
-            MetadataMethodGroupInspection.Prepare(
-                Reader,
-                MethodSemantics,
-                declaringType,
-                methodName)
-            is MetadataMethodGroupInspection.PreparationResult
-                .Prepared prepared
+            MetadataTypeDefinitionName declaringType, string methodName) =>
+            MetadataMethodGroupInspection.Prepare(Reader, MethodSemantics, declaringType, methodName)
+                is MetadataMethodGroupInspection.PreparationResult.Prepared prepared
                     ? prepared.Model
-                    : throw new InvalidOperationException(
-                        "The scorecard model did not prepare.");
+                    : throw new InvalidOperationException("The scorecard model did not prepare.");
 
         public void Dispose()
         {
+            Route.Dispose();
             _declaration.Dispose();
             _operation.Dispose();
             _assembly.Dispose();
