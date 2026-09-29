@@ -6,13 +6,16 @@ description: Find and share evidence instead of guessing about .NET packages, li
 
 # dotnet-inspect
 
-Use dotnet-inspect to find evidence about compiled .NET APIs, packages,
-libraries, dependencies, source, and version changes.
+Use dotnet-inspect to find evidence from direct local libraries, packages from
+configured sources, and Platform libraries, including APIs and dependencies.
 
 Run `dnx dotnet-inspect -y -- <command-or-target>`. `-y` skips confirmation,
 and `--` passes the remaining arguments to dotnet-inspect. Start by identifying
 the kind of result needed. If the intent or result space is unclear, use a bare
 target and let the router choose. Otherwise, enter the matching space directly.
+Platform queries use installed packs when the requested version is available;
+otherwise they use a package-backed source. For a non-conventional install,
+verify `<root>/packs` and set process-scoped `DOTNET_ROOT`, not `PATH`.
 
 ## Common starts
 
