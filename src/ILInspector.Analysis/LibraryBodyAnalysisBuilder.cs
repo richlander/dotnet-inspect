@@ -271,6 +271,14 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             scope,
             caller);
 
+    IMethodCallResolver
+        ILibraryMethodAnalysisInfrastructure.CreateCallResolver(
+            GenericScope scope,
+            MethodDefinitionHandle caller) =>
+        _primaryMetadataResolver.CreateCallResolver(
+            scope,
+            caller);
+
     CallerUnsafeMode?
         ILibraryMethodAnalysisInfrastructure
             .ResolveSameImageCallerUnsafeMode(

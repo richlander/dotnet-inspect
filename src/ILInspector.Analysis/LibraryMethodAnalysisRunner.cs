@@ -58,6 +58,10 @@ internal interface ILibraryMethodAnalysisInfrastructure
         GenericScope scope,
         MethodIdentity caller);
 
+    IMethodCallResolver CreateCallResolver(
+        GenericScope scope,
+        MethodDefinitionHandle caller);
+
     CallerUnsafeMode? ResolveSameImageCallerUnsafeMode(
         int operandToken,
         MemberRef member,

@@ -43,12 +43,6 @@ internal sealed partial class LibraryMethodAnalysisRunner
             GenericScope scope = _infrastructure.CreateScope(
                 typeDefinition,
                 methodDefinition);
-            MethodIdentity physicalMethod =
-                _infrastructure.CreateMethodIdentity(
-                    typeHandle,
-                    methodHandle,
-                    methodDefinition,
-                    scope);
             _bodyUseOwners ??= new(_infrastructure.Reader);
             BodyUseOwner owner = _bodyUseOwners.Attribute(methodHandle);
             TypeDefinitionHandle? source =
@@ -65,7 +59,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
             IMethodCallResolver resolver =
                 _infrastructure.CreateCallResolver(
                     scope,
-                    physicalMethod);
+                    methodHandle);
             int operandsConsidered = 0;
             int operandsExamined = 0;
             int operandsUnavailable = 0;
