@@ -54,6 +54,64 @@ public static partial class MetadataExports
             BrowserMetadataJsonContext.Default.BrowserTypeMetadata);
     }
 
+    /// <summary>
+    /// Projects Type metadata from one exact platform implementation
+    /// participant in the selected Browser platform Workspace.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPlatformTypeProjection(
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeQueryId,
+        string typeDefinitionId,
+        string? contextId = null)
+    {
+        BrowserTypeMetadata type = await PlatformTypeProjectionAsync(
+            targetFramework,
+            platformVersion,
+            assemblyName,
+            pack,
+            typeQueryId,
+            typeDefinitionId,
+            contextId,
+            ResolveTypeDependencyRows(RowQueryIntent.Empty));
+        _ = BrowserMetadataJsonSerialization.BrowserTypeMetadata;
+        return JsonSerializer.Serialize(
+            type,
+            BrowserMetadataJsonContext.Default.BrowserTypeMetadata);
+    }
+
+    internal static async Task<BrowserTypeMetadata>
+        PlatformTypeProjectionAsync(
+            string targetFramework,
+            string platformVersion,
+            string assemblyName,
+            string pack,
+            string typeQueryId,
+            string typeDefinitionId,
+            string? contextId,
+            ResolvedRowQueryPlan<TypeDependencyRelationship>
+                typeDependencyRows)
+    {
+        ArgumentNullException.ThrowIfNull(typeDependencyRows);
+        await using BrowserMemberResolution.ScopedPlatformTypeResolution
+            resolution =
+                await BrowserMemberResolution.PlatformImplementationTypeAsync(
+                    targetFramework,
+                    platformVersion,
+                    assemblyName,
+                    pack,
+                    typeDefinitionId,
+                    contextId);
+        return PlatformTypeProjection(
+            resolution,
+            typeQueryId,
+            typeDefinitionId,
+            typeDependencyRows);
+    }
+
     internal static async Task<BrowserTypeMetadata> TypeProjectionAsync(
         string packageId,
         string version,
@@ -150,6 +208,127 @@ public static partial class MetadataExports
                         failure => $"{failure.Operation}: {failure.Detail}"),
                     .. TypeDependencyFailures(scope, result.Dependencies),
                 ]);
+    }
+
+    static BrowserTypeMetadata PlatformTypeProjection(
+        BrowserMemberResolution.ScopedPlatformTypeResolution resolution,
+        string typeQueryId,
+        string typeDefinitionId,
+        ResolvedRowQueryPlan<TypeDependencyRelationship>
+            typeDependencyRows)
+    {
+        ArgumentNullException.ThrowIfNull(typeDependencyRows);
+        InspectionEnvelope<ExactTypeInspectionResult> exactTypeInspection =
+            resolution.Scope.InspectExactType(
+                resolution.Participant,
+                typeDefinitionId);
+        var result = resolution.Scope.UseParticipant(
+            resolution.Participant,
+            (group, participant) =>
+            {
+                ResearchViews.TypeProjectionResult projection =
+                    BrowserSurfaceProjection.Require(
+                        AssemblyContextTypeProjectionQuery.ExecuteParticipant(
+                            group,
+                            participant,
+                            new AssemblyContextTypeProjectionRequest(
+                                typeQueryId)),
+                        $"Type projection for '{typeQueryId}'");
+                TypeDependencySectionResult dependencies =
+                    TypeDependencySectionExecutor.ExecuteParticipant(
+                        group,
+                        participant,
+                        new TypeDependencySectionPlan(
+                            projection.Identity.FullName,
+                            typeDependencyRows,
+                            maximumDepth: null));
+                return (Projection: projection, Dependencies: dependencies);
+            });
+        ResearchViews.TypeProjectionResult projection = result.Projection;
+        (BrowserTypeGraphNode[] graphNodes,
+            BrowserTypeGraphEdge[] graphEdges) =
+            TypeRelationshipGraph(projection, result.Dependencies);
+        InspectionEnvelope<TypeDependencySectionResult> dependencyEnvelope =
+            PlatformTypeDependencyEnvelope(result.Dependencies);
+
+        return new BrowserTypeMetadata(
+            exactTypeInspection,
+            [.. projection.DerivedTypes],
+            graphNodes,
+            graphEdges,
+            dependencyEnvelope,
+            [
+                .. projection.InspectionFailures.Select(
+                    failure => $"{failure.Operation}: {failure.Detail}"),
+                .. PlatformTypeDependencyFailures(result.Dependencies),
+            ]);
+    }
+
+    static InspectionEnvelope<TypeDependencySectionResult>
+        PlatformTypeDependencyEnvelope(
+            TypeDependencySectionResult dependencies)
+    {
+        var diagnostics = new List<InspectionDiagnostic>();
+        foreach (AssemblyContextTypeDependencyEntry.Rejected rejected
+                 in dependencies.QueryResult.Participants.OfType<
+                     AssemblyContextTypeDependencyEntry.Rejected>())
+        {
+            diagnostics.Add(
+                TypeDependencyInspectionDiagnostics.ParticipantRejected(
+                    rejected.Subject.Identity.Name));
+        }
+        if (!dependencies.QueryResult.HasSurvivingParticipant)
+            diagnostics.Add(TypeDependencyInspectionDiagnostics.Unavailable());
+        if (dependencies.RowSelection.Failure is { } rowFailure)
+        {
+            diagnostics.Add(
+                TypeDependencyInspectionDiagnostics.RowSelectionFailed(
+                    rowFailure));
+        }
+
+        return new(
+            dependencies,
+            new InspectionShare.NonProjectable(
+                "platform-type-dependencies/share",
+                "Platform Type dependency Share requires a portable "
+                    + "platform Workspace scenario."),
+            diagnostics);
+    }
+
+    static IEnumerable<string> PlatformTypeDependencyFailures(
+        TypeDependencySectionResult dependencies)
+    {
+        foreach (AssemblyContextTypeDependencyEntry.Rejected rejected
+                 in dependencies.QueryResult.Participants.OfType<
+                     AssemblyContextTypeDependencyEntry.Rejected>())
+        {
+            yield return
+                $"Type dependencies for platform assembly "
+                + $"'{rejected.Subject.Identity.Name}' were rejected "
+                + $"({rejected.Failure.Kind}).";
+        }
+        if (!dependencies.QueryResult.HasSurvivingParticipant)
+        {
+            yield return
+                "Platform type dependencies are unavailable because every "
+                + "participant was rejected.";
+        }
+        if (dependencies.RowSelection.Failure is { } rowFailure)
+        {
+            yield return
+                $"Type dependency row selection stage "
+                + $"{rowFailure.Failure.StageNumber} requires row "
+                + $"{rowFailure.Failure.RequiredPosition}, but "
+                + $"{rowFailure.Identity} has "
+                + $"{rowFailure.Failure.AvailableCount} rows.";
+        }
+        else if (!dependencies.QueryResult.Dependency.Found)
+        {
+            yield return
+                "Platform type dependencies could not certify the selected "
+                + "type; participant-local derived relationships are shown "
+                + "only.";
+        }
     }
 
     static InspectionEnvelope<TypeDependencySectionResult> TypeDependencyEnvelope(

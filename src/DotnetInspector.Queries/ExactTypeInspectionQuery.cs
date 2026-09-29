@@ -486,6 +486,39 @@ internal static class ExactTypeInspectionQuery
             projectionLimits);
     }
 
+    internal static ExactTypeInspectionResult ExecuteLoadedContext(
+        InspectionWorkspace workspace,
+        WorkspaceContextLoadOutcome.Loaded loaded,
+        AssemblyContextParticipant participant,
+        SelectedContextExactTypeInspectionRequest request,
+        ApiSurfaceScope scope = ApiSurfaceScope.PublicWithNonPublicTypes,
+        ApiSurfaceProjectionLimits? projectionLimits = null)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(loaded);
+        ArgumentNullException.ThrowIfNull(participant);
+        ArgumentNullException.ThrowIfNull(request);
+        if (!loaded.Group.Participants.Any(
+                candidate => ReferenceEquals(candidate, participant)))
+        {
+            throw new ArgumentException(
+                "The selected participant does not belong to the loaded "
+                    + "Workspace context.",
+                nameof(participant));
+        }
+        return ExecuteCore(
+            workspace.Identity,
+            new ExactTypeInspectionContext(loaded),
+            request.Type,
+            request.SelectionKind,
+            [participant],
+            definingSource: null,
+            definingSources: null,
+            selectedTarget: null,
+            scope,
+            projectionLimits);
+    }
+
     static ExactTypeInspectionExecution ExecuteSelectedContext(
         InspectionWorkspaceIdentity realization,
         WorkspaceDeclarationContext context,
