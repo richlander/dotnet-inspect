@@ -280,8 +280,12 @@ public sealed class TypeMemberCompositionTests
                 continue;
 
             var rows = new int[4];
+            var receivers = new int[3];
             foreach (ApiMember member in type.Members)
+            {
                 rows[BucketOf(member.Accessibility)]++;
+                receivers[ReceiverOf(member)]++;
+            }
 
             if (MetadataTypeMemberCompositionInspection.Read(
                     reader,
@@ -292,12 +296,19 @@ public sealed class TypeMemberCompositionTests
                     MetadataMethodAccessibilityFilter.All)
                 is not MetadataTypeMemberCompositionOutcome.Counted counted)
             {
+                mismatches.Add($"{type.FullName}: not Counted");
                 continue;
             }
             MetadataTypeMemberComposition composition = counted.Composition;
             int[] counts = [composition.Public, composition.Protected, composition.Internal, composition.Private];
             if (!counts.SequenceEqual(rows))
                 mismatches.Add($"{type.FullName}: rows {string.Join('/', rows)} counts {string.Join('/', counts)}");
+            int[] receiverCounts = [composition.Static, composition.This, composition.Extension];
+            if (!receiverCounts.SequenceEqual(receivers))
+            {
+                mismatches.Add(
+                    $"{type.FullName}: row receivers {string.Join('/', receivers)} counts {string.Join('/', receiverCounts)}");
+            }
 
             if (publicRows.TryGetValue(name, out int publicRowCount)
                 && MetadataTypeMemberCompositionInspection.Read(
@@ -318,6 +329,12 @@ public sealed class TypeMemberCompositionTests
         Assert.Empty(mismatches);
         Assert.True(checkedTypes > 50, $"Only {checkedTypes} Types were compared.");
     }
+
+    // Static, this, extension, as a row carries them.
+    static int ReceiverOf(ApiMember member)
+        => member.Kind == "extension-method" || member.IsExtension ? 2
+            : member.IsStatic ? 0
+            : 1;
 
     static int BucketOf(string? accessibility)
         => accessibility switch
