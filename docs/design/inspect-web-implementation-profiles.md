@@ -98,8 +98,8 @@ just as non-public same-name methods do for an ordinary family.
 For each eligible family, two sets are distinct:
 
 - the **public roster** is the listed overloads; only these are rows; and
-- the **analyzed family** is every same-name method declared on the Type,
-  regardless of accessibility.
+- the **analyzed family** is every same-name method declared on the family's
+  exact declaring Type, regardless of accessibility.
 
 Heat and hub derivation read only the analyzed family. Methods outside the
 public roster, whether non-public or public but hidden by the API surface, are
