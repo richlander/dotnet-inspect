@@ -24,7 +24,7 @@
 # NUGET_PACKAGES per sample. Each command is timed inside one Python process
 # around the child alone, so interpreter startup is excluded. Output is TSV on
 # stdout: scenario, state, query, terminal, sample, seconds, rows, exit,
-# cache_mb.
+# cache_mb, content_sha256.
 set -euo pipefail
 
 bin=${1:?binary}
@@ -35,7 +35,7 @@ avalonia=Avalonia@12.1.3
 terminals=${TERMINALS:-tsv}
 
 mkdir -p "$work"
-printf 'scenario\tstate\tquery\tterminal\tsample\tseconds\trows\texit\tcache_mb\n'
+printf 'scenario\tstate\tquery\tterminal\tsample\tseconds\trows\texit\tcache_mb\tcontent_sha256\n'
 
 terminal_args() {
   case "$1" in
@@ -69,7 +69,7 @@ with open(sys.argv[1], "wb") as o, open(sys.argv[2], "wb") as e:
     r = subprocess.run(sys.argv[3:], stdout=o, stderr=e)
     print(f"{time.perf_counter() - t:.2f} {r.returncode}")
 ' "$out" "$err" "$bin" find "$query" "$@" "${format_args[@]}")
-  local rows mb
+  local rows mb content_sha256
   case "$terminal" in
     json)
       rows=$(jq 'length' "$out")
@@ -93,9 +93,14 @@ with open(sys.argv[1], "wb") as o, open(sys.argv[2], "wb") as e:
       ;;
   esac
   mb=$(du -sm "$home" 2>/dev/null | cut -f1)
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  if command -v sha256sum >/dev/null 2>&1; then
+    content_sha256=$(sha256sum "$out" | cut -d ' ' -f1)
+  else
+    content_sha256=$(shasum -a 256 "$out" | cut -d ' ' -f1)
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$scenario" "$state" "$query" "$terminal" "$sample" \
-    "${timing% *}" "$rows" "${timing#* }" "$mb"
+    "${timing% *}" "$rows" "${timing#* }" "$mb" "$content_sha256"
 }
 
 scenario() {
