@@ -168,8 +168,7 @@ public static class FindOptionsParser
             SourceOptions = sourceOptions
         };
 
-        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Count || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.EffectiveRowSelection is not null
-            ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
+        var tipLevel = opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);
     }
