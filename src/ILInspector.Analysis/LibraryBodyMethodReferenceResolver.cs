@@ -48,8 +48,8 @@ internal sealed class LibraryBodyMethodReferenceResolver
     long _methodReferenceSignatureWork;
     long _methodReferenceDecodeWork;
     long _bodyUseMethodSignatureBytes;
-    readonly ConcurrentDictionary<BlobHandle, BodyUseBlobReservationState>
-        _bodyUseMethodSignatureReservations = new();
+    readonly object _bodyUseMethodSignatureReservationLock = new();
+    readonly HashSet<BlobHandle> _bodyUseMethodSignatureReservations = [];
 
     internal LibraryBodyMethodReferenceResolver(
         MetadataReader reader,
@@ -1116,39 +1116,22 @@ internal sealed class LibraryBodyMethodReferenceResolver
         int maximum,
         int unitToken)
     {
-        if (_bodyUseMethodSignatureReservations.TryAdd(
-                blob,
-                BodyUseBlobReservationState.Pending))
+        lock (_bodyUseMethodSignatureReservationLock)
         {
-            try
+            if (!_bodyUseMethodSignatureReservations.Add(blob))
             {
-                ReserveBodyUseMethodSignatureBytes(
-                    charge,
-                    maximum,
-                    unitToken);
-                _bodyUseMethodSignatureReservations[blob] =
-                    BodyUseBlobReservationState.Reserved;
+                if (_bodyUseMethodSignatureBytes < 0)
+                {
+                    throw BodyUseMethodSignatureBudgetExceeded(
+                        unitToken);
+                }
                 return;
             }
-            catch (ProducerAbortException)
-            {
-                _bodyUseMethodSignatureReservations[blob] =
-                    BodyUseBlobReservationState.Rejected;
-                throw;
-            }
-        }
 
-        var wait = new SpinWait();
-        BodyUseBlobReservationState state;
-        while ((state = _bodyUseMethodSignatureReservations[blob])
-            == BodyUseBlobReservationState.Pending)
-        {
-            wait.SpinOnce();
-        }
-
-        if (state == BodyUseBlobReservationState.Rejected)
-        {
-            throw BodyUseMethodSignatureBudgetExceeded(unitToken);
+            ReserveBodyUseMethodSignatureBytes(
+                charge,
+                maximum,
+                unitToken);
         }
     }
 
@@ -1189,13 +1172,6 @@ internal sealed class LibraryBodyMethodReferenceResolver
                 $"MethodDef 0x{unitToken:X8}",
                 "The Analysis body-use method-signature byte budget "
                     + "was exceeded."));
-
-    enum BodyUseBlobReservationState : byte
-    {
-        Pending,
-        Reserved,
-        Rejected,
-    }
 
     ImmutableArray<TypeRef> DecodeMethodSpecificationArguments(
         MethodSpecification specification,
