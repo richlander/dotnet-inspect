@@ -236,11 +236,14 @@ duplicate evidence; conflicting tool/version values coexist. A malformed
 framework marker is unknown evidence and cannot be hidden by another valid
 marker.
 
-Method-level `GeneratedCodeAttribute` contributes only through that method's
-exact document associations. Method-level `CompilerGeneratedAttribute` does
-not make an ordinary user Type mixed: compiler lowering marks accessors,
-lambdas, and other implementation details this way. The compiler-synthesis
-rule therefore applies only at Type or enclosing-Type grain.
+A valid method-level `GeneratedCodeAttribute` adds one exact
+`MarkerGenerated` contribution to its declaring Type whether or not the method
+has a body, sequence points, or a document association. It does not rewrite
+the method's mapped-document contributions. Method-level
+`CompilerGeneratedAttribute` does not make an ordinary user Type mixed:
+compiler lowering marks accessors, lambdas, and other implementation details
+this way. The compiler-synthesis rule therefore applies only at Type or
+enclosing-Type grain.
 
 Enclosing-Type inheritance follows exact Metadata nesting identity with a
 finite relationship bound. A cycle, malformed declaring-Type relationship, or
@@ -252,15 +255,13 @@ success.
 The producer classifies evidence at the narrowest available grain before
 forming a Type aggregate. One method-to-document association contributes:
 
-1. `MappedGenerated` when its document has `GeneratedPathEvidence`;
-2. `MarkerGenerated` when the method carries a valid
-   `GeneratedCodeAttribute`;
-3. `CompilerSynthesized` when its declaring Type or an enclosing Type carries
+1. `CompilerSynthesized` when its declaring Type or an enclosing Type carries
    `CompilerGeneratedAttribute`;
-4. `MappedOrdinary` when none of the generated rules applies and its document
-   has `OrdinaryDocumentEvidence`; or
-5. `Unknown` when its document has `UnknownDocumentEvidence` or any applicable
-   marker evidence is unknown.
+2. `MappedGenerated` when its document has `GeneratedPathEvidence`;
+3. `MappedOrdinary` when neither compiler synthesis nor generated-path
+   evidence applies and its document has `OrdinaryDocumentEvidence`; or
+4. `Unknown` when its document has `UnknownDocumentEvidence` or association
+   evidence exceeds a bound.
 
 The exact rule evidence and producer identities remain attached to the
 contribution. A shared document is evaluated independently for each exact
@@ -287,6 +288,13 @@ may come from only one declaration of a partial Type. `MappedOrdinary`
 associations therefore coexist with the generated declaration and produce
 `MixedEvidence`.
 
+A valid `GeneratedCodeAttribute` on a method follows the same independence
+rule at method grain. Its exact method address, declared tool/version identity,
+and `MarkerGenerated` contribution remain in the Type row even when the method
+is abstract, bodyless, has only hidden sequence points, or has no PDB method
+row. A method with both a marker and mapped evidence retains both
+contributions.
+
 A valid `CompilerGeneratedAttribute` directly on a Type or enclosing Type
 identifies the Type itself as compiler synthesis. It adds a
 `CompilerSynthesized` Type contribution and classifies that Type's
@@ -295,8 +303,9 @@ sequence points refer back to a document with ordinary evidence. This keeps an
 async or lambda implementation Type generated-evidence-only without changing
 the mapped-ordinary contribution of any neighboring user Type.
 
-Malformed markers add unknown Type-contribution evidence at their exact owner
-and inherited scope. They do not reclassify a shared document.
+Malformed markers add unknown Type-contribution evidence to the exact method's
+declaring Type or the exact Type owner and its inherited scope. They do not
+require a document association and do not reclassify a shared document.
 
 ## Type aggregate
 
@@ -399,6 +408,9 @@ independently compiled fixtures under `fixtures/metadata/` and must cover:
   or Type has a generation marker;
 - an attributed partial Type with an ordinary method contribution is mixed
   rather than having its shared document reclassified;
+- an ordinary method plus an attributed abstract method without sequence
+  points produces `MixedEvidence`, retaining the abstract method's exact
+  `MarkerGenerated` contribution;
 - direct and enclosing-Type `CompilerGeneratedAttribute`, while a
   compiler-generated method on an ordinary Type does not make the Type mixed;
 - an async or lambda implementation Type marked `CompilerGeneratedAttribute`
