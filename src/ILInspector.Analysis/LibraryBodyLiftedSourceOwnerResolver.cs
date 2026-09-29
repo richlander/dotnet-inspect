@@ -42,6 +42,25 @@ internal enum LiftedSourceOwnerResolution
     Rejected,
 }
 
+internal readonly record struct AttributionBodyReferenceLimit(
+    int MaximumInstructions,
+    CancellationToken CancellationToken);
+
+internal sealed class AttributionBodyInstructionLimitExceededException(
+    int methodToken,
+    int attemptedCharge,
+    int limit)
+    : InvalidOperationException(
+        $"Attribution body 0x{methodToken:X8} exceeded "
+        + $"the {limit}-instruction limit.")
+{
+    internal int MethodToken { get; } = methodToken;
+
+    internal int AttemptedCharge { get; } = attemptedCharge;
+
+    internal int Limit { get; } = limit;
+}
+
 /// <summary>
 /// Owns assembly-scoped lifted-method source-owner correlation, including
 /// top-level execution and async state-machine authentication.
@@ -84,6 +103,14 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         LiftedOwnerGroupKey,
         Lazy<LiftedOwnerGroupEvidence>>
         _scopeExpansionLiftedOwnerGroups = new();
+    readonly ConcurrentDictionary<
+        BoundedLiftedOwnerGroupKey,
+        Lazy<LiftedOwnerGroupEvidence>>
+        _boundedLiftedOwnerGroups = new();
+    readonly ConcurrentDictionary<
+        BoundedMethodBodyReferenceKey,
+        Lazy<MethodBodyReferenceEvidence>>
+        _boundedMethodBodyReferences = new();
     readonly Lazy<IReadOnlyDictionary<
         LiftedOwnerGroupKey,
         ImmutableArray<MethodDefinitionHandle>>>
@@ -160,8 +187,11 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         IReadOnlySet<int>? ownerMethodScope = null,
         Func<TypeRef, bool>? ownerTypeScope = null,
         bool directlySelectedBody = false,
-        bool cacheScopedGroup = false)
+        bool cacheScopedGroup = false,
+        AttributionBodyReferenceLimit? bodyReferenceLimit = null)
     {
+        bodyReferenceLimit?.CancellationToken
+            .ThrowIfCancellationRequested();
         sourceOwner = default;
         if (!TryGetLiftedOwnerGroup(
                 liftedMethod,
@@ -211,7 +241,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         var key = new LiftedOwnerGroupKey(
             ownerType,
             ownerName);
-        if (_scopeExpansionLiftedOwnerGroups.TryGetValue(
+        if (bodyReferenceLimit is null
+            && _scopeExpansionLiftedOwnerGroups.TryGetValue(
                 key,
                 out Lazy<LiftedOwnerGroupEvidence>?
                     retainedGroup))
@@ -230,7 +261,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     key,
                     ownerMethodScope,
                     directlySelectedBody,
-                    cacheScopedGroup);
+                    cacheScopedGroup,
+                    bodyReferenceLimit);
             resolution = ownerGroup.Resolve(
                 liftedToken,
                 member,
@@ -357,8 +389,31 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         LiftedOwnerGroupKey key,
         IReadOnlySet<int>? ownerMethodScope,
         bool directlySelectedBody,
-        bool cacheScopedGroup)
+        bool cacheScopedGroup,
+        AttributionBodyReferenceLimit? bodyReferenceLimit)
     {
+        if (bodyReferenceLimit is { } limit)
+        {
+            if (ownerMethodScope is not null
+                && !directlySelectedBody)
+            {
+                return BuildLiftedOwnerGroup(
+                    key,
+                    ownerMethodScope,
+                    limit);
+            }
+            var boundedKey = new BoundedLiftedOwnerGroupKey(
+                key,
+                limit);
+            return _boundedLiftedOwnerGroups.GetOrAdd(
+                boundedKey,
+                group => new Lazy<LiftedOwnerGroupEvidence>(
+                    () => BuildLiftedOwnerGroup(
+                        group.Group,
+                        ownerMethodScope,
+                        group.Limit),
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        }
         if (cacheScopedGroup
             && _scopeExpansionLiftedOwnerGroups.TryGetValue(
                 key,
@@ -379,27 +434,31 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                             LiftedOwnerGroupEvidence>(
                             () => BuildLiftedOwnerGroup(
                                 group,
-                                ownerMethodScope),
+                                ownerMethodScope,
+                                bodyReferenceLimit: null),
                             LazyThreadSafetyMode
                                 .ExecutionAndPublication))
                     .Value;
             }
             return BuildLiftedOwnerGroup(
                 key,
-                ownerMethodScope);
+                ownerMethodScope,
+                bodyReferenceLimit: null);
         }
         return _liftedOwnerGroups.GetOrAdd(
             key,
             group => new Lazy<LiftedOwnerGroupEvidence>(
                 () => BuildLiftedOwnerGroup(
                     group,
-                    ownerMethodScope: null),
+                    ownerMethodScope: null,
+                    bodyReferenceLimit: null),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
 
     LiftedOwnerGroupEvidence BuildLiftedOwnerGroup(
         LiftedOwnerGroupKey group,
-        IReadOnlySet<int>? ownerMethodScope)
+        IReadOnlySet<int>? ownerMethodScope,
+        AttributionBodyReferenceLimit? bodyReferenceLimit)
     {
         var evidence = new LiftedOwnerGroupEvidence();
         if (!MethodsByName(group.OwnerType).TryGetValue(
@@ -465,13 +524,16 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 bool topLevel = group.OwnerName == "<Main>$"
                     && TryGetTopLevelExecutionMethod(
                         ownerHandle,
-                        out execution);
+                        out execution,
+                        bodyReferenceLimit);
                 topLevelOwners.Add(ownerHandle, topLevel);
                 if (topLevel)
                 {
                     AddReachableLiftedMethods(
                         ownerHandle,
-                        MethodBodyReferences(execution.Method),
+                        MethodBodyReferences(
+                            execution.Method,
+                            bodyReferenceLimit),
                         candidates,
                         reachableOwners,
                         pending,
@@ -481,7 +543,9 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
 
                 AddReachableLiftedMethods(
                     ownerHandle,
-                    MethodBodyReferences(executionHandle),
+                    MethodBodyReferences(
+                        executionHandle,
+                        bodyReferenceLimit),
                     candidates,
                     reachableOwners,
                     pending,
@@ -519,7 +583,9 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
 
                 AddReachableLiftedMethods(
                     current.Owner,
-                    MethodBodyReferences(current.Body),
+                    MethodBodyReferences(
+                        current.Body,
+                        bodyReferenceLimit),
                     candidates,
                     reachableOwners,
                     pending,
@@ -620,7 +686,9 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 }
 
                 MethodBodyReferenceEvidence references =
-                    MethodBodyReferences(method);
+                    MethodBodyReferences(
+                        method,
+                        bodyReferenceLimit);
                 AddReachableLiftedMethods(
                     owner,
                     references,
@@ -879,20 +947,33 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
 
     bool TryGetTopLevelExecutionMethod(
         MethodDefinitionHandle ownerHandle,
-        out TopLevelExecutionMethod execution)
+        out TopLevelExecutionMethod execution,
+        AttributionBodyReferenceLimit? bodyReferenceLimit = null)
     {
+        if (bodyReferenceLimit is not null)
+        {
+            TopLevelExecutionMethod? boundedResult =
+                ResolveTopLevelExecutionMethod(
+                    ownerHandle,
+                    bodyReferenceLimit);
+            execution = boundedResult.GetValueOrDefault();
+            return boundedResult.HasValue;
+        }
         TopLevelExecutionMethod? result =
             _topLevelExecutionMethods.GetOrAdd(
                 ownerHandle,
                 handle => new Lazy<TopLevelExecutionMethod?>(
-                    () => ResolveTopLevelExecutionMethod(handle),
+                    () => ResolveTopLevelExecutionMethod(
+                        handle,
+                        bodyReferenceLimit: null),
                     LazyThreadSafetyMode.ExecutionAndPublication)).Value;
         execution = result.GetValueOrDefault();
         return result.HasValue;
     }
 
     TopLevelExecutionMethod? ResolveTopLevelExecutionMethod(
-        MethodDefinitionHandle ownerHandle)
+        MethodDefinitionHandle ownerHandle,
+        AttributionBodyReferenceLimit? bodyReferenceLimit)
     {
         MethodDefinition ownerMethod =
             _reader.GetMethodDefinition(ownerHandle);
@@ -927,7 +1008,9 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 ownerHandle);
         }
 
-        if (!MethodBodyReferences(entryPointHandle).CallsDefinition(
+        if (!MethodBodyReferences(
+                entryPointHandle,
+                bodyReferenceLimit).CallsDefinition(
                 MetadataTokens.GetToken(ownerHandle)))
         {
             return null;
@@ -1012,15 +1095,36 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 == MethodImplAttributes.IL;
 
     MethodBodyReferenceEvidence MethodBodyReferences(
-        MethodDefinitionHandle methodHandle)
-        => _methodBodyReferences.GetOrAdd(
+        MethodDefinitionHandle methodHandle,
+        AttributionBodyReferenceLimit? bodyReferenceLimit = null)
+    {
+        bodyReferenceLimit?.CancellationToken
+            .ThrowIfCancellationRequested();
+        if (bodyReferenceLimit is { } limit)
+        {
+            var key = new BoundedMethodBodyReferenceKey(
+                methodHandle,
+                limit);
+            return _boundedMethodBodyReferences.GetOrAdd(
+                key,
+                entry => new Lazy<MethodBodyReferenceEvidence>(
+                    () => BuildMethodBodyReferences(
+                        entry.Method,
+                        entry.Limit),
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        }
+        return _methodBodyReferences.GetOrAdd(
             methodHandle,
             handle => new Lazy<MethodBodyReferenceEvidence>(
-                () => BuildMethodBodyReferences(handle),
+                () => BuildMethodBodyReferences(
+                    handle,
+                    bodyReferenceLimit: null),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+    }
 
     MethodBodyReferenceEvidence BuildMethodBodyReferences(
-        MethodDefinitionHandle methodHandle)
+        MethodDefinitionHandle methodHandle,
+        AttributionBodyReferenceLimit? bodyReferenceLimit)
     {
         _methodBodyReferenceIndexed?.Invoke(methodHandle);
         MethodDefinition method =
@@ -1064,7 +1168,28 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             method.GetDeclaringType());
         GenericScope scope =
             _primaryMetadataResolver.CreateScope(ownerType, method);
-        foreach (var instruction in InstructionDecoder.Decode(il))
+        ImmutableArray<DecodedInstruction> instructions;
+        if (bodyReferenceLimit is { } limit)
+        {
+            if (!InstructionDecoder.TryDecodeBounded(
+                    il,
+                    limit.MaximumInstructions,
+                    limit.CancellationToken,
+                    out instructions,
+                    out int decodedInstructionCount))
+            {
+                throw new AttributionBodyInstructionLimitExceededException(
+                    methodToken,
+                    checked(decodedInstructionCount + 1),
+                    limit.MaximumInstructions);
+            }
+        }
+        else
+        {
+            instructions = InstructionDecoder.Decode(il);
+        }
+
+        foreach (DecodedInstruction instruction in instructions)
         {
             bool call = instruction.OpCode
                 is ILOpCode.Call or ILOpCode.Callvirt;
@@ -1158,6 +1283,14 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
     readonly record struct LiftedOwnerGroupKey(
         TypeDefinitionHandle OwnerType,
         string OwnerName);
+
+    readonly record struct BoundedLiftedOwnerGroupKey(
+        LiftedOwnerGroupKey Group,
+        AttributionBodyReferenceLimit Limit);
+
+    readonly record struct BoundedMethodBodyReferenceKey(
+        MethodDefinitionHandle Method,
+        AttributionBodyReferenceLimit Limit);
 
     readonly record struct TopLevelExecutionMethod(
         TypeDefinitionHandle Type,

@@ -36,8 +36,10 @@ public abstract class PlatformPopulationArtifactMaterializationOutcome
             : base(population)
         {
             ArgumentNullException.ThrowIfNull(artifacts);
-            if (population.Value.Libraries
-                .SelectMany(static library => library.Contents)
+            if (population.Value.Members
+                .SelectMany(
+                    static member =>
+                        member.PlatformLibrary.Library.Contents)
                 .Any(
                     content => !ReferenceEquals(
                         content.ArtifactReference.Generation,

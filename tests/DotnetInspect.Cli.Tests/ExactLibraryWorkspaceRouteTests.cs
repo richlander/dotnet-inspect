@@ -427,7 +427,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             "library-metrics",
             root.GetProperty("result_kind").GetString());
         Assert.Equal(
-            LibraryStructuralReport.CurrentMethodologyVersion,
+            "library-metrics.v2",
             root.GetProperty("content")
                 .GetProperty("methodologyVersion")
                 .GetString());
@@ -440,6 +440,10 @@ public sealed class ExactLibraryWorkspaceRouteTests
                 .GetProperty("name")
                 .GetString());
         JsonElement content = root.GetProperty("content");
+        Assert.NotEmpty(
+            content.GetProperty("typeLeverage")
+                .GetProperty("rows")
+                .EnumerateArray());
         JsonElement[] summaries =
         [
             .. content.GetProperty("typeSummaries").EnumerateArray(),

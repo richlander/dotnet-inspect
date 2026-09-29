@@ -40,6 +40,7 @@ public sealed record MetadataTypeNameFailure
     public int ConsumedNodes { get; }
     public RelationshipTraversalRejectionKind? RelationshipKind { get; }
     public SignatureDecodeRejectionKind? SignatureKind { get; }
+    internal MetadataTypeNameBudgetFailure? Budget { get; init; }
 
     public string Kind => RelationshipKind?.ToString()
         ?? SignatureKind?.ToString()
@@ -55,6 +56,35 @@ public sealed record MetadataTypeNameFailure
             rejection.ConsumedNodes,
             rejection.Kind,
             signatureKind: null);
+    }
+
+    internal static MetadataTypeNameFailure NameBudget(
+        EntityHandle subject,
+        int consumedNodes,
+        MetadataTypeNameBudgetFailure budget)
+    {
+        string unit = budget.Kind switch
+        {
+            MetadataTypeNameBudgetKind.EncodedBytes =>
+                "encoded bytes",
+            MetadataTypeNameBudgetKind.Characters =>
+                "characters",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(budget),
+                budget.Kind,
+                "Unknown metadata type-name budget."),
+        };
+        return From(
+            new RelationshipTraversalRejection(
+                RelationshipTraversalRejectionKind.NameBudget,
+                $"The structured type name exceeds "
+                    + $"{budget.Limit} {unit}.",
+                subject,
+                consumedNodes))
+            with
+            {
+                Budget = budget,
+            };
     }
 
     public static MetadataTypeNameFailure From(

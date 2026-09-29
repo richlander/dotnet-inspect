@@ -4,6 +4,7 @@ import {
   createTypeHeatCoordinator,
   familyHeatCue,
   familyHeatFor,
+  implementationHeatFamilyIsEligible,
   projectFamilyHeat,
   typeHeatCacheKey,
   type PackageTypeHeatRequest,
@@ -18,6 +19,100 @@ import type {
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 
 const typeId = "type:Example.Widget";
+
+test("heat admits only coherent ordinary or single-declarer extension families", () => {
+  const ordinary = {
+    name: "Parse",
+    kind: "method",
+    overloads: [{ accessibility: "public" }, { accessibility: "public" }],
+  };
+  const extensions = {
+    name: "Deserialize",
+    kind: "extension-method",
+    overloads: [
+      {
+        accessibility: "public",
+        anchorTypeFullName: "System.Text.Json.JsonDocument",
+        declaringTypeDefinitionId: "System.Text.Json.JsonSerializer",
+      },
+      {
+        accessibility: "public",
+        anchorTypeFullName: "System.Text.Json.JsonDocument",
+        declaringTypeDefinitionId: "System.Text.Json.JsonSerializer",
+      },
+    ],
+  };
+  const privateExtensions = {
+    name: "TryMakeArrayType",
+    kind: "extension-method",
+    overloads: [
+      {
+        accessibility: "private",
+        anchorTypeFullName: "System.Type",
+        declaringTypeDefinitionId:
+          "System.Reflection.SignatureTypeExtensions",
+      },
+      {
+        accessibility: "private",
+        anchorTypeFullName: "System.Type",
+        declaringTypeDefinitionId:
+          "System.Reflection.SignatureTypeExtensions",
+      },
+    ],
+  };
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      "public",
+      [ordinary, extensions],
+      ordinary),
+    true);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      "public",
+      [ordinary, extensions],
+      extensions),
+    true);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      "public",
+      [extensions],
+      { ...extensions, overloads: [extensions.overloads[0]!] }),
+    false);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      "public",
+      [extensions],
+      {
+        ...extensions,
+        overloads: [
+          extensions.overloads[0]!,
+          {
+            accessibility: "public",
+            anchorTypeFullName: "System.Text.Json.JsonDocument",
+            declaringTypeDefinitionId: "Example.OtherExtensions",
+          },
+        ],
+      }),
+    false);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      "public",
+      [ordinary, { ...extensions, name: ordinary.name }],
+      ordinary),
+    false);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      "public",
+      [privateExtensions],
+      privateExtensions),
+    false);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      "internal",
+      [ordinary],
+      ordinary),
+    false);
+});
 
 function method(
   metadataToken: number,

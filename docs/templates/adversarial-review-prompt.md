@@ -122,6 +122,21 @@ filtering is a finding unless the owning design names it as a reference slice
 and names the deferred pushdown. Pre-existing drift the change does not touch
 is a non-blocking observation.
 
+For a modernization, producer, query, or metadata-decoding path, validate work
+reduction and code sharing together. Determine whether acquisition, decoding,
+materialization, and traversal are optimal for each terminal and the data it
+actually presents: avoid unrelated work while sharing mechanisms whose inputs,
+invariants, and outputs genuinely align. Do not treat either extreme as the
+default. Separate metadata decoders for every query can duplicate
+correctness-sensitive logic and carrying cost; one monolithic decoder that
+computes every possible fact can defeat terminal pushdown. Require the
+candidate frame to identify shared and specialized stages, alternatives
+rejected, measured costs, and expected consumers, then judge whether that
+boundary is a pragmatic middle ground. Report a defect when exact-head evidence
+shows material unnecessary work or unjustified duplication that violates the
+owned work-reduction claim; otherwise classify a different preferred factoring
+as a design question, not a blocking finding.
+
 For rendering, verify that structured information survives to the rendering
 boundary. Markout is the default host-neutral, multi-format substrate. A
 host-specific path that bypasses it must identify the host, rationale, typed
@@ -231,6 +246,11 @@ section when it defines the boundary.
   predicates and terminals reach acquisition or scope and which run after
   materialization, with the design section naming any reference slice; or why
   this field does not apply}
+- **Terminal work and code sharing:** {information each terminal and presented
+  data require; acquisition, decoding, materialization, and traversal avoided;
+  shared and specialized stages; rejected per-query and monolithic alternatives;
+  measured cost and expected-consumer evidence that justify the boundary; or
+  why this field does not apply}
 - **Change intent:** {what behavior or contract this candidate changes}
 - **Supported actor or caller:** {ordinary caller, producer, user, or external
   actor relevant to the claim}
@@ -275,9 +295,9 @@ the exact owned claim.}
 not attacks, and do not broaden the actor, input, boundary, or exclusions.
 Include the baseline or divergence, complexity basis, production-host adoption
 and retirement plan, rendering strategy, substrate reuse and QuerySpace
-pushdown, pathological case and gate, analogous
-evidence transfer, current-slice coherence, and demonstrated neighboring case
-when applicable.
+pushdown, terminal work and code-sharing boundary, pathological case and gate,
+analogous evidence transfer, current-slice coherence, and demonstrated
+neighboring case when applicable.
 Do not turn subjective product purpose or taste into a property or ask the
 reviewer to grant an approval supplied by candidate formation.}
 

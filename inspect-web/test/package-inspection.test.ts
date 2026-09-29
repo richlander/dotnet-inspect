@@ -221,6 +221,7 @@ function performanceMember(): AppMemberSurface {
     anchorDigest: "surface",
     canonicalSignature: "P:Example.Outer.Inner.Bounds",
     anchorTypeFullName: "Example.Outer.Inner",
+    declaringTypeDefinitionId: null,
     graphSelectorKey: "property:Bounds",
     bodySelectors: [{
       token: 0x06000001,

@@ -113,6 +113,7 @@ public static partial class ApiSurfaceExtractor
         AddText(ref count, member.CanonicalSignature);
         AddText(ref count, member.SignatureModel);
         AddText(ref count, member.Accessibility);
+        AddText(ref count, member.DeclaredAccessibility);
         AddText(ref count, member.ObsoleteMessage);
         AddText(ref count, member.ExtendedType);
         AddText(ref count, member.DeclaringType);

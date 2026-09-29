@@ -102,7 +102,9 @@ internal sealed class BrowserPlatformForwarderSource
         {
             PlatformPopulationMember? member = population.Population.Value.Members
                 .SingleOrDefault(candidate =>
-                    candidate.Library.ImplementationAssembly?.AssemblyIdentity is { } identity
+                    candidate.PlatformLibrary.Library
+                            .ImplementationAssembly?.AssemblyIdentity
+                        is { } identity
                     && identity.Identity.IsEquivalentTo(activation.SourceAssembly));
             if (member is null)
             {
@@ -112,7 +114,7 @@ internal sealed class BrowserPlatformForwarderSource
 
             int index = population.Population.Value.Members.ToList().IndexOf(member);
             LibraryContentOwner owner = population.Population.Owners[index];
-            if (owner.IssueOperationLease(member.Library)
+            if (owner.IssueOperationLease(member.PlatformLibrary.Library)
                 is not LibraryOperationLeaseIssueOutcome.Issued issued)
             {
                 throw new BrowserPlatformForwarderOperationException(
@@ -122,7 +124,8 @@ internal sealed class BrowserPlatformForwarderSource
             using (LibraryOperationLease lease = issued.Lease)
             {
                 descriptor = lease.Snapshot(
-                    member.Library.ImplementationAssembly!,
+                    member.PlatformLibrary.Library
+                        .ImplementationAssembly!,
                     static (view, _) =>
                     {
                         byte[] image = view.Content.ToArray();

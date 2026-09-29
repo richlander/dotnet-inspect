@@ -156,6 +156,7 @@ public sealed record BrowserLibraryMemberSurface(
     string AnchorDigest,
     string CanonicalSignature,
     string AnchorTypeFullName,
+    string? DeclaringTypeDefinitionId,
     string GraphSelectorKey,
     BrowserLibraryMemberBodySelector[] BodySelectors);
 

@@ -627,7 +627,7 @@ public static class ApiMemberSectionDescriptors
         public static bool CanRender(ApiType model)
             // Enums have no method bodies but the whole-type listing renders
             // their declaration and values.
-            => model.Members.Any(IsMethodLike) || model.Kind == "enum";
+            => model.Members.Any(IsBodyBacked) || model.Kind == "enum";
     }
 
     public sealed class ILBody : ISectionDescriptor<ApiType>

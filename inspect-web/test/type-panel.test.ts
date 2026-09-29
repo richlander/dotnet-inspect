@@ -2037,10 +2037,10 @@ test("member rows say what a member is rather than which kind it is", () => {
   assert.match(html, /<span class="sig-name">WriteTo<\/span><span class="sig-punct">\(<\/span><span class="sig-type">Utf8JsonWriter<\/span>/);
   assert.match(html, /RootElement<\/span>\s*<small><span class="sig-type">JsonElement<\/span><\/small>/);
   assert.doesNotMatch(html, /<small>method<\/small>|<small>property<\/small>/);
-  // Nested overloads have no branch glyph, color keyword types, and show the
-  // size only on the selected row.
+  // Nested overloads have no branch glyph, color keyword types, and show each
+  // available size with an explicit IL suffix.
   assert.doesNotMatch(html, /↳|overload-branch/);
   assert.match(html, /<span class="sig-keyword">string<\/span>/);
-  assert.match(html, /<small class="overload-size" title="33 instructions">33<\/small>/);
-  assert.doesNotMatch(html, />8<\/small>/);
+  assert.match(html, /<small class="overload-size" title="8 IL instructions">8IL<\/small>/);
+  assert.match(html, /<small class="overload-size" title="33 IL instructions">33IL<\/small>/);
 });

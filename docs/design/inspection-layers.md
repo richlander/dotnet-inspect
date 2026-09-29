@@ -1672,11 +1672,12 @@ above preserve the real-asset observation.
 - `UnionTypesQuery` returns deeply immutable, metadata-ordered union facts for
   `Union Types`. The CLI adds path-based Finding provenance and contains exact
   metadata identity at the presentation row boundary.
-- `ClassifiedMethodsQuery` returns immutable, metadata-ordered method
-  classifications shared by `Library Info`, P/Invoke Methods, Async Methods,
-  and Signals. The CLI adds path-based Finding provenance and compatibility
-  summaries after query execution, and P/Invoke and async rows contain exact
-  evidence at the presentation boundary.
+- `MethodClassificationQuery` answers each consumer's question of the P/Invoke,
+  async, and pointer-signature analyzers: `Library Info` and Signals ask for
+  counts, and the P/Invoke Methods and Async Methods sections ask for rows in
+  the order they show, or a count under `--count`. The CLI maps the typed
+  answers into its model without filtering, sorting, or counting, and the rows'
+  identity text is already inert when it reaches the view.
 - `AuditMetadataQuery` returns immutable assembly/module/member audit facts as
   `Available`, `NoMetadata`, or `Failed`. `Signals` composes those facts with
   direct references, classified methods, and later source evidence in the CLI;

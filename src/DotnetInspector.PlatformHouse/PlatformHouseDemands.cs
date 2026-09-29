@@ -30,24 +30,25 @@ public abstract class PlatformLibraryDemand
 
     public sealed class PlatformLibrary : PlatformLibraryDemand
     {
-        public PlatformLibrary(PlatformLibraryIdentity identity)
+        public PlatformLibrary(PlatformLibraryDemandIdentity identity)
         {
             ArgumentNullException.ThrowIfNull(identity);
             Identity = identity;
         }
 
-        public PlatformLibraryIdentity Identity { get; }
+        public PlatformLibraryDemandIdentity Identity { get; }
     }
 }
 
 /// <summary>
-/// Source-issued identity for one platform library. The diagnostic name is not
-/// identity and is never interpreted as an assembly or package coordinate.
+/// Source-issued identity for one platform-library demand. The diagnostic name
+/// is not identity and is never interpreted as an assembly or package
+/// coordinate.
 /// </summary>
-public sealed class PlatformLibraryIdentity
+public sealed class PlatformLibraryDemandIdentity
 {
-    internal PlatformLibraryIdentity(
-        PlatformLibraryIdentityAuthority authority,
+    internal PlatformLibraryDemandIdentity(
+        PlatformLibraryDemandIdentityAuthority authority,
         long ordinal,
         string name)
     {
@@ -56,24 +57,24 @@ public sealed class PlatformLibraryIdentity
         Name = name;
     }
 
-    internal PlatformLibraryIdentityAuthority Authority { get; }
+    internal PlatformLibraryDemandIdentityAuthority Authority { get; }
     public long Ordinal { get; }
     public string Name { get; }
 }
 
-/// <summary>Owner authority that issues platform-library identities.</summary>
-public sealed class PlatformLibraryIdentityAuthority
+/// <summary>Owner authority that issues platform-library demand identities.</summary>
+public sealed class PlatformLibraryDemandIdentityAuthority
 {
     long nextOrdinal;
 
-    private PlatformLibraryIdentityAuthority(string name) => Name = name;
+    private PlatformLibraryDemandIdentityAuthority(string name) => Name = name;
 
     public string Name { get; }
 
-    public static PlatformLibraryIdentityAuthority Create(string name) =>
+    public static PlatformLibraryDemandIdentityAuthority Create(string name) =>
         new(PlatformHouseIdentityName.Validate(name));
 
-    public PlatformLibraryIdentity Issue(string name)
+    public PlatformLibraryDemandIdentity Issue(string name)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         long ordinal = Interlocked.Increment(ref nextOrdinal);
