@@ -163,6 +163,8 @@ internal static partial class MetadataRelationInspection
                     operation,
                     cancellationToken,
                     materializeRows: true,
+                    forwardPlan: null,
+                    out _,
                     out _);
         var evidence =
             ImmutableArray.CreateBuilder<

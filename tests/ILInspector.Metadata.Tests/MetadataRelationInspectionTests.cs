@@ -731,6 +731,80 @@ public sealed class MetadataRelationInspectionTests
     }
 
     [Fact]
+    public void HierarchyAnalysisForwardPlanStopsOnlyAfterItsBound()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        var target = new MetadataHierarchyTargetSelection(
+            TypeName(
+                "System.Collections.Generic",
+                "IEnumerable`1"),
+            MetadataHierarchyRelationKind.Interface);
+        var complete =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        target,
+                        MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+        var forwardPlan =
+            new MetadataHierarchyRelationForwardPlan(
+                maximumCandidates: 6);
+        var forward =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        target,
+                        MetadataOperationPolicy.Unbounded,
+                        forwardPlan: forwardPlan),
+                    TestContext.Current.CancellationToken));
+        var noFinding =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        new(
+                            TypeName("Missing", "INotPresent"),
+                            MetadataHierarchyRelationKind.Interface),
+                        MetadataOperationPolicy.Unbounded,
+                        forwardPlan:
+                            new(
+                                maximumCandidates: 1)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.True(complete.Result.CandidateCount > 6);
+        Assert.False(complete.Result.WasStopped);
+        Assert.Null(complete.Result.ForwardPlan);
+        Assert.True(forward.Result.WasStopped);
+        Assert.Same(forwardPlan, forward.Result.ForwardPlan);
+        Assert.Equal(6, forward.Result.CandidateCount);
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            forward.Result.Relations.Disposition);
+        Assert.Equal(
+            complete.Result.Relations.Evidence
+                .Take(6)
+                .Select(static row => row.Source),
+            forward.Result.Relations.Evidence
+                .Select(static row => row.Source));
+        Assert.True(
+            forward.Result.Receipt.Counters.DeclarationCandidates
+            < complete.Result.Receipt.Counters.DeclarationCandidates);
+
+        Assert.False(noFinding.Result.WasStopped);
+        Assert.Equal(0, noFinding.Result.CandidateCount);
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Complete,
+            noFinding.Result.Relations.Disposition);
+    }
+
+    [Fact]
     public void HierarchyTargetSelectionReportsMalformedGenericTypeSpecifications()
     {
         using AssemblyInspectionSession session =

@@ -648,7 +648,9 @@ static class HierarchyPopulation
                         MetadataOperationPolicy.Unbounded,
                         materializeRows:
                             closing is not ScorecardClosing.Count
-                                and not ScorecardClosing.Exists)));
+                                and not ScorecardClosing.Exists,
+                        forwardPlan:
+                            ForwardPlan(closing, shape))));
         if (closing == ScorecardClosing.Exists)
         {
             return ScorecardAnswer<HierarchyAnswerRow>.OfExists(
@@ -667,6 +669,20 @@ static class HierarchyPopulation
                     candidate.MetadataTokens));
         return Answer(closing, rows, shape);
     }
+
+    static MetadataHierarchyRelationForwardPlan? ForwardPlan(
+        ScorecardClosing closing,
+        ScorecardShape shape) =>
+        closing switch
+        {
+            ScorecardClosing.Exists =>
+                new(1),
+            ScorecardClosing.Head =>
+                new(shape.N),
+            ScorecardClosing.Window =>
+                new(checked(shape.WindowSkip + shape.WindowTake)),
+            _ => null,
+        };
 
     static ScorecardAnswer<HierarchyAnswerRow> Answer(
         ScorecardClosing closing,

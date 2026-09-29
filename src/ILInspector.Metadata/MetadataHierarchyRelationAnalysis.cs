@@ -16,6 +16,22 @@ public readonly record struct MetadataHierarchyRelationAnalysisRow(
     MetadataHierarchyRelationKind Kind,
     ImmutableArray<int> MetadataTokens);
 
+/// <summary>
+/// A resolved forward closing that may stop hierarchy analysis after enough
+/// exact-kind candidates have been produced.
+/// </summary>
+public sealed record MetadataHierarchyRelationForwardPlan
+{
+    public MetadataHierarchyRelationForwardPlan(int maximumCandidates)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maximumCandidates);
+        MaximumCandidates = maximumCandidates;
+    }
+
+    public int MaximumCandidates { get; }
+}
+
 public sealed record MetadataHierarchyRelationAnalysisRequest
 {
     public MetadataHierarchyRelationAnalysisRequest(
@@ -23,13 +39,21 @@ public sealed record MetadataHierarchyRelationAnalysisRequest
         MetadataOperationPolicy policy,
         bool includeNonPublic = false,
         bool includeHidden = false,
-        bool materializeRows = true)
+        bool materializeRows = true,
+        MetadataHierarchyRelationForwardPlan? forwardPlan = null)
     {
         Target = target ?? throw new ArgumentNullException(nameof(target));
         Policy = policy ?? throw new ArgumentNullException(nameof(policy));
         IncludeNonPublic = includeNonPublic;
         IncludeHidden = includeHidden;
         MaterializeRows = materializeRows;
+        if (forwardPlan is not null && target.Kind is null)
+        {
+            throw new ArgumentException(
+                "Forward hierarchy analysis requires one exact relation kind.",
+                nameof(forwardPlan));
+        }
+        ForwardPlan = forwardPlan;
     }
 
     public MetadataHierarchyTargetSelection Target { get; }
@@ -41,11 +65,15 @@ public sealed record MetadataHierarchyRelationAnalysisRequest
     public bool IncludeHidden { get; }
 
     public bool MaterializeRows { get; }
+
+    public MetadataHierarchyRelationForwardPlan? ForwardPlan { get; }
 }
 
 public sealed record MetadataHierarchyRelationAnalysisResult(
     MetadataRelationInspectionReceipt Receipt,
     int CandidateCount,
+    MetadataHierarchyRelationForwardPlan? ForwardPlan,
+    bool WasStopped,
     MetadataRelationFamilyResult<MetadataHierarchyRelationAnalysisRow>
         Relations);
 
@@ -492,7 +520,9 @@ internal static partial class MetadataRelationInspection
                 relationRequest,
                 operation,
                 0,
-                new(
+                request.ForwardPlan,
+                wasStopped: false,
+                relations: new(
                     true,
                     MetadataRelationFamilyDisposition.Failed,
                     new(1, 0, 0, 1, 0),
@@ -517,7 +547,9 @@ internal static partial class MetadataRelationInspection
                 relationRequest,
                 operation,
                 0,
-                new(
+                request.ForwardPlan,
+                wasStopped: false,
+                relations: new(
                     true,
                     MetadataRelationFamilyDisposition.Partial,
                     new(1, 0, 0, 0, 1),
@@ -532,12 +564,16 @@ internal static partial class MetadataRelationInspection
                 operation,
                 cancellationToken,
                 request.MaterializeRows,
-                out int candidateCount);
+                request.ForwardPlan,
+                out int candidateCount,
+                out bool wasStopped);
         return Available(
             receiptIdentity,
             relationRequest,
             operation,
             candidateCount,
+            request.ForwardPlan,
+            wasStopped,
             relations);
     }
 
@@ -546,12 +582,16 @@ internal static partial class MetadataRelationInspection
         MetadataRelationInspectionRequest request,
         MetadataOperationContext operation,
         int candidateCount,
+        MetadataHierarchyRelationForwardPlan? forwardPlan,
+        bool wasStopped,
         MetadataRelationFamilyResult<MetadataHierarchyRelationAnalysisRow>
             relations) =>
         new MetadataHierarchyRelationAnalysisOutcome.Available(
             new(
                 Receipt(receiptIdentity, request, operation),
                 candidateCount,
+                forwardPlan,
+                wasStopped,
                 relations));
 
     private static MetadataRelationFamilyResult<
@@ -561,7 +601,9 @@ internal static partial class MetadataRelationInspection
             MetadataOperationContext operation,
             CancellationToken cancellationToken,
             bool materializeRows,
-            out int candidateCount)
+            MetadataHierarchyRelationForwardPlan? forwardPlan,
+            out int candidateCount,
+            out bool wasStopped)
     {
         var rows =
             ImmutableArray.CreateBuilder<
@@ -578,7 +620,8 @@ internal static partial class MetadataRelationInspection
                 request.Policy,
                 request.IncludeNonPublic,
                 request.IncludeHidden,
-                materializeRows);
+                materializeRows,
+                forwardPlan);
         using var pass =
             new MetadataHierarchyRelationAnalysisPass(
                 analysisRequest,
@@ -589,6 +632,8 @@ internal static partial class MetadataRelationInspection
         int examined = 0;
         int unavailable = 0;
         bool limited = false;
+        bool stopped = false;
+        int typeDefinitionCount = reader.TypeDefinitions.Count;
 
         try
         {
@@ -620,6 +665,14 @@ internal static partial class MetadataRelationInspection
                     rows.Add(baseRelation);
                 if (unit.InterfaceRelation is { } interfaceRelation)
                     rows.Add(interfaceRelation);
+                if (analysisRequest.ForwardPlan is { } forward
+                    && matched >= forward.MaximumCandidates
+                    && MetadataTokens.GetRowNumber(handle)
+                        < typeDefinitionCount)
+                {
+                    stopped = true;
+                    break;
+                }
             }
         }
         catch (MetadataOperationBudgetExceededException exception)
@@ -644,6 +697,7 @@ internal static partial class MetadataRelationInspection
         if (considered == 0 && diagnostics.Count != 0)
         {
             candidateCount = matched;
+            wasStopped = false;
             return CompleteOrPartial(
                 rows,
                 diagnostics,
@@ -652,14 +706,27 @@ internal static partial class MetadataRelationInspection
         if (!limited)
             unavailable += remaining;
         candidateCount = matched;
-        return CompleteOrPartial(
-            rows,
-            diagnostics,
-            new(
-                considered,
-                examined,
-                excluded,
-                unavailable,
-                limited ? remaining : 0));
+        MetadataRelationFamilyResult<
+            MetadataHierarchyRelationAnalysisRow> result =
+                CompleteOrPartial(
+                    rows,
+                    diagnostics,
+                    new(
+                        considered,
+                        examined,
+                        excluded,
+                        unavailable,
+                        limited ? remaining : 0));
+        if (stopped)
+        {
+            result = new(
+                wasRequested: true,
+                MetadataRelationFamilyDisposition.Partial,
+                result.Coverage,
+                result.Evidence,
+                result.Diagnostics);
+        }
+        wasStopped = stopped;
+        return result;
     }
 }

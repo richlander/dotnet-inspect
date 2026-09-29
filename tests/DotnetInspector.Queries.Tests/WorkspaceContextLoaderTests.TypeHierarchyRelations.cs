@@ -148,7 +148,9 @@ public sealed partial class WorkspaceContextLoaderTests
                     contracts.Occurrence,
                     focusType),
                 form: SubjectRelationForm.Interface,
-                materializeRows: false,
+                executionPlan:
+                    WorkspaceTypeHierarchyRelationExecutionPlan.Exhaustive(
+                        materializeRows: false),
                 cancellationToken:
                     TestContext.Current.CancellationToken);
         Assert.Equal(1, countOnly.CandidateCount);
@@ -302,5 +304,99 @@ public sealed partial class WorkspaceContextLoaderTests
                 publicKeyOrToken: default,
                 flags: default,
                 hashValue: default);
+    }
+
+    [Fact]
+    public async Task TypeHierarchyRelations_StopOnlyAfterExactCorrespondence()
+    {
+        const string ContractAssembly = "ForwardRows.Contracts";
+        byte[] contracts = LocatorImage(
+            ContractAssembly,
+            metadata =>
+                LocatorDefinition(
+                    metadata,
+                    "N",
+                    "IContract",
+                    TypeAttributes.Public
+                        | TypeAttributes.Interface
+                        | TypeAttributes.Abstract));
+        byte[][] candidates =
+        [
+            Candidate("ForwardRows.First", "First"),
+            Candidate("ForwardRows.Second", "Second"),
+            Candidate("ForwardRows.Third", "Third"),
+        ];
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationPopulation population =
+            CaptureDeclarations(
+                workspace,
+                await LocatorContext(
+                    workspace,
+                    [contracts, .. candidates]));
+        WorkspaceDeclarationMember contractMember = Assert.Single(
+            population.Receipt.Members,
+            member => member.AssemblyIdentity.Name == ContractAssembly);
+        var plan =
+            WorkspaceTypeHierarchyRelationExecutionPlan.ForwardRows(
+                startOrdinal: 0,
+                maximumRows: 1);
+
+        WorkspaceTypeHierarchyRelationsResult result =
+            WorkspaceTypeHierarchyRelationsQuery.Execute(
+                workspace,
+                population,
+                new(
+                    contractMember.AssemblyIdentity,
+                    contractMember.Occurrence,
+                    LocatorName("N", "IContract")),
+                form: SubjectRelationForm.Interface,
+                executionPlan: plan,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Same(plan, result.ExecutionPlan);
+        Assert.False(result.CandidateCountIsComplete);
+        Assert.Equal(2, result.CandidateCount);
+        SubjectRelationRow row = Assert.Single(result.Rows);
+        var source = Assert.IsType<
+            InspectionGraphTypeIdentity.AcquiredDefinition>(
+                Assert.IsType<InspectionGraphSubject.TypeSubject>(
+                    row.Source).Identity);
+        Assert.Equal("N.First", source.Type.ToMetadataFullName());
+        Assert.False(result.Evidence.IsComplete);
+        Assert.True(result.Evidence.IsSatisfied);
+        Assert.All(
+            result.Evidence.Producers,
+            producer => Assert.Equal(
+                SubjectRelationProducerDisposition.Stopped,
+                producer.Disposition));
+
+        static byte[] Candidate(string assemblyName, string typeName) =>
+            LocatorImage(
+                assemblyName,
+                metadata =>
+                {
+                    AssemblyReferenceHandle reference =
+                        metadata.AddAssemblyReference(
+                            metadata.GetOrAddString(ContractAssembly),
+                            new Version(1, 0, 0, 0),
+                            culture: default,
+                            publicKeyOrToken: default,
+                            flags: default,
+                            hashValue: default);
+                    TypeReferenceHandle contract =
+                        metadata.AddTypeReference(
+                            reference,
+                            metadata.GetOrAddString("N"),
+                            metadata.GetOrAddString("IContract"));
+                    TypeDefinitionHandle implementation =
+                        LocatorDefinition(
+                            metadata,
+                            "N",
+                            typeName);
+                    metadata.AddInterfaceImplementation(
+                        implementation,
+                        contract);
+                });
     }
 }

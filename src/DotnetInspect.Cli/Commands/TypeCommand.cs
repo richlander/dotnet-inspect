@@ -1387,9 +1387,9 @@ public static class TypeCommand
             return 1;
         }
 
-        bool evidenceComplete =
-            available.Relations.Relations.Evidence.IsComplete;
-        if (!evidenceComplete)
+        bool evidenceSatisfied =
+            available.Relations.Relations.Evidence.IsSatisfied;
+        if (!evidenceSatisfied)
         {
             WriteIncompleteTypeRelationEvidence(
                 available.Relations.Relations.Evidence);
@@ -1415,7 +1415,7 @@ public static class TypeCommand
             [.. results],
             implementers,
             derivedTypes,
-            evidenceComplete);
+            evidenceSatisfied);
         if (options.JsonOutput
             && (options.Columns is { Length: > 0 }
                 || options.Fields is { Length: > 0 }))
@@ -1432,7 +1432,7 @@ public static class TypeCommand
                         SearchViewContext.Default,
                         writerOptions),
                 !options.CompactJson);
-            return evidenceComplete ? 0 : 1;
+            return evidenceSatisfied ? 0 : 1;
         }
         if (options.JsonOutput)
         {
@@ -1442,7 +1442,7 @@ public static class TypeCommand
                 TypeRelationsCompactJsonContext.Default
                     .ListTypeRelationResult,
                 options.CompactJson);
-            return evidenceComplete ? 0 : 1;
+            return evidenceSatisfied ? 0 : 1;
         }
 
         if (options.Tabular)
@@ -1473,7 +1473,7 @@ public static class TypeCommand
                     SearchViewContext.Default,
                     writerOptions));
         }
-        return evidenceComplete ? 0 : 1;
+        return evidenceSatisfied ? 0 : 1;
     }
 
     private static void WriteIncompleteTypeRelationEvidence(
@@ -1484,8 +1484,9 @@ public static class TypeCommand
                 + "establish an exhaustive result.");
         foreach (SubjectRelationProducerOutcome producer
             in evidence.Producers.Where(producer =>
-                producer.Disposition
-                    != SubjectRelationProducerDisposition.Complete))
+                producer.Disposition is not
+                    SubjectRelationProducerDisposition.Complete
+                    and not SubjectRelationProducerDisposition.Stopped))
         {
             string details = string.Join(
                 " ",

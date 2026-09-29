@@ -16,11 +16,67 @@ public sealed record WorkspaceTypeHierarchyRelationSource(
     AssemblyResolutionProvenance Provenance,
     ExactLibrarySourceCoordinate? Coordinate);
 
+public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
+{
+    private WorkspaceTypeHierarchyRelationExecutionPlan(
+        bool materializeRows,
+        int startOrdinal,
+        int maximumRows,
+        int? stopAfterCandidateCount)
+    {
+        MaterializeRows = materializeRows;
+        StartOrdinal = startOrdinal;
+        MaximumRows = maximumRows;
+        StopAfterCandidateCount = stopAfterCandidateCount;
+    }
+
+    public bool MaterializeRows { get; }
+
+    public int StartOrdinal { get; }
+
+    public int MaximumRows { get; }
+
+    public int? StopAfterCandidateCount { get; }
+
+    public static WorkspaceTypeHierarchyRelationExecutionPlan Exhaustive(
+        bool materializeRows = true,
+        int startOrdinal = 0,
+        int maximumRows = int.MaxValue)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumRows, 1);
+        return new(
+            materializeRows,
+            startOrdinal,
+            maximumRows,
+            stopAfterCandidateCount: null);
+    }
+
+    public static WorkspaceTypeHierarchyRelationExecutionPlan ForwardRows(
+        int startOrdinal,
+        int maximumRows)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumRows, 1);
+        int? stopAfterCandidateCount =
+            (long)startOrdinal + maximumRows + 1 <= int.MaxValue
+                ? startOrdinal + maximumRows + 1
+                : null;
+        return new(
+            materializeRows: true,
+            startOrdinal,
+            maximumRows,
+            stopAfterCandidateCount);
+    }
+}
+
 public sealed record WorkspaceTypeHierarchyRelationsResult(
     StructuralSubjectIdentity Focus,
     SubjectRelationPopulationAuthority Population,
     SubjectRelationPopulationEvidence Evidence,
+    WorkspaceTypeHierarchyRelationExecutionPlan ExecutionPlan,
     int CandidateCount,
+    bool CandidateCountIsComplete,
     ImmutableArray<SubjectRelationRow> Rows,
     ImmutableArray<WorkspaceTypeHierarchyRelationSource> Sources);
 
@@ -42,9 +98,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         WorkspaceExactTypeFocusOutcome.Found focusSelection,
         bool includeNonPublic = false,
         SubjectRelationForm? form = null,
-        bool materializeRows = true,
-        int startOrdinal = 0,
-        int maximumRows = int.MaxValue,
+        WorkspaceTypeHierarchyRelationExecutionPlan? executionPlan = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(workspace);
@@ -59,8 +113,8 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 "The hierarchy population must belong to the exact Workspace.",
                 nameof(population));
         }
-        ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
-        ArgumentOutOfRangeException.ThrowIfLessThan(maximumRows, 1);
+        executionPlan ??=
+            WorkspaceTypeHierarchyRelationExecutionPlan.Exhaustive();
         var workspaceSubject =
             StructuralSubjectIdentity.ForWorkspace(workspace.Identity);
         StructuralSubjectIdentity focus;
@@ -103,38 +157,67 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         SubjectRelationPopulationAuthority populationAuthority =
             population.RelationAuthority;
 
+        (
+            WorkspaceDeclarationMember Member,
+            AssemblyContextGroup Group,
+            ResolvedAssemblyReference Assembly)[] accesses =
+            [.. population.ReadAccesses()];
         var scans = new List<ParticipantScan>();
+        var observedCandidates = new HashSet<CandidateIdentity>();
+        bool stopped = false;
         foreach (IGrouping<
             AssemblyContextGroup,
             (
                 WorkspaceDeclarationMember Member,
                 AssemblyContextGroup Group,
                 ResolvedAssemblyReference Assembly)> context
-            in population.ReadAccesses().GroupBy(
+            in accesses.GroupBy(
                 static item => item.Group))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            scans.AddRange(
-                ScanContext(
+            foreach (ParticipantScan scan in ScanContext(
                     context.Key,
                     context,
                     focusSelection,
                     includeNonPublic,
                     form,
-                    cancellationToken));
+                    cancellationToken))
+            {
+                scans.Add(scan);
+                foreach (ResolvedMatch match in scan.Matches)
+                {
+                    observedCandidates.Add(
+                        new(
+                            MetadataRelationGraphCatalog.Form(
+                                match.Occurrence.Relationship),
+                            match.Occurrence.SourceSubject));
+                }
+                if (executionPlan.StopAfterCandidateCount
+                        is not int stopAfter
+                    || observedCandidates.Count < stopAfter
+                    || scans.Count >= accesses.Length)
+                {
+                    continue;
+                }
+
+                stopped = true;
+                break;
+            }
+            if (stopped)
+                break;
         }
 
         SubjectRelationProducerOutcome metadata =
-            AggregateMetadata(scans);
+            AggregateMetadata(scans, stopped);
         SubjectRelationProducerOutcome correspondence =
-            AggregateCorrespondence(scans);
+            AggregateCorrespondence(scans, stopped);
         var evidence = new SubjectRelationPopulationEvidence(
             populationAuthority,
             [metadata, correspondence]);
         IGrouping<
             CandidateIdentity,
             ResolvedMatch>[] candidateGroups =
-            !materializeRows
+            !executionPlan.MaterializeRows
                 ? []
                 :
                 [
@@ -147,7 +230,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                                 match.Occurrence.SourceSubject)),
                 ];
         int candidateCount =
-            materializeRows
+            executionPlan.MaterializeRows
                 ? candidateGroups.Length
                 : scans
                     .SelectMany(scan => scan.Matches)
@@ -161,16 +244,16 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         IGrouping<
             CandidateIdentity,
             ResolvedMatch>[] selectedCandidateGroups =
-            !materializeRows
+            !executionPlan.MaterializeRows
                 ? []
                 :
                 [
                     .. candidateGroups
-                        .Skip(startOrdinal)
-                        .Take(maximumRows),
+                        .Skip(executionPlan.StartOrdinal)
+                        .Take(executionPlan.MaximumRows),
                 ];
         ImmutableArray<SubjectRelationRow> rows =
-            !materializeRows
+            !executionPlan.MaterializeRows
                 ? []
                 :
         [
@@ -210,7 +293,9 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             focus,
             populationAuthority,
             evidence,
+            executionPlan,
             candidateCount,
+            CandidateCountIsComplete: !stopped,
             rows,
             [
                 .. population.ReadAccesses()
@@ -584,7 +669,8 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             : value.Value.ToString();
 
     private static SubjectRelationProducerOutcome AggregateMetadata(
-        IEnumerable<ParticipantScan> scans)
+        IEnumerable<ParticipantScan> scans,
+        bool stopped)
     {
         SubjectRelationProducerOutcome[] outcomes =
         [
@@ -606,7 +692,8 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                         scans.Where(static scan => scan.Projection is null)
                             .Select(static _ =>
                                 SubjectRelationProducerDisposition
-                                    .Unavailable))),
+                                    .Unavailable)),
+                stopped),
             coverage,
             [
                 MetadataRelationGraphCatalog.BaseType,
@@ -624,14 +711,17 @@ public static class WorkspaceTypeHierarchyRelationsQuery
     }
 
     private static SubjectRelationProducerOutcome AggregateCorrespondence(
-        IEnumerable<ParticipantScan> scans)
+        IEnumerable<ParticipantScan> scans,
+        bool stopped)
     {
         int considered = scans.Sum(static scan => scan.Considered);
         int examined = scans.Sum(static scan => scan.Examined);
         int unavailable = scans.Sum(static scan => scan.Unavailable);
         return new(
             Definition,
-            unavailable == 0
+            unavailable == 0 && stopped
+                ? SubjectRelationProducerDisposition.Stopped
+                : unavailable == 0
                 ? SubjectRelationProducerDisposition.Complete
                 : examined > 0
                     ? SubjectRelationProducerDisposition.Partial
@@ -679,7 +769,8 @@ public static class WorkspaceTypeHierarchyRelationsQuery
     }
 
     private static SubjectRelationProducerDisposition AggregateDisposition(
-        IEnumerable<SubjectRelationProducerDisposition> dispositions)
+        IEnumerable<SubjectRelationProducerDisposition> dispositions,
+        bool stopped)
     {
         SubjectRelationProducerDisposition[] values = [.. dispositions];
         if (values.Contains(SubjectRelationProducerDisposition.Failed))
@@ -687,12 +778,15 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         if (values.Contains(SubjectRelationProducerDisposition.Unavailable))
             return values.Any(value =>
                     value is SubjectRelationProducerDisposition.Complete
+                        or SubjectRelationProducerDisposition.Stopped
                         or SubjectRelationProducerDisposition.Partial)
                 ? SubjectRelationProducerDisposition.Partial
                 : SubjectRelationProducerDisposition.Unavailable;
         if (values.Contains(SubjectRelationProducerDisposition.Partial))
             return SubjectRelationProducerDisposition.Partial;
-        return SubjectRelationProducerDisposition.Complete;
+        return stopped
+            ? SubjectRelationProducerDisposition.Stopped
+            : SubjectRelationProducerDisposition.Complete;
     }
 
     private sealed record ResolutionCandidate(

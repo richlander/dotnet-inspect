@@ -351,14 +351,22 @@ from any lighter oracle loop remain labeled frontier evidence until that
 algorithm is ported into the product pass and therefore shared by all standard
 columns.
 
-Terminal work elimination is a separate hypothesis from analysis throughput.
-Count, complete Rows, and Tail exhaust the selected source, while Exists,
-Head(N), and a supported forward window may stop after their semantic answer is
-established. Any such bound comes from the resolved QuerySpace plan and remains
-above exact Workspace assembly correspondence: a Metadata name match alone
-cannot establish that an identically named target belongs to the focused
-assembly. An unsupported plan shape retains visible fallback rather than
-acquiring ad hoc source semantics.
+Terminal work elimination is separate from analysis throughput. Count,
+complete Rows, and Tail exhaust the selected source. The analysis scorecard
+derives a typed forward plan for Exists, Head(N), and supported strict forward
+windows; the result retains that exact plan and reports whether production
+stopped after satisfying it. A zero-finding answer still exhausts the source.
+
+Production Rows derives its typed forward plan from the resolved Subject
+Relations request. It stops only after exact Workspace assembly correspondence
+has established the requested segment plus one lookahead candidate. The
+lookahead proves that a continuation exists without claiming an exact total;
+the producer outcome is `Stopped`, distinct from incomplete or failed work.
+Within one participant, Metadata and correspondence still finish together: a
+Metadata name match alone cannot establish that an identically named target
+belongs to the focused assembly. Exact Count, residual selection, and
+unsupported plan shapes retain exhaustive execution rather than acquiring ad
+hoc source semantics.
 
 The fast definition matcher is fidelity-bearing for canonical TypeDef, TypeRef,
 and generic TypeSpec shapes emitted by Roslyn. Untrusted and malformed metadata

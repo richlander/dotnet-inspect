@@ -86,6 +86,22 @@ public static class WorkspaceTypeRelationsInspectionOperation
         bool producerShapesRows =
             rows is not null
             && producerCandidatePopulation;
+        WorkspaceTypeHierarchyRelationExecutionPlan executionPlan =
+            producerShapesRows && count is null
+                ? WorkspaceTypeHierarchyRelationExecutionPlan.ForwardRows(
+                    producerStart,
+                    rows!.MaximumRows)
+                : WorkspaceTypeHierarchyRelationExecutionPlan.Exhaustive(
+                    materializeRows:
+                        rows is not null || countNeedsRows,
+                    startOrdinal:
+                        producerShapesRows
+                            ? producerStart
+                            : 0,
+                    maximumRows:
+                        producerShapesRows
+                            ? rows!.MaximumRows
+                            : int.MaxValue);
         WorkspaceTypeHierarchyRelationsResult relations =
             WorkspaceTypeHierarchyRelationsQuery.Execute(
                 workspace,
@@ -93,15 +109,7 @@ public static class WorkspaceTypeRelationsInspectionOperation
                 focus,
                 includeNonPublic,
                 plan.Selection.Form,
-                materializeRows: rows is not null || countNeedsRows,
-                startOrdinal:
-                    producerShapesRows
-                        ? producerStart
-                        : 0,
-                maximumRows:
-                    producerShapesRows
-                        ? rows!.MaximumRows
-                        : int.MaxValue,
+                executionPlan,
                 cancellationToken: cancellationToken);
         var inspectionRequest = new SubjectRelationsInspectionRequest(
             SubjectRelationsRouteKind.Type,
@@ -164,7 +172,8 @@ public static class WorkspaceTypeRelationsInspectionOperation
                     producerShapesRows
                         ? relations.CandidateCount
                         : candidates.Length;
-                if (start > populationCount)
+                if (relations.CandidateCountIsComplete
+                    && start > populationCount)
                 {
                     rowsOutcome =
                         new SubjectRelationPopulationRowsOutcome.Rejected(
@@ -196,6 +205,7 @@ public static class WorkspaceTypeRelationsInspectionOperation
                     int next = checked(start + candidateRows.Length);
                     SubjectRelationPopulationContinuation? continuation =
                         next < populationCount
+                        || !relations.CandidateCountIsComplete
                             ? new(
                                 new InertString(
                                     TextPolicy.Field,

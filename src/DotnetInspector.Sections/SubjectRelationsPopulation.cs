@@ -679,6 +679,7 @@ public static class SubjectRelationsPopulationOperation
                 .Where(static producer =>
                     producer.Disposition is
                         SubjectRelationProducerDisposition.Complete
+                        or SubjectRelationProducerDisposition.Stopped
                         or SubjectRelationProducerDisposition.Partial)
                 .SelectMany(static producer => producer.Relationships)
                 .ToHashSet<InspectionGraphRelationshipDescriptor>(
