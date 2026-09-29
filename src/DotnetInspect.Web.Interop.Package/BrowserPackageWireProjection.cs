@@ -440,6 +440,7 @@ internal static class BrowserPackageWireProjection
             member.AnchorDigest,
             member.CanonicalSignature,
             member.AnchorTypeFullName,
+            member.DeclaringTypeDefinitionId,
             member.GraphSelectorKey,
             [
                 .. member.BodySelectors.Select(selector => new BrowserMemberBodySelector(

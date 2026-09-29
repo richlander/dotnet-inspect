@@ -1506,7 +1506,9 @@ public partial class CommandExecutionTests
         Assert.Equal(1, deferred.Exit);
         Assert.Empty(deferred.Output);
         Assert.Contains(
-            "--tree is a standalone output format and cannot combine with another output format.",
+            section is null
+                ? "--tree is a standalone output format and cannot combine with another output format."
+                : "Complete Call Graph JSON does not support row, line, field, column, count, or presentation projections.",
             deferred.Error);
         Assert.DoesNotContain("File not found", deferred.Error);
         Assert.DoesNotContain("Document --json cannot represent", deferred.Error);
@@ -1954,7 +1956,7 @@ public partial class CommandExecutionTests
         [
             target,
             "-t",
-            "5",
+            target,
             "--all",
             "-S",
             "Type Info",
@@ -3061,10 +3063,10 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
-        Assert.Contains(
-            "# System.Text.Json.JsonSerializer",
+        Assert.StartsWith(
+            "method System.Text.Json.JsonSerializer.Deserialize (",
             routed.Output);
-        Assert.Contains("## Methods", routed.Output);
+        Assert.DoesNotContain("## Methods", routed.Output);
     }
 
     [Fact]

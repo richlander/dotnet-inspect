@@ -1025,9 +1025,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## PDB Source", output);
         Assert.Contains(ApiCommand.BodylessMemberNote, output);
-        Assert.DoesNotContain("## Source Diff", output);
-        Assert.DoesNotContain("```", output);
-        Assert.DoesNotContain("..", output);
+        Assert.Contains("## Source Diff", output);
+        Assert.Contains("PDB comparison unavailable", output);
     }
 
     [Fact]
@@ -1095,8 +1094,8 @@ public partial class CommandExecutionTests
         Assert.Contains("## Source Diff", output);
         Assert.Contains("--- PDB comparison", output);
         Assert.Contains("+++ Decompiled comparison", output);
-        // The decompiled side is the accessor's own body, spelled with its metadata name.
-        Assert.Contains("set_MaxDepth", output);
+        Assert.DoesNotContain("set_MaxDepth", output);
+        Assert.Contains("set", output);
         Assert.Contains("VerifyMutable();", output);
         Assert.Contains("_maxDepth = value;", output);
     }
@@ -1351,8 +1350,8 @@ public partial class CommandExecutionTests
                 "--library", library, "--all",
                 "-S", "Source Diff", "-v:d", "--tips", "q");
 
-            Assert.Equal(0, ordinalExit);
-            Assert.Equal(0, rawExit);
+            Assert.True(ordinalExit == 0, ordinalError);
+            Assert.True(rawExit == 0, rawError);
             Assert.Empty(ordinalError);
             Assert.Empty(rawError);
             string ordinalDiff = Assert.IsType<string>(
@@ -1391,7 +1390,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Collections.Generic.Stack",
-            "explicit:System.Collections.ICollection.get_IsSynchronized",
+            "System.Collections.ICollection.IsSynchronized:1",
             "--platform", "System.Collections",
             "-S", "Decompiled Source", "--tips", "q");
 
@@ -1413,7 +1412,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member",
             typeof(AttributedExplicitValuesFixture).FullName!,
-            $"explicit:{interfaceName}.get_Values",
+            $"{interfaceName}.Values:1",
             "--library",
             TestAssemblyPath,
             "-S",

@@ -59,7 +59,7 @@ public static class ClassifiedMethodRowOrders
         return result != 0 ? result : model(left, right);
     }
 
-    // Legacy order (MethodClassificationScanner.Scan): traversal order, then,
+    // Legacy order (the retired MethodClassificationScanner.Scan): traversal order, then,
     // within one method, P/Invoke, async, then pointer signature.
     static int CompareLegacy(ClassifiedMethodRow left, ClassifiedMethodRow right)
     {

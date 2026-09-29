@@ -127,6 +127,8 @@ test("Type heat paints after the member list and family evidence stays behind it
     "aria-description",
     "98 instructions; 100% of the largest body in this family",
   );
+  await expect(rows.locator(".overload-size"))
+    .toHaveText(["98IL", "5IL"]);
   await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
   await expect(rows.nth(1)).not.toHaveClass(/\bheated\b/);
 

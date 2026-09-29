@@ -334,6 +334,7 @@ public sealed record BrowserMemberSurface(
     string AnchorDigest,
     string CanonicalSignature,
     string AnchorTypeFullName,
+    string? DeclaringTypeDefinitionId,
     string GraphSelectorKey,
     BrowserMemberBodySelector[] BodySelectors);
 
