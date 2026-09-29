@@ -71,6 +71,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     continue;
 
                 operandsConsidered++;
+                int committed = rows.Count;
                 try
                 {
                     if (!TryClassify(
@@ -89,10 +90,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                             token);
                     string? unavailable = roots.IsDefaultOrEmpty
                         ? "no typed root"
-                        : roots
-                            .Select(UnavailableTypeReason)
-                            .FirstOrDefault(
-                                static reason => reason is not null);
+                        : FirstUnavailableTypeReason(roots);
                     if (unavailable is not null)
                     {
                         operandsUnavailable++;
@@ -107,9 +105,8 @@ internal sealed partial class LibraryMethodAnalysisRunner
                         continue;
                     }
 
-                    var operandRows =
-                        ImmutableArray.CreateBuilder<
-                            BodyTypeUseOccurrence>();
+                    // The operand's rows commit atomically: they are appended
+                    // in place and truncated away on any rejection.
                     int ordinal = 0;
                     foreach (TypeRef root in roots)
                     {
@@ -120,11 +117,10 @@ internal sealed partial class LibraryMethodAnalysisRunner
                             instruction.Offset,
                             methodToken,
                             source,
-                            operandRows,
+                            rows,
                             ref ordinal);
                     }
-                    long attempted = checked(
-                        (long)rows.Count + operandRows.Count);
+                    long attempted = rows.Count;
                     if (attempted > maximumOccurrences)
                     {
                         return BodyTypeUseMethodFact.CreateLimited(
@@ -136,12 +132,12 @@ internal sealed partial class LibraryMethodAnalysisRunner
                             operandsExamined,
                             operandsUnavailable);
                     }
-                    rows.AddRange(operandRows);
                     operandsExamined++;
                 }
                 catch (Exception exception)
                     when (IsRecoverableMethodFailure(exception))
                 {
+                    rows.Count = committed;
                     operandsUnavailable++;
                     diagnostics.Add(
                         new(
@@ -327,6 +323,16 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 }
                 break;
         }
+    }
+
+    string? FirstUnavailableTypeReason(ImmutableArray<TypeRef> roots)
+    {
+        foreach (TypeRef root in roots)
+        {
+            if (UnavailableTypeReason(root) is { } reason)
+                return reason;
+        }
+        return null;
     }
 
     string? UnavailableTypeReason(TypeRef type)
