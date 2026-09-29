@@ -6,7 +6,7 @@ const string CandidateArtifact = "dotnet-inspect-release-candidate";
 const string SourceJob = "Resolve ready source";
 const string AssembleJob = "Assemble immutable candidate";
 const string ReadyJob = "Candidate assets certified";
-const string TargetCiJob = "ci-required";
+const string TargetCiJob = "ci / ci-required";
 
 string[] assetJobs =
 [
