@@ -523,7 +523,13 @@ that remains visible in the request and receipt.
 > or acquisition authority in the terminal outcome.
 
 The versionless `DotNetRuntime` policy is named and immutable by policy
-generation. The `10.0.1` floor is policy data; changing it creates another
+generation. A family-default demand may name either shared-framework family:
+the ASP.NET Core family (`Microsoft.AspNetCore.App`) uses the same two-stage
+policy shape under its own named policy and generation, selecting among
+ASP.NET Core targets only, so a host that realizes both families (such as
+[Find Workspace scope](find-workspace-scope.md)) issues two independent
+demands. Each family's selection is independent: the rule does not align the
+ASP.NET Core target with the selected runtime target. The `10.0.1` floor is policy data; changing it creates another
 generation rather than reinterpreting an existing request or cache entry. The
 policy has two ordered stages:
 

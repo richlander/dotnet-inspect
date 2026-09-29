@@ -16,6 +16,9 @@
   <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
+    <!-- The dated legacy method classification oracle is the retired scanner
+         verbatim, so it keeps its internal pointer-probe helpers. -->
+    <InternalsVisibleTo Include="ILInspector.Metadata.LegacyOracles" />
     <!-- This test assembly projects the same internal prepared source,
          predicate, projector, and fold into LINQ, NLinq, and Planner. A public
          raw-handle API would expose metadata-reader lifetime and containment

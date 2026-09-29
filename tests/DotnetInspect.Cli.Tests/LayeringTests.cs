@@ -831,6 +831,7 @@ public sealed class LayeringTests
         [
             "DotnetInspect.Cli.Tests",
             "DotnetInspector.MetadataRendering.Tests",
+            "ILInspector.Metadata.LegacyOracles",
             "ILInspector.Metadata.PerformanceOracles.Tests",
             "ILInspector.Metadata.Tests",
         ];

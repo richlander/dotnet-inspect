@@ -26,7 +26,11 @@ public sealed partial class DesktopPackageSourceComposition
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
         IEnumerable<string>? implementationNames = null,
-        PackageDocumentDemand? documentDemand = null)
+        PackageDocumentDemand? documentDemand = null,
+        PackageHouseLibraryHandoffMode libraryHandoff =
+            PackageHouseLibraryHandoffMode.PackageOnly,
+        PackageHouseLibraryCompanionDemand libraryCompanionDemand =
+            PackageHouseLibraryCompanionDemand.None)
     {
         ArgumentNullException.ThrowIfNull(createStore);
         if ((compileTargetContext is not null || documentDemand is not null)
@@ -103,7 +107,9 @@ public sealed partial class DesktopPackageSourceComposition
                     access,
                     assetDemand,
                     implementationNames,
-                    documentDemand);
+                    documentDemand,
+                    libraryHandoff,
+                    libraryCompanionDemand);
             sourceOperation = null;
             return execution;
         }

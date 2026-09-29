@@ -331,6 +331,25 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _primaryMetadataResolver.HasGeneratedCodeAttribute(
             attributes);
 
+    bool ILibraryMethodAnalysisInfrastructure
+        .IsSourceGeneratedTypeOrEnclosing(
+            TypeDefinitionHandle typeHandle) =>
+        _generatedProvenanceClassifier
+            .IsSourceGeneratedTypeOrEnclosing(typeHandle);
+
+    bool ILibraryMethodAnalysisInfrastructure
+        .TryResolveLocalTypeDefinition(
+            TypeRef type,
+            out TypeDefinitionHandle handle) =>
+        _primaryMetadataResolver.TryResolveLocalTypeDefinition(
+            type,
+            out handle);
+
+    bool ILibraryMethodAnalysisInfrastructure
+        .CanCanonicalizeCurrentModuleReference(TypeRef type) =>
+        _primaryMetadataResolver
+            .CanCanonicalizeCurrentModuleReference(type);
+
     bool ILibraryMethodAnalysisInfrastructure.HasCompilerGeneratedAttribute(
         CustomAttributeHandleCollection attributes) =>
         _primaryMetadataResolver.HasCompilerGeneratedAttribute(
@@ -437,6 +456,26 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             methodDefinition,
             method,
             typeSourceGenerated,
+            out immediateOwner,
+            out ultimateOwner);
+
+    DeclaredOwnerResolution ILibraryMethodAnalysisInfrastructure
+        .ResolveUltimateDeclaredMethod(
+            MethodDefinitionHandle methodHandle,
+            MethodDefinition methodDefinition,
+            MethodIdentity method,
+            bool typeSourceGenerated,
+            int maximumInstructionsPerAttributionBody,
+            CancellationToken cancellationToken,
+            out AuthenticatedSourceOwner? immediateOwner,
+            out AuthenticatedSourceOwner? ultimateOwner)
+        => _declaredSourceResolver.ResolveUltimateDeclaredMethod(
+            methodHandle,
+            methodDefinition,
+            method,
+            typeSourceGenerated,
+            maximumInstructionsPerAttributionBody,
+            cancellationToken,
             out immediateOwner,
             out ultimateOwner);
 
