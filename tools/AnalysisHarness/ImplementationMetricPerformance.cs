@@ -261,7 +261,9 @@ public static class ImplementationMetricPerformance
             Percentile95(allocated),
             execution.ImplementationMetrics.Bodies.Length,
             relationshipCount,
-            ComputeResultIdentity(execution),
+            ComputeResultIdentity(
+                execution,
+                scenario.Metrics),
             work.AttributionProbeBodies,
             work.AttributionProbeIlBytes,
             work.MetricBodies,
@@ -277,7 +279,8 @@ public static class ImplementationMetricPerformance
     }
 
     static string ComputeResultIdentity(
-        LibraryBodyAnalysisExecution execution)
+        LibraryBodyAnalysisExecution execution,
+        ImplementationMetricSelection metrics)
     {
         using var stream = new MemoryStream();
         using (var writer = new BinaryWriter(
@@ -292,17 +295,51 @@ public static class ImplementationMetricPerformance
             {
                 writer.Write(body.Method.MetadataToken);
                 writer.Write(body.EvidenceMethod.MetadataToken);
-                WriteNullable(writer, body.ILBytes);
-                WriteExceptionRegions(writer, body.ExceptionRegions);
-                WriteLocals(writer, body.Locals);
-                WriteInstructionShape(writer, body.InstructionShape);
-                WriteControlFlow(writer, body.ControlFlow);
-                WriteDirectCalls(writer, body.DirectCalls);
+                if (metrics.HasFlag(
+                    ImplementationMetricSelection.BodySize))
+                {
+                    WriteNullable(writer, body.ILBytes);
+                }
+                if (metrics.HasFlag(
+                    ImplementationMetricSelection
+                        .ExceptionRegions))
+                {
+                    WriteExceptionRegions(
+                        writer,
+                        body.ExceptionRegions);
+                }
+                if (metrics.HasFlag(
+                    ImplementationMetricSelection.Locals))
+                {
+                    WriteLocals(writer, body.Locals);
+                }
+                if (metrics.HasFlag(
+                    ImplementationMetricSelection
+                        .InstructionShape))
+                {
+                    WriteInstructionShape(
+                        writer,
+                        body.InstructionShape);
+                }
+                if (metrics.HasFlag(
+                    ImplementationMetricSelection.ControlFlow))
+                {
+                    WriteControlFlow(writer, body.ControlFlow);
+                }
+                if (metrics.HasFlag(
+                    ImplementationMetricSelection.DirectCalls))
+                {
+                    WriteDirectCalls(writer, body.DirectCalls);
+                }
             }
 
             ImmutableArray<OverloadCallRelationship> relationships =
-                execution.ImplementationMetrics
-                    .SiblingRelationships?.Relationships ?? [];
+                metrics.HasFlag(
+                    ImplementationMetricSelection
+                        .SiblingOverloadRelationships)
+                    ? execution.ImplementationMetrics
+                        .SiblingRelationships?.Relationships ?? []
+                    : [];
             writer.Write(relationships.Length);
             foreach (OverloadCallRelationship relationship
                 in relationships)
