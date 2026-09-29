@@ -227,6 +227,41 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void InstanceLocalFunctionWithMutatedArgumentSnapshot_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionWithMutatedArgumentSnapshot),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("DisplayClass", output);
+        Assert.Contains("g__Read", output);
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionWithMutatedLocalSnapshot_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionWithMutatedLocalSnapshot),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("DisplayClass", output);
+        Assert.Contains("g__Read", output);
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionShadowingInstanceMember_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionShadowingInstanceMember),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("g__Read", output);
+    }
+
+    [Fact]
     public void InstanceLocalFunctionCalledOnForeignReceiver_StaysLowered()
     {
         var (function, context) = InstanceLocalFunctionReceiverFixture(

@@ -2398,6 +2398,40 @@ public class CfgSampleClass
         }
     }
 
+    // The environment field snapshots the argument before the argument changes.
+    // Replacing that field read with the later argument read changes behavior.
+    public int InstanceLocalFunctionWithMutatedArgumentSnapshot(int value)
+    {
+        int previous = value;
+        value++;
+        return Read() + value;
+
+        int Read() => _localFunctionState + previous;
+    }
+
+    // The same snapshot boundary with a host local instead of a parameter.
+    public int InstanceLocalFunctionWithMutatedLocalSnapshot(int value)
+    {
+        int source = value;
+        int previous = source;
+        source++;
+        return Read() + source;
+
+        int Read() => _localFunctionState + previous;
+    }
+
+    int Read(int value) => value + 10;
+
+    // The authored `this.Read` must not become a recursive call to the recovered
+    // local declaration after the printer removes an otherwise optional `this.`.
+    public int InstanceLocalFunctionShadowingInstanceMember(int value)
+    {
+        return Read(value);
+
+        int Read(int current)
+            => current == 0 ? 0 : this.Read(current - 1) + 1;
+    }
+
     // Adversarial breadth: one capturing local function called twice. Both calls
     // pass `ref env` for the same environment local; the pass must drop the ref-env
     // argument from each and recover a single declaration.

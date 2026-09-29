@@ -334,6 +334,9 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 {
                     continue;
                 }
+                string sourceName = CSharpNaming.MethodName(method.Name);
+                if (HasShadowedInstanceMemberCall(body, method, sourceName))
+                    continue;
 
                 importScope.Run(body, IrPasses.Default);
 
@@ -346,6 +349,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 {
                     continue;
                 }
+                if (HasShadowedInstanceMemberCall(body, method, sourceName))
+                    continue;
                 // And vote again on the body's self-references, for the same reason the
                 // foreign check above runs twice: IrPasses.Run can ADD reference nodes.
                 // LambdaRaisingPass imports a lambda's body and attaches it here, so a
@@ -390,7 +395,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     environment,
                     body,
                     capturedBinderNames,
-                    CSharpNaming.MethodName(method.Name)));
+                    sourceName));
             }
         }
 
@@ -614,7 +619,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             if (store.Instance is LoadLocalAddress { Index: var s } && s == slot && Equals(store.Field.DeclaringType, envType))
             {
                 int? placeholder = null;
-                if (!IsCaptureValue(store.Value, function))
+                if (!CanSubstituteCaptureValue(store.Value, function))
                 {
                     if (!CanMaterializeCaptureValue(
                             store.Value,
@@ -850,6 +855,20 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             && CallsUseHostReceiver(body, references.Cast<Call>());
     }
 
+    static bool HasShadowedInstanceMemberCall(
+        IrFunction body,
+        MethodRef localMethod,
+        string localName)
+        => body.Descendants.OfType<Call>().Any(call =>
+            !SameLocalFunctionMethod(call.Callee, localMethod)
+            && call.Callee.HasThis
+            && call.Arguments.Count > 0
+            && IsHostReceiver(body, call.Arguments[0])
+            && string.Equals(
+                CSharpNaming.SourceMethodName(call.Callee),
+                localName,
+                StringComparison.Ordinal));
+
     static bool CallsUseHostReceiver(IrFunction function, IEnumerable<Call> calls)
         => function.Signature.HasThis
             && calls.All(call =>
@@ -909,12 +928,75 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         => left.Name == right.Name
             && Equals(left.DeclaringType, right.DeclaringType);
 
-    static bool IsCaptureValue(IrExpression value, IrFunction function) => value switch
+    static bool CanSubstituteCaptureValue(
+        IrExpression value,
+        IrFunction function)
+        => value switch
     {
-        LoadArgument => true,
-        LoadLocal local => !GeneratedCodeIdentity.IsDisplayClassName(function.Locals[local.Index]),
+        LoadArgument argument => !ArgumentCanChange(function, argument),
+        LoadLocal local => !GeneratedCodeIdentity.IsDisplayClassName(
+                function.Locals[local.Index])
+            && !LocalCanChange(function, local.Index),
         _ => false,
     };
+
+    static bool ArgumentCanChange(IrFunction function, LoadArgument argument)
+        => function.Descendants.Any(node =>
+            !IsInsideNestedFunction(node)
+            && node switch
+            {
+                StoreArgument store => PlaceIdentity.SameArgument(
+                    argument.Index,
+                    argument.Parameter,
+                    store.Index,
+                    store.Parameter),
+                LoadArgumentAddress address => PlaceIdentity.SameArgument(
+                    argument.Index,
+                    argument.Parameter,
+                    address.Index,
+                    address.Parameter),
+                IncrementDecrement { Target: LoadArgument target }
+                    => PlaceIdentity.SameVariable(argument, target),
+                DeconstructionTarget
+                {
+                    Kind: DeconstructionTargetKind.Argument,
+                } target => PlaceIdentity.SameArgument(
+                    argument.Index,
+                    argument.Parameter,
+                    target.ArgumentIndex,
+                    target.ArgumentParameter),
+                _ => false,
+            });
+
+    static bool LocalCanChange(IrFunction function, int index)
+    {
+        int stores = 0;
+        foreach (var node in function.Descendants)
+        {
+            if (IsInsideNestedFunction(node))
+                continue;
+            switch (node)
+            {
+                case StoreLocal store when store.Index == index:
+                    if (++stores > 1)
+                        return true;
+                    break;
+                case LoadLocalAddress address when address.Index == index:
+                case IncrementDecrement
+                    {
+                        Target: LoadLocal { Index: var incrementedLocal },
+                    } when incrementedLocal == index:
+                case DeconstructionTarget
+                    {
+                        Kind: DeconstructionTargetKind.Local,
+                        LocalIndex: var assignedLocal,
+                        IsDeclared: false,
+                    } when assignedLocal == index:
+                    return true;
+            }
+        }
+        return false;
+    }
 
     static bool CanMaterializeCaptureValue(
         IrExpression value,
