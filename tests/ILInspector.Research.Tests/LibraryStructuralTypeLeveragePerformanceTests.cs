@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -36,15 +37,17 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
 
         string[] lines =
         [
-            "asset\ttypes\tsignature_occurrences\tbody_occurrences"
-                + "\trows\tsea_level\tmountain_peak\tchecksum"
+            "asset\ttypes\tsignature_occurrences"
+                + "\trows\tsea_level\tmountain_peak"
+                + "\tsea_category\tmountain_category\tchecksum"
                 + "\tparent_ms\tparent_bytes\tchild_ms\tchild_bytes"
                 + "\ttime_ratio\tallocation_ratio"
                 + "\tgraph_composition_ms\tgraph_composition_bytes"
                 + "\tprojection_ms"
-                + "\tprojection_bytes\tcanonical_nodes"
-                + "\tcanonical_edges\tsignature_edges\tbody_edges"
-                + "\tcombined_edges\tadjacency_entries",
+                + "\tprojection_bytes\tsurface_query_ms"
+                + "\tsurface_query_bytes\tcanonical_nodes"
+                + "\tcanonical_edges\tincoming_edges\toutgoing_edges"
+                + "\tadjacency_entries",
             .. measurements.Select(Format),
         ];
         foreach (string line in lines)
@@ -67,16 +70,12 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
                     .CreateCompleteImplementationProfile());
         MetadataLibrarySignatureUseResult signature =
             Signature(path, cancellationToken);
-        AnalysisLibraryBodyUseResult body =
-            Body(path, cancellationToken);
-
         LibraryStructuralReportDocument parent = Available(
             LibraryStructuralReport.Execute(analysis));
         LibraryStructuralReportDocument child = Available(
             LibraryStructuralReport.Execute(
                 analysis,
-                signature,
-                body));
+                signature));
         AssertUnchanged(parent, child);
         LibraryStructuralTypeLeverageDocument leverage =
             Assert.IsType<LibraryStructuralTypeLeverageDocument>(
@@ -85,7 +84,8 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
         for (var index = 0; index < 2; index++)
         {
             _ = Parent(analysis);
-            _ = Child(analysis, signature, body);
+            _ = Child(analysis, signature);
+            _ = Surface(path, cancellationToken);
         }
 
         const int repetitions = 7;
@@ -94,41 +94,43 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
                 MeasurePair(
                     repetitions,
                     () => Parent(analysis),
-                    () => Child(analysis, signature, body));
+                    () => Child(analysis, signature));
         (double GraphMilliseconds, long GraphBytes) graphCost =
             MeasureRepeated(
                 repetitions,
                 () => LibraryStructuralReport.ExecuteTypeLeverageGraph(
-                    analysis.Receipt,
-                    signature,
-                    body));
+                    signature));
         LibraryStructuralReport.TypeLeverageGraphExecution graph =
             LibraryStructuralReport.ExecuteTypeLeverageGraph(
-                analysis.Receipt,
-                signature,
-                body);
+                signature);
         (double ProjectionMilliseconds, long ProjectionBytes) projectionCost =
             MeasureRepeated(
                 repetitions,
                 () => LibraryStructuralReport.ProjectTypeLeverage(
                     signature,
-                    body,
                     graph));
+        (double SurfaceMilliseconds, long SurfaceBytes) surfaceCost =
+            MeasureRepeated(
+                repetitions,
+                () => Surface(path, cancellationToken));
 
         GraphExecutionWorkReceipt signatureWork =
             leverage.GraphWork.SignatureIncomingDegree;
-        GraphExecutionWorkReceipt bodyWork =
-            leverage.GraphWork.BodyOutgoingDegree;
-        GraphExecutionWorkReceipt combinedWork =
-            leverage.GraphWork.CombinedIncomingDegree;
+        GraphExecutionWorkReceipt outgoingWork =
+            leverage.GraphWork.SignatureOutgoingDegree;
         return new(
             asset,
             signature.Types.Length,
             signature.Occurrences.Length,
-            body.Occurrences.Length,
             leverage.Rows.Length,
             leverage.SeaLevel.Types.Length,
             leverage.MountainPeak.Types.Length,
+            CategoryCount(
+                leverage.Rows,
+                static row => row.SignatureIncomingDegree),
+            CategoryCount(
+                leverage.Rows,
+                static row => row.SignatureOutgoingDegree),
             Checksum(leverage),
             parentCost.ParentMilliseconds,
             parentCost.ParentBytes,
@@ -141,12 +143,13 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
             graphCost.GraphBytes,
             projectionCost.ProjectionMilliseconds,
             projectionCost.ProjectionBytes,
+            surfaceCost.SurfaceMilliseconds,
+            surfaceCost.SurfaceBytes,
             signatureWork.CanonicalNodesExamined,
             signatureWork.CanonicalEdgesExamined,
             signatureWork.SelectedEdgesIndexed,
-            bodyWork.SelectedEdgesIndexed,
-            combinedWork.SelectedEdgesIndexed,
-            combinedWork.AdjacencyEntriesExamined);
+            outgoingWork.SelectedEdgesIndexed,
+            outgoingWork.AdjacencyEntriesExamined);
     }
 
     private static T Measure<T>(
@@ -234,10 +237,9 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
 
     private static LibraryStructuralReportDocument Child(
         LibraryBodyAnalysisExecution analysis,
-        MetadataLibrarySignatureUseResult signature,
-        AnalysisLibraryBodyUseResult body) =>
+        MetadataLibrarySignatureUseResult signature) =>
         Available(
-            LibraryStructuralReport.Execute(analysis, signature, body));
+            LibraryStructuralReport.Execute(analysis, signature));
 
     private static LibraryStructuralReportDocument Available(
         LibraryStructuralReportResult result) =>
@@ -258,18 +260,11 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
             MetadataLibrarySignatureUseOutcome.Available>(outcome).Result;
     }
 
-    private static AnalysisLibraryBodyUseResult Body(
+    private static LibraryStructuralTypeLeverageDocument Surface(
         string path,
-        CancellationToken cancellationToken)
-    {
-        AnalysisLibraryBodyUseOutcome outcome =
-            AnalysisLibraryBodyUseService.ExecutePath(
-                path,
-                new(),
-                cancellationToken);
-        return Assert.IsType<
-            AnalysisLibraryBodyUseOutcome.Available>(outcome).Result;
-    }
+        CancellationToken cancellationToken) =>
+        LibraryStructuralReport.CreateTypeLeverage(
+            Signature(path, cancellationToken));
 
     private static void AssertUnchanged(
         LibraryStructuralReportDocument parent,
@@ -309,11 +304,7 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
             value.Append(':');
             value.Append(row.SignatureIncomingDegree);
             value.Append(':');
-            value.Append(row.BodyOutgoingDegree);
-            value.Append(':');
-            value.Append(row.CombinedIncomingDegree);
-            value.Append(':');
-            value.Append(row.CombinedOutgoingDegree);
+            value.Append(row.SignatureOutgoingDegree);
             value.Append(':');
             value.Append((int)row.Role);
             value.Append(';');
@@ -321,6 +312,22 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
         byte[] hash = SHA256.HashData(
             Encoding.UTF8.GetBytes(value.ToString()));
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static int CategoryCount(
+        ImmutableArray<LibraryStructuralTypeLeverageRow> rows,
+        Func<LibraryStructuralTypeLeverageRow, int> degree)
+    {
+        int maximum = rows
+            .Where(static row => row.RankingEligible)
+            .Select(degree)
+            .DefaultIfEmpty()
+            .Max();
+        if (maximum == 0)
+            return 0;
+        return rows.Count(row =>
+            row.RankingEligible
+            && degree(row) >= maximum * 0.5);
     }
 
     private static double Median(double[] values)
@@ -342,11 +349,13 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
             measurement.Types.ToString(CultureInfo.InvariantCulture),
             measurement.SignatureOccurrences.ToString(
                 CultureInfo.InvariantCulture),
-            measurement.BodyOccurrences.ToString(
-                CultureInfo.InvariantCulture),
             measurement.Rows.ToString(CultureInfo.InvariantCulture),
             measurement.SeaLevel.ToString(CultureInfo.InvariantCulture),
             measurement.MountainPeak.ToString(
+                CultureInfo.InvariantCulture),
+            measurement.SeaCategory.ToString(
+                CultureInfo.InvariantCulture),
+            measurement.MountainCategory.ToString(
                 CultureInfo.InvariantCulture),
             measurement.Checksum,
             measurement.ParentMilliseconds.ToString(
@@ -374,15 +383,18 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
                 CultureInfo.InvariantCulture),
             measurement.ProjectionBytes.ToString(
                 CultureInfo.InvariantCulture),
+            measurement.SurfaceMilliseconds.ToString(
+                "F4",
+                CultureInfo.InvariantCulture),
+            measurement.SurfaceBytes.ToString(
+                CultureInfo.InvariantCulture),
             measurement.CanonicalNodes.ToString(
                 CultureInfo.InvariantCulture),
             measurement.CanonicalEdges.ToString(
                 CultureInfo.InvariantCulture),
-            measurement.SignatureEdges.ToString(
+            measurement.IncomingEdges.ToString(
                 CultureInfo.InvariantCulture),
-            measurement.BodyEdges.ToString(
-                CultureInfo.InvariantCulture),
-            measurement.CombinedEdges.ToString(
+            measurement.OutgoingEdges.ToString(
                 CultureInfo.InvariantCulture),
             measurement.AdjacencyEntries.ToString(
                 CultureInfo.InvariantCulture));
@@ -391,10 +403,11 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
         string Asset,
         int Types,
         int SignatureOccurrences,
-        int BodyOccurrences,
         int Rows,
         int SeaLevel,
         int MountainPeak,
+        int SeaCategory,
+        int MountainCategory,
         string Checksum,
         double ParentMilliseconds,
         long ParentBytes,
@@ -406,10 +419,11 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
         long GraphBytes,
         double ProjectionMilliseconds,
         long ProjectionBytes,
+        double SurfaceMilliseconds,
+        long SurfaceBytes,
         int CanonicalNodes,
         int CanonicalEdges,
-        int SignatureEdges,
-        int BodyEdges,
-        int CombinedEdges,
+        int IncomingEdges,
+        int OutgoingEdges,
         int AdjacencyEntries);
 }

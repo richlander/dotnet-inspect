@@ -179,6 +179,53 @@ public static partial class AnalysisExports
             pack);
 
     [JSExport]
+    public static async Task<string> QueryPlatformLibrarySurfaceLeverage(
+        string targetFramework,
+        string platformVersion,
+        string assemblyFileName,
+        string pack)
+    {
+        BrowserLibrarySurfaceLeverage leverage;
+        await using (BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                targetFramework,
+                platformVersion,
+                assemblyFileName,
+                pack))
+        {
+            AssemblyContextEntry<LibrarySurfaceLeverageResult> entry =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    static (group, selectedParticipant) =>
+                        AssemblyContextLibrarySurfaceLeverageQuery
+                            .ExecuteParticipant(
+                                group,
+                                selectedParticipant));
+            leverage = AnalysisExports.ProjectLibrarySurfaceLeverage(
+                entry,
+                new BrowserCompileLibraryAvailability(
+                    BrowserCompileLibraryStatus.Selected,
+                    resolution.Scope.Framework,
+                    null));
+        }
+
+        return JsonSerializer.Serialize(
+            leverage,
+            BrowserAnalysisJsonContext.Default
+                .BrowserLibrarySurfaceLeverage);
+    }
+
+    public static Task<string> QueryPlatformLibrarySurfaceLeverage(
+        string targetFramework,
+        string assemblyFileName,
+        string pack) =>
+        QueryPlatformLibrarySurfaceLeverage(
+            targetFramework,
+            "",
+            assemblyFileName,
+            pack);
+
+    [JSExport]
     public static async Task<string> QueryPlatformImplementationProfiles(
         string targetFramework,
         string platformVersion,

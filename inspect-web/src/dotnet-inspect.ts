@@ -738,6 +738,12 @@ import type {
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
 } from "./facades/inspect-web-analysis.d.ts";
+import {
+  createTypeLeverageCoordinator,
+  typeLeverageMatchesFilter,
+  type TypeLeverageFilter,
+  type TypeLeveragePresentation,
+} from "./type-leverage.ts";
 import type {
   BrowserMemberSource,
   BrowserTypeExplorerInspection,
@@ -847,8 +853,12 @@ let inspectPackagePerformance:
   EngineClient["analysis"]["queryPackagePerformance"];
 let inspectPackageLibraryMetrics:
   EngineClient["analysis"]["queryPackageLibraryMetrics"];
+let inspectPackageLibrarySurfaceLeverage:
+  EngineClient["analysis"]["queryPackageLibrarySurfaceLeverage"];
 let inspectPlatformLibraryMetrics:
   EngineClient["analysis"]["queryPlatformLibraryMetrics"];
+let inspectPlatformLibrarySurfaceLeverage:
+  EngineClient["analysis"]["queryPlatformLibrarySurfaceLeverage"];
 let inspectPackageTypeImplementationHeat:
   EngineClient["analysis"]["queryPackageTypeImplementationHeat"];
 let inspectPlatformTypeImplementationHeat:
@@ -1020,11 +1030,15 @@ async function loadEngineModule() {
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
+      queryPackageLibrarySurfaceLeverage:
+        inspectPackageLibrarySurfaceLeverage,
       queryPackageTypeImplementationHeat:
         inspectPackageTypeImplementationHeat,
       queryPlatformTypeImplementationHeat:
         inspectPlatformTypeImplementationHeat,
       queryPlatformLibraryMetrics: inspectPlatformLibraryMetrics,
+      queryPlatformLibrarySurfaceLeverage:
+        inspectPlatformLibrarySurfaceLeverage,
       queryPlatformIntegrations: inspectPlatformIntegrations,
       queryPlatformOpportunities: inspectPlatformOpportunities,
       queryPlatformPerformance: inspectPlatformPerformance,
@@ -1208,6 +1222,12 @@ const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   memberFiltersExpanded: false,
   typeFiltersExpanded: false,
+  typeLeverageEnabled: false,
+  typeLeverageFilter: "" as TypeLeverageFilter,
+  typeLeverageLoading: false,
+  typeLeverageError: "",
+  typeLeverageKey: "",
+  typeLeveragePresentation: null as TypeLeveragePresentation | null,
   packages: [],
   package: null,
   uploadedLibrary: null,
@@ -3250,6 +3270,40 @@ let keyboardHelpBindings = keybindings.bindingsFor();
 const operationAuthority = createOperationAuthorityPage();
 const typeHeatWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
+const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
+  operationAuthority,
+  key: target => target.key,
+  query: target => target.query(),
+  isCurrent: target =>
+    state.typeLeverageEnabled
+    && currentTypeLeverageKey() === target.key,
+  describeError: errorMessage,
+  reportOperationDiagnostic: diagnostic => {
+    console.error("Type leverage operation authority failure.", diagnostic);
+    return undefined;
+  },
+  publish: published => {
+    state.typeLeverageKey = published.key;
+    switch (published.status) {
+      case "loading":
+        state.typeLeverageLoading = true;
+        state.typeLeverageError = "";
+        state.typeLeveragePresentation = null;
+        break;
+      case "ready":
+        state.typeLeverageLoading = false;
+        state.typeLeverageError = "";
+        state.typeLeveragePresentation = published.presentation;
+        break;
+      case "failed":
+        state.typeLeverageLoading = false;
+        state.typeLeverageError = published.message;
+        state.typeLeveragePresentation = null;
+        break;
+    }
+    renderPreservingMemberFocus();
+  },
+});
 const typeHeat = createTypeHeatCoordinator({
   state,
   operationAuthority,
@@ -4782,13 +4836,115 @@ function selectedType() {
 function filteredTypes() {
   if (!state.package) return [];
   const needle = state.typeFilter.toLowerCase();
+  const leverage = currentTypeLeveragePresentation();
+  const leverageFilter = leverage ? state.typeLeverageFilter : "";
   return state.package.types.filter(item => {
     return typeMatchesFilterText(item, needle)
       && (!state.namespaceFilter || item.namespace === state.namespaceFilter)
       && (!state.kindFilter || typeKind(item.kind) === state.kindFilter)
       && (!state.libraryScope || state.libraryScope.has(libraryKey(item)))
-      && state.accessibilityFilter.has(item.accessibilityId);
+      && state.accessibilityFilter.has(item.accessibilityId)
+      && typeLeverageMatchesFilter(
+        leverage?.byType.get(
+          item.definitionId ?? item.id,
+        ),
+        leverageFilter,
+      );
   });
+}
+
+interface TypeLeverageTarget {
+  readonly key: string;
+  readonly query: () => ReturnType<
+    typeof inspectPackageLibrarySurfaceLeverage
+  >;
+}
+
+function typeLeverageTarget(): TypeLeverageTarget | null {
+  const pkg = state.package;
+  const library = selectedLibrary();
+  if (!pkg
+    || !library
+    || state.rootKind === "library"
+    || aggregateLibrarySubjectIsActive()) {
+    return null;
+  }
+  const generation = implementationProfileWorkspaceGeneration(pkg);
+  if (pkg.isRuntimePack) {
+    const row = platformLibraryForRequest(pkg, library.id);
+    const assemblyFileName = platformAssemblyRequest(row);
+    const key = JSON.stringify([
+      "library-surface-leverage",
+      generation,
+      "platform",
+      pkg.activeFramework,
+      pkg.version,
+      row.pack,
+      assemblyFileName,
+    ]);
+    return {
+      key,
+      query: () => inspectPlatformLibrarySurfaceLeverage(
+        pkg.activeFramework,
+        pkg.version,
+        assemblyFileName,
+        row.pack,
+      ),
+    };
+  }
+
+  const key = JSON.stringify([
+    "library-surface-leverage",
+    generation,
+    "package",
+    pkg.id,
+    pkg.version,
+    pkg.activeFramework,
+    library.id,
+  ]);
+  return {
+    key,
+    query: () => inspectPackageLibrarySurfaceLeverage(
+      pkg.id,
+      pkg.version,
+      pkg.activeFramework,
+      library.id,
+    ),
+  };
+}
+
+function currentTypeLeverageKey() {
+  if (!state.typeLeverageEnabled) return null;
+  try {
+    return typeLeverageTarget()?.key ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function currentTypeLeveragePresentation() {
+  const key = currentTypeLeverageKey();
+  if (key === null || state.typeLeverageKey !== key) return null;
+  return state.typeLeveragePresentation ?? typeLeverage.presentation(key);
+}
+
+function loadTypeLeverage(retry = false) {
+  let target: TypeLeverageTarget | null;
+  try {
+    target = typeLeverageTarget();
+  } catch (error) {
+    state.typeLeverageLoading = false;
+    state.typeLeverageError = errorMessage(error);
+    state.typeLeveragePresentation = null;
+    renderPreservingMemberFocus();
+    return;
+  }
+  if (!target) return;
+  state.typeLeverageEnabled = true;
+  state.typeLeverageKey = target.key;
+  state.typeLeverageError = "";
+  if (retry) typeLeverage.retry(target);
+  else typeLeverage.request(target);
 }
 
 // The type the type list would land on by default: the first type the CURRENT
@@ -5284,6 +5440,7 @@ function resetLocationFilters() {
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  state.typeLeverageFilter = "";
   state.libraryScope = null;
   state.typeCursor = 0;
   resetMemberFilters();
@@ -5566,6 +5723,55 @@ function accessibilityControl() {
   </div>`;
 }
 
+function typeLeverageControl() {
+  let target: TypeLeverageTarget | null;
+  try {
+    target = typeLeverageTarget();
+  } catch {
+    return "";
+  }
+  if (!target) return "";
+  const current = state.typeLeverageKey === target.key;
+  if (!state.typeLeverageEnabled || !current) {
+    return `<div class="type-leverage-control">
+      <button type="button" class="tiny-button" data-type-leverage-activate>Color by Type leverage</button>
+      <small>signature surface</small>
+    </div>`;
+  }
+  if (state.typeLeverageLoading) {
+    return `<div class="type-leverage-control" aria-live="polite">
+      <span class="loader"></span><small>Measuring Type leverage…</small>
+    </div>`;
+  }
+  if (state.typeLeverageError) {
+    return `<div class="type-leverage-control metadata-warning" aria-live="polite">
+      <small>${escapeHtml(state.typeLeverageError)}</small>
+      <button type="button" class="tiny-button" data-type-leverage-activate>Retry</button>
+    </div>`;
+  }
+  const presentation = currentTypeLeveragePresentation();
+  if (!presentation) return "";
+  const qualified =
+    presentation.disposition.toLowerCase() !== "complete";
+  const qualification = qualified || presentation.diagnostics.length > 0
+    ? `<details class="type-leverage-qualification">
+        <summary>${qualified ? "qualified evidence" : "analysis notes"} · ${presentation.coverage.examined}/${presentation.coverage.considered} examined${presentation.diagnostics.length ? ` · ${presentation.diagnostics.length} diagnostics` : ""}</summary>
+        ${presentation.diagnostics.length
+          ? `<small>${presentation.diagnostics.map(escapeHtml).join("<br>")}</small>`
+          : ""}
+      </details>`
+    : "";
+  return `<div class="type-leverage-control">
+    <div class="namespace-chips leverage-chips" aria-label="Type leverage filters">
+      <button class="${!state.typeLeverageFilter ? "active" : ""}" data-type-leverage-filter="">all types</button>
+      <button class="${state.typeLeverageFilter === "sea-level" ? "active" : ""}" data-type-leverage-filter="sea-level">sea level · ${presentation.seaLevelCount}</button>
+      <button class="${state.typeLeverageFilter === "mountain-peak" ? "active" : ""}" data-type-leverage-filter="mountain-peak">mountain peaks · ${presentation.mountainPeakCount}</button>
+    </div>
+    ${qualification}
+    <button type="button" class="tiny-button" data-type-leverage-activate>Hide colors</button>
+  </div>`;
+}
+
 function typeFilterSummary() {
   const buckets = accessibilityBuckets();
   const activeAccessibility =
@@ -5579,6 +5785,9 @@ function typeFilterSummary() {
     state.typeFilter,
     state.namespaceFilter,
     state.kindFilter,
+    currentTypeLeveragePresentation() && state.typeLeverageFilter
+      ? state.typeLeverageFilter.replace("-", " ")
+      : "",
     accessibilitySummary,
   ].filter(Boolean).join(" · ") || "All types";
 }
@@ -7920,6 +8129,7 @@ function renderTypeNavPane(
     namespaceOptionsHtml: namespaceOptions(),
     kindFilters: typeKinds(),
     accessibilityControlHtml: accessibilityControl(),
+    leverageControlHtml: typeLeverageControl(),
     library: activeLibrarySubjectName(),
     parentSubject: state.atLibraryRoot
       ? state.rootKind === "platform" && !currentViewHasPlatformRootParent()
@@ -7932,6 +8142,10 @@ function renderTypeNavPane(
     typeDisplayName,
     typeLibraryLabel: item => definingLibraries.get(item.id) ?? "",
     kindIcon,
+    typeLeverageCue: item =>
+      currentTypeLeveragePresentation()?.byType.get(
+        item.definitionId ?? item.id,
+      ) ?? null,
   });
 }
 
@@ -10744,6 +10958,33 @@ function bindTypePanelEvents() {
     },
     onKindSelect: kind => {
       state.kindFilter = kind;
+      state.typeCursor = 0;
+      const first = filteredTypes()[0];
+      if (first) state.selectedTypeId = first.id;
+      state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
+      resetMemberFilters();
+      renderPreservingMemberFocus();
+    },
+    onTypeLeverageActivate: () => {
+      const current = currentTypeLeveragePresentation();
+      if (state.typeLeverageEnabled && current) {
+        state.typeLeverageEnabled = false;
+        state.typeLeverageFilter = "";
+        state.typeLeverageKey = "";
+        state.typeLeveragePresentation = null;
+        renderPreservingMemberFocus();
+        return;
+      }
+      loadTypeLeverage(Boolean(state.typeLeverageError));
+    },
+    onTypeLeverageFilterSelect: filter => {
+      if (filter !== ""
+        && filter !== "sea-level"
+        && filter !== "mountain-peak") {
+        return;
+      }
+      state.typeLeverageFilter = filter;
       state.typeCursor = 0;
       const first = filteredTypes()[0];
       if (first) state.selectedTypeId = first.id;

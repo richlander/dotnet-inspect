@@ -99,9 +99,11 @@ type AnalysisOperationName =
   | "queryPlatformOpportunities"
   | "queryPackagePerformance"
   | "queryPackageLibraryMetrics"
+  | "queryPackageLibrarySurfaceLeverage"
   | "queryPackageTypeImplementationHeat"
   | "queryPlatformTypeImplementationHeat"
   | "queryPlatformLibraryMetrics"
+  | "queryPlatformLibrarySurfaceLeverage"
   | "queryPlatformPerformance";
 
 type SourceOperationName =
@@ -1426,6 +1428,16 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryPackageLibraryMetrics"]>
       ) => facades.analysis.queryPackageLibraryMetrics(...args),
     ),
+    queryPackageLibrarySurfaceLeverage: valueOperation(
+      "ordinary-analysis-query-package-library-surface-leverage",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPackageLibrarySurfaceLeverage"]
+        >
+      ) => facades.analysis.queryPackageLibrarySurfaceLeverage(...args),
+    ),
     queryPlatformLibraryMetrics: valueOperation(
       "ordinary-analysis-query-platform-library-metrics",
       4,
@@ -1433,6 +1445,16 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<AnalysisFacade["queryPlatformLibraryMetrics"]>
       ) => facades.analysis.queryPlatformLibraryMetrics(...args),
+    ),
+    queryPlatformLibrarySurfaceLeverage: valueOperation(
+      "ordinary-analysis-query-platform-library-surface-leverage",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPlatformLibrarySurfaceLeverage"]
+        >
+      ) => facades.analysis.queryPlatformLibrarySurfaceLeverage(...args),
     ),
     queryPlatformPerformance: valueOperation(
       "ordinary-analysis-query-platform-performance",
@@ -2083,9 +2105,17 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageLibraryMetrics,
       ),
+      queryPackageLibrarySurfaceLeverage: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageLibrarySurfaceLeverage,
+      ),
       queryPlatformLibraryMetrics: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPlatformLibraryMetrics,
+      ),
+      queryPlatformLibrarySurfaceLeverage: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformLibrarySurfaceLeverage,
       ),
       queryPlatformPerformance: bind(
         engineWorkerOrdinaryOperations.analysis

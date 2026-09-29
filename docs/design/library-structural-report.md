@@ -244,48 +244,38 @@ contract over the complete admitted graph and are tracked by
 
 ### Type structural leverage
 
-The extension consumes two directed relationship kinds over exact Type
+The first extension consumes one directed relationship kind over exact Type
 definition identities in the selected Library:
 
 - **Signature use:** `A -> B` means an admitted declaration owned by Type `A`
   refers to Type `B` through its base Type, implemented interfaces, generic
   constraints, or a field, property, event, parameter, or return Type.
-- **Body use:** `A -> B` means an admitted physical body logically owned by
-  Type `A` contains a resolved Type-bearing IL operand whose definition is
-  Type `B`.
 
 Constructed generic Types lower to their owner-issued generic definition.
-Analysis-issued logical ownership folds compiler-created nested implementation
-Types into their declared Type owner; Research does not infer that owner from a
-generated name. An otherwise unfurled nested Type remains its own exact
-definition. Both endpoints must belong to the selected Library generation.
-External Types are outside this Library-scoped population. Accessibility does
-not alter topology, canonical-row retention, or either default order: public
-API foundations and internal implementation orchestrators are both product
-evidence.
+Both endpoints must belong to the selected Library generation. External Types
+are outside this Library-scoped population. Accessibility does not alter
+topology, canonical-row retention, or either default order: public API
+foundations and internal declaration orchestrators are both product evidence.
 
 A relationship from a Type to itself is not a peer relationship and contributes
-to no degree. Parallel occurrences and a pair present under both relationship
-kinds remain evidence, but each selected Graph degree counts the opposite Type
-once. Research admits one immutable Graph document containing both typed
-relationship kinds and requests three directed distinct-neighbor views:
+to no degree. Parallel occurrences remain evidence, but each selected Graph
+degree counts the opposite Type once. Research admits one immutable Graph
+document containing signature-use relationships and requests two directed
+distinct-neighbor views:
 
-1. signature incoming degree for the **sea-level** ranking;
-2. body outgoing degree for the **mountain-peak** ranking; and
-3. incoming and outgoing degree over the union of both kinds for structural
-   role.
+1. incoming degree for the **sea-level** ranking; and
+2. outgoing degree for the **mountain-peak** ranking.
 
-The role denominator is combined incoming plus combined outgoing degree. A
+The role denominator is signature incoming plus signature outgoing degree. A
 connected Type is a **foundation** when its incoming share is at least `0.7`,
 an **orchestrator** when that share is at most `0.3`, and a **hub** otherwise.
 An isolated Type has no role and enters neither ranking.
 
 The report retains one canonical leverage row per connected Type. Each row
-contains exact Type identity, signature incoming degree, body outgoing degree,
-combined incoming and outgoing degree, and role. Research also publishes the
-complete sea-level and mountain-peak orders. Each order sorts descending by
-its named degree, then by exact metadata Type identity; a displayed name never
-breaks a tie.
+contains exact Type identity, signature incoming and outgoing degree, and role.
+Research also publishes the complete sea-level and mountain-peak orders. Each
+order sorts descending by its named degree, then by exact metadata Type
+identity; a displayed name never breaks a tie.
 
 Ranking eligibility is separate from structural population. Universal base
 Types and Types whose owner-issued metadata classification is enum, attribute,
@@ -304,12 +294,10 @@ operation carrier, a reflection or serialization activation point, or a
 meaningful exception, attribute, delegate, or protocol state. Those questions
 retain their own relationship populations and owners.
 
-Signature and body completion remain independent. A complete signature
-population cannot qualify body degree, and complete body evidence cannot
-qualify signature degree. An available report may retain healthy rows when one
-population is incomplete, but every affected ranking and role remains visibly
-qualified by the producer receipt and failures. Missing or failed evidence
-does not become a zero-degree success.
+An available report may retain healthy rows when the signature population is
+incomplete, but both rankings and role remain visibly qualified by the
+producer receipt and failures. Missing or failed evidence does not become a
+zero-degree success.
 
 Graph owns relationship selection, direction, selected adjacency,
 distinct-neighbor counting, self-loop treatment, deterministic structural
@@ -317,6 +305,13 @@ results, and its work receipts. Research owns which producer-issued
 relationships enter each plan, ranking eligibility, the two orders, role
 meaning, and qualification in the Library report. Neither host recomputes a
 degree, rank, role, or exclusion.
+
+Body-use evidence is a later, separately costed depth mode over the same two
+directional questions. It will define both body incoming and body outgoing
+degree rather than silently assigning one producer to sea level and another to
+mountain peak. Adding that mode requires its own acquisition, qualification,
+and Browser cost evidence; it does not change the meaning of this
+signature-level surface mode.
 
 ## Interpretation boundary
 
@@ -348,8 +343,8 @@ need its own explicit Analysis/Metadata population owner.
 ## Composition and rendering
 
 The report composes owner-issued implementation profiles, the optional
-same-execution call graph, signature-use relationships, body-use relationships,
-and their population coverage receipts from
+same-execution call graph, signature-use relationships, and their population
+coverage receipt from
 [#7989](https://github.com/richlander/dotnet-inspect/issues/7989). Analysis
 and Metadata define how their respective inputs are constructed and qualified;
 Graph defines how the admitted closed document is structurally evaluated;
@@ -402,6 +397,34 @@ presentation limit may take a prefix of each issued order, but Browser does not
 sort, merge, exclude, or recompute the rows. Relationship Crossing may decorate
 an already selected exact Type with its report-issued role; it does not infer
 role from the bounded call projection.
+
+The Type Browser adds an explicit `Type leverage` action inside its existing
+filter disclosure. Activating it runs a dedicated Library-scoped surface query
+that acquires only the exact Type inventory and signature-use population before
+Graph execution. It does not run implementation profiles, body-use analysis,
+the call graph, or the rest of Library Metrics. Package and platform Libraries
+use the same managed query and Browser contract. The result is cached by exact
+Library identity and workspace generation; operation authority prevents a
+stale result from publishing into a replacement workspace. Loading, qualified,
+unavailable, and failed outcomes remain visible and retryable.
+
+Browser presentation uses the complete Research-issued rows and orders. A Type
+enters the sea-level presentation category when its signature incoming degree
+is at least `0.5` of the maximum signature incoming degree in that Library. It
+enters the mountain-peak category under the same rule for signature outgoing
+degree. Zero never qualifies. This Library-relative threshold is presentation,
+not a Research ranking exclusion or a new structural role. A Type may belong
+to both categories; the Browser preserves that overlap with two independent
+non-text cues and accessible evidence text rather than forcing one category to
+win.
+
+Sea-level and mountain-peak filters select their respective presentation
+categories and intersect with the existing text, namespace, kind, Library, and
+accessibility filters. Row cues use distinct accents without replacing the
+selected or hover state. The filter summary and each decorated row expose the
+category in text so color is not the only carrier. Deactivating the view clears
+only leverage presentation and filtering; it does not discard the cached
+Research result.
 
 A treemap cell discloses its type summary on pointer hover or keyboard focus
 and activates the exact metadata type key to continue the settled
@@ -553,17 +576,15 @@ stack. Each slice has one normative owner and lands a usable typed contract:
 2. [Metadata Library Signature Use](metadata-library-signature-use.md)
    publishes the complete qualified Library signature-use relationship
    population and exact Type-definition identities.
-3. Analysis publishes the complete qualified Library body-use relationship
-   population with logical declared-Type ownership.
-4. Research composes both populations through Graph, publishes canonical
-   leverage rows, independent orders, roles, eligibility, and qualification,
-   and retires its superseded private undirected `HashSet` degree calculation
-   wherever the new evidence serves the same question.
-5. The CLI adds the two named `Library Metrics` row groups through Markout
+3. Research runs the signature-use population through Graph and publishes
+   canonical surface-leverage rows, independent incoming/outgoing orders,
+   roles, eligibility, and qualification. Analysis body-use evidence remains
+   available for a separately costed future depth mode over both directions.
+4. The CLI adds the two named `Library Metrics` row groups through Markout
    without changing the command's explicit-only disclosure.
-6. Browser/Wasm extends the existing Metrics lens through the settled managed
-   facade and shared Research document.
-7. A later provider-backed composition may push Graph demand into Metadata and
+5. Browser/Wasm adds an explicit Type Browser action backed by the dedicated
+   metadata-only surface query, with category cues and intersecting filters.
+6. A later provider-backed composition may push Graph demand into Metadata and
    Analysis acquisition. It is a separately evidenced QuerySpace optimization,
    not a condition of the closed-document stack.
 

@@ -1037,6 +1037,35 @@ kbd {
 .library-chips button.active .ns-count { color: var(--accent); }
 .access-chips button { text-transform: lowercase; }
 .access-chips button.active { border-color: var(--accent); color: var(--accent); }
+.type-leverage-control {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0;
+}
+.type-leverage-control > small { color: var(--dim); font: 10px var(--mono); }
+.type-leverage-control .loader { width: 12px; height: 12px; }
+.type-leverage-control.metadata-warning { padding: 5px 7px; }
+.type-leverage-qualification {
+  color: var(--yellow);
+  font: 10px var(--mono);
+}
+.type-leverage-qualification summary { cursor: pointer; }
+.type-leverage-qualification small {
+  display: block;
+  max-width: 360px;
+  padding: 5px 0;
+  color: var(--muted);
+}
+.leverage-chips { flex: 1; }
+.leverage-chips [data-type-leverage-filter="sea-level"].active {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+.leverage-chips [data-type-leverage-filter="mountain-peak"].active {
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
 
 /* Namespace picker dropdown (replaces the old overflow chip strip). Also the
    shared look for the scopebar Library selector. */
@@ -1076,7 +1105,7 @@ kbd {
 .type-row {
   height: 30px;
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
   gap: 5px;
   align-items: center;
   padding: 0 12px 0 30px;
@@ -1100,6 +1129,26 @@ kbd {
 }
 .type-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px var(--mono); }
 .type-row small { color: var(--dim); font: 10px var(--mono); }
+.type-leverage-cues {
+  display: grid;
+  grid-template-columns: 3px 3px;
+  gap: 2px;
+  width: 8px;
+  height: 18px;
+}
+.type-leverage-sea,
+.type-leverage-peak {
+  border-radius: 2px;
+  opacity: var(--type-leverage-strength);
+}
+.type-leverage-sea {
+  grid-column: 1;
+  background: var(--blue);
+}
+.type-leverage-peak {
+  grid-column: 2;
+  background: var(--yellow);
+}
 .nav-back-row {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr) auto;

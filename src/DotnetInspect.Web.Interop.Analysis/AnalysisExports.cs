@@ -603,6 +603,29 @@ public static partial class AnalysisExports
     }
 
     /// <summary>
+    /// Signature-only Type leverage for one exact package Library. This path
+    /// does not run implementation profiles or body analysis.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageLibrarySurfaceLeverage(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName)
+    {
+        BrowserLibrarySurfaceLeverage leverage =
+            await PackageLibrarySurfaceLeverageAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName);
+        return JsonSerializer.Serialize(
+            leverage,
+            BrowserAnalysisJsonContext.Default
+                .BrowserLibrarySurfaceLeverage);
+    }
+
+    /// <summary>
     /// Objective implementation profiles and exact overload relationships for
     /// one public overload family in a package implementation Library.
     /// </summary>
@@ -807,6 +830,152 @@ public static partial class AnalysisExports
                 AssemblyContextLibraryMetricsQuery.ExecuteParticipant);
         return ProjectLibraryMetrics(entry, compileLibrary);
     }
+
+    static async Task<BrowserLibrarySurfaceLeverage>
+        PackageLibrarySurfaceLeverageAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyName)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserCompileLibraryAvailability compileLibrary =
+            BrowserAnalysisWireProjection.Project(
+                BrowserCompileLibraryProjection.Project(coordinate.Selection));
+        if (!coordinate.Selection.IsSelected)
+        {
+            return UnavailableLibrarySurfaceLeverage(
+                "unavailable",
+                $"The package has no selected compile library ({compileLibrary.Status}).",
+                compileLibrary);
+        }
+
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyName);
+        AssemblyContextEntry<LibrarySurfaceLeverageResult> entry =
+            scope.UseMetadataParticipant(
+                participant,
+                static (group, selectedParticipant) =>
+                    AssemblyContextLibrarySurfaceLeverageQuery
+                        .ExecuteParticipant(group, selectedParticipant));
+        return ProjectLibrarySurfaceLeverage(entry, compileLibrary);
+    }
+
+    internal static BrowserLibrarySurfaceLeverage
+        ProjectLibrarySurfaceLeverage(
+            AssemblyContextEntry<LibrarySurfaceLeverageResult> entry,
+            BrowserCompileLibraryAvailability compileLibrary) =>
+        entry switch
+        {
+            AssemblyContextEntry<LibrarySurfaceLeverageResult>.Available
+                available => ProjectLibrarySurfaceLeverage(
+                    available.Value,
+                    compileLibrary),
+            AssemblyContextEntry<LibrarySurfaceLeverageResult>.Rejected
+                rejected => UnavailableLibrarySurfaceLeverage(
+                    "unavailable",
+                    $"{rejected.Subject.Identity.Name}: "
+                        + $"{rejected.Failure.Kind} "
+                        + $"({rejected.Failure.Detail})",
+                    compileLibrary),
+            AssemblyContextEntry<LibrarySurfaceLeverageResult>.Failed failed =>
+                UnavailableLibrarySurfaceLeverage(
+                    "failed",
+                    $"{failed.Subject.Identity.Name}: {failed.Error.Message}",
+                    compileLibrary),
+            _ => throw new InvalidOperationException(
+                "Unknown Library surface leverage assembly-context result."),
+        };
+
+    internal static BrowserLibrarySurfaceLeverage
+        ProjectLibrarySurfaceLeverage(
+            LibrarySurfaceLeverageResult result,
+            BrowserCompileLibraryAvailability compileLibrary) =>
+        result switch
+        {
+            LibrarySurfaceLeverageResult.Available available =>
+                ProjectLibrarySurfaceLeverage(
+                    available.Document,
+                    compileLibrary),
+            LibrarySurfaceLeverageResult.Rejected rejected =>
+                UnavailableLibrarySurfaceLeverage(
+                    "unavailable",
+                    $"Signature-use acquisition was rejected "
+                        + $"({rejected.Kind}): {rejected.Detail}",
+                    compileLibrary),
+            _ => throw new InvalidOperationException(
+                "Unknown Library surface leverage result."),
+        };
+
+    private static BrowserLibrarySurfaceLeverage
+        ProjectLibrarySurfaceLeverage(
+            ILInspector.Research.LibraryStructuralTypeLeverageDocument document,
+            BrowserCompileLibraryAvailability compileLibrary)
+    {
+        Dictionary<
+            ILInspector.Metadata.MetadataTypeDefinitionAddress,
+            string> ids =
+                document.Rows.ToDictionary(
+                    static row => row.Type,
+                    static row => row.Name.ToEscapedFullName());
+        return new(
+            1,
+            "available",
+            ILInspector.Research.LibraryStructuralTypeLeverage
+                .CurrentMethodologyVersion,
+            document.RoleDisposition.ToString().ToLowerInvariant(),
+            new(
+                document.SignatureUse.Coverage.Considered,
+                document.SignatureUse.Coverage.Examined,
+                document.SignatureUse.Coverage.Unavailable,
+                document.SignatureUse.Coverage.Limited),
+            [
+                .. document.Rows.Select(row =>
+                    new BrowserLibrarySurfaceLeverageType(
+                        ids[row.Type],
+                        row.Name.ToMetadataFullName(),
+                        row.RankingEligible,
+                        row.SignatureIncomingDegree,
+                        row.SignatureOutgoingDegree,
+                        row.Role.ToString().ToLowerInvariant())),
+            ],
+            [
+                .. document.SeaLevel.Types.Select(type => ids[type]),
+            ],
+            [
+                .. document.MountainPeak.Types.Select(type => ids[type]),
+            ],
+            [
+                .. document.SignatureUse.Diagnostics.Select(
+                    static diagnostic => diagnostic.Detail),
+            ],
+            null,
+            compileLibrary);
+    }
+
+    internal static BrowserLibrarySurfaceLeverage
+        UnavailableLibrarySurfaceLeverage(
+            string outcome,
+            string failure,
+            BrowserCompileLibraryAvailability compileLibrary) =>
+        new(
+            1,
+            outcome,
+            null,
+            null,
+            null,
+            [],
+            [],
+            [],
+            [],
+            failure,
+            compileLibrary);
 
     static BrowserLibraryMetrics ProjectLibraryMetrics(
         AssemblyContextEntry<LibraryMetricsResult> entry,

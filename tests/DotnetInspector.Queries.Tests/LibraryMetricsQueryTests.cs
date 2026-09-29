@@ -104,18 +104,10 @@ public sealed class LibraryMetricsQueryTests
                 session.LibrarySignatureUses(
                     new(MetadataOperationPolicy.Unbounded),
                     TestContext.Current.CancellationToken));
-        var bodyAvailable =
-            Assert.IsType<AnalysisLibraryBodyUseOutcome.Available>(
-                AnalysisLibraryBodyUseService.ExecutePath(
-                    path,
-                    new(),
-                    TestContext.Current.CancellationToken));
-
         LibraryMetricsResult result =
             LibraryMetricsQuery.Execute(
                 analysis,
-                signatureAvailable.Result,
-                bodyAvailable.Result);
+                signatureAvailable.Result);
 
         var available =
             Assert.IsType<LibraryMetricsResult.Available>(result);
@@ -135,7 +127,7 @@ public sealed class LibraryMetricsQueryTests
             analysis.Receipt.ModuleIdentity.ModuleVersionId,
             leverage.SignatureUse.Receipt.ModuleVersionId);
         Assert.Equal(
-            analysis.Receipt.ModuleIdentity.ModuleVersionId,
-            leverage.BodyUse.Receipt.ModuleVersionId);
+            LibraryStructuralEvidenceDisposition.Complete,
+            leverage.MountainPeak.Disposition);
     }
 }

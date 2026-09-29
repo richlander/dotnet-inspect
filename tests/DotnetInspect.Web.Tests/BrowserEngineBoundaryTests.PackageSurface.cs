@@ -43,6 +43,7 @@ using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPack
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
 using BrowserLibraryMetrics = DotnetInspect.Web.Interop.Analysis.BrowserLibraryMetrics;
+using BrowserLibrarySurfaceLeverage = DotnetInspect.Web.Interop.Analysis.BrowserLibrarySurfaceLeverage;
 using BrowserSource = DotnetInspect.Web.Interop.Source.BrowserSource;
 using BrowserCallGraph = DotnetInspect.Web.Interop.CallGraph.BrowserCallGraph;
 using BrowserCallGraphTarget = DotnetInspect.Web.Interop.CallGraph.BrowserCallGraphTarget;
@@ -1829,6 +1830,25 @@ public sealed partial class BrowserEngineBoundaryTests
             BrowserAnalysisCompileLibraryStatus.Selected,
             metrics.CompileLibrary.Status);
 
+        BrowserLibrarySurfaceLeverage leverage =
+            Assert.IsType<BrowserLibrarySurfaceLeverage>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPackageLibrarySurfaceLeverage(
+                            packageId,
+                            "1.0.0",
+                            "net11.0",
+                            surface.Asset.Id),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserLibrarySurfaceLeverage));
+        Assert.Equal("available", leverage.Outcome);
+        Assert.Equal("type-leverage.v2", leverage.MethodologyVersion);
+        Assert.True(leverage.Coverage?.Considered > 0);
+        Assert.Null(leverage.Failure);
+        Assert.Equal(
+            BrowserAnalysisCompileLibraryStatus.Selected,
+            leverage.CompileLibrary.Status);
+
         BrowserPackageIntegrations integrations = Assert.IsType<BrowserPackageIntegrations>(
             JsonSerializer.Deserialize(
                 await DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackageIntegrations(
@@ -1853,6 +1873,63 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(0, performance.TotalOpportunities);
         Assert.Empty(performance.Members);
         Assert.Null(performance.InspectionError);
+    }
+
+    [Fact]
+    public async Task
+        LibrarySurfaceLeverage_PreservesExactGenericArityAcrossJson()
+    {
+        const string packageId = "Browser.Library.SurfaceLeverageIdentity";
+        string assemblyPath =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string assemblyName =
+            Assert.IsType<string>(
+                AssemblyName.GetAssemblyName(assemblyPath).Name);
+        _ = await Coordinate(
+            packageId,
+            Package(
+                File.ReadAllBytes(assemblyPath),
+                $"lib/net11.0/{assemblyName}.dll"));
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                "1.0.0",
+                "net11.0",
+                TestContext.Current.CancellationToken);
+        BrowserWorkspaceParticipant surface =
+            Assert.Single(scopeLease.Scope.SurfaceParticipants);
+
+        BrowserLibrarySurfaceLeverage leverage =
+            Assert.IsType<BrowserLibrarySurfaceLeverage>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPackageLibrarySurfaceLeverage(
+                            packageId,
+                            "1.0.0",
+                            "net11.0",
+                            surface.Asset.Id),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserLibrarySurfaceLeverage));
+
+        Assert.Equal("available", leverage.Outcome);
+        Assert.Contains(
+            leverage.Types,
+            type => type.TypeDefinitionId == "Target.Box`1");
+        Assert.Contains(
+            leverage.Types,
+            type => type.TypeDefinitionId == "Target.Box`2");
+        Assert.Contains("Target.Box`1", leverage.SeaLevelOrder);
+        Assert.Contains("Target.Box`2", leverage.SeaLevelOrder);
+        Assert.All(
+            leverage.SeaLevelOrder,
+            id => Assert.Contains(
+                leverage.Types,
+                type => type.TypeDefinitionId == id));
+        Assert.All(
+            leverage.MountainPeakOrder,
+            id => Assert.Contains(
+                leverage.Types,
+                type => type.TypeDefinitionId == id));
     }
 
     [Fact]

@@ -35,9 +35,6 @@ public static class LibrarySections
                 maxStructuredNodes: 10_000_000,
                 maxRetainedText: 16_000_000);
 
-    private static readonly AnalysisLibraryBodyUseRequest
-        s_libraryMetricsBodyUseRequest = new();
-
     /// <summary>The reusable fixed-domain catalog for per-assembly library queries.</summary>
     public static InspectionQueryCatalog<InspectionQueryContext> QueryCatalog { get; } =
         BuildQueryCatalog();
@@ -532,31 +529,9 @@ public static class LibrarySections
                     _ => throw new InvalidOperationException(
                         "Unknown Library Metrics signature-use outcome."),
                 };
-            var metadata = context.MetadataContext
-                ?? throw new InvalidOperationException(
-                    "Library Metrics requires the command's exact prefetched "
-                        + "metadata image.");
-            AnalysisLibraryBodyUseOutcome bodyOutcome =
-                AnalysisLibraryBodyUseService.ExecuteImage(
-                    context.AssemblyPath,
-                    metadata.GetPrefetchedImage(),
-                    s_libraryMetricsBodyUseRequest);
-            AnalysisLibraryBodyUseResult bodyUse =
-                bodyOutcome switch
-                {
-                    AnalysisLibraryBodyUseOutcome.Available available =>
-                        available.Result,
-                    AnalysisLibraryBodyUseOutcome.Rejected rejected =>
-                        throw new InvalidOperationException(
-                            "Library Metrics body-use acquisition was rejected "
-                                + $"({rejected.Kind}): {rejected.Detail}"),
-                    _ => throw new InvalidOperationException(
-                        "Unknown Library Metrics body-use outcome."),
-                };
             return LibraryMetricsQuery.Execute(
                 analysis,
-                signatureUse,
-                bodyUse);
+                signatureUse);
         }
         catch (CostDeclarationException)
         {

@@ -1,8 +1,6 @@
-using System.Collections.Immutable;
-
 using ILInspector.Analysis;
-using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
+using ILInspector.Research;
 
 namespace ILInspector.Research.Tests;
 
@@ -20,7 +18,7 @@ public sealed class LibraryStructuralTypeLeverageTests
         s_analysis = CreateAnalysis();
 
     [Fact]
-    public void TypeLeverage_UsesDirectedDistinctPeersAndUnionSelection()
+    public void TypeLeverage_UsesSymmetricDirectedDistinctSignaturePeers()
     {
         LibraryStructuralTypeLeverageDocument leverage = Execute(
             [
@@ -29,69 +27,48 @@ public sealed class LibraryStructuralTypeLeverageTests
                 ("C", MetadataLibraryTypeClassification.None),
                 ("D", MetadataLibraryTypeClassification.None),
             ],
-            signatureRelationships:
             [
                 (0, 1),
                 (0, 1),
                 (2, 1),
                 (0, 2),
                 (1, 1),
-            ],
-            bodyRelationships:
-            [
-                (0, 1),
-                (0, 2),
-                (1, 0),
                 (3, 0),
             ]);
 
         LibraryStructuralTypeLeverageRow a = Row(leverage, 0);
-        Assert.Equal(0, a.SignatureIncomingDegree);
-        Assert.Equal(2, a.BodyOutgoingDegree);
-        Assert.Equal(2, a.CombinedIncomingDegree);
-        Assert.Equal(2, a.CombinedOutgoingDegree);
+        Assert.Equal(1, a.SignatureIncomingDegree);
+        Assert.Equal(2, a.SignatureOutgoingDegree);
         Assert.Equal(LibraryStructuralTypeRole.Hub, a.Role);
 
         LibraryStructuralTypeLeverageRow b = Row(leverage, 1);
         Assert.Equal(2, b.SignatureIncomingDegree);
-        Assert.Equal(1, b.BodyOutgoingDegree);
-        Assert.Equal(2, b.CombinedIncomingDegree);
-        Assert.Equal(1, b.CombinedOutgoingDegree);
+        Assert.Equal(0, b.SignatureOutgoingDegree);
         Assert.False(b.RankingEligible);
         Assert.DoesNotContain(b.Type, leverage.SeaLevel.Types);
         Assert.DoesNotContain(b.Type, leverage.MountainPeak.Types);
 
         Assert.Equal(
-            [Address(2), Address(0), Address(3)],
+            [Address(0), Address(2), Address(3)],
             leverage.SeaLevel.Types);
         Assert.Equal(
-            [Address(0), Address(3), Address(2)],
+            [Address(0), Address(2), Address(3)],
             leverage.MountainPeak.Types);
         Assert.Same(
             leverage.GraphWork.SignatureIncomingDegree.SourceDocument,
-            leverage.GraphWork.BodyOutgoingDegree.SourceDocument);
-        Assert.Same(
-            leverage.GraphWork.SignatureIncomingDegree.SourceDocument,
-            leverage.GraphWork.CombinedIncomingDegree.SourceDocument);
-        Assert.Same(
-            leverage.GraphWork.SignatureIncomingDegree.SourceDocument,
-            leverage.GraphWork.CombinedOutgoingDegree.SourceDocument);
-        Assert.Equal(5, leverage.SignatureUse.OccurrenceCount);
-        Assert.Equal(4, leverage.BodyUse.OccurrenceCount);
+            leverage.GraphWork.SignatureOutgoingDegree.SourceDocument);
+        Assert.Equal(6, leverage.SignatureUse.OccurrenceCount);
         Assert.Equal(
-            8,
+            5,
             leverage.GraphWork.SignatureIncomingDegree
                 .CanonicalEdgesExamined);
         Assert.Equal(
-            3,
+            4,
             leverage.GraphWork.SignatureIncomingDegree
                 .SelectedEdgesIndexed);
         Assert.Equal(
             4,
-            leverage.GraphWork.BodyOutgoingDegree.SelectedEdgesIndexed);
-        Assert.Equal(
-            7,
-            leverage.GraphWork.CombinedIncomingDegree
+            leverage.GraphWork.SignatureOutgoingDegree
                 .SelectedEdgesIndexed);
     }
 
@@ -117,19 +94,18 @@ public sealed class LibraryStructuralTypeLeverageTests
 
         LibraryStructuralTypeLeverageDocument leverage = Execute(
             types,
-            relationships,
-            []);
+            relationships);
 
         LibraryStructuralTypeLeverageRow foundation = Row(leverage, 0);
-        Assert.Equal(7, foundation.CombinedIncomingDegree);
-        Assert.Equal(3, foundation.CombinedOutgoingDegree);
+        Assert.Equal(7, foundation.SignatureIncomingDegree);
+        Assert.Equal(3, foundation.SignatureOutgoingDegree);
         Assert.Equal(
             LibraryStructuralTypeRole.Foundation,
             foundation.Role);
 
         LibraryStructuralTypeLeverageRow orchestrator = Row(leverage, 1);
-        Assert.Equal(3, orchestrator.CombinedIncomingDegree);
-        Assert.Equal(7, orchestrator.CombinedOutgoingDegree);
+        Assert.Equal(3, orchestrator.SignatureIncomingDegree);
+        Assert.Equal(7, orchestrator.SignatureOutgoingDegree);
         Assert.Equal(
             LibraryStructuralTypeRole.Orchestrator,
             orchestrator.Role);
@@ -145,12 +121,10 @@ public sealed class LibraryStructuralTypeLeverageTests
                 ("Sink", MetadataLibraryTypeClassification.None),
                 ("Isolated", MetadataLibraryTypeClassification.None),
             ],
-            signatureRelationships:
             [
                 (0, 2),
                 (1, 2),
-            ],
-            bodyRelationships: []);
+            ]);
 
         Assert.Equal(3, leverage.Rows.Length);
         Assert.Contains(leverage.Rows, row => row.Type == Address(0));
@@ -159,24 +133,21 @@ public sealed class LibraryStructuralTypeLeverageTests
         Assert.Equal(
             [Address(2), Address(0), Address(1)],
             leverage.SeaLevel.Types);
+        Assert.Equal(
+            [Address(0), Address(1), Address(2)],
+            leverage.MountainPeak.Types);
     }
 
     [Theory]
     [InlineData(
-        MetadataLibrarySignatureUseDisposition.Partial,
-        AnalysisLibraryBodyUseDisposition.Complete,
-        LibraryStructuralEvidenceDisposition.Qualified,
+        MetadataLibrarySignatureUseDisposition.Complete,
         LibraryStructuralEvidenceDisposition.Complete)]
     [InlineData(
-        MetadataLibrarySignatureUseDisposition.Complete,
-        AnalysisLibraryBodyUseDisposition.Qualified,
-        LibraryStructuralEvidenceDisposition.Complete,
+        MetadataLibrarySignatureUseDisposition.Partial,
         LibraryStructuralEvidenceDisposition.Qualified)]
-    public void TypeLeverage_QualifiesProducerViewsIndependently(
+    public void TypeLeverage_QualifiesAllSurfaceViewsFromSignatureEvidence(
         MetadataLibrarySignatureUseDisposition signatureDisposition,
-        AnalysisLibraryBodyUseDisposition bodyDisposition,
-        LibraryStructuralEvidenceDisposition expectedSeaLevel,
-        LibraryStructuralEvidenceDisposition expectedMountainPeak)
+        LibraryStructuralEvidenceDisposition expectedDisposition)
     {
         LibraryStructuralTypeLeverageDocument leverage = Execute(
             [
@@ -184,34 +155,27 @@ public sealed class LibraryStructuralTypeLeverageTests
                 ("B", MetadataLibraryTypeClassification.None),
             ],
             [(0, 1)],
-            [(1, 0)],
-            signatureDisposition,
-            bodyDisposition);
+            signatureDisposition);
 
-        Assert.Equal(expectedSeaLevel, leverage.SeaLevel.Disposition);
+        Assert.Equal(expectedDisposition, leverage.SeaLevel.Disposition);
         Assert.Equal(
-            expectedMountainPeak,
+            expectedDisposition,
             leverage.MountainPeak.Disposition);
-        Assert.Equal(
-            LibraryStructuralEvidenceDisposition.Qualified,
-            leverage.RoleDisposition);
+        Assert.Equal(expectedDisposition, leverage.RoleDisposition);
         Assert.Equal(
             signatureDisposition,
             leverage.SignatureUse.Disposition);
-        Assert.Equal(bodyDisposition, leverage.BodyUse.Disposition);
     }
 
     [Fact]
     public void TypeLeverage_RejectsMismatchedProducerEvidence()
     {
-        (MetadataLibrarySignatureUseResult signature,
-            AnalysisLibraryBodyUseResult body) = Evidence(
-                [
-                    ("A", MetadataLibraryTypeClassification.None),
-                    ("B", MetadataLibraryTypeClassification.None),
-                ],
-                [(0, 1)],
-                []);
+        MetadataLibrarySignatureUseResult signature = Evidence(
+            [
+                ("A", MetadataLibraryTypeClassification.None),
+                ("B", MetadataLibraryTypeClassification.None),
+            ],
+            [(0, 1)]);
         MetadataLibrarySignatureUseResult mismatched = signature with
         {
             Receipt = signature.Receipt with
@@ -223,24 +187,9 @@ public sealed class LibraryStructuralTypeLeverageTests
         ArgumentException error = Assert.Throws<ArgumentException>(
             () => LibraryStructuralReport.Execute(
                 s_analysis,
-                mismatched,
-                body));
+                mismatched));
         Assert.Contains(
             "exact Library generation",
-            error.Message,
-            StringComparison.Ordinal);
-
-        AnalysisLibraryBodyUseResult mismatchedInventory = body with
-        {
-            Types = [.. body.Types.Skip(1)],
-        };
-        error = Assert.Throws<ArgumentException>(
-            () => LibraryStructuralReport.Execute(
-                s_analysis,
-                signature,
-                mismatchedInventory));
-        Assert.Contains(
-            "inventories",
             error.Message,
             StringComparison.Ordinal);
     }
@@ -259,8 +208,7 @@ public sealed class LibraryStructuralTypeLeverageTests
                 ("Classified", classification),
                 ("Peer", MetadataLibraryTypeClassification.None),
             ],
-            [(0, 1)],
-            [(1, 0)]);
+            [(0, 1)]);
 
         LibraryStructuralTypeLeverageRow classified = Row(leverage, 0);
         Assert.False(classified.RankingEligible);
@@ -275,39 +223,27 @@ public sealed class LibraryStructuralTypeLeverageTests
         IReadOnlyList<(string Name, MetadataLibraryTypeClassification
             Classification)> types,
         IReadOnlyList<(int Source, int Target)> signatureRelationships,
-        IReadOnlyList<(int Source, int Target)> bodyRelationships,
         MetadataLibrarySignatureUseDisposition signatureDisposition =
-            MetadataLibrarySignatureUseDisposition.Complete,
-        AnalysisLibraryBodyUseDisposition bodyDisposition =
-            AnalysisLibraryBodyUseDisposition.Complete)
+            MetadataLibrarySignatureUseDisposition.Complete)
     {
-        (MetadataLibrarySignatureUseResult signature,
-            AnalysisLibraryBodyUseResult body) = Evidence(
-                types,
-                signatureRelationships,
-                bodyRelationships,
-                signatureDisposition,
-                bodyDisposition);
+        MetadataLibrarySignatureUseResult signature = Evidence(
+            types,
+            signatureRelationships,
+            signatureDisposition);
         var available = Assert.IsType<LibraryStructuralReportResult.Available>(
             LibraryStructuralReport.Execute(
                 s_analysis,
-                signature,
-                body));
+                signature));
         return Assert.IsType<LibraryStructuralTypeLeverageDocument>(
             available.Document.TypeLeverage);
     }
 
-    private static (
-        MetadataLibrarySignatureUseResult Signature,
-        AnalysisLibraryBodyUseResult Body) Evidence(
+    private static MetadataLibrarySignatureUseResult Evidence(
         IReadOnlyList<(string Name, MetadataLibraryTypeClassification
             Classification)> types,
         IReadOnlyList<(int Source, int Target)> signatureRelationships,
-        IReadOnlyList<(int Source, int Target)> bodyRelationships,
         MetadataLibrarySignatureUseDisposition signatureDisposition =
-            MetadataLibrarySignatureUseDisposition.Complete,
-        AnalysisLibraryBodyUseDisposition bodyDisposition =
-            AnalysisLibraryBodyUseDisposition.Complete)
+            MetadataLibrarySignatureUseDisposition.Complete)
     {
         LibraryBodyModuleIdentity identity = s_analysis.Receipt.ModuleIdentity;
         MetadataLibrarySignatureType[] signatureTypes =
@@ -318,14 +254,6 @@ public sealed class LibraryStructuralTypeLeverageTests
                     Name(type.Name),
                     AssemblyTypeDefinitionKind.Class,
                     type.Classification)),
-        ];
-        AnalysisLibraryBodyUseType[] bodyTypes =
-        [
-            .. signatureTypes.Select(type =>
-                new AnalysisLibraryBodyUseType(
-                    type.Type,
-                    type.Name,
-                    type.DefinitionKind)),
         ];
         MetadataLibrarySignatureUseOccurrence[] signatureOccurrences =
         [
@@ -339,56 +267,21 @@ public sealed class LibraryStructuralTypeLeverageTests
                     0x04000001 + ordinal,
                     ordinal)),
         ];
-        AnalysisLibraryBodyUseOccurrence[] bodyOccurrences =
-        [
-            .. bodyRelationships.Select((relationship, ordinal) =>
-                new AnalysisLibraryBodyUseOccurrence(
-                    bodyTypes[relationship.Source].Type,
-                    bodyTypes[relationship.Source].Name,
-                    bodyTypes[relationship.Target].Type,
-                    bodyTypes[relationship.Target].Name,
-                    0x06000001,
-                    AnalysisLibraryBodyUseOperandKind.Type,
-                    0x01000001 + ordinal,
-                    ordinal,
-                    ordinal)),
-        ];
 
-        return (
+        return new(
             new(
-                new(
-                    identity.ModuleVersionId,
-                    s_assembly,
-                    new MetadataOperationCounters(0)),
-                signatureDisposition,
-                [.. signatureTypes],
-                [.. signatureOccurrences],
-                new(
-                    signatureOccurrences.Length,
-                    signatureOccurrences.Length,
-                    unavailable: 0,
-                    limited: 0),
-                []),
+                identity.ModuleVersionId,
+                s_assembly,
+                new MetadataOperationCounters(0)),
+            signatureDisposition,
+            [.. signatureTypes],
+            [.. signatureOccurrences],
             new(
-                new(
-                    identity.ModuleVersionId,
-                    s_assembly,
-                    new WorkReceipt(0, [])),
-                bodyDisposition,
-                [.. bodyTypes],
-                [.. bodyOccurrences],
-                [],
-                new(
-                    bodiesConsidered: 0,
-                    bodiesExamined: 0,
-                    bodiesPhysicalOnly: 0,
-                    bodiesUnavailable: 0,
-                    bodiesLimited: 0,
-                    operandsConsidered: bodyOccurrences.Length,
-                    operandsExamined: bodyOccurrences.Length,
-                    operandsUnavailable: 0,
-                    operandsLimited: 0),
-                []));
+                signatureOccurrences.Length,
+                signatureOccurrences.Length,
+                unavailable: 0,
+                limited: 0),
+            []);
     }
 
     private static LibraryStructuralTypeLeverageRow Row(

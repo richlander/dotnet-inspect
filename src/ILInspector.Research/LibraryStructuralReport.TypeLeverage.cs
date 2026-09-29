@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 
-using ILInspector.Analysis;
 using ILInspector.Metadata;
 using Inspector.Graph;
 
@@ -11,7 +10,6 @@ public static partial class LibraryStructuralReport
     private enum TypeLeverageRelationship
     {
         SignatureUse,
-        BodyUse,
     }
 
     private enum TypeLeverageOccurrenceEvidence
@@ -42,34 +40,21 @@ public static partial class LibraryStructuralReport
     internal sealed record TypeLeverageGraphExecution(
         ImmutableArray<MetadataLibrarySignatureType> Types,
         GraphDistinctNeighborDegreeResult SignatureIncoming,
-        GraphDistinctNeighborDegreeResult BodyOutgoing,
-        GraphDistinctNeighborDegreeResult CombinedIncoming,
-        GraphDistinctNeighborDegreeResult CombinedOutgoing);
+        GraphDistinctNeighborDegreeResult SignatureOutgoing);
 
-    private static LibraryStructuralTypeLeverageDocument TypeLeverage(
-        LibraryBodyAnalysisReceipt analysisReceipt,
-        MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse) =>
-        ProjectTypeLeverage(
+    public static LibraryStructuralTypeLeverageDocument CreateTypeLeverage(
+        MetadataLibrarySignatureUseResult signatureUse)
+    {
+        ArgumentNullException.ThrowIfNull(signatureUse);
+        return ProjectTypeLeverage(
             signatureUse,
-            bodyUse,
-            ExecuteTypeLeverageGraph(
-                analysisReceipt,
-                signatureUse,
-                bodyUse));
+            ExecuteTypeLeverageGraph(signatureUse));
+    }
 
     internal static TypeLeverageGraphExecution ExecuteTypeLeverageGraph(
-        LibraryBodyAnalysisReceipt analysisReceipt,
-        MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse)
+        MetadataLibrarySignatureUseResult signatureUse)
     {
-        ArgumentNullException.ThrowIfNull(analysisReceipt);
         ArgumentNullException.ThrowIfNull(signatureUse);
-        ArgumentNullException.ThrowIfNull(bodyUse);
-        ValidateTypeLeverageCorrespondence(
-            analysisReceipt,
-            signatureUse,
-            bodyUse);
 
         MetadataLibrarySignatureType[] types =
         [
@@ -94,10 +79,6 @@ public static partial class LibraryStructuralReport
         var logicalEdges = new HashSet<TypeLeverageEdge>();
         AddSignatureOccurrences(
             signatureUse.Occurrences,
-            nodeIds,
-            logicalEdges);
-        AddBodyOccurrences(
-            bodyUse.Occurrences,
             nodeIds,
             logicalEdges);
 
@@ -138,43 +119,23 @@ public static partial class LibraryStructuralReport
                 graph,
                 [TypeLeverageRelationship.SignatureUse],
                 GraphTraversalDirection.Incoming);
-        GraphDistinctNeighborDegreeResult bodyOutgoing =
+        GraphDistinctNeighborDegreeResult signatureOutgoing =
             Degree(
                 graph,
-                [TypeLeverageRelationship.BodyUse],
-                GraphTraversalDirection.Outgoing);
-        GraphDistinctNeighborDegreeResult combinedIncoming =
-            Degree(
-                graph,
-                [
-                    TypeLeverageRelationship.SignatureUse,
-                    TypeLeverageRelationship.BodyUse,
-                ],
-                GraphTraversalDirection.Incoming);
-        GraphDistinctNeighborDegreeResult combinedOutgoing =
-            Degree(
-                graph,
-                [
-                    TypeLeverageRelationship.SignatureUse,
-                    TypeLeverageRelationship.BodyUse,
-                ],
+                [TypeLeverageRelationship.SignatureUse],
                 GraphTraversalDirection.Outgoing);
 
         return new(
             [.. types],
             signatureIncoming,
-            bodyOutgoing,
-            combinedIncoming,
-            combinedOutgoing);
+            signatureOutgoing);
     }
 
     internal static LibraryStructuralTypeLeverageDocument ProjectTypeLeverage(
         MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse,
         TypeLeverageGraphExecution execution)
     {
         ArgumentNullException.ThrowIfNull(signatureUse);
-        ArgumentNullException.ThrowIfNull(bodyUse);
         ArgumentNullException.ThrowIfNull(execution);
 
         LibraryStructuralTypeLeverageRow[] rows =
@@ -184,15 +145,11 @@ public static partial class LibraryStructuralReport
                     Type = type,
                     SignatureIncoming =
                         execution.SignatureIncoming.Rows[nodeId].Degree,
-                    BodyOutgoing =
-                        execution.BodyOutgoing.Rows[nodeId].Degree,
-                    CombinedIncoming =
-                        execution.CombinedIncoming.Rows[nodeId].Degree,
-                    CombinedOutgoing =
-                        execution.CombinedOutgoing.Rows[nodeId].Degree,
+                    SignatureOutgoing =
+                        execution.SignatureOutgoing.Rows[nodeId].Degree,
                 })
                 .Where(static item =>
-                    item.CombinedIncoming + item.CombinedOutgoing > 0)
+                    item.SignatureIncoming + item.SignatureOutgoing > 0)
                 .Select(static item =>
                 {
                     bool eligible = IsRankingEligible(
@@ -203,45 +160,32 @@ public static partial class LibraryStructuralReport
                         item.Type.Classification,
                         eligible,
                         item.SignatureIncoming,
-                        item.BodyOutgoing,
-                        item.CombinedIncoming,
-                        item.CombinedOutgoing,
+                        item.SignatureOutgoing,
                         Role(
-                            item.CombinedIncoming,
-                            item.CombinedOutgoing));
+                            item.SignatureIncoming,
+                            item.SignatureOutgoing));
                 }),
         ];
 
-        LibraryStructuralEvidenceDisposition signatureDisposition =
+        LibraryStructuralEvidenceDisposition disposition =
             signatureUse.Disposition
                 == MetadataLibrarySignatureUseDisposition.Complete
-                    ? LibraryStructuralEvidenceDisposition.Complete
-                    : LibraryStructuralEvidenceDisposition.Qualified;
-        LibraryStructuralEvidenceDisposition bodyDisposition =
-            bodyUse.Disposition == AnalysisLibraryBodyUseDisposition.Complete
-                ? LibraryStructuralEvidenceDisposition.Complete
-                : LibraryStructuralEvidenceDisposition.Qualified;
-        LibraryStructuralEvidenceDisposition roleDisposition =
-            signatureDisposition
-                    == LibraryStructuralEvidenceDisposition.Complete
-                && bodyDisposition
-                    == LibraryStructuralEvidenceDisposition.Complete
                     ? LibraryStructuralEvidenceDisposition.Complete
                     : LibraryStructuralEvidenceDisposition.Qualified;
 
         return new(
             [.. rows.OrderBy(static row => row.Type.Definition.Value)],
             new(
-                signatureDisposition,
+                disposition,
                 Order(
                     rows,
                     static row => row.SignatureIncomingDegree)),
             new(
-                bodyDisposition,
+                disposition,
                 Order(
                     rows,
-                    static row => row.BodyOutgoingDegree)),
-            roleDisposition,
+                    static row => row.SignatureOutgoingDegree)),
+            disposition,
             new(
                 signatureUse.Receipt,
                 signatureUse.Disposition,
@@ -249,51 +193,8 @@ public static partial class LibraryStructuralReport
                 signatureUse.Occurrences.Length,
                 signatureUse.Diagnostics),
             new(
-                bodyUse.Receipt,
-                bodyUse.Disposition,
-                bodyUse.Coverage,
-                bodyUse.Occurrences.Length,
-                bodyUse.Diagnostics),
-            new(
                 execution.SignatureIncoming.Receipt,
-                execution.BodyOutgoing.Receipt,
-                execution.CombinedIncoming.Receipt,
-                execution.CombinedOutgoing.Receipt));
-    }
-
-    private static void ValidateTypeLeverageCorrespondence(
-        LibraryBodyAnalysisReceipt analysisReceipt,
-        MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse)
-    {
-        LibraryBodyModuleIdentity analysisIdentity =
-            analysisReceipt.ModuleIdentity;
-        if (analysisIdentity.AssemblyIdentity is null
-            || analysisIdentity.ModuleVersionId
-                != signatureUse.Receipt.ModuleVersionId
-            || analysisIdentity.ModuleVersionId
-                != bodyUse.Receipt.ModuleVersionId
-            || analysisIdentity.AssemblyIdentity
-                != signatureUse.Receipt.Assembly
-            || analysisIdentity.AssemblyIdentity != bodyUse.Receipt.Assembly)
-        {
-            throw new ArgumentException(
-                "Type structural leverage evidence must describe the exact "
-                    + "Library generation in the Analysis report.");
-        }
-
-        Dictionary<MetadataTypeDefinitionAddress, AnalysisLibraryBodyUseType>
-            bodyTypes = bodyUse.Types.ToDictionary(static type => type.Type);
-        if (signatureUse.Types.Length != bodyTypes.Count
-            || signatureUse.Types.Any(type =>
-                !bodyTypes.TryGetValue(type.Type, out var bodyType)
-                || type.Name != bodyType.Name
-                || type.DefinitionKind != bodyType.DefinitionKind))
-        {
-            throw new ArgumentException(
-                "Signature-use and body-use Type inventories must correspond "
-                    + "exactly.");
-        }
+                execution.SignatureOutgoing.Receipt));
     }
 
     private static void AddSignatureOccurrences(
@@ -307,22 +208,6 @@ public static partial class LibraryStructuralReport
                 occurrence.Source,
                 occurrence.Target,
                 TypeLeverageRelationship.SignatureUse,
-                nodeIds,
-                logicalEdges);
-        }
-    }
-
-    private static void AddBodyOccurrences(
-        ImmutableArray<AnalysisLibraryBodyUseOccurrence> source,
-        IReadOnlyDictionary<MetadataTypeDefinitionAddress, int> nodeIds,
-        HashSet<TypeLeverageEdge> logicalEdges)
-    {
-        foreach (AnalysisLibraryBodyUseOccurrence occurrence in source)
-        {
-            AddLogicalEdge(
-                occurrence.Source,
-                occurrence.Target,
-                TypeLeverageRelationship.BodyUse,
                 nodeIds,
                 logicalEdges);
         }

@@ -1170,23 +1170,20 @@ public class LibraryInspectionView
                 null,
                 null,
                 $"ranking {leverage.MountainPeak.Disposition}; "
-                    + $"role {leverage.RoleDisposition}; body "
-                    + $"{leverage.BodyUse.Disposition}; bodies "
-                    + $"{leverage.BodyUse.Coverage.BodiesExamined}/"
-                    + $"{leverage.BodyUse.Coverage.BodiesConsidered}; "
-                    + $"operands "
-                    + $"{leverage.BodyUse.Coverage.OperandsExamined}/"
-                    + $"{leverage.BodyUse.Coverage.OperandsConsidered}; "
-                    + $"occurrences {leverage.BodyUse.OccurrenceCount}; "
+                    + $"role {leverage.RoleDisposition}; signature "
+                    + $"{leverage.SignatureUse.Disposition}; sites "
+                    + $"{leverage.SignatureUse.Coverage.Examined}/"
+                    + $"{leverage.SignatureUse.Coverage.Considered}; "
+                    + $"occurrences {leverage.SignatureUse.OccurrenceCount}; "
                     + $"diagnostics "
-                    + leverage.BodyUse.Diagnostics.Length));
+                    + leverage.SignatureUse.Diagnostics.Length));
         AddTypeLeverageOrder(
             rows,
             "Mountain-Peak Types",
-            "Body outgoing",
+            "Signature outgoing",
             leverage.MountainPeak.Types,
             byType,
-            static row => row.BodyOutgoingDegree);
+            static row => row.SignatureOutgoingDegree);
     }
 
     private static void AddTypeLeverageOrder(

@@ -56,19 +56,16 @@ public static class LibraryMetricsQuery
 
     public static LibraryMetricsResult Execute(
         LibraryBodyAnalysisExecution analysis,
-        MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse)
+        MetadataLibrarySignatureUseResult signatureUse)
     {
         ArgumentNullException.ThrowIfNull(analysis);
         ArgumentNullException.ThrowIfNull(signatureUse);
-        ArgumentNullException.ThrowIfNull(bodyUse);
         try
         {
             return Project(
                 LibraryStructuralReport.Execute(
                     analysis,
-                    signatureUse,
-                    bodyUse));
+                    signatureUse));
         }
         catch (Exception ex)
         {

@@ -756,6 +756,52 @@ test("the type nav reports no matches for an empty filtered group", () => {
   assert.match(html, /data-type-filter-disclosure open/);
 });
 
+test("the type nav renders independent accessible leverage cues", () => {
+    const html = renderTypeNav({
+      current: jsonSerializer,
+      visible: [jsonSerializer, jsonDocument],
+      typeGroups: new Map([["System.Text.Json", [jsonSerializer, jsonDocument]]]),
+      typeFilter: "",
+      namespaceFilter: "",
+      kindFilter: "",
+      namespaceCount: 1,
+      namespaceOptionsHtml: "",
+      kindFilters: ["class"],
+      accessibilityControlHtml: "",
+      leverageControlHtml:
+        '<button data-type-leverage-filter="sea-level">sea level</button>',
+      library: "System.Text.Json",
+      parentSubject: "library",
+      filtersExpanded: true,
+      filterSummary: "sea level",
+      escapeHtml,
+      typeDisplayName,
+      typeLibraryLabel: noTypeLibraryLabel,
+      kindIcon,
+      typeLeverageCue: item => item.id === jsonSerializer.id
+        ? {
+            seaLevel: true,
+            mountainPeak: true,
+            seaLevelStrength: 1,
+            mountainPeakStrength: 0.8,
+            description:
+              "8 incoming Type peers; 6 outgoing Type peers; "
+              + "sea-level Type; mountain-peak Type",
+          }
+        : null,
+    });
+
+    assert.match(html, /data-type-leverage-filter="sea-level"/);
+    assert.match(html, /type-row selected sea-level mountain-peak/);
+    assert.match(html, /class="type-leverage-sea"/);
+    assert.match(html, /class="type-leverage-peak"/);
+    assert.match(html, /8 incoming Type peers; 6 outgoing Type peers/);
+    assert.doesNotMatch(
+      html.match(/data-type="System\.Text\.Json\.JsonDocument"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? "",
+      /type-leverage-cues/,
+    );
+});
+
 test("the type nav omits a parent action when the Library has no visible parent", () => {
   const html = renderTypeNav({
     current: jsonSerializer,

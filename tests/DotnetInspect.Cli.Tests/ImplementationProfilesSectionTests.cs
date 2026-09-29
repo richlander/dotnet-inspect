@@ -105,7 +105,7 @@ public class MetricSectionTests
         Assert.Contains("Sea-Level Types", result.Output);
         Assert.Contains("Mountain-Peak Types", result.Output);
         Assert.Contains("Signature incoming", result.Output);
-        Assert.Contains("Body outgoing", result.Output);
+        Assert.Contains("Signature outgoing", result.Output);
         Assert.Contains("| Degree |", result.Output);
         Assert.Contains("| Role |", result.Output);
         Assert.True(
@@ -836,7 +836,7 @@ public class MetricSectionTests
 
         JsonElement root = content.RootElement;
         Assert.Equal(
-            "library-metrics.v2",
+            "library-metrics.v3",
             root.GetProperty("methodologyVersion").GetString());
         Assert.NotEmpty(
             root.GetProperty("population")
@@ -920,11 +920,11 @@ public class MetricSectionTests
                     row.GetProperty("type").ValueKind);
                 Assert.Equal(
                     JsonValueKind.Number,
-                    row.GetProperty("combinedIncomingDegree")
+                    row.GetProperty("signatureIncomingDegree")
                         .ValueKind);
                 Assert.Equal(
                     JsonValueKind.Number,
-                    row.GetProperty("combinedOutgoingDegree")
+                    row.GetProperty("signatureOutgoingDegree")
                         .ValueKind);
             });
         Assert.NotEmpty(
@@ -940,18 +940,12 @@ public class MetricSectionTests
             leverage.GetProperty("signatureUse")
                 .GetProperty("receipt")
                 .ValueKind);
-        Assert.Equal(
-            JsonValueKind.Object,
-            leverage.GetProperty("bodyUse")
-                .GetProperty("receipt")
-                .ValueKind);
+        Assert.False(leverage.TryGetProperty("bodyUse", out _));
         JsonElement graphWork = leverage.GetProperty("graphWork");
         string[] graphQueries =
         [
             "signatureIncomingDegree",
-            "bodyOutgoingDegree",
-            "combinedIncomingDegree",
-            "combinedOutgoingDegree",
+            "signatureOutgoingDegree",
         ];
         Assert.All(
             graphQueries,

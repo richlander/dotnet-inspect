@@ -81,8 +81,10 @@ type AnalysisOperations =
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
   | "queryPackageLibraryMetrics"
+  | "queryPackageLibrarySurfaceLeverage"
   | "queryPlatformTypeImplementationHeat"
   | "queryPlatformLibraryMetrics"
+  | "queryPlatformLibrarySurfaceLeverage"
   | "queryPlatformIntegrations"
   | "queryPlatformOpportunities"
   | "queryPlatformPerformance";

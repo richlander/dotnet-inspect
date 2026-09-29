@@ -279,6 +279,8 @@ export interface TypePanelBindingActions {
   onTypeSourceViewSelect: (view: TypeSourceView) => void;
   onExploreSource: () => void;
   onKindSelect: (kind: string) => void;
+  onTypeLeverageActivate?: () => void;
+  onTypeLeverageFilterSelect?: (filter: string) => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
@@ -321,6 +323,15 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onKindSelect(button.dataset.kindFilter ?? "")));
+  root.querySelector("[data-type-leverage-activate]")?.addEventListener(
+    "click",
+    () => actions.onTypeLeverageActivate?.());
+  root.querySelectorAll<HTMLElement>("[data-type-leverage-filter]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onTypeLeverageFilterSelect?.(
+          button.dataset.typeLeverageFilter ?? "")));
   root.querySelector("[data-type-nav-back]")?.addEventListener(
     "click",
     actions.onTypeNavBack);
@@ -506,6 +517,7 @@ export interface TypeNavOptions {
   namespaceOptionsHtml: string;
   kindFilters: readonly string[];
   accessibilityControlHtml: string;
+  leverageControlHtml?: string;
   library: string;
   parentSubject: "package" | "platform" | "library" | null;
   filtersExpanded: boolean;
@@ -514,15 +526,26 @@ export interface TypeNavOptions {
   typeDisplayName: (item: TypeSummary) => string;
   typeLibraryLabel: (item: TypeSummary) => string;
   kindIcon: (kind: string) => string;
+  typeLeverageCue?: (item: TypeSummary) => TypeNavLeverageCue | null;
+}
+
+export interface TypeNavLeverageCue {
+  seaLevel: boolean;
+  mountainPeak: boolean;
+  seaLevelStrength: number | null;
+  mountainPeakStrength: number | null;
+  description: string;
 }
 
 export function renderTypeNav(options: TypeNavOptions): string {
   const {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
     namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
+    leverageControlHtml = "",
     library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
     typeDisplayName, typeLibraryLabel, kindIcon,
   } = options;
+  const typeLeverageCue = options.typeLeverageCue ?? (() => null);
   return `
     <aside id="content-navigation-pane" class="type-browser" aria-label="Public types">
       <div class="browser-head">
@@ -559,6 +582,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
             ${kindFilters.map(kind => `<button class="${kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
           </div>
           ${accessibilityControlHtml}
+          ${leverageControlHtml}
         </div>
       </details>
       <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
@@ -572,9 +596,21 @@ export function renderTypeNav(options: TypeNavOptions): string {
             ${types.map(item => {
               const selected = item.id === current?.id;
               const definingLibrary = typeLibraryLabel(item);
-              return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
+              const leverage = typeLeverageCue(item);
+              const leverageClasses = leverage
+                ? `${leverage.seaLevel ? " sea-level" : ""}${leverage.mountainPeak ? " mountain-peak" : ""}`
+                : "";
+              const leverageHtml = leverage
+                ? `<span class="type-leverage-cues${leverageClasses}" title="${escapeHtml(leverage.description)}">
+                    ${leverage.seaLevel ? `<span class="type-leverage-sea" style="--type-leverage-strength:${leverage.seaLevelStrength ?? 1}" aria-hidden="true"></span>` : ""}
+                    ${leverage.mountainPeak ? `<span class="type-leverage-peak" style="--type-leverage-strength:${leverage.mountainPeakStrength ?? 1}" aria-hidden="true"></span>` : ""}
+                    <span class="sr-only">${escapeHtml(leverage.description)}</span>
+                  </span>`
+                : "";
+              return `<button class="type-row ${selected ? "selected" : ""}${leverageClasses}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
                 <span class="kind-icon">${kindIcon(item.kind)}</span>
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
+                ${leverageHtml}
                 <small title="${item.members} ${item.members === 1 ? "member" : "members"}">${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${item.members}</small>
               </button>`;
             }).join("")}

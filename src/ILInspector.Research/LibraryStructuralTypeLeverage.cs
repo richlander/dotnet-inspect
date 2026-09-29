@@ -1,10 +1,14 @@
 using System.Collections.Immutable;
 
-using ILInspector.Analysis;
 using ILInspector.Metadata;
 using Inspector.Graph;
 
 namespace ILInspector.Research;
+
+public static class LibraryStructuralTypeLeverage
+{
+    public const string CurrentMethodologyVersion = "type-leverage.v2";
+}
 
 public enum LibraryStructuralTypeRole
 {
@@ -26,22 +30,13 @@ public sealed record LibraryStructuralSignatureUseQualification(
     int OccurrenceCount,
     ImmutableArray<MetadataLibrarySignatureUseDiagnostic> Diagnostics);
 
-public sealed record LibraryStructuralBodyUseQualification(
-    AnalysisLibraryBodyUseReceipt Receipt,
-    AnalysisLibraryBodyUseDisposition Disposition,
-    AnalysisLibraryBodyUseCoverage Coverage,
-    int OccurrenceCount,
-    ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics);
-
 public sealed record LibraryStructuralTypeLeverageRow(
     MetadataTypeDefinitionAddress Type,
     MetadataTypeDefinitionName Name,
     MetadataLibraryTypeClassification Classification,
     bool RankingEligible,
     int SignatureIncomingDegree,
-    int BodyOutgoingDegree,
-    int CombinedIncomingDegree,
-    int CombinedOutgoingDegree,
+    int SignatureOutgoingDegree,
     LibraryStructuralTypeRole Role);
 
 public sealed record LibraryStructuralTypeLeverageOrder(
@@ -50,9 +45,7 @@ public sealed record LibraryStructuralTypeLeverageOrder(
 
 public sealed record LibraryStructuralTypeLeverageGraphWork(
     GraphExecutionWorkReceipt SignatureIncomingDegree,
-    GraphExecutionWorkReceipt BodyOutgoingDegree,
-    GraphExecutionWorkReceipt CombinedIncomingDegree,
-    GraphExecutionWorkReceipt CombinedOutgoingDegree);
+    GraphExecutionWorkReceipt SignatureOutgoingDegree);
 
 public sealed record LibraryStructuralTypeLeverageDocument(
     ImmutableArray<LibraryStructuralTypeLeverageRow> Rows,
@@ -60,5 +53,4 @@ public sealed record LibraryStructuralTypeLeverageDocument(
     LibraryStructuralTypeLeverageOrder MountainPeak,
     LibraryStructuralEvidenceDisposition RoleDisposition,
     LibraryStructuralSignatureUseQualification SignatureUse,
-    LibraryStructuralBodyUseQualification BodyUse,
     LibraryStructuralTypeLeverageGraphWork GraphWork);

@@ -105,7 +105,7 @@ public sealed record LibraryStructuralBooleanDisposition(
 public static partial class LibraryStructuralReport
 {
     private const string LegacyMethodologyVersion = "library-metrics.v1";
-    public const string CurrentMethodologyVersion = "library-metrics.v2";
+    public const string CurrentMethodologyVersion = "library-metrics.v3";
     public const int MaximumEntangledTypeCount = 24;
 
     public static LibraryStructuralReportResult Execute(
@@ -119,55 +119,65 @@ public static partial class LibraryStructuralReport
 
     public static LibraryStructuralReportResult Execute(
         LibraryBodyAnalysisExecution analysis,
-        MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse)
+        MetadataLibrarySignatureUseResult signatureUse)
     {
         ArgumentNullException.ThrowIfNull(analysis);
         ArgumentNullException.ThrowIfNull(signatureUse);
-        ArgumentNullException.ThrowIfNull(bodyUse);
 
         return WithTypeLeverage(
             Execute(
                 analysis.ImplementationProfiles,
                 analysis.CallGraph),
             analysis.Receipt,
-            signatureUse,
-            bodyUse);
+            signatureUse);
     }
 
     public static LibraryStructuralReportResult Execute(
         LibraryImplementationProfileAnalysisResult analysis,
-        MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse)
+        MetadataLibrarySignatureUseResult signatureUse)
     {
         ArgumentNullException.ThrowIfNull(analysis);
         ArgumentNullException.ThrowIfNull(signatureUse);
-        ArgumentNullException.ThrowIfNull(bodyUse);
 
         return WithTypeLeverage(
             Execute(analysis, callGraph: null),
             analysis.Receipt,
-            signatureUse,
-            bodyUse);
+            signatureUse);
     }
 
     private static LibraryStructuralReportResult WithTypeLeverage(
         LibraryStructuralReportResult result,
         LibraryBodyAnalysisReceipt analysisReceipt,
-        MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse)
+        MetadataLibrarySignatureUseResult signatureUse)
     {
+        ValidateTypeLeverageCorrespondence(
+            analysisReceipt,
+            signatureUse);
         return result is LibraryStructuralReportResult.Available available
             ? new LibraryStructuralReportResult.Available(
                 available.Document with
                 {
                     MethodologyVersion = CurrentMethodologyVersion,
-                    TypeLeverage = TypeLeverage(
-                        analysisReceipt,
-                        signatureUse,
-                        bodyUse),
+                    TypeLeverage = CreateTypeLeverage(signatureUse),
                 })
             : result;
+    }
+
+    private static void ValidateTypeLeverageCorrespondence(
+        LibraryBodyAnalysisReceipt analysisReceipt,
+        MetadataLibrarySignatureUseResult signatureUse)
+    {
+        LibraryBodyModuleIdentity identity = analysisReceipt.ModuleIdentity;
+        if (identity.AssemblyIdentity is null
+            || identity.ModuleVersionId
+                != signatureUse.Receipt.ModuleVersionId
+            || identity.AssemblyIdentity
+                != signatureUse.Receipt.Assembly)
+        {
+            throw new ArgumentException(
+                "Type structural leverage evidence must describe the exact "
+                    + "Library generation in the Analysis report.");
+        }
     }
 
     public static LibraryStructuralReportResult Execute(

@@ -314,6 +314,33 @@ public sealed record BrowserLibraryMetricsRelationship(
     int SourceDegree,
     int TargetDegree);
 
+public sealed record BrowserLibrarySurfaceLeverage(
+    int SchemaVersion,
+    string Outcome,
+    string? MethodologyVersion,
+    string? Disposition,
+    BrowserLibrarySurfaceLeverageCoverage? Coverage,
+    BrowserLibrarySurfaceLeverageType[] Types,
+    string[] SeaLevelOrder,
+    string[] MountainPeakOrder,
+    string[] Diagnostics,
+    string? Failure,
+    BrowserCompileLibraryAvailability CompileLibrary);
+
+public sealed record BrowserLibrarySurfaceLeverageCoverage(
+    int Considered,
+    int Examined,
+    int Unavailable,
+    int Limited);
+
+public sealed record BrowserLibrarySurfaceLeverageType(
+    string TypeDefinitionId,
+    string TypeDisplay,
+    bool RankingEligible,
+    int SignatureIncomingDegree,
+    int SignatureOutgoingDegree,
+    string Role);
+
 public sealed record BrowserPerformanceMember(
     string Assembly,
     string TypeId,
@@ -451,6 +478,7 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserLibraryMetrics))]
+[JsonSerializable(typeof(BrowserLibrarySurfaceLeverage))]
 [JsonSerializable(typeof(BrowserImplementationProfiles))]
 [JsonSerializable(typeof(BrowserTypeImplementationHeat))]
 [JsonSerializable(typeof(BrowserAnalysisInspectionEnvelope))]

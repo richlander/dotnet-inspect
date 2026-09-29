@@ -38,6 +38,7 @@ using BrowserPackageOpportunities = DotnetInspect.Web.Interop.Analysis.BrowserPa
 using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPackagePerformance;
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
+using BrowserLibrarySurfaceLeverage = DotnetInspect.Web.Interop.Analysis.BrowserLibrarySurfaceLeverage;
 using BrowserSource = DotnetInspect.Web.Interop.Source.BrowserSource;
 using BrowserCallGraph = DotnetInspect.Web.Interop.CallGraph.BrowserCallGraph;
 using BrowserCallGraphTarget = DotnetInspect.Web.Interop.CallGraph.BrowserCallGraphTarget;
@@ -1023,6 +1024,24 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             BrowserAnalysisCompileLibraryStatus.Selected,
             integrations.CompileLibrary.Status);
+        BrowserLibrarySurfaceLeverage leverage =
+            Assert.IsType<BrowserLibrarySurfaceLeverage>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPlatformLibrarySurfaceLeverage(
+                            "net11.0",
+                            version,
+                            "DotnetInspect.Web.Tests.dll",
+                            "netcore.app"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserLibrarySurfaceLeverage));
+        Assert.Equal("available", leverage.Outcome);
+        Assert.Equal("type-leverage.v2", leverage.MethodologyVersion);
+        Assert.NotEmpty(leverage.Types);
+        Assert.Null(leverage.Failure);
+        Assert.Equal(
+            BrowserAnalysisCompileLibraryStatus.Selected,
+            leverage.CompileLibrary.Status);
         BrowserPackageOpportunities opportunities =
             Assert.IsType<BrowserPackageOpportunities>(
                 JsonSerializer.Deserialize(

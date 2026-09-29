@@ -419,14 +419,8 @@ public static class LibraryMetricsInspectionJson
                 "signatureIncomingDegree",
                 row.SignatureIncomingDegree);
             writer.WriteNumber(
-                "bodyOutgoingDegree",
-                row.BodyOutgoingDegree);
-            writer.WriteNumber(
-                "combinedIncomingDegree",
-                row.CombinedIncomingDegree);
-            writer.WriteNumber(
-                "combinedOutgoingDegree",
-                row.CombinedOutgoingDegree);
+                "signatureOutgoingDegree",
+                row.SignatureOutgoingDegree);
             writer.WriteString("role", row.Role.ToString());
             writer.WriteEndObject();
         }
@@ -442,8 +436,6 @@ public static class LibraryMetricsInspectionJson
         WriteSignatureUseQualification(
             writer,
             leverage.SignatureUse);
-        writer.WritePropertyName("bodyUse");
-        WriteBodyUseQualification(writer, leverage.BodyUse);
         writer.WritePropertyName("graphWork");
         writer.WriteStartObject();
         writer.WritePropertyName("signatureIncomingDegree");
@@ -451,20 +443,10 @@ public static class LibraryMetricsInspectionJson
             writer,
             leverage.GraphWork.SignatureIncomingDegree,
             graphDocuments);
-        writer.WritePropertyName("bodyOutgoingDegree");
+        writer.WritePropertyName("signatureOutgoingDegree");
         WriteGraphWorkReceipt(
             writer,
-            leverage.GraphWork.BodyOutgoingDegree,
-            graphDocuments);
-        writer.WritePropertyName("combinedIncomingDegree");
-        WriteGraphWorkReceipt(
-            writer,
-            leverage.GraphWork.CombinedIncomingDegree,
-            graphDocuments);
-        writer.WritePropertyName("combinedOutgoingDegree");
-        WriteGraphWorkReceipt(
-            writer,
-            leverage.GraphWork.CombinedOutgoingDegree,
+            leverage.GraphWork.SignatureOutgoingDegree,
             graphDocuments);
         writer.WriteEndObject();
         writer.WriteEndObject();
@@ -546,57 +528,6 @@ public static class LibraryMetricsInspectionJson
                 writer,
                 "budgetLimit",
                 diagnostic.BudgetLimit);
-            WriteNumber(
-                writer,
-                "attemptedCharge",
-                diagnostic.AttemptedCharge);
-            writer.WriteEndObject();
-        }
-        writer.WriteEndArray();
-        writer.WriteEndObject();
-    }
-
-    private static void WriteBodyUseQualification(
-        Utf8JsonWriter writer,
-        LibraryStructuralBodyUseQualification qualification)
-    {
-        writer.WriteStartObject();
-        writer.WritePropertyName("receipt");
-        writer.WriteStartObject();
-        writer.WriteString(
-            "moduleVersionId",
-            qualification.Receipt.ModuleVersionId);
-        writer.WritePropertyName("assemblyIdentity");
-        WriteAssemblyIdentity(
-            writer,
-            qualification.Receipt.Assembly);
-        writer.WritePropertyName("work");
-        WriteAnalysisWorkReceipt(
-            writer,
-            qualification.Receipt.Work);
-        writer.WriteEndObject();
-        writer.WriteString(
-            "disposition",
-            qualification.Disposition.ToString());
-        writer.WritePropertyName("coverage");
-        WriteBodyUseCoverage(writer, qualification.Coverage);
-        writer.WriteNumber(
-            "occurrenceCount",
-            qualification.OccurrenceCount);
-        writer.WritePropertyName("diagnostics");
-        writer.WriteStartArray();
-        foreach (AnalysisLibraryBodyUseDiagnostic diagnostic
-            in qualification.Diagnostics)
-        {
-            writer.WriteStartObject();
-            writer.WriteString("kind", diagnostic.Kind.ToString());
-            WriteNumber(
-                writer,
-                "methodToken",
-                diagnostic.MethodToken);
-            WriteNumber(writer, "ilOffset", diagnostic.IlOffset);
-            writer.WriteString("detail", diagnostic.Detail);
-            WriteNumber(writer, "limit", diagnostic.Limit);
             WriteNumber(
                 writer,
                 "attemptedCharge",
