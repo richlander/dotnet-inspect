@@ -84,6 +84,18 @@ public class TypeSearchServiceTests
     }
 
     [Fact]
+    public void FindWorkspacePlan_RejectsExplicitEmptyEcosystemScope()
+    {
+        var options = new FindOptions
+        {
+            Ecosystems = [],
+        };
+
+        Assert.Throws<ArgumentException>(
+            () => FindSourceCollector.CreateWorkspacePlan(options));
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public async Task FindTypesAsync_LocatorRetainsPackageChoice()
     {

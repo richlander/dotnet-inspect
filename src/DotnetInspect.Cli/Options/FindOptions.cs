@@ -210,6 +210,7 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
         PlatformFrameworks.Length > 0 ||
         Projects.Length > 0 ||
         BinPaths.Length > 0 ||
+        Ecosystems is not null ||
         PackagePrefixSpecified ||
         PackagePrefix is not null;
 
