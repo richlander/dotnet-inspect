@@ -31,6 +31,13 @@ WorkspacePlan.TraversalTargetPolicy
     ProductDefault(net11.0)
     Configured
 
+Product-default .NET release line
+  Traversal target: net11.0
+  Product Workspace .NET version: exact 11.0.*
+
+ReleaseLine(ProductDefaultTargetFramework)
+  == ReleaseLine(ProductDefaultWorkspace.DotNetVersion)
+
 Traversal operation
   Target: exact retained Workspace policy
   Platform evidence:
@@ -45,6 +52,12 @@ not:
   `ProductDefault(net11.0)` and registers the .NET Runtime Ecosystem. A host
   with package-source authority can realize its matching .NET 11 Platform from
   nuget.org.
+- **Product-default correspondence.** `ProductDefaultTargetFramework` and the
+  product-default Workspace .NET version derive from one product-owned release
+  line. `net11.0` may pair only with an exact `11.0.*` Platform version.
+  Servicing patch, feature band, and prerelease status may vary within that
+  release line; another major or minor version cannot be relabeled as the
+  default Workspace Platform.
 - **Empty Workspace.** The neutral empty plan also retains
   `ProductDefault(net11.0)`. Package loading and traversal remain valid before
   any Platform registration or realization. The equal default acts only as
@@ -65,6 +78,13 @@ accepted only after the existing canonical NuGet framework parser validates
 it. Malformed or padded input is a construction failure; it does not become
 the product fallback.
 
+The product default release line is singular configuration currency, not two
+equal literals maintained by Traversal and Workspace. Changing the product
+default changes both projections together. If the authorized Platform sources
+cannot settle an exact version in that release line, product-default Platform
+realization remains visibly unavailable; it does not select another release
+line or change `ProductDefaultTargetFramework`.
+
 The Workspace-plan owner retains the policy as reusable construction data. The
 Platform realization owner supplies optional matching evidence, including its
 canonical framework, exact family composition, identity, and generation. This
@@ -82,8 +102,10 @@ That authority flow is correct and is required for empty-Workspace traversal.
 However, `ProductDefaultTargetFramework` is currently `net12.0`; it must be
 `net11.0`. Platform realization and Platform-dependent traversal composition
 must also consume and validate the same Workspace target rather than selecting
-or issuing a second one. This documentation change does not present those
-corrections as shipped.
+or issuing a second one. The implementation does not yet expose one shared
+product-default release-line value from which Traversal and product Workspace
+Platform selection are both formed. This documentation change does not
+present those corrections as shipped.
 
 ## Traversal and selection are different policies
 
@@ -174,6 +196,8 @@ and the graph-wide traversal target to remain separate typed facts.
 | Workspace and operation state | Required traversal behavior |
 | --- | --- |
 | Default product Workspace before Platform realization | Use `ProductDefault(net11.0)` for package traversal; the .NET Runtime registration may later realize only a matching Platform. |
+| Product-default Workspace selects exact .NET `11.0.*` | Accept release-line correspondence with `ProductDefault(net11.0)` while retaining the exact Platform version independently. |
+| Product-default Workspace observes only .NET 10 or .NET 12 candidates | Leave Platform realization visibly unavailable; do not retarget Traversal or relabel another release line as the default. |
 | Empty Workspace with one loaded package | Use `ProductDefault(net11.0)` from construction; do not choose the package's highest TFM or imply Platform registration. |
 | Configured `net10.0` Workspace | Use `net10.0` for every traversal edge; admit only matching Platform evidence. |
 | Default or empty `net11.0` Workspace directly selects a `net12.0` package or Library | Load the exact root without changing the Workspace target; do not traverse or bind .NET 12 Platform APIs as though matching Platform evidence existed. |
@@ -191,8 +215,10 @@ Package Traversal consumption have landed; correction proceeds in focused
 slices:
 
 1. Lock this Workspace-target authority and three-scenario contract.
-2. Change `ProductDefaultTargetFramework` to `net11.0` while preserving the
-   immutable policy retained by every `WorkspacePlan`.
+2. Define one product-default .NET release-line value, derive
+   `ProductDefaultTargetFramework(net11.0)` and product Workspace Platform
+   selection from it, and preserve the immutable policy retained by every
+   `WorkspacePlan`.
 3. Make default and configured Platform realization consume the Workspace
    target and reject a non-corresponding result.
 4. Keep Package Dependency Traversal and call-graph admission valid without a
@@ -213,6 +239,7 @@ policy merely because they inspect packages.
 | Property | Release gate |
 | --- | --- |
 | The default product Workspace and neutral empty Workspace both retain `ProductDefault(net11.0)`. | The plan-retention shape is covered by existing `WorkspacePlanTests`; the corrected constant and both construction paths are unverified until adoption slice 2 lands. |
+| `ProductDefaultTargetFramework` and the product-default Workspace .NET version always share one release line; `net11.0` accepts exact `11.0.*` and rejects .NET 10/12 candidates without retargeting. | Unverified until adoption slices 2 and 3 land. |
 | An empty Workspace can load a package and traverse it under `net11.0` without Platform realization. | Unverified until adoption slice 4 lands. |
 | A configured `net10.0` Workspace uses `net10.0` for every destination edge and matching Platform composition. | Edge stability is covered by `Traversal_TargetPolicyIsStructuralCurrency`; Workspace/Platform correspondence is unverified until adoption slices 3-5 land. |
 | Direct `net12.0` Selection under a default `net11.0` Workspace does not retarget traversal or manufacture .NET 12 Platform evidence. | Unverified until adoption slices 4-6 land. |
