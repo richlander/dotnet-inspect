@@ -649,7 +649,9 @@ internal static partial class MetadataRelationInspection
         int unavailable = 0;
         bool limited = false;
         bool stopped = false;
-        int typeDefinitionCount = reader.TypeDefinitions.Count;
+        int sourceCandidateCount = request.TypeScope.IsEmpty
+            ? reader.TypeDefinitions.Count
+            : request.TypeScope.Length;
 
         try
         {
@@ -661,6 +663,8 @@ internal static partial class MetadataRelationInspection
             foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (!request.IncludesType(reader, handle))
+                    continue;
                 considered++;
                 MetadataHierarchyRelationAnalysisUnit unit =
                     pass.Analyze(reader, handle);
@@ -688,8 +692,7 @@ internal static partial class MetadataRelationInspection
                     rows.Add(interfaceRelation);
                 if (analysisRequest.ForwardPlan is { } forward
                     && matched >= forward.MaximumCandidates
-                    && MetadataTokens.GetRowNumber(handle)
-                        < typeDefinitionCount)
+                    && considered < sourceCandidateCount)
                 {
                     stopped = true;
                     break;
