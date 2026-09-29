@@ -244,7 +244,13 @@ public static class IdentifierWordBreaker
         {
             if (units[index].Kind != RunUnitKind.Digits || exactCovered[index])
                 continue;
-            if (index != units.Count - 1)
+            if (index != units.Count - 1
+                && !IsCoveredByOpaqueOracleSegmentation(
+                    source,
+                    units,
+                    index,
+                    exactCovered,
+                    oracle))
             {
                 AddSpan(
                     destination,
@@ -301,24 +307,42 @@ public static class IdentifierWordBreaker
 
                 case RunUnitKind.OpaqueUppercase:
                     int clusterEndUnit = unitIndex + 1;
+                    ImmutableArray<OracleSegment> segmentation;
                     if (clusterEndUnit < units.Count
-                        && units[clusterEndUnit].Kind == RunUnitKind.Digits
-                        && !exactMatches.ContainsKey(clusterEndUnit)
-                        && !IsNumberedFamilyOrdinal(
+                        && units[clusterEndUnit].Kind == RunUnitKind.Digits)
+                    {
+                        RunUnit digits = units[clusterEndUnit];
+                        segmentation = FindOracleSegmentation(
+                            source.AsSpan(unit.Start, digits.End - unit.Start),
+                            oracle);
+                        if (!segmentation.IsDefaultOrEmpty)
+                        {
+                            clusterEndUnit++;
+                        }
+                        else if (!IsNumberedFamilyOrdinal(
                             source,
                             start,
                             end,
-                            units[clusterEndUnit],
+                            digits,
                             context))
+                        {
+                            clusterEndUnit++;
+                        }
+                        else
+                        {
+                            segmentation = FindOracleSegmentation(
+                                source.AsSpan(unit.Start, unit.Length),
+                                oracle);
+                        }
+                    }
+                    else
                     {
-                        clusterEndUnit++;
+                        segmentation = FindOracleSegmentation(
+                            source.AsSpan(unit.Start, unit.Length),
+                            oracle);
                     }
 
                     int clusterEnd = units[clusterEndUnit - 1].End;
-                    ImmutableArray<OracleSegment> segmentation =
-                        FindOracleSegmentation(
-                            source.AsSpan(unit.Start, clusterEnd - unit.Start),
-                            oracle);
                     if (segmentation.IsDefaultOrEmpty)
                     {
                         AddSpan(
@@ -394,6 +418,28 @@ public static class IdentifierWordBreaker
 
         foreach (IdentifierWordSpan span in local)
             AddSpan(destination, span);
+    }
+
+    static bool IsCoveredByOpaqueOracleSegmentation(
+        string source,
+        List<RunUnit> units,
+        int digitIndex,
+        bool[] exactCovered,
+        IdentifierWordOracle oracle)
+    {
+        if (digitIndex == 0
+            || units[digitIndex - 1].Kind != RunUnitKind.OpaqueUppercase
+            || exactCovered[digitIndex - 1])
+        {
+            return false;
+        }
+
+        RunUnit opaque = units[digitIndex - 1];
+        RunUnit digits = units[digitIndex];
+        return !FindOracleSegmentation(
+                source.AsSpan(opaque.Start, digits.End - opaque.Start),
+                oracle)
+            .IsDefaultOrEmpty;
     }
 
     static bool IsNumberedFamilyOrdinal(
@@ -543,11 +589,11 @@ public static class IdentifierWordBreaker
         List<RunUnit> units,
         IdentifierWordOracle oracle)
     {
-        var matches = new Dictionary<int, ExactMatch>();
-        int index = 0;
-        while (index < units.Count)
+        var paths = new ExactMatchPath?[units.Count + 1];
+        paths[units.Count] = new ExactMatchPath(0, []);
+        for (int index = units.Count - 1; index >= 0; index--)
         {
-            ExactMatch? best = null;
+            ExactMatchPath best = paths[index + 1]!;
             foreach (IdentifierWordOracleEntry entry in oracle.Entries)
             {
                 int endOffset = units[index].Start + entry.Text.Length;
@@ -565,20 +611,49 @@ public static class IdentifierWordBreaker
                     continue;
 
                 int endExclusive = endUnit + 1;
-                if (best is null || entry.Text.Length > best.Value.Length)
-                    best = new ExactMatch(endExclusive, entry.Text.Length, entry);
+                var match = new ExactMatch(endExclusive, entry.Text.Length, entry);
+                ExactMatchPath tail = paths[endExclusive]!;
+                var selections = ImmutableArray.CreateBuilder<ExactMatchSelection>(
+                    tail.Selections.Length + 1);
+                selections.Add(new ExactMatchSelection(index, match));
+                selections.AddRange(tail.Selections);
+                var candidate = new ExactMatchPath(
+                    entry.Text.Length + tail.CoveredLength,
+                    selections.MoveToImmutable());
+                if (IsBetter(candidate, best))
+                    best = candidate;
             }
-            if (best is { } selected)
-            {
-                matches.Add(index, selected);
-                index = selected.EndUnitExclusive;
-            }
-            else
-            {
-                index++;
-            }
+            paths[index] = best;
         }
-        return matches;
+
+        return paths[0]!.Selections.ToDictionary(
+            static selection => selection.StartUnit,
+            static selection => selection.Match);
+    }
+
+    static bool IsBetter(ExactMatchPath candidate, ExactMatchPath current)
+    {
+        if (candidate.CoveredLength != current.CoveredLength)
+            return candidate.CoveredLength > current.CoveredLength;
+        if (candidate.Selections.Length != current.Selections.Length)
+            return candidate.Selections.Length < current.Selections.Length;
+
+        for (int i = 0; i < candidate.Selections.Length; i++)
+        {
+            ExactMatchSelection selection = candidate.Selections[i];
+            ExactMatchSelection currentSelection = current.Selections[i];
+            if (selection.StartUnit != currentSelection.StartUnit)
+                return selection.StartUnit < currentSelection.StartUnit;
+            if (selection.Match.Length != currentSelection.Match.Length)
+                return selection.Match.Length > currentSelection.Match.Length;
+
+            int spelling = string.CompareOrdinal(
+                selection.Match.Entry.Text,
+                currentSelection.Match.Entry.Text);
+            if (spelling != 0)
+                return spelling < 0;
+        }
+        return false;
     }
 
     static ImmutableArray<OracleSegment> FindOracleSegmentation(
@@ -664,7 +739,7 @@ public static class IdentifierWordBreaker
             && span.Classification is IdentifierWordSpanClassification.Separator
                 or IdentifierWordSpanClassification.Unresolved
             && spans[^1].Classification == span.Classification
-            && spans[^1].Evidence == span.Evidence
+            && spans[^1].Evidence.Kind == span.Evidence.Kind
             && spans[^1].Start + spans[^1].Length == span.Start)
         {
             IdentifierWordSpan previous = spans[^1];
@@ -672,6 +747,13 @@ public static class IdentifierWordBreaker
             {
                 Length = previous.Length + span.Length,
                 Text = previous.Text + span.Text,
+                Evidence = previous.Evidence with
+                {
+                    UnicodeCategory = previous.Evidence.UnicodeCategory
+                        == span.Evidence.UnicodeCategory
+                            ? previous.Evidence.UnicodeCategory
+                            : null,
+                },
             };
             return;
         }
@@ -757,6 +839,14 @@ public static class IdentifierWordBreaker
         int EndUnitExclusive,
         int Length,
         IdentifierWordOracleEntry Entry);
+
+    readonly record struct ExactMatchSelection(
+        int StartUnit,
+        ExactMatch Match);
+
+    sealed record ExactMatchPath(
+        int CoveredLength,
+        ImmutableArray<ExactMatchSelection> Selections);
 
     readonly record struct OracleSegment(
         int Start,

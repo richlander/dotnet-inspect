@@ -65,6 +65,42 @@ public sealed class IdentifierWordBreakerTests
     }
 
     [Fact]
+    public void Break_ProductOracleSegmentationPrecedesNumberedFamilyContext()
+    {
+        IdentifierNumberedFamilyContext context = NewContext(
+            "HMACSHA1",
+            "HMACSHA256",
+            "HMACSHA384",
+            "HMACSHA512");
+
+        IdentifierWordBreakResult result = Break("HMACSHA256", context: context);
+
+        Assert.Equal(["HMAC", "SHA256"], result.Spans.Select(static span => span.Text));
+        Assert.All(
+            result.Spans,
+            static span => Assert.Equal(
+                IdentifierWordRuleKind.OracleSegmentation,
+                span.Evidence.Kind));
+    }
+
+    [Theory]
+    [InlineData("RSAPKCS1SignatureFormatter", "RSA|PKCS1|Signature|Formatter")]
+    [InlineData("HMACSHA256Provider", "HMAC|SHA256|Provider")]
+    public void Break_OracleSegmentationAllowsOrdinarySuffix(
+        string text,
+        string expected)
+    {
+        IdentifierWordBreakResult result = Break(text);
+
+        Assert.Equal(expected.Split('|'), result.Spans.Select(static span => span.Text));
+        Assert.All(
+            result.Spans,
+            static span => Assert.Equal(
+                IdentifierWordSpanClassification.Word,
+                span.Classification));
+    }
+
+    [Fact]
     public void Break_PartialUppercaseRecognitionLeavesCompleteRunUnresolved()
     {
         IdentifierWordOracle oracle = NewOracle(Atom("URL"));
@@ -125,6 +161,21 @@ public sealed class IdentifierWordBreakerTests
         IdentifierWordBreakResult result = Break("ABCD", oracle);
 
         Assert.Equal(["AB", "CD"], result.Spans.Select(static span => span.Text));
+    }
+
+    [Fact]
+    public void Break_UnitAlignedOracleMatchesUseGlobalMinimumEntryRanking()
+    {
+        IdentifierWordOracle oracle = NewOracle(
+            Compound("AB1CD2"),
+            Compound("AB1"),
+            Compound("CD2EF3GH4"),
+            Compound("EF3"),
+            Compound("GH4"));
+
+        IdentifierWordBreakResult result = Break("AB1CD2EF3GH4", oracle);
+
+        Assert.Equal(["AB1", "CD2EF3GH4"], result.Spans.Select(static span => span.Text));
     }
 
     [Fact]
@@ -336,15 +387,14 @@ public sealed class IdentifierWordBreakerTests
     }
 
     [Fact]
-    public void Break_SeparatorsRetainExactCategoriesAndCoverage()
+    public void Break_SeparatorsCoalesceByRuleKindAndRetainCoverage()
     {
         IdentifierWordBreakResult result = Break("Json-_+Context");
 
         Assert.Equal(
             [
                 "Json",
-                "-",
-                "_",
+                "-_",
                 "+",
                 "Context",
             ],
@@ -354,10 +404,24 @@ public sealed class IdentifierWordBreakerTests
                 IdentifierWordSpanClassification.Word,
                 IdentifierWordSpanClassification.Separator,
                 IdentifierWordSpanClassification.Separator,
-                IdentifierWordSpanClassification.Separator,
                 IdentifierWordSpanClassification.Word,
             ],
             result.Spans.Select(static span => span.Classification));
+        Assert.Null(result.Spans[1].Evidence.UnicodeCategory);
+        AssertCoverage(result);
+    }
+
+    [Fact]
+    public void Break_UnresolvedTextCoalescesByReason()
+    {
+        IdentifierWordBreakResult result = Break("名١");
+        IdentifierWordSpan span = Assert.Single(result.Spans);
+
+        Assert.Equal("名١", span.Text);
+        Assert.Equal(
+            IdentifierWordRuleKind.UnsupportedUnicodeCategory,
+            span.Evidence.Kind);
+        Assert.Null(span.Evidence.UnicodeCategory);
         AssertCoverage(result);
     }
 
