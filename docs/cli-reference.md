@@ -1239,6 +1239,13 @@ dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 
+An exact method name selects its MemberGroup. Its default output is a native
+Tree rooted at one compact identity line and containing every public,
+non-hidden exact overload; explicit `--tree` renders the same population.
+This remains a MemberGroup when the selected version has one overload.
+Select an exact Member with an ordinal or digest when the intended subject is
+one declaration rather than its overload family.
+
 `--all` is an API visibility option. API-level commands use their ordinary
 public-facing declaration population by default; add `--all` when the
 question includes non-public, hidden, or obsolete declarations. It is not a

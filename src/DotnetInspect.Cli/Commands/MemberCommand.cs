@@ -793,6 +793,39 @@ public static class MemberCommand
                 }
             }
 
+            if (MemberGroupDocumentOutput.IsSelected(
+                    apiType,
+                    effectiveOptions,
+                    executionPlan))
+            {
+                string? memberGroupAssemblyPath =
+                    apiType.SourceAssemblyPath
+                    ?? sourceAssembly?.Path
+                    ?? apiDllPath;
+                if (memberGroupAssemblyPath is null)
+                {
+                    CommandError.Write(
+                        "The exact member group's defining Library has no local inspection path.");
+                    return 1;
+                }
+                return await MemberGroupDocumentOutput.WriteAsync(
+                    apiType,
+                    effectiveOptions,
+                    memberGroupAssemblyPath,
+                    CancellationToken.None);
+            }
+            if (effectiveOptions.Tree
+                && (effectiveOptions.IncludeSections is not { Count: 1 }
+                    || !effectiveOptions.IncludeSections.Contains(
+                        SectionNames.CallGraph)))
+            {
+                CommandError.Write(
+                    "--tree requires exactly one selected tree shape.",
+                    "Use an exact method-group name or "
+                        + "-S \"Call Graph\" --tree.");
+                return 1;
+            }
+
             // Enrich with local XML docs only (source info is in the source command)
             {
                 var dllPath = runtimeAssemblyPath ?? apiDllPath;
