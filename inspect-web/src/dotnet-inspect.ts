@@ -1070,6 +1070,17 @@ declare global {
   }
 }
 
+interface AppMemberGroup {
+  key: string;
+  name: string;
+  kind: string;
+  overloads: AppMemberSurface[];
+  completeCount: number;
+  completeCountStatus: "available" | "pending" | "failed";
+}
+
+type MemberAccessibility = "public" | "protected" | "internal" | "private";
+
 function waitForHomePaint() {
   if (document.visibilityState === "hidden") return Promise.resolve();
   if (globalThis.PerformanceObserver?.supportedEntryTypes?.includes("paint")) {
@@ -1088,17 +1099,6 @@ function waitForHomePaint() {
   return new Promise<void>(resolve =>
     requestAnimationFrame(() => setTimeout(resolve, 0)));
 }
-
-interface AppMemberGroup {
-  key: string;
-  name: string;
-  kind: string;
-  overloads: AppMemberSurface[];
-  completeCount: number;
-  completeCountStatus: "available" | "pending" | "failed";
-}
-
-type MemberAccessibility = "public" | "protected" | "internal" | "private";
 
 function loadStoredTaste() {
   try {
