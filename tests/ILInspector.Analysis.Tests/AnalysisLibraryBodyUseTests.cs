@@ -297,6 +297,47 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void ExecutePath_LimitsLiftedOwnerAttributionProbe()
+    {
+        using var image = new PEReader(File.OpenRead(FixturePath));
+        MetadataReader reader = image.GetMetadataReader();
+        MethodDefinitionHandle lifted = Assert.Single(
+            reader.MethodDefinitions,
+            handle => reader.GetString(
+                    reader.GetMethodDefinition(handle).Name)
+                .Contains(
+                    "<BoundedLiftedOwner>g__Local",
+                    StringComparison.Ordinal));
+        int liftedToken = MetadataTokens.GetToken(lifted);
+
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecutePath(
+                    FixturePath,
+                    new(
+                        new(
+                            MaximumInstructionsPerBody: 2)),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        AnalysisLibraryBodyUseDiagnostic diagnostic =
+            Assert.Single(
+                result.Diagnostics,
+                candidate =>
+                    candidate.MethodToken == liftedToken
+                    && candidate.Kind
+                        == AnalysisLibraryBodyUseDiagnosticKind.Limit);
+        Assert.Equal(2, diagnostic.Limit);
+        Assert.Equal(3, diagnostic.AttemptedCharge);
+        Assert.Contains(
+            "Logical-owner attribution probe",
+            diagnostic.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExecuteImage_ReportsExactOccurrenceLimit()
     {
         AnalysisLibraryBodyUseResult result =

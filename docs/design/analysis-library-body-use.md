@@ -36,6 +36,12 @@ construction, retained evidence, and diagnostics are bounded and fail
 visibly. A compiler shape cannot cause unbounded work, process failure, or
 partial success-shaped publication.
 
+The per-body instruction limit also governs every other body decoded to
+authenticate that body's logical owner. Both the current body and attribution
+probes observe cancellation during bounded decode. An attribution probe that
+exceeds the limit makes the dependent body limited and partial; Analysis does
+not decode the unadmitted suffix or publish logical ownership from it.
+
 The result distinguishes:
 
 - **logical fidelity**, where owner-issued evidence authenticates the

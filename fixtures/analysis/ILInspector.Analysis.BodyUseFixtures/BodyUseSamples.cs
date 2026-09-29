@@ -38,6 +38,14 @@ public static class BodyUseSource
         return Local();
     }
 
+    public static BodyUseTarget BoundedLiftedOwner()
+    {
+        var target = new BodyUseTarget();
+        target.Next = new BodyUseTarget();
+        static BodyUseTarget Local() => new();
+        return Local();
+    }
+
     public static IEnumerable<BodyUseTarget> IteratorUse()
     {
         yield return new BodyUseTarget();

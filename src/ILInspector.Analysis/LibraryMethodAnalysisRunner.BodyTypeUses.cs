@@ -24,6 +24,21 @@ internal sealed partial class LibraryMethodAnalysisRunner
         int methodToken = MetadataTokens.GetToken(methodHandle);
         try
         {
+            byte[] il = body.GetILBytes() ?? [];
+            if (!InstructionDecoder.TryDecodeBounded(
+                    il,
+                    maximumInstructions,
+                    cancellationToken,
+                    out ImmutableArray<DecodedInstruction> instructions,
+                    out int decodedInstructionCount))
+            {
+                return BodyTypeUseMethodFact.CreateLimited(
+                    typeHandle,
+                    methodToken,
+                    checked((long)decodedInstructionCount + 1),
+                    maximumInstructions);
+            }
+
             GenericScope scope = _infrastructure.CreateScope(
                 typeDefinition,
                 methodDefinition);
@@ -81,37 +96,40 @@ internal sealed partial class LibraryMethodAnalysisRunner
                         ownerDefinition.GetCustomAttributes())
                     || _infrastructure.HasCompilerGeneratedAttribute(
                         ownerType.GetCustomAttributes());
-                resolution =
-                    _infrastructure.ResolveUltimateDeclaredMethod(
-                        ownerHandle,
-                        ownerDefinition,
-                        ownerMethod,
-                        ownerSourceGenerated,
-                        out _,
-                        out AuthenticatedSourceOwner? ultimateOwner);
-                logicalMethod = resolution switch
+                try
                 {
-                    DeclaredOwnerResolution.None
-                        when !ownerCompilerGenerated => ownerMethod,
-                    DeclaredOwnerResolution.Resolved =>
-                        ultimateOwner!.Value.Method,
-                    _ => null,
-                };
-            }
-
-            byte[] il = body.GetILBytes() ?? [];
-            if (!InstructionDecoder.TryDecodeBounded(
-                    il,
-                    maximumInstructions,
-                    cancellationToken,
-                    out ImmutableArray<DecodedInstruction> instructions,
-                    out int decodedInstructionCount))
-            {
-                return BodyTypeUseMethodFact.CreateLimited(
-                    typeHandle,
-                    methodToken,
-                    checked((long)decodedInstructionCount + 1),
-                    maximumInstructions);
+                    resolution =
+                        _infrastructure.ResolveUltimateDeclaredMethod(
+                            ownerHandle,
+                            ownerDefinition,
+                            ownerMethod,
+                            ownerSourceGenerated,
+                            maximumInstructions,
+                            cancellationToken,
+                            out _,
+                            out AuthenticatedSourceOwner? ultimateOwner);
+                    logicalMethod = resolution switch
+                    {
+                        DeclaredOwnerResolution.None
+                            when !ownerCompilerGenerated => ownerMethod,
+                        DeclaredOwnerResolution.Resolved =>
+                            ultimateOwner!.Value.Method,
+                        _ => null,
+                    };
+                }
+                catch (
+                    AttributionBodyInstructionLimitExceededException exception)
+                {
+                    return BodyTypeUseMethodFact.CreateLimited(
+                        typeHandle,
+                        methodToken,
+                        exception.AttemptedCharge,
+                        exception.Limit,
+                        detail:
+                            "Logical-owner attribution probe "
+                            + $"0x{exception.MethodToken:X8} exceeded its "
+                            + "Analysis body-use instruction limit.");
+                }
             }
 
             var rows = ImmutableArray.CreateBuilder<BodyTypeUseOccurrence>();
@@ -611,7 +629,8 @@ internal sealed record BodyTypeUseMethodFact(
         long limit,
         int operandsConsidered = 0,
         int operandsExamined = 0,
-        int operandsUnavailable = 0) =>
+        int operandsUnavailable = 0,
+        string? detail = null) =>
         new(
             type,
             methodToken,
@@ -621,7 +640,8 @@ internal sealed record BodyTypeUseMethodFact(
                 AnalysisLibraryBodyUseDiagnosticKind.Limit,
                 methodToken,
                 null,
-                "The method body exceeded its Analysis body-use limit.",
+                detail
+                    ?? "The method body exceeded its Analysis body-use limit.",
                 limit,
                 attempted)],
             operandsConsidered,

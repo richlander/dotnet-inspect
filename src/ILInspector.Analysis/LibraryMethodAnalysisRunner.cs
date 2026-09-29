@@ -149,6 +149,16 @@ internal interface ILibraryMethodAnalysisInfrastructure
         out AuthenticatedSourceOwner? immediateOwner,
         out AuthenticatedSourceOwner? ultimateOwner);
 
+    DeclaredOwnerResolution ResolveUltimateDeclaredMethod(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition,
+        MethodIdentity method,
+        bool typeSourceGenerated,
+        int maximumInstructionsPerAttributionBody,
+        CancellationToken cancellationToken,
+        out AuthenticatedSourceOwner? immediateOwner,
+        out AuthenticatedSourceOwner? ultimateOwner);
+
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
         MethodDefinition method);

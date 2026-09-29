@@ -459,6 +459,26 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             out immediateOwner,
             out ultimateOwner);
 
+    DeclaredOwnerResolution ILibraryMethodAnalysisInfrastructure
+        .ResolveUltimateDeclaredMethod(
+            MethodDefinitionHandle methodHandle,
+            MethodDefinition methodDefinition,
+            MethodIdentity method,
+            bool typeSourceGenerated,
+            int maximumInstructionsPerAttributionBody,
+            CancellationToken cancellationToken,
+            out AuthenticatedSourceOwner? immediateOwner,
+            out AuthenticatedSourceOwner? ultimateOwner)
+        => _declaredSourceResolver.ResolveUltimateDeclaredMethod(
+            methodHandle,
+            methodDefinition,
+            method,
+            typeSourceGenerated,
+            maximumInstructionsPerAttributionBody,
+            cancellationToken,
+            out immediateOwner,
+            out ultimateOwner);
+
     bool ILibraryMethodAnalysisInfrastructure.DispatchCanTargetOverride(
         TypeDefinition declaringType,
         MethodDefinition method) =>
