@@ -15,7 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../tests/DotnetInspector.PerformanceOracles/DotnetInspector.PerformanceOracles.csproj" />
+    <ProjectReference Include="../../tests/ILInspector.Metadata.PerformanceOracles.Tests/ILInspector.Metadata.PerformanceOracles.Tests.csproj" />
   </ItemGroup>
 
 </Project>

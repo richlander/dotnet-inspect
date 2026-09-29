@@ -161,9 +161,12 @@ than an inspected artifact:
   method-definition source, and the `Scorecard` harness that checks answers
   and times rotated rounds. `MethodPopulation<TSelection>` supplies the LINQ
   and NLinq columns for any method selection; an enablement registers its Old
-  and Planner columns beside them. `MemberGroupPopulation` projects Metadata's
+  and Planner columns beside them.
+- `tests/ILInspector.Metadata.PerformanceOracles.Tests` owns the privileged
+  Metadata test projection. `MemberGroupPopulation` projects Metadata's
   prepared exact-overload model through LINQ, NLinq, and the shipping Planner
-  kernel, preserving the same selection, row projection, bounds, and closing.
+  kernel, preserving the same selection, row projection, bounds, and closing
+  without exposing raw-reader lifetime through the public product API.
 - `tools/QuerySpaceScorecard` runs a scorecard over the public-methods
   population. `queryspace-scorecard check <assembly>...` compares answers, and
   `queryspace-scorecard time [--rounds N] [--budget-ms N] [--tsv <path>]
