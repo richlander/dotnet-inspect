@@ -941,6 +941,70 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void ExecuteImage_ReportsUnreadableCalleeName()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [
+                            (byte)ILOpCode.Call,
+                            0x01, 0x00, 0x00, 0x0A,
+                            (byte)ILOpCode.Ret,
+                        ],
+                        unreadableMemberName: true),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Empty(result.Occurrences);
+        Assert.Equal(1, result.Coverage.OperandsUnavailable);
+        Assert.Single(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind
+                        .UnresolvedOperand);
+    }
+
+    [Fact]
+    public void ExecuteImage_ChargesSharedMethodSpecAcrossTargetArities()
+    {
+        // 768 MethodSpec rows share one 8 KiB instantiation, each targeting a
+        // MemberRef of a different generic arity. The instantiation is
+        // decoded once; each distinct validation charges the method-reference
+        // decode budget, whose exhaustion is visible, as full member
+        // resolution reports it.
+        const int specifications = 768;
+        ImmutableArray<byte> image =
+            BuildSharedMethodSpecImage(
+                specifications,
+                arguments: 4096,
+                distinctTargetArities: true);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "SharedMethodSpec.dll",
+                    image,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(specifications, result.Coverage.OperandsUnavailable);
+        Assert.Contains(
+            result.Diagnostics,
+            static diagnostic => diagnostic.Detail.Contains(
+                "Method-reference decoding work exceeds the assembly budget.",
+                StringComparison.Ordinal));
+        Assert.InRange(allocated, 0, 64 * 1024 * 1024);
+    }
+
+    [Fact]
     public void ExecuteImage_BoundsStateMachineAttributeNames()
     {
         AnalysisLibraryBodyUseResult result =
@@ -1179,7 +1243,8 @@ public sealed class AnalysisLibraryBodyUseTests
         bool methodMemberReference = false,
         bool truncatedMethodMemberReference = false,
         bool truncatedOwnSignature = false,
-        int largeTruncatedParameters = 0)
+        int largeTruncatedParameters = 0,
+        bool unreadableMemberName = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1251,6 +1316,22 @@ public sealed class AnalysisLibraryBodyUseTests
                 metadata.GetOrAddString("LargeTruncated"),
                 metadata.GetOrAddBlob(truncated));
         }
+        if (unreadableMemberName)
+        {
+            // A readable parent and signature, but a name offset past the end
+            // of the string heap.
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature()
+                .Parameters(
+                    0,
+                    static returnType => returnType.Void(),
+                    static _ => { });
+            metadata.AddMemberReference(
+                owner,
+                metadata.GetOrAddString("UnreadableName"),
+                metadata.GetOrAddBlob(signature));
+        }
         if (truncatedMethodMemberReference)
         {
             // A method header with no parameter count or return type.
@@ -1275,7 +1356,10 @@ public sealed class AnalysisLibraryBodyUseTests
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         pe.Serialize(image);
-        return ImmutableArray.Create(image.ToArray());
+        byte[] bytes = image.ToArray();
+        if (unreadableMemberName)
+            PointMemberReferenceNamePastStringHeap(bytes);
+        return ImmutableArray.Create(bytes);
 
         void AddMethod(
             string name,
@@ -1625,9 +1709,34 @@ public sealed class AnalysisLibraryBodyUseTests
         return Serialize(metadata, bodies);
     }
 
+    // Rewrites MemberRef row 1's Name column to an offset past the end of the
+    // string heap, leaving its parent and signature readable.
+    static void PointMemberReferenceNamePastStringHeap(byte[] bytes)
+    {
+        int nameOffset;
+        int nameSize;
+        using (var pe = new PEReader(ImmutableArray.Create(bytes)))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            Assert.Equal(
+                "UnreadableName",
+                reader.GetString(
+                    reader.GetMemberReference(
+                        MetadataTokens.MemberReferenceHandle(1)).Name));
+            int table = reader.GetTableMetadataOffset(TableIndex.MemberRef);
+            // These small images use 2-byte coded and heap indexes.
+            Assert.True(reader.GetHeapSize(HeapIndex.String) < (1 << 16));
+            nameSize = 2;
+            nameOffset = pe.PEHeaders.MetadataStartOffset + table + 2;
+        }
+        for (int i = 0; i < nameSize; i++)
+            bytes[nameOffset + i] = 0xFF;
+    }
+
     static ImmutableArray<byte> BuildSharedMethodSpecImage(
         int specifications,
-        int arguments)
+        int arguments,
+        bool distinctTargetArities = false)
     {
         MetadataBuilder metadata = CreateMetadata(
             "SharedMethodSpec",
@@ -1680,8 +1789,28 @@ public sealed class AnalysisLibraryBodyUseTests
         for (int i = 0; i < arguments; i++)
             argumentEncoder.AddArgument().SZArray().Int32();
         BlobHandle shared = metadata.GetOrAddBlob(instantiation);
+        TypeDefinitionHandle sharedType =
+            MetadataTokens.TypeDefinitionHandle(2);
         for (int i = 0; i < specifications; i++)
-            metadata.AddMethodSpecification(generic, shared);
+        {
+            EntityHandle target = generic;
+            if (distinctTargetArities)
+            {
+                // A MemberRef to a method of generic arity i + 1.
+                var targetSignature = new BlobBuilder();
+                new BlobEncoder(targetSignature)
+                    .MethodSignature(genericParameterCount: i + 1)
+                    .Parameters(
+                        0,
+                        static returnType => returnType.Void(),
+                        static _ => { });
+                target = metadata.AddMemberReference(
+                    sharedType,
+                    metadata.GetOrAddString("G"),
+                    metadata.GetOrAddBlob(targetSignature));
+            }
+            metadata.AddMethodSpecification(target, shared);
+        }
 
         // 0x06000002: calls every MethodSpec row once.
         byte[] il = new byte[(specifications * 5) + 1];

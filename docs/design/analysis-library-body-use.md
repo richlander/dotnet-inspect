@@ -107,19 +107,26 @@ or the operand unavailable, with a typed diagnostic:
 - an unreadable or over-limit IL body, and an instruction or occurrence limit;
 - an operand token that does not resolve, or resolves to the wrong kind;
 - a malformed or truncated method signature, whether the body's own or an
-  operand's: owner-only resolution reads only the declaring Type and
-  instantiation, but still decodes the whole signature under
-  `SignatureBlobGuard`, as full member resolution does;
+  operand's;
+- any other metadata read that full member resolution performs for a method
+  operand, such as an unreadable callee name, generic parameter, or
+  parameter row, and exhaustion of its method-reference work budgets;
 - a malformed TypeSpec, and a MethodSpec invalid for its target or its
   caller's generic scope; and
 - a current-image reference that cannot be bound.
 
+Owner-only resolution of a method operand performs every metadata read, work
+charge, and validation that full member resolution performs for the same
+handle, in the same order. It skips only building the parameter and return
+Types, which body use never reads. An operand is therefore unavailable exactly
+when full member resolution would fail it.
+
 What a non-Roslyn input can change without a diagnostic is only the logical
 owner, as [Fidelity and security](#fidelity-and-security) allows.
 
-Each signature blob's decode outcome, each MethodSpec instantiation's outcome
-(keyed by its blob, target arity, and caller generic arities), and each
-operand's binding, is retained
+Each signature blob's decode outcome, each MethodSpec instantiation's decode
+(per blob) and validation (per blob, target arity, and caller generic
+arities), and each operand's binding, is retained
 per execution, a recoverable failure included as its diagnostic description.
 A malformed blob or operand therefore fails every use visibly, with the same
 detail, without repeating its decode or rethrowing a shared exception.

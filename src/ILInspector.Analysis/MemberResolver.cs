@@ -88,19 +88,22 @@ internal static class MemberResolver
         }
     }
 
-    // A method signature's generic parameter count. The whole signature is
-    // decoded exactly as ResolveMethod decodes it, so a malformed or truncated
-    // signature fails here as it does there; only the member it would build
-    // is skipped.
-    internal static int MethodGenericArity(MetadataReader reader, BlobHandle signature)
+    // A method signature's generic and parameter counts. The whole signature
+    // is decoded exactly as ResolveMethod decodes it, so a malformed or
+    // truncated signature fails here as it does there; only the member it
+    // would build is skipped.
+    internal static (int GenericArity, int ParameterCount) MethodSignatureShape(
+        MetadataReader reader,
+        BlobHandle signature)
     {
         BlobReader blob = reader.GetBlobReader(signature);
-        return new SignatureDecoder<TypeRef, GenericScope>(
-                TypeRefDecoder.Instance,
-                reader,
-                GenericScope.Empty)
-            .DecodeMethodSignature(ref blob)
-            .GenericParameterCount;
+        MethodSignature<TypeRef> decoded =
+            new SignatureDecoder<TypeRef, GenericScope>(
+                    TypeRefDecoder.Instance,
+                    reader,
+                    GenericScope.Empty)
+                .DecodeMethodSignature(ref blob);
+        return (decoded.GenericParameterCount, decoded.ParameterTypes.Length);
     }
 
     static MemberKind KindFor(string name) => name is ".ctor" or ".cctor" ? MemberKind.Constructor : MemberKind.Method;
@@ -142,7 +145,7 @@ internal static class MemberResolver
         return operandToken;
     }
 
-    static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
+    internal static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
     {
         if (handles.Count == 0)
             return [];

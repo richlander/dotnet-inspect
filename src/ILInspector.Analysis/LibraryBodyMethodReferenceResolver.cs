@@ -786,14 +786,20 @@ internal sealed class LibraryBodyMethodReferenceResolver
                 scope));
     }
 
-    // A MethodSpec instantiation's decode and validation depend only on its
-    // blob, the target's support and arity, and the caller's generic arities
-    // (argument names never bind), so the outcome, failure included, is
-    // shared by every MethodSpec row with that key.
+    // As ResolveMethodSpecification does, each distinct (target, blob,
+    // caller scope) validation charges the method-reference decode budget,
+    // here keyed by the target's support and arity and the caller's generic
+    // arities, which are all the validation reads. The instantiation itself
+    // is decoded once per blob: argument names never bind. Outcomes, failures
+    // included, are retained as descriptions.
     readonly ConcurrentDictionary<
         MethodSpecificationArgumentsKey,
         MethodSpecificationArgumentsOutcome>
         _methodSpecificationArguments = new();
+    readonly ConcurrentDictionary<
+        BlobHandle,
+        MethodSpecificationArgumentsOutcome>
+        _methodSpecificationInstantiations = new();
 
     ImmutableArray<TypeRef> MethodSpecificationArguments(
         MethodSpecification specification,
@@ -801,6 +807,7 @@ internal sealed class LibraryBodyMethodReferenceResolver
         int targetGenericArity,
         GenericScope scope)
     {
+        SignatureIdentity signature = Signature(specification.Signature);
         var key = new MethodSpecificationArgumentsKey(
             specification.Signature,
             targetSupported,
@@ -813,13 +820,23 @@ internal sealed class LibraryBodyMethodReferenceResolver
         {
             try
             {
-                outcome = new(
-                    DecodeMethodSpecificationArguments(
+                ReserveMethodReferenceDecodeWork(signature.Bytes.Length);
+                MethodSpecificationArgumentsOutcome instantiation =
+                    MethodSpecificationInstantiation(
                         specification,
-                        targetSupported,
-                        targetGenericArity,
-                        scope),
-                    Failure: null);
+                        scope);
+                if (instantiation.Failure is { } decodeFailure)
+                    throw new MethodSignatureFailureException(decodeFailure);
+                ValidateMethodSpecificationArguments(
+                    instantiation.Arguments,
+                    targetSupported,
+                    targetGenericArity,
+                    scope);
+                outcome = instantiation;
+            }
+            catch (MethodSignatureFailureException exception)
+            {
+                outcome = new([], exception.Description);
             }
             catch (Exception exception)
                 when (LibraryMethodAnalysisRunner
@@ -836,6 +853,43 @@ internal sealed class LibraryBodyMethodReferenceResolver
         return outcome.Arguments;
     }
 
+    MethodSpecificationArgumentsOutcome MethodSpecificationInstantiation(
+        MethodSpecification specification,
+        GenericScope scope)
+    {
+        if (_methodSpecificationInstantiations.TryGetValue(
+                specification.Signature,
+                out MethodSpecificationArgumentsOutcome? outcome))
+        {
+            return outcome;
+        }
+        try
+        {
+            if (!SignatureBlobGuard.IsSafeToDecode(
+                    _reader,
+                    specification.Signature,
+                    SignatureBlobGuard.Kind.MethodSpecification))
+            {
+                throw new BadImageFormatException(
+                    "The MethodSpec signature exceeds its structural limits.");
+            }
+            outcome = new(
+                specification.DecodeSignature(
+                    TypeRefDecoder.Instance,
+                    scope),
+                Failure: null);
+        }
+        catch (Exception exception)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(exception))
+        {
+            outcome = new([], Planning.ProducerFailure.Describe(exception));
+        }
+        return _methodSpecificationInstantiations.GetOrAdd(
+            specification.Signature,
+            outcome);
+    }
+
     readonly record struct MethodSpecificationArgumentsKey(
         BlobHandle Signature,
         bool TargetSupported,
@@ -847,57 +901,135 @@ internal sealed class LibraryBodyMethodReferenceResolver
         ImmutableArray<TypeRef> Arguments,
         string? Failure);
 
+    // Owner-only method resolution performs every metadata read, work
+    // charge, and validation that ResolveMethod performs for the same handle,
+    // in the same order, so a malformed operand fails exactly as it did there.
+    // It skips only building the parameter and return TypeRefs, which body use
+    // never reads. Outcomes are retained, failures as their descriptions, so
+    // a repeated failure neither repeats its work nor rethrows a shared
+    // exception.
+    readonly ConcurrentDictionary<MethodDefinitionHandle, MethodOwnerOutcome>
+        _methodDefinitionOwners = new();
+    readonly ConcurrentDictionary<
+        MemberReferenceMetadataKey,
+        MethodOwnerOutcome>
+        _memberReferenceOwners = new();
+
     MethodOwner MethodOwnerOf(
         EntityHandle handle,
         GenericScope scope)
     {
+        MethodOwnerOutcome outcome;
         switch (handle.Kind)
         {
             case HandleKind.MethodDefinition:
-                MethodDefinition method =
-                    _reader.GetMethodDefinition(
-                        (MethodDefinitionHandle)handle);
-                if (!MethodSignature(method.Signature).Safe)
+                var definition = (MethodDefinitionHandle)handle;
+                if (!_methodDefinitionOwners.TryGetValue(
+                        definition,
+                        out outcome!))
                 {
-                    return MethodOwner.Unsupported(
-                        "method signature nesting depth exceeded");
+                    outcome = _methodDefinitionOwners.GetOrAdd(
+                        definition,
+                        Capture(() => MethodDefinitionOwner(definition)));
                 }
-                return new(
-                    TypeRefDecoder.Instance.GetTypeFromDefinition(
-                        _reader,
-                        method.GetDeclaringType(),
-                        0),
-                    MethodGenericArity(method.Signature),
-                    Supported: true);
+                break;
             case HandleKind.MemberReference:
-                MemberReference member =
-                    _reader.GetMemberReference(
-                        (MemberReferenceHandle)handle);
-                // A vararg call site's MethodDef parent names its declaring
-                // type; every other parent is decoded once per execution.
-                TypeRef declaring =
-                    member.Parent.Kind == HandleKind.MethodDefinition
-                        ? MemberResolver.ResolveParentType(
-                            _reader,
-                            member.Parent,
-                            scope)
-                        : ResolveMemberReferenceDeclaringType(
-                            member.Parent,
-                            scope);
-                if (!MethodSignature(member.Signature).Safe)
+                var reference = (MemberReferenceHandle)handle;
+                // As ResolveMethod does: the reference's identity (declaring
+                // Type, name, and signature bytes) first, then its decode.
+                MemberReferenceMetadataKey identity =
+                    MemberReferenceIdentity(reference, scope);
+                if (!_memberReferenceOwners.TryGetValue(
+                        identity,
+                        out outcome!))
                 {
-                    return MethodOwner.Unsupported(
-                        "member-reference signature nesting depth exceeded");
+                    outcome = _memberReferenceOwners.GetOrAdd(
+                        identity,
+                        Capture(() =>
+                        {
+                            ReserveMethodReferenceDecodeWork(
+                                identity.Signature.Bytes.Length);
+                            return MemberReferenceOwner(reference, scope);
+                        }));
                 }
-                return new(
-                    declaring,
-                    MethodGenericArity(member.Signature),
-                    Supported: true);
+                break;
             default:
                 return MethodOwner.Unsupported(
                     $"callee handle kind {handle.Kind}");
         }
+        if (outcome.Failure is { } failure)
+            throw new MethodSignatureFailureException(failure);
+        return outcome.Owner;
     }
+
+    static MethodOwnerOutcome Capture(Func<MethodOwner> resolve)
+    {
+        try
+        {
+            return new(resolve(), Failure: null);
+        }
+        catch (Exception exception)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(exception))
+        {
+            return new(default, Planning.ProducerFailure.Describe(exception));
+        }
+    }
+
+    // MemberResolver.ResolveMethod's MethodDef reads, in order.
+    MethodOwner MethodDefinitionOwner(MethodDefinitionHandle handle)
+    {
+        MethodDefinition method = _reader.GetMethodDefinition(handle);
+        TypeDefinition declaringType =
+            _reader.GetTypeDefinition(method.GetDeclaringType());
+        TypeRef declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(
+            _reader,
+            method.GetDeclaringType(),
+            0);
+        _ = MemberResolver.GenericParameterNames(
+            _reader,
+            declaringType.GetGenericParameters());
+        _ = MemberResolver.GenericParameterNames(
+            _reader,
+            method.GetGenericParameters());
+        MethodSignatureOutcome signature = MethodSignature(method.Signature);
+        if (!signature.Safe)
+        {
+            return MethodOwner.Unsupported(
+                "method signature nesting depth exceeded");
+        }
+        signature.ThrowIfFailed();
+        _ = _reader.GetString(method.Name);
+        if (signature.ParameterCount > 0)
+        {
+            foreach (ParameterHandle parameter in method.GetParameters())
+                _ = _reader.GetParameter(parameter);
+        }
+        return new(declaring, signature.GenericArity, Supported: true);
+    }
+
+    // MemberResolver.ResolveMethod's MemberRef reads, in order.
+    MethodOwner MemberReferenceOwner(
+        MemberReferenceHandle handle,
+        GenericScope scope)
+    {
+        MemberReference member = _reader.GetMemberReference(handle);
+        TypeRef declaring = MemberResolver.ResolveParentType(
+            _reader,
+            member.Parent,
+            scope);
+        MethodSignatureOutcome signature = MethodSignature(member.Signature);
+        if (!signature.Safe)
+        {
+            return MethodOwner.Unsupported(
+                "member-reference signature nesting depth exceeded");
+        }
+        signature.ThrowIfFailed();
+        _ = _reader.GetString(member.Name);
+        return new(declaring, signature.GenericArity, Supported: true);
+    }
+
+    sealed record MethodOwnerOutcome(MethodOwner Owner, string? Failure);
 
     // Signatures are shared by many methods, so each blob is guarded and fully
     // decoded once per execution, and its outcome, including a recoverable
@@ -925,10 +1057,15 @@ internal sealed class LibraryBodyMethodReferenceResolver
         {
             try
             {
+                (int arity, int parameters) =
+                    MemberResolver.MethodSignatureShape(_reader, signature);
                 outcome = new(
                     Safe: true,
-                    MemberResolver.MethodGenericArity(_reader, signature),
-                    Failure: null);
+                    arity,
+                    Failure: null)
+                {
+                    ParameterCount = parameters,
+                };
             }
             catch (Exception exception)
                 when (LibraryMethodAnalysisRunner
@@ -941,13 +1078,6 @@ internal sealed class LibraryBodyMethodReferenceResolver
             }
         }
         return _methodSignatures.GetOrAdd(signature, outcome);
-    }
-
-    int MethodGenericArity(BlobHandle signature)
-    {
-        MethodSignatureOutcome outcome = MethodSignature(signature);
-        outcome.ThrowIfFailed();
-        return outcome.GenericArity;
     }
 
     ImmutableArray<TypeRef> DecodeMethodSpecificationArguments(
@@ -969,6 +1099,20 @@ internal sealed class LibraryBodyMethodReferenceResolver
             specification.DecodeSignature(
                 TypeRefDecoder.Instance,
                 scope);
+        ValidateMethodSpecificationArguments(
+            arguments,
+            targetSupported,
+            targetGenericArity,
+            scope);
+        return arguments;
+    }
+
+    static void ValidateMethodSpecificationArguments(
+        ImmutableArray<TypeRef> arguments,
+        bool targetSupported,
+        int targetGenericArity,
+        GenericScope scope)
+    {
         if (!targetSupported
             || targetGenericArity == 0
             || arguments.Length != targetGenericArity
@@ -982,7 +1126,6 @@ internal sealed class LibraryBodyMethodReferenceResolver
             throw new BadImageFormatException(
                 "The MethodSpec signature is invalid for its target and caller scope.");
         }
-        return arguments;
     }
 
     MemberRef DecodeMethodSpecification(
@@ -1074,6 +1217,8 @@ internal sealed record MethodSignatureOutcome(
     int GenericArity,
     string? Failure)
 {
+    internal int ParameterCount { get; init; }
+
     internal static MethodSignatureOutcome Unsafe { get; } =
         new(Safe: false, 0, Failure: null);
 
