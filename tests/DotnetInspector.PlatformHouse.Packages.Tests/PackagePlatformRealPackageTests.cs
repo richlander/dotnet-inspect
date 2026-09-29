@@ -181,6 +181,10 @@ public sealed class PackagePlatformRealPackageTests
                             cancellationToken,
                             operationTimeout:
                                 request.Work.MaxDuration)));
+        Assert.Equal(
+            PackagePayloadOrigin.Download,
+            Assert.Single(implementation.Value.Frameworks).Origin);
+        Assert.True(implementation.Value.Libraries.Length > 1);
         var consumed = new PlatformHouseConsumedWork(
             sourceOperations: implementation.Value.Frameworks.Length,
             targetCandidates: 0,
@@ -335,6 +339,10 @@ public sealed class PackagePlatformRealPackageTests
                             cancellationToken,
                             operationTimeout:
                                 request.Work.MaxDuration)));
+        Assert.Equal(
+            PackagePayloadOrigin.Download,
+            Assert.Single(implementation.Value.Frameworks).Origin);
+        Assert.True(implementation.Value.Libraries.Length > 1);
         var consumed = new PlatformHouseConsumedWork(
             sourceOperations: 1 + implementation.Value.Frameworks.Length,
             targetCandidates: 0,
@@ -497,6 +505,18 @@ public sealed class PackagePlatformRealPackageTests
                             cancellationToken,
                             operationTimeout:
                                 request.Work.MaxDuration)));
+        Assert.Equal(
+            PackagePayloadOrigin.Ranged,
+            Assert.Single(implementation.Value.Frameworks).Origin);
+        Assert.Equal(
+            "System.Text.Json",
+            Assert.Single(implementation.Value.Libraries).Identity.Name);
+        Assert.Null(
+            store.TryGetCached(
+                PackagePlatformTestEnvironment
+                    .RuntimeImplementationPackageId,
+                PackagePlatformTestEnvironment.Version,
+                null));
         var consumed = new PlatformHouseConsumedWork(
             sourceOperations: 1 + implementation.Value.Frameworks.Length,
             targetCandidates: 0,
