@@ -165,6 +165,7 @@ public sealed class MetadataDeclarationSession : IDisposable
                         operation,
                         _methodSemanticsAssociations!,
                         PostMethodDeclaration,
+                        PostTypeDeclaration,
                         GetOrCreateTypeDefinitionIndex,
                         GetOrCreateMemorySafetyIndex)
                     .Post(request, token);

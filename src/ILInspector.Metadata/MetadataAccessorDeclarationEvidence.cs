@@ -104,6 +104,39 @@ public enum MetadataAccessorSemanticsRole
     Other,
 }
 
+public enum MetadataEventTypeCategoryStatus
+{
+    ConfirmedDelegate,
+    Unavailable,
+}
+
+public enum MetadataAccessorOrdinaryCallableStatus
+{
+    Ordinary,
+    NonOrdinary,
+}
+
+public enum MetadataAccessorRoleCorrespondenceStatus
+{
+    NotApplicable,
+    Exact,
+    Mismatch,
+}
+
+public enum MetadataAccessorPrerequisiteStatus
+{
+    NotApplicable,
+    Satisfied,
+    Unavailable,
+}
+
+public enum MetadataPropertyAccessorMultiplicityStatus
+{
+    NotApplicable,
+    Conventional,
+    NonConventional,
+}
+
 public sealed record MetadataPropertySignatureIdentity(
     byte Header,
     int GenericParameterCount,
@@ -142,9 +175,26 @@ public abstract record MetadataAccessorRootDeclarationEvidence(
     public sealed record Event(
         InertString Name,
         EventAttributes Attributes,
-        MetadataTypeIdentity EventType)
+        MetadataTypeIdentity EventType,
+        MetadataEventTypeCategoryStatus TypeCategory)
         : MetadataAccessorRootDeclarationEvidence(Name);
 }
+
+public sealed record MetadataAccessorRoleCorrespondenceEvidence(
+    MetadataAccessorRoleCorrespondenceStatus Status,
+    bool? ReturnTypeMatches,
+    bool? ParameterTypesMatch,
+    bool? ValueTypeMatches,
+    bool? InstanceMatches);
+
+public sealed record MetadataAccessorOccurrenceCorrespondenceEvidence(
+    MetadataAccessorOrdinaryCallableStatus OrdinaryCallable,
+    MetadataAccessorRoleCorrespondenceEvidence Role,
+    MetadataAccessorPrerequisiteStatus Prerequisite);
+
+public sealed record MetadataAccessorAggregateCorrespondenceEvidence(
+    MetadataPropertyAccessorMultiplicityStatus PropertyMultiplicity,
+    bool? EventAddRemoveStaticnessMatches);
 
 public sealed record MetadataAccessorDeclarationSafetyEvidence(
     ApiTypeLayout DeclaringTypeLayout,
@@ -156,6 +206,7 @@ public sealed record MetadataAccessorSemanticsOccurrence(
     ushort RawSemantics,
     MetadataAccessorSemanticsRole Role,
     MetadataMethodDeclarationEvidence Method,
+    MetadataAccessorOccurrenceCorrespondenceEvidence Correspondence,
     ApiMemberMemorySafetyFacts MemorySafety);
 
 public sealed record MetadataAccessorDeclarationEvidence(
@@ -163,14 +214,15 @@ public sealed record MetadataAccessorDeclarationEvidence(
     MetadataAccessorDeclarationAddress Declaration,
     MetadataAccessorRootDeclarationEvidence Root,
     MetadataAccessorDeclarationSafetyEvidence Safety,
+    MetadataAccessorAggregateCorrespondenceEvidence Correspondence,
     ImmutableArray<MetadataAccessorSemanticsOccurrence> Accessors);
 
 public enum MetadataAccessorDeclarationFailureReason
 {
-    InvalidRequest,
     MalformedMetadata,
+    RelationshipTraversal,
     BudgetExceeded,
-    AccessorDeclarationRejected,
+    SessionUnavailable,
 }
 
 public enum MetadataAccessorDeclarationStage
@@ -194,11 +246,11 @@ public enum MetadataAccessorDeclarationMechanism
     TextRetention,
     AssociationOrdering,
     RoleValidation,
-    DuplicateRole,
+    RoleCardinality,
     DirectOwnership,
     MethodDeclaration,
     SignatureCorrespondence,
-    DeclarationModifierConsistency,
+    TypeCategory,
     MemorySafety,
     StructuredRetention,
 }
@@ -269,6 +321,10 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         CancellationToken,
         MetadataMethodDeclarationResult> _postMethod;
     readonly Func<
+        MetadataTypeDefinitionAddress,
+        CancellationToken,
+        MetadataTypeDeclarationResult> _postType;
+    readonly Func<
         Action,
         Action<TypeDefinitionHandle>,
         Action,
@@ -288,6 +344,10 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             CancellationToken,
             MetadataMethodDeclarationResult> postMethod,
         Func<
+            MetadataTypeDefinitionAddress,
+            CancellationToken,
+            MetadataTypeDeclarationResult> postType,
+        Func<
             Action,
             Action<TypeDefinitionHandle>,
             Action,
@@ -299,12 +359,14 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(associations);
         ArgumentNullException.ThrowIfNull(postMethod);
+        ArgumentNullException.ThrowIfNull(postType);
         ArgumentNullException.ThrowIfNull(getIndex);
         ArgumentNullException.ThrowIfNull(getMemorySafetyIndex);
         _reader = reader;
         _context = context;
         _associations = associations;
         _postMethod = postMethod;
+        _postType = postType;
         _getIndex = getIndex;
         _getMemorySafetyIndex = getMemorySafetyIndex;
     }
@@ -329,7 +391,8 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             {
                 return Reject(
                     request,
-                    MetadataAccessorDeclarationFailureReason.InvalidRequest,
+                    MetadataAccessorDeclarationFailureReason
+                        .SessionUnavailable,
                     MetadataAccessorDeclarationStage.RequestValidation,
                     MetadataAccessorDeclarationMechanism.AddressResolution,
                     "The requested declaring TypeDef or accessor aggregate does not resolve in this image.");
@@ -346,7 +409,8 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             {
                 return Reject(
                     request,
-                    MetadataAccessorDeclarationFailureReason.InvalidRequest,
+                    MetadataAccessorDeclarationFailureReason
+                        .SessionUnavailable,
                     MetadataAccessorDeclarationStage.RequestValidation,
                     MetadataAccessorDeclarationMechanism.DirectOwnership,
                     "The requested property or event is not directly declared by the requested TypeDef.");
@@ -395,8 +459,9 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
 
             var pending =
                 ImmutableArray.CreateBuilder<PendingOccurrence>();
-            var conventionalRoles =
-                new HashSet<MetadataAccessorSemanticsRole>();
+            int addCount = 0;
+            int removeCount = 0;
+            int fireCount = 0;
             MetadataMethodSemanticsAssociationKind associationKind =
                 request.Declaration.Kind switch
                 {
@@ -448,20 +513,17 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                         association.RawSemantics);
                 }
 
-                if (role != MetadataAccessorSemanticsRole.Other
-                    && !conventionalRoles.Add(role))
+                switch (role)
                 {
-                    return Reject(
-                        request,
-                        MetadataAccessorDeclarationFailureReason
-                            .MalformedMetadata,
-                        MetadataAccessorDeclarationStage
-                            .AssociationCensus,
-                        MetadataAccessorDeclarationMechanism
-                            .DuplicateRole,
-                        "The accessor aggregate contains a duplicate conventional semantic role.",
-                        association.PhysicalRowNumber,
-                        association.RawSemantics);
+                    case MetadataAccessorSemanticsRole.AddOn:
+                        addCount++;
+                        break;
+                    case MetadataAccessorSemanticsRole.RemoveOn:
+                        removeCount++;
+                        break;
+                    case MetadataAccessorSemanticsRole.Fire:
+                        fireCount++;
+                        break;
                 }
 
                 MethodDefinition method =
@@ -523,12 +585,20 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                         return Reject(
                             request,
                             failure.Reason
-                                == MetadataMethodDeclarationFailureReason
-                                    .BudgetExceeded
-                                ? MetadataAccessorDeclarationFailureReason
-                                    .BudgetExceeded
-                                : MetadataAccessorDeclarationFailureReason
-                                    .AccessorDeclarationRejected,
+                                switch
+                                {
+                                    MetadataMethodDeclarationFailureReason
+                                        .BudgetExceeded =>
+                                            MetadataAccessorDeclarationFailureReason
+                                                .BudgetExceeded,
+                                    MetadataMethodDeclarationFailureReason
+                                        .Cycle =>
+                                            MetadataAccessorDeclarationFailureReason
+                                                .RelationshipTraversal,
+                                    _ =>
+                                        MetadataAccessorDeclarationFailureReason
+                                            .MalformedMetadata,
+                                },
                             MetadataAccessorDeclarationStage
                                 .AccessorDeclaration,
                             MetadataAccessorDeclarationMechanism
@@ -574,7 +644,26 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                     owner,
                     token,
                     ref site);
-            ValidateConsistency(root, resolved, owner, ref site);
+            if (request.Declaration.Kind
+                    == MetadataAccessorDeclarationKind.Event
+                && (addCount != 1
+                    || removeCount != 1
+                    || fireCount > 1))
+            {
+                return Reject(
+                    request,
+                    MetadataAccessorDeclarationFailureReason
+                        .MalformedMetadata,
+                    MetadataAccessorDeclarationStage.AssociationCensus,
+                    MetadataAccessorDeclarationMechanism.RoleCardinality,
+                    "An event aggregate requires exactly one add occurrence, exactly one remove occurrence, and at most one raise occurrence.");
+            }
+            AccessorCorrespondenceRead correspondence =
+                ReadCorrespondence(
+                    root,
+                    resolved,
+                    owner,
+                    ref site);
 
             site = new(
                 MetadataAccessorDeclarationStage.SafetyEvidence,
@@ -598,8 +687,9 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             var accessors =
                 ImmutableArray.CreateBuilder<
                     MetadataAccessorSemanticsOccurrence>(
-                        resolved.Count);
-            foreach (ResolvedOccurrence occurrence in resolved)
+                        correspondence.Occurrences.Length);
+            foreach (ClassifiedOccurrence occurrence
+                in correspondence.Occurrences)
             {
                 token.ThrowIfCancellationRequested();
                 _context.ObserveWork(
@@ -613,6 +703,7 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                         occurrence.RawSemantics,
                         occurrence.Role,
                         occurrence.Method,
+                        occurrence.Correspondence,
                         ApiMemorySafetyFacts.Read(
                             _reader,
                             memorySafety,
@@ -635,6 +726,7 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                     request.Declaration,
                     root,
                     safety,
+                    correspondence.Aggregate,
                     accessors.MoveToImmutable()),
                 _context.Counters);
         }
@@ -674,8 +766,12 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                         or RelationshipTraversalRejectionKind.NameBudget
                     ? MetadataAccessorDeclarationFailureReason
                         .BudgetExceeded
-                    : MetadataAccessorDeclarationFailureReason
-                        .MalformedMetadata,
+                    : ex.Rejection.Kind
+                        == RelationshipTraversalRejectionKind.Cycle
+                            ? MetadataAccessorDeclarationFailureReason
+                                .RelationshipTraversal
+                            : MetadataAccessorDeclarationFailureReason
+                                .MalformedMetadata,
                 site.Stage,
                 MetadataAccessorDeclarationMechanism
                     .RelationshipTraversal,
@@ -764,6 +860,15 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         PropertyDefinition definition =
             _reader.GetPropertyDefinition(handle);
         PropertyAttributes attributes = definition.Attributes;
+        const PropertyAttributes allowedAttributes =
+            PropertyAttributes.SpecialName
+            | PropertyAttributes.RTSpecialName
+            | PropertyAttributes.HasDefault;
+        if ((attributes & ~allowedAttributes) != 0)
+        {
+            throw new BadImageFormatException(
+                "The PropertyDef attributes contain reserved flags.");
+        }
         StringHandle nameHandle = definition.Name;
         BlobHandle signatureBlob = definition.Signature;
         site = site with
@@ -848,6 +953,14 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         EventDefinition definition =
             _reader.GetEventDefinition(handle);
         EventAttributes attributes = definition.Attributes;
+        const EventAttributes allowedAttributes =
+            EventAttributes.SpecialName
+            | EventAttributes.RTSpecialName;
+        if ((attributes & ~allowedAttributes) != 0)
+        {
+            throw new BadImageFormatException(
+                "The EventDef attributes contain reserved flags.");
+        }
         StringHandle nameHandle = definition.Name;
         EntityHandle eventTypeHandle = definition.Type;
         if (!IsValidType(eventTypeHandle))
@@ -875,15 +988,23 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         site = site with
         {
             Mechanism =
+                MetadataAccessorDeclarationMechanism.TypeCategory,
+        };
+        MetadataEventTypeCategoryStatus typeCategory =
+            ReadEventTypeCategory(identity, site);
+        site = site with
+        {
+            Mechanism =
                 MetadataAccessorDeclarationMechanism.TextRetention,
         };
         return new(
             Retain(ReadName(nameHandle)),
             attributes,
-            identity);
+            identity,
+            typeCategory);
     }
 
-    void ValidateConsistency(
+    AccessorCorrespondenceRead ReadCorrespondence(
         MetadataAccessorRootDeclarationEvidence root,
         ImmutableArray<ResolvedOccurrence>.Builder accessors,
         TypeDefinition owner,
@@ -893,12 +1014,11 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             MetadataAccessorDeclarationStage.ConsistencyValidation,
             MetadataAccessorDeclarationMechanism
                 .SignatureCorrespondence);
-        MethodAttributes? declarationModifiers = null;
+        var classified =
+            ImmutableArray.CreateBuilder<ClassifiedOccurrence>(
+                accessors.Count);
         foreach (ResolvedOccurrence accessor in accessors)
         {
-            if (accessor.Role == MetadataAccessorSemanticsRole.Other)
-                continue;
-
             site = site with
             {
                 PhysicalRowNumber = accessor.PhysicalRowNumber,
@@ -920,67 +1040,104 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             if (signatureFailure is not null)
                 throw new BadImageFormatException(signatureFailure);
 
-            MetadataMethodSignatureIdentity signature =
-                accessor.Method.Signature;
-            SignatureHeader header = decoded.Signature.Header;
-            if (header.HasExplicitThis
-                || header.IsGeneric
-                || header.CallingConvention
-                    != SignatureCallingConvention.Default
-                || decoded.Signature.GenericParameterCount != 0
-                || decoded.Signature.RequiredParameterCount
-                    != decoded.Signature.ParameterTypes.Length)
-            {
-                throw new BadImageFormatException(
-                    "A conventional accessor does not carry a complete ordinary method signature.");
-            }
-            bool methodIsStatic =
-                (accessor.Method.Attributes
-                    & MethodAttributes.Static) != 0;
-            if (methodIsStatic == header.IsInstance)
-            {
-                throw new BadImageFormatException(
-                    "A conventional accessor does not carry a complete ordinary method signature.");
-            }
-
-            MethodAttributes modifiers =
-                accessor.Method.Attributes
-                & AccessorDeclarationModifierMask;
-            if (declarationModifiers is not null
-                && declarationModifiers != modifiers)
-            {
-                site = site with
+            MetadataAccessorRoleCorrespondenceEvidence role =
+                root switch
                 {
-                    Mechanism =
-                        MetadataAccessorDeclarationMechanism
-                            .DeclarationModifierConsistency,
+                    MetadataAccessorRootDeclarationEvidence.Property
+                        property =>
+                        PropertyAccessorCorrespondence(
+                            accessor.Role,
+                            accessor.Method.Signature,
+                            property.Signature),
+                    MetadataAccessorRootDeclarationEvidence.Event
+                        eventRoot =>
+                        EventAccessorCorrespondence(
+                            accessor.Role,
+                            accessor.Method.Signature,
+                            eventRoot.EventType),
+                    _ => throw new InvalidOperationException(
+                        "Unknown accessor root evidence."),
                 };
-                throw new BadImageFormatException(
-                    "The conventional accessors do not share one declaration modifier shape.");
-            }
-            declarationModifiers = modifiers;
-
-            bool consistent = root switch
-            {
-                MetadataAccessorRootDeclarationEvidence.Property
-                    propertyRoot =>
-                    PropertyAccessorMatches(
-                        accessor.Role,
-                        signature,
-                        propertyRoot.Signature),
-                MetadataAccessorRootDeclarationEvidence.Event @event =>
-                    EventAccessorMatches(
-                        accessor.Role,
-                        signature,
-                        @event.EventType),
-                _ => false,
-            };
-            if (!consistent)
-            {
-                throw new BadImageFormatException(
-                    "A conventional accessor signature does not correspond to its root declaration.");
-            }
+            MetadataAccessorPrerequisiteStatus prerequisite =
+                root is MetadataAccessorRootDeclarationEvidence.Event @event
+                    && accessor.Role is (
+                        MetadataAccessorSemanticsRole.AddOn
+                        or MetadataAccessorSemanticsRole.RemoveOn)
+                    ? @event.TypeCategory
+                        == MetadataEventTypeCategoryStatus.ConfirmedDelegate
+                            ? MetadataAccessorPrerequisiteStatus.Satisfied
+                            : MetadataAccessorPrerequisiteStatus.Unavailable
+                    : MetadataAccessorPrerequisiteStatus.NotApplicable;
+            _context.Charge(
+                MetadataOperationDimension.StructuredNodes,
+                2);
+            classified.Add(
+                new(
+                    accessor.PhysicalRowNumber,
+                    accessor.RawSemantics,
+                    accessor.Role,
+                    accessor.Method,
+                    new(
+                        IsOrdinaryCallable(
+                            decoded.Signature,
+                            accessor.Method.Attributes)
+                            ? MetadataAccessorOrdinaryCallableStatus.Ordinary
+                            : MetadataAccessorOrdinaryCallableStatus
+                                .NonOrdinary,
+                        role,
+                        prerequisite)));
         }
+
+        MetadataPropertyAccessorMultiplicityStatus propertyMultiplicity =
+            root is MetadataAccessorRootDeclarationEvidence.Property
+                ? classified.Count(accessor =>
+                        accessor.Role
+                            == MetadataAccessorSemanticsRole.Getter) <= 1
+                    && classified.Count(accessor =>
+                        accessor.Role
+                            == MetadataAccessorSemanticsRole.Setter) <= 1
+                        ? MetadataPropertyAccessorMultiplicityStatus
+                            .Conventional
+                        : MetadataPropertyAccessorMultiplicityStatus
+                            .NonConventional
+                : MetadataPropertyAccessorMultiplicityStatus.NotApplicable;
+        bool? eventStaticnessMatches = null;
+        if (root is MetadataAccessorRootDeclarationEvidence.Event)
+        {
+            ClassifiedOccurrence add = classified.Single(accessor =>
+                accessor.Role == MetadataAccessorSemanticsRole.AddOn);
+            ClassifiedOccurrence remove = classified.Single(accessor =>
+                accessor.Role == MetadataAccessorSemanticsRole.RemoveOn);
+            eventStaticnessMatches =
+                IsStatic(add.Method.Attributes)
+                == IsStatic(remove.Method.Attributes);
+        }
+
+        _context.Charge(
+            MetadataOperationDimension.StructuredNodes);
+        return new(
+            new(
+                propertyMultiplicity,
+                eventStaticnessMatches),
+            classified.MoveToImmutable());
+
+        static bool IsOrdinaryCallable(
+            MethodSignature<TypeNode> signature,
+            MethodAttributes attributes)
+        {
+            SignatureHeader header = signature.Header;
+            return !header.HasExplicitThis
+                && !header.IsGeneric
+                && header.CallingConvention
+                    == SignatureCallingConvention.Default
+                && signature.GenericParameterCount == 0
+                && signature.RequiredParameterCount
+                    == signature.ParameterTypes.Length
+                && IsStatic(attributes) != header.IsInstance;
+        }
+
+        static bool IsStatic(MethodAttributes attributes) =>
+            (attributes & MethodAttributes.Static) != 0;
 
         DecodedAccessorSignature DecodeAccessorSignature(
             MethodDefinitionHandle handle,
@@ -1020,79 +1177,210 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                     static parameter => parameter.IsDegraded))
             {
                 throw new BadImageFormatException(
-                    "A conventional accessor signature cannot be decoded completely.");
+                    "An accessor MethodDef signature cannot be decoded completely.");
             }
             return new(
                 decoded.Value,
                 generic.TypeParameters.Count,
                 generic.MethodParameters.Count);
         }
-
-        if (root
-                is MetadataAccessorRootDeclarationEvidence.Property property)
-        {
-            SignatureHeader header =
-                new(property.Signature.Header);
-            bool propertyIsStatic = !header.IsInstance;
-            foreach (ResolvedOccurrence accessor in accessors)
-            {
-                if (accessor.Role is not (
-                        MetadataAccessorSemanticsRole.Getter
-                        or MetadataAccessorSemanticsRole.Setter))
-                {
-                    continue;
-                }
-                bool methodIsStatic =
-                    (accessor.Method.Attributes
-                        & MethodAttributes.Static) != 0;
-                if (methodIsStatic != propertyIsStatic)
-                {
-                    throw new BadImageFormatException(
-                        "A property accessor's staticness does not match the PropertyDef signature.");
-                }
-            }
-        }
     }
 
-    static bool PropertyAccessorMatches(
-        MetadataAccessorSemanticsRole role,
-        MetadataMethodSignatureIdentity accessor,
-        MetadataPropertySignatureIdentity property) =>
-        role switch
+    static MetadataAccessorRoleCorrespondenceEvidence
+        PropertyAccessorCorrespondence(
+            MetadataAccessorSemanticsRole role,
+            MetadataMethodSignatureIdentity accessor,
+            MetadataPropertySignatureIdentity property)
+    {
+        if (role is not (
+                MetadataAccessorSemanticsRole.Getter
+                or MetadataAccessorSemanticsRole.Setter))
         {
-            MetadataAccessorSemanticsRole.Getter =>
-                Equals(accessor.ReturnType, property.ValueType)
-                && MetadataIdentitySequence.Equal(
+            return NotApplicableCorrespondence();
+        }
+
+        bool returnMatches;
+        bool parameterTypesMatch;
+        bool? valueTypeMatches;
+        if (role == MetadataAccessorSemanticsRole.Getter)
+        {
+            returnMatches =
+                Equals(accessor.ReturnType, property.ValueType);
+            parameterTypesMatch =
+                MetadataIdentitySequence.Equal(
                     accessor.ParameterTypes,
-                    property.IndexParameterTypes),
-            MetadataAccessorSemanticsRole.Setter =>
-                IsVoid(accessor.ReturnType)
-                && accessor.ParameterTypes.Length
-                    == property.IndexParameterTypes.Length + 1
+                    property.IndexParameterTypes);
+            valueTypeMatches = null;
+        }
+        else
+        {
+            returnMatches = IsVoid(accessor.ReturnType);
+            int indexCount = property.IndexParameterTypes.Length;
+            parameterTypesMatch =
+                accessor.ParameterTypes.Length >= indexCount
                 && MetadataIdentitySequence.Equal(
-                    accessor.ParameterTypes[
-                        ..property.IndexParameterTypes.Length],
-                    property.IndexParameterTypes)
+                    accessor.ParameterTypes[..indexCount],
+                    property.IndexParameterTypes);
+            valueTypeMatches =
+                accessor.ParameterTypes.Length == indexCount + 1
                 && Equals(
                     accessor.ParameterTypes[^1],
-                    property.ValueType),
-            _ => true,
-        };
+                    property.ValueType);
+        }
 
-    static bool EventAccessorMatches(
-        MetadataAccessorSemanticsRole role,
-        MetadataMethodSignatureIdentity accessor,
-        MetadataTypeIdentity eventType) =>
-        role switch
+        bool instanceMatches =
+            new SignatureHeader(accessor.Header).IsInstance
+            == new SignatureHeader(property.Header).IsInstance;
+        bool exact =
+            returnMatches
+            && parameterTypesMatch
+            && valueTypeMatches is not false
+            && instanceMatches;
+        return new(
+            exact
+                ? MetadataAccessorRoleCorrespondenceStatus.Exact
+                : MetadataAccessorRoleCorrespondenceStatus.Mismatch,
+            returnMatches,
+            parameterTypesMatch,
+            valueTypeMatches,
+            instanceMatches);
+    }
+
+    static MetadataAccessorRoleCorrespondenceEvidence
+        EventAccessorCorrespondence(
+            MetadataAccessorSemanticsRole role,
+            MetadataMethodSignatureIdentity accessor,
+            MetadataTypeIdentity eventType)
+    {
+        if (role is not (
+                MetadataAccessorSemanticsRole.AddOn
+                or MetadataAccessorSemanticsRole.RemoveOn))
         {
-            MetadataAccessorSemanticsRole.AddOn
-                or MetadataAccessorSemanticsRole.RemoveOn =>
-                IsVoid(accessor.ReturnType)
-                && accessor.ParameterTypes.Length == 1
-                && Equals(accessor.ParameterTypes[0], eventType),
-            MetadataAccessorSemanticsRole.Fire => true,
-            _ => true,
+            return NotApplicableCorrespondence();
+        }
+
+        bool returnMatches = IsVoid(accessor.ReturnType);
+        bool parameterTypesMatch =
+            accessor.ParameterTypes.Length == 1
+            && Equals(accessor.ParameterTypes[0], eventType);
+        return new(
+            returnMatches && parameterTypesMatch
+                ? MetadataAccessorRoleCorrespondenceStatus.Exact
+                : MetadataAccessorRoleCorrespondenceStatus.Mismatch,
+            returnMatches,
+            parameterTypesMatch,
+            ValueTypeMatches: null,
+            InstanceMatches: null);
+    }
+
+    static MetadataAccessorRoleCorrespondenceEvidence
+        NotApplicableCorrespondence() =>
+        new(
+            MetadataAccessorRoleCorrespondenceStatus.NotApplicable,
+            ReturnTypeMatches: null,
+            ParameterTypesMatch: null,
+            ValueTypeMatches: null,
+            InstanceMatches: null);
+
+    MetadataEventTypeCategoryStatus ReadEventTypeCategory(
+        MetadataTypeIdentity eventType,
+        MetadataAccessorDeclarationSite site)
+    {
+        while (eventType is MetadataTypeIdentity.Modified modified)
+            eventType = modified.Type;
+
+        MetadataNamedTypeIdentity? definition;
+        bool isValueType;
+        switch (eventType)
+        {
+            case MetadataTypeIdentity.Named named:
+                definition = named.Definition;
+                isValueType = named.IsValueType;
+                break;
+            case MetadataTypeIdentity.GenericInstance generic:
+                definition = generic.Definition;
+                isValueType = generic.IsValueType;
+                break;
+            case MetadataTypeIdentity.GenericParameter:
+                return MetadataEventTypeCategoryStatus.Unavailable;
+            default:
+                throw new BadImageFormatException(
+                    "The EventDef type is not a delegate type.");
+        }
+
+        if (isValueType)
+        {
+            throw new BadImageFormatException(
+                "The EventDef type is not a delegate type.");
+        }
+        if (definition.Scope.Kind
+                != MetadataTypeScopeKind.CurrentModule
+            || definition.Scope.ModuleVersionId
+                != MetadataModuleIdentity.ReadVersionId(_reader))
+        {
+            return MetadataEventTypeCategoryStatus.Unavailable;
+        }
+
+        MetadataTypeDefinitionNameResult nameResult =
+            MetadataTypeDefinitionName.Create(
+                definition.Namespace.ToString(),
+                definition.Segments
+                    .Select(segment => segment.ToString())
+                    .ToImmutableArray());
+        if (nameResult
+            is not MetadataTypeDefinitionNameResult.Valid valid)
+        {
+            throw new BadImageFormatException(
+                "The local EventDef type does not have a valid definition name.");
+        }
+
+        MetadataTypeDefinitionIndex index = Index(_reader);
+        if (!index.TryGetDefinition(
+                valid.Name,
+                out TypeDefinitionHandle handle,
+                out bool ambiguous)
+            || ambiguous)
+        {
+            throw new BadImageFormatException(
+                "The local EventDef type does not resolve to one TypeDef.");
+        }
+
+        site = site with
+        {
+            Mechanism = MetadataAccessorDeclarationMechanism.TypeCategory,
         };
+        MetadataTypeDeclarationResult result =
+            _postType(
+                MetadataTypeDefinitionAddress.FromHandle(_reader, handle),
+                _token);
+        if (result is MetadataTypeDeclarationResult.Rejected rejected)
+        {
+            throw new AccessorDeclarationRejectedException(
+                rejected.Failure.Reason switch
+                {
+                    MetadataTypeDeclarationFailureReason.BudgetExceeded =>
+                        MetadataAccessorDeclarationFailureReason
+                            .BudgetExceeded,
+                    MetadataTypeDeclarationFailureReason.Cycle =>
+                        MetadataAccessorDeclarationFailureReason
+                            .RelationshipTraversal,
+                    _ =>
+                        MetadataAccessorDeclarationFailureReason
+                            .MalformedMetadata,
+                },
+                rejected.Failure.Detail);
+        }
+        MetadataTypeDeclarationEvidence evidence =
+            ((MetadataTypeDeclarationResult.Posted)result).Evidence;
+        if (evidence.Category
+            != MetadataTypeDeclarationCategory.Delegate)
+        {
+            throw new BadImageFormatException(
+                "The local EventDef type is not a delegate.");
+        }
+
+        return MetadataEventTypeCategoryStatus.ConfirmedDelegate;
+    }
 
     static bool IsVoid(MetadataTypeIdentity type)
     {
@@ -1239,13 +1527,19 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         catch (MetadataTypeDefinitionIndexFailureException ex)
         {
             throw new AccessorDeclarationRejectedException(
-                ex.Kind
-                    == MetadataTypeDefinitionIndexFailureKind
-                        .BudgetExceeded
-                    ? MetadataAccessorDeclarationFailureReason
-                        .BudgetExceeded
-                    : MetadataAccessorDeclarationFailureReason
-                        .MalformedMetadata,
+                ex.Kind switch
+                {
+                    MetadataTypeDefinitionIndexFailureKind
+                        .BudgetExceeded =>
+                            MetadataAccessorDeclarationFailureReason
+                                .BudgetExceeded,
+                    MetadataTypeDefinitionIndexFailureKind.Cycle =>
+                        MetadataAccessorDeclarationFailureReason
+                            .RelationshipTraversal,
+                    _ =>
+                        MetadataAccessorDeclarationFailureReason
+                            .MalformedMetadata,
+                },
                 ex.Message);
         }
     }
@@ -1294,7 +1588,7 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                 TypeSpecificationRootReadResult.Cycle value =>
                     new AccessorDeclarationRejectedException(
                         MetadataAccessorDeclarationFailureReason
-                            .MalformedMetadata,
+                            .RelationshipTraversal,
                         value.Detail),
                 TypeSpecificationRootReadResult.Unsupported value =>
                     new AccessorDeclarationRejectedException(
@@ -1320,9 +1614,15 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         _context.Charge(
             MetadataOperationDimension.StructuredNodes,
             bytes);
-        return MetadataSafetyPolicy.ReadStructuralString(
+        string name = MetadataSafetyPolicy.ReadStructuralString(
             _reader,
             handle);
+        if (name.Length == 0)
+        {
+            throw new BadImageFormatException(
+                "An accessor root name cannot be empty.");
+        }
+        return name;
     }
 
     InertString Retain(string value)
@@ -1468,6 +1768,18 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         MetadataAccessorSemanticsRole Role,
         MetadataMethodDeclarationEvidence Method);
 
+    readonly record struct ClassifiedOccurrence(
+        int PhysicalRowNumber,
+        ushort RawSemantics,
+        MetadataAccessorSemanticsRole Role,
+        MetadataMethodDeclarationEvidence Method,
+        MetadataAccessorOccurrenceCorrespondenceEvidence
+            Correspondence);
+
+    readonly record struct AccessorCorrespondenceRead(
+        MetadataAccessorAggregateCorrespondenceEvidence Aggregate,
+        ImmutableArray<ClassifiedOccurrence> Occurrences);
+
     readonly record struct MetadataAccessorDeclarationSite(
         MetadataAccessorDeclarationStage Stage,
         MetadataAccessorDeclarationMechanism Mechanism,
@@ -1480,12 +1792,6 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         int TypeParameterCount,
         int MethodParameterCount);
 
-    const MethodAttributes AccessorDeclarationModifierMask =
-        MethodAttributes.Static
-        | MethodAttributes.Virtual
-        | MethodAttributes.Abstract
-        | MethodAttributes.NewSlot
-        | MethodAttributes.Final;
     sealed class AccessorDeclarationRejectedException(
         MetadataAccessorDeclarationFailureReason reason,
         string detail) : Exception(detail)
