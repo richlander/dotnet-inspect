@@ -4,6 +4,7 @@ import {
   createTypeHeatCoordinator,
   familyHeatCue,
   familyHeatFor,
+  implementationHeatFamilyIsEligible,
   projectFamilyHeat,
   typeHeatCacheKey,
   type PackageTypeHeatRequest,
@@ -18,6 +19,49 @@ import type {
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 
 const typeId = "type:Example.Widget";
+
+test("heat admits only coherent ordinary or single-declarer extension families", () => {
+  const ordinary = {
+    name: "Parse",
+    kind: "method",
+    overloads: [{}, {}],
+  };
+  const extensions = {
+    name: "Deserialize",
+    kind: "extension-method",
+    overloads: [
+      { anchorTypeFullName: "System.Text.Json.JsonSerializer" },
+      { anchorTypeFullName: "System.Text.Json.JsonSerializer" },
+    ],
+  };
+  assert.equal(
+    implementationHeatFamilyIsEligible([ordinary, extensions], ordinary),
+    true);
+  assert.equal(
+    implementationHeatFamilyIsEligible([ordinary, extensions], extensions),
+    true);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      [extensions],
+      { ...extensions, overloads: [extensions.overloads[0]!] }),
+    false);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      [extensions],
+      {
+        ...extensions,
+        overloads: [
+          extensions.overloads[0]!,
+          { anchorTypeFullName: "Example.OtherExtensions" },
+        ],
+      }),
+    false);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      [ordinary, { ...extensions, name: ordinary.name }],
+      ordinary),
+    false);
+});
 
 function method(
   metadataToken: number,

@@ -41,6 +41,30 @@ interface PlatformTypeHeatRequest {
 
 export type TypeHeatRequest = PackageTypeHeatRequest | PlatformTypeHeatRequest;
 
+export interface ImplementationHeatFamilyCandidate {
+  readonly name: string;
+  readonly kind: string;
+  readonly overloads: ReadonlyArray<{
+    readonly anchorTypeFullName?: string;
+  }>;
+}
+
+export function implementationHeatFamilyIsEligible(
+  groups: ReadonlyArray<ImplementationHeatFamilyCandidate>,
+  group: ImplementationHeatFamilyCandidate,
+): boolean {
+  const declaringType = group.overloads[0]?.anchorTypeFullName;
+  const supportedKind = group.kind === "method"
+    || (group.kind === "extension-method"
+      && Boolean(declaringType)
+      && group.overloads.every(
+        overload => overload.anchorTypeFullName === declaringType));
+  return supportedKind
+    && group.overloads.length > 1
+    && groups.every(candidate =>
+      candidate.name !== group.name || candidate.kind === group.kind);
+}
+
 export function typeHeatCacheKey(request: TypeHeatRequest): string {
   return request.kind === "package"
     ? JSON.stringify([
