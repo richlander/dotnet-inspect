@@ -18,7 +18,9 @@ public enum MetadataTypeNameMatchResult
 
     /// <summary>
     /// A nested chain repeated a handle or exceeded
-    /// <see cref="MetadataSafetyPolicy.MaxRelationshipNodes"/>.
+    /// <see cref="MetadataSafetyPolicy.MaxRelationshipNodes"/>, or a TypeSpec
+    /// blob exceeded <see cref="TypeSpecGuard.MaxCumulativeBytes"/> or
+    /// <see cref="SignatureBlobGuard"/>'s structural bounds.
     /// </summary>
     ChainRejected,
 }
@@ -81,7 +83,12 @@ public sealed class MetadataTypeNameTarget
 /// refused by the decoder, so it spells no name. Every other element type
 /// spells a keyword, a suffix, a bracket, or a generic argument list, so it
 /// never equals a plain dotted name and is answered without decoding. A
-/// generic instantiation is answered the same way.
+/// generic instantiation is answered the same way. A TypeSpec blob that
+/// legacy's <see cref="TypeSpecGuard"/> refuses (longer than
+/// <see cref="TypeSpecGuard.MaxCumulativeBytes"/>, or over
+/// <see cref="SignatureBlobGuard"/>'s structural bounds) is rejected, so one
+/// read costs at most that many bytes; a caller memoizes TypeSpec answers per
+/// blob.
 /// </remarks>
 public static class MetadataTypeNameMatch
 {
@@ -100,10 +107,24 @@ public static class MetadataTypeNameMatch
         ArgumentNullException.ThrowIfNull(target);
         try
         {
-            if (type.Kind == HandleKind.TypeSpecification
-                && !TrySpelledType((TypeSpecificationHandle)type, reader, out type))
+            if (type.Kind == HandleKind.TypeSpecification)
             {
-                return MetadataTypeNameMatchResult.NoMatch;
+                BlobHandle signature = reader.GetTypeSpecification((TypeSpecificationHandle)type).Signature;
+                BlobReader blob = reader.GetBlobReader(signature);
+                if (blob.Length > TypeSpecGuard.MaxCumulativeBytes)
+                    return MetadataTypeNameMatchResult.ChainRejected;
+                switch (SignatureBlobGuard.CheckShape(reader, signature, SignatureBlobGuard.Kind.TypeSpecification))
+                {
+                    case SignatureBlobGuard.ShapeCheck.Safe:
+                        break;
+                    case SignatureBlobGuard.ShapeCheck.Malformed:
+                        return MetadataTypeNameMatchResult.Malformed;
+                    default:
+                        return MetadataTypeNameMatchResult.ChainRejected;
+                }
+
+                if (!TrySpelledType(ref blob, out type))
+                    return MetadataTypeNameMatchResult.NoMatch;
             }
 
             return type.Kind switch
@@ -123,10 +144,9 @@ public static class MetadataTypeNameMatch
     /// The TypeDef or TypeRef a TypeSpec spells by name, or false when it
     /// spells something no plain dotted name can equal.
     /// </summary>
-    static bool TrySpelledType(TypeSpecificationHandle handle, MetadataReader reader, out EntityHandle type)
+    static bool TrySpelledType(ref BlobReader blob, out EntityHandle type)
     {
         type = default;
-        BlobReader blob = reader.GetBlobReader(reader.GetTypeSpecification(handle).Signature);
         while (true)
         {
             byte code = blob.ReadByte();

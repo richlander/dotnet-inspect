@@ -129,12 +129,16 @@ Each Tier 1 test must equal the legacy test on every input:
     element type, spells a bracket, suffix, keyword, or argument list that
     never equals the two non-generic target names, so it is answered without
     decoding.
-  - Its answer is memoized per attribute constructor handle, and per
-    attribute type handle, for the execution. Total work is therefore linear
-    in the CustomAttribute, MemberRef, TypeRef, and TypeDef rows.
+  - Its answer is memoized per attribute constructor handle, per attribute
+    type handle, and for a `TypeSpecification` parent per signature blob, for
+    the execution. Total work is therefore linear in the CustomAttribute,
+    MemberRef, TypeRef, and TypeDef rows and the `#Blob` heap.
   - The existing `MaxRelationshipNodes` chain bound backstops each walk. A
-    chain that repeats a handle or exceeds the bound aborts; an unreadable
-    name fails the analyzer at that method.
+    `TypeSpecification` blob is read only where legacy's `TypeSpecGuard`
+    would decode it: within 4,096 bytes and `SignatureBlobGuard`'s structural
+    bounds. A chain that repeats a handle or exceeds the bound, or a blob
+    past legacy's guard, aborts; an unreadable name fails the analyzer at
+    that method.
 
   The match equals the materialized comparison for attribute types that are
   defined in the image or referenced, nested, or reached through a
@@ -396,7 +400,9 @@ work, tracked in #8733, and not part of this change.
 - **In-place attribute match.** It equals the materialized comparison on
   attribute types that are defined, referenced, nested, and reached through
   a `TypeSpec` parent (generic, `class`, modified, array, and self-naming).
-  A cyclic or over-bound nested chain aborts.
+  A cyclic or over-bound nested chain, and a `TypeSpec` blob past legacy's
+  byte or shape guard, abort. `TypeSpec` rows that share one blob read it
+  once.
 - **Async equals legacy.** On the pinned packages, the eight performance
   scorecard assemblies, and every built repository fixture, runtime-async
   rows equal legacy's `RuntimeAsync` rows, compiler-async rows its

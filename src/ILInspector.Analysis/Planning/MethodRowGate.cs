@@ -188,6 +188,7 @@ internal sealed class MethodRowGate
     readonly Dictionary<MethodRowClassifier, ClassifierCache> _classifiers = [];
     readonly Dictionary<(EntityHandle Constructor, MetadataTypeNameTarget Target), bool> _attributeConstructors = [];
     readonly Dictionary<(EntityHandle Type, MetadataTypeNameTarget Target), bool> _attributeTypes = [];
+    readonly Dictionary<(BlobHandle Signature, MetadataTypeNameTarget Target), bool> _attributeTypeSpecs = [];
 
     // The identity budget: legacy's per-scan budgets, per execution.
     int _identityWorkRemaining = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
@@ -375,9 +376,10 @@ internal sealed class MethodRowGate
     /// checked in attribute order and stopping at the first match, as
     /// <c>AttributeReader.HasAttribute</c> does, but compared in place with no
     /// name materialized. Each constructor's answer and each attribute type's
-    /// answer is memoized for the execution. A nested chain that repeats a
-    /// handle or exceeds its bound aborts; an unreadable name is a
-    /// recoverable failure.
+    /// answer is memoized for the execution, and a TypeSpec parent's answer
+    /// per signature blob. A nested chain that repeats a handle or exceeds its
+    /// bound, or a TypeSpec blob over legacy's guard, aborts; an unreadable
+    /// name is a recoverable failure.
     /// </summary>
     internal bool HasAttributeOfType(MetadataTypeNameTarget target)
     {
@@ -416,6 +418,17 @@ internal sealed class MethodRowGate
         if (_attributeTypes.TryGetValue((type, target), out bool known))
             return known;
 
+        // TypeSpec aliases share a blob, and the answer depends only on the
+        // blob, so each blob is read once however many TypeSpec rows name it.
+        BlobHandle signature = type.Kind == HandleKind.TypeSpecification
+            ? Reader.GetTypeSpecification((TypeSpecificationHandle)type).Signature
+            : default;
+        if (!signature.IsNil && _attributeTypeSpecs.TryGetValue((signature, target), out known))
+        {
+            _attributeTypes[(type, target)] = known;
+            return known;
+        }
+
         bool matches = MetadataTypeNameMatch.Matches(Reader, type, target) switch
         {
             MetadataTypeNameMatchResult.Match => true,
@@ -425,6 +438,8 @@ internal sealed class MethodRowGate
             _ => AbortChain(),
         };
         _attributeTypes[(type, target)] = matches;
+        if (!signature.IsNil)
+            _attributeTypeSpecs[(signature, target)] = matches;
         return matches;
     }
 
@@ -433,7 +448,8 @@ internal sealed class MethodRowGate
         Abort(
             AttributeTypeChain,
             "An attribute type's nested chain repeats a handle or exceeds "
-            + $"{MetadataSafetyPolicy.MaxRelationshipNodes} nodes.");
+            + $"{MetadataSafetyPolicy.MaxRelationshipNodes} nodes, or its TypeSpec "
+            + $"blob exceeds {TypeSpecGuard.MaxCumulativeBytes} bytes or the signature shape bounds.");
         return false;
     }
 

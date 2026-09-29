@@ -903,6 +903,95 @@ public sealed class MethodRowGateTests
     }
 
     [Fact]
+    public void AttributeTypeMatch_TypeSpecAliasesOfOneBlobAreReadOnce()
+    {
+        // TypeSpec rows sharing one blob, each the parent of its own
+        // constructor: a short modified blob that matches, and a long one
+        // within legacy's byte and shape bounds. Each blob is read once per execution
+        // (the gate memoizes per blob), and every answer equals the
+        // materialized comparison.
+        GateFixtureImage builder = Ordinary();
+        TypeReferenceHandle referenced = builder.TypeRef(
+            "System.Runtime.CompilerServices", "AsyncStateMachineAttribute");
+        TypeReferenceHandle unrelated = builder.TypeRef("N", "OtherAttribute");
+        BlobHandle Modified(int minimumBytes)
+        {
+            var blob = new BlobBuilder();
+            do
+            {
+                blob.WriteByte(0x20); // CMOD_OPT
+                blob.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(unrelated));
+            }
+            while (blob.Count < minimumBytes);
+
+            blob.WriteByte(0x12); // CLASS
+            blob.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(referenced));
+            return builder.Metadata.GetOrAddBlob(blob);
+        }
+
+        BlobHandle shortBlob = Modified(0);
+        BlobHandle longBlob = Modified(600);
+        GateFixtureImage.FixtureType subjects = builder.Type("N", "Aliases");
+        for (int i = 0; i < 64; i++)
+        {
+            TypeSpecificationHandle alias = builder.Metadata.AddTypeSpecification(i % 2 == 0 ? shortBlob : longBlob);
+            subjects.Method($"M{i}", attributeConstructors: [builder.AttributeConstructor(alias)]);
+        }
+
+        ImmutableArray<byte> image = builder.Build();
+
+        Dictionary<string, bool> expected = MaterializedMatches(image);
+        Assert.True(expected["M0"]);
+        Assert.Equal(expected, GateMatches(image));
+    }
+
+    [Fact]
+    public void AttributeTypeMatch_ATypeSpecBlobOverLegacysGuardAborts()
+    {
+        GateFixtureImage builder = Ordinary();
+        TypeReferenceHandle unrelated = builder.TypeRef("N", "OtherAttribute");
+        var blob = new BlobBuilder();
+        while (blob.Count <= TypeSpecGuard.MaxCumulativeBytes)
+        {
+            blob.WriteByte(0x20); // CMOD_OPT
+            blob.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(unrelated));
+        }
+
+        blob.WriteByte(0x12);
+        blob.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(unrelated));
+        TypeSpecificationHandle parent = builder.TypeSpec(blob);
+        builder.Type("N", "Oversized").Method("C", attributeConstructors: [builder.AttributeConstructor(parent)]);
+        ImmutableArray<byte> image = builder.Build();
+
+        AssertAttributeChainAborts(image);
+    }
+
+    [Fact]
+    public void AttributeTypeMatch_ATypeSpecOverTheShapeDepthAborts()
+    {
+        // Within the byte bound but past SignatureBlobGuard's depth, where
+        // legacy's TypeSpecGuard refuses to decode.
+        GateFixtureImage builder = Ordinary();
+        TypeReferenceHandle unrelated = builder.TypeRef("N", "OtherAttribute");
+        var blob = new BlobBuilder();
+        for (int i = 0; i <= SignatureBlobGuard.DefaultMaxDepth; i++)
+        {
+            blob.WriteByte(0x20); // CMOD_OPT
+            blob.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(unrelated));
+        }
+
+        blob.WriteByte(0x12);
+        blob.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(unrelated));
+        Assert.True(blob.Count <= TypeSpecGuard.MaxCumulativeBytes);
+        TypeSpecificationHandle parent = builder.TypeSpec(blob);
+        builder.Type("N", "Deep").Method("C", attributeConstructors: [builder.AttributeConstructor(parent)]);
+        ImmutableArray<byte> image = builder.Build();
+
+        Assert.False(MaterializedMatches(image)["C"]);
+        AssertAttributeChainAborts(image);
+    }
+
+    [Fact]
     public void AttributeTypeMatch_ReadsNoIdentityTextAndIsMemoizedPerConstructor()
     {
         GateFixtureImage builder = Ordinary();
