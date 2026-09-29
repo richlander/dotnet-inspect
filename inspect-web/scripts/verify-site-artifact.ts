@@ -19,11 +19,14 @@ function isList(value: unknown): value is readonly unknown[] {
 
 const assetPattern
   = /^assets\/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*\/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+const rootEntryAssets = new Set([
+  "browser-package-entry-cache.js",
+]);
 
 function validateAsset(asset: unknown): string {
   if (
     typeof asset !== "string"
-    || !assetPattern.test(asset)
+    || (!assetPattern.test(asset) && !rootEntryAssets.has(asset))
     || asset.split("/").some(segment => segment === "." || segment === "..")
   ) {
     throw new Error(`The Vite manifest contains invalid asset '${String(asset)}'.`);

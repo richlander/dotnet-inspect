@@ -447,6 +447,26 @@ test("canonical package dependency views restore the package root lens", () => {
   assert.equal(parsed.type, null);
 });
 
+test("canonical forwarded-Type Overview is distinct from Package Overview", () => {
+  const initial = workspaceState();
+  const state = workspaceState({
+    view: {
+      ...initial.view, lens: "overview",
+      type: "System.Xml:System.Xml.XmlReader", libraries: ["System.Xml"],
+      memberAnchor: null, memberSignature: null, section: null,
+    },
+  });
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot("https://inspect.example/?w=canonical"),
+    () => decoded(state));
+  assert.equal(parsed.workspaceNotice, "");
+  assert.equal(parsed.atPackageRoot, false);
+  assert.equal(parsed.atLibraryRoot, false);
+  assert.equal(parsed.lens, "overview");
+  assert.equal(parsed.type, "System.Xml:System.Xml.XmlReader");
+  assert.equal(parsed.library, "System.Xml");
+});
+
 test("canonical package views reject contradictory structural selection", () => {
   const initial = workspaceState();
   const state = workspaceState({
