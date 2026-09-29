@@ -831,22 +831,7 @@ internal static class MetadataMethodGroupInspection
         MetadataMethodAccessibilityFilter filter)
     {
         MetadataMethodAccessibilityFilter actual =
-            effectiveAccess switch
-            {
-                MethodAttributes.Public =>
-                    MetadataMethodAccessibilityFilter.Public,
-                MethodAttributes.Family
-                    or MethodAttributes.FamANDAssem
-                    or MethodAttributes.FamORAssem =>
-                    MetadataMethodAccessibilityFilter.Protected,
-                MethodAttributes.Assembly =>
-                    MetadataMethodAccessibilityFilter.Internal,
-                MethodAttributes.Private
-                    or MethodAttributes.PrivateScope =>
-                    MetadataMethodAccessibilityFilter.Private,
-                _ => throw new BadImageFormatException(
-                    "The MethodDef accessibility is invalid."),
-            };
+            ApiSurfaceExtractor.AccessibilityBucket(effectiveAccess);
         return filter is MetadataMethodAccessibilityFilter.All
             || filter == actual;
     }
