@@ -405,6 +405,24 @@ public partial class PackageCommand
         if (inspection.Content.Status
             != PackageDocumentContentStatus.Completed)
         {
+            string? selectionFailure = inspection.Diagnostics
+                .Select(static diagnostic => diagnostic.Code switch
+                {
+                    "package-document-content.entry-missing" =>
+                        "--content requires exactly one selected package "
+                        + "content file; found 0.",
+                    "package-document-content.entry-ambiguous" =>
+                        "--content requires exactly one selected package "
+                        + "content file; found 2.",
+                    _ => null,
+                })
+                .FirstOrDefault(static message => message is not null);
+            if (selectionFailure is not null)
+            {
+                CommandError.Write(selectionFailure);
+                return 1;
+            }
+
             CommandError.Write(
                 "Could not read the selected package document.",
                 inspection.Content.Detail?.ToString()

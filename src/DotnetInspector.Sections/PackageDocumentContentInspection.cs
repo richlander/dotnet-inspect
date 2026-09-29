@@ -142,14 +142,19 @@ public static class PackageDocumentContentInspection
                     StringComparison.OrdinalIgnoreCase))
                 .Take(2),
         ];
-        if (matches.Length != 1)
+        if (matches.Length == 0)
         {
             return Failed(
                 PackageDocumentContentStatus.Unavailable,
-                "package-document-content.entry-unavailable",
-                matches.Length == 0
-                    ? $"The package does not contain '{request.Path}'."
-                    : $"The package contains more than one entry matching '{request.Path}'.");
+                "package-document-content.entry-missing",
+                $"The package does not contain '{request.Path}'.");
+        }
+        if (matches.Length > 1)
+        {
+            return Failed(
+                PackageDocumentContentStatus.Unavailable,
+                "package-document-content.entry-ambiguous",
+                $"The package contains more than one entry matching '{request.Path}'.");
         }
 
         PackageContentEntry entry = matches[0];

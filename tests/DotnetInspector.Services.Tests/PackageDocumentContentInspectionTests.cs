@@ -67,7 +67,7 @@ public sealed class PackageDocumentContentInspectionTests
             envelope.Content.Detail!.Value.ToString(),
             StringComparison.Ordinal);
         Assert.Equal(
-            "package-document-content.entry-unavailable",
+            "package-document-content.entry-missing",
             Assert.Single(envelope.Diagnostics).Code);
     }
 
