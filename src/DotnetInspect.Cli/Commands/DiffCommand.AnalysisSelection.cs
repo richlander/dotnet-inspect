@@ -453,7 +453,7 @@ public partial class DiffCommand
         }
         IReadOnlyList<string> typeNames = surface switch
         {
-            AnalysisReportSurfaceKind.Type => ResolveFindingTypeNames(
+            AnalysisReportSurfaceKind.Type => DiffAnalysisTypeFilter.Resolve(
                 fromSurface,
                 toSurface,
                 options.TypeFilter),
@@ -584,13 +584,14 @@ public partial class DiffCommand
         // are selected. The Changes view never stands in for an api
         // analysis that did not compare; other selected views still render.
         WriteAnalysisDiagnostics(inspection.Diagnostics);
-        if (plan.Views.Contains(DiffSections.Changes.Name) && changes is null)
+        bool changesUnavailable =
+            plan.Views.Contains(DiffSections.Changes.Name)
+            && changes is null;
+        if (changesUnavailable)
         {
             CommandError.Write(
                 "The Changes view requires a compared 'api' analysis, "
                 + "and 'api' did not compare; see the diagnostic above.");
-            if (plan.Views is [_])
-                return 1;
             failed = true;
         }
 
@@ -600,6 +601,9 @@ public partial class DiffCommand
                 ? failed ? 1 : 0
                 : 1;
         }
+
+        if (changesUnavailable && plan.Views is [_])
+            return 1;
 
         if (plan.Views is [var onlyView])
         {

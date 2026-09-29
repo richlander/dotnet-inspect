@@ -2982,6 +2982,57 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_ApiAnalysisPreservesNamespacePrefixChangesFilter()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+        string range = $"{v1}..{v2}";
+
+        var (implicitExit, implicitOutput, implicitError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    TypeFilter = ["DiffFixtureSample"],
+                }));
+        var (explicitExit, explicitOutput, explicitError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    Analysis = ["api"],
+                    TypeFilter = ["DiffFixtureSample"],
+                }));
+        var (jsonExit, jsonOutput, jsonError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    Analysis = ["api"],
+                    TypeFilter = ["DiffFixtureSample"],
+                    JsonOutput = true,
+                }));
+
+        Assert.Equal(0, implicitExit);
+        Assert.Equal(0, explicitExit);
+        Assert.Equal(0, jsonExit);
+        Assert.Empty(implicitError);
+        Assert.Empty(explicitError);
+        Assert.Empty(jsonError);
+        Assert.Equal(implicitOutput, explicitOutput);
+        Assert.Contains(
+            "5 breaking, 4 additive across 4 types",
+            explicitOutput,
+            StringComparison.Ordinal);
+
+        using var document = JsonDocument.Parse(jsonOutput);
+        JsonElement changes = document.RootElement.GetProperty("changes");
+        Assert.Equal(5, changes.GetProperty("totalBreaking").GetInt32());
+        Assert.Equal(4, changes.GetProperty("totalAdditive").GetInt32());
+        Assert.Equal(4, changes.GetProperty("types").GetArrayLength());
+    }
+
+    [Fact]
     public void TryPlanAnalysisSet_ExplicitApiChangesUsesSharedDocument()
     {
         Assert.True(DiffCommand.TryPlanAnalysisSet(
@@ -3582,6 +3633,96 @@ public class DiffCommandTests
         Assert.Contains("Summary", multiOutput, StringComparison.Ordinal);
         Assert.Contains("call-site", multiOutput, StringComparison.Ordinal);
         Assert.Contains("The Changes view requires a compared 'api' analysis", multiError, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnalysisSet_ChangesOnlyCompleteTransport_KeepsFailedOutcomeVisible()
+    {
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            DiffAnalysisCommandCapability.Catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Member,
+                targetCount: 1,
+                ["api"]));
+        var document = new DiffAnalysisDocument(
+            new DiffAnalysisComparisonContext(
+                "Sample",
+                "1.0.0",
+                "2.0.0",
+                AnalysisReportSurfaceKind.Member,
+                DiffAnalysisDocumentViews.Changes,
+                ["api"]),
+            [
+                new DiffAnalysisDocumentOutcome(
+                    "api",
+                    DiffAnalysisDocumentOutcomeKind.Failed,
+                    ["api.type", "api.member"],
+                    "api producer failed"),
+            ],
+            changes: null,
+            summary: null,
+            transitions: null);
+        var run = new DiffCommand.AnalysisSetRun(
+            new InspectionEnvelope<DiffAnalysisDocument>(
+                document,
+                new InspectionShare.NonProjectable(
+                    "diff",
+                    "This test does not project a share packet."),
+                [
+                    new InspectionDiagnostic(
+                        "diff-analysis.failed",
+                        InspectionDiagnosticSeverity.Error,
+                        "Analysis 'api' failed: api producer failed"),
+                ]));
+        var plan = new DiffCommand.DiffAnalysisPlan(
+            accepted,
+            [DiffSections.Changes.Name]);
+
+        var (jsonExit, jsonOutput, jsonError) =
+            await ConsoleCapture.RunAsync(() =>
+                Task.FromResult(DiffCommand.WriteAnalysisSet(
+                    "Sample",
+                    new ApiSurface(),
+                    new ApiSurface(),
+                    "1.0.0",
+                    "2.0.0",
+                    new DiffOptions { JsonOutput = true },
+                    plan,
+                    run)));
+        var (envelopeExit, envelopeOutput, envelopeError) =
+            await ConsoleCapture.RunAsync(() =>
+                Task.FromResult(DiffCommand.WriteAnalysisSet(
+                    "Sample",
+                    new ApiSurface(),
+                    new ApiSurface(),
+                    "1.0.0",
+                    "2.0.0",
+                    new DiffOptions
+                    {
+                        EnvelopeOutput = true,
+                        CompactJson = true,
+                    },
+                    plan,
+                    run)));
+
+        Assert.Equal(1, jsonExit);
+        Assert.Equal(1, envelopeExit);
+        Assert.Contains("Analysis 'api' failed", jsonError, StringComparison.Ordinal);
+        Assert.Contains("Analysis 'api' failed", envelopeError, StringComparison.Ordinal);
+
+        using var json = JsonDocument.Parse(jsonOutput);
+        using var envelope = JsonDocument.Parse(envelopeOutput);
+        Assert.Equal(
+            "Failed",
+            json.RootElement.GetProperty("outcomes")[0]
+                .GetProperty("kind").GetString());
+        Assert.False(json.RootElement.TryGetProperty("changes", out _));
+        Assert.Equal(
+            "diff-analysis",
+            envelope.RootElement.GetProperty("result_kind").GetString());
+        Assert.True(JsonElement.DeepEquals(
+            json.RootElement,
+            envelope.RootElement.GetProperty("content")));
     }
 
 }

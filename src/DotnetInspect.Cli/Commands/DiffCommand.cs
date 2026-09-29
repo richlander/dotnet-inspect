@@ -2637,28 +2637,7 @@ public partial class DiffCommand
             : typeDiffs.Where(td => MatchesAnyDiffTypeFilter(td.TypeFullName, typeFilters)).ToList();
 
     internal static bool MatchesAnyDiffTypeFilter(string typeFullName, IEnumerable<string> filters)
-    {
-        foreach (var filter in filters)
-        {
-            if (MatchesDiffTypeFilter(typeFullName, filter))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static bool MatchesDiffTypeFilter(string typeFullName, string filter)
-    {
-        if (TypeMatcher.MatchesTypeFilter(typeFullName, filter))
-            return true;
-
-        if (filter.Contains('*') || filter.Contains('?'))
-            return false;
-
-        var normalizedFilter = FqnParser.NormalizeTypeName(filter);
-        return typeFullName.StartsWith(normalizedFilter + ".", StringComparison.OrdinalIgnoreCase)
-               || typeFullName.Contains("." + normalizedFilter + ".", StringComparison.OrdinalIgnoreCase);
-    }
+        => DiffAnalysisTypeFilter.MatchesAny(typeFullName, filters);
 
     internal static string RenderDiff(string name, ApiDiff diff, string fromVersion, string toVersion, DiffOptions options)
     {
@@ -3280,7 +3259,7 @@ public partial class DiffCommand
         ApiSurface surface,
         string filter)
     {
-        string[] matches = FindingTypeNames.EnumerateResolvable(surface)
+        string[] matches = DiffAnalysisTypeFilter.EnumerateResolvable(surface)
             .Where(typeName =>
                 TypeMatcher.MatchesTypeFilter(typeName, filter))
             .Distinct(StringComparer.Ordinal)
