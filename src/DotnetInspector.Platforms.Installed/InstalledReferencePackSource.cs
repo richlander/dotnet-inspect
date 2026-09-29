@@ -379,7 +379,7 @@ public sealed class InstalledReferencePackSource
             cancellationToken.ThrowIfCancellationRequested();
             return Unavailable<InstalledReferenceRealization>(
                 generation,
-                InstalledPlatformSourceUnavailabilityKind.Absent,
+                InstalledPlatformSourceUnavailabilityKind.Unavailable,
                 InstalledPlatformSourceDiagnosticKind.InvalidLayout,
                 "The exact installed reference-pack coordinate is absent.");
         }
@@ -392,6 +392,18 @@ public sealed class InstalledReferencePackSource
                         request,
                         referenceDirectory,
                         assembly.Identity,
+                        requireExactIdentity: true,
+                        observation,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+            InstalledReferencePopulationDemand.AssemblyReferenceBinding
+                binding =>
+                await RealizeAssemblyAsync(
+                        generation,
+                        request,
+                        referenceDirectory,
+                        binding.Identity,
+                        requireExactIdentity: false,
                         observation,
                         cancellationToken)
                     .ConfigureAwait(false),
@@ -415,6 +427,7 @@ public sealed class InstalledReferencePackSource
             InstalledReferenceRealizationRequest request,
             string referenceDirectory,
             AssemblyReferenceIdentity requestedIdentity,
+            bool requireExactIdentity,
             InstalledObservationBudget observation,
             CancellationToken cancellationToken)
     {
@@ -439,12 +452,19 @@ public sealed class InstalledReferencePackSource
         string? path;
         try
         {
-            path = FindExactChild(
-                referenceDirectory,
-                fileName!,
-                InstalledEntryKind.File,
-                observation,
-                cancellationToken);
+            path = requireExactIdentity
+                ? FindExactChild(
+                    referenceDirectory,
+                    fileName!,
+                    InstalledEntryKind.File,
+                    observation,
+                    cancellationToken)
+                : FindUniqueChildIgnoringCase(
+                    referenceDirectory,
+                    fileName!,
+                    InstalledEntryKind.File,
+                    observation,
+                    cancellationToken);
         }
         catch (InstalledInvalidLayoutException)
         {
@@ -495,7 +515,13 @@ public sealed class InstalledReferencePackSource
                 libraryOutcome);
         }
 
-        if (!requestedIdentity.IsEquivalentTo(succeeded.Value.Identity))
+        bool identityMatches = requireExactIdentity
+            ? requestedIdentity.IsEquivalentTo(succeeded.Value.Identity)
+            : string.Equals(
+                requestedIdentity.Name,
+                succeeded.Value.Identity.Name,
+                StringComparison.OrdinalIgnoreCase);
+        if (!identityMatches)
         {
             return Rejected<InstalledReferenceRealization>(
                 generation,
