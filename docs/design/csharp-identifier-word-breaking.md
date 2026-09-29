@@ -2,7 +2,7 @@
 
 ## Status, owner, and claim
 
-Status: **design contract** for
+Status: **implemented contract** for
 [#8897](https://github.com/richlander/dotnet-inspect/issues/8897), the textual
 prerequisite for
 [Library name-family summaries](https://github.com/richlander/dotnet-inspect/issues/8698).
@@ -19,8 +19,8 @@ The contract is model-free. It does not know whether the input came from
 Metadata, source, a Type, a member, or a Library. It neither acquires nor
 rebuilds an oracle and does not count or interpret name families.
 
-The contract is **unverified** until the Release gates under
-[Required evidence](#required-evidence) land.
+The contract is verified by the `CSharpText.Tests` Release gate under
+[Required evidence](#required-evidence).
 
 ## User question
 
@@ -361,6 +361,10 @@ gate. Given the pinned `Microsoft.NETCore.App.Ref` 10.0.10 input and reviewed
 mixed-case set, it must reproduce the checked-in ordered entries and digest
 byte for byte. That gate proves snapshot provenance; it does not claim that
 runtime naming is natural-language truth.
+
+`eng/generate-csharp-identifier-word-oracle.cs` is the generator;
+`eng/csharp-identifier-word-oracle-reviewed.txt` is its reviewed input; and
+`eng/csharp-identifier-word-oracle.snapshot` is the exact gated output.
 
 The FluentValidation 12.1.1 production-consumer gate belongs to #8698. It
 proves that this textual result is composed into the expected `Validator`
