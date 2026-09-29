@@ -306,6 +306,60 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        LibraryAddressCommand_ExactPackagePathSelectsItsFramework()
+    {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-address-exact-package-path-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string net8Directory = Path.Combine(content, "lib", "net8.0");
+        string net11Directory = Path.Combine(content, "lib", "net11.0");
+        Directory.CreateDirectory(net8Directory);
+        Directory.CreateDirectory(net11Directory);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(net8Directory, "Target.dll"));
+        File.Copy(
+            typeof(AssemblyInspectionSession).Assembly.Location,
+            Path.Combine(net11Directory, "Target.dll"));
+        WriteAddressPackageManifest(content, "Coordinate.ExactPath");
+        string packagePath = Path.Combine(
+            tempDir,
+            "Coordinate.ExactPath.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, packagePath);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "address",
+                $"0x{token:X8}+0x{callOffset:X}",
+                "--package",
+                packagePath,
+                "--library",
+                "lib/net8.0/Target.dll",
+                "-S",
+                "Context: Member",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("# Target.dll (net8.0)", output);
+            Assert.Contains(
+                nameof(SemanticFactsFixture.AllSignals),
+                output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
         LibraryAddressCommand_PackageSourceLocationUsesAdjacentPortablePdb()
     {
         var (token, callOffset) = FindIlCoordinate(
@@ -1382,6 +1436,62 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        LibraryAddressCommand_PackageFileEffectiveDiscoveryRendersDiscovery()
+    {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-address-package-discovery-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net11.0");
+        Directory.CreateDirectory(libraryDirectory);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(libraryDirectory, "Coordinate.Package.dll"));
+        WriteAddressPackageManifest(content, "Coordinate.PackageDiscovery");
+        string packagePath = Path.Combine(
+            tempDir,
+            "Coordinate.PackageDiscovery.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, packagePath);
+        string coordinatePath = Path.Combine(
+            tempDir,
+            "coordinates.txt");
+        await File.WriteAllTextAsync(
+            coordinatePath,
+            $"0x{token:X8}+0x{callOffset:X}",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "address",
+                "--file",
+                coordinatePath,
+                "--package",
+                packagePath,
+                "--library",
+                "lib/net11.0/Coordinate.Package.dll",
+                "-D",
+                "Context: Member",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Member", output);
+            Assert.DoesNotContain("## IL Coordinates", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryAddressCommand_FileEffectiveDiscoveryUnionsPopulationEvidence()
     {
         string coordinatePath = Path.Combine(
@@ -1982,6 +2092,72 @@ public partial class CommandExecutionTests
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryAddressCommand_PackageFilePreservesDefaultAnalysisEvidence()
+    {
+        var (allSignalsToken, virtualCallOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        var (_, allocationOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Newarr);
+        var (unsafeToken, unsafeCallOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.UnsafeAs),
+            ILOpCode.Call);
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-address-package-analysis-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net11.0");
+        Directory.CreateDirectory(libraryDirectory);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(libraryDirectory, "Coordinate.Package.dll"));
+        WriteAddressPackageManifest(content, "Coordinate.PackageAnalysis");
+        string packagePath = Path.Combine(
+            tempDir,
+            "Coordinate.PackageAnalysis.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, packagePath);
+        string coordinatePath = Path.Combine(
+            tempDir,
+            "coordinates.txt");
+        await File.WriteAllLinesAsync(
+            coordinatePath,
+            [
+                $"hot-virtual-call 0x{allSignalsToken:X8}+0x{virtualCallOffset:X}",
+                $"allocation 0x{allSignalsToken:X8}+0x{allocationOffset:X}",
+                $"unsafe-call 0x{unsafeToken:X8}+0x{unsafeCallOffset:X}",
+            ],
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "address",
+                "--file",
+                coordinatePath,
+                "--package",
+                packagePath,
+                "--library",
+                "lib/net11.0/Coordinate.Package.dll",
+                "--tsv",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("\tallocation\t", output);
+            Assert.Contains("\tsafety\t", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
         }
     }
 

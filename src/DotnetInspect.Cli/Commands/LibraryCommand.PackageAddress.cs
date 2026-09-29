@@ -59,8 +59,12 @@ public partial class LibraryCommand
                 ? PackageHouseLibraryCompanionDemand
                     .ImplementationPortablePdb
                 : PackageHouseLibraryCompanionDemand.None;
+        string requestedLibraryPath =
+            options.AssemblyName.Replace('\\', '/');
+        bool pathQualified = requestedLibraryPath.Contains('/');
         string targetFramework =
             options.Tfm
+            ?? TfmResolver.ExtractTfmFromPath(requestedLibraryPath)
             ?? TraversalTargetFrameworkPolicy
                 .ProductDefaultTargetFramework;
         string implementationName =
@@ -114,12 +118,13 @@ public partial class LibraryCommand
             .. realization.LibraryHandoffs
                 .OfType<PackageHouseLibraryHandoff.Compile>()
                 .Where(candidate =>
-                    candidate.Asset.Path.Equals(
-                        options.AssemblyName,
-                        StringComparison.OrdinalIgnoreCase)
-                    || candidate.Asset.AssemblyName.Equals(
-                        implementationName,
-                        StringComparison.OrdinalIgnoreCase)),
+                    pathQualified
+                        ? candidate.Asset.Path.Equals(
+                            requestedLibraryPath,
+                            StringComparison.OrdinalIgnoreCase)
+                        : candidate.Asset.AssemblyName.Equals(
+                            implementationName,
+                            StringComparison.OrdinalIgnoreCase)),
         ];
         if (handoffs.Length != 1)
         {
@@ -155,8 +160,19 @@ public partial class LibraryCommand
     private static LibraryAddressIntent CreateAddressIntent(
         LibraryOptions options)
     {
+        LibraryOptions capabilityOptions =
+            options.AddressRequest
+                    is LibraryAddressRequest.FilePopulation
+                && options.Discover is null
+                && options.IncludeSections is not { Count: > 0 }
+                    ? options with
+                    {
+                        IncludeSections =
+                            [.. BatchCoordinateSections],
+                    }
+                    : options;
         ILOffsetProjectionCapabilities capabilities =
-            ILOffsetQuery.ProjectionCapabilities(options);
+            ILOffsetQuery.ProjectionCapabilities(capabilityOptions);
         return options.AddressRequest switch
         {
             LibraryAddressRequest.IlPoint point =>
@@ -392,75 +408,103 @@ public partial class LibraryCommand
         if (document is null)
             return 1;
 
-        if (document
-            is LibraryAddressDocument.Population population)
-        {
-            List<ILCoordinateBatchRow> rows =
-            [
-                .. population.Result.Rows.Select(
-                    static row => row switch
-                    {
-                        LibraryAddressPopulationRow.Resolved resolved =>
-                            BuildILCoordinateBatchRow(
-                                new ILCoordinatePopulationRecord.Coordinate(
-                                    resolved.LineNumber,
-                                    resolved.Value,
-                                    resolved.Label,
-                                    resolved.MethodToken,
-                                    resolved.ILOffset),
-                                resolved.Projection),
-                        LibraryAddressPopulationRow.Malformed malformed =>
-                            new ILCoordinateBatchRow(
-                                null,
-                                malformed.Label,
-                                null,
-                                null,
-                                "error",
-                                malformed.Error),
-                        LibraryAddressPopulationRow.Unresolved unresolved =>
-                            new ILCoordinateBatchRow(
-                                unresolved.Value,
-                                unresolved.Label,
-                                null,
-                                null,
-                                "error",
-                                ILOffsetQuery.FormatFailure(
-                                    unresolved.Failure)),
-                        _ => throw new InvalidOperationException(
-                            "Unknown Library Address population row."),
-                    }),
-            ];
-            int result = WriteAddressPopulation(rows, options);
-            return hasErrors || !population.Result.IsComplete
-                ? Math.Max(1, result)
-                : result;
-        }
-
         var inspection = new LibraryInspection
         {
             FileName = Path.GetFileName(handoff.Asset.Path),
             Tfm = targetFramework,
             Source = SourceKind.NuGet,
         };
-        switch (document)
+        if (document
+            is LibraryAddressDocument.Population population)
         {
-            case LibraryAddressDocument.IlPoint
+            if (discoveryInspection)
+            {
+                if (hasErrors || !population.Result.IsComplete)
+                    return 1;
+                List<ILOffsetProjection> projections =
+                [
+                    .. population.Result.Rows
+                        .OfType<
+                            LibraryAddressPopulationRow.Resolved>()
+                        .Select(
+                            static row => row.Projection),
+                ];
+                if (projections.Count == 0)
                 {
-                    Result: LibraryIlAddressOutcome.Resolved resolved,
-                }:
-                inspection.ILOffset = resolved.Projection;
-                break;
-            case LibraryAddressDocument.HeapPoint
-                {
-                    Result: LibraryHeapAddressOutcome.Resolved resolved,
-                }:
-                inspection.MetadataHeap = new(
-                    resolved.Heap,
-                    resolved.Address,
-                    resolved.Value);
-                break;
-            default:
-                return 1;
+                    CommandError.Write(
+                        "Coordinate file contains no resolvable records "
+                        + "for effective discovery.");
+                    return 1;
+                }
+                inspection.ILOffset =
+                    MergeILCoordinateProjectionsForDiscovery(
+                        projections);
+            }
+            else
+            {
+                List<ILCoordinateBatchRow> rows =
+                [
+                    .. population.Result.Rows.Select(
+                        static row => row switch
+                        {
+                            LibraryAddressPopulationRow.Resolved resolved =>
+                                BuildILCoordinateBatchRow(
+                                    new ILCoordinatePopulationRecord.Coordinate(
+                                        resolved.LineNumber,
+                                        resolved.Value,
+                                        resolved.Label,
+                                        resolved.MethodToken,
+                                        resolved.ILOffset),
+                                    resolved.Projection),
+                            LibraryAddressPopulationRow.Malformed malformed =>
+                                new ILCoordinateBatchRow(
+                                    null,
+                                    malformed.Label,
+                                    null,
+                                    null,
+                                    "error",
+                                    malformed.Error),
+                            LibraryAddressPopulationRow.Unresolved unresolved =>
+                                new ILCoordinateBatchRow(
+                                    unresolved.Value,
+                                    unresolved.Label,
+                                    null,
+                                    null,
+                                    "error",
+                                    ILOffsetQuery.FormatFailure(
+                                        unresolved.Failure)),
+                            _ => throw new InvalidOperationException(
+                                "Unknown Library Address population row."),
+                        }),
+                ];
+                int result = WriteAddressPopulation(rows, options);
+                return hasErrors || !population.Result.IsComplete
+                    ? Math.Max(1, result)
+                    : result;
+            }
+        }
+        else
+        {
+            switch (document)
+            {
+                case LibraryAddressDocument.IlPoint
+                    {
+                        Result: LibraryIlAddressOutcome.Resolved resolved,
+                    }:
+                    inspection.ILOffset = resolved.Projection;
+                    break;
+                case LibraryAddressDocument.HeapPoint
+                    {
+                        Result: LibraryHeapAddressOutcome.Resolved resolved,
+                    }:
+                    inspection.MetadataHeap = new(
+                        resolved.Heap,
+                        resolved.Address,
+                        resolved.Value);
+                    break;
+                default:
+                    return 1;
+            }
         }
 
         if (discoveryInspection)
