@@ -316,20 +316,47 @@ public static class IdentifierWordBreaker
         if (startUnit == endUnit)
             return;
 
+        int unsupportedDigit = -1;
         for (int index = startUnit; index < endUnit; index++)
         {
             if (units[index].Kind == RunUnitKind.Digits
                 && index != units.Count - 1)
             {
+                unsupportedDigit = index;
+                break;
+            }
+        }
+        if (unsupportedDigit >= 0)
+        {
+            RunUnit finalUnit = units[endUnit - 1];
+            bool preserveOrdinal = endUnit == units.Count
+                && IsNumberedFamilyOrdinal(
+                    source,
+                    runStart,
+                    runEnd,
+                    finalUnit,
+                    context);
+            int unresolvedEnd = preserveOrdinal
+                ? finalUnit.Start
+                : finalUnit.End;
+            AddSpan(
+                destination,
+                source,
+                units[startUnit].Start,
+                unresolvedEnd - units[startUnit].Start,
+                IdentifierWordSpanClassification.Unresolved,
+                new(IdentifierWordRuleKind.UnsupportedLetterDigitShape));
+            if (preserveOrdinal)
+            {
                 AddSpan(
                     destination,
                     source,
-                    units[startUnit].Start,
-                    units[endUnit - 1].End - units[startUnit].Start,
-                    IdentifierWordSpanClassification.Unresolved,
-                    new(IdentifierWordRuleKind.UnsupportedLetterDigitShape));
-                return;
+                    finalUnit.Start,
+                    finalUnit.Length,
+                    IdentifierWordSpanClassification.Ordinal,
+                    new(IdentifierWordRuleKind.NumberedFamilyOrdinal));
             }
+            return;
         }
 
         int unitIndex = startUnit;
@@ -836,9 +863,7 @@ public static class IdentifierWordBreaker
             or UnicodeCategory.TitlecaseLetter;
 
     static bool IsCombiningMark(UnicodeCategory category)
-        => category is
-            UnicodeCategory.NonSpacingMark
-            or UnicodeCategory.SpacingCombiningMark;
+        => IdentifierWordCharacterClasses.IsCombiningMark(category);
 
     static bool IsAsciiDigit(Rune rune)
         => rune.IsAscii && Rune.IsDigit(rune);

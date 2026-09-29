@@ -323,6 +323,53 @@ public sealed class IdentifierWordBreakerTests
     }
 
     [Theory]
+    [InlineData("Log4Net")]
+    [InlineData("Secp256r")]
+    public void Break_UnsupportedPrefixRetainsRecognizedOrdinal(string prefix)
+    {
+        IdentifierNumberedFamilyContext context = NewContext(
+            $"{prefix}1",
+            $"{prefix}2",
+            $"{prefix}3");
+
+        IdentifierWordBreakResult result = Break($"{prefix}3", context: context);
+
+        Assert.Equal([prefix, "3"], result.Spans.Select(static span => span.Text));
+        Assert.Equal(
+            IdentifierWordRuleKind.UnsupportedLetterDigitShape,
+            result.Spans[0].Evidence.Kind);
+        Assert.Equal(
+            IdentifierWordSpanClassification.Ordinal,
+            result.Spans[1].Classification);
+    }
+
+    [Fact]
+    public void Break_ProtectedCompoundAndUnsupportedPrefixRetainRecognizedOrdinal()
+    {
+        IdentifierNumberedFamilyContext context = NewContext(
+            "IPv6Log4Net1",
+            "IPv6Log4Net2",
+            "IPv6Log4Net3");
+
+        IdentifierWordBreakResult result = Break(
+            "IPv6Log4Net3",
+            context: context);
+
+        Assert.Equal(
+            ["IPv6", "Log4Net", "3"],
+            result.Spans.Select(static span => span.Text));
+        Assert.Equal(
+            IdentifierWordRuleKind.ExactOracleCompound,
+            result.Spans[0].Evidence.Kind);
+        Assert.Equal(
+            IdentifierWordRuleKind.UnsupportedLetterDigitShape,
+            result.Spans[1].Evidence.Kind);
+        Assert.Equal(
+            IdentifierWordSpanClassification.Ordinal,
+            result.Spans[2].Classification);
+    }
+
+    [Theory]
     [InlineData("Adler32", "Adler32", IdentifierWordRuleKind.DigitCompoundFallback)]
     [InlineData("Secp256r1", "Secp256r1", IdentifierWordRuleKind.UnsupportedLetterDigitShape)]
     [InlineData("P320t1", "P320t1", IdentifierWordRuleKind.UnsupportedLetterDigitShape)]
@@ -424,18 +471,42 @@ public sealed class IdentifierWordBreakerTests
         AssertCoverage(result);
     }
 
-    [Fact]
-    public void Break_CombiningMarkFollowsWordButLeadingMarkIsUnresolved()
+    [Theory]
+    [InlineData("\u0301")]
+    [InlineData("\u20DD")]
+    public void Break_CombiningMarkFollowsWordButLeadingMarkIsUnresolved(string mark)
     {
-        IdentifierWordBreakResult result = Break("\u0301Cafe\u0301");
+        IdentifierWordBreakResult result = Break($"{mark}Cafe{mark}");
 
-        Assert.Equal(["\u0301", "Cafe\u0301"], result.Spans.Select(static span => span.Text));
+        Assert.Equal([mark, $"Cafe{mark}"], result.Spans.Select(static span => span.Text));
         Assert.Equal(
             IdentifierWordRuleKind.LeadingCombiningMark,
             result.Spans[0].Evidence.Kind);
         Assert.Equal(
             IdentifierWordSpanClassification.Word,
             result.Spans[1].Classification);
+    }
+
+    [Fact]
+    public void EnclosingMark_IsValidInOracleEntryAndNumberedFamilyPrefix()
+    {
+        const string Prefix = "A\u20DD";
+        IdentifierWordOracle oracle = NewOracle(Atom(Prefix));
+        IdentifierNumberedFamilyContext context = NewContext(
+            $"{Prefix}1",
+            $"{Prefix}2",
+            $"{Prefix}3");
+
+        IdentifierWordBreakResult word = Break(Prefix, oracle);
+        IdentifierWordBreakResult ordinal = Break($"{Prefix}3", oracle, context);
+
+        Assert.Equal(
+            IdentifierWordRuleKind.ExactOracleAtom,
+            Assert.Single(word.Spans).Evidence.Kind);
+        Assert.Equal([Prefix, "3"], ordinal.Spans.Select(static span => span.Text));
+        Assert.Equal(
+            IdentifierWordSpanClassification.Ordinal,
+            ordinal.Spans[^1].Classification);
     }
 
     [Fact]
@@ -570,6 +641,9 @@ public sealed class IdentifierWordBreakerTests
         AssertOracleRejected(
             IdentifierWordOracleRejectionReason.InvalidEntry,
             entries: [Atom("\uD800")]);
+        AssertOracleRejected(
+            IdentifierWordOracleRejectionReason.InvalidEntry,
+            entries: [Atom("\u20DDA")]);
         AssertOracleRejected(
             IdentifierWordOracleRejectionReason.InvalidEntry,
             entries: [Atom("A1\u0301")]);

@@ -186,9 +186,7 @@ public sealed class IdentifierWordOracle
                 UnicodeCategory.UppercaseLetter
                 or UnicodeCategory.LowercaseLetter
                 or UnicodeCategory.TitlecaseLetter;
-            bool mark = category is
-                UnicodeCategory.NonSpacingMark
-                or UnicodeCategory.SpacingCombiningMark;
+            bool mark = IdentifierWordCharacterClasses.IsCombiningMark(category);
             bool digit = rune.IsAscii && Rune.IsDigit(rune);
             if ((!letter && !mark && !digit)
                 || (first && !letter)
@@ -448,9 +446,7 @@ public sealed class IdentifierNumberedFamilyContext
                 UnicodeCategory.UppercaseLetter
                 or UnicodeCategory.LowercaseLetter
                 or UnicodeCategory.TitlecaseLetter;
-            bool mark = category is
-                UnicodeCategory.NonSpacingMark
-                or UnicodeCategory.SpacingCombiningMark;
+            bool mark = IdentifierWordCharacterClasses.IsCombiningMark(category);
             if (letter)
             {
                 followsLetter = true;
@@ -484,6 +480,15 @@ public sealed class IdentifierNumberedFamilyContext
         }
         return true;
     }
+}
+
+internal static class IdentifierWordCharacterClasses
+{
+    public static bool IsCombiningMark(UnicodeCategory category)
+        => category is
+            UnicodeCategory.NonSpacingMark
+            or UnicodeCategory.SpacingCombiningMark
+            or UnicodeCategory.EnclosingMark;
 }
 
 internal static class ReceiptDigest
