@@ -60,6 +60,37 @@ public abstract class MethodRowClassifier
 /// A scope guard on the source gate: the producer sees only rows the
 /// classifier puts in one of the accepted classes, in types it admits.
 /// </summary>
+/// <summary>
+/// A gate classification as a struct, so a kernel specialized to it inlines
+/// the classifier's scope and class tests. It reads rows only through the
+/// views, which enforce its classifier's declared fields.
+/// </summary>
+public interface IMethodRowClassification
+{
+    bool TypeInScope(scoped MethodRowTypeView type);
+
+    int Classify(scoped MethodDefinitionView row);
+}
+
+/// <summary>
+/// A classifier whose tests are a struct classification: its identity and
+/// declared fields are the classifier's, its answers the struct's.
+/// </summary>
+public abstract class MethodRowClassifier<TClassification> : MethodRowClassifier
+    where TClassification : struct, IMethodRowClassification
+{
+    private protected MethodRowClassifier(string identity, MethodDefinitionLayers fields)
+        : base(identity, fields)
+    {
+    }
+
+    internal sealed override bool TypeInScope(scoped MethodRowTypeView type) =>
+        default(TClassification).TypeInScope(type);
+
+    internal sealed override int Classify(scoped MethodDefinitionView row) =>
+        default(TClassification).Classify(row);
+}
+
 public sealed record SourceGateGuard(
     MethodRowClassifier Classifier,
     ulong AcceptedClasses);
@@ -231,9 +262,27 @@ internal sealed class MethodRowGate
     internal bool TypeInScope(
         MethodRowClassifier classifier,
         TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition) =>
+        TypeInScope(CacheFor(classifier), typeHandle, typeDefinition);
+
+    /// <summary>
+    /// The classifier's per-execution cache. A consumer resolves it once and
+    /// passes it to <see cref="TypeInScope(ClassifierCache, TypeDefinitionHandle, TypeDefinition)"/>
+    /// and <see cref="ClassOf(ClassifierCache, ref MethodDefinitionUnit)"/>, so
+    /// no per-unit call looks the classifier up. Every consumer of one
+    /// classifier resolves the same cache, so their answers are shared.
+    /// </summary>
+    internal ClassifierCache Resolve(MethodRowClassifier classifier) => CacheFor(classifier);
+
+    /// <summary>How many times a classifier's cache was looked up in this execution.</summary>
+    internal int CacheLookups { get; private set; }
+
+    internal bool TypeInScope(
+        ClassifierCache cache,
+        TypeDefinitionHandle typeHandle,
         TypeDefinition typeDefinition)
     {
-        ClassifierCache cache = CacheFor(classifier);
+        MethodRowClassifier classifier = cache.Classifier;
         if (cache.TypeHandle != typeHandle || cache.TypeHandle.IsNil)
         {
             cache.TypeHandle = typeHandle;
@@ -255,9 +304,12 @@ internal sealed class MethodRowGate
         return cache.TypeInScope;
     }
 
-    internal int ClassOf(MethodRowClassifier classifier, ref MethodDefinitionUnit unit)
+    internal int ClassOf(MethodRowClassifier classifier, ref MethodDefinitionUnit unit) =>
+        ClassOf(CacheFor(classifier), ref unit);
+
+    internal int ClassOf(ClassifierCache cache, ref MethodDefinitionUnit unit)
     {
-        ClassifierCache cache = CacheFor(classifier);
+        MethodRowClassifier classifier = cache.Classifier;
         if (cache.RowToken != _rowToken || _rowToken == 0)
         {
             cache.RowToken = _rowToken;
@@ -281,17 +333,19 @@ internal sealed class MethodRowGate
 
     ClassifierCache CacheFor(MethodRowClassifier classifier)
     {
+        CacheLookups++;
         if (!_classifiers.TryGetValue(classifier, out ClassifierCache? cache))
         {
-            cache = new ClassifierCache();
+            cache = new ClassifierCache(classifier);
             _classifiers[classifier] = cache;
         }
 
         return cache;
     }
 
-    sealed class ClassifierCache
+    internal sealed class ClassifierCache(MethodRowClassifier classifier)
     {
+        public readonly MethodRowClassifier Classifier = classifier;
         public TypeDefinitionHandle TypeHandle;
         public bool TypeInScope;
         public Exception? TypeFailure;

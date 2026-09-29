@@ -9,7 +9,8 @@ namespace ILInspector.Metadata.Tests;
 // accessibility bucket returns.
 public sealed class TypeMemberCompositionTests
 {
-    static readonly string PackageJsonPath = Pinned("package", "System.Text.Json.dll");
+    static readonly string PackageJsonPath =
+        Pinned("packages", "System.Text.Json.10.0.0.dll");
 
     [Fact]
     public void JsonDocument_MatchesTheDesignComposition()
@@ -76,7 +77,7 @@ public sealed class TypeMemberCompositionTests
     }
 
     [Theory]
-    [InlineData("package", "System.Text.Json.dll")]
+    [InlineData("packages", "System.Text.Json.10.0.0.dll")]
     [InlineData(null, "System.Private.CoreLib.dll")]
     public void Composition_AgreesWithExtractedRowsOnEveryType(string? folder, string file)
     {
