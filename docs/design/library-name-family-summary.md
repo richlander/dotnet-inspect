@@ -426,6 +426,10 @@ product-owned Metadata inventory and CSharpText word results:
   while grouping under `Invoker` and `Type` suffix families; `Adler32`,
   internal digits, and digits across separators remain governed by their
   distinct CSharpText evidence.
+- `LibraryNameFamilies_DoesNotBypassUnresolvedNumberedSuffixes`: a numbered
+  `CFURL1..3`-style population retains each unresolved uppercase prefix and
+  trailing ordinal with their rule evidence; every Type remains residual in
+  both partitions and joins no suffix family.
 - `LibraryNameFamilies_SeparatesExactSpellings`: acronym, casing, and plural
   variants remain separate ordinal families.
 - `LibraryNameFamilies_RejectsIncompleteOrMismatchedInventory`: scoped,
@@ -445,7 +449,8 @@ The PR-fast fixture lives under `fixtures/research/` following
 families such as `Validator`,
 `ValidatorOptions`, `ValidationContext`, and generated
 `ValidatorJsonContext`, plus nested, generic, acronym, digit, unknown-run, and
-hostile metadata names.
+hostile metadata names. Its digit and unknown-run cases include the combined
+unresolved-prefix-plus-numbered-ordinal boundary above.
 
 Real-asset evidence records:
 
