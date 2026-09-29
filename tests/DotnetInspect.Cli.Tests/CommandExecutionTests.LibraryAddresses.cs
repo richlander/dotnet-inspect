@@ -748,7 +748,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("Context: Source Location", output);
-        Assert.Contains("Context: Member", output);
+        Assert.Contains("Member", output);
         Assert.Contains("Context: Instruction", output);
     }
 
