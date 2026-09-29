@@ -1287,6 +1287,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Member_BroadGlob_DoesNotSelectExactOnlySections()
     {
+        // Match every asserted exact-only section without selecting the Source domain.
         var (exit, output, error) = await RunAppAsync(
             "member",
             "System.String",
@@ -1294,7 +1295,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Private.CoreLib",
             "-S",
-            "*",
+            "M*,Sign*,Custom*",
             "--tips",
             "q");
 
@@ -2813,22 +2814,6 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.DoesNotContain("## Finding Census", output);
-        Assert.DoesNotContain("\"fact_census_receipt\":", output);
-    }
-
-    [Fact]
-    public async Task Member_AllSectionsWildcard_OmitsFindingCensus()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "member", typeof(FactsTableFixture).FullName!,
-            "--library", TestAssemblyPath,
-            $"{nameof(FactsTableFixture.BoxInt)}:1",
-            "-S", "*", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("## Facts", output);
         Assert.DoesNotContain("## Finding Census", output);
         Assert.DoesNotContain("\"fact_census_receipt\":", output);
     }

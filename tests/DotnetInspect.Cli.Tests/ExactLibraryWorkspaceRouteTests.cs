@@ -427,7 +427,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             "library-metrics",
             root.GetProperty("result_kind").GetString());
         Assert.Equal(
-            LibraryStructuralReport.CurrentMethodologyVersion,
+            "library-metrics.v1",
             root.GetProperty("content")
                 .GetProperty("methodologyVersion")
                 .GetString());

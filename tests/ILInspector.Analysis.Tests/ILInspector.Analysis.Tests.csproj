@@ -18,6 +18,9 @@
   <ItemGroup>
     <PackageDownload Include="Jurassic" Version="[3.2.9]" />
     <PackageDownload Include="MessagePack" Version="[2.5.192]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64"
+                     Version="[11.0.0-rc.1.26425.128]" />
+    <PackageDownload Include="System.Text.Json" Version="[10.0.0]" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
 
@@ -28,6 +31,12 @@
     <None Include="$(NuGetPackageRoot)messagepack/2.5.192/lib/net6.0/MessagePack.dll"
           Link="RealAssets/ResourceTriage/MessagePack.dll"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.dll"
+          Link="PinnedArtifacts/packages/System.Text.Json.10.0.0.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.Private.CoreLib.dll"
+          Link="PinnedArtifacts/System.Private.CoreLib.dll"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -37,6 +46,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ILInspector.Metadata.LegacyOracles\ILInspector.Metadata.LegacyOracles.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.AllocationLifetimeFixtures\ILInspector.Analysis.AllocationLifetimeFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.BodyUseFixtures\ILInspector.Analysis.BodyUseFixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.Fixtures\ILInspector.Analysis.Fixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.MalformedOwnershipFixtures\ILInspector.Analysis.MalformedOwnershipFixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.AsyncSiblingFriendFixtures\ILInspector.Analysis.AsyncSiblingFriendFixtures.csproj" ReferenceOutputAssembly="false" />
