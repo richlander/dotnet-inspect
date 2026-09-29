@@ -3270,6 +3270,8 @@ let keyboardHelpBindings = keybindings.bindingsFor();
 const operationAuthority = createOperationAuthorityPage();
 const typeHeatWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
+const typeLeverageWorkspaceGenerations =
+  new WeakMap<AppPackage, string>();
 const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
   operationAuthority,
   key: target => target.key,
@@ -4860,6 +4862,14 @@ interface TypeLeverageTarget {
   >;
 }
 
+function typeLeverageWorkspaceGeneration(pkg: AppPackage) {
+  const existing = typeLeverageWorkspaceGenerations.get(pkg);
+  if (existing) return existing;
+  const generation = crypto.randomUUID();
+  typeLeverageWorkspaceGenerations.set(pkg, generation);
+  return generation;
+}
+
 function typeLeverageTarget(): TypeLeverageTarget | null {
   const pkg = state.package;
   const library = selectedLibrary();
@@ -4869,7 +4879,7 @@ function typeLeverageTarget(): TypeLeverageTarget | null {
     || aggregateLibrarySubjectIsActive()) {
     return null;
   }
-  const generation = implementationProfileWorkspaceGeneration(pkg);
+  const generation = typeLeverageWorkspaceGeneration(pkg);
   if (pkg.isRuntimePack) {
     const row = platformLibraryForRequest(pkg, library.id);
     const assemblyFileName = platformAssemblyRequest(row);
