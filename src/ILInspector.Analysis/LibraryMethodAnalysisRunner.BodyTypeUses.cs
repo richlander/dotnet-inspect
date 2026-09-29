@@ -85,6 +85,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     BodyTypeUseOperandBinding binding =
                         BindOperand(
                             resolver,
+                            scope,
                             OperandPathOf(instruction, kind),
                             token);
                     if (binding.Unavailable is { } unavailable)
@@ -352,21 +353,31 @@ internal sealed partial class LibraryMethodAnalysisRunner
         }
     }
 
-    // Operand resolution and same-image binding depend only on the token and
-    // its resolution path: the caller's generic scope names generic
-    // parameters, which never bind or make an operand unavailable. Each
-    // distinct operand is therefore resolved and bound once per execution.
-    Dictionary<(int Token, BodyTypeUseOperandPath Path), BodyTypeUseOperandBinding>?
+    // Operand resolution and same-image binding depend only on the token,
+    // its resolution path, and, for a MethodSpec, the caller's generic
+    // arities, which validate its instantiation. Otherwise the caller's
+    // generic scope only names generic parameters, which never bind or make
+    // an operand unavailable. Each distinct operand is therefore resolved and
+    // bound once per execution.
+    Dictionary<BodyTypeUseOperandKey, BodyTypeUseOperandBinding>?
         _bodyUseOperandBindings;
 
     BodyTypeUseOperandBinding BindOperand(
         IMethodCallResolver resolver,
+        GenericScope scope,
         BodyTypeUseOperandPath path,
         int token)
     {
         _bodyUseOperandBindings ??= [];
+        var key = (token & unchecked((int)0xFF000000)) == 0x2B000000
+            ? new BodyTypeUseOperandKey(
+                token,
+                path,
+                scope.TypeParameters.Length,
+                scope.MethodParameters.Length)
+            : new BodyTypeUseOperandKey(token, path, 0, 0);
         if (_bodyUseOperandBindings.TryGetValue(
-                (token, path),
+                key,
                 out BodyTypeUseOperandBinding? binding))
         {
             return binding;
@@ -390,7 +401,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 CollectLocalTargets(root, targets, ref ordinal);
             binding = new(null, targets.DrainToImmutable());
         }
-        _bodyUseOperandBindings.Add((token, path), binding);
+        _bodyUseOperandBindings.Add(key, binding);
         return binding;
     }
 
@@ -506,6 +517,12 @@ internal enum BodyTypeUseOperandPath : byte
     Field,
     Type,
 }
+
+internal readonly record struct BodyTypeUseOperandKey(
+    int Token,
+    BodyTypeUseOperandPath Path,
+    int TypeArity,
+    int MethodArity);
 
 internal readonly record struct BodyTypeUseOperandTarget(
     int Ordinal,
