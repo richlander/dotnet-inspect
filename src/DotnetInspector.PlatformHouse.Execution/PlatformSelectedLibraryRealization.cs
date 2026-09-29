@@ -236,9 +236,11 @@ public sealed class PlatformLibraryRealizationSource
     public PlatformSourceCapabilityIdentity Capability { get; }
     public PlatformSourceFacet Facet { get; }
     public PlatformSourceCapabilityIdentity?
-        SelectedAssociationCapability { get; }
+        SelectedAssociationCapability
+    { get; }
     public PlatformSourceAssociationRouteIdentity?
-        SelectedAssociationRoute { get; }
+        SelectedAssociationRoute
+    { get; }
 
     internal ValueTask<PlatformLibraryRealizationSourceAttempt>
         RealizeAsync(
@@ -288,9 +290,9 @@ public static class PlatformHouseSelectedLibraryExecutor
         }
 
         PlatformLibraryArtifactMaterializationOutcome? owningResult = null;
-        PlatformHouseOutcome<PlatformLibraryRealizationValue> outcome =
+        PlatformHouseOutcome<PlatformLibraryReference> outcome =
             await PlatformHouseTargetSelector.ExecuteAsync<
-                PlatformLibraryRealizationValue>(
+                PlatformLibraryReference>(
                     request,
                     discoverySources,
                     async selection =>
@@ -777,7 +779,7 @@ public static class PlatformHouseSelectedLibraryExecutor
             termination,
             (receipt, terminal) =>
                 new PlatformHouseOutcome<
-                    PlatformLibraryRealizationValue>.Unavailable(
+                    PlatformLibraryReference>.Unavailable(
                         (PlatformHouseTermination.Unavailable)terminal,
                         receipt));
     }
@@ -801,7 +803,7 @@ public static class PlatformHouseSelectedLibraryExecutor
             termination,
             (receipt, terminal) =>
                 new PlatformHouseOutcome<
-                    PlatformLibraryRealizationValue>.Failed(
+                    PlatformLibraryReference>.Failed(
                         (PlatformHouseTermination.Failed)terminal,
                         receipt));
     }
@@ -825,7 +827,7 @@ public static class PlatformHouseSelectedLibraryExecutor
             termination,
             (receipt, terminal) =>
                 new PlatformHouseOutcome<
-                    PlatformLibraryRealizationValue>.Ambiguous(
+                    PlatformLibraryReference>.Ambiguous(
                         (PlatformHouseTermination.Ambiguous)terminal,
                         receipt));
     }
@@ -839,7 +841,7 @@ public static class PlatformHouseSelectedLibraryExecutor
         Func<
             PlatformHouseReceipt,
             PlatformHouseTermination,
-            PlatformHouseOutcome<PlatformLibraryRealizationValue>> create)
+            PlatformHouseOutcome<PlatformLibraryReference>> create)
     {
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,

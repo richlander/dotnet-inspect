@@ -22,12 +22,14 @@ public sealed partial class PackagePlatformSource
     public Task<PackagePlatformSourceOutcome<PackageImplementationRealization>>
         RealizeImplementationAsync(
             PackageImplementationPlatformCoordinate coordinate,
+            PackageImplementationPopulationDemand population,
             PackageImplementationWorkBudget work,
             PackageSourceOperationLease operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
         return RealizeImplementationCoreAsync(
             coordinate,
+            population,
             work,
             operation);
     }
@@ -36,17 +38,20 @@ public sealed partial class PackagePlatformSource
         PackagePlatformSourceOutcome<PackageImplementationRealization>>
         RealizeImplementationCoreAsync(
             PackageImplementationPlatformCoordinate coordinate,
+            PackageImplementationPopulationDemand population,
             PackageImplementationWorkBudget work,
             PackageSourceOperationLease operation)
     {
         using (operation)
         {
             ArgumentNullException.ThrowIfNull(coordinate);
+            ArgumentNullException.ThrowIfNull(population);
             ArgumentNullException.ThrowIfNull(work);
             var generation = new PackagePlatformSourceGeneration();
             var attempt = new ImplementationAttempt(
                 this,
                 coordinate,
+                population,
                 work,
                 generation,
                 operation);
@@ -102,13 +107,20 @@ public sealed partial class PackagePlatformSource
                     failure.Kind,
                     failure.Message,
                     attempt.PackageFailures);
+                PackagePlatformSourceWork? sourceWork =
+                    failure.Kind
+                        == PackagePlatformSourceDiagnosticKind
+                            .MemberUnavailable
+                        ? attempt.MemberUnavailableWork
+                        : null;
                 return failure.Outcome switch
                 {
                     ImplementationAttemptOutcome.Unavailable =>
                         new PackagePlatformSourceOutcome<
                             PackageImplementationRealization>.Unavailable(
                                 generation,
-                                diagnostic),
+                                diagnostic,
+                                sourceWork),
                     ImplementationAttemptOutcome.Rejected =>
                         new PackagePlatformSourceOutcome<
                             PackageImplementationRealization>.Rejected(
@@ -154,6 +166,7 @@ public sealed partial class PackagePlatformSource
     {
         private readonly PackagePlatformSource _source;
         private readonly PackageImplementationPlatformCoordinate _coordinate;
+        private readonly PackageImplementationPopulationDemand _population;
         private readonly PackageImplementationWorkBudget _work;
         private readonly PackagePlatformSourceGeneration _generation;
         private readonly PackageSourceOperationLease _operation;
@@ -168,12 +181,14 @@ public sealed partial class PackagePlatformSource
         internal ImplementationAttempt(
             PackagePlatformSource source,
             PackageImplementationPlatformCoordinate coordinate,
+            PackageImplementationPopulationDemand population,
             PackageImplementationWorkBudget work,
             PackagePlatformSourceGeneration generation,
             PackageSourceOperationLease operation)
         {
             _source = source;
             _coordinate = coordinate;
+            _population = population;
             _work = work;
             _generation = generation;
             _operation = operation;
@@ -209,6 +224,11 @@ public sealed partial class PackagePlatformSource
 
         internal IReadOnlyList<PackageAuthorityFailure> PackageFailures =>
             _packageFailures;
+
+        internal PackagePlatformSourceWork MemberUnavailableWork =>
+            new(
+                assemblies: 0,
+                bytes: _initialBytes - _remainingBytes);
 
         internal async Task<PackageImplementationRealization> RunAsync()
         {
@@ -281,7 +301,7 @@ public sealed partial class PackagePlatformSource
 
             EnsureFrameworkCapacity(frameworks.Count);
             ImmutableArray<PackageImplementationLibrary> libraries =
-                await RealizeLibrariesAsync(frameworks)
+                await RealizeLibrariesAsync(frameworks, _population)
                     .ConfigureAwait(false);
             _operation.ThrowIfExpired();
             return new PackageImplementationRealization(
@@ -442,7 +462,8 @@ public sealed partial class PackagePlatformSource
                         _source._payloads.GetStore,
                         _source._payloads.Log,
                         _source._payloads.Limits,
-                        _source._payloads.TransferPolicy)
+                        _source._payloads.TransferPolicy,
+                        CreateRangedRead(family))
                     .ConfigureAwait(false);
             AddFailures(acquired.Failures);
             _operation.ThrowIfExpired();
@@ -495,6 +516,53 @@ public sealed partial class PackagePlatformSource
                 payload.Content,
                 payload.Origin,
                 [.. _packageFailures.Skip(failureStart)]);
+        }
+
+        private PackageRangedRead? CreateRangedRead(
+            PlatformFamily family)
+        {
+            if (_population
+                is not PackageImplementationPopulationDemand.Assembly assembly)
+            {
+                return null;
+            }
+
+            string prefix =
+                $"runtimes/{_coordinate.RuntimeIdentifier}/lib/"
+                + $"{_coordinate.Target.TargetFramework}/";
+            string manifestBase = FrameworkName(family).Value;
+            string runtimeConfiguration =
+                prefix + manifestBase + ".runtimeconfig.json";
+            string dependencyManifest =
+                prefix + manifestBase + ".deps.json";
+            string requestedAssembly =
+                assembly.Identity.Name + ".dll";
+            return new PackageRangedRead(
+                directory =>
+                {
+                    IReadOnlyList<string> listed =
+                        [.. directory.EnumerateEntries()];
+                    return new PackageRangedSelection(
+                        [.. listed.Where(path =>
+                            string.Equals(
+                                path,
+                                runtimeConfiguration,
+                                StringComparison.Ordinal)
+                            || string.Equals(
+                                path,
+                                dependencyManifest,
+                                StringComparison.Ordinal))],
+                        [.. listed.Where(path =>
+                            path.StartsWith(
+                                prefix,
+                                StringComparison.Ordinal)
+                            && !path.AsSpan(prefix.Length).Contains('/')
+                            && string.Equals(
+                                path[prefix.Length..],
+                                requestedAssembly,
+                                StringComparison.OrdinalIgnoreCase))]);
+                },
+                _source._payloads.RangedSizeCut);
         }
 
         private async Task<FrameworkSnapshot> SnapshotFrameworkAsync(
@@ -597,7 +665,8 @@ public sealed partial class PackagePlatformSource
 
         private async Task<ImmutableArray<PackageImplementationLibrary>>
             RealizeLibrariesAsync(
-                IReadOnlyList<FrameworkSnapshot> frameworks)
+                IReadOnlyList<FrameworkSnapshot> frameworks,
+                PackageImplementationPopulationDemand population)
         {
             var libraries = new List<PackageImplementationLibrary>();
             var identities = new HashSet<AssemblyReferenceIdentity>(
@@ -635,58 +704,80 @@ public sealed partial class PackagePlatformSource
                 }
             }
 
-            foreach (FrameworkSnapshot framework in frameworks)
-            {
-                foreach (PlatformManifestAssetCoordinate asset
-                    in framework.DependencyManifest.ManagedAssets)
+            IReadOnlyList<(FrameworkSnapshot Framework,
+                PlatformManifestAssetCoordinate Asset)> selected =
+                population switch
                 {
-                    _operation.ThrowIfExpired();
-                    if (libraries.Count == maximumAssemblies)
-                    {
-                        throw Incomplete(
-                            "The implementation closure exceeds the assembly allowance.");
-                    }
+                    PackageImplementationPopulationDemand.CompletePopulation =>
+                        [.. frameworks.SelectMany(
+                            static framework =>
+                                framework.DependencyManifest.ManagedAssets
+                                    .Select(asset => (framework, asset)))],
+                    PackageImplementationPopulationDemand.Assembly assembly =>
+                        SelectExactAssembly(frameworks, assembly.Identity),
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(population)),
+                };
 
-                    byte[] content = await ReadRequiredEntryAsync(
-                            framework.Content,
-                            framework.Entries,
-                            asset.FileName,
-                            _source.Limits.MaxEntryBytes,
-                            PackagePlatformSourceDiagnosticKind.InvalidMember,
-                            "A manifest-declared implementation member is absent.")
-                        .ConfigureAwait(false);
-                    AssemblyReferenceIdentity identity =
-                        ReadAssemblyIdentity(content);
-                    string expectedName = asset.FileName[..^4];
-                    if (!string.Equals(
-                            identity.Name,
-                            expectedName,
-                            StringComparison.OrdinalIgnoreCase))
-                    {
-                        throw Reject(
-                            PackagePlatformSourceDiagnosticKind
-                                .AssemblyIdentityMismatch,
-                            "A manifest-declared implementation member does not match its assembly identity.");
-                    }
-                    if (!identities.Add(identity))
-                    {
-                        throw Reject(
-                            PackagePlatformSourceDiagnosticKind
-                                .DuplicateAssemblyIdentity,
-                            "The implementation closure contains duplicate assembly identities.");
-                    }
-                    PackagePlatformContentDigest digest =
-                        PackagePlatformContentDigest.FromBytes(content);
-                    _operation.ThrowIfExpired();
-
-                    libraries.Add(
-                        new PackageImplementationLibrary(
-                            framework.Evidence,
-                            asset,
-                            identity,
-                            digest,
-                            content));
+            foreach ((FrameworkSnapshot framework,
+                PlatformManifestAssetCoordinate asset) in selected)
+            {
+                _operation.ThrowIfExpired();
+                if (libraries.Count == maximumAssemblies)
+                {
+                    throw Incomplete(
+                        "The implementation closure exceeds the assembly allowance.");
                 }
+
+                byte[] content = await ReadRequiredEntryAsync(
+                        framework.Content,
+                        framework.Entries,
+                        asset.FileName,
+                        _source.Limits.MaxEntryBytes,
+                        PackagePlatformSourceDiagnosticKind.InvalidMember,
+                        "A manifest-declared implementation member is absent.")
+                    .ConfigureAwait(false);
+                AssemblyReferenceIdentity identity =
+                    ReadAssemblyIdentity(content);
+                string expectedName = asset.FileName[..^4];
+                if (!string.Equals(
+                        identity.Name,
+                        expectedName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    throw Reject(
+                        PackagePlatformSourceDiagnosticKind
+                            .AssemblyIdentityMismatch,
+                        "A manifest-declared implementation member does not match its assembly identity.");
+                }
+                if (!identities.Add(identity))
+                {
+                    throw Reject(
+                        PackagePlatformSourceDiagnosticKind
+                            .DuplicateAssemblyIdentity,
+                        "The implementation closure contains duplicate assembly identities.");
+                }
+                if (population
+                        is PackageImplementationPopulationDemand.Assembly
+                            exact
+                    && !exact.Identity.IsEquivalentTo(identity))
+                {
+                    throw Reject(
+                        PackagePlatformSourceDiagnosticKind
+                            .AssemblyIdentityMismatch,
+                        "The requested implementation member does not match its exact assembly identity.");
+                }
+                PackagePlatformContentDigest digest =
+                    PackagePlatformContentDigest.FromBytes(content);
+                _operation.ThrowIfExpired();
+
+                libraries.Add(
+                    new PackageImplementationLibrary(
+                        framework.Evidence,
+                        asset,
+                        identity,
+                        digest,
+                        content));
             }
 
             libraries.Sort(
@@ -714,6 +805,44 @@ public sealed partial class PackagePlatformSource
                 });
             _operation.ThrowIfExpired();
             return [.. libraries];
+        }
+
+        private static IReadOnlyList<(
+            FrameworkSnapshot Framework,
+            PlatformManifestAssetCoordinate Asset)> SelectExactAssembly(
+                IReadOnlyList<FrameworkSnapshot> frameworks,
+                AssemblyReferenceIdentity identity)
+        {
+            string requestedFileName = identity.Name + ".dll";
+            var selected = new List<(
+                FrameworkSnapshot,
+                PlatformManifestAssetCoordinate)>();
+            foreach (FrameworkSnapshot framework in frameworks)
+            {
+                foreach (PlatformManifestAssetCoordinate asset
+                    in framework.DependencyManifest.ManagedAssets)
+                {
+                    if (string.Equals(
+                            asset.FileName,
+                            requestedFileName,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        selected.Add((framework, asset));
+                    }
+                }
+            }
+
+            return selected.Count switch
+            {
+                0 => throw Unavailable(
+                    PackagePlatformSourceDiagnosticKind.MemberUnavailable,
+                    "The requested assembly is absent from the package-backed implementation closure."),
+                1 => selected,
+                _ => throw Reject(
+                    PackagePlatformSourceDiagnosticKind
+                        .DuplicateLogicalCoordinate,
+                    "Implementation manifests project more than one asset to the requested runtime member."),
+            };
         }
 
         private async Task<byte[]> ReadRequiredEntryAsync(

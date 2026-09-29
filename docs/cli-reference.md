@@ -1267,7 +1267,11 @@ more relationships, or request every analysis.
 Exact `library ... -S "Library Metrics" --json` emits the complete Research
 `LibraryStructuralReportDocument`: the Analysis receipt and coverage,
 numeric distributions and maximum-body identities, async disposition, typed
-type summaries, cross-type relationships, and Analysis diagnostics.
+type summaries, cross-type relationships, Analysis diagnostics, and the
+methodology-v2 Type-leverage document. Type leverage preserves exact metadata
+type identities, the separately ordered sea-level and mountain-peak rankings,
+role and evidence qualifications, Metadata signature-use and Analysis body-use
+receipts, and Graph work receipts.
 `--envelope` emits identical `content` plus Share and operation diagnostics:
 
 ```bash
@@ -1278,7 +1282,11 @@ dotnet-inspect library Markout.dll --package Markout@0.35.2 \
 ```
 
 This complete transport is separate from Markout lowering. Markdown, table,
-TSV, and JSONL retain their existing Library Metrics row contracts. Complete
+TSV, and JSONL retain their existing Library Metrics row contracts and add
+separately named `Sea-Level Types` and `Mountain-Peak Types` row groups. Those
+groups present the Research-issued order, named degree, role, exact type key,
+and qualification summary without blending the rankings into one score.
+Complete
 JSON requires one exact Library, one target framework, and the exact singleton
 section; it rejects row, field, column, Count, discovery, payload, and
 competing presentation projections rather than truncating Content. Type

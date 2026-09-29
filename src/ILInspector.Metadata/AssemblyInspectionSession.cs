@@ -368,9 +368,11 @@ public sealed class AssemblyInspectionSession :
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         ApiSurfaceExtractionScope scope,
-        ApiSurfaceExtractionBounds bounds)
+        ApiSurfaceExtractionBounds bounds,
+        bool includeCompilerGenerated = false)
         => ApiSurfaceExtractor.ExtractBounded(
-            _image.PEReader, source, catalog, bindingPolicy, scope, bounds);
+            _image.PEReader, source, catalog, bindingPolicy, scope, bounds,
+            includeCompilerGenerated);
 
     /// <summary>Manifest resources.</summary>
     public List<ManifestResourceInfo> Resources()
@@ -396,12 +398,6 @@ public sealed class AssemblyInspectionSession :
         return SwitchScanner.Scan(_image.PEReader);
     }
 
-    /// <summary>Classified methods (unsafe / P-Invoke / async).</summary>
-    public List<ClassifiedMethodInfo> ClassifiedMethods()
-    {
-        _image.EnsureAlive();
-        return MethodClassificationScanner.Scan(_image.PEReader);
-    }
 
     /// <summary>OpenTelemetry integration signals.</summary>
     public List<OpenTelemetrySignalInfo> OpenTelemetrySignals()

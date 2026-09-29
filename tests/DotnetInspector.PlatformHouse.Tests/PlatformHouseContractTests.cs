@@ -90,6 +90,38 @@ public class PlatformHouseContractTests
     }
 
     [Fact]
+    public void FamilyDefaultDemand_AcceptsEachSharedFrameworkFamily()
+    {
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package-targets");
+        var policy = new PlatformVersionlessRuntimeTargetPolicy(
+            PlatformTargetSelectionPolicyIdentity.Create(
+                "versionless-aspnetcore-default"),
+            PlatformTargetSelectionPolicyGeneration.Create("generation-1"),
+            PlatformVersion.Parse("10.0.1"),
+            preferred: null,
+            new PlatformTargetDiscoveryStage(
+                new PlatformTargetDiscoveryScope.ExactFramework(
+                    PlatformTargetFramework.Parse("net10.0")),
+                [package]));
+
+        foreach (PlatformFamily family in Enum.GetValues<PlatformFamily>())
+        {
+            var demand = new PlatformTargetDemand.FamilyDefault(
+                family,
+                policy,
+                new PlatformTargetDiscoveryBudget(32, 64));
+            Assert.Equal(family, demand.Family);
+        }
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new PlatformTargetDemand.FamilyDefault(
+                (PlatformFamily)42,
+                policy,
+                new PlatformTargetDiscoveryBudget(32, 64)));
+    }
+
+    [Fact]
     public void FamilyDefaultPolicy_RejectsInvalidStageMembership()
     {
         PlatformSourceCapabilityIdentity installed =
@@ -575,8 +607,8 @@ public class PlatformHouseContractTests
     [Fact]
     public void ClosedOperations_SeparateLiveInputsFromReceiptIdentities()
     {
-        PlatformLibraryIdentity library =
-            PlatformLibraryIdentityAuthority.Create("catalog")
+        PlatformLibraryDemandIdentity library =
+            PlatformLibraryDemandIdentityAuthority.Create("catalog")
                 .Issue("System.Runtime");
         var realize = new PlatformHouseOperation.Realize(
             new PlatformPopulationDemand.Library(
@@ -1133,7 +1165,7 @@ public class PlatformHouseContractTests
                 PlatformSourceCoordinateIdentity.Create("coordinate"),
                 new PlatformPopulationDemand.Library(
                     new PlatformLibraryDemand.PlatformLibrary(
-                        PlatformLibraryIdentityAuthority.Create("catalog")
+                        PlatformLibraryDemandIdentityAuthority.Create("catalog")
                             .Issue("System.Runtime"))),
                 PlatformSourceContributionCompleteness.Authoritative),
             PlatformSourceSettlementDisposition.Selected);
@@ -1200,7 +1232,7 @@ public class PlatformHouseContractTests
                     "second-coordinate"),
                 new PlatformPopulationDemand.Library(
                     new PlatformLibraryDemand.PlatformLibrary(
-                        PlatformLibraryIdentityAuthority.Create("catalog")
+                        PlatformLibraryDemandIdentityAuthority.Create("catalog")
                             .Issue("System.Private.CoreLib"))),
                 PlatformSourceContributionCompleteness.Authoritative),
             PlatformSourceSettlementDisposition.Selected);
@@ -1307,7 +1339,7 @@ public class PlatformHouseContractTests
             Work());
         var population = new PlatformPopulationDemand.Library(
             new PlatformLibraryDemand.PlatformLibrary(
-                PlatformLibraryIdentityAuthority.Create("catalog")
+                PlatformLibraryDemandIdentityAuthority.Create("catalog")
                     .Issue("System.Runtime")));
         var source = new PlatformSourceSettlement(
             new PlatformSourceContribution.Realization(

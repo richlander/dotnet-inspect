@@ -119,6 +119,13 @@ public partial class LibraryCommand
         new("References applicability", AssemblyReferencesQuery.Definition),
     ];
 
+    /// <summary>
+    /// The <c>--json</c> model dump shows every method classification count;
+    /// lists appear only when a row section asks for them.
+    /// </summary>
+    internal static readonly HostQueryDemand ModelDumpCountsDemand =
+        new("--json model counts", MethodClassificationDemand.ModelCounts);
+
     internal static readonly HostQueryDemand[]
         BareDiscoveryQueries =
         [
@@ -978,6 +985,10 @@ public partial class LibraryCommand
                     "Body Shapes performance predicates",
                     OptimizationOpportunitiesQuery.Definition));
         }
+
+        if (!discoveryInspection
+            && LibraryMetadataService.WritesDefaultModelDump(options))
+            commandQueryDemand.Add(ModelDumpCountsDemand);
 
         HashSet<InspectionQueryDefinition> queries =
             sectionPlan.Activate(trace, commandQueryDemand);
@@ -2617,7 +2628,7 @@ public partial class LibraryCommand
         return true;
     }
 
-    private static void ApplyLibraryEcosystemDependencies(
+    internal static void ApplyLibraryEcosystemDependencies(
         LibraryInspection inspection,
         LibraryInspectionSubject subject,
         bool wantsEcosystemDependencies,
@@ -2634,18 +2645,24 @@ public partial class LibraryCommand
         }
         if (subject.AssemblyReference is not { } assembly)
         {
-            CommandError.WriteWarning(
-                "Library ecosystem recognition is unavailable because the "
-                + "selected input is not an assembly.");
+            if (discloseEmptyDetailDiagnostics)
+            {
+                CommandError.WriteWarning(
+                    "Library ecosystem recognition is unavailable because the "
+                    + "selected input is not an assembly.");
+            }
             return;
         }
         if (!TryCreateExactLibrarySourceCoordinate(
                 assembly,
                 out ExactLibrarySourceCoordinate? source))
         {
-            CommandError.WriteWarning(
-                "Library ecosystem recognition is unavailable because the "
-                + "selected source does not have an exact Library coordinate.");
+            if (discloseEmptyDetailDiagnostics)
+            {
+                CommandError.WriteWarning(
+                    "Library ecosystem recognition is unavailable because the "
+                    + "selected source does not have an exact Library coordinate.");
+            }
             return;
         }
 
@@ -2736,7 +2753,7 @@ public partial class LibraryCommand
         return false;
     }
 
-    private static bool RequiresLibraryEcosystemDiagnosticDisclosure(
+    internal static bool RequiresLibraryEcosystemDiagnosticDisclosure(
         LibraryOptions options) =>
         options.IncludeSections is { } sections
         && sections.Contains(SectionNames.EcosystemDependencies)
@@ -4646,9 +4663,11 @@ public partial class LibraryCommand
         return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
     }
 
-    private sealed record ToolPayloadResolution(PackageExtractionResult? Result, string? Error);
+    internal sealed record ToolPayloadResolution(
+        PackageExtractionResult? Result,
+        string? Error);
 
-    private static async Task<ToolPayloadResolution> TryResolveToolPayloadPackageAsync(
+    internal static async Task<ToolPayloadResolution> TryResolveToolPayloadPackageAsync(
         PackageExtractionResult package,
         PackageReferenceTarget originalPackageTarget,
         NuGetSourceOptions? sourceOptions,

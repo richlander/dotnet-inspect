@@ -596,7 +596,7 @@ public static class IntrinsicCoreLibraryPlatformApplicabilityQuery
         }
 
         PlatformTypeCatalogEntry definition = definitions[0];
-        if (definition.Member.Library.ApiAssembly.Provenance
+        if (definition.Member.PlatformLibrary.Library.ApiAssembly.Provenance
                 is not PlatformLibraryArtifactProvenance provenance
             || provenance.Contribution.Target != catalog.Target
             || catalog.PopulationReceipt.RealizedMembers

@@ -107,7 +107,7 @@ public sealed partial class PackageHouseExecutionTests
                 applicable.Receipt.Definition.Name);
             Assert.Equal(
                 "System.Runtime",
-                applicable.Receipt.Definition.Member.Library
+                applicable.Receipt.Definition.Member.PlatformLibrary.Library
                     .ApiAssembly.AssemblyIdentity!.Identity.Name);
             Assert.Equal(
                 PlatformFamily.DotNetRuntime,
