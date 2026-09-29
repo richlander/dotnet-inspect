@@ -24,7 +24,8 @@ public sealed class PlatformTypeDefinitionResolverTests
             "System.Xml");
         LibraryContentReference terminalContent = Member(
             prepared.Completed,
-            "System.Private.Xml").Library.ImplementationAssembly!;
+            "System.Private.Xml")
+                .PlatformLibrary.Library.ImplementationAssembly!;
         ResolvedAssemblyReference start =
             SnapshotDescriptor(prepared.Completed, starting);
         PlatformHouseRequest request = TypeRequest(
@@ -117,7 +118,7 @@ public sealed class PlatformTypeDefinitionResolverTests
         Assert.Null(completion.Correspondence);
         Assert.Empty(completion.SelectedContributions);
         Assert.IsType<LibraryOperationLeaseIssueOutcome.OwnerReleased>(
-            startingOwner.IssueOperationLease(starting.Library));
+            startingOwner.IssueOperationLease(starting.PlatformLibrary.Library));
     }
 
     [Fact]
@@ -423,7 +424,7 @@ public sealed class PlatformTypeDefinitionResolverTests
                                 expected.Consumed));
             Assert.IsType<LibraryOperationLeaseIssueOutcome.OwnerReleased>(
                 expectedOwner.IssueOperationLease(
-                    expectedMember.Library));
+                    expectedMember.PlatformLibrary.Library));
         }
         finally
         {
@@ -469,7 +470,7 @@ public sealed class PlatformTypeDefinitionResolverTests
                             prepared.Completed,
                             prepared.Consumed));
         Assert.IsType<LibraryOperationLeaseIssueOutcome.OwnerReleased>(
-            startingOwner.IssueOperationLease(starting.Library));
+            startingOwner.IssueOperationLease(starting.PlatformLibrary.Library));
     }
 
     [Fact]
@@ -523,7 +524,7 @@ public sealed class PlatformTypeDefinitionResolverTests
                 rejected.Receipt.TargetSettlement);
         Assert.Same(selecting, settlement.Demand);
         Assert.IsType<LibraryOperationLeaseIssueOutcome.OwnerReleased>(
-            startingOwner.IssueOperationLease(starting.Library));
+            startingOwner.IssueOperationLease(starting.PlatformLibrary.Library));
     }
 
     [Fact]
@@ -577,7 +578,7 @@ public sealed class PlatformTypeDefinitionResolverTests
             incomplete.Receipt.ConsumedWork.Elapsed
                 > request.Work.MaxDuration);
         Assert.IsType<LibraryOperationLeaseIssueOutcome.OwnerReleased>(
-            startingOwner.IssueOperationLease(starting.Library));
+            startingOwner.IssueOperationLease(starting.PlatformLibrary.Library));
     }
 
     [Fact]
@@ -613,7 +614,7 @@ public sealed class PlatformTypeDefinitionResolverTests
                             prepared.Completed,
                             prepared.Consumed));
         Assert.IsType<LibraryOperationLeaseIssueOutcome.OwnerReleased>(
-            startingOwner.IssueOperationLease(starting.Library));
+            startingOwner.IssueOperationLease(starting.PlatformLibrary.Library));
     }
 
     [Fact]
@@ -647,7 +648,7 @@ public sealed class PlatformTypeDefinitionResolverTests
                     prepared.Completed,
                     prepared.Consumed));
         Assert.IsType<LibraryOperationLeaseIssueOutcome.OwnerReleased>(
-            startingOwner.IssueOperationLease(starting.Library));
+            startingOwner.IssueOperationLease(starting.PlatformLibrary.Library));
     }
 
     [Fact]
@@ -884,10 +885,10 @@ public sealed class PlatformTypeDefinitionResolverTests
     {
         LibraryContentOwner owner = Owner(completed, member);
         LibraryContentReference content =
-            member.Library.ImplementationAssembly!;
+            member.PlatformLibrary.Library.ImplementationAssembly!;
         using LibraryOperationLease lease =
             Assert.IsType<LibraryOperationLeaseIssueOutcome.Issued>(
-                    owner.IssueOperationLease(member.Library))
+                    owner.IssueOperationLease(member.PlatformLibrary.Library))
                 .Lease;
         return lease.Snapshot(
             content,
@@ -910,7 +911,7 @@ public sealed class PlatformTypeDefinitionResolverTests
         Assert.Single(
             completed.Population.Value.Members,
             member => string.Equals(
-                member.Library.ApiAssembly.AssemblyIdentity?.Identity.Name,
+                member.PlatformLibrary.Library.ApiAssembly.AssemblyIdentity?.Identity.Name,
                 assemblyName,
                 StringComparison.Ordinal));
 
