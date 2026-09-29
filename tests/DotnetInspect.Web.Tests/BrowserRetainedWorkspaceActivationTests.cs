@@ -19,7 +19,7 @@ public sealed class BrowserRetainedWorkspaceActivationCollection;
 public sealed partial class BrowserRetainedWorkspaceActivationTests
 {
     [Fact]
-    public void PackageSourceDescription_AdmitsTargetedSourceFreePacketsAndRejectsUnsupportedPackets()
+    public void PackageSourceDescription_AdmitsPublishableSourceFreePacketsAndRejectsUnsupportedPackets()
     {
         BrowserWorkspacePackageSourceRequirementsResult complete =
             BrowserRetainedWorkspaceActivationService.DescribePackageSources(
@@ -52,6 +52,18 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Contains(
             "Package or Platform target",
             registrationOnly.Failure?.Message,
+            StringComparison.Ordinal);
+
+        BrowserWorkspacePackageSourceRequirementsResult deepView =
+            BrowserRetainedWorkspaceActivationService.DescribePackageSources(
+                DeepViewPacket());
+        Assert.False(deepView.Succeeded);
+        Assert.Empty(deepView.Sources);
+        Assert.Equal("UnsupportedDefinition", deepView.Failure?.Kind);
+        Assert.Equal("packet.view.active", deepView.Failure?.Path);
+        Assert.Contains(
+            "Workspace or Package Overview",
+            deepView.Failure?.Message,
             StringComparison.Ordinal);
     }
 
@@ -1263,6 +1275,14 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             WorkspaceSharePacketCodec.ParseJson(
                 """
                 {"f":3,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}
+                """,
+                TestContext.Current.CancellationToken));
+
+    static string DeepViewPacket() =>
+        WorkspaceSharePacketCodec.Encode(
+            WorkspaceSharePacketCodec.ParseJson(
+                """
+                {"f":4,"t":[["Avalonia","12.1.2","net8.0",null]],"g":[[0]],"r":[],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"r":{"k":"member","l":["Avalonia.Base","12.1.2.0",null,"c8d484a7012f9a8b"],"y":"Avalonia.Data.MultiBinding","s":"M:Avalonia.Data.MultiBinding.#ctor()"},"u":{"k":"type"},"f":"type.metadata"}]}
                 """,
                 TestContext.Current.CancellationToken));
 

@@ -1839,6 +1839,41 @@ async function installFacades(
               },
             };
           }
+          const states = Array.isArray(state.v) ? state.v : [];
+          const isUnscoped = view =>
+            (!Array.isArray(view?.q) || view.q.length === 0)
+            && (!Array.isArray(view?.l) || view.l.length === 0);
+          const workspace = states[0];
+          const workspaceSupported =
+            states.length === state.t.length + 1
+            && isUnscoped(workspace)
+            && workspace?.u?.k === "workspace"
+            && workspace?.r === undefined
+            && (workspace?.f === undefined
+              || workspace.f === "workspace.overview");
+          const tabsSupported = state.t.every((tab, index) => {
+            const view = states[index + 1];
+            if (!isUnscoped(view)) return false;
+            if (typeof tab?.[0] === "string" && tab[0].startsWith(":")) {
+              return view?.u === undefined
+                && view?.r === undefined
+                && view?.f === undefined;
+            }
+            return view?.u?.k === "package"
+              && view?.r?.k === "package"
+              && (view?.f === undefined || view.f === "package.overview");
+          });
+          if (!workspaceSupported || !tabsSupported) {
+            return {
+              succeeded: false,
+              sources: [],
+              failure: {
+                kind: "UnsupportedDefinition",
+                path: "packet.view.active",
+                message: "Source-free complete Workspace link activation currently supports only Workspace or Package Overview selections.",
+              },
+            };
+          }
         }
         return { succeeded: true, sources: workspaceSources, failure: null };
       }`,

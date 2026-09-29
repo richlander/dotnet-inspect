@@ -1282,6 +1282,35 @@ test("unsupported packets remain available to the compatibility path", async () 
   assert.equal(events.length, 0);
 });
 
+test("source-free deep views remain available to the compatibility path", async () => {
+  const events: string[] = [];
+  const client = createWorkspaceTestClient(events);
+  client.describeWorkspacePackageSources = () => ({
+    succeeded: false,
+    sources: [],
+    failure: {
+      kind: "UnsupportedDefinition",
+      path: "packet.view.active",
+      message:
+        "Source-free complete Workspace link activation currently supports only Workspace or Package Overview selections.",
+    },
+  });
+  client.prepareRetainedWorkspaceDefinition = async () => {
+    throw new Error("Deep views must not enter retained activation.");
+  };
+  const harness = createCoordinatorHarness(client, events);
+
+  assert.equal(
+    await harness.coordinator.tryOpen(
+      new URL("https://example.test/?w=deep-view-packet"),
+      harness.sequence,
+      true),
+    false);
+  assert.equal(harness.visible, "incumbent");
+  assert.equal(harness.failure, null);
+  assert.equal(events.length, 0);
+});
+
 test("anonymous source activation publishes before committing browser history", async () => {
   const events: string[] = [];
   let preparedDefinition = {

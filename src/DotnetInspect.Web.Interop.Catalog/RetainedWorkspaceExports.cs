@@ -811,6 +811,17 @@ internal static class BrowserRetainedWorkspaceActivationService
                         "packet.tabs",
                         "Complete Workspace link activation requires at least one Package or Platform target."));
             }
+            if (packet.PackageSources.Count == 0
+                && !SupportsSourceFreePublication(packet))
+            {
+                return new(
+                    false,
+                    [],
+                    new(
+                        "UnsupportedDefinition",
+                        "packet.view.active",
+                        "Source-free complete Workspace link activation currently supports only Workspace or Package Overview selections."));
+            }
             return new(
                 true,
                 [
@@ -840,6 +851,48 @@ internal static class BrowserRetainedWorkspaceActivationService
                 new(ex.Kind.ToString(), "packet", ex.Message));
         }
     }
+
+    private static bool SupportsSourceFreePublication(
+        WorkspaceSharePacket packet)
+    {
+        if (!IsWorkspaceOverview(packet.ViewStates[0]))
+            return false;
+
+        for (int index = 0; index < packet.Tabs.Count; index++)
+        {
+            WorkspaceShareViewState state = packet.ViewStates[index + 1];
+            if (packet.Tabs[index].SourceKind
+                    == WorkspaceShareSourceKind.Package
+                ? !IsPackageOverview(state)
+                : !IsDormantGroup(state))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsWorkspaceOverview(WorkspaceShareViewState state) =>
+        IsUnscoped(state)
+        && state.Subject is PortableSubjectRequest.Workspace
+        && state.Context is null
+        && state.Facet is null or "workspace.overview";
+
+    private static bool IsPackageOverview(WorkspaceShareViewState state) =>
+        IsUnscoped(state)
+        && state.Subject is PortableSubjectRequest.Package
+        && state.Context is PortableRetainedSubjectContext.Package
+        && state.Facet is null or "package.overview";
+
+    private static bool IsDormantGroup(WorkspaceShareViewState state) =>
+        IsUnscoped(state)
+        && state.Subject is null
+        && state.Context is null
+        && state.Facet is null;
+
+    private static bool IsUnscoped(WorkspaceShareViewState state) =>
+        state.QueryIndexes.Count == 0 && state.Libraries.Count == 0;
 
     internal static BrowserRetainedWorkspacePreparationResult
         InvalidCredentialPreparation(
