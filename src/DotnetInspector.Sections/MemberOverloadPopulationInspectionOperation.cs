@@ -26,8 +26,12 @@ public static class MemberOverloadPopulationInspectionOperation
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
 
+            MemberOverloadPopulationExecutionPlan query =
+                request.Plan.Query;
             MemberOverloadRowsRequest? rows =
-                request.Plan.Overloads.Rows;
+                query.IncludesRows
+                    ? request.Plan.Overloads.Rows
+                    : null;
             AssemblyReferenceIdentity requestedAssembly =
                 request.Library.ApiAssembly.AssemblyIdentity
                     ?.Identity
@@ -39,10 +43,10 @@ public static class MemberOverloadPopulationInspectionOperation
                     continuation.Binding,
                     requestedAssembly,
                     request.Plan.Subject,
-                    rows.Ordering,
-                    request.Plan.Overloads.Accessibility,
-                    request.Plan.Overloads.Receiver,
-                    request.Plan.Overloads.IncludeHidden);
+                    query.Ordering,
+                    query.Accessibility,
+                    query.Receiver,
+                    query.IncludeHidden);
             int startOrdinal =
                 compatibleContinuation
                     ? rows?.Continuation?.NextOrdinal ?? 0
@@ -58,12 +62,10 @@ public static class MemberOverloadPopulationInspectionOperation
                         materializeRows:
                             rows is not null
                             && compatibleContinuation,
-                        Accessibility(
-                            request.Plan.Overloads.Accessibility),
-                        Receiver(
-                            request.Plan.Overloads.Receiver),
+                        Accessibility(query.Accessibility),
+                        Receiver(query.Receiver),
                         request.Plan.Bounds,
-                        request.Plan.Overloads.IncludeHidden,
+                        query.IncludeHidden,
                         expectedModuleVersionId:
                             compatibleContinuation
                                 ? rows?.Continuation?.Binding
@@ -204,10 +206,10 @@ public static class MemberOverloadPopulationInspectionOperation
             int startOrdinal,
             bool compatibleContinuation)
     {
+        MemberOverloadPopulationExecutionPlan query =
+            request.Plan.Query;
         MemberGroupSubject subject = request.Plan.Subject;
-        MemberOverloadOrdering ordering =
-            request.Plan.Overloads.Rows?.Ordering
-                ?? MemberOverloadOrdering.Metadata;
+        MemberOverloadOrdering ordering = query.Ordering;
         LibraryAssemblyIdentity assembly =
             PortableIdentity(correspondence.AssemblyIdentity);
         var binding = new MemberOverloadPopulationBinding(
@@ -219,16 +221,17 @@ public static class MemberOverloadPopulationInspectionOperation
             subject.Category,
             subject.Role,
             ordering,
-            request.Plan.Overloads.Accessibility,
-            request.Plan.Overloads.Receiver,
-            request.Plan.Overloads.IncludeHidden);
+            query.Accessibility,
+            query.Receiver,
+            query.IncludeHidden);
         MemberOverloadCountOutcome? count =
-            request.Plan.Overloads.Count is null
+            !query.IncludesCount
                 ? null
                 : new MemberOverloadCountOutcome.Counted(
                     read.Count);
         MemberOverloadRowsOutcome? rows = null;
-        if (request.Plan.Overloads.Rows is { } rowRequest)
+        if (query.IncludesRows
+            && request.Plan.Overloads.Rows is { } rowRequest)
         {
             bool exactContinuation =
                 compatibleContinuation
