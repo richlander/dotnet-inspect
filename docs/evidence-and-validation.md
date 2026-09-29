@@ -188,11 +188,15 @@ produced each column. When an oracle wins, identify the concrete implementation
 choice Planner can adopt.
 
 When a comparison exposes a safety check, place it at the narrowest shared
-owner. A general ECMA containment rule normally belongs in an upstream
-metadata or input boundary so multiple producers inherit it once. A
-producer-specific hazard remains in that producer. Do not make each producer
-repeat a general check, and do not move niche producer policy into a shared
-decoder.
+owner. First distinguish
+[session-owned format admission](design/assembly-inspection-query.md#session-owned-format-admission)
+from containment of admitted metadata rows: admission classifies the image and
+establishes the reader, but does not make rows trustworthy. A reusable
+row- or signature-decoding containment rule belongs in the narrowest shared
+Metadata primitive so multiple producers inherit it once. A check or bound
+specific to one producer's consumed facts or work remains in that producer.
+Do not make each producer repeat general containment, move row trust into
+format admission, or move niche producer policy into a shared decoder.
 
 **The frontier lane.** LINQ and NLinq are standard possibility oracles, not
 frontier experiments, when they satisfy the fidelity and safety contract. A
