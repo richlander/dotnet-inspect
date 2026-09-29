@@ -82,16 +82,12 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     }
 
                     int token = checked((int)instruction.OperandValue);
-                    ImmutableArray<TypeRef> roots =
-                        ResolveOperandTypes(
+                    BodyTypeUseOperandBinding binding =
+                        BindOperand(
                             resolver,
-                            instruction,
-                            kind,
+                            OperandPathOf(instruction, kind),
                             token);
-                    string? unavailable = roots.IsDefaultOrEmpty
-                        ? "no typed root"
-                        : FirstUnavailableTypeReason(roots);
-                    if (unavailable is not null)
+                    if (binding.Unavailable is { } unavailable)
                     {
                         operandsUnavailable++;
                         diagnostics.Add(
@@ -107,18 +103,21 @@ internal sealed partial class LibraryMethodAnalysisRunner
 
                     // The operand's rows commit atomically: they are appended
                     // in place and truncated away on any rejection.
-                    int ordinal = 0;
-                    foreach (TypeRef root in roots)
+                    if (source is { } logicalSource)
                     {
-                        CollectLocalDefinitions(
-                            root,
-                            kind,
-                            token,
-                            instruction.Offset,
-                            methodToken,
-                            source,
-                            rows,
-                            ref ordinal);
+                        foreach (BodyTypeUseOperandTarget target
+                            in binding.Targets)
+                        {
+                            rows.Add(
+                                new(
+                                    logicalSource,
+                                    target.Target,
+                                    methodToken,
+                                    kind,
+                                    token,
+                                    instruction.Offset,
+                                    target.Ordinal));
+                        }
                     }
                     long attempted = rows.Count;
                     if (attempted > maximumOccurrences)
@@ -195,62 +194,38 @@ internal sealed partial class LibraryMethodAnalysisRunner
             or OperandKind.InlineType
             or OperandKind.InlineTok;
 
-    void CollectLocalDefinitions(
+    void CollectLocalTargets(
         TypeRef type,
-        AnalysisLibraryBodyUseOperandKind kind,
-        int operandToken,
-        int ilOffset,
-        int methodToken,
-        TypeDefinitionHandle? source,
-        ImmutableArray<BodyTypeUseOccurrence>.Builder rows,
+        ImmutableArray<BodyTypeUseOperandTarget>.Builder targets,
         ref int ordinal)
     {
         switch (type.Kind)
         {
             case TypeRefKind.Definition:
-                if (source is { } logicalSource
-                    && _infrastructure.TryResolveLocalTypeDefinition(
+                if (_infrastructure.TryResolveLocalTypeDefinition(
                         type,
                         out TypeDefinitionHandle target)
                     && AnalysisLibraryBodyUseProducer.IsTypeInPopulation(
                         _infrastructure.Reader,
                         _infrastructure.Reader.GetTypeDefinition(target)))
                 {
-                    rows.Add(
-                        new(
-                            logicalSource,
-                            target,
-                            methodToken,
-                            kind,
-                            operandToken,
-                            ilOffset,
-                            ordinal));
+                    targets.Add(new(ordinal, target));
                 }
                 ordinal++;
                 break;
             case TypeRefKind.GenericInstance:
                 if (type.ElementType is { } definition)
                 {
-                    CollectLocalDefinitions(
+                    CollectLocalTargets(
                         definition,
-                        kind,
-                        operandToken,
-                        ilOffset,
-                        methodToken,
-                        source,
-                        rows,
+                        targets,
                         ref ordinal);
                 }
                 foreach (TypeRef argument in type.TypeArguments)
                 {
-                    CollectLocalDefinitions(
+                    CollectLocalTargets(
                         argument,
-                        kind,
-                        operandToken,
-                        ilOffset,
-                        methodToken,
-                        source,
-                        rows,
+                        targets,
                         ref ordinal);
                 }
                 break;
@@ -261,14 +236,9 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 or TypeRefKind.Pinned:
                 if (type.ElementType is { } element)
                 {
-                    CollectLocalDefinitions(
+                    CollectLocalTargets(
                         element,
-                        kind,
-                        operandToken,
-                        ilOffset,
-                        methodToken,
-                        source,
-                        rows,
+                        targets,
                         ref ordinal);
                 }
                 break;
@@ -277,48 +247,28 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     && type.UnmodifiedType is { } unmodified:
                 if (type.IsRequiredModifier)
                 {
-                    CollectLocalDefinitions(
+                    CollectLocalTargets(
                         modifier,
-                        kind,
-                        operandToken,
-                        ilOffset,
-                        methodToken,
-                        source,
-                        rows,
+                        targets,
                         ref ordinal);
                 }
-                CollectLocalDefinitions(
+                CollectLocalTargets(
                     unmodified,
-                    kind,
-                    operandToken,
-                    ilOffset,
-                    methodToken,
-                    source,
-                    rows,
+                    targets,
                     ref ordinal);
                 break;
             case TypeRefKind.Unsupported
                 when type.FunctionPointerSignature is { } signature:
-                CollectLocalDefinitions(
+                CollectLocalTargets(
                     signature.ReturnType,
-                    kind,
-                    operandToken,
-                    ilOffset,
-                    methodToken,
-                    source,
-                    rows,
+                    targets,
                     ref ordinal);
                 foreach (TypeRef parameter
                     in signature.ParameterTypes)
                 {
-                    CollectLocalDefinitions(
+                    CollectLocalTargets(
                         parameter,
-                        kind,
-                        operandToken,
-                        ilOffset,
-                        methodToken,
-                        source,
-                        rows,
+                        targets,
                         ref ordinal);
                 }
                 break;
@@ -402,31 +352,81 @@ internal sealed partial class LibraryMethodAnalysisRunner
         }
     }
 
-    static ImmutableArray<TypeRef> ResolveOperandTypes(
+    // Operand resolution and same-image binding depend only on the token and
+    // its resolution path: the caller's generic scope names generic
+    // parameters, which never bind or make an operand unavailable. Each
+    // distinct operand is therefore resolved and bound once per execution.
+    Dictionary<(int Token, BodyTypeUseOperandPath Path), BodyTypeUseOperandBinding>?
+        _bodyUseOperandBindings;
+
+    BodyTypeUseOperandBinding BindOperand(
         IMethodCallResolver resolver,
-        DecodedInstruction instruction,
-        AnalysisLibraryBodyUseOperandKind kind,
+        BodyTypeUseOperandPath path,
         int token)
     {
-        if (instruction.Operand == OperandKind.InlineMethod
+        _bodyUseOperandBindings ??= [];
+        if (_bodyUseOperandBindings.TryGetValue(
+                (token, path),
+                out BodyTypeUseOperandBinding? binding))
+        {
+            return binding;
+        }
+
+        ImmutableArray<TypeRef> roots =
+            ResolveOperandTypes(resolver, path, token);
+        string? unavailable = roots.IsDefaultOrEmpty
+            ? "no typed root"
+            : FirstUnavailableTypeReason(roots);
+        if (unavailable is not null)
+        {
+            binding = new(unavailable, []);
+        }
+        else
+        {
+            var targets =
+                ImmutableArray.CreateBuilder<BodyTypeUseOperandTarget>();
+            int ordinal = 0;
+            foreach (TypeRef root in roots)
+                CollectLocalTargets(root, targets, ref ordinal);
+            binding = new(null, targets.DrainToImmutable());
+        }
+        _bodyUseOperandBindings.Add((token, path), binding);
+        return binding;
+    }
+
+    static BodyTypeUseOperandPath OperandPathOf(
+        DecodedInstruction instruction,
+        AnalysisLibraryBodyUseOperandKind kind) =>
+        instruction.Operand == OperandKind.InlineMethod
             || kind is AnalysisLibraryBodyUseOperandKind.MethodToken
-                or AnalysisLibraryBodyUseOperandKind.GenericMethodInstantiation)
+                or AnalysisLibraryBodyUseOperandKind.GenericMethodInstantiation
+            ? BodyTypeUseOperandPath.Member
+            : instruction.Operand == OperandKind.InlineField
+                || kind == AnalysisLibraryBodyUseOperandKind.FieldToken
+                ? BodyTypeUseOperandPath.Field
+                : BodyTypeUseOperandPath.Type;
+
+    static ImmutableArray<TypeRef> ResolveOperandTypes(
+        IMethodCallResolver resolver,
+        BodyTypeUseOperandPath path,
+        int token)
+    {
+        switch (path)
         {
-            MemberRef member = resolver.ResolveMember(token);
-            var types = ImmutableArray.CreateBuilder<TypeRef>(
-                1 + member.TypeArguments.Length);
-            types.Add(member.DeclaringType);
-            types.AddRange(member.TypeArguments);
-            return types.MoveToImmutable();
+            case BodyTypeUseOperandPath.Member:
+                MemberRef member = resolver.ResolveMember(token);
+                var types = ImmutableArray.CreateBuilder<TypeRef>(
+                    1 + member.TypeArguments.Length);
+                types.Add(member.DeclaringType);
+                types.AddRange(member.TypeArguments);
+                return types.MoveToImmutable();
+            case BodyTypeUseOperandPath.Field:
+                (TypeRef? declaringType, _) =
+                    resolver.ResolveFieldOwner(token);
+                return declaringType is null ? [] : [declaringType];
+            default:
+                return [resolver.ResolveType(token)];
         }
-        if (instruction.Operand == OperandKind.InlineField
-            || kind == AnalysisLibraryBodyUseOperandKind.FieldToken)
-        {
-            (TypeRef? declaringType, _) =
-                resolver.ResolveFieldOwner(token);
-            return declaringType is null ? [] : [declaringType];
-        }
-        return [resolver.ResolveType(token)];
     }
 
     bool TryClassify(
@@ -499,6 +499,21 @@ internal sealed partial class LibraryMethodAnalysisRunner
         MetadataTokens.EntityHandle(checked((int)value)).Kind
             == HandleKind.MethodSpecification;
 }
+
+internal enum BodyTypeUseOperandPath : byte
+{
+    Member,
+    Field,
+    Type,
+}
+
+internal readonly record struct BodyTypeUseOperandTarget(
+    int Ordinal,
+    TypeDefinitionHandle Target);
+
+internal sealed record BodyTypeUseOperandBinding(
+    string? Unavailable,
+    ImmutableArray<BodyTypeUseOperandTarget> Targets);
 
 internal sealed record BodyTypeUseOccurrence(
     TypeDefinitionHandle Source,
