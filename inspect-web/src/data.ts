@@ -1685,6 +1685,8 @@ export function memberSectionIdsFor(
 export function typeLensesFor(
   pkg: { isRuntimePack?: boolean; source?: { kind: string } } | null | undefined,
 ): readonly (readonly [TypeLens, string])[] {
+  if (pkg?.source?.kind === "file")
+    return lenses.filter(([id]) => id === "api");
   if (pkg?.isRuntimePack)
     return lenses.filter(([id]) => id === "api" || id === "source");
   // Compare follows the Library rule: its Package-owned Diff baseline exists

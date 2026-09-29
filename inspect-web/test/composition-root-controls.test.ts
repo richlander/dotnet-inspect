@@ -83,6 +83,9 @@ test("platform type and member navigation hides package-only operations", () => 
     typeLensesFor({ isRuntimePack: true }).map(([id]) => id),
     ["api", "source"]);
   assert.deepEqual(
+    typeLensesFor({ source: { kind: "file" } }).map(([id]) => id),
+    ["api"]);
+  assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
     ["overview", "call-graph", "source"]);
   assert.deepEqual(

@@ -5874,9 +5874,7 @@ function libraryLensesFor(pkg: AppPackage | null) {
 }
 
 function availableTypeLenses() {
-  return state.rootKind === "library"
-    ? typeLensesFor({ isRuntimePack: true })
-    : typeLensesFor(state.package);
+  return typeLensesFor(state.package);
 }
 
 function libraryLensRequiresExactLibrary(lens: LibraryLens) {
