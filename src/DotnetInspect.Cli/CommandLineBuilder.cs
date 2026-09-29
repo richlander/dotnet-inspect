@@ -1232,7 +1232,7 @@ public static class CommandLineBuilder
             StringComparer.OrdinalIgnoreCase,
             OptionParsers.ValidVerbosityValues);
         rootCommand.Options.Add(rootVerbosityOption);
-        var rootTipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
+        var rootTipsOption = new Option<string?>("--tips") { Description = "Show tips: m(inimal, default), d(etailed), q(uiet)", Arity = ArgumentArity.ZeroOrOne };
         rootTipsOption.Aliases.Add("-T");
         rootCommand.Options.Add(rootTipsOption);
         var offlineOption = new Option<bool>("--offline") { Description = "Disable all network access (use cached data only)" };
@@ -1342,8 +1342,9 @@ public static class CommandLineBuilder
 
             HelpWriter.WriteHelp(rootCommand);
 
-            var tipLevel = HeadLines != null || TailLines != null
-                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(rootTipsOption), parseResult.GetResult(rootTipsOption) != null);
+            var tipLevel = ParseTipLevel(
+                parseResult.GetValue(rootTipsOption),
+                parseResult.GetResult(rootTipsOption) != null);
             Hints.WriteTips(tipLevel,
                 new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
                 new Tip("package query", "<ID-or-prefix*>", "discover NuGet package IDs"),

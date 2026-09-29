@@ -31,8 +31,40 @@ public class CommandLineTests
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse([]);
 
-        // Root command has a default action (help + tips), so no parse errors
+        // Root command has a default help action, so no parse errors
         Assert.Empty(result.Errors);
+    }
+
+    [Theory]
+    [InlineData(null, false, TipLevel.Quiet)]
+    [InlineData(null, true, TipLevel.Minimal)]
+    [InlineData("q", true, TipLevel.Quiet)]
+    [InlineData("m", true, TipLevel.Minimal)]
+    [InlineData("d", true, TipLevel.Detailed)]
+    public void ParseTipLevel_RequiresExplicitOption(
+        string? value,
+        bool optionPresent,
+        TipLevel expected)
+    {
+        Assert.Equal(
+            expected,
+            OptionParsers.ParseTipLevel(value, optionPresent));
+    }
+
+    [Fact]
+    public async Task RootHelp_ShowsTipsOnlyWhenRequested()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var withoutTips = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse([]), []));
+        string[] tipTokens = ["-T"];
+        var withTips = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(tipTokens),
+                tipTokens));
+
+        Assert.DoesNotContain("Tips:", withoutTips.Error);
+        Assert.Contains("Tips:", withTips.Error);
     }
 
     [Theory]
@@ -2177,38 +2209,25 @@ public class CommandLineTests
     [InlineData(false, false, "net8.0", true)]  // --layout --tfm net8.0
     public async Task WriteFileLayoutTips_NeverWritesTips(bool scopeLib, bool scopeTools, string? tfm, bool isLayout)
     {
-        // DOTNET_INSPECT_TIPS is read by OptionParsers, so clearing it is a second
-        // process-global mutation. It is set and restored inside the captured region so
-        // the console lock covers it too, and no command-running test can observe the
-        // cleared value.
         var (_, error) = await ConsoleCapture.RunAsync(() =>
         {
-            var originalTips = Environment.GetEnvironmentVariable("DOTNET_INSPECT_TIPS");
-            Environment.SetEnvironmentVariable("DOTNET_INSPECT_TIPS", null);
+            var options = new InspectionOptions
+            {
+                ScopeLib = scopeLib,
+                ScopeTools = scopeTools,
+                Tfm = tfm,
+                TipLevel = TipLevel.Detailed,
+            };
+            var tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+            Directory.CreateDirectory(Path.Combine(tempDir, "lib"));
+            Directory.CreateDirectory(Path.Combine(tempDir, "tools"));
             try
             {
-                var options = new InspectionOptions
-                {
-                    ScopeLib = scopeLib,
-                    ScopeTools = scopeTools,
-                    Tfm = tfm,
-                    TipLevel = TipLevel.Detailed,
-                };
-                var tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-                Directory.CreateDirectory(Path.Combine(tempDir, "lib"));
-                Directory.CreateDirectory(Path.Combine(tempDir, "tools"));
-                try
-                {
-                    PackageCommand.WriteFileLayoutTips(tempDir, options, "TestPackage", TipLevel.Detailed, isLayout);
-                }
-                finally
-                {
-                    Directory.Delete(tempDir, recursive: true);
-                }
+                PackageCommand.WriteFileLayoutTips(tempDir, options, "TestPackage", TipLevel.Detailed, isLayout);
             }
             finally
             {
-                Environment.SetEnvironmentVariable("DOTNET_INSPECT_TIPS", originalTips);
+                Directory.Delete(tempDir, recursive: true);
             }
         });
 
