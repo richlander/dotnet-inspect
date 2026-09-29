@@ -10,14 +10,14 @@ using Inspector.Artifacts.Workspaces;
 namespace DotnetInspector.PlatformHouse;
 
 /// <summary>
-/// Executes one exact source-neutral Platform assembly-reference operation.
+/// Executes one source-neutral Platform assembly-reference operation.
 /// </summary>
 public static class PlatformHouseAssemblyReferenceResolver
 {
     private const string IdentityPrefix = "platform-assembly-reference";
 
     /// <summary>
-    /// Projects one exact source-terminal contribution without performing
+    /// Projects one source-terminal contribution without performing
     /// source, Artifact, Library, or Metadata work.
     /// </summary>
     public static PlatformHouseOutcome<AssemblyBindingDecision>
@@ -34,7 +34,8 @@ public static class PlatformHouseAssemblyReferenceResolver
 
         if (!TryValidateRequest(
                 request,
-                out _,
+                out PlatformHouseOperation.ResolveAssemblyReference?
+                    operation,
                 out PlatformTargetDemand.Exact? exact))
         {
             return Rejected(
@@ -83,6 +84,25 @@ public static class PlatformHouseAssemblyReferenceResolver
                 consumedWork,
                 PlatformHouseRejectionKind.InvalidOwnerResult,
                 $"{IdentityPrefix}.invalid-source-terminal");
+        }
+
+        if (contribution is PlatformSourceContribution.Unavailable
+            {
+                Reason: PlatformSourceUnavailabilityKind.Absent,
+            })
+        {
+            return CompleteMissing(
+                request,
+                operation!.Request,
+                exact!,
+                consumedWork,
+                [
+                    new PlatformSourceSettlement(
+                        contribution,
+                        PlatformSourceSettlementDisposition
+                            .OutcomeRelevant),
+                ],
+                AssemblyBindingMissDisposition.NoNameOwner);
         }
 
         return contribution switch
@@ -217,6 +237,20 @@ public static class PlatformHouseAssemblyReferenceResolver
                     ? PlatformSourcePolicyReducer.TerminalSettlements(
                         decision.Settlements)
                     : null);
+        }
+
+        if (decision.Kind == PlatformSourcePolicyDecisionKind.Unavailable
+            && IsAuthoritativeAbsence(
+                selection,
+                decision.Settlements))
+        {
+            return CompleteMissing(
+                request,
+                operation.Request,
+                exact,
+                consumedWork,
+                decision.Settlements,
+                AssemblyBindingMissDisposition.NoNameOwner);
         }
 
         return decision.Kind switch
@@ -458,7 +492,8 @@ public static class PlatformHouseAssemblyReferenceResolver
                                 library.ApiAssembly,
                                 new BindingSnapshotState(
                                     operation!.Request,
-                                    selection.AssemblyIdentity.Identity),
+                                    selection.AssemblyIdentity.Identity,
+                                    selection.Demand),
                                 static (view, state, cancellationToken) =>
                                     ProjectDecision(
                                         view,
@@ -608,15 +643,36 @@ public static class PlatformHouseAssemblyReferenceResolver
                         reference.Contribution)
                     && settlement.Disposition
                         == PlatformSourceSettlementDisposition.Selected);
-        var metadataOutcome =
-            new PlatformMetadataOutcomeEvidence<AssemblyBindingDecision>(
-                decision,
-                $"{IdentityPrefix}.metadata-outcome",
-                reference.Contribution);
+        PlatformMetadataOutcomeEvidence<AssemblyBindingDecision>
+            metadataOutcome;
+        PlatformAssemblyReferenceCompletionKind completionKind;
+        if (decision is AssemblyBindingDecision.Missing
+            {
+                Disposition:
+                    AssemblyBindingMissDisposition.NameOwnedNoMatch,
+            })
+        {
+            metadataOutcome =
+                new PlatformMetadataOutcomeEvidence<AssemblyBindingDecision>(
+                    decision,
+                    $"{IdentityPrefix}.metadata-outcome");
+            completionKind =
+                PlatformAssemblyReferenceCompletionKind.NameOwnedNoMatch;
+        }
+        else
+        {
+            metadataOutcome =
+                new PlatformMetadataOutcomeEvidence<AssemblyBindingDecision>(
+                    decision,
+                    $"{IdentityPrefix}.metadata-outcome",
+                    reference.Contribution);
+            completionKind =
+                PlatformAssemblyReferenceCompletionKind.Resolved;
+        }
         var completion = new PlatformHouseCompletion.AssemblyReference(
             (PlatformHouseOperationSnapshot.ResolveAssemblyReference)
                 request.Snapshot.Operation,
-            PlatformAssemblyReferenceCompletionKind.Resolved,
+            completionKind,
             metadataOutcome,
             [sourceSettlement]);
         var receipt = new PlatformHouseReceipt(
@@ -717,7 +773,7 @@ public static class PlatformHouseAssemblyReferenceResolver
                 AssemblyReferenceIdentity.EquivalentComparer.Equals(
                     binding.Identity,
                     request)
-                && PlatformAssemblyReferenceBindingPolicy.MatchesCandidate(
+                && PlatformAssemblyReferenceBindingPolicy.OwnsName(
                     binding,
                     candidate),
             _ => false,
@@ -907,7 +963,13 @@ public static class PlatformHouseAssemblyReferenceResolver
 
         var policy = new SelectedAssemblyBindingPolicy(
             state.Request,
-            descriptor);
+            descriptor,
+            state.Demand
+                is not PlatformLibraryDemand.AssemblyReferenceBinding
+                    binding
+                || PlatformAssemblyReferenceBindingPolicy.MatchesCandidate(
+                    binding,
+                    descriptor.Identity));
         using var catalog = new TypeResolutionCatalog(
             new TypeResolutionContextOptions
             {
@@ -927,14 +989,29 @@ public static class PlatformHouseAssemblyReferenceResolver
 
     static bool ValidDecision(
         AssemblyBindingDecision decision,
-        PlatformLibraryContentSelection selection) =>
-        decision is AssemblyBindingDecision.Resolved resolved
-        && ReferenceEquals(
-            resolved.Candidate.Registration.ArtifactRegistration,
-            selection.Content.Registration)
-        && AssemblyReferenceIdentity.EquivalentComparer.Equals(
-            resolved.Candidate.Identity,
-            selection.AssemblyIdentity.Identity);
+        PlatformLibraryContentSelection selection)
+    {
+        if (decision is AssemblyBindingDecision.Resolved resolved)
+        {
+            return ReferenceEquals(
+                    resolved.Candidate.Registration.ArtifactRegistration,
+                    selection.Content.Registration)
+                && AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    resolved.Candidate.Identity,
+                    selection.AssemblyIdentity.Identity);
+        }
+
+        return decision is AssemblyBindingDecision.Missing
+            {
+                Disposition:
+                    AssemblyBindingMissDisposition.NameOwnedNoMatch,
+            }
+            && selection.Demand
+                is PlatformLibraryDemand.AssemblyReferenceBinding binding
+            && !PlatformAssemblyReferenceBindingPolicy.MatchesCandidate(
+                binding,
+                selection.AssemblyIdentity.Identity);
+    }
 
     static void SettleOperationLease(
         ref LibraryOperationLease? lease,
@@ -1050,6 +1127,87 @@ public static class PlatformHouseAssemblyReferenceResolver
         }
         if (artifacts.CleanupFailures.Count != 0)
             failures.Add(PlatformHouseFailureKind.ArtifactRetirement);
+    }
+
+    static bool IsAuthoritativeAbsence(
+        PlatformSourceSelection selection,
+        IReadOnlyList<PlatformSourceSettlement> settlements) =>
+        settlements.Count == selection.Capabilities.Count
+        && settlements.All(
+            settlement =>
+                settlement.Disposition
+                    == PlatformSourceSettlementDisposition.OutcomeRelevant
+                && settlement.Contribution
+                    is PlatformSourceContribution.Unavailable
+                    {
+                        Reason: PlatformSourceUnavailabilityKind.Absent,
+                    });
+
+    static PlatformHouseOutcome<AssemblyBindingDecision> CompleteMissing(
+        PlatformHouseRequest request,
+        AssemblyBindingRequest bindingRequest,
+        PlatformTargetDemand.Exact exact,
+        PlatformHouseConsumedWork consumedWork,
+        IReadOnlyList<PlatformSourceSettlement> sourceSettlements,
+        AssemblyBindingMissDisposition disposition)
+    {
+        AssemblyBindingDecision decision = ProjectMissingDecision(
+            bindingRequest,
+            disposition,
+            request.CancellationToken);
+        var metadataOutcome =
+            new PlatformMetadataOutcomeEvidence<AssemblyBindingDecision>(
+                decision,
+                $"{IdentityPrefix}.metadata-outcome");
+        PlatformAssemblyReferenceCompletionKind kind = disposition switch
+        {
+            AssemblyBindingMissDisposition.NoNameOwner =>
+                PlatformAssemblyReferenceCompletionKind.NoNameOwner,
+            AssemblyBindingMissDisposition.NameOwnedNoMatch =>
+                PlatformAssemblyReferenceCompletionKind.NameOwnedNoMatch,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(disposition)),
+        };
+        var completion = new PlatformHouseCompletion.AssemblyReference(
+            (PlatformHouseOperationSnapshot.ResolveAssemblyReference)
+                request.Snapshot.Operation,
+            kind,
+            metadataOutcome,
+            sourceSettlements);
+        var receipt = new PlatformHouseReceipt(
+            request.Snapshot,
+            new PlatformTargetSettlement.Exact(exact),
+            sourceSettlements,
+            consumedWork,
+            completion);
+        return new PlatformHouseOutcome<AssemblyBindingDecision>.Completed(
+            completion.Bind(metadataOutcome),
+            receipt);
+    }
+
+    static AssemblyBindingDecision ProjectMissingDecision(
+        AssemblyBindingRequest request,
+        AssemblyBindingMissDisposition disposition,
+        CancellationToken cancellationToken)
+    {
+        var policy = new MissingAssemblyBindingPolicy(
+            request,
+            disposition);
+        using var catalog = new TypeResolutionCatalog(
+            new TypeResolutionContextOptions
+            {
+                MaxCandidates = 1,
+                MaxRetainedImageBytes = 1,
+                MaxConcurrentSourceOpens = 1,
+                MaxForwarderHops = 0,
+                MaxTypeResolutionRequests = 1,
+            });
+        using TypeResolutionContext context = catalog.CreateContext(
+            policy,
+            roots: [],
+            bindingRequests: [request],
+            requests: []);
+        return context.ProjectBindingDecision(request);
     }
 
     static PlatformHouseOutcome<AssemblyBindingDecision> Rejected(
@@ -1250,11 +1408,13 @@ public static class PlatformHouseAssemblyReferenceResolver
 
     sealed record BindingSnapshotState(
         AssemblyBindingRequest Request,
-        AssemblyReferenceIdentity ExpectedIdentity);
+        AssemblyReferenceIdentity ExpectedIdentity,
+        PlatformLibraryDemand Demand);
 
     sealed class SelectedAssemblyBindingPolicy(
         AssemblyBindingRequest expectedRequest,
-        ResolvedAssemblyReference assembly)
+        ResolvedAssemblyReference assembly,
+        bool compatible)
         : IAcquisitionFreeAssemblyBindingPolicy
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
@@ -1266,7 +1426,41 @@ public static class PlatformHouseAssemblyReferenceResolver
             return new(
                 Version,
                 ReferenceEquals(request, expectedRequest)
-                    ? AssemblyBindingSelection.Found(assembly)
+                    ? compatible
+                        ? AssemblyBindingSelection.Found(assembly)
+                        : AssemblyBindingSelection.NameOwnedButNoMatch()
+                    : AssemblyBindingSelection.Invalid(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind
+                                .InvalidPolicyResult)));
+        }
+    }
+
+    sealed class MissingAssemblyBindingPolicy(
+        AssemblyBindingRequest expectedRequest,
+        AssemblyBindingMissDisposition disposition)
+        : IAcquisitionFreeAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            AssemblyBindingSelection selection = disposition switch
+            {
+                AssemblyBindingMissDisposition.NoNameOwner =>
+                    AssemblyBindingSelection.NameNotOwned(),
+                AssemblyBindingMissDisposition.NameOwnedNoMatch =>
+                    AssemblyBindingSelection.NameOwnedButNoMatch(),
+                _ => AssemblyBindingSelection.Invalid(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.InvalidPolicyResult)),
+            };
+            return new(
+                Version,
+                ReferenceEquals(request, expectedRequest)
+                    ? selection
                     : AssemblyBindingSelection.Invalid(
                         new AssemblyBindingFailure(
                             AssemblyBindingFailureKind

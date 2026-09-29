@@ -299,16 +299,26 @@ public sealed partial class PackagePlatformSource
         AcquiredPackageSourcePayload payload = acquired.Payload!;
         IPackageContent content = payload.Content;
         string prefix = $"ref/{coordinate.Target.TargetFramework}/";
-        string? requestedName = null;
-        if (population is PackageReferencePopulationDemand.Assembly assembly)
+        AssemblyReferenceIdentity? requestedIdentity = population switch
         {
-            if (string.IsNullOrEmpty(assembly.Identity.Name)
-                || assembly.Identity.Name.AsSpan().ContainsAny('/', '\\', '\0'))
-                return Rejected<PackageReferenceRealization>(generation,
-                    PackagePlatformSourceDiagnosticKind.InvalidCoordinate,
-                    "The assembly name cannot be projected to a reference-pack member.");
-            requestedName = assembly.Identity.Name + ".dll";
+            PackageReferencePopulationDemand.Assembly assembly =>
+                assembly.Identity,
+            PackageReferencePopulationDemand.AssemblyReferenceBinding binding =>
+                binding.Identity,
+            _ => null,
+        };
+        if (requestedIdentity is not null
+            && (string.IsNullOrEmpty(requestedIdentity.Name)
+                || requestedIdentity.Name.AsSpan()
+                    .ContainsAny('/', '\\', '\0')))
+        {
+            return Rejected<PackageReferenceRealization>(generation,
+                PackagePlatformSourceDiagnosticKind.InvalidCoordinate,
+                "The assembly name cannot be projected to a reference-pack member.");
         }
+        string? requestedName = requestedIdentity is null
+            ? null
+            : requestedIdentity.Name + ".dll";
 
         int observed = 0;
         var paths = new List<string>();
@@ -418,6 +428,20 @@ public sealed partial class PackagePlatformSource
                 return Rejected<PackageReferenceRealization>(generation,
                     PackagePlatformSourceDiagnosticKind.AssemblyIdentityMismatch,
                     "The reference member does not match the requested assembly identity.");
+            if (population
+                    is PackageReferencePopulationDemand
+                        .AssemblyReferenceBinding binding
+                && !string.Equals(
+                    identity.Name,
+                    binding.Identity.Name,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return Rejected<PackageReferenceRealization>(
+                    generation,
+                    PackagePlatformSourceDiagnosticKind
+                        .AssemblyIdentityMismatch,
+                    "The namesake reference member has a different assembly name.");
+            }
             if (!identities.Add(identity))
                 return Rejected<PackageReferenceRealization>(generation,
                     PackagePlatformSourceDiagnosticKind.DuplicateAssemblyIdentity,

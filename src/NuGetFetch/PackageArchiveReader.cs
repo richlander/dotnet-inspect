@@ -173,7 +173,8 @@ internal static class PackageArchiveRangeAccess
         ZipReadLimits limits,
         CancellationToken cancellationToken,
         NuGetOperationContext? operationContext,
-        PackageArchiveRequestLog? requestLog = null)
+        PackageArchiveRequestLog? requestLog = null,
+        long? knownArchiveLength = null)
     {
         ArgumentNullException.ThrowIfNull(limits);
         if (memory.RangeIgnored)
@@ -208,7 +209,16 @@ internal static class PackageArchiveRangeAccess
             if (!NuGetHttpRequest.TryCreatePreservingPathAndQuery(url, out Uri? archiveUri))
                 throw new InvalidDataException("The package archive URL is not a well-formed absolute URI.");
             session.UseCredential(credential);
-            source = new HttpRangeSource(archiveUri!, session.SendAsync);
+            source = new HttpRangeSource(
+                archiveUri!,
+                session.SendAsync,
+                new()
+                {
+                    KnownLength = knownArchiveLength,
+                    UsePreflightFreeRequests =
+                        OperatingSystem.IsBrowser()
+                        && knownArchiveLength is not null,
+                });
             ZipDirectory directory = await ZipArchiveReader.ReadDirectoryAsync(
                 source,
                 limits,
@@ -301,6 +311,7 @@ internal sealed class PackageArchiveRangeSession : IDisposable
     /// </summary>
     public async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
+        RangeRequestKind kind,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -313,7 +324,7 @@ internal sealed class PackageArchiveRangeSession : IDisposable
                 deadline,
                 async requestToken =>
                 {
-                    PackageArchiveRequestLog.Entry? logged = BeginLogged(request);
+                    PackageArchiveRequestLog.Entry? logged = BeginLogged(request, kind);
                     HttpResponseMessage sent;
                     try
                     {
@@ -466,7 +477,9 @@ internal sealed class PackageArchiveRangeSession : IDisposable
         where T : class =>
         new(_results.FailedPackage(Coordinate, kind).Failure!);
 
-    private PackageArchiveRequestLog.Entry? BeginLogged(HttpRequestMessage request)
+    private PackageArchiveRequestLog.Entry? BeginLogged(
+        HttpRequestMessage request,
+        RangeRequestKind kind)
     {
         if (_requestLog is null)
             return null;
@@ -480,7 +493,7 @@ internal sealed class PackageArchiveRangeSession : IDisposable
                 : (range.To ?? start.Value) - start.Value + 1;
         PackageArchiveRequestPurpose purpose = _readingEntries
             ? PackageArchiveRequestPurpose.EntrySpan
-            : start is null
+            : kind == RangeRequestKind.Tail
                 ? PackageArchiveRequestPurpose.DirectoryTail
                 : PackageArchiveRequestPurpose.DirectoryHead;
         return _requestLog.Begin(purpose, start, length);
