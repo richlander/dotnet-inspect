@@ -1184,6 +1184,13 @@ jobs:
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.PerformanceOracles.Tests -c Release
 
+      - name: Check Subject Relations constructed-generic oracle
+        if: matrix.shard == 'contracts'
+        run: >
+          dotnet run --project tools/SubjectRelationsScorecard -c Release
+          --no-build -- check
+          'tests/ILInspector.Metadata.Tests/bin/Release/net11.0/PinnedArtifacts/System.Private.CoreLib.dll|interface|System.Collections.Generic.IEnumerable`1'
+
       - name: Run decoded-text tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/Inspector.Text.Tests -c Release
