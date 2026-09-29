@@ -414,7 +414,7 @@ public static class PlatformTypeCatalogDerivation
                             .MaximumRetainedTextCharacters)
                     : bounds.MemberInspection;
             LibraryOperationLeaseIssueOutcome leaseOutcome =
-                owner.IssueOperationLease(member.Library);
+                owner.IssueOperationLease(member.PlatformLibrary.Library);
             if (leaseOutcome
                 is not LibraryOperationLeaseIssueOutcome.Issued issued)
             {
@@ -440,7 +440,7 @@ public static class PlatformTypeCatalogDerivation
                 memberOutcome =
                     LibraryTypeDeclarationInventoryInspection.Execute(
                         new(
-                            member.Library,
+                            member.PlatformLibrary.Library,
                             memberBounds),
                         issued.Lease,
                         cancellationToken);
@@ -487,10 +487,10 @@ public static class PlatformTypeCatalogDerivation
                     .Completed completed:
                     if (!ReferenceEquals(
                             completed.Correspondence.Library,
-                            member.Library)
+                            member.PlatformLibrary.Library)
                         || !ReferenceEquals(
                             completed.Correspondence.ApiContent,
-                            member.Library.ApiAssembly))
+                            member.PlatformLibrary.Library.ApiAssembly))
                     {
                         return new PlatformTypeCatalogDerivationOutcome
                             .Rejected(
@@ -629,11 +629,11 @@ public static class PlatformTypeCatalogDerivation
             == PlatformHouseSettlementKind.Completed
         && population.Outcome.Receipt.Request.Operation
             is PlatformHouseOperationSnapshot.Realize
-            {
-                Population:
+        {
+            Population:
                     PlatformPopulationDemand.CompletePopulation,
-                View: PlatformViewDemand.Reference,
-            };
+            View: PlatformViewDemand.Reference,
+        };
 
     private sealed class WorkMeasurement
     {

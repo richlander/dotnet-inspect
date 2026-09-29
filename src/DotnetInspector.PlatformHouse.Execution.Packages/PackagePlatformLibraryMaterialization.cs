@@ -86,7 +86,7 @@ public abstract class PackagePlatformLibraryMaterializationResult
             : base(library)
         {
             ArgumentNullException.ThrowIfNull(artifacts);
-            if (library.Value.Reference.Contents.Any(
+            if (library.Value.Library.Contents.Any(
                     content => !ReferenceEquals(
                         content.ArtifactReference.Generation,
                         artifacts.Generation)))
@@ -448,10 +448,10 @@ public static class PackagePlatformLibraryMaterializer
             {
                 Population:
                     PlatformPopulationDemand.Library
-                    {
-                        Value:
+                {
+                    Value:
                             PlatformLibraryDemand.Assembly assembly,
-                    },
+                },
             }
             || !ValidContribution(
                 request,
@@ -492,10 +492,10 @@ public static class PackagePlatformLibraryMaterializer
             {
                 Population:
                     PlatformPopulationDemand.Library
-                    {
-                        Value:
+                {
+                    Value:
                             PlatformLibraryDemand.Assembly assembly,
-                    },
+                },
             }
             || !ValidContribution(
                 request,
