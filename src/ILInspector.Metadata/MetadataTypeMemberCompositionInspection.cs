@@ -105,7 +105,18 @@ internal static class MetadataTypeMemberCompositionInspection
                 ref counts);
             if (spelling == MetadataMemberSpelling.CSharp)
             {
-                var attached = new AttachedCounts(type, typeHandle, counts);
+                // The index found typeHandle as the only row named type, so
+                // a TypeDef receiver names type exactly when it is that row
+                // and the row's name reads back as type.
+                bool typeNameReadable =
+                    MetadataTypeDefinitionName.Read(reader, typeHandle)
+                        is MetadataTypeDefinitionNameReadResult.Read read
+                    && read.Name == type;
+                var attached = new AttachedCounts(
+                    type,
+                    typeHandle,
+                    typeNameReadable,
+                    counts);
                 ApiSurfaceExtractor.ClassifyAttachedExtensions(
                     reader,
                     publicOnly: false,
@@ -190,17 +201,21 @@ internal static class MetadataTypeMemberCompositionInspection
     struct AttachedCounts(
         MetadataTypeDefinitionName receiver,
         TypeDefinitionHandle receiverHandle,
+        bool receiverNameReadable,
         CompositionCounts counts)
         : IAttachedExtensionSink
     {
         public CompositionCounts Counts = counts;
 
         public readonly bool Wants(
-            MetadataTypeDefinitionName candidate,
+            in ExtensionReceiver candidate,
             TypeDefinitionHandle declaringType)
-            => candidate == receiver && declaringType != receiverHandle;
+            => declaringType != receiverHandle
+                && (candidate.TryGetDefinition(out TypeDefinitionHandle definition)
+                    ? receiverNameReadable && definition == receiverHandle
+                    : candidate.ReadName() == receiver);
 
-        public void Add(MetadataTypeDefinitionName candidate, in ClassifiedMember member)
+        public void Add(in ExtensionReceiver candidate, in ClassifiedMember member)
             => Counts.Add(member);
     }
 }

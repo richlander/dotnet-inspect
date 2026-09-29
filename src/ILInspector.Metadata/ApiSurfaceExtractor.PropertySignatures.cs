@@ -837,6 +837,33 @@ public static partial class ApiSurfaceExtractor
                     : null;
     }
 
+    /// <summary>
+    /// The first parameter of an extension method, decoded through the same
+    /// guarded signature walk as <see cref="GetFirstParameterDefinitionName"/>
+    /// (so a malformed signature fails the same way) without materializing
+    /// any Type name.
+    /// </summary>
+    private static ExtensionReceiver? GetExtensionReceiver(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
+    {
+        var context = GenericContext.ForMethod(reader, typeDef, method);
+        MethodSignature<ReceiverKey> signature =
+            GuardedProviderDecode.Method(
+                reader,
+                method,
+                DefinesPrimitiveTypes(reader)
+                    ? ExtensionReceiverKeyProvider.WithLocalPrimitives
+                    : ExtensionReceiverKeyProvider.WithoutLocalPrimitives,
+                context,
+                fallbackReturn: default);
+        return signature.ParameterTypes.Length > 0
+            && signature.ParameterTypes[0] is { IsNone: false } key
+            ? new ExtensionReceiver(reader, key)
+            : null;
+    }
+
     private static MetadataTypeDefinitionName? GetFirstParameterDefinitionName(
         MetadataReader reader,
         TypeDefinition typeDef,
