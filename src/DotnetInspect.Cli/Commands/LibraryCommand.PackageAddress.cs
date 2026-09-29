@@ -70,8 +70,7 @@ public partial class LibraryCommand
         bool pathQualified = requestedLibraryPath.Contains('/');
         if (!TryGetPackageCompileLibrarySelection(
                 requestedLibraryPath,
-                out string? pathTargetFramework,
-                out string? runtimeIdentifier))
+                out string? pathTargetFramework))
         {
             throw new InvalidOperationException(
                 "Package-backed Library Address execution requires "
@@ -94,7 +93,6 @@ public partial class LibraryCommand
             settlement = await RealizeLocalPackageAddressAsync(
                     target,
                     targetFramework,
-                    runtimeIdentifier,
                     implementationName,
                     companionDemand,
                     stores,
@@ -107,7 +105,6 @@ public partial class LibraryCommand
             settlement = await RealizeConfiguredPackageAddressAsync(
                     target,
                     targetFramework,
-                    runtimeIdentifier,
                     implementationName,
                     companionDemand,
                     stores,
@@ -233,7 +230,6 @@ public partial class LibraryCommand
         RealizeConfiguredPackageAddressAsync(
         PackageReferenceTarget target,
         string targetFramework,
-        string? runtimeIdentifier,
         string implementationName,
         PackageHouseLibraryCompanionDemand companionDemand,
         DesktopPackageStoreScope stores,
@@ -257,9 +253,7 @@ public partial class LibraryCommand
                     context.Logger.Log,
                     cancellationToken,
                     compileTargetContext:
-                        PackageHouseTargetContext.Exact(
-                            targetFramework,
-                            runtimeIdentifier),
+                        PackageHouseTargetContext.Exact(targetFramework),
                     access: PackagePayloadAccess.Ranged,
                     implementationNames: [implementationName],
                     libraryHandoff:
@@ -280,9 +274,7 @@ public partial class LibraryCommand
                     options.IncludePrerelease,
                     cancellationToken: cancellationToken,
                     compileTargetContext:
-                        PackageHouseTargetContext.Exact(
-                            targetFramework,
-                            runtimeIdentifier),
+                        PackageHouseTargetContext.Exact(targetFramework),
                     access: PackagePayloadAccess.Ranged,
                     implementationNames: [implementationName],
                     libraryHandoff:
@@ -308,7 +300,6 @@ public partial class LibraryCommand
         RealizeLocalPackageAddressAsync(
         PackageReferenceTarget target,
         string targetFramework,
-        string? runtimeIdentifier,
         string implementationName,
         PackageHouseLibraryCompanionDemand companionDemand,
         DesktopPackageStoreScope stores,
@@ -362,9 +353,7 @@ public partial class LibraryCommand
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Exact(available.Coordinate),
             operation,
-            PackageHouseTargetContext.Exact(
-                targetFramework,
-                runtimeIdentifier),
+            PackageHouseTargetContext.Exact(targetFramework),
             PackageHouseAssetSelectionKind.Compile,
             PackageHouseLibraryHandoffMode.SelectedLibraries,
             assetDemand:

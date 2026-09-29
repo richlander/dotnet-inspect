@@ -1271,17 +1271,17 @@ Address envelope and lowers it through its existing Address section, terminal,
 row-selection, text, and diagnostic presentation. JSON retains the existing
 complete Library inspection path until the shared Address result owns the
 Library metadata required by that established schema; the CLI does not emit a
-success-shaped partial replacement. The adopter admits only a bare compile
-Library name or a direct `ref/<tfm>/`, `lib/<tfm>/`, or
-`runtimes/<rid>/lib/<tfm>/` Library path, and only when every selected section
-is owned by the Address result. Other exact package paths and mixed selections
-that require complete Library facts retain the legacy path rather than
-returning a selection failure or silently omitting requested sections. A
-runtime-qualified path carries its RID into PackageHouse target selection.
-Bare discovery also retains complete Library inspection because its
-applicability catalog includes facts outside the Address result. Population
-row failures in ordinary output are lowered once as rows; the CLI does not
-repeat their portable diagnostics on stderr.
+success-shaped partial replacement. The adopter admits only a direct
+`ref/<tfm>/` or `lib/<tfm>/` Library path, and only when every selected section
+is owned by the Address result. Bare Library selections, other exact package
+paths, and mixed selections that require complete Library facts retain the
+legacy path rather than returning a selection failure or silently omitting
+requested sections. This includes runtime-only and `tools/` packages that
+cannot yield the compile handoff required by the shared operation. Bare
+discovery also retains complete Library inspection because its applicability
+catalog includes facts outside the Address result. Population row failures in
+ordinary output are lowered once as rows; the CLI does not repeat their
+portable diagnostics on stderr.
 
 Other package-backed Library modes and Workspace-backed Address requests still
 use their existing paths. Browser/Wasm adoption and final removal of the

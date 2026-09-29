@@ -214,7 +214,6 @@ public partial class LibraryCommand
         && !string.IsNullOrWhiteSpace(options.AssemblyName)
         && TryGetPackageCompileLibrarySelection(
             options.AssemblyName,
-            out _,
             out _)
         && HasOnlyPackageAddressSections(options)
         && options.Discover is not { Length: 0 }
@@ -225,51 +224,30 @@ public partial class LibraryCommand
 
     private static bool TryGetPackageCompileLibrarySelection(
         string assemblyName,
-        out string? targetFramework,
-        out string? runtimeIdentifier)
+        out string? targetFramework)
     {
         targetFramework = null;
-        runtimeIdentifier = null;
         string path = assemblyName.Replace('\\', '/');
         if (!path.Contains('/'))
-            return true;
+            return false;
         if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             path += ".dll";
 
         string[] segments = path.Split('/');
-        bool directCompileAsset =
-            segments.Length == 3
-                && (segments[0].Equals(
-                        "lib",
-                        StringComparison.OrdinalIgnoreCase)
-                    || segments[0].Equals(
-                        "ref",
-                        StringComparison.OrdinalIgnoreCase))
-                && TfmResolver.IsTfmLike(segments[1]);
-        bool runtimeImplementationAsset =
-            segments.Length == 5
-                && segments[0].Equals(
-                    "runtimes",
-                    StringComparison.OrdinalIgnoreCase)
-                && segments[1].Length > 0
-                && segments[2].Equals(
+        if (segments.Length != 3
+            || (!segments[0].Equals(
                     "lib",
                     StringComparison.OrdinalIgnoreCase)
-                && TfmResolver.IsTfmLike(segments[3]);
-        if ((!directCompileAsset && !runtimeImplementationAsset)
+                && !segments[0].Equals(
+                    "ref",
+                    StringComparison.OrdinalIgnoreCase))
+            || !TfmResolver.IsTfmLike(segments[1])
             || Path.GetFileNameWithoutExtension(segments[^1]).Length == 0)
         {
             return false;
         }
 
-        targetFramework =
-            runtimeImplementationAsset
-                ? segments[3]
-                : segments[1];
-        runtimeIdentifier =
-            runtimeImplementationAsset
-                ? segments[1]
-                : null;
+        targetFramework = segments[1];
         return true;
     }
 

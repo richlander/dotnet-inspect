@@ -471,9 +471,12 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
+    [Theory]
+    [InlineData("tools/net11.0/Coordinate.Package.dll")]
+    [InlineData("Coordinate.Package")]
     public async Task
-        LibraryAddressCommand_PackageNonCompilePathPreservesLegacySelection()
+        LibraryAddressCommand_PackageNonCompileSelectionsPreserveLegacySelection(
+            string library)
     {
         var (token, callOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
@@ -505,7 +508,7 @@ public partial class CommandExecutionTests
                 "--package",
                 packagePath,
                 "--library",
-                relativeLibraryPath,
+                library,
                 "-S",
                 "Context: Member",
                 "--tips",
@@ -526,7 +529,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        LibraryAddressCommand_PackageRuntimePathSelectsItsRidAsset()
+        LibraryAddressCommand_PackageRuntimeOnlyPathPreservesLegacySelection()
     {
         var (token, callOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
@@ -535,18 +538,13 @@ public partial class CommandExecutionTests
         string tempDir = Directory.CreateTempSubdirectory(
             "library-address-package-runtime-").FullName;
         string content = Path.Combine(tempDir, "content");
-        string compileDirectory = Path.Combine(content, "lib", "net11.0");
         string runtimeDirectory = Path.Combine(
             content,
             "runtimes",
             "osx-arm64",
             "lib",
             "net11.0");
-        Directory.CreateDirectory(compileDirectory);
         Directory.CreateDirectory(runtimeDirectory);
-        File.Copy(
-            TestAssemblyPath,
-            Path.Combine(compileDirectory, "Coordinate.Package.dll"));
         File.Copy(
             TestAssemblyPath,
             Path.Combine(runtimeDirectory, "Coordinate.Package.dll"));
