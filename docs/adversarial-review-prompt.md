@@ -161,8 +161,13 @@ Planner should be capable of meeting or beating it, not as a reason to burden
 the comparator or Planner with unowned checks. Require the comparison to link
 the exact LINQ, NLinq, and Planner implementations and pinned provenance so the
 fairness and transferable technique are auditable. For a safety concern,
-determine whether it is a general ECMA containment rule that belongs at a
-shared upstream boundary or a niche hazard that remains with the producer.
+name the exact owner and invariant instead of saying only "move it upstream."
+[Session-owned format admission](design/assembly-inspection-query.md#session-owned-format-admission)
+classifies the image and establishes the retained reader; it does not make
+metadata rows trustworthy. A reusable row- or signature-decoding containment
+rule belongs in its narrowest shared Metadata primitive, while a check or
+bound specific to one producer's consumed facts or work remains with that
+producer.
 
 For rendering, verify that structured information survives to the rendering
 boundary. Markout is the default host-neutral, multi-format substrate. A
@@ -227,5 +232,14 @@ For every finding, provide:
   implementation.
 
 Separate blocking findings from non-blocking observations and scope proposals.
-Do not turn a scope proposal into a defect by assigning it a severity. If there
-are no qualifying findings, write **CLEAN** and name the exact reviewed head.
+Do not turn a scope proposal into a defect by assigning it a severity.
+
+When the candidate frame carries prior findings or obligations, give each one
+an explicit disposition: still present, resolved, reclassified, or dismissed.
+For a reclassification or dismissal, name the governing owner and claim or the
+finding-admission element that exact-head evidence no longer establishes. A
+clean review still reports these dispositions; bare "no significant issues"
+does not satisfy this contract.
+
+If there are no qualifying findings, write **CLEAN** and name the exact
+reviewed head.
