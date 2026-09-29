@@ -1539,8 +1539,8 @@ public partial class CommandExecutionTests
                 "--tips",
                 "q");
 
-            Assert.Equal(0, exit);
             Assert.Empty(error);
+            Assert.Equal(0, exit);
             Assert.Contains("Context: Member", output);
             Assert.DoesNotContain("Context: Instruction", output);
             Assert.DoesNotContain("## IL Coordinates", output);
