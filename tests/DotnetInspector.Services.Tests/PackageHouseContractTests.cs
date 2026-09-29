@@ -2141,6 +2141,27 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void
+        PackageSourceAuthorizationPreservesHostAdmittedAssociation()
+    {
+        var source = new PackageSource(
+            "exact archive",
+            "/packages/sample.nupkg");
+        PackageSourceAssociation association =
+            PackageSourceAssociation.Create();
+
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.Authorize(
+                source,
+                association);
+
+        ConfiguredPackageAuthority authority =
+            Assert.Single(authorization.Authorities);
+        Assert.Equal(source, authority.Source);
+        Assert.Same(association, authority.Association);
+    }
+
+    [Fact]
     public async Task PackageSourceSettlementLeaseSettlesManifestAndRetiresWithoutDisposingClient()
     {
         PackageSourceAuthorization authorization =

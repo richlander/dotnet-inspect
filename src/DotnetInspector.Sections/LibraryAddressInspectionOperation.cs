@@ -234,6 +234,7 @@ public static class LibraryAddressInspectionOperation
                         point.MethodToken,
                         point.ILOffset,
                         point.Capabilities,
+                        point.BrowsableUrls,
                         analysis,
                         cancellationToken);
                 LibraryIlAddressOutcome result = outcome.Succeeded
@@ -377,8 +378,11 @@ public static class LibraryAddressInspectionOperation
                             coordinate.MethodToken,
                             coordinate.ILOffset,
                             population.Capabilities,
+                            population.BrowsableUrls,
                             analysis,
-                            cancellationToken);
+                            cancellationToken,
+                            population
+                                .AllowNonBoundaryContextAbsence);
                     if (outcome.Succeeded)
                     {
                         rows.Add(
@@ -703,8 +707,10 @@ public static class LibraryAddressInspectionOperation
         int methodToken,
         int ilOffset,
         ILOffsetProjectionCapabilities capabilities,
+        bool browsableUrls,
         AnalysisPreparation analysis,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowNonBoundaryContextAbsence = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ILOffsetProjectionOutcome outcome =
@@ -714,9 +720,11 @@ public static class LibraryAddressInspectionOperation
                     methodToken,
                     ilOffset,
                     capabilities,
-                    BrowsableUrls: false,
+                    BrowsableUrls: browsableUrls,
                     Analysis: analysis.Input,
-                    AnalysisFailure: analysis.Failure));
+                    AnalysisFailure: analysis.Failure,
+                    AllowNonBoundaryContextAbsence:
+                        allowNonBoundaryContextAbsence));
         cancellationToken.ThrowIfCancellationRequested();
         return outcome;
     }

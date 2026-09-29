@@ -1092,7 +1092,7 @@ public static partial class ApiSurfaceExtractor
                 context: null,
                 beforeMaterialize: beforeDecodeWork) == "System.Enum";
 
-    private sealed class MetadataRowRejectedException
+    internal sealed class MetadataRowRejectedException
         : InvalidOperationException
     {
         public MetadataRowRejectedException(
@@ -1185,6 +1185,11 @@ public static partial class ApiSurfaceExtractor
         _ => null // Public
     };
 
+    private static string? GetPopulationAccessibility(MethodAttributes access)
+        => access == MethodAttributes.PrivateScope
+            ? "private"
+            : GetAccessibility(access);
+
     private static bool IsRepresentableMethodAccessibility(
         MethodAttributes access) =>
         access is
@@ -1200,7 +1205,8 @@ public static partial class ApiSurfaceExtractor
     /// </summary>
     private static string? GetFieldAccessibility(FieldAttributes access) => access switch
     {
-        FieldAttributes.Private => "private",
+        FieldAttributes.Private
+            or FieldAttributes.PrivateScope => "private",
         FieldAttributes.FamANDAssem => "private protected",
         FieldAttributes.Assembly => "internal",
         FieldAttributes.Family => "protected",

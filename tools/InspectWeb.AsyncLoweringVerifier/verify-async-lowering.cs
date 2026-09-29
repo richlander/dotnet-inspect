@@ -1,6 +1,9 @@
 #:project ../../src/ILInspector.Metadata/ILInspector.Metadata.csproj
+#:project ../../src/DotnetInspector.Queries/DotnetInspector.Queries.csproj
 #:property OwnsItsOwnStderr=true
 
+using DotnetInspector.Queries;
+using ILInspector.Analysis.Classification;
 using ILInspector.Metadata;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -29,6 +32,9 @@ MethodClassification expected = expectedLowering switch
 string assemblyDirectory = Path.GetDirectoryName(hostAssemblyPath)!;
 string[] contextAssemblies = ReadContextAssemblyNames(hostAssemblyPath);
 var assemblyCensus = new List<AssemblyCensus>();
+ClassificationQuestion asyncRowsQuestion = new(
+    MethodClassificationAnalyzer.Async,
+    ClassificationClosing.Rows);
 foreach (string assemblyName in contextAssemblies.Order(StringComparer.Ordinal))
 {
     string assemblyPath = Path.Combine(assemblyDirectory, $"{assemblyName}.dll");
@@ -85,16 +91,24 @@ foreach (string assemblyName in contextAssemblies.Order(StringComparer.Ordinal))
         return 1;
     }
 
-    stream.Position = 0;
-    ClassifiedMethodInfo[] asyncExports =
+    MethodClassificationResult classification = MethodClassificationQuery.Execute(
+        peReader,
+        [asyncRowsQuestion]);
+    ClassificationAnswer asyncAnswer = classification.AnswerTo(asyncRowsQuestion);
+    if (asyncAnswer is not ClassificationAnswer.Rows asyncRows)
+    {
+        Console.Error.WriteLine(
+            $"Async classification failed for {assemblyName}: {asyncAnswer}");
+        return 1;
+    }
+
+    ClassifiedMethodRow[] asyncExports =
     [
-        .. MethodClassificationScanner.Scan(stream)
-            .Where(method =>
-                method.Classification is MethodClassification.StateMachineAsync
-                    or MethodClassification.RuntimeAsync)
-            .Where(method =>
-                exports.Contains(
-                    (SimpleTypeName(method.DeclaringType), method.MethodName))),
+        .. asyncRows.Methods.Where(method =>
+            exports.Contains(
+                (
+                    SimpleTypeName(method.DeclaringType.ToString()),
+                    method.MethodName.ToString()))),
     ];
     int compilerAsyncCount = asyncExports.Count(method =>
         method.Classification == MethodClassification.StateMachineAsync);
@@ -117,8 +131,8 @@ foreach (string assemblyName in contextAssemblies.Order(StringComparer.Ordinal))
         compilerAsyncCount,
         runtimeAsyncCount,
         asyncExports.Count(method =>
-            SimpleTypeName(method.DeclaringType) == "InspectionEngine"
-            && method.MethodName == "AsyncLoweringCanary")));
+            SimpleTypeName(method.DeclaringType.ToString()) == "InspectionEngine"
+            && method.MethodName.ToString() == "AsyncLoweringCanary")));
 }
 
 int canaryCount = assemblyCensus.Sum(assembly => assembly.CanaryCount);
