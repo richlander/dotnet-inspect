@@ -212,7 +212,7 @@ internal static class LibraryReport
                 DecompilerResult projection;
                 try
                 {
-                    projection = CSharpPrinter.Print(function);
+                    projection = ValidityCheck.RenderProjection(source, function);
                 }
                 catch (Exception ex)
                 {

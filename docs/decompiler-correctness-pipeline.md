@@ -48,6 +48,17 @@ observation layer. It must not use that parse to construct or rewrite the C#
 artifact it later compiles as evidence. C# spelling, declaration shape, body
 layout, and artifact replacement remain product responsibilities.
 
+Fidelity skeletons may add sibling and containing declaration context and may
+re-indent a product-issued whole-member artifact, but they preserve that
+artifact's token stream. They do not change accessibility, attributes,
+signatures, initializers, or bodies to make the target compile. A product
+artifact that does not bind remains a visible recompile or context failure;
+legacy harness-spelled targets retain non-product provenance and cannot be
+reported as product-whole-member evidence.
+`Evaluate_PreservesPrivateConstructorArtifactAndReportsContextFailure` gates
+the pathological private-constructor case: the unchanged artifact produces the
+visible scaffold failure that accessibility rewriting previously hid.
+
 Syntax and semantic validity bind the same first product projection, using the
 product printer's fully qualified type artifact before host-owned
 collision-aware shortening. The harness may sample that immutable rendered

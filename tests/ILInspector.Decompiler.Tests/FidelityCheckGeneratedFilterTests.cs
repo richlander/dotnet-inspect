@@ -12,6 +12,7 @@ using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -498,7 +499,7 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    public void Evaluate_UsesProductWholeMemberForOrdinaryConstructors()
+    public void Evaluate_PreservesPrivateConstructorArtifactAndReportsContextFailure()
     {
         var assemblyPath = CompileFixture("""
             using System;
@@ -596,7 +597,8 @@ public class FidelityCheckGeneratedFilterTests
                         && method.Overload == constructorOverload));
 
             Assert.True(result.UsedProductWholeMember);
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.Contains("CS0122", result.Detail, StringComparison.Ordinal);
         }
         finally
         {
@@ -1189,7 +1191,7 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    public void ConstructorShellAccessibility_PreservesBodySyntaxDiagnostics()
+    public void ProductWholeMemberSplice_PreservesConstructorArtifact()
     {
         const string member = """
                 private Fixture()
@@ -1198,12 +1200,13 @@ public class FidelityCheckGeneratedFilterTests
                 }
             """;
 
-        Assert.True(
-            FidelityCheck.TryForcePublicConstructorAccessibility(
-                member,
-                out string normalized));
-        Assert.Contains("public Fixture()", normalized, StringComparison.Ordinal);
-        Assert.Contains("Consume(,);", normalized, StringComparison.Ordinal);
+        var emitted = new StringBuilder();
+        FidelityCheck.EmitPrerenderedMember(member, emitted, "        ");
+        string source = emitted.ToString();
+
+        Assert.Contains("private Fixture()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("public Fixture()", source, StringComparison.Ordinal);
+        Assert.Contains("Consume(,);", source, StringComparison.Ordinal);
     }
 
     [Fact]
