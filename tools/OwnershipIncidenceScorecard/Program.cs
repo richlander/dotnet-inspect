@@ -41,6 +41,7 @@ internal static class OwnershipIncidenceScorecardRunner
         [
             new("LINQ", LinqAnswer),
             oracle,
+            new("NLinq-Runs", NLinqRunAnswer),
             new("Product", ProductAnswer),
         ];
         foreach (ScorecardAsset<IncidenceAsset> asset in assets)
@@ -175,6 +176,21 @@ internal static class OwnershipIncidenceScorecardRunner
                     DirectCall,
                     int,
                     EvidenceMethodToken>(default));
+
+    static ScorecardAnswer<IncidenceAnswer> NLinqRunAnswer(
+        ScorecardClosing closing,
+        IncidenceAsset asset) =>
+        Answer(
+            closing,
+            asset,
+            asset.DirectCalls
+                .ToImmutableRunLookup<
+                    DirectCall,
+                    int,
+                    EvidenceMethodToken,
+                    AscendingInt32>(
+                        default,
+                        default));
 
     static ScorecardAnswer<IncidenceAnswer> LinqAnswer(
         ScorecardClosing closing,
@@ -393,5 +409,12 @@ internal static class OwnershipIncidenceScorecardRunner
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int Invoke(DirectCall call) =>
             call.EvidenceMethod.MetadataToken;
+    }
+
+    readonly struct AscendingInt32 :
+        IComparer<int>
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Compare(int x, int y) => x.CompareTo(y);
     }
 }

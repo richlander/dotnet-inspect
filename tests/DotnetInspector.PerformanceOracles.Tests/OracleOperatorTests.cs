@@ -58,6 +58,53 @@ public sealed class OracleOperatorTests
     }
 
     [Fact]
+    public void ToImmutableRunLookup_MatchesSystemLinqForEveryRunShape()
+    {
+        ImmutableArray<int>[] inputs =
+        [
+            [],
+            [1],
+            [1, 1, 2, 2, 3],
+            [3, 3, 2, 2, 1],
+            [1, 2, 1, 3, 2],
+        ];
+
+        foreach (ImmutableArray<int> input in inputs)
+        {
+            IReadOnlyDictionary<int, ImmutableArray<int>> actual =
+                input.ToImmutableRunLookup<
+                    int,
+                    int,
+                    Identity,
+                    AscendingInt32>(
+                        default,
+                        default);
+            ILookup<int, int> expected =
+                input.ToLookup(static value => value);
+
+            Assert.Equal(
+                expected.Select(static group => group.Key),
+                actual.Keys);
+            foreach (IGrouping<int, int> group in expected)
+                Assert.Equal(group, actual[group.Key]);
+            Assert.Equal(
+                expected.Select(static group => group.ToArray()),
+                actual.Values.Select(static group => group.ToArray()));
+            Assert.Equal(
+                expected.Select(static group =>
+                    KeyValuePair.Create(
+                        group.Key,
+                        group.ToArray())),
+                actual.Select(static group =>
+                    KeyValuePair.Create(
+                        group.Key,
+                        group.Value.ToArray())));
+            Assert.False(actual.TryGetValue(-1, out var missing));
+            Assert.True(missing.IsDefault);
+        }
+    }
+
+    [Fact]
     public void Take_MatchesSystemLinq()
     {
         foreach (int[] input in Inputs)
@@ -224,5 +271,17 @@ public sealed class OracleOperatorTests
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int Invoke(int value) => value % 2;
+    }
+
+    readonly struct Identity : IFunc<int, int>
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Invoke(int value) => value;
+    }
+
+    readonly struct AscendingInt32 : IComparer<int>
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Compare(int x, int y) => x.CompareTo(y);
     }
 }
