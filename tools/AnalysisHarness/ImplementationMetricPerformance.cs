@@ -6,8 +6,17 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using ILInspector.Analysis;
+
+#if IMPLEMENTATION_METRIC_EVIDENCE_V1
+using ImplementationMetricSelection =
+    ILInspector.Analysis.ImplementationMetricEvidenceKind;
+#else
+using ImplementationMetricSelection =
+    ILInspector.Analysis.ImplementationMetricKind;
+#endif
 
 namespace ILInspector.AnalysisHarness;
 
@@ -73,11 +82,11 @@ public static class ImplementationMetricPerformance
         [
             new(
                 "body-size",
-                ImplementationMetricKind.BodySize),
+                ImplementationMetricSelection.BodySize),
             new(
                 "body-size-plus-relationships",
-                ImplementationMetricKind.BodySize
-                    | ImplementationMetricKind
+                ImplementationMetricSelection.BodySize
+                    | ImplementationMetricSelection
                         .SiblingOverloadRelationships),
             new(
                 "complete-profile-v1",
@@ -170,10 +179,9 @@ public static class ImplementationMetricPerformance
             Console.WriteLine(
                 JsonSerializer.Serialize(
                     report,
-                    new JsonSerializerOptions
-                    {
-                        WriteIndented = true,
-                    }));
+                    ImplementationMetricPerformanceJsonContext
+                        .Default
+                        .ImplementationMetricPerformanceReport));
         }
         else
         {
@@ -186,7 +194,7 @@ public static class ImplementationMetricPerformance
         ImmutableArray<byte> image,
         ImmutableHashSet<int> scope,
         ImplementationMetricWorkLimits limits,
-        ImplementationMetricKind metrics) =>
+        ImplementationMetricSelection metrics) =>
         LibraryBodyAnalysisService.ExecuteImage(
             "System.Private.CoreLib.dll",
             image,
@@ -211,7 +219,7 @@ public static class ImplementationMetricPerformance
                 "Finite implementation metric work was not published.");
         int relationshipCount =
             scenario.Metrics.HasFlag(
-                ImplementationMetricKind
+                ImplementationMetricSelection
                     .SiblingOverloadRelationships)
                 ? MethodImplementationProfileAnalysis
                     .CollectOverloadRelationships(
@@ -384,10 +392,15 @@ public static class ImplementationMetricPerformance
 
     sealed record Scenario(
         string Name,
-        ImplementationMetricKind Metrics);
+        ImplementationMetricSelection Metrics);
 
     readonly record struct Sample(
         double ElapsedMilliseconds,
         double CpuMilliseconds,
         long AllocatedBytes);
 }
+
+[JsonSourceGenerationOptions(WriteIndented = true)]
+[JsonSerializable(typeof(ImplementationMetricPerformanceReport))]
+internal partial class ImplementationMetricPerformanceJsonContext
+    : JsonSerializerContext;
