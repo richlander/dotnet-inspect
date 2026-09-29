@@ -83,8 +83,26 @@ public static class CommandLineBuilder
             args.FirstOrDefault() == "router"
                 ? args[1..]
                 : args;
+        if (routerArgs.Contains(
+                "--package",
+                StringComparer.Ordinal))
+        {
+            error = null;
+            return false;
+        }
+
         ParseResult packageParse =
             rootCommand.Parse([PackageCommand.Name, .. routerArgs]);
+        bool hasBareVersion =
+            routerArgs.Contains(
+                "--version",
+                StringComparer.Ordinal);
+        if (packageParse.Errors.Count > 0 && !hasBareVersion)
+        {
+            error = null;
+            return false;
+        }
+
         if (HasParsedOption(packageParse, "--version"))
         {
             // The Package probe captures unknown options in its variadic positional

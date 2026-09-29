@@ -368,9 +368,11 @@ public sealed class AssemblyInspectionSession :
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         ApiSurfaceExtractionScope scope,
-        ApiSurfaceExtractionBounds bounds)
+        ApiSurfaceExtractionBounds bounds,
+        bool includeCompilerGenerated = false)
         => ApiSurfaceExtractor.ExtractBounded(
-            _image.PEReader, source, catalog, bindingPolicy, scope, bounds);
+            _image.PEReader, source, catalog, bindingPolicy, scope, bounds,
+            includeCompilerGenerated);
 
     /// <summary>Manifest resources.</summary>
     public List<ManifestResourceInfo> Resources()

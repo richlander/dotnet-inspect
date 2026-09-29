@@ -130,6 +130,9 @@ public partial class PackageCommand
     }
 
     private static async Task<int> ExecutePackageLibraryAsync(
+        HttpClient httpClient,
+        VerboseLogger logger,
+        PackageReferenceTarget target,
         string extractPath,
         bool isLocalFile,
         string packageArg,
@@ -292,6 +295,12 @@ public partial class PackageCommand
             libraryOptions.Verbosity,
             libraryOptions.IncludeSections,
             libraryOptions.FixedOverview);
+        bool wantsEcosystemDependencies =
+            sectionPlan.Demands.Any(
+                static demand =>
+                    demand.Section == SectionNames.LibraryInfo
+                    || demand.Section
+                        == SectionNames.EcosystemDependencies);
         List<HostQueryDemand> commandQueryDemand = [];
         if (sectionPlan.Queries.Contains(BodyShapesQuery.Definition)
             && libraryOptions.BodyKindQuery.HasFilter
@@ -513,6 +522,14 @@ public partial class PackageCommand
             inspection.Tfm =
                 TfmResolver.ExtractFrameworkFolderFromPath(relativePath);
             inspection.Source = SourceKind.NuGet;
+            LibraryCommand.ApplyLibraryEcosystemDependencies(
+                inspection,
+                subject,
+                wantsEcosystemDependencies,
+                LibraryCommand
+                    .RequiresLibraryEcosystemDiagnosticDisclosure(
+                        libraryOptions),
+                logger);
             inspections.Add(inspection);
         }
 
@@ -1693,6 +1710,8 @@ public partial class PackageCommand
                      ("Copyright", info.Copyright),
                      ("Custom Attributes", info.CustomAttributes),
                      ("Deterministic", info.Deterministic ? "Yes" : "No"),
+                     ("Ecosystem Dependencies", info.EcosystemDependencies),
+                     ("Ecosystem Dependency Status", info.EcosystemDependencyStatus),
                      ("Enabled", info.Enabled),
                      ("Extension Methods", info.ExtensionMethods),
                      ("Facade", info.Facade switch
