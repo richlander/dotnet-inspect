@@ -108,15 +108,17 @@ internal sealed class BodyUseOwnerAttribution(MetadataReader reader)
         return true;
     }
 
-    // Roslyn nests a state machine directly in its kickoff's declaring Type,
-    // names it in the kickoff's state-machine attribute, and implements each
-    // interface role through an explicit MethodImpl.
+    // Roslyn, for C# and Visual Basic alike, nests a state machine directly
+    // in its kickoff's declaring Type, names it in the kickoff's state-machine
+    // attribute, and implements each interface role through a MethodImpl. The
+    // state machine's own name is language-specific (<M>d__N in C#,
+    // VB$StateMachine_N_M in Visual Basic), so no name is assumed here.
     MethodDefinitionHandle? KickoffOf(
         MethodDefinitionHandle method,
         TypeDefinitionHandle type)
     {
         TypeDefinition definition = _reader.GetTypeDefinition(type);
-        if (!_reader.StringComparer.StartsWith(definition.Name, "<"))
+        if (definition.GetMethodImplementations().Count == 0)
             return null;
         TypeDefinitionHandle host = definition.GetDeclaringType();
         if (host.IsNil)
@@ -162,7 +164,7 @@ internal sealed class BodyUseOwnerAttribution(MetadataReader reader)
                 {
                     continue;
                 }
-                nested ??= NestedGeneratedTypes(hostDefinition);
+                nested ??= NestedTypes(hostDefinition);
                 if (!nested.TryGetValue(leaf, out TypeDefinitionHandle stateMachine)
                     || stateMachine.IsNil)
                 {
@@ -181,15 +183,13 @@ internal sealed class BodyUseOwnerAttribution(MetadataReader reader)
         }
     }
 
-    Dictionary<string, TypeDefinitionHandle> NestedGeneratedTypes(
+    Dictionary<string, TypeDefinitionHandle> NestedTypes(
         TypeDefinition host)
     {
         var nested = new Dictionary<string, TypeDefinitionHandle>(StringComparer.Ordinal);
         foreach (TypeDefinitionHandle handle in host.GetNestedTypes())
         {
             StringHandle name = _reader.GetTypeDefinition(handle).Name;
-            if (!_reader.StringComparer.StartsWith(name, "<"))
-                continue;
             // A duplicated name claims no Type.
             if (!nested.TryAdd(_reader.GetString(name), handle))
                 nested[_reader.GetString(name)] = default;

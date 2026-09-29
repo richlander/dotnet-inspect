@@ -779,12 +779,73 @@ internal sealed class LibraryBodyMethodReferenceResolver
         }
         return (
             target.DeclaringType,
-            DecodeMethodSpecificationArguments(
+            MethodSpecificationArguments(
                 specification,
                 target.Supported,
                 target.GenericArity,
                 scope));
     }
+
+    // A MethodSpec instantiation's decode and validation depend only on its
+    // blob, the target's support and arity, and the caller's generic arities
+    // (argument names never bind), so the outcome, failure included, is
+    // shared by every MethodSpec row with that key.
+    readonly ConcurrentDictionary<
+        MethodSpecificationArgumentsKey,
+        MethodSpecificationArgumentsOutcome>
+        _methodSpecificationArguments = new();
+
+    ImmutableArray<TypeRef> MethodSpecificationArguments(
+        MethodSpecification specification,
+        bool targetSupported,
+        int targetGenericArity,
+        GenericScope scope)
+    {
+        var key = new MethodSpecificationArgumentsKey(
+            specification.Signature,
+            targetSupported,
+            targetGenericArity,
+            scope.TypeParameters.Length,
+            scope.MethodParameters.Length);
+        if (!_methodSpecificationArguments.TryGetValue(
+                key,
+                out MethodSpecificationArgumentsOutcome? outcome))
+        {
+            try
+            {
+                outcome = new(
+                    DecodeMethodSpecificationArguments(
+                        specification,
+                        targetSupported,
+                        targetGenericArity,
+                        scope),
+                    Failure: null);
+            }
+            catch (Exception exception)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(exception))
+            {
+                outcome = new(
+                    [],
+                    Planning.ProducerFailure.Describe(exception));
+            }
+            outcome = _methodSpecificationArguments.GetOrAdd(key, outcome);
+        }
+        if (outcome.Failure is { } failure)
+            throw new MethodSignatureFailureException(failure);
+        return outcome.Arguments;
+    }
+
+    readonly record struct MethodSpecificationArgumentsKey(
+        BlobHandle Signature,
+        bool TargetSupported,
+        int TargetGenericArity,
+        int TypeArity,
+        int MethodArity);
+
+    sealed record MethodSpecificationArgumentsOutcome(
+        ImmutableArray<TypeRef> Arguments,
+        string? Failure);
 
     MethodOwner MethodOwnerOf(
         EntityHandle handle,

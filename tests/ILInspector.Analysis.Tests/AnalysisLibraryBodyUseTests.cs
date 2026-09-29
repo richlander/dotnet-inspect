@@ -868,6 +868,79 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void ExecuteImage_DecodesSharedMethodSpecInstantiationOnce()
+    {
+        // 256 MethodSpec rows share one 8 KiB instantiation that does not
+        // match its target's arity. Every call fails visibly; the shared
+        // instantiation is decoded once.
+        const int specifications = 256;
+        ImmutableArray<byte> image =
+            BuildSharedMethodSpecImage(specifications, arguments: 4096);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "SharedMethodSpec.dll",
+                    image,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(specifications, result.Coverage.OperandsUnavailable);
+        Assert.Equal(
+            specifications,
+            result.Diagnostics.Count(static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind
+                        .UnresolvedOperand));
+        // One decode allocates about 2 MB; one per row is over 500 MB.
+        Assert.InRange(allocated, 0, 32 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void ExecutePath_AttributesRoslynVisualBasicStateMachines()
+    {
+        string path = typeof(AnalysisBodyUseVbFixtures.VbTarget)
+            .Assembly.Location;
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecutePath(
+                    path,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        using var image = new PEReader(File.OpenRead(path));
+        MetadataReader reader = image.GetMetadataReader();
+
+        // VB$StateMachine_* role bodies continue as their kickoff, so their
+        // VbTarget constructions belong to VbSource.
+        foreach (string kickoff in new[] { "AsyncUse", "IteratorUse" })
+        {
+            TypeDefinitionHandle stateMachine = Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(
+                        reader.GetTypeDefinition(handle).Name)
+                    .EndsWith("_" + kickoff, StringComparison.Ordinal));
+            MethodDefinitionHandle moveNext = Assert.Single(
+                reader.GetTypeDefinition(stateMachine).GetMethods(),
+                handle => reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    "MoveNext"));
+            Assert.Contains(
+                result.Occurrences,
+                occurrence =>
+                    occurrence.PhysicalMethodToken
+                        == MetadataTokens.GetToken(moveNext)
+                    && Name(occurrence.SourceType)
+                        == "AnalysisBodyUseVbFixtures.VbSource"
+                    && Name(occurrence.TargetType)
+                        == "AnalysisBodyUseVbFixtures.VbTarget"
+                    && occurrence.OperandKind
+                        == AnalysisLibraryBodyUseOperandKind.Constructor);
+        }
+    }
+
+    [Fact]
     public void ExecuteImage_BoundsStateMachineAttributeNames()
     {
         AnalysisLibraryBodyUseResult result =
@@ -1552,6 +1625,99 @@ public sealed class AnalysisLibraryBodyUseTests
         return Serialize(metadata, bodies);
     }
 
+    static ImmutableArray<byte> BuildSharedMethodSpecImage(
+        int specifications,
+        int arguments)
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "SharedMethodSpec",
+            new Guid("5d1b9c3e-7a42-4f0b-9e61-8c2f4a7d3b90"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Shared"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        var genericSignature = new BlobBuilder();
+        new BlobEncoder(genericSignature)
+            .MethodSignature(genericParameterCount: 1)
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        // 0x06000001: static void G<T>()
+        MethodDefinitionHandle generic = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("G"),
+            metadata.GetOrAddBlob(genericSignature),
+            Body([(byte)ILOpCode.Ret]),
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddGenericParameter(
+            generic,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            0);
+
+        // One instantiation of many int[] arguments, shared by every row.
+        var instantiation = new BlobBuilder();
+        GenericTypeArgumentsEncoder argumentEncoder =
+            new BlobEncoder(instantiation)
+                .MethodSpecificationSignature(arguments);
+        for (int i = 0; i < arguments; i++)
+            argumentEncoder.AddArgument().SZArray().Int32();
+        BlobHandle shared = metadata.GetOrAddBlob(instantiation);
+        for (int i = 0; i < specifications; i++)
+            metadata.AddMethodSpecification(generic, shared);
+
+        // 0x06000002: calls every MethodSpec row once.
+        byte[] il = new byte[(specifications * 5) + 1];
+        for (int i = 0; i < specifications; i++)
+        {
+            int token = 0x2B000001 + i;
+            il[i * 5] = (byte)ILOpCode.Call;
+            BitConverter.TryWriteBytes(il.AsSpan((i * 5) + 1, 4), token);
+        }
+        il[^1] = (byte)ILOpCode.Ret;
+        var callerSignature = new BlobBuilder();
+        new BlobEncoder(callerSignature)
+            .MethodSignature()
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Caller"),
+            metadata.GetOrAddBlob(callerSignature),
+            Body(il),
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata, bodies);
+
+        int Body(byte[] code)
+        {
+            var builder = new BlobBuilder();
+            builder.WriteBytes(code);
+            return encoder.AddMethodBody(
+                new InstructionEncoder(builder),
+                maxStack: 1);
+        }
+    }
+
     static ImmutableArray<byte> BuildMethodSpecScopeImage()
     {
         MetadataBuilder metadata = CreateMetadata(
@@ -1735,13 +1901,24 @@ public sealed class AnalysisLibraryBodyUseTests
                 MetadataTokens.ParameterHandle(1));
             metadata.AddCustomAttribute(kickoff, constructor, sharedValue);
         }
-        metadata.AddMethodDefinition(
+        MethodDefinitionHandle moveNext = metadata.AddMethodDefinition(
             MethodAttributes.Private | MethodAttributes.Virtual,
             MethodImplAttributes.IL,
             metadata.GetOrAddString("MoveNext"),
             VoidSignature(metadata, instance: true),
             AddRet(encoder),
             MetadataTokens.ParameterHandle(1));
+        TypeReferenceHandle stateMachineInterface = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("IAsyncStateMachine"));
+        metadata.AddMethodImplementation(
+            stateMachine,
+            moveNext,
+            metadata.AddMemberReference(
+                stateMachineInterface,
+                metadata.GetOrAddString("MoveNext"),
+                VoidSignature(metadata, instance: true)));
         return Serialize(metadata, bodies);
 
         static int AddRet(MethodBodyStreamEncoder encoder)

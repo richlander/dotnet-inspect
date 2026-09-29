@@ -25,8 +25,8 @@ provider-backed acquisition.
 
 ## Fidelity and security
 
-The fidelity claim covers Roslyn-produced assemblies, including SDK-trimmed
-output. Logical ownership follows Roslyn's emission shape directly, as
+The fidelity claim covers Roslyn-produced assemblies, C# and Visual Basic,
+including SDK-trimmed output. Logical ownership follows Roslyn's emission shape directly, as
 [Logical ownership](#logical-ownership) states. For output from other tools
 (rewriters, custom trimming, hand-authored or adversarial metadata), an
 ownership answer may be wrong but is never insecure. Exists, Count, and Rows
@@ -64,7 +64,9 @@ declared Type a body's uses belong to, and Roslyn's shape answers that exactly.
 For one physical MethodDef body:
 
 1. **State-machine role.** When the body's declaring Type is a nested Type
-   whose name starts with `<`, its host is the Type that declares it. A host
+   with `MethodImpl` rows, its host is the Type that declares it. No
+   state-machine name is assumed, because the lowering names differ by
+   language (`<M>d__N` in C#, `VB$StateMachine_N_M` in Visual Basic). A host
    method carrying `AsyncStateMachineAttribute`,
    `AsyncIteratorStateMachineAttribute`, or `IteratorStateMachineAttribute`
    is a kickoff; the attribute's serialized `System.Type` argument names the
@@ -80,7 +82,9 @@ For one physical MethodDef body:
    does not start with `<>`. Roslyn places closure Types (`<>c`,
    `<>c__DisplayClass…`) inside the Type that declares the source method, so
    this also covers a lifted kickoff, such as an async lambda's. A name with a
-   lifted marker that is not canonical is rejected.
+   lifted marker that is not canonical is rejected. The canonical names are
+   C#'s. Visual Basic lambdas (`_Lambda$__N-M` in `_Closure$__…`) fall to
+   rule 3 and stay physical only, as authenticated ownership also left them.
 3. **Otherwise** the method belongs to its declaring Type, unless the method
    or that Type carries `CompilerGeneratedAttribute`; then the body is
    physical only. Closure constructors, a state machine's non-role members,
@@ -91,8 +95,8 @@ once, attribute constructors, value blobs, and Type answers are memoized, and
 a declaring chain walk is bounded by
 `MetadataSafetyPolicy.MaxRelationshipNodes`. A state-machine name longer than
 `MetadataSafetyPolicy.MaxTypeNameCharacters` fails its host. A host whose
-scan fails fails every `<`-named nested body it hosts as malformed, including
-closure bodies unrelated to state machines. This breadth is intended: the scan
+scan fails fails the body of every nested Type with `MethodImpl` rows that it
+hosts as malformed, including bodies unrelated to state machines. This breadth is intended: the scan
 cannot tell which of the host's generated bodies it would have attributed, so
 none is published as if the host were readable.
 
@@ -113,7 +117,9 @@ or the operand unavailable, with a typed diagnostic:
 What a non-Roslyn input can change without a diagnostic is only the logical
 owner, as [Fidelity and security](#fidelity-and-security) allows.
 
-Each signature blob's decode outcome, and each operand's binding, is retained
+Each signature blob's decode outcome, each MethodSpec instantiation's outcome
+(keyed by its blob, target arity, and caller generic arities), and each
+operand's binding, is retained
 per execution, a recoverable failure included as its diagnostic description.
 A malformed blob or operand therefore fails every use visibly, with the same
 detail, without repeating its decode or rethrowing a shared exception.

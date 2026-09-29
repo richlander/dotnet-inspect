@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Visual Basic body-use fixture. Roslyn's VB lowering names state machines
+    VB$StateMachine_N_M and closures _Closure$__N-M, unlike C#, so this
+    compiler-produced assembly gates that body-use ownership covers Roslyn VB
+    output. Referenced by ILInspector.Analysis.Tests for its assembly path.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <OutputType>Library</OutputType>
+    <RootNamespace></RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <!-- EnablePreviewFeatures (repo root) sets LangVersion=Preview, which vbc rejects. -->
+    <LangVersion>latest</LangVersion>
+    <EnablePreviewFeatures>false</EnablePreviewFeatures>
+  </PropertyGroup>
+
+</Project>
