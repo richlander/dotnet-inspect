@@ -99,6 +99,31 @@ public sealed class PackageDocumentContentInspectionTests
             Assert.Single(envelope.Diagnostics).Code);
     }
 
+    [Fact]
+    public async Task EntryAboveDetachedLimitFailsBeforeOpeningContent()
+    {
+        PackageHouseSettlement.Acquired settlement =
+            CreateSettlement(
+                producerKey =>
+                    new DeclaredPackageContent(
+                        "README.md",
+                        PackageDocumentContentLimits.MaxDecodedBytes + 1L,
+                        producerKey));
+
+        InspectionEnvelope<PackageDocumentContentDocument> envelope =
+            await PackageDocumentContentInspection.ExecuteAsync(
+                new(settlement, "README.md"),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            PackageDocumentContentStatus.Unavailable,
+            envelope.Content.Status);
+        Assert.Empty(envelope.Content.Content);
+        Assert.Equal(
+            "package-document-content.length-unavailable",
+            Assert.Single(envelope.Diagnostics).Code);
+    }
+
     private static PackageHouseSettlement.Acquired CreateSettlement(
         Func<string, IPackageContent> createContent)
     {
@@ -162,5 +187,87 @@ public sealed class PackageDocumentContentInspectionTests
             payload,
             sourcePayload,
             selectionUsesOriginalSources: true);
+    }
+
+    private sealed class DeclaredPackageContent(
+        string path,
+        long length,
+        string producerKey)
+        : IPackageContent, IPackageContentEntryManifest
+    {
+        public string? RootPath => null;
+
+        public string? NupkgPath => null;
+
+        public bool FromCache => true;
+
+        public string ProducerKey => producerKey;
+
+        public bool RequiresArchiveTreeMatch => false;
+
+        public bool TryOpenArchive(
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+            out Stream? stream)
+        {
+            stream = null;
+            return false;
+        }
+
+        public bool TryOpenEntry(
+            string relativePath,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+            out Stream? stream)
+        {
+            stream = null;
+            return false;
+        }
+
+        public IEnumerable<string> EnumerateEntries()
+        {
+            yield return path;
+        }
+
+        public bool TryGetEntryLength(
+            string relativePath,
+            out long entryLength)
+        {
+            if (relativePath.Equals(
+                    path,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                entryLength = length;
+                return true;
+            }
+
+            entryLength = 0;
+            return false;
+        }
+
+        public PackageContentEntryScanner CreateEntryScanner() =>
+            new DeclaredEntryScanner(new(path, length));
+    }
+
+    private sealed class DeclaredEntryScanner(
+        PackageContentEntry entry)
+        : PackageContentEntryScanner
+    {
+        private bool _read;
+
+        public override bool MoveNext(out PackageContentEntry next)
+        {
+            if (_read)
+            {
+                next = default;
+                return false;
+            }
+
+            _read = true;
+            next = entry;
+            return true;
+        }
+
+        public override void Dispose()
+        {
+        }
     }
 }

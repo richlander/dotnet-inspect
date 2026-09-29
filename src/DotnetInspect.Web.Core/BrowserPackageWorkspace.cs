@@ -4241,7 +4241,6 @@ internal sealed record BrowserScopeResolution(
 [SupportedOSPlatform("browser")]
 internal sealed class BrowserPackage
 {
-    const long MaxTextEntryBytes = 16L * 1024 * 1024;
     readonly AcquiredPackageSourcePayload? _acquiredPayload;
     readonly AcquiredPackagePayload? _resolvedPayload;
     readonly Lazy<BrowserPackageIconPayload?> _icon;
@@ -4423,7 +4422,7 @@ internal sealed class BrowserPackage
                 : null;
             if (kind is null)
                 continue;
-            if (entry.Length > MaxTextEntryBytes || entry.Length > int.MaxValue)
+            if (entry.Length > PackageDocumentContentLimits.MaxDecodedBytes)
             {
                 throw new InvalidOperationException(
                     $"A browsable document in {packageId} {version} exceeds the browser byte "
@@ -4489,7 +4488,7 @@ internal sealed class BrowserPackage
         {
             input = content.TryOpenEntry(
                     document.Path,
-                    MaxTextEntryBytes,
+                    PackageDocumentContentLimits.MaxDecodedBytes,
                     out Stream? eager)
                 ? eager
                 : throw new InvalidOperationException(
@@ -4601,7 +4600,7 @@ internal sealed class BrowserPackage
     }
 
     internal bool TryReadText(string path, out byte[] bytes) =>
-        TryRead(path, MaxTextEntryBytes, out bytes);
+        TryRead(path, PackageDocumentContentLimits.MaxDecodedBytes, out bytes);
 
     BrowserPackageIconPayload? ProjectIcon() =>
         ProjectIcon(PackageIconQuery.Execute(Content, PackageId, Version));

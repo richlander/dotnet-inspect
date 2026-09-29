@@ -665,10 +665,12 @@ PackageHouse filesystem store using HTTP Range requests rather than the legacy
 extraction route. The exact entry is detached through the shared package
 document-content inspection, then the CLI applies its existing separator,
 `--raw`, JSONL, or `--out` projection. Skill documents retain their containment
-and link-normalization behavior. Local packages, floating or range version
-selection, target-framework filters, path globs and roles, scoped documents,
-.NET tool-wrapper redirection, and other package files retain their existing
-behavior.
+and link-normalization behavior. Detached content projections accept documents
+up to 16 MiB; an exact README written to `--out` remains a bounded byte stream
+and is not subject to that detached-content limit. Local packages, floating or
+range version selection, target-framework filters, path globs and roles,
+scoped documents, .NET tool-wrapper redirection, and other package files retain
+their existing behavior.
 
 For one package with `--layout`, `-n`, `--tail`, and `--rows A..B` select
 complete sorted file paths after archive extraction and `--lib`, `--tools`, or

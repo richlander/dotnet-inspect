@@ -156,12 +156,14 @@ public static class PackageDocumentContentInspection
         PackageContentEntry entry = resolution.Entry
             ?? throw new InvalidOperationException(
                 "A resolved package document entry is required.");
-        if (entry.Length < 0 || entry.Length > Array.MaxLength)
+        if (entry.Length < 0
+            || entry.Length > PackageDocumentContentLimits.MaxDecodedBytes)
         {
             return Failed(
                 PackageDocumentContentStatus.Unavailable,
                 "package-document-content.length-unavailable",
-                $"Package entry '{entry.Path}' has an unsupported declared length.");
+                $"Package entry '{entry.Path}' exceeds the detached content "
+                    + $"limit of {PackageDocumentContentLimits.MaxDecodedBytes} bytes.");
         }
 
         try

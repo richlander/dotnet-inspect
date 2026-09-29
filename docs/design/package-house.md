@@ -788,12 +788,15 @@ directly through the House, with ranged access and a
 authority-scoped store, without invoking the legacy `PackageExtractor` route.
 The host-neutral document-content inspection drains the pull read through EOF,
 so length and checksum validation complete, and returns detached immutable
-bytes. The CLI then applies its existing separator, raw, JSONL, or file
-projection; Skill output still passes through containment and link
-normalization. Local archives, floating or range version selection,
-target-framework filters, path globs and roles, partial document scopes,
-.NET tool-wrapper redirection, and other package files retain their existing
-paths in this slice.
+bytes up to the Browser-aligned 16 MiB document limit. The CLI then applies its
+existing separator, raw, JSONL, or Skill file projection; Skill output still
+passes through containment and link normalization. Exact README file output
+instead copies the resolved pull read directly to its destination with one
+bounded buffer, so a valid large README need not become an entry-sized
+allocation or decoded string. Local archives, floating or range version
+selection, target-framework filters, path globs and roles, partial document
+scopes, .NET tool-wrapper redirection, and other package files retain their
+existing paths in this slice.
 
 The second production consumer is the Browser/Wasm viewer for exact root
 `README.md` and `skills/**/*.md` document-manifest entries. The managed export
@@ -808,8 +811,9 @@ call site remain unchanged.
 Both consumers use `PackageDocumentEntryResolver` for safe path validation,
 case-insensitive manifest matching, actual-path preservation, and visible
 missing or ambiguous selection. The CLI then detaches bytes while Browser/Wasm
-retains its bounded streaming decoder; those host-specific representations do
-not duplicate House entry-selection logic.
+retains its bounded streaming decoder; exact README file output remains a
+bounded stream copy. Those host-specific representations do not duplicate
+House entry-selection logic.
 
 `PackageHouseExecutionTests.ExactPayloadRead_IsColdAndPullsFromTheHouseGeneration`
 gates cold start, pre-read cancellation, receipt association, and progressive

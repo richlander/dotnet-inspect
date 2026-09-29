@@ -399,6 +399,39 @@ public partial class PackageCommand
             return null;
         }
 
+        if (!isSkill
+            && HasUnstructuredOutputPath(options)
+            && ProjectionDestinationWriter.IsFile(destination))
+        {
+            PackageDocumentEntryResolution resolution =
+                PackageDocumentEntryResolver.Resolve(
+                    settlement,
+                    documentPath);
+            if (resolution.Status
+                == PackageDocumentEntryResolutionStatus.ManifestUnavailable)
+            {
+                return null;
+            }
+            if (TryWritePackageDocumentSelectionFailure(
+                    resolution.Status))
+            {
+                return 1;
+            }
+
+            PackageContentEntry entry = resolution.Entry
+                ?? throw new InvalidOperationException(
+                    "A resolved package document entry is required.");
+            await using PackageHousePayloadRead input =
+                settlement.OpenPayloadRead(
+                    entry.Path,
+                    entry.Length);
+            await ProjectionDestinationWriter.WriteExactBytesAsync(
+                    destination,
+                    input)
+                .ConfigureAwait(false);
+            return 0;
+        }
+
         InspectionEnvelope<PackageDocumentContentDocument> inspection =
             await PackageDocumentContentInspection.ExecuteAsync(
                     new(settlement, documentPath))
@@ -455,6 +488,26 @@ public partial class PackageCommand
                     [content]),
             ],
             options);
+    }
+
+    private static bool TryWritePackageDocumentSelectionFailure(
+        PackageDocumentEntryResolutionStatus status)
+    {
+        string? message = status switch
+        {
+            PackageDocumentEntryResolutionStatus.Missing =>
+                "--content requires exactly one selected package "
+                + "content file; found 0.",
+            PackageDocumentEntryResolutionStatus.Ambiguous =>
+                "--content requires exactly one selected package "
+                + "content file; found 2.",
+            _ => null,
+        };
+        if (message is null)
+            return false;
+
+        CommandError.Write(message);
+        return true;
     }
 
     private static bool MayRequireLegacyToolWrapperHandling(
