@@ -979,6 +979,73 @@ test("member families show product-issued out-of-view counts", () => {
     /aria-label="2 more overloads are outside the public view\."/);
 });
 
+test("member families disclose unavailable out-of-view counts", () => {
+  const group = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    completeCount: 2,
+    completeCountStatus: "failed" as const,
+    overloads: [
+      { signature: "JsonDocument Parse(string json)" },
+      { signature: "JsonDocument Parse(Stream utf8Json)" },
+    ],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 2,
+    visibleMemberCount: 2,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    selectedAccessibility: "public",
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(html, /class="family-outside-count unavailable"/);
+  assert.match(html, />\+\?<\/span>/);
+  assert.match(
+    html,
+    /aria-label="The out-of-view overload count is unavailable for the public view\."/);
+});
+
+test("member families do not guess out-of-view counts while loading", () => {
+  const group = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    completeCount: 2,
+    completeCountStatus: "pending" as const,
+    overloads: [
+      { signature: "JsonDocument Parse(string json)" },
+      { signature: "JsonDocument Parse(Stream utf8Json)" },
+    ],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 2,
+    visibleMemberCount: 2,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    selectedAccessibility: "public",
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.doesNotMatch(html, /family-outside-count/);
+  assert.doesNotMatch(html, /\+\?/);
+});
+
 test("the member nav does not advertise sections without a selected member", () => {
   const html = renderMemberNav({
     type: jsonSerializer,

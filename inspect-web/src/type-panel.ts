@@ -187,6 +187,32 @@ export interface MemberGroup {
   kind: string;
   overloads: readonly MemberOverloadSummary[];
   completeCount?: number;
+  completeCountStatus?: "available" | "pending" | "failed";
+}
+
+export function familyOutsideMarkerHtml(
+  group: MemberGroup,
+  selectedAccessibility: string,
+  escapeHtml: EscapeHtml,
+): string {
+  if (group.overloads.some(overload => overload.graphOnly)) return "";
+  const completeCountStatus = group.completeCountStatus
+    ?? (group.completeCount == null ? "pending" : "available");
+  if (completeCountStatus === "failed") {
+    const description =
+      `The out-of-view overload count is unavailable for the ${selectedAccessibility} view.`;
+    return ` <span class="family-outside-count unavailable" aria-label="${escapeHtml(description)}" title="${escapeHtml(description)}">+?</span>`;
+  }
+  if (completeCountStatus !== "available") return "";
+
+  const outsideCount = Math.max(
+    0,
+    (group.completeCount ?? group.overloads.length)
+      - group.overloads.length);
+  if (outsideCount === 0) return "";
+  const description =
+    `${outsideCount} more overloads are outside the ${selectedAccessibility} view.`;
+  return ` <span class="family-outside-count" aria-label="${escapeHtml(description)}" title="${escapeHtml(description)}">+${outsideCount}</span>`;
 }
 
 export type MemberNavEntry =
@@ -684,15 +710,10 @@ export function renderMemberNav(options: MemberNavOptions): string {
             const isMulti = group.overloads.length > 1;
             const graphOnly =
               group.overloads.some(overload => overload.graphOnly);
-            const outsideCount = graphOnly
-              ? 0
-              : Math.max(
-                0,
-                (group.completeCount ?? group.overloads.length)
-                  - group.overloads.length);
-            const outsideMarker = outsideCount > 0
-              ? ` <span class="family-outside-count" aria-label="${outsideCount} more overloads are outside the ${escapeHtml(selectedAccessibility)} view." title="${outsideCount} more overloads are outside the ${escapeHtml(selectedAccessibility)} view.">+${outsideCount}</span>`
-              : "";
+            const outsideMarker = familyOutsideMarkerHtml(
+              group,
+              selectedAccessibility,
+              escapeHtml);
             const active = group.key === selectedMemberKey;
             const selected = active && (isMulti ? selectedOverloadIndex == null : true);
             const cue = active && isMulti ? familyHeatCue?.(group) ?? null : null;

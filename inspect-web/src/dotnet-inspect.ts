@@ -437,6 +437,7 @@ import { createMemberListRevealer } from "./member-list-reveal.ts";
 import {
   bindTypePanel,
   createMemberSourcePartSelector,
+  familyOutsideMarkerHtml,
   renderGraphMemberPending,
   renderMemberNav,
   memberSourceText,
@@ -1094,6 +1095,7 @@ interface AppMemberGroup {
   kind: string;
   overloads: AppMemberSurface[];
   completeCount: number;
+  completeCountStatus: "available" | "pending" | "failed";
 }
 
 function loadStoredTaste() {
@@ -5681,6 +5683,7 @@ function groupMembers(
         kind: member.kind,
         overloads: [],
         completeCount: 0,
+        completeCountStatus: "pending",
       };
       groups.set(key, group);
     }
@@ -5723,6 +5726,7 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
       name: group.name,
       kind: group.kind,
       completeCount: group.completeCount,
+      completeCountStatus: "available",
       overloads: group.members.map(createAppMemberSurface),
     }));
   }
@@ -5731,7 +5735,15 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
     return [];
   }
   const { publicMembers } = partitionGraphMembers(type.api);
-  return searchableMemberGroups(groupMembers(publicMembers));
+  const groups = searchableMemberGroups(groupMembers(publicMembers));
+  if (state.typeMemberPopulationError
+    && state.typeMemberPopulationKey === typeMemberPopulationKey(type)) {
+    return groups.map(group => ({
+      ...group,
+      completeCountStatus: "failed",
+    }));
+  }
+  return groups;
 }
 
 function memberGroups(
@@ -10042,13 +10054,10 @@ function renderApiLens(item: AppTypeSurface) {
         const overload = group.overloads[0];
         if (!overload)
           throw new Error(`Member group '${group.key}' did not contain an overload.`);
-        const outsideCount = Math.max(
-          0,
-          (group.completeCount ?? group.overloads.length)
-            - group.overloads.length);
-        const outsideMarker = outsideCount > 0
-          ? ` <span class="family-outside-count" aria-label="${outsideCount} more overloads are outside the ${escapeHtml(state.memberAccessibilityFilter)} view." title="${outsideCount} more overloads are outside the ${escapeHtml(state.memberAccessibilityFilter)} view.">+${outsideCount}</span>`
-          : "";
+        const outsideMarker = familyOutsideMarkerHtml(
+          group,
+          state.memberAccessibilityFilter,
+          escapeHtml);
         return `
         <button class="api-row" data-member="${escapeHtml(group.key)}">
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
