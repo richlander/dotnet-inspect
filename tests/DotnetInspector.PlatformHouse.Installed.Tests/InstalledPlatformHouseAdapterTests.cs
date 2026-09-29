@@ -200,7 +200,7 @@ public sealed class InstalledPlatformHouseAdapterTests
 
     [Fact]
     public async Task
-        RealizeReference_BindingProducesExactAssemblyContribution()
+        RealizeReference_BindingProducesNamesakeAssemblyContribution()
     {
         using var hive = new TestHive();
         string source =
@@ -228,9 +228,14 @@ public sealed class InstalledPlatformHouseAdapterTests
         var population =
             Assert.IsType<PlatformPopulationDemand.Library>(
                 contribution.Population);
-        var assembly = Assert.IsType<PlatformLibraryDemand.Assembly>(
-            population.Value);
-        Assert.True(identity.IsEquivalentTo(assembly.Identity));
+        var binding = Assert.IsType<
+            PlatformLibraryDemand.AssemblyReferenceBinding>(
+                population.Value);
+        var sourceBinding = Assert.IsType<
+            InstalledReferencePopulationDemand.AssemblyReferenceBinding>(
+                succeeded.Value.Population);
+        Assert.True(identity.IsEquivalentTo(binding.Identity));
+        Assert.True(identity.IsEquivalentTo(sourceBinding.Identity));
         Assert.True(
             identity.IsEquivalentTo(
                 Assert.Single(succeeded.Value.Libraries).Identity));

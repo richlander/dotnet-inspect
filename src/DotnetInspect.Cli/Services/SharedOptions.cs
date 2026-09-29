@@ -139,7 +139,7 @@ public class SharedOptions
 
         Tips = new Option<string?>("--tips")
         {
-            Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)",
+            Description = "Show tips: m(inimal, default), d(etailed), q(uiet)",
             Arity = ArgumentArity.ZeroOrOne
         };
         Tips.Aliases.Add("-T");

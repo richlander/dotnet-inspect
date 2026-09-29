@@ -9,6 +9,7 @@ import {
   type TypeSourceView,
 } from "./source-inspection.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
+import { isForwardedType, type TypeInventoryRow } from "./platform-forwarders.ts";
 
 export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
   "base · interfaces · derived — select a highlighted node to open";
@@ -44,6 +45,7 @@ export interface TypeSummary {
   accessibility?: string;
   assembly: string;
   definitionId?: string;
+  platformPack?: string | null;
 }
 
 export interface MemberOverloadSummary {
@@ -196,6 +198,7 @@ export interface TypePanelPackageContext {
   id: string;
   version: string;
   activeFramework: string;
+  platformContextId?: string | null;
 }
 
 export interface TypeParameterSummary {
@@ -511,9 +514,10 @@ export function bindTypePanel(
 }
 
 export interface TypeNavOptions {
-  current?: TypeSummary | null;
-  visible: readonly TypeSummary[];
-  typeGroups: ReadonlyMap<string, readonly TypeSummary[]>;
+  statusHtml?: string;
+  current?: TypeInventoryRow | null;
+  visible: readonly TypeInventoryRow[];
+  typeGroups: ReadonlyMap<string, readonly TypeInventoryRow[]>;
   typeFilter: string;
   namespaceFilter: string;
   kindFilter: string;
@@ -527,10 +531,10 @@ export interface TypeNavOptions {
   filtersExpanded: boolean;
   filterSummary: string;
   escapeHtml: EscapeHtml;
-  typeDisplayName: (item: TypeSummary) => string;
-  typeLibraryLabel: (item: TypeSummary) => string;
+  typeDisplayName: (item: TypeInventoryRow) => string;
+  typeLibraryLabel: (item: TypeInventoryRow) => string;
   kindIcon: (kind: string) => string;
-  typeLeverageCue?: (item: TypeSummary) => TypeNavLeverageCue | null;
+  typeLeverageCue?: (item: TypeInventoryRow) => TypeNavLeverageCue | null;
 }
 
 export interface TypeNavLeverageCue {
@@ -547,7 +551,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
     namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
     leverageControlHtml = "",
     library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
-    typeDisplayName, typeLibraryLabel, kindIcon,
+    typeDisplayName, typeLibraryLabel, kindIcon, statusHtml = "",
   } = options;
   const typeLeverageCue = options.typeLeverageCue ?? (() => null);
   return `
@@ -589,6 +593,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
           ${leverageControlHtml}
         </div>
       </details>
+      ${statusHtml}
       <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
         ${[...typeGroups].map(([namespace, types]) => `
           <section class="type-group">
@@ -612,10 +617,12 @@ export function renderTypeNav(options: TypeNavOptions): string {
                   </span>`
                 : "";
               return `<button class="type-row ${selected ? "selected" : ""}${leverageClasses}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
-                <span class="kind-icon">${kindIcon(item.kind)}</span>
+                <span class="kind-icon" aria-hidden="true">${isForwardedType(item) ? "↗" : kindIcon(item.kind)}</span>
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
                 ${leverageHtml}
-                <small title="${item.members} ${item.members === 1 ? "member" : "members"}">${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${item.members}</small>
+                ${isForwardedType(item)
+                  ? '<small class="forwarded-type-label">Forwarded</small>'
+                  : `<small title="${item.members} ${item.members === 1 ? "member" : "members"}">${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${item.members}</small>`}
               </button>`;
             }).join("")}
           </section>`).join("") || '<div class="empty-list">No public types match this filter.</div>'}
@@ -1013,6 +1020,8 @@ export function typeSourceSignature(
     packageContext.id,
     packageContext.version,
     packageContext.activeFramework,
+    packageContext.platformContextId ?? "",
+    item.platformPack ?? "",
     item.assembly,
     item.definitionId ?? item.id,
     view,

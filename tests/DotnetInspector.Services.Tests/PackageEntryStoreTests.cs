@@ -13,7 +13,7 @@ namespace DotnetInspector.Services.Tests;
 public sealed class PackageEntryStoreTests
 {
     [Fact]
-    public void EntryCache_HostileEntryNames_StayContainedAndDistinct()
+    public async Task EntryCache_HostileEntryNames_StayContainedAndDistinct()
     {
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -44,11 +44,12 @@ public sealed class PackageEntryStoreTests
                 ("lib/net8.0/case.dll", [5]),
             ];
             foreach ((string path, byte[] content) in hostile)
-                store.PublishEntry("contoso", "1.0.0", path, content);
+                await store.PublishEntryAsync("contoso", "1.0.0", path, content);
 
             foreach ((string path, byte[] content) in hostile)
             {
-                Assert.True(store.TryReadEntry("contoso", "1.0.0", path, out byte[] read));
+                byte[]? read = await store.ReadEntryAsync("contoso", "1.0.0", path);
+                Assert.NotNull(read);
                 Assert.Equal(content, read);
             }
 
@@ -74,7 +75,7 @@ public sealed class PackageEntryStoreTests
     /// it keeps no entries (docs/design/package-cache-policy.md, case 5d).
     /// </summary>
     [Fact]
-    public void EntryCache_AuthorityWithoutPersistentKey_KeepsNothing()
+    public async Task EntryCache_AuthorityWithoutPersistentKey_KeepsNothing()
     {
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -100,11 +101,19 @@ public sealed class PackageEntryStoreTests
                 () => Path.Combine(root, "temporary"));
 
             Assert.False(store.KeepsEntries);
-            store.PublishDirectory("contoso", "1.0.0", new byte[] { 1 }, 1);
-            store.PublishEntry("contoso", "1.0.0", "lib/net8.0/Contoso.dll", new byte[] { 1 });
+            await store.PublishDirectoryAsync("contoso", "1.0.0", new byte[] { 1 }, 1);
+            await store.PublishEntryAsync(
+                "contoso",
+                "1.0.0",
+                "lib/net8.0/Contoso.dll",
+                new byte[] { 1 });
 
-            Assert.False(store.TryReadDirectory("contoso", "1.0.0", out _, out _));
-            Assert.False(store.TryReadEntry("contoso", "1.0.0", "lib/net8.0/Contoso.dll", out _));
+            Assert.Null(await store.ReadDirectoryAsync("contoso", "1.0.0"));
+            Assert.Null(
+                await store.ReadEntryAsync(
+                    "contoso",
+                    "1.0.0",
+                    "lib/net8.0/Contoso.dll"));
             Assert.Empty(Directory.Exists(root)
                 ? Directory.GetFiles(root, "*", SearchOption.AllDirectories)
                 : []);

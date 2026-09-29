@@ -508,7 +508,8 @@ dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "M
 Default output is Markdown. For compact human scanning use `--table`; for
 machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
-Use `-T q` to suppress tips in script-oriented commands.
+Tips are off by default. Use `-T` for contextual suggestions on `stderr` or
+`-T:d` for a larger set.
 
 Positional `depends <type>`, ordinary single-Library API `diff`, `package
 activity`, Package Query, online package range-version population, and exact
@@ -625,9 +626,9 @@ dotnet-inspect package Newtonsoft.Json@13.0.4 \
 dotnet-inspect package Markout@0.35.2 \
   --path "skills/*/SKILL.md" -n 1 --tail --paths
 dotnet-inspect package Markout@0.35.2 \
-  --path skills/markout/SKILL.md --content --out skill.md
+  --path skills/markout/SKILL.md --content --raw
 dotnet-inspect package System.Text.Json --version 10.0.0 \
-  --path README.md --content --out README.md
+  --path README.md --content --raw
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
   --tfm net8.0 -S "Package files" --paths
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
@@ -659,15 +660,18 @@ enumeration, optional exact directory-segment `--tfm` filtering, and optional
 observe the same selected rows; `--roots` instead emits their ordered distinct
 top-level package roots. Add `--lines` only to clip rendered text.
 
-For an exact online package version, writing one literal root `README.md` or
-`skills/**/SKILL.md` path to `--out` acquires directly through the PackageHouse
-filesystem store rather than the legacy extraction route. README bytes copy
-progressively to the file. Skill documents retain their existing containment
-and link-normalization behavior, so the House stream is decoded into that
-final selected representation before the file is written. Local packages,
-floating or range version selection, stdout, target-framework filters, path
-globs and roles, scoped documents, .NET tool-wrapper redirection, and other
-package files retain their existing behavior.
+For an exact online package version, requesting one literal root `README.md` or
+`skills/**/SKILL.md` path with `--content` acquires directly through the
+PackageHouse filesystem store using HTTP Range requests rather than the legacy
+extraction route. The exact entry is detached through the shared package
+document-content inspection, then the CLI applies its existing separator,
+`--raw`, JSONL, or `--out` projection. Skill documents retain their containment
+and link-normalization behavior. Detached content projections accept documents
+up to 16 MiB; an exact README written to `--out` remains a bounded byte stream
+and is not subject to that detached-content limit. Local packages, floating or
+range version selection, target-framework filters, path globs and roles,
+scoped documents, .NET tool-wrapper redirection, and other package files retain
+their existing behavior.
 
 For one package with `--layout`, `-n`, `--tail`, and `--rows A..B` select
 complete sorted file paths after archive extraction and `--lib`, `--tools`, or

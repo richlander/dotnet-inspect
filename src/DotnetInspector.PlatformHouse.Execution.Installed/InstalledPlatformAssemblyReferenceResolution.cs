@@ -100,14 +100,28 @@ public static class InstalledPlatformAssemblyReferenceResolver
                 }
                 ? target.Identity
                 : null;
+        InstalledReferencePopulationDemand demand =
+            reference.Value.Population;
         InstalledReferenceLibrary? library =
             requestedIdentity is null
                 ? reference.Value.Libraries.FirstOrDefault()
                 : reference.Value.Libraries.FirstOrDefault(
                     candidate =>
-                        AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                            requestedIdentity,
-                            candidate.Identity))
+                        demand switch
+                        {
+                            InstalledReferencePopulationDemand.Assembly =>
+                                AssemblyReferenceIdentity.EquivalentComparer
+                                    .Equals(
+                                        requestedIdentity,
+                                        candidate.Identity),
+                            InstalledReferencePopulationDemand
+                                .AssemblyReferenceBinding =>
+                                string.Equals(
+                                    requestedIdentity.Name,
+                                    candidate.Identity.Name,
+                                    StringComparison.OrdinalIgnoreCase),
+                            _ => false,
+                        })
                     ?? reference.Value.Libraries.FirstOrDefault();
         if (library is null)
         {
