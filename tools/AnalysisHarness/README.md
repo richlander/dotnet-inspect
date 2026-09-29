@@ -28,7 +28,11 @@ Selective implementation-metric work and latency are measured over one pinned
 CoreLib image:
 
 ```bash
-dotnet "$DLL" --implementation-metrics \
+dotnet publish tools/AnalysisHarness -c Release -r linux-x64 \
+  -p:PublishAot=true -o artifacts/analysis-harness-nativeaot
+
+artifacts/analysis-harness-nativeaot/analysis-harness \
+  --implementation-metrics \
   <dotnet-root>/shared/Microsoft.NETCore.App/<version>/System.Private.CoreLib.dll \
   --iterations 30 --json
 ```
@@ -37,9 +41,9 @@ The probe resolves the public `System.Text.StringBuilder.AppendFormat` family
 from metadata and compares body-size-only, body-size-plus-sibling-relationships,
 and `CompleteProfileV1`. It reports elapsed time, current-thread allocated
 bytes, charged attribution and metric work, and actual participating stages.
-Run the same harness source against exact base and head builds with the same
-assembly SHA-256; timing and allocation are reproducible H2H evidence rather
-than a fixed CI threshold.
+Publish and run exact base and head NativeAOT binaries for the same RID and
+assembly SHA-256. CoreCLR runs may diagnose the result, but only the NativeAOT
+comparison is accepted H2H performance evidence.
 
 Top-level harness modes are mutually exclusive. Supplying more than one names
 the conflicting flags and exits 2 instead of silently running the first

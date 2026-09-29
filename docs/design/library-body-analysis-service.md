@@ -1153,12 +1153,13 @@ The selective implementation-metric migration additionally gates:
   `Complexity Explorer` and `Relationship Crossing` document remain unchanged
   while their production queries move to the new request.
 
-The compact-path performance probe records attribution probe bodies and bytes,
-effective metric bodies, charged metric IL bytes, actual participating stages,
-elapsed time, and allocated bytes for body-size-only,
+The NativeAOT compact-path performance probe records attribution probe bodies
+and bytes, effective metric bodies, charged metric IL bytes, actual
+participating stages, elapsed time, and allocated bytes for body-size-only,
 body-size-plus-relationships, and `CompleteProfileV1` over the same
-`StringBuilder.AppendFormat` image. CI gates semantic participation and parity;
-the timing/allocation comparison remains reproducible non-CI evidence until
+`StringBuilder.AppendFormat` image. Exact base and head publishes use the same
+RID and input identity. CI gates semantic participation and parity; the
+timing/allocation comparison remains reproducible non-CI evidence until
 measurements justify a stable threshold.
 
 The typed migrations are gated by
