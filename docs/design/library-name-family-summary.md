@@ -117,7 +117,7 @@ non-public and nested Types, with:
 
 - exact definition identity;
 - exact namespace and nesting identity;
-- the metadata name and trusted generic arity;
+- the exact metadata name;
 - accessibility and Type kind; and
 - the owner-issued assembly identity and complete inventory outcome.
 
@@ -135,13 +135,18 @@ than an available empty document.
 The row retains two distinct strings:
 
 - **metadata simple name:** the exact innermost definition segment; and
-- **name stem:** that segment after removing only the canonical generic-arity
-  suffix justified by the Metadata-issued arity.
+- **name stem:** `MetadataNameArity.StripFromSegment(metadataSimpleName)`.
 
-A malformed or noncanonical backtick sequence remains in the name stem and
-reaches the word grammar. Word and separator spans index the name stem.
-Namespace segments and enclosing-Type names do not enter the suffix family of
-a nested Type.
+`MetadataNameArity` owns this lexical grammar. It removes only a canonical
+backtick-decimal suffix and preserves a malformed or noncanonical backtick
+sequence. This is intentionally syntactic: the name stem does not read or
+validate GenericParam rows, and a canonical-looking suffix is removed even
+when separately malformed metadata gives the Type a different parameter
+count. Metadata validity remains with Metadata; this summary neither repairs
+nor reclassifies it.
+
+Word and separator spans index the name stem. Namespace segments and
+enclosing-Type names do not enter the suffix family of a nested Type.
 
 ### Identifier-word grammar
 
@@ -394,7 +399,12 @@ product-owned Metadata inventory and CSharpText word results:
   empty and one-word names follow the declared partition rules.
 - `LibraryNameFamilies_PreservesExactMetadataIdentity`: nested Types, generic
   definitions, and same-display names retain distinct exact identities;
-  canonical arity is excluded without stripping noncanonical backtick text.
+  canonical lexical arity is excluded without stripping noncanonical backtick
+  text.
+- `LibraryNameFamilies_UsesCanonicalNameArityGrammar`: a canonical numeric
+  suffix follows `MetadataNameArity` even when GenericParam rows disagree,
+  while zero, leading-zero, literal, trailing, and out-of-range backtick forms
+  remain in the name stem.
 - `LibraryNameFamilies_PreservesWordRuleEvidence`: every owner-issued word,
   separator, unresolved-run disposition, and detailed rule value survives
   Research aggregation unchanged.
