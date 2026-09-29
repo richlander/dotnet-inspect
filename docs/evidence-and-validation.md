@@ -144,38 +144,45 @@ depends on its author's choices, and it costs one loop per question where
 NLinq costs one source per population. A hand-written loop appears only as
 the Old column of a path that already exists.
 
-**Same analysis, different read.** LINQ, NLinq, and Planner answer the same
-question with the same analysis: the same scope and class tests, the same
-predicates, the same guarded decoders and budgets, and the same row
-projection. Only the read machinery may differ: iteration, fusion, query
-execution, and a source-native fact that yields the same answer, such as a
-count from a table size. A gap between columns must mean that one column
-reads more efficiently, never that it omits contract work the others do.
-Only Old legitimately differs, as the labeled product baseline. A
-source-native answer is a Planner technique within this rule, not an
-exception to it; the labeled source-native ceiling column below remains
-outside the standard columns.
+**Same contract, independent read.** LINQ, NLinq, and Planner answer the same
+question over the same scope, predicates, projection, and closing. For an
+Analysis producer, fairness has two independent requirements:
 
-The oracle columns therefore call the product's own analysis code, such as
-its gate classification, predicate, and projection structs, rather than
-re-implementing it. A harness that re-implements the analysis drifts in one
-direction: it omits whatever work the pinned assets do not exercise, such as
-containment, authentication, row fidelity, or per-call memo scope. Answers
-still agree on benign assets, so the answer check cannot see the omission,
-and the timing reports a gap that is not there. The answer check also runs
-the producer's hostile safety fixtures, so omitted containment surfaces as a
-mismatch rather than a speedup.
+- **Fidelity** is exact agreement on the owner-named Roslyn-produced assembly
+  patterns. A comparator need not reproduce answers outside that fidelity
+  domain.
+- **Safety** is bounded, inert behavior for every supported ECMA-335 input.
+  Safety does not require semantic rejection of every non-Roslyn shape when
+  the owning contract permits a wrong but contained answer.
 
-**The frontier lane.** A faster algorithm for the same contract is valuable,
-and oracle authors often find one first, for example one attribute walk
-instead of one per target, or hoisting a per-Type test out of a per-method
-loop. Explore it in a separately labeled frontier experiment, never in the
-oracle column. A frontier implementation may change the algorithm but not
-the contract: it gives the same answers on benign and hostile fixtures and
-keeps the same bounds and visible failures. A frontier win becomes a Planner
-hypothesis. Port it to the product analysis, and re-measure it through the
-standard columns, where the oracle adopts it too, because the oracle calls
-the product code.
+The columns need not execute the same implementation, incidental reads, or
+checks. They may differ in iteration, fusion, query execution, decoder
+specialization, and source-native facts. A comparator is unfair when it omits
+work required by either fidelity or safety; change that comparator rather than
+crediting its time. Conversely, when LINQ or NLinq satisfies both requirements
+and beats Planner, the result is evidence that Planner should be capable of
+meeting or beating it. Do not erase that evidence by adding Planner's
+unconsumed work to the oracle or by requiring Planner to perform richer
+semantic validation than its contract needs.
+
+Share product-owned facts and mechanisms when their inputs and invariants
+align, but do not use implementation identity as the fairness test. Run the
+same Roslyn fidelity corpus and ECMA safety fixtures against every column.
+Agreement on benign assets alone is insufficient.
+
+When a comparison exposes a safety check, place it at the narrowest shared
+owner. A general ECMA containment rule normally belongs in an upstream
+metadata or input boundary so multiple producers inherit it once. A
+producer-specific hazard remains in that producer. Do not make each producer
+repeat a general check, and do not move niche producer policy into a shared
+decoder.
+
+**The frontier lane.** LINQ and NLinq are standard possibility oracles, not
+frontier experiments, when they satisfy the fidelity and safety contract. A
+bespoke algorithm outside those columns remains a separately labeled frontier
+experiment. It may change the algorithm but not the contract. A frontier win
+that preserves Roslyn fidelity and ECMA safety becomes a Planner hypothesis;
+port it to the product and re-measure it through the standard columns.
 
 Every scorecard closing has an NLinq query; when NLinq lacks an operator, the
 fixture adds it. A source-native answer, such as a count from a table size, is

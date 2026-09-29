@@ -137,6 +137,24 @@ shows material unnecessary work or unjustified duplication that violates the
 owned work-reduction claim; otherwise classify a different preferred factoring
 as a design question, not a blocking finding.
 
+For an Analysis producer, review fidelity and safety as separate properties.
+Fidelity is exact agreement on the owner-named Roslyn-produced assembly
+patterns. Safety is bounded, inert behavior for every supported ECMA-335 input;
+it does not require semantic rejection of every non-Roslyn shape when the
+owner permits a wrong but contained answer. Do not require a producer to read,
+decode, or validate facts it does not consume merely because a richer resolver
+does so. Admit such a finding only when the omitted work breaks the stated
+Roslyn fidelity or an identified ECMA safety invariant.
+
+Treat LINQ and NLinq as possibility oracles, not implementations that must
+repeat Planner's incidental work. A comparator is fair only when it satisfies
+the same Roslyn fidelity and ECMA safety rules; change a comparator that does
+not. When a fair comparator beats Planner, treat the result as evidence that
+Planner should be capable of meeting or beating it, not as a reason to burden
+the comparator or Planner with unowned checks. For a safety concern, determine
+whether it is a general ECMA containment rule that belongs at a shared upstream
+boundary or a niche hazard that remains with the producer.
+
 For rendering, verify that structured information survives to the rendering
 boundary. Markout is the default host-neutral, multi-format substrate. A
 host-specific path that bypasses it must identify the host, rationale, typed
@@ -249,8 +267,10 @@ section when it defines the boundary.
 - **Terminal work and code sharing:** {information each terminal and presented
   data require; acquisition, decoding, materialization, and traversal avoided;
   shared and specialized stages; rejected per-query and monolithic alternatives;
-  measured cost and expected-consumer evidence that justify the boundary; or
-  why this field does not apply}
+  measured cost and expected-consumer evidence that justify the boundary; for
+  Analysis, the Roslyn fidelity gates, ECMA safety gates, fair oracle basis,
+  and whether each safety check is shared upstream or producer-specific; or why
+  this field does not apply}
 - **Change intent:** {what behavior or contract this candidate changes}
 - **Supported actor or caller:** {ordinary caller, producer, user, or external
   actor relevant to the claim}
