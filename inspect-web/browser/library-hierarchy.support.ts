@@ -1782,7 +1782,22 @@ async function installFacades(
       const homeDemoResults = ${JSON.stringify(homeDemos?.results ?? {})};
       const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
       const workspaceSources = ${JSON.stringify(workspaceSources)};
-      export function listVocabulary() { return { schema_version: 1, sections: [] }; }
+      export function inspectVocabulary() {
+        return {
+          content: {
+            formatVersion: 1,
+            catalog: { value: "dotnet-inspect.product" },
+            identity: { value: "sha256:${"0".repeat(64)}" },
+            vocabularies: [],
+          },
+          share: {
+            kind: "nonProjectable",
+            path: "vocabulary/share",
+            reason: "Static catalog.",
+          },
+          diagnostics: [],
+        };
+      }
       export async function listHomeDemos() {
         if (homeDemoCatalogPending) {
           document.documentElement.dataset.homeDemoCatalogPending = "true";
