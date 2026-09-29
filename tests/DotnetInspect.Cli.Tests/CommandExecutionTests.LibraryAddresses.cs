@@ -526,6 +526,64 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        LibraryAddressCommand_PackageRuntimePathSelectsItsRidAsset()
+    {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-address-package-runtime-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string compileDirectory = Path.Combine(content, "lib", "net11.0");
+        string runtimeDirectory = Path.Combine(
+            content,
+            "runtimes",
+            "osx-arm64",
+            "lib",
+            "net11.0");
+        Directory.CreateDirectory(compileDirectory);
+        Directory.CreateDirectory(runtimeDirectory);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(compileDirectory, "Coordinate.Package.dll"));
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(runtimeDirectory, "Coordinate.Package.dll"));
+        WriteAddressPackageManifest(content, "Coordinate.Package");
+        string packagePath = Path.Combine(
+            tempDir,
+            "Coordinate.Package.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, packagePath);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "address",
+                $"0x{token:X8}+0x{callOffset:X}",
+                "--package",
+                packagePath,
+                "--library",
+                "runtimes/osx-arm64/lib/net11.0/Coordinate.Package.dll",
+                "-S",
+                "Context: Member",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                nameof(SemanticFactsFixture.AllSignals),
+                output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
         LibraryAddressCommand_PackageSourceLocationUsesAdjacentPortablePdb()
     {
         var (token, callOffset) = FindIlCoordinate(
@@ -1660,6 +1718,58 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        LibraryAddressCommand_PackageBareDiscoveryPreservesLibraryFacts(
+            bool effective)
+    {
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-address-package-bare-discovery-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net11.0");
+        Directory.CreateDirectory(libraryDirectory);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(libraryDirectory, "Coordinate.Package.dll"));
+        WriteAddressPackageManifest(content, "Coordinate.Package");
+        string packagePath = Path.Combine(
+            tempDir,
+            "Coordinate.Package.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, packagePath);
+        try
+        {
+            List<string> args =
+            [
+                "library",
+                "address",
+                "0x06000001+0x0",
+                "--package",
+                packagePath,
+                "--library",
+                "lib/net11.0/Coordinate.Package.dll",
+                "-D",
+            ];
+            if (effective)
+                args.Add("--effective");
+            args.AddRange(["--tips", "q"]);
+
+            var (exit, output, error) =
+                await RunAppAsync([.. args]);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Library Info", output);
+            Assert.Contains("@Metadata", output);
+            Assert.Contains("@Dependencies", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task LibraryAddressCommand_FileEffectiveDiscoveryUnionsPopulationEvidence()
     {
@@ -2360,6 +2470,63 @@ public partial class CommandExecutionTests
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryAddressCommand_PackageFileDoesNotDuplicateRowErrors()
+    {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-address-package-row-error-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net11.0");
+        Directory.CreateDirectory(libraryDirectory);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(libraryDirectory, "Coordinate.Package.dll"));
+        WriteAddressPackageManifest(content, "Coordinate.Package");
+        string packagePath = Path.Combine(
+            tempDir,
+            "Coordinate.Package.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, packagePath);
+        string coordinatesPath =
+            Path.Combine(tempDir, "coordinates.txt");
+        await File.WriteAllTextAsync(
+            coordinatesPath,
+            $"""
+            bad debugger frame
+            good 0x{token:X8}+0x{callOffset:X}
+            """,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "address",
+                "--file",
+                coordinatesPath,
+                "--package",
+                packagePath,
+                "--library",
+                "lib/net11.0/Coordinate.Package.dll",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "expected a MethodDef token + IL offset coordinate",
+                output);
+            Assert.Contains("good", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
         }
     }
 

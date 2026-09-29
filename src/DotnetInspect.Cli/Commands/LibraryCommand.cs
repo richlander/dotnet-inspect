@@ -212,16 +212,24 @@ public partial class LibraryCommand
         && !options.JsonOutput
         && !options.NamesakeLibrary
         && !string.IsNullOrWhiteSpace(options.AssemblyName)
-        && IsPackageCompileLibrarySelection(options.AssemblyName)
+        && TryGetPackageCompileLibrarySelection(
+            options.AssemblyName,
+            out _,
+            out _)
         && HasOnlyPackageAddressSections(options)
+        && options.Discover is not { Length: 0 }
         && !string.Equals(
             options.Tfm,
             "all",
             StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsPackageCompileLibrarySelection(
-        string assemblyName)
+    private static bool TryGetPackageCompileLibrarySelection(
+        string assemblyName,
+        out string? targetFramework,
+        out string? runtimeIdentifier)
     {
+        targetFramework = null;
+        runtimeIdentifier = null;
         string path = assemblyName.Replace('\\', '/');
         if (!path.Contains('/'))
             return true;
@@ -248,8 +256,21 @@ public partial class LibraryCommand
                     "lib",
                     StringComparison.OrdinalIgnoreCase)
                 && TfmResolver.IsTfmLike(segments[3]);
-        return (directCompileAsset || runtimeImplementationAsset)
-            && Path.GetFileNameWithoutExtension(segments[^1]).Length > 0;
+        if ((!directCompileAsset && !runtimeImplementationAsset)
+            || Path.GetFileNameWithoutExtension(segments[^1]).Length == 0)
+        {
+            return false;
+        }
+
+        targetFramework =
+            runtimeImplementationAsset
+                ? segments[3]
+                : segments[1];
+        runtimeIdentifier =
+            runtimeImplementationAsset
+                ? segments[1]
+                : null;
+        return true;
     }
 
     private static bool HasOnlyPackageAddressSections(

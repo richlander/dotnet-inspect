@@ -68,8 +68,18 @@ public partial class LibraryCommand
             requestedLibraryPath += ".dll";
         }
         bool pathQualified = requestedLibraryPath.Contains('/');
+        if (!TryGetPackageCompileLibrarySelection(
+                requestedLibraryPath,
+                out string? pathTargetFramework,
+                out string? runtimeIdentifier))
+        {
+            throw new InvalidOperationException(
+                "Package-backed Library Address execution requires "
+                + "an admitted compile Library selection.");
+        }
         string targetFramework =
             options.Tfm
+            ?? pathTargetFramework
             ?? TfmResolver.ExtractTfmFromPath(requestedLibraryPath)
             ?? TraversalTargetFrameworkPolicy
                 .ProductDefaultTargetFramework;
@@ -84,6 +94,7 @@ public partial class LibraryCommand
             settlement = await RealizeLocalPackageAddressAsync(
                     target,
                     targetFramework,
+                    runtimeIdentifier,
                     implementationName,
                     companionDemand,
                     stores,
@@ -96,6 +107,7 @@ public partial class LibraryCommand
             settlement = await RealizeConfiguredPackageAddressAsync(
                     target,
                     targetFramework,
+                    runtimeIdentifier,
                     implementationName,
                     companionDemand,
                     stores,
@@ -221,6 +233,7 @@ public partial class LibraryCommand
         RealizeConfiguredPackageAddressAsync(
         PackageReferenceTarget target,
         string targetFramework,
+        string? runtimeIdentifier,
         string implementationName,
         PackageHouseLibraryCompanionDemand companionDemand,
         DesktopPackageStoreScope stores,
@@ -244,7 +257,9 @@ public partial class LibraryCommand
                     context.Logger.Log,
                     cancellationToken,
                     compileTargetContext:
-                        PackageHouseTargetContext.Exact(targetFramework),
+                        PackageHouseTargetContext.Exact(
+                            targetFramework,
+                            runtimeIdentifier),
                     access: PackagePayloadAccess.Ranged,
                     implementationNames: [implementationName],
                     libraryHandoff:
@@ -265,7 +280,9 @@ public partial class LibraryCommand
                     options.IncludePrerelease,
                     cancellationToken: cancellationToken,
                     compileTargetContext:
-                        PackageHouseTargetContext.Exact(targetFramework),
+                        PackageHouseTargetContext.Exact(
+                            targetFramework,
+                            runtimeIdentifier),
                     access: PackagePayloadAccess.Ranged,
                     implementationNames: [implementationName],
                     libraryHandoff:
@@ -291,6 +308,7 @@ public partial class LibraryCommand
         RealizeLocalPackageAddressAsync(
         PackageReferenceTarget target,
         string targetFramework,
+        string? runtimeIdentifier,
         string implementationName,
         PackageHouseLibraryCompanionDemand companionDemand,
         DesktopPackageStoreScope stores,
@@ -344,7 +362,9 @@ public partial class LibraryCommand
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Exact(available.Coordinate),
             operation,
-            PackageHouseTargetContext.Exact(targetFramework),
+            PackageHouseTargetContext.Exact(
+                targetFramework,
+                runtimeIdentifier),
             PackageHouseAssetSelectionKind.Compile,
             PackageHouseLibraryHandoffMode.SelectedLibraries,
             assetDemand:
@@ -412,7 +432,6 @@ public partial class LibraryCommand
         bool fullEffectiveDiscovery,
         HashSet<string>? discoveryExecutionScope)
     {
-        bool hasErrors = WriteAddressDiagnostics(envelope.Diagnostics);
         LibraryAddressDocument? document =
             envelope.Content switch
             {
@@ -423,7 +442,16 @@ public partial class LibraryCommand
                 _ => null,
             };
         if (document is null)
+        {
+            WriteAddressDiagnostics(envelope.Diagnostics);
             return 1;
+        }
+
+        bool hasErrors = WriteAddressDiagnostics(
+            envelope.Diagnostics,
+            suppressPopulationRowErrors:
+                document is LibraryAddressDocument.Population
+                && !discoveryInspection);
 
         var inspection = new LibraryInspection
         {
@@ -620,11 +648,23 @@ public partial class LibraryCommand
     }
 
     private static bool WriteAddressDiagnostics(
-        IEnumerable<InspectionDiagnostic> diagnostics)
+        IEnumerable<InspectionDiagnostic> diagnostics,
+        bool suppressPopulationRowErrors = false)
     {
         bool hasErrors = false;
         foreach (InspectionDiagnostic diagnostic in diagnostics)
         {
+            if (suppressPopulationRowErrors
+                && (diagnostic.Code.Equals(
+                        "library-address.population.malformed",
+                        StringComparison.Ordinal)
+                    || diagnostic.Code.StartsWith(
+                        "library-address.il.",
+                        StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
             string message = diagnostic.Correspondence is { } correspondence
                 ? $"{diagnostic.Summary} {correspondence}"
                 : diagnostic.Summary.ToString();
