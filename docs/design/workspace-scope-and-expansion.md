@@ -403,7 +403,10 @@ Runtime Ecosystem and can realize a matching .NET 11 Platform through an
 authorized package source. `WorkspacePlan.Empty` has no implicit registration
 or acquisition authority, but it retains the same `net11.0` target so a loaded
 package can be traversed coherently. A configured plan such as `net10.0`
-governs every traversal and permits only matching Platform composition.
+governs every traversal and permits only matching Platform composition. The
+same rule permits an explicitly configured `net12.0` plan to compose an
+authorized local .NET 12 layout even though `net12.0` is not the product
+default and its Platform is not available from the default package source.
 
 This adoption does not consume the plan value to select a root package,
 rewrite explicit contexts, begin acquisition, or reconstruct a target from a

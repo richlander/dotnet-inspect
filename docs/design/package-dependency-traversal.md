@@ -270,6 +270,13 @@ explicitly selected `netstandard2.0` package/member can therefore contribute
 its exact declarations while the Workspace target governs newly reached
 participants with `net11.0`. Traversal does not reselect or relabel the root.
 
+The same rule permits a default `net11.0` Workspace to load an explicitly
+selected `net12.0` package or Library as its exact root. That gesture does not
+retarget traversal or authorize .NET 12 Platform APIs. A Workspace explicitly
+configured as `net12.0` uses that target for package traversal; Platform API
+traversal, pruning, and binding additionally require matching evidence, such
+as an authorized local .NET 12 layout.
+
 Package-local selection and traversal are separate contracts. Inspect Web's
 ordinary package TFM chooses the root package/member. A configured Workspace
 target determines the corresponding Platform realization request; it does not
@@ -937,6 +944,8 @@ Existing implementation gates and planned correction evidence:
 | The default `net11.0` Workspace target governs traversal without reselecting an explicit root. | Existing `Traversal_ProductDefaultDoesNotReselectRoot` gates root independence; the corrected default is unverified until adoption. |
 | An empty Workspace traverses a loaded package under its `net11.0` target without Platform realization. | Unverified until Workspace admission adoption lands. |
 | A configured Workspace target governs destination selection and admits only matching Platform pruning and binding evidence. | Unverified until Workspace/Platform correspondence adoption lands. |
+| Direct `net12.0` Selection under a default `net11.0` Workspace leaves .NET 12 Platform API traversal unavailable. | Unverified until composed-operation adoption lands. |
+| A configured `net12.0` Workspace uses matching authorized local Platform evidence for .NET 12 API traversal. | Unverified until Workspace/Platform correspondence adoption lands. |
 | Missing Platform realization does not prevent package traversal or manufacture Platform evidence. | Unverified until composed-operation adoption lands. |
 | A configured target with no compatible dependency group remains visible. | `Traversal_ConfiguredTargetNoMatchRemainsVisible` |
 | Manifest-only expansion never downloads a package archive. | `Traversal_ManifestExpansionUsesManifestBytesOnly` |

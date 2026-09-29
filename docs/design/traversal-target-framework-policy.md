@@ -50,9 +50,11 @@ not:
   any Platform registration or realization. The equal default acts only as
   aligned target intent; it is not an implicit registration, acquisition
   authorization, or Platform receipt.
-- **Configured Workspace.** A configured target such as `net10.0` is fixed at
-  construction. Every traversal uses `net10.0`, and any Platform later
-  composed with it must be a matching .NET 10 realization.
+- **Configured Workspace.** A configured target such as `net10.0` or
+  `net12.0` is fixed at construction. Every traversal uses that target, and
+  any Platform later composed with it must match. A future target unavailable
+  through the product's default package source may still use explicitly
+  authorized evidence such as a local daily-build layout.
 - **One target currency.** A traversal never carries an independent target
   beside the Workspace policy. A Platform receipt contributes membership,
   identity, generation, pruning, and binding evidence only after target
@@ -142,10 +144,12 @@ ecosystem-provided .NET Platform that package-backed acquisition can realize.
 It is not the executing SDK version, the newest installed Platform, or the
 highest framework found in the first package. `net12.0` is not the default
 while the product cannot realize a corresponding default Platform from
-nuget.org. The deliberate inspection-only divergence is that an explicitly
-selected root remains fixed even when the traversal target would select
-another root asset. Results retain that mixed provenance and do not describe
-it as one restored project.
+nuget.org. That does not prohibit direct `net12.0` package or Library
+Selection, or an explicitly configured `net12.0` Workspace backed by an
+authorized local Platform layout. The deliberate inspection-only divergence
+is that an explicitly selected root remains fixed even when the traversal
+target would select another root asset. Results retain that mixed provenance
+and do not describe it as one restored project.
 
 ## Motivating real assets
 
@@ -172,6 +176,9 @@ and the graph-wide traversal target to remain separate typed facts.
 | Default product Workspace before Platform realization | Use `ProductDefault(net11.0)` for package traversal; the .NET Runtime registration may later realize only a matching Platform. |
 | Empty Workspace with one loaded package | Use `ProductDefault(net11.0)` from construction; do not choose the package's highest TFM or imply Platform registration. |
 | Configured `net10.0` Workspace | Use `net10.0` for every traversal edge; admit only matching Platform evidence. |
+| Default or empty `net11.0` Workspace directly selects a `net12.0` package or Library | Load the exact root without changing the Workspace target; do not traverse or bind .NET 12 Platform APIs as though matching Platform evidence existed. |
+| Configured `net12.0` Workspace without matching Platform evidence | Use `net12.0` for package traversal, while .NET 12 Platform pruning and API binding remain absent or visibly unavailable. |
+| Configured `net12.0` Workspace with an authorized matching local layout | Admit that Platform evidence and use `net12.0` consistently for package traversal, pruning, and Platform API binding. |
 | First package exposes only `net6.0` or `netstandard2.0` | Retain its selected source provenance while the traversal target remains the Workspace target. |
 | Platform realization is absent or unavailable | Continue package traversal under the Workspace target; Platform pruning or binding remains absent or visibly unavailable under its owning contract. |
 | Platform receipt targets another framework | Reject the composition; do not retarget the Workspace or traversal. |
@@ -208,6 +215,8 @@ policy merely because they inspect packages.
 | The default product Workspace and neutral empty Workspace both retain `ProductDefault(net11.0)`. | The plan-retention shape is covered by existing `WorkspacePlanTests`; the corrected constant and both construction paths are unverified until adoption slice 2 lands. |
 | An empty Workspace can load a package and traverse it under `net11.0` without Platform realization. | Unverified until adoption slice 4 lands. |
 | A configured `net10.0` Workspace uses `net10.0` for every destination edge and matching Platform composition. | Edge stability is covered by `Traversal_TargetPolicyIsStructuralCurrency`; Workspace/Platform correspondence is unverified until adoption slices 3-5 land. |
+| Direct `net12.0` Selection under a default `net11.0` Workspace does not retarget traversal or manufacture .NET 12 Platform evidence. | Unverified until adoption slices 4-6 land. |
+| A configured `net12.0` Workspace composes an authorized matching local Platform layout, while the same Workspace without that evidence cannot traverse .NET 12 Platform APIs. | Unverified until adoption slices 3-6 land. |
 | Platform absence does not prevent package traversal or imply Platform evidence. | Unverified until adoption slice 4 lands. |
 | A mismatched Platform receipt cannot replace the Workspace target. | Unverified until adoption slices 3 and 5 land. |
 | Matching-slot replacement invalidates or cancels Platform-dependent work admitted against an earlier generation. | Unverified until adoption slice 5 lands. |
@@ -220,6 +229,9 @@ policy merely because they inspect packages.
 - Redefining NuGet compatibility or package asset selection.
 - Selecting a package's highest framework for traversal.
 - Implicitly registering or acquiring a Platform for an empty Workspace.
+- Prohibiting direct Selection or explicit Workspace configuration for a
+  future target merely because the product default cannot acquire its
+  Platform.
 - Applying `net11.0` to Package Info or another selection operation.
 - Selecting an already realized source participant's dependency group.
 - Guessing a project target from an inspected assembly.
