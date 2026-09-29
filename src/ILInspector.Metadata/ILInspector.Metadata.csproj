@@ -19,6 +19,11 @@
     <!-- The dated legacy method classification oracle is the retired scanner
          verbatim, so it keeps its internal pointer-probe helpers. -->
     <InternalsVisibleTo Include="ILInspector.Metadata.LegacyOracles" />
+    <!-- This test assembly projects the same internal prepared source,
+         predicate, projector, and fold into LINQ, NLinq, and Planner. A public
+         raw-handle API would expose metadata-reader lifetime and containment
+         internals solely for test infrastructure. -->
+    <InternalsVisibleTo Include="ILInspector.Metadata.PerformanceOracles.Tests" />
     <!-- The renderer tests cross a subsystem boundary to build projection
          fixtures with the same containment policy the projector applies,
          rather than duplicating TextPolicy.Field in test code. This grants
