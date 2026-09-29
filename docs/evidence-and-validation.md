@@ -147,10 +147,14 @@ the Old column of a path that already exists.
 **Same analysis, different read.** LINQ, NLinq, and Planner answer the same
 question with the same analysis: the same scope and class tests, the same
 predicates, the same guarded decoders and budgets, and the same row
-projection. Only the read machinery may differ: iteration, fusion, and
-query execution. A gap between columns must mean that one column reads more
-efficiently, never that it computes less. Only Old legitimately differs, as
-the labeled product baseline.
+projection. Only the read machinery may differ: iteration, fusion, query
+execution, and a source-native fact that yields the same answer, such as a
+count from a table size. A gap between columns must mean that one column
+reads more efficiently, never that it omits contract work the others do.
+Only Old legitimately differs, as the labeled product baseline. A
+source-native answer is a Planner technique within this rule, not an
+exception to it; the labeled source-native ceiling column below remains
+outside the standard columns.
 
 The oracle columns therefore call the product's own analysis code, such as
 its gate classification, predicate, and projection structs, rather than
