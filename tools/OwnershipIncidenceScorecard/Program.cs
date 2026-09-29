@@ -36,7 +36,7 @@ internal static class OwnershipIncidenceScorecardRunner
         [
             new("LINQ", LinqAnswer),
             oracle,
-            new("Product", ProductAnswer),
+            new("Old", OldAnswer),
         ];
         foreach (ScorecardAsset<IncidenceAsset> asset in assets)
         {
@@ -161,7 +161,7 @@ internal static class OwnershipIncidenceScorecardRunner
                     static group => group.Key,
                     static group => group.ToImmutableArray()));
 
-    static ScorecardAnswer<IncidenceAnswer> ProductAnswer(
+    static ScorecardAnswer<IncidenceAnswer> OldAnswer(
         ScorecardClosing closing,
         IncidenceAsset asset)
     {
