@@ -587,6 +587,65 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void ExecuteImage_ReportsTruncatedMethodSignatureOperand()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [
+                            (byte)ILOpCode.Call,
+                            0x01, 0x00, 0x00, 0x0A,
+                            (byte)ILOpCode.Ret,
+                        ],
+                        truncatedMethodMemberReference: true),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Empty(result.Occurrences);
+        Assert.Equal(1, result.Coverage.OperandsUnavailable);
+        Assert.Single(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind
+                        .UnresolvedOperand
+                && diagnostic.IlOffset == 0);
+    }
+
+    [Fact]
+    public void ExecuteImage_BoundsStateMachineAttributeNames()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "StateMachineName.dll",
+                    BuildOversizedStateMachineNameImage(kickoffs: 64),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        // The oversized shared name fails the generated body it would
+        // attribute, visibly; ordinary kickoff bodies are unaffected.
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(1, result.Coverage.BodiesUnavailable);
+        Assert.Equal(64, result.Coverage.BodiesExamined);
+        Assert.Single(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind.MalformedBody
+                && diagnostic.Detail.Contains(
+                    "state-machine host",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ExecuteImage_ReportsFailedCurrentImageBinding()
     {
         AnalysisLibraryBodyUseResult result =
@@ -794,7 +853,8 @@ public sealed class AnalysisLibraryBodyUseTests
         byte[] firstBody,
         bool unreadableSecondBody = false,
         bool missingCurrentModuleTypeReference = false,
-        bool methodMemberReference = false)
+        bool methodMemberReference = false,
+        bool truncatedMethodMemberReference = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -848,6 +908,14 @@ public sealed class AnalysisLibraryBodyUseTests
                 owner,
                 metadata.GetOrAddString("NotAField"),
                 metadata.GetOrAddBlob(signature));
+        }
+        if (truncatedMethodMemberReference)
+        {
+            // A method header with no parameter count or return type.
+            metadata.AddMemberReference(
+                owner,
+                metadata.GetOrAddString("Truncated"),
+                metadata.GetOrAddBlob(new byte[] { 0x00 }));
         }
 
         var bodies = new BlobBuilder();
@@ -1211,6 +1279,121 @@ public sealed class AnalysisLibraryBodyUseTests
                 maxStack: 1);
         AddVoidMethod(metadata, "Use", offset);
         return Serialize(metadata, bodies);
+    }
+
+    static ImmutableArray<byte> BuildOversizedStateMachineNameImage(
+        int kickoffs)
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "StateMachineName",
+            new Guid("3c9f0d0e-2b1a-4d61-9a55-6a9d1c1f4e21"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle host = metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Host"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle stateMachine = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPrivate | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("<Run>d__0"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(kickoffs + 1));
+        metadata.AddNestedType(stateMachine, host);
+
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(10, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("AsyncStateMachineAttribute"));
+        TypeReferenceHandle systemType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Type"));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                1,
+                static returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Type(
+                    systemType,
+                    isValueType: false));
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+
+        // One shared value blob naming N.Host+<Run>d__0 behind a name far
+        // longer than any type-name bound.
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteSerializedString(
+            new string('A', 64 * 1024) + "N.Host+<Run>d__0");
+        value.WriteUInt16(0);
+        BlobHandle sharedValue = metadata.GetOrAddBlob(value);
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        for (int i = 0; i < kickoffs; i++)
+        {
+            MethodDefinitionHandle kickoff = metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString($"Run{i}"),
+                VoidSignature(metadata, instance: false),
+                AddRet(encoder),
+                MetadataTokens.ParameterHandle(1));
+            metadata.AddCustomAttribute(kickoff, constructor, sharedValue);
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Private | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("MoveNext"),
+            VoidSignature(metadata, instance: true),
+            AddRet(encoder),
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata, bodies);
+
+        static int AddRet(MethodBodyStreamEncoder encoder)
+        {
+            var code = new BlobBuilder();
+            code.WriteByte((byte)ILOpCode.Ret);
+            return encoder.AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+        }
+
+        static BlobHandle VoidSignature(
+            MetadataBuilder metadata,
+            bool instance)
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(isInstanceMethod: instance)
+                .Parameters(
+                    0,
+                    static returnType => returnType.Void(),
+                    static _ => { });
+            return metadata.GetOrAddBlob(signature);
+        }
     }
 
     static MetadataBuilder CreateMetadata(

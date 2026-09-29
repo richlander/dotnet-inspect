@@ -15,6 +15,7 @@ namespace ILInspector.Analysis;
 /// Work is linear in the image's metadata. Each state-machine host Type is
 /// scanned once, so each method's custom attributes are read at most once;
 /// each claimed state-machine Type's <c>MethodImpl</c> rows are read once;
+/// each attribute value blob is parsed once, within the type-name bound;
 /// attribute constructors and Type attribute answers are memoized; and a
 /// declaring-chain walk is bounded by
 /// <see cref="MetadataSafetyPolicy.MaxRelationshipNodes"/>. No other body is
@@ -32,6 +33,7 @@ internal sealed class BodyUseOwnerAttribution(MetadataReader reader)
     readonly MetadataReader _reader = reader;
     readonly Dictionary<EntityHandle, string[]?> _stateMachineConstructors = [];
     readonly Dictionary<EntityHandle, bool> _compilerGeneratedConstructors = [];
+    readonly Dictionary<BlobHandle, string?> _stateMachineLeaves = [];
     readonly Dictionary<TypeDefinitionHandle, bool> _compilerGeneratedTypes = [];
     readonly HashSet<TypeDefinitionHandle> _scannedHosts = [];
     readonly HashSet<TypeDefinitionHandle> _malformedHosts = [];
@@ -254,56 +256,80 @@ internal sealed class BodyUseOwnerAttribution(MetadataReader reader)
 
     // The attribute's single System.Type argument, serialized as a reflection
     // type name. Roslyn names the nested state machine in the kickoff's
-    // declaring Type, so only the innermost '+' segment is matched.
+    // declaring Type, so only the innermost '+' segment is matched. Each value
+    // blob is parsed once however many attributes share it, and a name longer
+    // than MaxTypeNameCharacters fails the host visibly.
     bool TryReadStateMachineLeaf(
         BlobHandle value,
         [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? leaf)
     {
-        leaf = null;
+        if (!_stateMachineLeaves.TryGetValue(value, out leaf))
+        {
+            leaf = ParseStateMachineLeaf(value);
+            _stateMachineLeaves[value] = leaf;
+        }
+        return leaf is not null;
+    }
+
+    string? ParseStateMachineLeaf(BlobHandle value)
+    {
+        BlobReader blob = _reader.GetBlobReader(value);
+        // Prolog, a compressed length of at most 4 bytes, and UTF-8 text of
+        // at most 3 bytes per UTF-16 character.
+        if (blob.Length > 6 + (3 * MetadataSafetyPolicy.MaxTypeNameCharacters))
+        {
+            throw new BadImageFormatException(
+                "A state-machine attribute value exceeds the type-name bound.");
+        }
+
+        string? serialized;
         try
         {
-            BlobReader blob = _reader.GetBlobReader(value);
             if (blob.Length < 3 || blob.ReadUInt16() != 1)
-                return false;
-            string? serialized = blob.ReadSerializedString();
-            if (string.IsNullOrEmpty(serialized))
-                return false;
-
-            int end = serialized.Length;
-            int start = -1;
-            for (int i = 0; i < serialized.Length; i++)
-            {
-                char c = serialized[i];
-                if (c == '\\')
-                {
-                    i++;
-                    continue;
-                }
-                if (c == ',')
-                {
-                    end = i;
-                    break;
-                }
-                if (c == '+')
-                    start = i + 1;
-            }
-            if (start <= 0 || start >= end)
-                return false;
-
-            var text = new System.Text.StringBuilder(end - start);
-            for (int i = start; i < end; i++)
-            {
-                if (serialized[i] == '\\' && i + 1 < end)
-                    i++;
-                text.Append(serialized[i]);
-            }
-            leaf = text.ToString();
-            return true;
+                return null;
+            serialized = blob.ReadSerializedString();
         }
         catch (BadImageFormatException)
         {
-            return false;
+            return null;
         }
+        if (string.IsNullOrEmpty(serialized))
+            return null;
+        if (serialized.Length > MetadataSafetyPolicy.MaxTypeNameCharacters)
+        {
+            throw new BadImageFormatException(
+                "A state-machine attribute type name exceeds the type-name bound.");
+        }
+
+        int end = serialized.Length;
+        int start = -1;
+        for (int i = 0; i < serialized.Length; i++)
+        {
+            char c = serialized[i];
+            if (c == '\\')
+            {
+                i++;
+                continue;
+            }
+            if (c == ',')
+            {
+                end = i;
+                break;
+            }
+            if (c == '+')
+                start = i + 1;
+        }
+        if (start <= 0 || start >= end)
+            return null;
+
+        var text = new System.Text.StringBuilder(end - start);
+        for (int i = start; i < end; i++)
+        {
+            if (serialized[i] == '\\' && i + 1 < end)
+                i++;
+            text.Append(serialized[i]);
+        }
+        return text.ToString();
     }
 
     bool IsCompilerGeneratedType(TypeDefinitionHandle type)

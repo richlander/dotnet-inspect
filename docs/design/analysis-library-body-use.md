@@ -87,9 +87,15 @@ For one physical MethodDef body:
    auto-property accessors, and record-synthesized members are physical only.
 
 The rule is linear in metadata: each host's methods and attributes are read
-once, attribute constructors and Type answers are memoized, and a declaring
-chain walk is bounded by `MetadataSafetyPolicy.MaxRelationshipNodes`. An
-unreadable host fails every generated body it hosts visibly as malformed.
+once, attribute constructors, value blobs, and Type answers are memoized, and
+a declaring chain walk is bounded by
+`MetadataSafetyPolicy.MaxRelationshipNodes`. A state-machine name longer than
+`MetadataSafetyPolicy.MaxTypeNameCharacters` fails its host. An unreadable
+host fails every generated body it hosts visibly as malformed.
+
+Resolving a method operand's owner reads only its declaring Type and
+instantiation, but still decodes the whole method signature, so a malformed
+or truncated signature leaves the operand unavailable.
 
 Attribution never requires the owner's body to reference the lifted body. A
 local function whose calls Roslyn elided, such as a `[Conditional("DEBUG")]`

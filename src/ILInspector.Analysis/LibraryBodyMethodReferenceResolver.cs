@@ -793,9 +793,24 @@ internal sealed class LibraryBodyMethodReferenceResolver
         switch (handle.Kind)
         {
             case HandleKind.MethodDefinition:
-                return MemberResolver.ResolveMethodDefinitionOwner(
-                    _reader,
-                    (MethodDefinitionHandle)handle);
+                MethodDefinition method =
+                    _reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)handle);
+                if (!SignatureBlobGuard.IsSafeToDecode(
+                        _reader,
+                        method.Signature,
+                        SignatureBlobGuard.Kind.Method))
+                {
+                    return MethodOwner.Unsupported(
+                        "method signature nesting depth exceeded");
+                }
+                return new(
+                    TypeRefDecoder.Instance.GetTypeFromDefinition(
+                        _reader,
+                        method.GetDeclaringType(),
+                        0),
+                    MethodGenericArity(method.Signature),
+                    Supported: true);
             case HandleKind.MemberReference:
                 MemberReference member =
                     _reader.GetMemberReference(
@@ -821,14 +836,25 @@ internal sealed class LibraryBodyMethodReferenceResolver
                 }
                 return new(
                     declaring,
-                    MemberResolver.MethodGenericArity(
-                        _reader,
-                        member.Signature),
+                    MethodGenericArity(member.Signature),
                     Supported: true);
             default:
                 return MethodOwner.Unsupported(
                     $"callee handle kind {handle.Kind}");
         }
+    }
+
+    // Signatures are shared by many methods, so each blob's full decode is
+    // done once; a malformed blob throws on every use, as ResolveMethod does.
+    readonly ConcurrentDictionary<BlobHandle, int> _methodGenericArities = new();
+
+    int MethodGenericArity(BlobHandle signature)
+    {
+        if (_methodGenericArities.TryGetValue(signature, out int arity))
+            return arity;
+        arity = MemberResolver.MethodGenericArity(_reader, signature);
+        _methodGenericArities.TryAdd(signature, arity);
+        return arity;
     }
 
     ImmutableArray<TypeRef> DecodeMethodSpecificationArguments(
