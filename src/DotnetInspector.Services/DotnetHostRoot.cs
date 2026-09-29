@@ -11,10 +11,7 @@ namespace DotnetInspector.Services;
 /// </summary>
 public static class DotnetHostRoot
 {
-    private const UnixFileMode ExecuteBits =
-        UnixFileMode.UserExecute
-        | UnixFileMode.GroupExecute
-        | UnixFileMode.OtherExecute;
+    private const int ExecuteAccess = 1;
 
     /// <summary>
     /// Returns the directory of the first <c>dotnet</c> host found on
@@ -48,7 +45,7 @@ public static class DotnetHostRoot
                     currentDirectory);
                 if (!File.Exists(candidate)
                     || !RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-                        && (File.GetUnixFileMode(candidate) & ExecuteBits) == 0)
+                        && UnixAccess(candidate, ExecuteAccess) != 0)
                     continue;
 
                 string host =
@@ -69,4 +66,10 @@ public static class DotnetHostRoot
 
         return null;
     }
+
+    [DllImport(
+        "libSystem.Native",
+        EntryPoint = "SystemNative_Access",
+        CharSet = CharSet.Ansi)]
+    private static extern int UnixAccess(string path, int mode);
 }

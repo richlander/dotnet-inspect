@@ -116,6 +116,32 @@ public sealed class DotnetHostRootTests : IDisposable
     }
 
     [Fact]
+    public void SkipsAHostTheCurrentUserCannotExecute()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            return;
+
+        string inaccessible = Directory.CreateDirectory(
+            Path.Combine(_root, "inaccessible")).FullName;
+        string executable = Directory.CreateDirectory(
+            Path.Combine(_root, "executable")).FullName;
+        string inaccessibleHost = CreateHost(inaccessible);
+        File.SetUnixFileMode(
+            inaccessibleHost,
+            UnixFileMode.UserRead
+                | UnixFileMode.UserWrite
+                | UnixFileMode.GroupExecute);
+        CreateHost(executable);
+
+        Assert.Equal(
+            Path.GetFullPath(executable),
+            DotnetHostRoot.FindOnPath(
+                string.Join(
+                    Path.PathSeparator,
+                    [inaccessible, executable])));
+    }
+
+    [Fact]
     public void FollowsALinkedHostToItsInstallation()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
