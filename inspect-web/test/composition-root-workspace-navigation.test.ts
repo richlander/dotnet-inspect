@@ -167,7 +167,7 @@ test("bootstrap reconciles persisted style choices with the product catalog", ()
     )?.[0] ?? "";
   assert.match(
     bootstrap,
-    /state\.styleOptions = \([\s\S]*reconcileStyleTaste\(\s*state\.taste,\s*state\.styleOptions\);[\s\S]*state\.taste = reconciledTaste;[\s\S]*localStorage\.setItem\("inspect-taste", JSON\.stringify\(state\.taste\)\)/);
+    /state\.styleCatalog = resolveStyleCatalog\([\s\S]*engineClient\.catalog\.inspectVocabulary\(\)[\s\S]*reconcileStyleTaste\(\s*state\.taste,\s*state\.styleCatalog\);[\s\S]*state\.taste = reconciledTaste;[\s\S]*localStorage\.setItem\("inspect-taste", JSON\.stringify\(state\.taste\)\)/);
 });
 
 test("bare home paints before wasm engine download", () => {
@@ -670,7 +670,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     appSource,
     /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*state\.packageActivityOpen = isPackageActivityPath\(location\.pathname\);[\s\S]*state\.typeExplorerOpen = isTypeExplorerPath\(location\.pathname\);[\s\S]*const diagnosticsOpen = isDiagnosticsPath\(location\.pathname\);[\s\S]*const productHomeDemosOpen = isProductHomeDemosPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!diagnosticsOpen\s*&& !state\.packageQueryOpen\s*&& !state\.packageActivityOpen\s*&& !state\.typeExplorerOpen\s*&& !productHomeDemosOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
   const restore = appSource.match(
-    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
+    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction showEngineFailure/)?.[0]
     ?? "";
   assert.match(
     restore,
@@ -698,7 +698,7 @@ test("malformed package routes use the contained restore failure path", () => {
     /if \(loc\.routeFailure\) \{[\s\S]*if \(failureHandler\) \{\s*failureHandler\(loc\.routeFailure\.message\);\s*\} else \{\s*failWorkspaceRoute\(loc\.routeFailure\.message\);[\s\S]*return;\s*\}\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*if \(failureHandler\) \{\s*failureHandler\("The existing package route could not be cleared\."\);[\s\S]*render\(\);\s*return;\s*\}/);
 
   const initial = appSource.match(
-    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
+    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction showEngineFailure/)?.[0]
     ?? "";
   assert.match(
     initial,
@@ -1872,7 +1872,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.libraryOpen\s*\|\| state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| documentViewerIsOpen\(state\.docViewer\)\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| memberDiffExplorer\.isOpen\s*\|\| graphExplorer\.isOpen;/);
   assert.match(
     appSource,
-    /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
+    /const selection = \{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)[\s\S]*sourceInspection\.loadTypeSource\(\{\s*\.\.\.selection/);
   assert.match(
     typeSourceAuthority,
     /case "terminal":[\s\S]*state\.typeSource = event\.outcome\.kind === "succeeded"[\s\S]*if \(context\.request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(\s*context\.preservedFocus,/);

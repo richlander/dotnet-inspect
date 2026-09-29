@@ -150,6 +150,7 @@ public sealed class ProductionFacadeContextTests
             "QueryMemberSource",
             "QueryMemberSourceComparison",
             "QueryPlatformMemberSource",
+            "QueryPlatformTypeSource",
             "QueryTypeExplorer",
             "QueryTypeMemberSource",
             "QueryTypeSource",
@@ -179,7 +180,7 @@ public sealed class ProductionFacadeContextTests
             "DescribeWorkspacePackageSources",
             "EncodeWorkspaceShareState",
             "ListHomeDemos",
-            "ListVocabulary",
+            "InspectVocabulary",
             "ObserveRetainedWorkspaceSettlement",
             "PrepareRetainedWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinitionWithCredentials",
@@ -234,7 +235,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(116, everyExport.Length);
+        Assert.Equal(117, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

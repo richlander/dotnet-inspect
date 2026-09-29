@@ -142,6 +142,18 @@ public abstract class InstalledReferencePopulationDemand
         public AssemblyReferenceIdentity Identity { get; }
     }
 
+    public sealed class AssemblyReferenceBinding :
+        InstalledReferencePopulationDemand
+    {
+        public AssemblyReferenceBinding(AssemblyReferenceIdentity identity)
+        {
+            ArgumentNullException.ThrowIfNull(identity);
+            Identity = identity;
+        }
+
+        public AssemblyReferenceIdentity Identity { get; }
+    }
+
     public sealed class CompletePopulation : InstalledReferencePopulationDemand
     {
         public CompletePopulation()

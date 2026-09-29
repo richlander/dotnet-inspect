@@ -477,11 +477,14 @@ import {
 } from "./metadata-viewer.ts";
 import {
   bindSettingsPanel,
-  reconcileStyleTaste,
   renderSettingsView,
-  type StyleOption,
-  type StyleTier,
 } from "./settings-panel.ts";
+import {
+  findStyleChoice,
+  reconcileStyleTaste,
+  resolveStyleCatalog,
+  type ResolvedStyleCatalog,
+} from "./style-vocabulary.ts";
 import {
   bindProductNavigation,
   renderBrand,
@@ -872,6 +875,8 @@ let inspectPlatformMemberSource:
 let inspectTypeMemberSource:
   EngineClient["source"]["queryTypeMemberSource"];
 let inspectTypeSource: EngineClient["source"]["queryTypeSource"];
+let inspectPlatformTypeSource:
+  EngineClient["source"]["queryPlatformTypeSource"];
 let inspectTypeExplorer: EngineClient["source"]["queryTypeExplorer"];
 let inspectExpandPlatformCallGraph:
   EngineClient["callGraph"]["expandPlatformCallGraph"];
@@ -1036,6 +1041,7 @@ async function loadEngineModule() {
       queryPlatformMemberSource: inspectPlatformMemberSource,
       queryTypeMemberSource: inspectTypeMemberSource,
       queryTypeSource: inspectTypeSource,
+      queryPlatformTypeSource: inspectPlatformTypeSource,
       queryTypeExplorer: inspectTypeExplorer,
     } = engineClient.source);
     ({
@@ -1390,8 +1396,7 @@ const initialState = {
   selectedBodyTarget: null,
   graphSource: { status: "closed" as const },
   docViewer: { status: "closed" as const },
-  styleTiers: null,
-  styleOptions: null,
+  styleCatalog: null,
   styleCatalogError: "",
   taste: loadStoredTaste(),
   settings: false,
@@ -1491,8 +1496,7 @@ interface StateOverrides {
   selectedBodyTarget: BodyTarget | null;
   graphSource: GraphSourceState;
   docViewer: DocumentViewerState;
-  styleTiers: StyleTier[] | null;
-  styleOptions: StyleOption[] | null;
+  styleCatalog: ResolvedStyleCatalog | null;
   history: string[];
   retryAction: ErrorRetryAction;
   diag: RuntimeStartupDiagnostics | null;
@@ -1958,8 +1962,7 @@ function captureRetainedHostState() {
     spotlightChipIndex: state.spotlightChipIndex,
     spotlightCapabilitySearch: state.spotlightCapabilitySearch,
     spotlightPackageSearch: state.spotlightPackageSearch,
-    styleTiers: state.styleTiers,
-    styleOptions: state.styleOptions,
+    styleCatalog: state.styleCatalog,
     styleCatalogError: state.styleCatalogError,
     taste: state.taste,
     settings: state.settings,
@@ -3309,15 +3312,26 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.metadataToken,
         request.taste,
         request.contextId),
-  queryTypeSource: (operationId, request) => inspectTypeSource(
-    operationId,
-    request.packageId,
-    request.version,
-    request.framework,
-    request.assembly,
-    request.type,
-    request.taste,
-    request.view),
+  queryTypeSource: (operationId, request) => request.kind === "platform"
+    ? inspectPlatformTypeSource(
+        operationId,
+        request.framework,
+        request.version,
+        request.assembly,
+        request.pack,
+        request.type,
+        request.taste,
+        request.view,
+        request.contextId)
+    : inspectTypeSource(
+        operationId,
+        request.packageId,
+        request.version,
+        request.framework,
+        request.assembly,
+        request.type,
+        request.taste,
+        request.view),
   queryGraphSource: (request, taste) => inspectTypeMemberSource(
     request.packageId,
     request.version,
@@ -5860,9 +5874,7 @@ function libraryLensesFor(pkg: AppPackage | null) {
 }
 
 function availableTypeLenses() {
-  return state.rootKind === "library"
-    ? typeLensesFor({ isRuntimePack: true })
-    : typeLensesFor(state.package);
+  return typeLensesFor(state.package);
 }
 
 function libraryLensRequiresExactLibrary(lens: LibraryLens) {
@@ -17949,18 +17961,34 @@ async function loadSelectedTypeSource() {
   const pkg = currentPackage();
   const signature =
     typeSourceSignature(type, pkg, state.taste, memberRequestKey, state.typeSourceView);
-  return sourceInspection.loadTypeSource({
+  const selection = {
     signature,
-    packageId: pkg.id,
-    version: pkg.version,
-    framework: pkg.activeFramework,
-    assembly: type.assembly,
     type: type.definitionId ?? type.id,
     taste: JSON.stringify(state.taste),
     view: state.typeSourceView,
     isVisible: () =>
       currentSourceOperationKind() === "type"
       && !workbenchModalOwnsFocus(),
+  };
+  if (pkg.isRuntimePack) {
+    const row = platformLibraryForRequest(pkg, type.assemblyId);
+    return sourceInspection.loadTypeSource({
+      ...selection,
+      kind: "platform",
+      framework: pkg.activeFramework,
+      version: pkg.version,
+      assembly: platformAssemblyRequest(row),
+      pack: row.pack,
+      contextId: platformDemoContextIdFor(pkg),
+    });
+  }
+  return sourceInspection.loadTypeSource({
+    ...selection,
+    kind: "package",
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
   });
 }
 
@@ -20010,14 +20038,14 @@ function reloadVisibleSource() {
 }
 
 function toggleTaste(id: string) {
-  const option = (state.styleOptions || []).find(item => item.id === id);
+  const option = findStyleChoice(state.styleCatalog, id);
   if (state.taste.includes(id)) {
     state.taste = state.taste.filter(item => item !== id);
   } else {
-    if (option?.conflict_group) {
-      const groupIds = (state.styleOptions || [])
-        .filter(item => item.conflict_group === option.conflict_group)
-        .map(item => item.id);
+    if (option?.conflictGroup) {
+      const groupIds = (state.styleCatalog?.choices ?? [])
+        .filter(item => item.conflictGroup === option.conflictGroup)
+        .map(item => item.term.identity.value);
       state.taste = state.taste.filter(item => !groupIds.includes(item));
     }
     state.taste = [...state.taste, id];
@@ -20318,8 +20346,7 @@ function renderSettingsViewHtml() {
     theme: state.theme,
     settingsReturn: state.settingsReturn,
     styleCatalog: {
-      styleTiers: state.styleTiers,
-      styleOptions: state.styleOptions,
+      styleCatalog: state.styleCatalog,
       styleCatalogError: state.styleCatalogError,
       taste: state.taste,
     },
@@ -21940,21 +21967,6 @@ async function restoreInitialWorkspace() {
     navigationSeq);
 }
 
-function isStyleTier(value: unknown): value is StyleTier {
-  return isRecord(value)
-    && typeof value.id === "string"
-    && typeof value.title === "string"
-    && typeof value.summary === "string";
-}
-
-function isStyleOption(value: unknown): value is StyleOption {
-  return isRecord(value)
-    && typeof value.id === "string"
-    && typeof value.tier === "string"
-    && typeof value.title === "string"
-    && typeof value.summary === "string";
-}
-
 function showEngineFailure(error: unknown) {
   state.loading = false;
   state.engineReady = false;
@@ -22031,24 +22043,17 @@ async function bootstrap() {
       refreshPackageStats();
     }
     try {
-      const vocabulary = await engineClient.catalog.listVocabulary();
-      const sections = vocabulary?.sections || [];
-      state.styleTiers = (
-        sections.find(section => section.id === "csharp.style-tiers")?.values
-        || []).filter(isStyleTier);
-      state.styleOptions = (
-        sections.find(section => section.id === "csharp.style-choices")?.values
-        || []).filter(isStyleOption);
+      state.styleCatalog = resolveStyleCatalog(
+        await engineClient.catalog.inspectVocabulary());
       const reconciledTaste = reconcileStyleTaste(
         state.taste,
-        state.styleOptions);
+        state.styleCatalog);
       if (reconciledTaste.length !== state.taste.length) {
         state.taste = reconciledTaste;
         localStorage.setItem("inspect-taste", JSON.stringify(state.taste));
       }
     } catch (error) {
-      state.styleTiers = [];
-      state.styleOptions = [];
+      state.styleCatalog = null;
       state.styleCatalogError = errorMessage(error);
     }
     try {

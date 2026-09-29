@@ -49,11 +49,24 @@ export type MemberSourceQuery =
       contextId: string | null;
     } & MemberSourceSelection);
 
-export interface TypeSourceQuery extends PackageSourceCoordinates {
+interface TypeSourceSelection {
   type: string;
   taste: string;
   view: TypeSourceView;
 }
+
+export type TypeSourceQuery =
+  | ({
+      kind?: "package";
+    } & PackageSourceCoordinates & TypeSourceSelection)
+  | ({
+      kind: "platform";
+      framework: string;
+      version: string;
+      assembly: string;
+      pack: string;
+      contextId: string | null;
+    } & TypeSourceSelection);
 
 export type TypeSourceView =
   | "source"
@@ -141,10 +154,10 @@ export type MemberSourceLoadRequest = MemberSourceQuery & {
   isCurrent(): boolean;
 };
 
-export interface TypeSourceLoadRequest extends TypeSourceQuery {
+export type TypeSourceLoadRequest = TypeSourceQuery & {
   signature: string;
   isVisible(): boolean;
-}
+};
 
 export type SourceResultState<TSource = BrowserSource> =
   | { readonly status: "idle" }

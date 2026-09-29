@@ -178,6 +178,7 @@ public enum PlatformAssemblyReferenceCompletionKind
 {
     Resolved,
     NoNameOwner,
+    NameOwnedNoMatch,
 }
 
 /// <summary>The closed completed shapes of type-definition resolution.</summary>
@@ -253,14 +254,17 @@ public abstract class PlatformHouseCompletion
             ArgumentNullException.ThrowIfNull(sourceSettlements);
 
             PlatformSourceSettlement[] snapshot = [.. sourceSettlements];
-            if (kind == PlatformAssemblyReferenceCompletionKind.NoNameOwner)
+            if (kind
+                is PlatformAssemblyReferenceCompletionKind.NoNameOwner
+                    or PlatformAssemblyReferenceCompletionKind
+                        .NameOwnedNoMatch)
             {
                 if (viewCorrespondence is not null
                     || metadataOutcome.TerminalSupplier is not null
                     || metadataOutcome.Correspondence is not null)
                 {
                     throw new ArgumentException(
-                        "NoNameOwner completion has no selected platform supplier.",
+                        "A missing assembly-reference completion has no selected platform supplier.",
                         nameof(sourceSettlements));
                 }
             }
@@ -1136,6 +1140,19 @@ public sealed class PlatformHouseReceipt
                 sourcePlan);
             return;
         }
+        if (completion is PlatformHouseCompletion.AssemblyReference
+            {
+                Kind:
+                    PlatformAssemblyReferenceCompletionKind
+                        .NameOwnedNoMatch,
+            } nameOwnedNoMatch)
+        {
+            ValidateNameOwnedNoMatchSourcePolicy(
+                nameOwnedNoMatch.SourceSettlements,
+                sourceSettlements,
+                sourcePlan);
+            return;
+        }
 
         foreach (IGrouping<PlatformSourceFacet, PlatformSourceSettlement> group
             in completion.RequiredSourceSettlements.GroupBy(
@@ -1147,6 +1164,43 @@ public sealed class PlatformHouseReceipt
                 sourceSettlements,
                 sourcePlan,
                 nameof(completion));
+        }
+    }
+
+    static void ValidateNameOwnedNoMatchSourcePolicy(
+        IReadOnlyList<PlatformSourceSettlement> completionSettlements,
+        IReadOnlyList<PlatformSourceSettlement> sourceSettlements,
+        PlatformSourcePlan sourcePlan)
+    {
+        PlatformSourceSettlement[] selected =
+            [.. completionSettlements.Where(
+                settlement =>
+                    settlement.Disposition
+                        == PlatformSourceSettlementDisposition.Selected
+                    && settlement.Contribution
+                        is PlatformSourceContribution.Realization
+                        {
+                            RealizationCompleteness:
+                                PlatformSourceContributionCompleteness
+                                    .Authoritative,
+                        })];
+        if (selected.Length == 0)
+        {
+            throw new ArgumentException(
+                "NameOwnedNoMatch requires at least one authoritative namesake realization.",
+                nameof(completionSettlements));
+        }
+
+        foreach (IGrouping<PlatformSourceFacet, PlatformSourceSettlement> group
+            in selected.GroupBy(
+                settlement => settlement.Contribution.Facet))
+        {
+            ValidateSuccessfulFacetPolicy(
+                group.Key,
+                [.. group],
+                sourceSettlements,
+                sourcePlan,
+                nameof(completionSettlements));
         }
     }
 

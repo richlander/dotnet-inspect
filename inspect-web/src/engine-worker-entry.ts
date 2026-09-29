@@ -31,6 +31,10 @@ import {
 import { WorkerOperationCatalog, WorkerRuntimeRealm } from "./worker-runtime-realm.ts";
 
 const operations = new WorkerOperationCatalog();
+let vocabularyInspection:
+  ReturnType<
+    typeof import("/inspect-web-catalog.js")["inspectVocabulary"]
+  > | undefined;
 let ordinaryFacades: EngineWorkerOrdinaryFacades | undefined;
 registerEngineWorkerOrdinaryOperations(operations, () => {
   if (ordinaryFacades === undefined) {
@@ -48,8 +52,12 @@ registerEngineWorkerStartupOperations(operations, {
   async buildIdentity() {
     return (await import("/inspect-web-host.js")).buildIdentity();
   },
-  async listVocabulary() {
-    return (await import("/inspect-web-catalog.js")).listVocabulary();
+  async inspectVocabulary() {
+    if (vocabularyInspection === undefined) {
+      vocabularyInspection =
+        (await import("/inspect-web-catalog.js")).inspectVocabulary();
+    }
+    return vocabularyInspection;
   },
   async listHomeDemos() {
     return (await import("/inspect-web-catalog.js")).listHomeDemos();

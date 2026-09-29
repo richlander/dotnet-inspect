@@ -423,11 +423,11 @@ export function inspectWebRuntimeObservation() {
       "callGraph.queryMemberCallGraph");
     operations.push("callGraph.queryMemberCallGraph.visibleFailure");
 
-    const vocabulary: unknown = operation(catalogFacade, "listVocabulary")();
+    const vocabulary: unknown = operation(catalogFacade, "inspectVocabulary")();
     assert.ok(
       isRecord(vocabulary),
       "catalog facade did not return the product vocabulary");
-    operations.push("catalog.listVocabulary");
+    operations.push("catalog.inspectVocabulary");
 
     assert.equal(await host.runEntryPoint(), 0);
     assert.deepEqual(
