@@ -380,7 +380,9 @@ public static class LibraryAddressInspectionOperation
                             population.Capabilities,
                             population.BrowsableUrls,
                             analysis,
-                            cancellationToken);
+                            cancellationToken,
+                            population
+                                .AllowNonBoundaryContextAbsence);
                     if (outcome.Succeeded)
                     {
                         rows.Add(
@@ -707,7 +709,8 @@ public static class LibraryAddressInspectionOperation
         ILOffsetProjectionCapabilities capabilities,
         bool browsableUrls,
         AnalysisPreparation analysis,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowNonBoundaryContextAbsence = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ILOffsetProjectionOutcome outcome =
@@ -719,7 +722,9 @@ public static class LibraryAddressInspectionOperation
                     capabilities,
                     BrowsableUrls: browsableUrls,
                     Analysis: analysis.Input,
-                    AnalysisFailure: analysis.Failure));
+                    AnalysisFailure: analysis.Failure,
+                    AllowNonBoundaryContextAbsence:
+                        allowNonBoundaryContextAbsence));
         cancellationToken.ThrowIfCancellationRequested();
         return outcome;
     }

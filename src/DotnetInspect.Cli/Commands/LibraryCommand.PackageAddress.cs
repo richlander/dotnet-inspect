@@ -61,6 +61,12 @@ public partial class LibraryCommand
                 : PackageHouseLibraryCompanionDemand.None;
         string requestedLibraryPath =
             options.AssemblyName.Replace('\\', '/');
+        if (!requestedLibraryPath.EndsWith(
+                ".dll",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            requestedLibraryPath += ".dll";
+        }
         bool pathQualified = requestedLibraryPath.Contains('/');
         string targetFramework =
             options.Tfm
@@ -68,7 +74,7 @@ public partial class LibraryCommand
             ?? TraversalTargetFrameworkPolicy
                 .ProductDefaultTargetFramework;
         string implementationName =
-            Path.GetFileName(options.AssemblyName);
+            Path.GetFileName(requestedLibraryPath);
 
         using var stores =
             new DesktopPackageStoreScope("inspect-cli-address");
@@ -120,11 +126,20 @@ public partial class LibraryCommand
                 .Where(candidate =>
                     pathQualified
                         ? candidate.Asset.Path.Equals(
-                            requestedLibraryPath,
-                            StringComparison.OrdinalIgnoreCase)
+                                requestedLibraryPath,
+                                StringComparison.OrdinalIgnoreCase)
+                            || candidate.ImplementationAsset?.Path.Equals(
+                                requestedLibraryPath,
+                                StringComparison.OrdinalIgnoreCase)
+                                is true
                         : candidate.Asset.AssemblyName.Equals(
-                            implementationName,
-                            StringComparison.OrdinalIgnoreCase)),
+                                implementationName,
+                                StringComparison.OrdinalIgnoreCase)
+                            || candidate.ImplementationAsset?.AssemblyName
+                                .Equals(
+                                    implementationName,
+                                    StringComparison.OrdinalIgnoreCase)
+                                    is true),
         ];
         if (handoffs.Length != 1)
         {
@@ -194,7 +209,9 @@ public partial class LibraryCommand
                     population.Records.Select(
                         ConvertAddressRecord),
                     capabilities,
-                    options.PreferRenderedUrls),
+                    options.PreferRenderedUrls,
+                    allowNonBoundaryContextAbsence:
+                        options.Discover is not null),
             _ => throw new InvalidOperationException(
                 "Package-backed Library Address execution requires an admitted intent."),
         };

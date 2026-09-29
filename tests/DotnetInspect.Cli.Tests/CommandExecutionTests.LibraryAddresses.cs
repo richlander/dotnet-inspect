@@ -315,10 +315,18 @@ public partial class CommandExecutionTests
         string tempDir = Directory.CreateTempSubdirectory(
             "library-address-exact-package-path-").FullName;
         string content = Path.Combine(tempDir, "content");
+        string referenceDirectory = Path.Combine(
+            content,
+            "ref",
+            "net8.0");
         string net8Directory = Path.Combine(content, "lib", "net8.0");
         string net11Directory = Path.Combine(content, "lib", "net11.0");
+        Directory.CreateDirectory(referenceDirectory);
         Directory.CreateDirectory(net8Directory);
         Directory.CreateDirectory(net11Directory);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(referenceDirectory, "Target.dll"));
         File.Copy(
             TestAssemblyPath,
             Path.Combine(net8Directory, "Target.dll"));
@@ -348,6 +356,57 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Contains("# Target.dll (net8.0)", output);
+            Assert.Contains(
+                nameof(SemanticFactsFixture.AllSignals),
+                output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("lib\\net11.0\\Coordinate.Package.dll")]
+    [InlineData("Coordinate.Package")]
+    public async Task
+        LibraryAddressCommand_PackageLibrarySpellingsPreserveSelection(
+            string library)
+    {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-address-package-spelling-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net11.0");
+        Directory.CreateDirectory(libraryDirectory);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(libraryDirectory, "Coordinate.Package.dll"));
+        WriteAddressPackageManifest(content, "Coordinate.PackageSpelling");
+        string packagePath = Path.Combine(
+            tempDir,
+            "Coordinate.PackageSpelling.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, packagePath);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "address",
+                $"0x{token:X8}+0x{callOffset:X}",
+                "--package",
+                packagePath,
+                "--library",
+                library,
+                "-S",
+                "Context: Member",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
             Assert.Contains(
                 nameof(SemanticFactsFixture.AllSignals),
                 output);
@@ -1461,7 +1520,7 @@ public partial class CommandExecutionTests
             "coordinates.txt");
         await File.WriteAllTextAsync(
             coordinatePath,
-            $"0x{token:X8}+0x{callOffset:X}",
+            $"0x{token:X8}+0x{callOffset + 1:X}",
             TestContext.Current.CancellationToken);
         try
         {
@@ -1475,14 +1534,15 @@ public partial class CommandExecutionTests
                 "--library",
                 "lib/net11.0/Coordinate.Package.dll",
                 "-D",
-                "Context: Member",
+                "@Context",
                 "--effective",
                 "--tips",
                 "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Contains("Member", output);
+            Assert.Contains("Context: Member", output);
+            Assert.DoesNotContain("Context: Instruction", output);
             Assert.DoesNotContain("## IL Coordinates", output);
         }
         finally

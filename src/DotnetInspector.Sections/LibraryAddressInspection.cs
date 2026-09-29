@@ -107,7 +107,8 @@ public abstract record LibraryAddressIntent
         public Population(
             IEnumerable<LibraryAddressPopulationRecord> records,
             ILOffsetProjectionCapabilities capabilities,
-            bool browsableUrls = false)
+            bool browsableUrls = false,
+            bool allowNonBoundaryContextAbsence = false)
         {
             ArgumentNullException.ThrowIfNull(records);
             LibraryAddressInspectionContract.ValidateCapabilities(
@@ -138,6 +139,8 @@ public abstract record LibraryAddressIntent
             Records = snapshot;
             Capabilities = capabilities;
             BrowsableUrls = browsableUrls;
+            AllowNonBoundaryContextAbsence =
+                allowNonBoundaryContextAbsence;
         }
 
         public ImmutableArray<LibraryAddressPopulationRecord> Records
@@ -147,6 +150,7 @@ public abstract record LibraryAddressIntent
 
         public ILOffsetProjectionCapabilities Capabilities { get; }
         public bool BrowsableUrls { get; }
+        public bool AllowNonBoundaryContextAbsence { get; }
     }
 }
 
