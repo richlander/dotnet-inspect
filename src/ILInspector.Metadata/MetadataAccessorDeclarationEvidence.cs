@@ -896,9 +896,6 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         MethodAttributes? declarationModifiers = null;
         foreach (ResolvedOccurrence accessor in accessors)
         {
-            if (accessor.Role == MetadataAccessorSemanticsRole.Other)
-                continue;
-
             site = site with
             {
                 PhysicalRowNumber = accessor.PhysicalRowNumber,
@@ -919,6 +916,9 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                         "The conventional accessor");
             if (signatureFailure is not null)
                 throw new BadImageFormatException(signatureFailure);
+
+            if (accessor.Role == MetadataAccessorSemanticsRole.Other)
+                continue;
 
             MetadataMethodSignatureIdentity signature =
                 accessor.Method.Signature;
