@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Reflection.Metadata;
 using System.Globalization;
 using System.Text.Json;
 using DotnetInspector.Cache;
