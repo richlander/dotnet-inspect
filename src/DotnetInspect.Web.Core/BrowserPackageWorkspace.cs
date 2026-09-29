@@ -4241,7 +4241,6 @@ internal sealed record BrowserScopeResolution(
 [SupportedOSPlatform("browser")]
 internal sealed class BrowserPackage
 {
-    const long MaxTextEntryBytes = 16L * 1024 * 1024;
     readonly AcquiredPackageSourcePayload? _acquiredPayload;
     readonly AcquiredPackagePayload? _resolvedPayload;
     readonly Lazy<BrowserPackageIconPayload?> _icon;
@@ -4423,7 +4422,7 @@ internal sealed class BrowserPackage
                 : null;
             if (kind is null)
                 continue;
-            if (entry.Length > MaxTextEntryBytes || entry.Length > int.MaxValue)
+            if (entry.Length > PackageDocumentContentLimits.MaxDecodedBytes)
             {
                 throw new InvalidOperationException(
                     $"A browsable document in {packageId} {version} exceeds the browser byte "
@@ -4470,22 +4469,42 @@ internal sealed class BrowserPackage
                 $"'{path}' is not a browsable document in "
                     + $"{coordinate.PackageId} {coordinate.Version}.");
 
-        await using Stream input = document.Kind is "readme" or "skill"
-            ? settlement.OpenPayloadRead(document.Path, document.Size)
-            : content.TryOpenEntry(
-                document.Path,
-                MaxTextEntryBytes,
-                out Stream? eager)
+        Stream input;
+        if (document.Kind is "readme" or "skill")
+        {
+            PackageDocumentEntryResolution resolution =
+                PackageDocumentEntryResolver.Resolve(
+                    settlement,
+                    document.Path);
+            PackageContentEntry entry = resolution.Entry
+                ?? throw new InvalidOperationException(
+                    $"The requested package document entry could not be resolved: "
+                        + $"{resolution.Status}.");
+            input = settlement.OpenPayloadRead(
+                entry.Path,
+                entry.Length);
+        }
+        else
+        {
+            input = content.TryOpenEntry(
+                    document.Path,
+                    PackageDocumentContentLimits.MaxDecodedBytes,
+                    out Stream? eager)
                 ? eager
                 : throw new InvalidOperationException(
                     $"The requested package entry was not found in "
                         + $"{coordinate.PackageId} {coordinate.Version}.");
-        return new BrowserPackageDocumentPayload(
-            document.Kind,
-            document.Name,
-            document.Path,
-            await DecodeUtf8Async(input, cancellationToken)
-                .ConfigureAwait(false));
+        }
+
+        await using (input)
+        {
+            return new BrowserPackageDocumentPayload(
+                document.Kind,
+                document.Name,
+                document.Path,
+                await DecodeUtf8Async(input, cancellationToken)
+                    .ConfigureAwait(false));
+        }
     }
 
     private static async Task<string> DecodeUtf8Async(
@@ -4581,7 +4600,7 @@ internal sealed class BrowserPackage
     }
 
     internal bool TryReadText(string path, out byte[] bytes) =>
-        TryRead(path, MaxTextEntryBytes, out bytes);
+        TryRead(path, PackageDocumentContentLimits.MaxDecodedBytes, out bytes);
 
     BrowserPackageIconPayload? ProjectIcon() =>
         ProjectIcon(PackageIconQuery.Execute(Content, PackageId, Version));
