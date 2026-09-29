@@ -331,6 +331,20 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _primaryMetadataResolver.HasGeneratedCodeAttribute(
             attributes);
 
+    bool ILibraryMethodAnalysisInfrastructure
+        .IsSourceGeneratedTypeOrEnclosing(
+            TypeDefinitionHandle typeHandle) =>
+        _generatedProvenanceClassifier
+            .IsSourceGeneratedTypeOrEnclosing(typeHandle);
+
+    bool ILibraryMethodAnalysisInfrastructure
+        .TryResolveLocalTypeDefinition(
+            TypeRef type,
+            out TypeDefinitionHandle handle) =>
+        _primaryMetadataResolver.TryResolveLocalTypeDefinition(
+            type,
+            out handle);
+
     bool ILibraryMethodAnalysisInfrastructure.HasCompilerGeneratedAttribute(
         CustomAttributeHandleCollection attributes) =>
         _primaryMetadataResolver.HasCompilerGeneratedAttribute(

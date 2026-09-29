@@ -918,14 +918,15 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             handle);
     }
 
-    bool TryResolveLocalTypeDefinition(
+    internal bool TryResolveLocalTypeDefinition(
         TypeRef type,
         out TypeDefinitionHandle handle)
     {
         TypeRef definition = type.Kind == TypeRefKind.GenericInstance
             ? type.ElementType ?? type
             : type;
-        if (definition.Resolution is not { Type: var name }
+        if (!CanCanonicalizeCurrentModuleReference(definition)
+            || definition.Resolution is not { Type: var name }
             || !_localTypeDefinitions.Value.TryGetValue(
                 name,
                 out handle)
