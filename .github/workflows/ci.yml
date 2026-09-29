@@ -1,14 +1,16 @@
-name: CI
-run-name: >-
-  ${{ github.event_name == 'pull_request'
-      && format('PR #{0} CI', github.event.pull_request.number)
-      || github.event_name == 'merge_group'
-      && 'Merge queue CI'
-      || 'Main CI' }}
+name: PR CI
 
 on:
-  push:
-    branches: [main]
+  # Main pushes enter through main-ci.yml so GitHub can display a distinct
+  # workflow name while this file remains the single owner of CI jobs.
+  workflow_call:
+    inputs:
+      event-name:
+        required: true
+        type: string
+      base-sha:
+        required: true
+        type: string
   # Deliberately unfiltered by base branch. A base-branch filter decides whether
   # a *stacked* PR gets CI at all: a PR retargeted from `main` onto a long-lived
   # branch silently stops matching, so it reports no checks rather than failing
@@ -110,7 +112,7 @@ jobs:
           set -euo pipefail
           evidence_directory="${RUNNER_TEMP}/ci-plan"
           mkdir -p "$evidence_directory"
-          case "$GITHUB_EVENT_NAME" in
+          case "$CI_EVENT_NAME" in
             pull_request)
               event_name="pull-request"
               base_sha=$(git rev-parse --verify 'HEAD^1')
@@ -124,7 +126,7 @@ jobs:
               base_sha="$CI_EVENT_BASE_SHA"
               ;;
             *)
-              echo "Unsupported CI planning event: $GITHUB_EVENT_NAME" >&2
+              echo "Unsupported CI planning event: $CI_EVENT_NAME" >&2
               exit 1
               ;;
           esac
@@ -149,7 +151,8 @@ jobs:
           # The runner honors BASH_ENV even with --noprofile and --norc.
           # Clear inherited workflow/job values before executing this gate.
           BASH_ENV: ""
-          CI_EVENT_BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.before }}
+          CI_EVENT_NAME: ${{ inputs.event-name || github.event_name }}
+          CI_EVENT_BASE_SHA: ${{ inputs.base-sha || github.event.merge_group.base_sha || github.event.before }}
 
       - name: Upload TLA+ scope evidence
         if: fromJSON(steps.plan.outputs.plan).validations.tla
