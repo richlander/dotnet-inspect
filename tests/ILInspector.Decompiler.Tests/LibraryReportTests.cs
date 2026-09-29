@@ -11,7 +11,6 @@ namespace ILInspector.Decompiler.Tests;
 public class LibraryReportTests
 {
     [Fact]
-    [Trait("Speed", "Slow")]
     public void Evaluate_UsesQualifiedProductProjectionForAmbiguousTypeName()
     {
         string path = FidelityCheckGeneratedFilterTests.CompileFixture("""

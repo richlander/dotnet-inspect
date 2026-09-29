@@ -12,7 +12,6 @@ using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
-using System.Text;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -1188,25 +1187,6 @@ public class FidelityCheckGeneratedFilterTests
         {
             DeleteFixture(assemblyPath);
         }
-    }
-
-    [Fact]
-    public void ProductWholeMemberSplice_PreservesConstructorArtifact()
-    {
-        const string member = """
-                private Fixture()
-                {
-                    Consume(,);
-                }
-            """;
-
-        var emitted = new StringBuilder();
-        FidelityCheck.EmitPrerenderedMember(member, emitted, "        ");
-        string source = emitted.ToString();
-
-        Assert.Contains("private Fixture()", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("public Fixture()", source, StringComparison.Ordinal);
-        Assert.Contains("Consume(,);", source, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -55,9 +55,11 @@ signatures, initializers, or bodies to make the target compile. A product
 artifact that does not bind remains a visible recompile or context failure;
 legacy harness-spelled targets retain non-product provenance and cannot be
 reported as product-whole-member evidence.
-`Evaluate_PreservesPrivateConstructorArtifactAndReportsContextFailure` gates
-the pathological private-constructor case: the unchanged artifact produces the
-visible scaffold failure that accessibility rewriting previously hid.
+`ProductWholeMemberSplice_PreservesConstructorArtifact` gates token preservation
+in the PR-fast suite.
+`Evaluate_PreservesPrivateConstructorArtifactAndReportsContextFailure` retains
+the broader Deep Inspect case: the unchanged artifact produces the visible
+scaffold failure that accessibility rewriting previously hid.
 
 Syntax and semantic validity bind the same first product projection, using the
 product printer's fully qualified type artifact before host-owned
