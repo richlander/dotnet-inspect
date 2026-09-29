@@ -248,21 +248,15 @@ dependency document.
 
 ### Traversal target policy
 
-Under the corrected contract, the request carries one non-null
-`TraversalTargetFrameworkPolicy` issued at operation admission. The current
-production mode is Platform-aware: admission requires the Workspace's one
-realized Platform slot and uses that slot's exact target framework. Loading a
-.NET 11 Platform therefore produces a `net11.0` traversal target. Failure to
-realize the required slot is typed non-success, not permission to continue
-under the `net12.0` fallback.
+Under the corrected contract, the request carries the Workspace plan's one
+non-null `TraversalTargetFrameworkPolicy`. The policy exists from Workspace
+construction, before any package or Platform realization. The product default
+is `net11.0`; a configured Workspace instead retains its exact canonical
+target. Loading a package into an empty Workspace and traversing from that
+package therefore requires no realized Platform slot.
 
-A future mode that explicitly excludes Platform dependencies may admit an
-empty Platform slot. Only that mode may use a configured no-Platform target or
-`ProductDefault(net12.0)`. No current production host exposes that mode.
-
-The policy is structural request currency. It is formed after applicable
-Platform realization and before traversal, retains the exact slot identity and
-generation, and is not reconstructed from
+The policy is structural request currency. It is retained unchanged through
+operation admission and is not reconstructed from
 `PackageDependencyEvidenceSelection.RequestedFramework`, which remains source
 selection evidence. Every candidate-acquired manifest uses the
 dependency-group owner's compatible selection against the policy target. A
@@ -273,21 +267,22 @@ A `ProjectedEvidence` root's adapter owns the relationship between its supplied
 source selection and the operation. A `RealizedPackage` root retains the
 package-local selection already made for the website or another host. An
 explicitly selected `netstandard2.0` package/member can therefore contribute
-its exact declarations while a realized .NET 11 Platform slot governs newly
-reached participants with `net11.0`. Traversal does not reselect or relabel the
-root.
+its exact declarations while the Workspace target governs newly reached
+participants with `net11.0`. Traversal does not reselect or relabel the root.
 
 Package-local selection and traversal are separate contracts. Inspect Web's
-ordinary package TFM chooses the root package/member. A Platform choice changes
-the one realized Platform slot and therefore the traversal target; it does not
+ordinary package TFM chooses the root package/member. A configured Workspace
+target determines the corresponding Platform realization request; it does not
 reselect the root package. An independent traversal-TFM selector must not
-create a second target beside that slot. Destination Package Root realization
-under the slot-issued target remains Issue #6424's contract.
+create a second target beside the Workspace policy. Destination Package Root
+realization under the Workspace target remains Issue #6424's contract.
 
-The implementation still passes the `WorkspacePlan` product-default or
-configured value directly. Platform-slot operation admission is unimplemented;
-this section records the corrected contract rather than claiming shipped
-behavior.
+The implementation already passes the `WorkspacePlan` product-default or
+configured value directly, which preserves the required pre-realization
+authority. Its current product default is incorrectly `net12.0`. Matching
+Platform correspondence and the corrected `net11.0` default remain
+unimplemented; this section records the corrected contract rather than
+claiming shipped behavior.
 
 ### Declaration evidence and Platform-pruned composition
 
@@ -815,10 +810,10 @@ The CLI:
 Browser/Wasm:
 
 - supplies the same typed capabilities through the managed engine boundary;
-- uses the realized Platform slot independently from the package/member
+- uses the Workspace traversal target independently from the package/member
   selection TFM;
-- defaults Platform realization to .NET 12 and admits traversal only after the
-  resulting slot target is available;
+- defaults the Workspace to `net11.0`, permits package traversal before
+  Platform realization, and composes only matching Platform evidence;
 - owns operation lifetime and interactive state; and
 - renders typed graph data through its DOM path without duplicating traversal.
 
@@ -901,12 +896,12 @@ correspond.
 ### Realized source intent and traversal intent
 
 An explicitly selected `Polly.Core@8.8.0` `netstandard2.0` context contributes
-its four selected source declarations while a realized .NET 11 Platform slot
-governs the call graph with `net11.0`. The traversal target governs
-candidate-acquired destination manifests; it does not reselect the
-package/member root to Polly.Core's empty `net8.0` group.
+its four selected source declarations while its Workspace governs the call
+graph with `net11.0`. The traversal target governs candidate-acquired
+destination manifests; it does not reselect the package/member root to
+Polly.Core's empty `net8.0` group.
 
-A separately realized compatible `net12.0` Polly.Core context retains its
+A separately realized compatible `net11.0` Polly.Core context retains its
 selected-empty `net8.0` group and completes without edges. Equal package
 coordinates do not exchange the contexts: independently realized generations
 remain distinct root projections beneath one semantic package node.
@@ -914,8 +909,8 @@ remain distinct root projections beneath one semantic package node.
 The four edges in the first result are raw package declaration evidence, not
 the final Platform-aware call-graph package edge count. A later composed
 operation with the .NET Runtime Ecosystem prunes any exact dependency version
-subsumed by the same selected `net11.0` Platform inventory that issued the
-traversal target.
+subsumed by a selected `net11.0` Platform inventory whose target corresponds
+to the Workspace policy.
 
 ## Evidence
 
@@ -935,13 +930,14 @@ Existing implementation gates and planned correction evidence:
 | Failed recursive resolution retains the declaration edge without inventing an exact target. | `Traversal_FailedResolutionRetainsDeclarationEdge` |
 | Per-root edge admission intersects depth with expansion authority. | `Traversal_EdgeAdmissionRespectsRootAuthority` |
 | Repeated direct roots remain distinct without typed correspondence. | `Traversal_RepeatedDirectRootRequiresCorrespondenceToCoalesce` |
-| One retained traversal target, never selected participant provenance, controls compatible candidate-acquired group selection while realized roots retain their package-local selection. | Existing `Traversal_TargetPolicyIsStructuralCurrency` and `Traversal_RealizedPollyContextsPreservePackageSelectionUnderDefaultTarget`; Platform-slot correspondence is unverified until adoption. |
+| One retained Workspace traversal target, never selected participant provenance, controls compatible candidate-acquired group selection while realized roots retain their package-local selection. | Existing `Traversal_TargetPolicyIsStructuralCurrency` and `Traversal_RealizedPollyContextsPreservePackageSelectionUnderDefaultTarget`; Workspace admission and Platform correspondence are unverified until adoption. |
 | Equal-coordinate realized contexts remain distinct root sources beneath one semantic package node. | `Traversal_EqualCoordinateRealizedContextsRemainDistinct` |
 | Realized contexts survive root-relative revisits and cycles without losing their source association. | `Traversal_RootRelativeDepthDoesNotUseGlobalVisitedSet`; `Traversal_CycleRetainsClosingEdgeAndTerminates` |
 | A realized incomplete context retains both its surviving declaration edge and typed failure. | `Traversal_RealizedIncompleteContextRetainsSurvivingEdgeAndFailure` |
-| The default .NET 12 Platform slot governs traversal without reselecting an explicit root. | Existing `Traversal_ProductDefaultDoesNotReselectRoot` gates root independence; slot authority is unverified until adoption. |
-| A realized .NET 11 Platform slot governs destination selection, pruning, and Platform binding as `net11.0`. | Unverified until the Platform-slot adoption lands. |
-| Missing required Platform realization fails visibly; only an explicit no-Platform mode may use an empty-slot fallback. | Unverified; no production no-Platform mode exists. |
+| The default `net11.0` Workspace target governs traversal without reselecting an explicit root. | Existing `Traversal_ProductDefaultDoesNotReselectRoot` gates root independence; the corrected default is unverified until adoption. |
+| An empty Workspace traverses a loaded package under its `net11.0` target without Platform realization. | Unverified until Workspace admission adoption lands. |
+| A configured Workspace target governs destination selection and admits only matching Platform pruning and binding evidence. | Unverified until Workspace/Platform correspondence adoption lands. |
+| Missing Platform realization does not prevent package traversal or manufacture Platform evidence. | Unverified until composed-operation adoption lands. |
 | A configured target with no compatible dependency group remains visible. | `Traversal_ConfiguredTargetNoMatchRemainsVisible` |
 | Manifest-only expansion never downloads a package archive. | `Traversal_ManifestExpansionUsesManifestBytesOnly` |
 | A shared operation deadline marks only roots with unfinished source work partial. | `Traversal_OperationDeadlineAffectsOnlyUnfinishedRoots` |
