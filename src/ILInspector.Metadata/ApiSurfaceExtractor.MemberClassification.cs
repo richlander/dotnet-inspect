@@ -46,9 +46,66 @@ internal interface IClassifiedMemberSink
 /// </summary>
 internal interface IAttachedExtensionSink
 {
-    bool Wants(MetadataTypeDefinitionName receiver, TypeDefinitionHandle declaringType);
+    bool Wants(in ExtensionReceiver receiver, TypeDefinitionHandle declaringType);
 
-    void Add(MetadataTypeDefinitionName receiver, in ClassifiedMember member);
+    void Add(in ExtensionReceiver receiver, in ClassifiedMember member);
+}
+
+/// <summary>
+/// The Type an extension method's first parameter names: a TypeDef, a TypeRef
+/// resolving to this module, or a primitive this module defines. It is decoded
+/// by the same signature walk as the receiver's name, but reads no name until
+/// a sink asks, so a sink that knows its receiver's TypeDef compares handles.
+/// </summary>
+internal readonly struct ExtensionReceiver
+{
+    readonly MetadataReader _reader;
+    readonly ApiSurfaceExtractor.ReceiverKey _key;
+
+    internal ExtensionReceiver(MetadataReader reader, ApiSurfaceExtractor.ReceiverKey key)
+    {
+        _reader = reader;
+        _key = key;
+    }
+
+    /// <summary>
+    /// The TypeDef the receiver names directly. Its name equals a Type's name
+    /// only when it is that Type's own row, so a caller holding the unique,
+    /// readable row of a name compares rows instead of names.
+    /// </summary>
+    public bool TryGetDefinition(out TypeDefinitionHandle definition)
+    {
+        if (_key.Handle.Kind == HandleKind.TypeDefinition)
+        {
+            definition = (TypeDefinitionHandle)_key.Handle;
+            return true;
+        }
+        definition = default;
+        return false;
+    }
+
+    /// <summary>
+    /// The receiver's definition name, or null when it names no readable
+    /// definition of this module.
+    /// </summary>
+    public MetadataTypeDefinitionName? ReadName()
+    {
+        if (_key.IsPrimitive)
+            return ApiSurfaceExtractor.GetLocalPrimitiveDefinition(_key.Primitive);
+        MetadataTypeDefinitionNameReadResult? read = _key.Handle.Kind switch
+        {
+            HandleKind.TypeDefinition => MetadataTypeDefinitionName.Read(
+                _reader,
+                (TypeDefinitionHandle)_key.Handle),
+            HandleKind.TypeReference => MetadataTypeDefinitionName.Read(
+                _reader,
+                (TypeReferenceHandle)_key.Handle),
+            _ => null,
+        };
+        return read is MetadataTypeDefinitionNameReadResult.Read valid
+            ? valid.Name
+            : null;
+    }
 }
 
 public static partial class ApiSurfaceExtractor
@@ -272,7 +329,7 @@ public static partial class ApiSurfaceExtractor
                         reader,
                         method.Name,
                         includeCompilerGenerated: false)
-                    || GetFirstParameterDefinitionName(reader, definition, method)
+                    || GetExtensionReceiver(reader, definition, method)
                         is not { } receiver
                     || !sink.Wants(receiver, handle))
                 {

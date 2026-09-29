@@ -217,24 +217,26 @@ public static partial class ApiSurfaceExtractor
     /// Adds each public, unhidden attached extension to its selected receiver
     /// Type's Member Count.
     /// </summary>
-    readonly struct SummaryAttachedExtensionSink(
+    struct SummaryAttachedExtensionSink(
         Dictionary<MetadataTypeDefinitionName, TypeDefinitionToken> selected,
         Dictionary<TypeDefinitionToken, int> counts)
         : IAttachedExtensionSink
     {
-        public bool Wants(
-            MetadataTypeDefinitionName receiver,
-            TypeDefinitionHandle declaringType)
-            => selected.TryGetValue(receiver, out TypeDefinitionToken target)
-                && target.Value != MetadataTokens.GetToken(declaringType);
+        TypeDefinitionToken _target;
 
-        public void Add(MetadataTypeDefinitionName receiver, in ClassifiedMember member)
+        public bool Wants(
+            in ExtensionReceiver receiver,
+            TypeDefinitionHandle declaringType)
+            => receiver.ReadName() is { } name
+                && selected.TryGetValue(name, out _target)
+                && _target.Value != MetadataTokens.GetToken(declaringType);
+
+        public readonly void Add(in ExtensionReceiver receiver, in ClassifiedMember member)
         {
             if (member.IsHidden)
                 return;
 
-            TypeDefinitionToken target = selected[receiver];
-            counts[target] = checked(counts[target] + 1);
+            counts[_target] = checked(counts[_target] + 1);
         }
     }
 
