@@ -70,22 +70,38 @@ category, quality judgment, or opaque distinctiveness score.
 
 ## Imported inputs
 
-One execution binds three independently owned inputs. Its exact Library
-currency is:
+One execution binds three independently owned inputs. Its exact Library image
+binding is:
 
 ```text
-LibraryImageIdentity
+LibraryImageBinding
+  ArtifactIdentity
+  ImmutableSourceCoordinate?   // when the acquisition owner supplies one
   AssemblyReferenceIdentity
   NonEmptyModuleVersionId
 ```
 
-This is a conceptual contract shape, not a new frozen CLR type. Metadata
-issues both values from one open image. Every Type address and optional
-provenance row carries that same non-empty MVID. A mismatched image identity,
-duplicate Type address, or provenance row outside the inventory rejects the
-optional provenance binding visibly; it never joins by name. The complete
-all-Type summary remains available when only the optional provenance binding
-is rejected.
+This is a conceptual contract shape, not a new frozen CLR type.
+[Assembly image lifetime](assembly-image-lifetime.md#identity-vocabulary)
+owns the distinction: `ArtifactIdentity` supplies the run-local outer artifact
+scope, an immutable source coordinate may supply a portable reacquisition
+scope, and MVID plus metadata token addresses a row only inside that module
+generation. `AssemblyReferenceIdentity + MVID` is never treated as global
+artifact identity.
+
+Metadata issues the assembly identity and MVID from one open image. The query
+binding retains the acquisition-issued `ArtifactIdentity` for that exact image
+and admits optional provenance only from the same artifact binding. It does
+not accept an independently supplied provenance collection whose only
+association is MVID or assembly name. A duplicate Type address or provenance
+row outside the bound inventory rejects the optional provenance binding
+visibly; it never joins by name. The complete all-Type summary remains
+available when only the optional provenance binding is rejected.
+
+The detached document retains the owner-issued immutable source coordinate
+when one exists. A local or otherwise mutable artifact retains an explicitly
+run-local binding receipt and non-projectable Share outcome; the document does
+not manufacture portability from its path, assembly identity, or MVID.
 
 ### Complete Type-definition inventory
 
@@ -107,7 +123,9 @@ non-public and nested Types, with:
 
 Research combines the non-empty MVID with each definition token to form the
 existing `MetadataTypeDefinitionAddress`. It does not derive an address from a
-structured or displayed name.
+structured or displayed name. A Type row's exact join currency is the bound
+artifact scope plus that address; the address alone is not cross-artifact
+identity.
 
 Type forwarders and referenced Type definitions are not members of this
 population. An empty, complete inventory is valid. A missing, failed, scoped,
@@ -147,7 +165,7 @@ baseline comparison.
 
 Library-local numbered-family evidence is derived once from the exact ordered
 name-stem population and passed to CSharpText as explicit textual context.
-Research associates that context with the `LibraryImageIdentity`, exact Type
+Research associates that context with the `LibraryImageBinding`, exact Type
 count, and grammar version in its own receipt. CSharpText neither references
 Metadata identity nor learns what a Library is. Research rejects results from
 another grammar version.
@@ -155,8 +173,8 @@ another grammar version.
 ### Source provenance
 
 Typed source provenance is optional for constructing the all-Type population.
-When supplied, it must belong to the same Library generation and classify
-each Type as:
+When supplied, it must come through the same `ArtifactIdentity` and open-image
+binding and classify each Type address as:
 
 - authored;
 - generated, retaining the owner-issued generator identity; or
@@ -310,7 +328,8 @@ unless that successor defines and names a transparent statistic.
 ## Graph and amplitude composition
 
 This document is not graph-shaped. Name-family membership is a caller-owned
-per-Type value that joins to graph results through exact Type identity.
+per-Type value that joins to graph results through exact bound Type identity:
+artifact scope plus `MetadataTypeDefinitionAddress`.
 
 It does not:
 
@@ -321,7 +340,7 @@ It does not:
 - define communities.
 
 A focused Research composition may later group Graph-issued topology or join
-Library Metrics amplitude by exact Type identity. That owner must preserve the
+Library Metrics amplitude by exact bound Type identity. That owner must preserve the
 Graph document receipt, relationship selection, direction, completion, and
 the name-family methodology receipt. It may not reconstruct either input from
 display names.
@@ -382,8 +401,8 @@ product-owned Metadata inventory and CSharpText word results:
 - `LibraryNameFamilies_SeparatesExactSpellings`: acronym, casing, and plural
   variants remain separate ordinal families.
 - `LibraryNameFamilies_RejectsIncompleteOrMismatchedInventory`: scoped,
-  incomplete, failed, and wrong-generation inputs fail visibly rather than
-  issuing success-shaped partial rows.
+  incomplete, failed, wrong-artifact, and wrong-module inputs fail visibly
+  rather than issuing success-shaped partial rows.
 - `LibraryNameFamilies_SeparatesSourcePopulations`: all, known-authored,
   generated, and unknown denominators and family counts remain distinct;
   unknown rows qualify rather than suppress the positive authored population.
@@ -416,8 +435,9 @@ gates.
    versioned oracle, and rule evidence.
 2. **Metadata binding:** Research consumes the existing
    `AssemblyInspectionSession.ModuleVersionId()` and complete
-   `TypeDeclarations()` inventory; no signature-use scan or new Metadata
-   population is required.
+   `TypeDeclarations()` inventory under the acquisition-issued
+   `ArtifactIdentity`; no signature-use scan or new Metadata population is
+   required.
 3. **Source provenance:** #8643 issues typed authored/generated/unknown
    classifications from the Metadata/PDB source owner.
 4. **Research:** this owner consumes the complete Metadata Type inventory and
@@ -432,8 +452,8 @@ gates.
    TypeScript.
 7. **Learning composition:** a focused Research composition joins family
    membership with Inspector.Graph structure and Library Metrics amplitude by
-   exact Type identity. The `project-analysis` workflow consumes those typed
-   results instead of parsing names or rebuilding counts.
+   exact bound Type identity. The `project-analysis` workflow consumes those
+   typed results instead of parsing names or rebuilding counts.
 
 Steps 1-4 establish the shared owner path. Step 5 is the first production host;
 step 6 completes shared-host adoption. Step 7 is a separate owner because it
