@@ -4,7 +4,9 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspect.Web.Interop.Metadata;
+using DotnetInspect.Web.Interop.Source;
 using ILInspector.Metadata;
 using NuGetFetch;
 using Analysis = ILInspector.Analysis;
@@ -493,6 +495,105 @@ public sealed class BrowserMemberDeclarationTests
             Assert.All(
                 document.Rows,
                 static row => Assert.Equal("Extension", row.Receiver));
+            Assert.Equal(requests, handler.Requests);
+        }
+        finally
+        {
+            await resolution.DisposeAsync();
+            await BrowserPackageWorkspace.RemoveScopeAsync(resolution.Scope);
+        }
+    }
+
+    [Fact]
+    public async Task SelectedPlatformMemberSourceUsesPlatformWorkspace()
+    {
+        const string framework = "net11.0";
+        const string version = "11.0.974";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        using var archiveBytes = new MemoryStream();
+        using (var archive = new ZipArchive(
+            archiveBytes,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using Stream entry = archive.CreateEntry(
+                $"runtimes/linux-x64/lib/net11.0/{AssemblyFileName}").Open();
+            entry.Write(image);
+        }
+
+        using var handler = new PlatformHandler(
+            version,
+            archiveBytes.ToArray());
+        using var client = new HttpClient(handler);
+        string assemblyName =
+            Path.GetFileNameWithoutExtension(AssemblyFileName);
+        var plan = new WorkspacePlan(
+            [],
+            [
+                new WorkspaceContextInput
+                {
+                    Framework = framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            assemblyName,
+                            version,
+                            framework),
+                    ],
+                },
+            ]);
+        BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenContextAsync(
+                plan,
+                plan.Contexts[0],
+                "runtime",
+                assemblyName,
+                client,
+                new UniformPackageSourceAuthorization(
+                    [PackageSource.NuGetOrg]),
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        try
+        {
+            ApiSurface surface = resolution.Scope.UseParticipant(
+                resolution.Participant,
+                BrowserMemberResolution.ImplementationSurface);
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate => candidate.FullName == SpellingType);
+            ApiMember member = Assert.Single(
+                type.Members,
+                candidate => candidate.Name == "PointerFreeUnsafeMethod");
+            int requests = handler.Requests;
+
+            string json =
+                await SourceExports.QueryPlatformMemberSource(
+                    framework,
+                    version,
+                    AssemblyFileName,
+                    "netcore.app",
+                    type.DefinitionName!.ToEscapedFullName(),
+                    member.Name,
+                    Analysis.CallGraphMemberResolver
+                        .CreateSelector(type, member).Key,
+                    member.MetadataToken ?? 0,
+                    "[]",
+                    Assert.IsType<string>(resolution.ContextId));
+            BrowserMemberSource source =
+                JsonSerializer.Deserialize(
+                    json,
+                    BrowserSourceJsonContext.Default.BrowserMemberSource)
+                ?? throw new InvalidOperationException(
+                    "The platform member Source export returned null.");
+
+            Assert.Equal("decompiled", source.Source.Provider);
+            Assert.Contains(
+                "PointerFreeUnsafeMethod",
+                source.Source.Text,
+                StringComparison.Ordinal);
+            Assert.Empty(source.Parts);
             Assert.Equal(requests, handler.Requests);
         }
         finally
