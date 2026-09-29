@@ -131,6 +131,27 @@ public static class MemberGroupPopulation
         return Check(asset);
     }
 
+    public static long PreparationAllocatedBytes(
+        string path,
+        MemberGroupScorecardScenario scenario)
+    {
+        using var asset = Asset.Open(path);
+        MetadataTypeDefinitionName declaringType =
+            TypeName(scenario.TypeName);
+        for (int warmup = 0; warmup < 5; warmup++)
+        {
+            GC.KeepAlive(
+                asset.Prepare(
+                    declaringType,
+                    scenario.MethodName));
+        }
+        return Measure(
+            () => asset.Prepare(
+                declaringType,
+                scenario.MethodName))
+            .AllocatedBytes;
+    }
+
     public static MemberGroupScorecardResult Measure(
         string path)
     {

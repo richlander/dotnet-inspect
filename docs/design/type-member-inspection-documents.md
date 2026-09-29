@@ -773,7 +773,10 @@ One execution has three phases:
 1. **Prepare.** Resolve one structured Type-definition name to one exact
    TypeDef. Validate and index MethodSemantics and other cross-table
    relationships that touch that Type. Preparation is bounded, generation-
-   specific, and reusable by every terminal in the execution.
+   specific, and reusable by every terminal in the execution. A single-subject
+   request does not construct a whole-image Type-definition index; such an
+   index is justified only when one generation will answer multiple Type
+   subjects.
 2. **Select.** Enumerate only the resolved TypeDef's MethodDefs in metadata
    order. Apply exact metadata name and ordinary-method membership, validated
    accessor exclusion, effective accessibility, receiver classification, and

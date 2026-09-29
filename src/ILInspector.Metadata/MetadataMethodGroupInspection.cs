@@ -445,23 +445,37 @@ internal static class MetadataMethodGroupInspection
         MetadataTypeDefinitionName declaringType,
         string methodName)
     {
-        MetadataTypeDefinitionIndex index =
-            MetadataTypeDefinitionIndex.Create(reader);
-        if (!index.TryGetDefinitions(
-                declaringType,
-                out ImmutableArray<TypeDefinitionHandle> definitions,
-                out bool ambiguous))
+        TypeDefinitionHandle typeHandle = default;
+        foreach (TypeDefinitionHandle candidate
+            in reader.TypeDefinitions)
+        {
+            MetadataTypeDefinitionNameMatchResult match =
+                MetadataTypeDefinitionName.Matches(
+                    reader,
+                    candidate,
+                    declaringType,
+                    out _);
+            if (match is MetadataTypeDefinitionNameMatchResult.Rejected)
+            {
+                return new PreparationResult.Rejected(
+                    new MetadataMethodGroupInspectionOutcome.Failed());
+            }
+            if (match is not MetadataTypeDefinitionNameMatchResult.Match)
+                continue;
+            if (!typeHandle.IsNil)
+            {
+                return new PreparationResult.Rejected(
+                    new MetadataMethodGroupInspectionOutcome
+                        .TypeAmbiguous());
+            }
+            typeHandle = candidate;
+        }
+        if (typeHandle.IsNil)
         {
             return new PreparationResult.Rejected(
                 new MetadataMethodGroupInspectionOutcome.TypeNotFound());
         }
-        if (ambiguous || definitions.Length != 1)
-        {
-            return new PreparationResult.Rejected(
-                new MetadataMethodGroupInspectionOutcome.TypeAmbiguous());
-        }
 
-        TypeDefinitionHandle typeHandle = definitions[0];
         TypeDefinition type = reader.GetTypeDefinition(typeHandle);
         if (!TryGetAccessorMethods(
                 reader,

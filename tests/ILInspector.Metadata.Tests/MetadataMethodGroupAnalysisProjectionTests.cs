@@ -43,6 +43,25 @@ public sealed class MetadataMethodGroupAnalysisProjectionTests
         AssertAnswer(oracle, planner);
     }
 
+    [Fact]
+    public void SingleSubjectPreparationDoesNotBuildWholeTypeIndex()
+    {
+        string path = typeof(System.Text.Json.JsonSerializer)
+            .Assembly.Location;
+        MemberGroupScorecardScenario scenario =
+            MemberGroupPopulation.Scenarios[0];
+
+        long allocated =
+            MemberGroupPopulation.PreparationAllocatedBytes(
+                path,
+                scenario);
+
+        Assert.True(
+            allocated < 4 * 1024,
+            $"Single-subject preparation allocated "
+                + $"{allocated:N0} bytes.");
+    }
+
     private static void AssertAnswer(
         MemberGroupProjectionAnswer expected,
         MemberGroupProjectionAnswer actual)
