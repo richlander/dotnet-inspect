@@ -39,13 +39,13 @@ printf 'scenario\tstate\tquery\tterminal\tsample\tseconds\trows\texit\tcache_mb\
 
 terminal_args() {
   case "$1" in
-    markdown) printf '%s\0' --markdown ;;
+    markdown) ;;
     json) printf '%s\0' --json --compact ;;
     jsonl) printf '%s\0' --jsonl ;;
     tsv) printf '%s\0' --tsv ;;
     table) printf '%s\0' --table ;;
     count) printf '%s\0' --count ;;
-    rows) printf '%s\0' --tsv --rows 1..3 ;;
+    rows) printf '%s\0' --tsv -n 3 ;;
     *)
       printf 'Unknown terminal: %s\n' "$1" >&2
       return 1
@@ -68,7 +68,8 @@ with open(sys.argv[1], "wb") as o, open(sys.argv[2], "wb") as e:
     t = time.perf_counter()
     r = subprocess.run(sys.argv[3:], stdout=o, stderr=e)
     print(f"{time.perf_counter() - t:.2f} {r.returncode}")
-' "$out" "$err" "$bin" find "$query" "$@" "${format_args[@]}")
+' "$out" "$err" "$bin" find "$query" "$@" \
+    ${format_args[@]+"${format_args[@]}"})
   local rows mb content_sha256
   case "$terminal" in
     json)
