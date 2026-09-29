@@ -1,12 +1,13 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
-/// The exact <c>package --content --out</c> export of a root README or a
-/// Skill reads its document by range: gates 11 to 13 of
+/// Exact <c>package --content</c> requests for a root README or a Skill read
+/// their document by range: gates 11 to 13 of
 /// <c>docs/design/package-read-demand.md</c>.
 /// </summary>
 public sealed partial class ConfiguredPayloadAcquisitionTests
@@ -16,12 +17,13 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
     /// <summary>
     /// Gates 11 and 13, real asset Newtonsoft.Json 13.0.4 (2.5 MB, root
-    /// README.md): the cold export is the size probe, the directory tail, and
-    /// one span for the root folder, and writes the README's exact bytes; the
-    /// second export is answered by the entry cache with no package request.
+    /// README.md): the cold file projection is the size probe, the directory
+    /// tail, and one span for the root folder, and writes the README's exact
+    /// bytes; warm file, raw, separator, and JSONL projections are answered by
+    /// the entry cache with no package request.
     /// </summary>
     [Fact]
-    public async Task PackageCommand_ReadmeExport_RealNewtonsoftArchive_ReadsTheRootFolderByRange()
+    public async Task PackageCommand_ReadmeContent_RealNewtonsoftArchive_ReadsTheRootFolderByRange()
     {
         byte[] package = await ReadNewtonsoftAsync();
         var feed = new RangeHonoringFeedHandler(
@@ -71,6 +73,59 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             warm.Error,
             StringComparison.Ordinal);
         Assert.Equal(1, feed.FullPackageResponses);
+        Assert.Equal(ranged, feed.RangedResponses);
+        Assert.Equal(served, feed.PackageBytesServed);
+
+        var stdout = await RunCommandAsync(
+            ["package", $"{NewtonsoftId}@{NewtonsoftVersion}", "--source", FirstFeed,
+                "--path", "README.md", "--content", "--raw",
+                "--prefer-rendered-urls",
+                "--verbose", "--tips", "q"]);
+
+        Assert.True(stdout.Exit == 0, stdout.Error);
+        Assert.Equal(
+            Encoding.UTF8.GetString(ReadEntry(package, "README.md"))
+                .ReplaceLineEndings("\n")
+                .Trim(),
+            stdout.Output.ReplaceLineEndings("\n").Trim());
+        Assert.Contains(
+            "EntryCache, 0 package requests, 0 bytes received",
+            stdout.Error,
+            StringComparison.Ordinal);
+        Assert.Equal(ranged, feed.RangedResponses);
+        Assert.Equal(served, feed.PackageBytesServed);
+
+        var blocks = await RunCommandAsync(
+            ["package", $"{NewtonsoftId}@{NewtonsoftVersion}", "--source", FirstFeed,
+                "--path", "README.md", "--content",
+                "--verbose", "--tips", "q"]);
+
+        Assert.True(blocks.Exit == 0, blocks.Error);
+        Assert.Contains(
+            "------------ newtonsoft.json :: README.md ------------",
+            blocks.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "EntryCache, 0 package requests, 0 bytes received",
+            blocks.Error,
+            StringComparison.Ordinal);
+
+        var jsonl = await RunCommandAsync(
+            ["package", $"{NewtonsoftId}@{NewtonsoftVersion}", "--source", FirstFeed,
+                "--path", "README.md", "--content", "--jsonl",
+                "--verbose", "--tips", "q"]);
+
+        Assert.True(jsonl.Exit == 0, jsonl.Error);
+        using JsonDocument json = JsonDocument.Parse(jsonl.Output);
+        Assert.Equal(
+            "README.md",
+            json.RootElement.GetProperty("path").GetString());
+        Assert.False(string.IsNullOrEmpty(
+            json.RootElement.GetProperty("content").GetString()));
+        Assert.Contains(
+            "EntryCache, 0 package requests, 0 bytes received",
+            jsonl.Error,
+            StringComparison.Ordinal);
         Assert.Equal(ranged, feed.RangedResponses);
         Assert.Equal(served, feed.PackageBytesServed);
     }
@@ -133,12 +188,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         var result = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
-                "--path", "skills/demo/SKILL.md", "--content", "--out", outputPath,
+                "--path", "skills/demo/SKILL.md", "--content", "--raw",
                 "--verbose", "--tips", "q"]);
 
         Assert.True(result.Exit == 0, result.Error);
-        Assert.Empty(result.Output);
-        Assert.Equal(Skill, File.ReadAllText(outputPath));
+        Assert.Equal(Skill.Trim(), result.Output.Trim());
         // The nuspec and README (root), and the Skill with its reference;
         // neither the other Skill nor the filler.
         Assert.Contains("4 of 6 entries", result.Error, StringComparison.Ordinal);
@@ -146,6 +200,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(
             feed.PackageBytesServed < 128 * 1024,
             $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+
+        var export = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "--path", "skills/demo/SKILL.md", "--content", "--out", outputPath,
+                "--tips", "q"]);
+
+        Assert.True(export.Exit == 0, export.Error);
+        Assert.Empty(export.Output);
+        Assert.Equal(Skill, File.ReadAllText(outputPath));
     }
 
     /// <summary>

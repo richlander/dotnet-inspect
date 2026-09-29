@@ -25,6 +25,7 @@ using Markout;
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace DotnetInspect.Cli.Commands;
@@ -79,7 +80,7 @@ public partial class PackageCommand
             return 1;
 
         int? houseResult =
-            await TryWriteLiteralHouseDocumentExportAsync(
+            await TryWriteLiteralHouseDocumentContentAsync(
                     targets,
                     options,
                     context)
@@ -245,7 +246,7 @@ public partial class PackageCommand
         }
     }
 
-    private static bool TryCreateLiteralHouseDocumentExport(
+    private static bool TryCreateLiteralHouseDocumentContent(
         IReadOnlyList<PackageReferenceTarget> targets,
         InspectionOptions options,
         [NotNullWhen(true)] out PackageReferenceTarget? target,
@@ -262,8 +263,7 @@ public partial class PackageCommand
             || selectedTarget.IsLocalFile
             || DotnetInspector.Networking.HttpClientFactory.IsOffline
             || options.ForceLatest
-            || !RequiresUnaryPackageContent(options)
-            || !HasUnstructuredOutputPath(options)
+            || LensProjection.IsRequested(options)
             || options.ContentScope != PackageFileContentScope.Full
             || options.Rows is not null
             || !string.IsNullOrWhiteSpace(options.Tfm)
@@ -296,12 +296,12 @@ public partial class PackageCommand
     }
 
     private static async Task<int?>
-        TryWriteLiteralHouseDocumentExportAsync(
+        TryWriteLiteralHouseDocumentContentAsync(
             IReadOnlyList<PackageReferenceTarget> targets,
             InspectionOptions options,
             CommandContext context)
     {
-        if (!TryCreateLiteralHouseDocumentExport(
+        if (!TryCreateLiteralHouseDocumentContent(
                 targets,
                 options,
                 out PackageReferenceTarget? target,
@@ -312,7 +312,7 @@ public partial class PackageCommand
             return null;
         }
 
-        return await WriteLiteralHouseDocumentExportAsync(
+        return await WriteLiteralHouseDocumentContentAsync(
                 target,
                 pinnedVersion,
                 documentPath,
@@ -322,7 +322,7 @@ public partial class PackageCommand
             .ConfigureAwait(false);
     }
 
-    private static async Task<int?> WriteLiteralHouseDocumentExportAsync(
+    private static async Task<int?> WriteLiteralHouseDocumentContentAsync(
         PackageReferenceTarget target,
         string pinnedVersion,
         string documentPath,
@@ -339,7 +339,7 @@ public partial class PackageCommand
             return 1;
         }
 
-        // The export names its document directly, so an archive above the
+        // The request names its document directly, so an archive above the
         // size cut is read by range: the root folder and, for a Skill, the
         // Skill's folder (docs/design/package-read-demand.md#document-demand).
         PackageDocumentDemand documents;
@@ -399,36 +399,32 @@ public partial class PackageCommand
             return null;
         }
 
-        if (settlement.Payload.Content
-                is not IPackageContentEntryManifest manifest)
+        if (!isSkill
+            && HasUnstructuredOutputPath(options)
+            && ProjectionDestinationWriter.IsFile(destination))
         {
-            return null;
-        }
+            PackageDocumentEntryResolution resolution =
+                PackageDocumentEntryResolver.Resolve(
+                    settlement,
+                    documentPath);
+            if (resolution.Status
+                == PackageDocumentEntryResolutionStatus.ManifestUnavailable)
+            {
+                return null;
+            }
+            if (TryWritePackageDocumentSelectionFailure(
+                    resolution.Status))
+            {
+                return 1;
+            }
 
-        PackageContentEntry[] matchingEntries =
-        [
-            .. manifest.EnumerateEntriesWithLengths()
-                .Where(entry => entry.Path.Equals(
-                    documentPath,
-                    StringComparison.OrdinalIgnoreCase))
-                .Take(2),
-        ];
-        if (matchingEntries is not [var matchingEntry])
-        {
-            CommandError.Write(
-                "--content --out requires exactly one selected package "
-                + $"content file; found {matchingEntries.Length}.");
-            return 1;
-        }
-        documentPath = matchingEntry.Path;
-        long expandedLength = matchingEntry.Length;
-
-        await using PackageHousePayloadRead input =
-            settlement.OpenPayloadRead(
-                documentPath,
-                expandedLength);
-        if (!isSkill)
-        {
+            PackageContentEntry entry = resolution.Entry
+                ?? throw new InvalidOperationException(
+                    "A resolved package document entry is required.");
+            await using PackageHousePayloadRead input =
+                settlement.OpenPayloadRead(
+                    entry.Path,
+                    entry.Length);
             await ProjectionDestinationWriter.WriteExactBytesAsync(
                     destination,
                     input)
@@ -436,20 +432,82 @@ public partial class PackageCommand
             return 0;
         }
 
-        var file = new PackageFileContent(
+        InspectionEnvelope<PackageDocumentContentDocument> inspection =
+            await PackageDocumentContentInspection.ExecuteAsync(
+                    new(settlement, documentPath))
+                .ConfigureAwait(false);
+        if (inspection.Content.Status
+            != PackageDocumentContentStatus.Completed)
+        {
+            string? selectionFailure = inspection.Diagnostics
+                .Select(static diagnostic => diagnostic.Code switch
+                {
+                    "package-document-content.entry-missing" =>
+                        "--content requires exactly one selected package "
+                        + "content file; found 0.",
+                    "package-document-content.entry-ambiguous" =>
+                        "--content requires exactly one selected package "
+                        + "content file; found 2.",
+                    _ => null,
+                })
+                .FirstOrDefault(static message => message is not null);
+            if (selectionFailure is not null)
+            {
+                CommandError.Write(selectionFailure);
+                return 1;
+            }
+
+            CommandError.Write(
+                "Could not read the selected package document.",
+                inspection.Content.Detail?.ToString()
+                    ?? "The package document content operation failed.");
+            return 1;
+        }
+
+        PackageDocumentContentDocument document = inspection.Content;
+        byte[] exactContent =
+            ImmutableCollectionsMarshal.AsArray(document.Content) ?? [];
+        var file = new PackageFile(
+            document.Path!,
+            document.Size,
+            IsReadme: !isSkill);
+        PackageFileContent content = CreatePackageFileContent(
             target.PackageName,
             pinnedVersion,
-            documentPath,
-            expandedLength,
-            Found: true,
-            Content: string.Empty);
-        PackageFileContent content = ReadPackageSkillContent(
-            input,
             file,
-            normalizeGithubLinksToRaw: !options.PreferRenderedUrls);
-        ContainmentDiagnosticOutput.Write(content.SelectedContent);
-        WritePackageFileExport(content, destination);
-        return 0;
+            options.ContentScope,
+            normalizeGithubLinksToRaw: !options.PreferRenderedUrls,
+            includeExactContent:
+                !isSkill && HasUnstructuredOutputPath(options),
+            exactContent);
+        return PrintPackageFileContents(
+            [
+                new PackageFileContentSet(
+                    target.PackageName,
+                    pinnedVersion,
+                    [content]),
+            ],
+            options);
+    }
+
+    private static bool TryWritePackageDocumentSelectionFailure(
+        PackageDocumentEntryResolutionStatus status)
+    {
+        string? message = status switch
+        {
+            PackageDocumentEntryResolutionStatus.Missing =>
+                "--content requires exactly one selected package "
+                + "content file; found 0.",
+            PackageDocumentEntryResolutionStatus.Ambiguous =>
+                "--content requires exactly one selected package "
+                + "content file; found 2.",
+            _ => null,
+        };
+        if (message is null)
+            return false;
+
+        CommandError.Write(message);
+        return true;
     }
 
     private static bool MayRequireLegacyToolWrapperHandling(
@@ -1677,6 +1735,25 @@ public partial class PackageCommand
         var fullPath = Path.Combine(extractPath, file.Path.Replace('/', Path.DirectorySeparatorChar));
         byte[] exactContent = File.ReadAllBytes(fullPath);
 
+        return CreatePackageFileContent(
+            packageName,
+            version,
+            file,
+            scope,
+            normalizeGithubLinksToRaw,
+            includeExactContent,
+            exactContent);
+    }
+
+    private static PackageFileContent CreatePackageFileContent(
+        string packageName,
+        string version,
+        PackageFile file,
+        PackageFileContentScope scope,
+        bool normalizeGithubLinksToRaw,
+        bool includeExactContent,
+        byte[] exactContent)
+    {
         // Scoping and link rewriting are Markdown conventions. Applied to anything else they
         // corrupt the document the package shipped rather than presenting it, and the caller
         // has no way to see that it happened. So Markdown documents are presented, and every
@@ -1725,27 +1802,6 @@ public partial class PackageCommand
             content,
             file.IsReadme,
             includeExactContent ? exactContent : null);
-    }
-
-    private static PackageFileContent ReadPackageSkillContent(
-        Stream input,
-        PackageFileContent file,
-        bool normalizeGithubLinksToRaw)
-    {
-        string sourceContent = ReadText(input);
-        string content = MarkdownContent.ApplyScope(
-            sourceContent,
-            PackageFileContentScope.Full,
-            out int sourceLineOffset);
-        return PreparePackageSkillContent(
-            file.Package,
-            file.Version,
-            file.Path,
-            content,
-            sourceLineOffset,
-            file.Size,
-            file.IsReadme,
-            normalizeGithubLinksToRaw);
     }
 
     private static PackageFileContent PreparePackageSkillContent(
