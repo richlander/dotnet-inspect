@@ -96,6 +96,7 @@ type SourceOperations =
   | "queryMemberFindingCensus"
   | "queryMemberSource"
   | "queryPlatformMemberSource"
+  | "queryPlatformTypeSource"
   | "queryMethodBodyComparison"
   | "queryMethodBodyComparisonTargets"
   | "queryTypeExplorer"

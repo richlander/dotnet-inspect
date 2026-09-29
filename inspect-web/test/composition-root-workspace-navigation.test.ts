@@ -1872,7 +1872,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.libraryOpen\s*\|\| state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| documentViewerIsOpen\(state\.docViewer\)\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| memberDiffExplorer\.isOpen\s*\|\| graphExplorer\.isOpen;/);
   assert.match(
     appSource,
-    /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
+    /const selection = \{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)[\s\S]*sourceInspection\.loadTypeSource\(\{\s*\.\.\.selection/);
   assert.match(
     typeSourceAuthority,
     /case "terminal":[\s\S]*state\.typeSource = event\.outcome\.kind === "succeeded"[\s\S]*if \(context\.request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(\s*context\.preservedFocus,/);

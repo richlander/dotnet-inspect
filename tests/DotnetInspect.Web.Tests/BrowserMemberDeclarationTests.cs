@@ -5,6 +5,7 @@ using System.Text.Json;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspect.Web.Interop.Metadata;
 using DotnetInspect.Web.Interop.Source;
 using ILInspector.Metadata;
@@ -656,6 +657,222 @@ public sealed class BrowserMemberDeclarationTests
                 source.Source.Text,
                 StringComparison.Ordinal);
             Assert.Empty(source.Parts);
+            Assert.Equal(requests, handler.Requests);
+        }
+        finally
+        {
+            await resolution.DisposeAsync();
+            await BrowserPackageWorkspace.RemoveScopeAsync(resolution.Scope);
+        }
+    }
+
+    [Fact]
+    public async Task PlatformTypeSourceDecompilesSystemTextJsonJsonArray()
+    {
+        const string framework = "net11.0";
+        const string version = "11.0.976";
+        const string assemblyFileName = "System.Text.Json.dll";
+        byte[] image = File.ReadAllBytes(
+            typeof(System.Text.Json.Nodes.JsonArray).Assembly.Location);
+        using var archiveBytes = new MemoryStream();
+        using (var archive = new ZipArchive(
+            archiveBytes,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using Stream entry = archive.CreateEntry(
+                $"runtimes/linux-x64/lib/net11.0/{assemblyFileName}").Open();
+            entry.Write(image);
+        }
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                "microsoft.netcore.app.runtime.linux-x64",
+                version,
+                archiveBytes.ToArray(),
+                fromCache: false));
+
+        BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                framework,
+                version,
+                assemblyFileName,
+                "netcore.app",
+                TestContext.Current.CancellationToken);
+        try
+        {
+            ApiSurface surface = resolution.Scope.UseParticipant(
+                resolution.Participant,
+                BrowserMemberResolution.ImplementationSurface);
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate =>
+                    candidate.FullName
+                    == "System.Text.Json.Nodes.JsonArray");
+
+            BrowserTypeSourceResult result =
+                JsonSerializer.Deserialize(
+                    await SourceExports.QueryPlatformTypeSource(
+                        Guid.NewGuid().ToString(),
+                        framework,
+                        version,
+                        assemblyFileName,
+                        "netcore.app",
+                        type.DefinitionName!.ToEscapedFullName(),
+                        "[]",
+                        "decompiler-source"),
+                    BrowserSourceJsonContext.Default
+                        .BrowserTypeSourceResult)
+                ?? throw new InvalidOperationException(
+                    "The System.Text.Json platform Type Source export "
+                    + "returned null.");
+
+            Assert.Equal(
+                BrowserTypeSourceResultKind.Succeeded,
+                result.Kind);
+            var source =
+                Assert.IsType<BrowserTypeCodeView.Source>(result.Value);
+            Assert.Equal("decompiled", source.Value.Provider);
+            Assert.Contains(
+                "class JsonArray",
+                source.Value.Text,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                $"runtime {version} System.Text.Json",
+                source.Value.Provenance.ToString(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            await resolution.DisposeAsync();
+            await BrowserPackageWorkspace.RemoveScopeAsync(resolution.Scope);
+        }
+    }
+
+    [Fact]
+    public async Task SelectedPlatformTypeSourceUsesRetainedPlatformWorkspace()
+    {
+        const string framework = "net11.0";
+        const string version = "11.0.975";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        using var archiveBytes = new MemoryStream();
+        using (var archive = new ZipArchive(
+            archiveBytes,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using Stream entry = archive.CreateEntry(
+                $"runtimes/linux-x64/lib/net11.0/{AssemblyFileName}").Open();
+            entry.Write(image);
+        }
+
+        using var handler = new PlatformHandler(
+            version,
+            archiveBytes.ToArray());
+        using var client = new HttpClient(handler);
+        string assemblyName =
+            Path.GetFileNameWithoutExtension(AssemblyFileName);
+        var plan = new WorkspacePlan(
+            [],
+            [
+                new WorkspaceContextInput
+                {
+                    Framework = framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            assemblyName,
+                            version,
+                            framework),
+                    ],
+                },
+            ]);
+        BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenContextAsync(
+                plan,
+                plan.Contexts[0],
+                "runtime",
+                assemblyName,
+                client,
+                new UniformPackageSourceAuthorization(
+                    [PackageSource.NuGetOrg]),
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        try
+        {
+            ApiSurface surface = resolution.Scope.UseParticipant(
+                resolution.Participant,
+                BrowserMemberResolution.ImplementationSurface);
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate => candidate.FullName == SpellingType);
+            int requests = handler.Requests;
+            string contextId = Assert.IsType<string>(resolution.ContextId);
+
+            BrowserTypeSourceResult source =
+                JsonSerializer.Deserialize(
+                    await SourceExports.QueryPlatformTypeSource(
+                        Guid.NewGuid().ToString(),
+                        framework,
+                        version,
+                        AssemblyFileName,
+                        "netcore.app",
+                        type.DefinitionName!.ToEscapedFullName(),
+                        "[]",
+                        "decompiler-source",
+                        contextId),
+                    BrowserSourceJsonContext.Default
+                        .BrowserTypeSourceResult)
+                ?? throw new InvalidOperationException(
+                    "The platform Type Source export returned null.");
+
+            Assert.Equal(
+                BrowserTypeSourceResultKind.Succeeded,
+                source.Kind);
+            var sourceView =
+                Assert.IsType<BrowserTypeCodeView.Source>(source.Value);
+            Assert.Equal("decompiled", sourceView.Value.Provider);
+            Assert.Contains(
+                "MemorySafetySpellingFixture",
+                sourceView.Value.Text,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                $"runtime {version} {assemblyName}",
+                sourceView.Value.Provenance.ToString(),
+                StringComparison.Ordinal);
+            Assert.Null(sourceView.Value.PdbSourceLimitation);
+
+            BrowserTypeSourceResult declarations =
+                JsonSerializer.Deserialize(
+                    await SourceExports.QueryPlatformTypeSource(
+                        Guid.NewGuid().ToString(),
+                        framework,
+                        version,
+                        AssemblyFileName,
+                        "netcore.app",
+                        type.DefinitionName.ToEscapedFullName(),
+                        "[]",
+                        "api-declarations",
+                        contextId),
+                    BrowserSourceJsonContext.Default
+                        .BrowserTypeSourceResult)
+                ?? throw new InvalidOperationException(
+                    "The platform Type declarations export returned null.");
+            var declarationView =
+                Assert.IsType<BrowserTypeCodeView.ApiDeclarations>(
+                    declarations.Value);
+            Assert.Equal(
+                TypeApiDeclarationOutcome.Available,
+                declarationView.Inspection.Content.Outcome);
+            Assert.Equal(
+                TypeApiDeclarationScope.ApiVisible,
+                declarationView.Inspection.Content.Scope);
+            Assert.Contains(
+                "MemorySafetySpellingFixture",
+                Assert.IsType<string>(
+                    declarationView.Inspection.Content.Text),
+                StringComparison.Ordinal);
             Assert.Equal(requests, handler.Requests);
         }
         finally

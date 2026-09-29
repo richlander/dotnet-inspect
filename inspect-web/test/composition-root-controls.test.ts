@@ -81,6 +81,9 @@ test("shared HTML escaping covers text and attribute delimiters", () => {
 test("platform type and member navigation hides package-only operations", () => {
   assert.deepEqual(
     typeLensesFor({ isRuntimePack: true }).map(([id]) => id),
+    ["api", "source"]);
+  assert.deepEqual(
+    typeLensesFor({ source: { kind: "file" } }).map(([id]) => id),
     ["api"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
