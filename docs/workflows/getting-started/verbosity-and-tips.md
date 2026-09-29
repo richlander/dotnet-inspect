@@ -1,7 +1,7 @@
 ---
 id: verbosity-and-tips
 description: Verbosity levels, section selection, row counts, and contextual tips behavior
-commands: [-v, -D, -S, --count]
+commands: [-v, -T, -D, -S, --count]
 areas: [output, verbosity, sections, count, tips]
 ---
 
@@ -15,20 +15,24 @@ Verbosity levels:
 
 | Level | Flag | Content | Tips |
 | ----- | ---- | ------- | ---- |
-| Quiet | `-v:q` | Compact identity and context | No |
-| Minimal (default) | `-v:m` or none | One high-value base section | Yes |
-| Normal | `-v:n` | Multiple base sections | No |
-| Detailed | `-v:d` | All applicable base sections | No |
+| Quiet | `-v:q` | Compact identity and context | With `-T` |
+| Minimal (default) | `-v:m` or none | One high-value base section | With `-T` |
+| Normal | `-v:n` | Multiple base sections | With `-T` |
+| Detailed | `-v:d` | All applicable base sections | With `-T` |
+
+Post-success contextual tips are opt-in, and their level is independent of
+output verbosity. Use bare `-T` (or `--tips`) for up to three suggestions on
+`stderr`, and `-T:d` for up to six. `-T:q` is accepted as an explicit quiet
+setting.
 
 The `member` command follows the same scale for member lists. A selected overload defaults to `Signature`; normal verbosity adds bounded local implementation sections: `Decompiled Source` (raised C# without IL comments) and `IL` (raw IL). `Source Locations` is an explicit SourceLink file/line URL table that does not fetch source bodies. `Annotated Source` is the mixed C#+IL view with hidden-fact comments; `PDB Source` is Portable-PDB-selected, checksum-verified source acquired locally or through SourceLink. `-S @Source` selects the authored-first `Source`, forced PDB and decompiled provider views, and `Source Diff`; `-S @Decompiler` selects decompiler and analysis views such as `Annotated Source` and `IL`. The `Facts` section — the structured member/offset/line-keyed table of the same Research overlay facts — is opt-in via `-S "Facts"` / `--tsv`.
 
 Discovery (`-D`) lists available sections and category doors. Section
 selection (`-S`, with lowercase `-s` as an alias) filters to specific sections;
-the option requires a section, category, or wildcard argument. Tips are
-suppressed when sections are selected. `--count` with exactly one selected
-section returns a single integer count. One selected type/member source payload
-prints its content by default; use `--markdown` for document presentation.
-Mixed section selections remain Markdown documents.
+the option requires a section, category, or wildcard argument. `--count` with
+exactly one selected section returns a single integer count. One selected
+type/member source payload prints its content by default; use `--markdown` for
+document presentation. Mixed section selections remain Markdown documents.
 
 ## Preconditions
 
@@ -50,7 +54,8 @@ dotnet-inspect System.CommandLine@2.0.3 -v:q
 
 ## 1. Default verbosity (package)
 
-> Goal: Default shows H1, description, the primary information section, and tips on stderr.
+> Goal: Default shows H1, description, and the primary information section
+> without tips.
 
 ```prompt
 Tell me about System.CommandLine. What are the key metrics?
@@ -71,6 +76,18 @@ dotnet-inspect System.CommandLine@2.0.3
 grep '^# '
 grep '| Version |'
 grep '^## '
+```
+
+```expect-not
+Tips:
+```
+
+### 1a. Opt into tips
+
+> Goal: `-T` adds contextual suggestions on stderr without changing stdout.
+
+```bash
+dotnet-inspect System.CommandLine@2.0.3 -T
 ```
 
 ```expect-stderr

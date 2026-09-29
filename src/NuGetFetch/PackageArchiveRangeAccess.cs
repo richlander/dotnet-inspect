@@ -25,7 +25,8 @@ public interface IPackageArchiveRangeSource
         ZipReadLimits limits,
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null,
-        PackageArchiveRequestLog? requestLog = null);
+        PackageArchiveRequestLog? requestLog = null,
+        long? knownArchiveLength = null);
 }
 
 /// <summary>The range-specific ways a read can be refused; each is owned by the capability.</summary>

@@ -102,7 +102,7 @@ public sealed class PlatformLibraryContentSelection
                     assembly.Identity,
                     identity.Identity),
             PlatformLibraryDemand.AssemblyReferenceBinding binding =>
-                PlatformAssemblyReferenceBindingPolicy.MatchesCandidate(
+                PlatformAssemblyReferenceBindingPolicy.OwnsName(
                     binding,
                     identity.Identity),
             PlatformLibraryDemand.PlatformLibrary => true,
