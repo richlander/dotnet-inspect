@@ -62,7 +62,7 @@ async function startEngineCore(origin: string): Promise<void> {
   // Host policy is configured before the entry point starts application work, and only the
   // host facade's entry point runs.
   const host = await hostFacade();
-  host.configureHost(origin);
+  await host.configureHost(origin);
   await host.runEntryPoint();
 }
 

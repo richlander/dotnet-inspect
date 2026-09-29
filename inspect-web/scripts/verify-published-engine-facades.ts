@@ -31,7 +31,7 @@ interface FacadeModule extends Record<string, unknown> {
 interface HostFacade extends FacadeModule {
   asyncLoweringCanary(): Promise<string>;
   buildIdentity(): unknown;
-  configureHost(origin: string): void;
+  configureHost(origin: string): Promise<void>;
 }
 
 const productionFacades: readonly FacadeIdentity[] = [
@@ -323,7 +323,7 @@ export function inspectWebRuntimeObservation() {
   const operations: string[] = [];
   let version = "deployment";
   if (modeArgument === "production") {
-    host.configureHost("https://dotnet-inspect.net");
+    await host.configureHost("https://dotnet-inspect.net");
     const identity: unknown = host.buildIdentity();
     assert.ok(
       isRecord(identity) && typeof identity.version === "string",
