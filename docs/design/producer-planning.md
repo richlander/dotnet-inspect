@@ -404,6 +404,11 @@ The gate offers two tiers of access:
 A row the gate cannot read is a recoverable failure, handled as in
 [Outcomes are per producer and typed](#outcomes-are-per-producer-and-typed).
 
+The gate's classifications are cached per execution and per classifier, so
+producers sharing a classifier share its answer for each type and row. Each
+producer resolves its classifier's cache once per execution, not per row
+(`GateCache_IsResolvedOncePerProducerInKernelAndInterpretedPasses`).
+
 **Field demand is declared before work.** A producer declares the fields it
 reads, in the same vocabulary as its data layers, `MethodDefinitionLayers`:
 `Flags`, `NameComparison`, `AttributeTypeMatch`, `SignatureShape`, and

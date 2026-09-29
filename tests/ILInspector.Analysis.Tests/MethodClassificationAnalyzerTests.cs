@@ -271,6 +271,36 @@ public sealed class MethodClassificationAnalyzerTests
     }
 
     [Theory]
+    [InlineData(ProducerTerminal.Exists)]
+    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Rows)]
+    public void GateCache_IsResolvedOncePerProducerInKernelAndInterpretedPasses(ProducerTerminal terminal)
+    {
+        GateFixtureImage builder = new();
+        builder.Type("N", "First").Method("A").Method("B", PointerParameter()).Method("C");
+        builder.Type("N", "Second").Method("D", PointerParameter()).Method("get_E").Method("F");
+        builder.Type("N", "<Generated>").Method("G", PointerParameter());
+        ImmutableArray<byte> image = builder.Build();
+
+        // Alone, the analyzer's pass runs as its kernel.
+        MethodDefinitionExecution kernel = Execute(image, new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal));
+        Assert.Equal(1, kernel.GateCacheLookups);
+
+        // Beside an independent producer, the pass is interpreted.
+        MethodDefinitionExecution interpreted = Execute(
+            image,
+            new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal),
+            new ProducerRequest(Independent.Instance));
+        Assert.Equal(1, interpreted.GateCacheLookups);
+
+        // Both pass shapes answer as before.
+        ClosedQueryResult<ClassifiedMethodRow> alone = kernel.ResultOf(PointerSignatureAnalyzer.Instance).Value!;
+        ClosedQueryResult<ClassifiedMethodRow> fused = interpreted.ResultOf(PointerSignatureAnalyzer.Instance).Value!;
+        Assert.Equal(terminal == ProducerTerminal.Exists ? 1 : 2, alone.Count);
+        Assert.Equal(alone.Count, fused.Count);
+    }
+
+    [Theory]
     [InlineData(ProducerTerminal.Rows, ProducerTerminal.Complete)]
     [InlineData(ProducerTerminal.Complete, ProducerTerminal.Rows)]
     [InlineData(ProducerTerminal.Rows, ProducerTerminal.Exists)]
