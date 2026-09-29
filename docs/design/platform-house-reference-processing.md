@@ -61,6 +61,9 @@ The design depends on:
 - the
   [Assembly Reference Resolution Ladder](assembly-reference-resolution-ladder.md)
   for the ordering and lifetime of an applicable-platform rung; and
+- [Platform assembly-reference binding](platform-assembly-reference-binding.md)
+  for target-aware binding of an arbitrary source `AssemblyRef` to one
+  canonical Library identity in an exact selected target; and
 - [DocumentationHouse](documentation-house.md) for downstream documentation
   settlement over owner-issued platform reference and implementation evidence.
 
@@ -1397,6 +1400,13 @@ advance the ladder. A completed platform `NoNameOwner` lets the ladder proceed
 under its own contract. `NameOwnedNoMatch`, ambiguity, unavailable evidence,
 rejection, or incomplete work retain their existing terminal meaning.
 
+[Platform assembly-reference binding](platform-assembly-reference-binding.md)
+owns the target-aware extension needed when the source `AssemblyRef` version
+differs from the selected target Library. That extension uses a distinct
+namesake binding demand, returns the realized member's canonical identity, and
+then invokes exact realization where implementation content is required. It
+does not weaken the exact operation below.
+
 ### Exact source-neutral binding execution
 
 The source-neutral binding kernel starts after source policy selects one
@@ -1406,6 +1416,11 @@ assembly-reference target. It accepts an exact-target
 one authoritative reference realization for that same request and identity,
 and finite work. Source discovery, target selection, and source-relative
 ladder continuation remain outside this boundary.
+
+The implemented kernel and its `PlatformLibraryDemand.Assembly` source
+lowering require exact identity equivalence. They are the exact-demand control
+for the target-aware extension, not the mechanism by which an older source
+identity is made canonical.
 
 PlatformHouse owns the snapshot from acceptance onward. A completed operation
 has these ordered obligations:
