@@ -1,4 +1,3 @@
-using DotnetInspector.Libraries;
 using DotnetInspector.Platforms;
 
 namespace DotnetInspector.PlatformHouse;
@@ -49,17 +48,18 @@ public sealed class PlatformPopulationMemberAttribution :
 public sealed class PlatformPopulationMember
 {
     internal PlatformPopulationMember(
-        LibraryReference library,
-        PlatformPopulationMemberAttribution attribution)
+        PlatformLibraryReference platformLibrary,
+        PlatformPopulationMemberRole role)
     {
-        ArgumentNullException.ThrowIfNull(library);
-        ArgumentNullException.ThrowIfNull(attribution);
-        Library = library;
-        Attribution = attribution;
+        ArgumentNullException.ThrowIfNull(platformLibrary);
+        if (!Enum.IsDefined(role))
+            throw new ArgumentOutOfRangeException(nameof(role));
+
+        PlatformLibrary = platformLibrary;
+        Role = role;
     }
 
-    public LibraryReference Library { get; }
-    public PlatformPopulationMemberAttribution Attribution { get; }
-    public PlatformFamilyTarget Target => Attribution.Target;
-    public PlatformPopulationMemberRole Role => Attribution.Role;
+    public PlatformLibraryReference PlatformLibrary { get; }
+    public PlatformFamilyTarget Target => PlatformLibrary.Target;
+    public PlatformPopulationMemberRole Role { get; }
 }

@@ -100,7 +100,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
             "11.0.0",
             completed.Library.Outcome.Receipt.TargetSettlement
                 .SettledTarget!.Version.Value);
-        LibraryReference library = completed.Library.Value.Reference;
+        LibraryReference library = completed.Library.Value.Library;
         Assert.NotNull(library.ImplementationAssembly);
         using (LibraryOperationLease operation =
             Issued(completed.Library.Owner, library))
@@ -186,9 +186,10 @@ public sealed class InstalledPlatformLibraryMaterializerTests
         Assert.Equal(0, fallbackInvocations);
         Assert.Equal(
             ["System.Runtime", "System.Text.Json"],
-            completed.Population.Value.Libraries.Select(
-                static library =>
-                    library.ApiAssembly.AssemblyIdentity!.Identity.Name));
+            completed.Population.Value.Members.Select(
+                static member =>
+                    member.PlatformLibrary.Library.ApiAssembly
+                        .AssemblyIdentity!.Identity.Name));
         Assert.Equal(
             "11.0.0",
             completed.Population.Outcome.Receipt.TargetSettlement
@@ -405,7 +406,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
 
         Assert.IsType<
             PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Incomplete>(
+                PlatformLibraryReference>.Incomplete>(
                     terminal.TerminalRealization.Outcome);
         Assert.Equal(0, fallbackInvocations);
         PlatformHouseConsumedWork consumed =
@@ -510,7 +511,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
 
         Assert.IsType<
             PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Incomplete>(
+                PlatformLibraryReference>.Incomplete>(
                     terminal.TerminalRealization.Outcome);
         Assert.Equal(0, fallbackInvocations);
         PlatformHouseConsumedWork consumed =
@@ -555,7 +556,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                         reference,
                         consumed));
 
-        Assert.Equal(2, completed.Population.Value.Libraries.Count);
+        Assert.Equal(2, completed.Population.Value.Members.Count);
         Assert.Equal(2, completed.Population.Owners.Count);
         Assert.Same(
             reference.Contribution,
@@ -570,7 +571,8 @@ public sealed class InstalledPlatformLibraryMaterializerTests
             InstalledReferenceLibrary source =
                 reference.Value.Libraries[index];
             LibraryReference library =
-                completed.Population.Value.Libraries[index];
+                completed.Population.Value.Members[index]
+                    .PlatformLibrary.Library;
             Assert.Same(
                 library,
                 completed.Population.Owners[index].Reference);
@@ -654,7 +656,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
 
         Assert.Equal(
             implementation.Value.Libraries.Count,
-            completed.Population.Value.Libraries.Count);
+            completed.Population.Value.Members.Count);
         Assert.Equal(
             implementation.Value.Libraries.Count,
             completed.Population.Owners.Count);
@@ -675,7 +677,8 @@ public sealed class InstalledPlatformLibraryMaterializerTests
             InstalledImplementationLibrary source =
                 implementation.Value.Libraries[index];
             LibraryReference library =
-                completed.Population.Value.Libraries[index];
+                completed.Population.Value.Members[index]
+                    .PlatformLibrary.Library;
             Assert.Same(
                 library,
                 completed.Population.Owners[index].Reference);
@@ -931,7 +934,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                         implementation,
                         consumed));
 
-        Assert.Equal(3, completed.Population.Value.Libraries.Count);
+        Assert.Equal(3, completed.Population.Value.Members.Count);
         Assert.Equal(3, completed.Population.Owners.Count);
         Assert.Equal(
             [reference.Contribution, implementation.Contribution],
@@ -949,7 +952,8 @@ public sealed class InstalledPlatformLibraryMaterializerTests
             InstalledReferenceLibrary source =
                 reference.Value.Libraries[index];
             LibraryReference library =
-                completed.Population.Value.Libraries[index];
+                completed.Population.Value.Members[index]
+                    .PlatformLibrary.Library;
             Assert.True(
                 AssemblyReferenceIdentity.EquivalentComparer.Equals(
                     source.Identity,
@@ -967,7 +971,8 @@ public sealed class InstalledPlatformLibraryMaterializerTests
         }
 
         LibraryReference implementationOnly =
-            completed.Population.Value.Libraries[^1];
+            completed.Population.Value.Members[^1]
+                .PlatformLibrary.Library;
         Assert.Equal(
             typeof(System.Net.Http.HttpClient).Assembly.GetName().Name,
             Assert.IsType<ManagedMetadataIdentity.Assembly>(
@@ -1137,7 +1142,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                         implementation,
                         consumed));
 
-        LibraryReference library = completed.Library.Value.Reference;
+        LibraryReference library = completed.Library.Value.Library;
         Assert.True(
             library.ApiAssembly.HasRole(
                 LibraryContentRole.ApiAssembly));
@@ -1246,10 +1251,10 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                                     library.ContentLength))));
 
         Assert.Null(
-            completed.Library.Value.Reference
+            completed.Library.Value.Library
                 .ImplementationAssembly);
         Assert.Single(
-            completed.Library.Value.Reference.Contents);
+            completed.Library.Value.Library.Contents);
         CompiledXmlContribution contribution =
             PlatformDocumentationHouseAdapter
                 .CreateCompiledXmlContribution(
@@ -1324,7 +1329,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
         try
         {
             LibraryReference library =
-                completed.Library.Value.Reference;
+                completed.Library.Value.Library;
             DocumentationSubjectReference subject =
                 Subject(completed.Library);
             CompiledXmlContribution contribution =
@@ -1421,7 +1426,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
         try
         {
             LibraryReference library =
-                completed.Library.Value.Reference;
+                completed.Library.Value.Library;
             CompiledXmlContribution contribution =
                 PlatformDocumentationHouseAdapter
                     .CreateCompiledXmlContribution(
@@ -1542,7 +1547,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                                 static library =>
                                     library.ContentLength))));
 
-        LibraryReference library = completed.Library.Value.Reference;
+        LibraryReference library = completed.Library.Value.Library;
         Assert.Same(
             library.ApiAssembly,
             library.ImplementationAssembly);
@@ -1596,7 +1601,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
 
         Assert.IsType<
             PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Rejected>(
+                PlatformLibraryReference>.Rejected>(
                     terminal.TerminalRealization.Outcome);
     }
 
@@ -1638,7 +1643,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
 
         Assert.IsType<
             PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Rejected>(
+                PlatformLibraryReference>.Rejected>(
                     terminal.TerminalRealization.Outcome);
     }
 
@@ -2147,7 +2152,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
     static DocumentationSubjectReference Subject(
         PlatformLibraryRealizationResult.Completed materialized)
     {
-        LibraryReference library = materialized.Value.Reference;
+        LibraryReference library = materialized.Value.Library;
         using LibraryOperationLease operation =
             Issued(materialized.Owner, library);
         var request = new LibraryApiSurfaceInspectionRequest(

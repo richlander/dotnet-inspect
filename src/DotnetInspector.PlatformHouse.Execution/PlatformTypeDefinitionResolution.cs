@@ -41,8 +41,8 @@ public static class PlatformHouseTypeDefinitionResolver
             out PlatformTargetDemand.Exact? exact);
         var failureKinds = new List<PlatformHouseFailureKind>();
         var cleanupFailures = new List<Exception>();
-            PlatformTypeDefinitionResolutionResult? detachedOutcome = null;
-            int observedForwardingHops = 0;
+        PlatformTypeDefinitionResolutionResult? detachedOutcome = null;
+        int observedForwardingHops = 0;
         OperationCanceledException? cancellation = null;
         Exception? unexpected = null;
 
@@ -234,7 +234,7 @@ public static class PlatformHouseTypeDefinitionResolver
         PlatformPopulationMember startingMember =
             operation.StartingImplementation;
         LibraryContentReference startingContent =
-            startingMember.Library.ImplementationAssembly
+            startingMember.PlatformLibrary.Library.ImplementationAssembly
             ?? throw new InvalidOperationException(
                 "An implementation population member requires implementation content.");
         ResolvedAssemblyReference startingAssembly = assemblies.Single(
@@ -304,10 +304,10 @@ public static class PlatformHouseTypeDefinitionResolver
                 population.Value.Members[index];
             LibraryContentOwner owner = population.Owners[index];
             LibraryContentReference content =
-                member.Library.ImplementationAssembly
+                member.PlatformLibrary.Library.ImplementationAssembly
                 ?? throw new InvalidOperationException(
                     "An implementation population member requires implementation content.");
-            if (owner.IssueOperationLease(member.Library)
+            if (owner.IssueOperationLease(member.PlatformLibrary.Library)
                 is not LibraryOperationLeaseIssueOutcome.Issued issued)
             {
                 throw new ObjectDisposedException(
@@ -366,7 +366,7 @@ public static class PlatformHouseTypeDefinitionResolver
         PlatformPopulationMember? starting =
             operation?.StartingImplementation;
         LibraryContentReference? startingContent =
-            starting?.Library.ImplementationAssembly;
+            starting?.PlatformLibrary.Library.ImplementationAssembly;
         PlatformSourcePlan populationSources =
             populationReceipt.Request.Sources;
         return operation is not null
