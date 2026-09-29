@@ -495,7 +495,7 @@ test("projected members remain distinct from the public API surface", () => {
     /memberSectionIdsFor\(\s*member,\s*state\.package\?\.isRuntimePack,\s*memberHasSelectedBody\(member\)\)/);
   assert.match(
     appSource,
-    /searchableMemberGroups\(memberGroups\(type\)\)/);
+    /searchableMemberGroups\(groupMembers\(type\.api\)\)/);
 });
 
 test("shared graph projection validates before committing API state", () => {
@@ -944,7 +944,7 @@ test("member family re-entry leaves exact ordinary methods for the shared docume
     /state\.selectedOverloadIndex = graphOnlyTarget \? 0 : null;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview";/);
 });
 
-test("restored ordinary families load the shared document", () => {
+test("fallback ordinary families load the shared document", () => {
   const overview =
     appSource.match(/function loadSelectedMemberOverview\([\s\S]*?\n}/)?.[0]
     ?? "";
@@ -963,6 +963,13 @@ test("restored ordinary families load the shared document", () => {
     appSource.match(/async function pickSpotlightMember\([\s\S]*?\n}\n\nasync function pickSpotlight\(/)?.[0]
     ?? "";
   assert.match(spotlight, /await loadSelectedMemberOverview\(\)/);
+
+  const groupDocument =
+    appSource.match(/async function loadSelectedMemberGroupDocument\([\s\S]*?\n}\n\nasync function loadSelectedMemberSource/)?.[0]
+    ?? "";
+  assert.match(
+    groupDocument,
+    /member\.completeCountStatus === "available"[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
 
   const drillOut =
     appSource.match(/function drillOut\(\)[\s\S]*?\n}\n\nfunction exitMemberScope/)?.[0]
@@ -1046,9 +1053,46 @@ test("type API reports the filtered member count once in its header", () => {
     /<h1 id="api-surface-title">Members<\/h1>/);
   assert.match(
     renderApi,
-    /<p>\$\{visibleMemberCount} of \$\{memberCount} members/);
+    /<p>\$\{populationSummary}\$\{definingLibraryHtml}/);
   assert.doesNotMatch(renderApi, /member-filter-result/);
   assert.doesNotMatch(renderApi, /member groups visible/);
+});
+
+test("member population status stays visible outside collapsed filters", () => {
+  const filters =
+    appSource.match(/function renderMemberFilterControls\([\s\S]*?\n}\n\nfunction renderTypeMemberPopulationStatus/)?.[0]
+    ?? "";
+  assert.doesNotMatch(filters, /typeMemberPopulationError|inspection-error/);
+
+  const status =
+    appSource.match(/function renderTypeMemberPopulationStatus\([\s\S]*?\n}\n\nfunction memberPopulationSummary/)?.[0]
+    ?? "";
+  assert.match(
+    status,
+    /phase === "loading"[\s\S]*role="status"[\s\S]*phase === "failed"[\s\S]*role="alert"/);
+
+  const summary =
+    appSource.match(/function memberPopulationSummary\([\s\S]*?\n}\n\nfunction compositionFilterButton/)?.[0]
+    ?? "";
+  assert.match(
+    summary,
+    /phase === "failed"[\s\S]*complete population unavailable[\s\S]*Member population unavailable/);
+  assert.match(
+    summary,
+    /loading complete population[\s\S]*Loading member population/);
+
+  const renderApi =
+    appSource.match(/function renderApiLens\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
+    ?? "";
+  assert.match(
+    renderApi,
+    /api-surface-controls">\$\{populationStatus}\$\{renderMemberFilterControls\(item\)}/);
+  assert.match(
+    renderApi,
+    /const graphGroups = groupMembers\(graphMembers, true\)/);
+  assert.match(
+    renderApi,
+    /typeMemberPopulationPhase\(item\) === "failed"[\s\S]*Member population unavailable\./);
 });
 
 test("member API uses full-area overload and selected-member surfaces", () => {
@@ -1070,7 +1114,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.doesNotMatch(emptyMember, /typeHeadingHtml/);
   assert.match(
     renderMember,
-    /member\.kind === "method"[\s\S]*class="member-surface member-overload-surface"[\s\S]*?<h1 id="member-surface-title">\$\{escapeHtml\(member\.name\)}<\/h1>[\s\S]*?\$\{document\.count} \$\{document\.count === 1 \? "overload" : "overloads"}/);
+    /member\.kind === "method"[\s\S]*member\.completeCountStatus === "available"[\s\S]*member\.overloads\.map\(\(overload, index\) =>[\s\S]*highlight\(overload\.signature\)/);
   assert.match(
     renderMember,
     /memberGroupDocumentLoading[\s\S]*Building the shared MemberGroup document/);
@@ -1080,9 +1124,6 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.match(
     renderMember,
     /document\.rows\.map\(row =>[\s\S]*row\.metadataToken[\s\S]*detail unavailable/);
-  assert.doesNotMatch(
-    renderMember,
-    /member\.overloads\.map\(\(overload, index\) =>/);
   assert.match(
     renderMember,
     /const callGraphExplore = state\.memberSection === "call-graph"[\s\S]*class="member-surface-actions"[\s\S]*id="call-graph-explore" data-graph-explore/);
@@ -1157,6 +1198,19 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.doesNotMatch(
     stylesSource,
     /\.api-surface-head p span \{[^}]*display: none;/s);
+});
+
+test("Spotlight indexes the stable eager member inventory", () => {
+  const candidates =
+    appSource.match(/function spotlightMemberCandidates\([\s\S]*?\n}\n\nfunction spotlightMemberMatches/)?.[0]
+    ?? "";
+  assert.match(
+    candidates,
+    /searchableMemberGroups\(groupMembers\(type\.api\)\)/);
+  assert.doesNotMatch(candidates, /memberGroups\(type\)/);
+  assert.doesNotMatch(
+    candidates,
+    /memberAccessibilityFilter|memberSpelling|typeMemberPopulation/);
 });
 
 test("type metadata uses a full-area working surface without the inset type heading", () => {

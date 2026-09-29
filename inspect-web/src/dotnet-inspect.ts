@@ -5720,6 +5720,17 @@ function currentTypeMemberPopulation(type: AppTypeSurface) {
     : null;
 }
 
+function typeMemberPopulationPhase(
+  type: AppTypeSurface,
+): "available" | "failed" | "loading" | "pending" {
+  if (state.typeMemberPopulationKey !== typeMemberPopulationKey(type)) {
+    return "pending";
+  }
+  if (state.typeMemberPopulationLoading) return "loading";
+  if (state.typeMemberPopulationError) return "failed";
+  return currentTypeMemberPopulation(type) ? "available" : "pending";
+}
+
 function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
   const population = currentTypeMemberPopulation(type);
   if (population) {
@@ -5837,13 +5848,6 @@ function renderMemberFilterControls(type: AppTypeSurface) {
     state.memberSpelling === "metadata" ? "metadata spelling" : "",
     activeTrait ?? "",
   ].filter(Boolean).join(" · ");
-  const populationStatus = state.typeMemberPopulationLoading
-      && state.typeMemberPopulationKey === typeMemberPopulationKey(type)
-    ? '<p class="inspection-note" role="status">Loading member population…</p>'
-    : state.typeMemberPopulationError
-        && state.typeMemberPopulationKey === typeMemberPopulationKey(type)
-      ? `<p class="inspection-error" role="alert">${escapeHtml(state.typeMemberPopulationError)}</p>`
-      : "";
   return `
     <details class="filter-disclosure member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
       <summary id="member-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
@@ -5872,8 +5876,37 @@ function renderMemberFilterControls(type: AppTypeSurface) {
           ${traits.map(([property, label]) => `<button class="${state.memberTraitFilter === property ? "active" : ""}" data-member-trait-filter="${property}" aria-pressed="${state.memberTraitFilter === property}">${label}</button>`).join("")}
         </div>` : ""}
       </div>
-      ${populationStatus}
     </details>`;
+}
+
+function renderTypeMemberPopulationStatus(type: AppTypeSurface) {
+  const phase = typeMemberPopulationPhase(type);
+  if (phase === "loading") {
+    return '<p class="inspection-note" role="status">Loading member population…</p>';
+  }
+  if (phase === "failed") {
+    return `<p class="inspection-error" role="alert">${escapeHtml(state.typeMemberPopulationError)}</p>`;
+  }
+  return "";
+}
+
+function memberPopulationSummary(
+  type: AppTypeSurface,
+  visibleMemberCount: number,
+  memberCount: number,
+) {
+  const phase = typeMemberPopulationPhase(type);
+  if (phase === "available") {
+    return `${visibleMemberCount} of ${memberCount} members`;
+  }
+  if (phase === "failed") {
+    return memberCount
+      ? `${visibleMemberCount} visible members <span>· complete population unavailable</span>`
+      : "Member population unavailable";
+  }
+  return memberCount
+    ? `${visibleMemberCount} visible members <span>· loading complete population</span>`
+    : "Loading member population…";
 }
 
 function compositionFilterButton(
@@ -10019,6 +10052,9 @@ function renderApiLens(item: AppTypeSurface) {
   const visibleMemberCount = visibleGroups.reduce(
     (count, group) => count + group.overloads.length,
     0);
+  const populationSummary =
+    memberPopulationSummary(item, visibleMemberCount, memberCount);
+  const populationStatus = renderTypeMemberPopulationStatus(item);
   const definingLibrary = typeQualifiedLibraryLabel(item);
   const definingLibraryHtml = definingLibrary
     ? `<span data-type-library>· ${escapeHtml(definingLibrary)}</span>`
@@ -10028,9 +10064,10 @@ function renderApiLens(item: AppTypeSurface) {
       <section class="member-surface member-empty-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">Members</h1>
-          <p>${visibleMemberCount} of ${memberCount} members <span>· no member selected</span>${definingLibraryHtml}</p>
+          <p>${populationSummary} <span>· no member selected</span>${definingLibraryHtml}</p>
         </header>
         <div class="member-surface-scroll">
+          ${populationStatus}
           <section class="empty-member-section">
             <span class="large-glyph">⌕</span>
             <h2>No member selected</h2>
@@ -10039,17 +10076,14 @@ function renderApiLens(item: AppTypeSurface) {
         </div>
       </section>`;
   }
-  const graphGroups = memberGroups({
-    ...item,
-    api: graphMembers
-  });
+  const graphGroups = groupMembers(graphMembers, true);
   return `
     <section class="api-surface" aria-labelledby="api-surface-title">
       <header class="api-surface-head">
         <h1 id="api-surface-title">Members</h1>
-        <p>${visibleMemberCount} of ${memberCount} members${definingLibraryHtml}</p>
+        <p>${populationSummary}${definingLibraryHtml}</p>
       </header>
-      <div class="member-browser-controls api-surface-controls">${renderMemberFilterControls(item)}</div>
+      <div class="member-browser-controls api-surface-controls">${populationStatus}${renderMemberFilterControls(item)}</div>
       <div class="api-surface-scroll">
         <div class="api-list api-surface-list">${visibleGroups.map(group => {
         const overload = group.overloads[0];
@@ -10065,7 +10099,13 @@ function renderApiLens(item: AppTypeSurface) {
           <code>${highlight(overload.signature)}</code>
           <small>${group.overloads.length === 1 ? escapeHtml(group.kind) : `${group.overloads.length} overloads`}${outsideMarker}</small>
         </button>`;
-        }).join("") || `<div class="empty-list">No declared ${escapeHtml(state.memberAccessibilityFilter)} members match these filters.</div>`}</div>
+        }).join("") || `<div class="empty-list">${
+          typeMemberPopulationPhase(item) === "failed"
+            ? "Member population unavailable."
+            : typeMemberPopulationPhase(item) === "available"
+              ? `No declared ${escapeHtml(state.memberAccessibilityFilter)} members match these filters.`
+              : "Loading member population…"
+        }</div>`}</div>
         ${graphGroups.length
           ? `<section class="api-surface-secondary">
               <div class="section-title"><h2>Graph-discovered implementation members</h2><span>${graphGroups.reduce((count, group) => count + group.overloads.length, 0)} projected</span></div>
@@ -10098,6 +10138,26 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     && selectedOverloadIndex < member.overloads.length;
   if (member.kind === "method"
     && !hasSelectedOverload) {
+    if (member.completeCountStatus === "available") {
+      const count = member.overloads.length;
+      return `
+        <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
+          <header class="api-surface-head member-surface-head">
+            <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+            <p>${count} ${count === 1 ? "overload" : "overloads"} <span>· ${escapeHtml(member.kind)}</span></p>
+          </header>
+          <div class="member-surface-scroll">
+            <div class="api-list api-surface-list member-surface-list">
+              ${member.overloads.map((overload, index) =>
+                `<button class="api-row overload-row" data-overload="${index}">
+                  <span class="member-icon">${index + 1}</span>
+                  <code>${highlight(overload.signature)}</code>
+                  <small>open →</small>
+                </button>`).join("")}
+            </div>
+          </div>
+        </section>`;
+    }
     const documentKey =
       memberGroupDocumentRequestKey(type, member);
     const currentDocument =
@@ -12043,7 +12103,7 @@ function spotlightMemberCandidates() {
   for (const pkg of [state.package, ...state.packages.filter(item => item !== state.package)]) {
     if (!pkg?.types) continue;
     for (const type of pkg.types) {
-      for (const group of searchableMemberGroups(memberGroups(type))) {
+      for (const group of searchableMemberGroups(groupMembers(type.api))) {
         pool.push({ pkg, type, memberKey: group.key, name: group.name, kind: group.kind });
       }
     }
@@ -17985,7 +18045,10 @@ async function selectTypeMemberPopulation(
 async function loadSelectedMemberGroupDocument() {
   const type = selectedType();
   const member = selectedMember(type);
-  if (!type || !member || member.kind !== "method") {
+  if (!type
+    || !member
+    || member.kind !== "method"
+    || member.completeCountStatus === "available") {
     renderPreservingMemberFocus();
     return;
   }
