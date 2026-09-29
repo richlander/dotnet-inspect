@@ -157,6 +157,64 @@ public static partial class SourceExports
         string styleOptionsJson,
         string view = "source")
     {
+        BrowserManagedOperationResult<BrowserTypeCodeView, string, string>
+            result = await ExecuteTypeSourceOperationAsync(
+                operationId,
+                async token =>
+                    (await QueryTypeSourceCore(
+                        packageId,
+                        version,
+                        targetFramework,
+                        assemblyName,
+                        typeIdentity,
+                        styleOptionsJson,
+                        view,
+                        requestEvidence: false,
+                        cancellationToken: token)).View);
+        return JsonSerializer.Serialize(
+            BrowserTypeSourceResult.From(result),
+            BrowserSourceJsonContext.Default.BrowserTypeSourceResult);
+    }
+
+    [JSExport]
+    public static async Task<string> QueryPlatformTypeSource(
+        string operationId,
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeIdentity,
+        string styleOptionsJson,
+        string view = "source",
+        string? contextId = null)
+    {
+        BrowserManagedOperationResult<BrowserTypeCodeView, string, string>
+            result = await ExecuteTypeSourceOperationAsync(
+                operationId,
+                token => QueryPlatformTypeSourceCore(
+                    targetFramework,
+                    platformVersion,
+                    assemblyName,
+                    pack,
+                    typeIdentity,
+                    styleOptionsJson,
+                    view,
+                    contextId,
+                    token));
+        return JsonSerializer.Serialize(
+            BrowserTypeSourceResult.From(result),
+            BrowserSourceJsonContext.Default.BrowserTypeSourceResult);
+    }
+
+    static async Task<
+        BrowserManagedOperationResult<
+            BrowserTypeCodeView,
+            string,
+            string>> ExecuteTypeSourceOperationAsync(
+        string operationId,
+        Func<CancellationToken, Task<BrowserTypeCodeView>> query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
         BrowserManagedOperationId id = BrowserManagedOperationId.From(operationId);
         BrowserManagedOperationResult<BrowserTypeCodeView, string, string> result =
             await TypeSourceOperations.RunAsync<BrowserTypeCodeView, string, string, object>(
@@ -171,11 +229,7 @@ public static partial class SourceExports
                     try
                     {
                         return new BrowserManagedOperationBodyResult<BrowserTypeCodeView, string, string>.Succeeded(
-                            (await QueryTypeSourceCore(
-                                packageId, version, targetFramework, assemblyName,
-                                typeIdentity, styleOptionsJson, view,
-                                requestEvidence: false,
-                                cancellationToken: token)).View);
+                            await query(token));
                     }
                     catch (TypeSourceUnavailableException error)
                     {
@@ -184,9 +238,7 @@ public static partial class SourceExports
                     }
                 },
                 error => new(error.Message, error.ToString()));
-        return JsonSerializer.Serialize(
-            BrowserTypeSourceResult.From(result),
-            BrowserSourceJsonContext.Default.BrowserTypeSourceResult);
+        return result;
     }
 
 #if DEBUG
@@ -395,6 +447,84 @@ public static partial class SourceExports
         }
     }
 
+    static async Task<BrowserTypeCodeView> QueryPlatformTypeSourceCore(
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeIdentity,
+        string styleOptionsJson,
+        string view,
+        string? contextId,
+        CancellationToken cancellationToken)
+    {
+        if (view is "api-declarations" or "all-declarations")
+        {
+            return await QueryPlatformTypeApiDeclarationsCore(
+                targetFramework,
+                platformVersion,
+                assemblyName,
+                pack,
+                typeIdentity,
+                view == "all-declarations"
+                    ? TypeApiDeclarationScope.All
+                    : TypeApiDeclarationScope.ApiVisible,
+                contextId,
+                cancellationToken);
+        }
+        bool decompilerOnly = view == "decompiler-source";
+        if (view != "source" && !decompilerOnly)
+            throw new ArgumentException(
+                $"Unknown type code view '{view}'.",
+                nameof(view));
+
+        await using BrowserMemberResolution.ScopedPlatformTypeResolution resolved =
+            await BrowserMemberResolution.PlatformImplementationTypeAsync(
+                targetFramework,
+                platformVersion,
+                assemblyName,
+                pack,
+                typeIdentity,
+                contextId,
+                cancellationToken);
+        var request = AssemblyTypeSourceRequest.From(
+            resolved.Type,
+            BrowserStyleOptions.Resolve(styleOptionsJson));
+        if (decompilerOnly)
+        {
+            InspectionEnvelope<AssemblyTypeDecompilationEntry> inspection =
+                await resolved.Scope.UseParticipant(
+                    resolved.Participant,
+                    (group, member) =>
+                        TypeSourceInspection.DecompileAsync(
+                            group,
+                            member,
+                            request,
+                            BrowserSourceQueryContext.Create(),
+                            cancellationToken: cancellationToken));
+            return new BrowserTypeCodeView.Source(
+                Adapt(inspection.Content, resolved.Participant),
+                inspection.Share,
+                inspection.Diagnostics);
+        }
+
+        InspectionEnvelope<AssemblyTypeSourceEntry> sourceInspection =
+            await resolved.Scope.UseParticipant(
+                resolved.Participant,
+                (group, member) =>
+                    TypeSourceInspection.ExecuteWithPdbLatencyHedgeAsync(
+                        group,
+                        member,
+                        request,
+                        BrowserSourceQueryContext.Create(),
+                        BrowserTypeSourcePdbLatencyHedge,
+                        cancellationToken));
+        return new BrowserTypeCodeView.Source(
+            Adapt(sourceInspection.Content, resolved.Participant),
+            sourceInspection.Share,
+            sourceInspection.Diagnostics);
+    }
+
     private sealed record BrowserTypeSourceExecution(
         BrowserTypeCodeView View,
         BrowserTypeSourceEvidenceAttachment? Evidence);
@@ -428,6 +558,45 @@ public static partial class SourceExports
                 (group, member) => TypeApiDeclarationInspection.Execute(
                     group, member, valid.Name, declarationScope,
                     BrowserApiSurfacePolicy.Limits, cancellationToken));
+        return new BrowserTypeCodeView.ApiDeclarations(inspection);
+    }
+
+    static async Task<BrowserTypeCodeView> QueryPlatformTypeApiDeclarationsCore(
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeIdentity,
+        TypeApiDeclarationScope declarationScope,
+        string? contextId,
+        CancellationToken cancellationToken)
+    {
+        if (MetadataTypeDefinitionName.ParseSerialized(typeIdentity)
+            is not MetadataTypeDefinitionNameResult.Valid valid)
+        {
+            throw new TypeSourceUnavailableException(
+                $"'{typeIdentity}' is not an exact metadata type identity.");
+        }
+
+        await using BrowserMemberResolution.ScopedPlatformTypeResolution resolved =
+            await BrowserMemberResolution.PlatformImplementationTypeAsync(
+                targetFramework,
+                platformVersion,
+                assemblyName,
+                pack,
+                typeIdentity,
+                contextId,
+                cancellationToken);
+        InspectionEnvelope<TypeApiDeclarationResult> inspection =
+            resolved.Scope.UseParticipant(
+                resolved.Participant,
+                (group, member) => TypeApiDeclarationInspection.Execute(
+                    group,
+                    member,
+                    valid.Name,
+                    declarationScope,
+                    BrowserApiSurfacePolicy.Limits,
+                    cancellationToken));
         return new BrowserTypeCodeView.ApiDeclarations(inspection);
     }
 
@@ -666,10 +835,20 @@ public static partial class SourceExports
     internal static BrowserSource Adapt(
         AssemblyTypeSourceEntry result,
         BrowserWorkspaceParticipant participant) =>
+        Adapt(result, DecompiledProvenance(participant));
+
+    internal static BrowserSource Adapt(
+        AssemblyTypeSourceEntry result,
+        WorkspaceContextMember participant) =>
+        Adapt(result, DecompiledProvenance(participant));
+
+    static BrowserSource Adapt(
+        AssemblyTypeSourceEntry result,
+        InertString decompiledProvenance) =>
         result switch
         {
             AssemblyTypeSourceEntry.Available available =>
-                Adapt(available.Source, participant),
+                Adapt(available.Source, decompiledProvenance),
             AssemblyTypeSourceEntry.Rejected rejected =>
                 throw new TypeSourceUnavailableException(
                     $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"),
@@ -689,6 +868,16 @@ public static partial class SourceExports
     internal static BrowserSource Adapt(
         AssemblyTypeDecompilationEntry result,
         BrowserWorkspaceParticipant participant) =>
+        Adapt(result, DecompiledProvenance(participant));
+
+    internal static BrowserSource Adapt(
+        AssemblyTypeDecompilationEntry result,
+        WorkspaceContextMember participant) =>
+        Adapt(result, DecompiledProvenance(participant));
+
+    static BrowserSource Adapt(
+        AssemblyTypeDecompilationEntry result,
+        InertString decompiledProvenance) =>
         result switch
         {
             AssemblyTypeDecompilationEntry.Settled
@@ -700,7 +889,7 @@ public static partial class SourceExports
                 },
             } => new BrowserSource(
                 "decompiled",
-                DecompiledProvenance(participant),
+                decompiledProvenance,
                 null,
                 null,
                 text),
@@ -844,6 +1033,11 @@ public static partial class SourceExports
     static BrowserSource Adapt(
         AssemblyTypeSource source,
         BrowserWorkspaceParticipant participant) =>
+        Adapt(source, DecompiledProvenance(participant));
+
+    static BrowserSource Adapt(
+        AssemblyTypeSource source,
+        InertString decompiledProvenance) =>
         source switch
         {
             AssemblyTypeSource.Pdb pdb => new BrowserSource(
@@ -854,7 +1048,7 @@ public static partial class SourceExports
                 pdb.Text),
             AssemblyTypeSource.Decompiled decompiled => new BrowserSource(
                 "decompiled",
-                DecompiledProvenance(participant),
+                decompiledProvenance,
                 null,
                 PdbSourceLimitation(decompiled.PdbAttempt.Lines),
                 decompiled.Text),
