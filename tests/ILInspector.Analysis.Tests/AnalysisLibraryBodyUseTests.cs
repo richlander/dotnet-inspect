@@ -1082,6 +1082,26 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void ExecuteImage_ChargesCrossKindSharedBlobOnce()
+    {
+        AnalysisLibraryBodyUseOutcome outcome =
+            AnalysisLibraryBodyUseService.ExecuteImage(
+                "CrossKindSharedBlob.dll",
+                BuildCrossKindSharedBlobImage(),
+                new(
+                    new(
+                        MaximumMethodSignatureBytes: 10)),
+                TestContext.Current.CancellationToken);
+
+        AnalysisLibraryBodyUseResult result = Available(outcome).Result;
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Single(result.Occurrences);
+        Assert.Equal(1, result.Coverage.OperandsUnavailable);
+    }
+
+    [Fact]
     public void ExecuteImage_BoundsStateMachineAttributeNames()
     {
         AnalysisLibraryBodyUseResult result =
@@ -1915,6 +1935,86 @@ public sealed class AnalysisLibraryBodyUseTests
             metadata.GetOrAddString("Caller"),
             metadata.GetOrAddBlob(callerSignature),
             Body(il),
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata, bodies);
+
+        int Body(byte[] code)
+        {
+            var builder = new BlobBuilder();
+            builder.WriteBytes(code);
+            return encoder.AddMethodBody(
+                new InstructionEncoder(builder),
+                maxStack: 1);
+        }
+    }
+
+    static ImmutableArray<byte> BuildCrossKindSharedBlobImage()
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "CrossKindSharedBlob",
+            new Guid("42914ef5-654d-4ee5-a18e-da14e66d0996"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle owner =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Owner"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        var genericSignature = new BlobBuilder();
+        genericSignature.WriteBytes(
+            new byte[] { 0x10, 0x01, 0x00, 0x01 });
+        MethodDefinitionHandle generic = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("G"),
+            metadata.GetOrAddBlob(genericSignature),
+            Body([(byte)ILOpCode.Ret]),
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddGenericParameter(
+            generic,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            0);
+
+        var sharedBlob = new BlobBuilder();
+        sharedBlob.WriteBytes(
+            new byte[] { 0x0A, 0x01, 0x08 });
+        BlobHandle shared = metadata.GetOrAddBlob(sharedBlob);
+        metadata.AddMemberReference(
+            owner,
+            metadata.GetOrAddString("Broken"),
+            shared);
+        metadata.AddMethodSpecification(generic, shared);
+
+        var callerSignature = new BlobBuilder();
+        callerSignature.WriteBytes(
+            new byte[] { 0x00, 0x00, 0x01 });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Caller"),
+            metadata.GetOrAddBlob(callerSignature),
+            Body(
+            [
+                (byte)ILOpCode.Call,
+                0x01, 0x00, 0x00, 0x0A,
+                (byte)ILOpCode.Call,
+                0x01, 0x00, 0x00, 0x2B,
+                (byte)ILOpCode.Ret,
+            ]),
             MetadataTokens.ParameterHandle(1));
         return Serialize(metadata, bodies);
 

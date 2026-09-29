@@ -48,6 +48,8 @@ internal sealed class LibraryBodyMethodReferenceResolver
     long _methodReferenceSignatureWork;
     long _methodReferenceDecodeWork;
     long _bodyUseMethodSignatureBytes;
+    readonly ConcurrentDictionary<BlobHandle, Lazy<bool>>
+        _bodyUseMethodSignatureReservations = new();
 
     internal LibraryBodyMethodReferenceResolver(
         MetadataReader reader,
@@ -887,7 +889,8 @@ internal sealed class LibraryBodyMethodReferenceResolver
         {
             BlobReader blob =
                 _reader.GetBlobReader(specification.Signature);
-            ReserveBodyUseMethodSignatureBytes(
+            ReserveBodyUseMethodSignatureBlob(
+                specification.Signature,
                 blob.Length,
                 maximumMethodSignatureBytes,
                 unitToken);
@@ -1075,7 +1078,8 @@ internal sealed class LibraryBodyMethodReferenceResolver
         try
         {
             BlobReader blob = _reader.GetBlobReader(signature);
-            ReserveBodyUseMethodSignatureBytes(
+            ReserveBodyUseMethodSignatureBlob(
+                signature,
                 blob.Length,
                 maximumMethodSignatureBytes,
                 unitToken);
@@ -1104,6 +1108,26 @@ internal sealed class LibraryBodyMethodReferenceResolver
                 0,
                 ProducerFailure.Describe(exception));
         }
+    }
+
+    void ReserveBodyUseMethodSignatureBlob(
+        BlobHandle blob,
+        int charge,
+        int maximum,
+        int unitToken)
+    {
+        _ = _bodyUseMethodSignatureReservations.GetOrAdd(
+            blob,
+            _ => new Lazy<bool>(
+                () =>
+                {
+                    ReserveBodyUseMethodSignatureBytes(
+                        charge,
+                        maximum,
+                        unitToken);
+                    return true;
+                },
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
 
     void ReserveBodyUseMethodSignatureBytes(
