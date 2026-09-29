@@ -184,6 +184,109 @@ public static class WorkspaceContextLoader
     const string PlatformResolverSource = "NuGet implementation pack";
 
     /// <summary>
+    /// Admits an already-realized exact Platform assembly population without
+    /// reacquiring or enumerating its implementation packs.
+    /// </summary>
+    public static WorkspaceContextLoadOutcome AdmitPlatformAssemblies(
+        InspectionWorkspace workspace,
+        IReadOnlyList<WorkspacePlatformAssemblyAdmission> assemblies,
+        string framework,
+        string runtimeIdentifier,
+        long maxRetainedImageBytes,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(assemblies);
+        ArgumentException.ThrowIfNullOrWhiteSpace(framework);
+        ArgumentException.ThrowIfNullOrWhiteSpace(runtimeIdentifier);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxRetainedImageBytes);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (assemblies.Count == 0)
+        {
+            return new WorkspaceContextLoadOutcome.Failed(
+                [Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    member: null,
+                    "Platform assembly admission requires at least one assembly.")]);
+        }
+
+        var realized =
+            ImmutableArray.CreateBuilder<RealizedMember>(assemblies.Count);
+        var available =
+            new HashSet<RealizedMemberCoordinate.Platform>();
+        foreach (WorkspacePlatformAssemblyAdmission admission in assemblies)
+        {
+            ArgumentNullException.ThrowIfNull(admission);
+            cancellationToken.ThrowIfCancellationRequested();
+            RealizedMemberCoordinate.Platform coordinate =
+                admission.Coordinate;
+            if (!coordinate.Framework.Equals(
+                    framework,
+                    StringComparison.Ordinal))
+            {
+                return new WorkspaceContextLoadOutcome.Failed(
+                    [Failure(
+                        WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                        WorkspaceMemberCoordinate.Platform(
+                            coordinate.Family,
+                            coordinate.Assembly,
+                            coordinate.Version,
+                            coordinate.Framework),
+                        "Every admitted Platform assembly must use the context target framework.")]);
+            }
+
+            WorkspaceMemberCoordinate declared =
+                WorkspaceMemberCoordinate.Platform(
+                    coordinate.Family,
+                    coordinate.Assembly,
+                    coordinate.Version,
+                    coordinate.Framework);
+            realized.Add(
+                new RealizedMember(
+                    declared,
+                    coordinate,
+                    admission.Assembly,
+                    PackageRoot: null));
+            available.Add(coordinate);
+        }
+
+        return CreateGroup(
+            workspace,
+            realized,
+            available,
+            maxRetainedImageBytes,
+            framework,
+            runtimeIdentifier);
+    }
+
+    /// <summary>
+    /// Reports that one exact Platform assembly is absent from a source-realized
+    /// target without acquiring or enumerating the rest of that target.
+    /// </summary>
+    public static WorkspaceContextLoadOutcome PlatformAssemblyUnavailable(
+        string family,
+        string assembly,
+        string version,
+        string framework)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(family);
+        ArgumentException.ThrowIfNullOrWhiteSpace(assembly);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        ArgumentException.ThrowIfNullOrWhiteSpace(framework);
+        WorkspaceMemberCoordinate member =
+            WorkspaceMemberCoordinate.Platform(
+                family,
+                assembly,
+                version,
+                framework);
+        return new WorkspaceContextLoadOutcome.Failed(
+            [Failure(
+                WorkspaceContextLoadFailureKind.PlatformAssemblyUnavailable,
+                member,
+                $"Platform family '{family}' does not carry assembly '{assembly}' for target framework '{framework}'.")]);
+    }
+
+    /// <summary>
     /// Loads one explicitly selected declaration context and binds its exact
     /// request to the realization outcome for population capture and lazy
     /// Workspace locator observation.
@@ -369,7 +472,7 @@ public static class WorkspaceContextLoader
             workspace,
             realized,
             availablePlatformAssemblies,
-            options,
+            options.MaxRetainedImageBytes,
             framework,
             rid);
     }
@@ -539,7 +642,7 @@ public static class WorkspaceContextLoader
             workspace,
             realized,
             availablePlatformAssemblies,
-            options,
+            options.MaxRetainedImageBytes,
             framework,
             rid);
     }
@@ -1042,7 +1145,7 @@ public static class WorkspaceContextLoader
         ImmutableArray<RealizedMember>.Builder realized,
         HashSet<RealizedMemberCoordinate.Platform>
             availablePlatformAssemblies,
-        WorkspaceContextLoadOptions options,
+        long maxRetainedImageBytes,
         string? framework,
         string? runtimeIdentifier)
     {
@@ -1069,7 +1172,10 @@ public static class WorkspaceContextLoader
 
         RetainedAssemblyContextGroup retained = RetainedAssemblyContextGroup.Create(
             workspace, [.. realized.Select(static entry => entry.Assembly)],
-            new AssemblyContextGroupOptions { MaxRetainedImageBytes = options.MaxRetainedImageBytes });
+            new AssemblyContextGroupOptions
+            {
+                MaxRetainedImageBytes = maxRetainedImageBytes,
+            });
         if (retained is RetainedAssemblyContextGroup.Rejected rejected)
         {
             return new WorkspaceContextLoadOutcome.Failed(
@@ -2679,7 +2785,8 @@ public static class WorkspaceContextLoader
         internal RealizedMemberCoordinate? Realized { get; }
         internal ImmutableArray<ResolvedAssemblyReference> Assemblies { get; }
         internal ImmutableArray<RealizedMemberCoordinate.Platform>
-            AvailablePlatformAssemblies { get; }
+            AvailablePlatformAssemblies
+        { get; }
         internal PackageRootBinding? PackageRoot { get; }
         internal WorkspaceContextLoadFailure? Failure { get; }
     }

@@ -289,6 +289,8 @@ internal static class BrowserPackageWorkspace
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
         SourceAuthorizationFor(Gallery);
     internal static IPackageStore SessionPackageStore => Store;
+    internal static BrowserSessionPackageStore PackageStoreFor(
+        IPackageSourceClient source) => StoreFor(source);
     internal static IPackagePayloadTransferPolicy PackageTransferPolicy =>
         Store;
     internal static PackagePayloadLimits PackageLimits => PayloadLimits;
@@ -1110,7 +1112,7 @@ internal static class BrowserPackageWorkspace
             "The package source association is not registered with a configured Browser source identity.");
     }
 
-    static IPackageSourceAuthorization SourceAuthorizationFor(
+    internal static IPackageSourceAuthorization SourceAuthorizationFor(
         IPackageSourceClient source)
     {
         if (SourceAuthorizations.TryGetValue(

@@ -26,7 +26,8 @@ namespace DotnetInspect.Web;
 internal sealed class BrowserPlatformScope(
     InspectionWorkspace workspace,
     WorkspaceContextLoadOutcome.Loaded context,
-    IReadOnlyDictionary<string, string> platformPacks) : IAsyncDisposable
+    IReadOnlyDictionary<string, string> platformPacks,
+    bool exactPackageRealization) : IAsyncDisposable
 {
     readonly InspectionWorkspace _workspace = workspace;
     readonly ImmutableDictionary<string, string> _platformPacks =
@@ -47,6 +48,9 @@ internal sealed class BrowserPlatformScope(
 
     internal ImmutableArray<WorkspaceContextMember> Members =>
         Context.Members;
+
+    internal bool ExactPackageRealization { get; } =
+        exactPackageRealization;
 
     internal string Framework =>
         Context.Framework
@@ -136,7 +140,8 @@ internal sealed record BrowserPlatformScopeResolution(
 
 internal sealed record BrowserPlatformAssemblyRequest(
     string AssemblyFileName,
-    string Pack);
+    string Pack,
+    AssemblyReferenceIdentity? Identity = null);
 
 /// <summary>
 /// Browser adapter over <see cref="WorkspaceContextLoader"/> for lazily selected
@@ -374,6 +379,34 @@ internal static class BrowserPlatformWorkspace
                 BrowserPackageWorkspace.PackageOperationTimeout,
                 cancellationToken);
 
+    internal static Task<BrowserPlatformScopeResolution> OpenAssemblyAsync(
+        string targetFramework,
+        string platformVersion,
+        AssemblyReferenceIdentity assemblyIdentity,
+        string pack,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(assemblyIdentity);
+        return string.IsNullOrWhiteSpace(pack)
+            ? OpenUnattributedAsync(
+                targetFramework,
+                platformVersion,
+                assemblyIdentity,
+                ProductionHost,
+                BrowserPackageWorkspace.PackageOperationTimeout,
+                cancellationToken)
+            : OpenAsync(
+                targetFramework,
+                platformVersion,
+                new PlatformSelection(
+                    Family(pack),
+                    assemblyIdentity.Name,
+                    assemblyIdentity),
+                ProductionHost,
+                BrowserPackageWorkspace.PackageOperationTimeout,
+                cancellationToken);
+    }
+
     internal static async Task<CompiledDocumentationOutcome>
         QueryMemberDocumentationAsync(
             string targetFramework,
@@ -587,6 +620,43 @@ internal static class BrowserPlatformWorkspace
                 new Host(client, sourceAuthorization),
                 operationTimeout,
                 cancellationToken);
+
+    internal static Task<BrowserPlatformScopeResolution> OpenAssemblyAsync(
+        string targetFramework,
+        string platformVersion,
+        AssemblyReferenceIdentity assemblyIdentity,
+        string pack,
+        HttpClient client,
+        IPackageSourceClient packageClient,
+        IPackageSourceAuthorization sourceAuthorization,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(assemblyIdentity);
+        ArgumentNullException.ThrowIfNull(packageClient);
+        var host = new Host(
+            client,
+            sourceAuthorization,
+            packageClient);
+        return string.IsNullOrWhiteSpace(pack)
+            ? OpenUnattributedAsync(
+                targetFramework,
+                platformVersion,
+                assemblyIdentity,
+                host,
+                operationTimeout,
+                cancellationToken)
+            : OpenAsync(
+                targetFramework,
+                platformVersion,
+                new PlatformSelection(
+                    Family(pack),
+                    assemblyIdentity.Name,
+                    assemblyIdentity),
+                host,
+                operationTimeout,
+                cancellationToken);
+    }
 
     internal static Task<BrowserPlatformScopeResolution> OpenAssembliesAsync(
         string targetFramework,
@@ -811,7 +881,8 @@ internal static class BrowserPlatformWorkspace
             ArgumentNullException.ThrowIfNull(request);
             var selection = new PlatformSelection(
                 Family(request.Pack),
-                AssemblySimpleName(request.AssemblyFileName));
+                AssemblySimpleName(request.AssemblyFileName),
+                request.Identity);
             PlatformSelection[] otherFamilies =
             [
                 .. selections.Where(candidate =>
@@ -954,7 +1025,8 @@ internal static class BrowserPlatformWorkspace
                         selection.Assembly,
                         host,
                         deadline,
-                        packageLeases).ConfigureAwait(false);
+                        packageLeases,
+                        selection.Identity).ConfigureAwait(false);
                 if (declared.Failure is not null)
                     throw Failure(declared.Failure);
                 coordinates = coordinates.Add(
@@ -980,7 +1052,9 @@ internal static class BrowserPlatformWorkspace
                 coordinates,
                 host,
                 deadline,
-                packageLeases).ConfigureAwait(false);
+                packageLeases,
+                ExactIdentities(basis, selections.ToImmutable()))
+            .ConfigureAwait(false);
         RealizedMemberCoordinate.Platform focus =
             current.Coordinate;
         return await PublishDemoScopeAsync(
@@ -1067,6 +1141,21 @@ internal static class BrowserPlatformWorkspace
             cancellationToken);
     }
 
+    static Task<BrowserPlatformScopeResolution> OpenAsync(
+        string targetFramework,
+        string? platformVersion,
+        PlatformSelection selection,
+        Host host,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken) =>
+        OpenAsync(
+            targetFramework,
+            platformVersion,
+            [selection],
+            host,
+            operationTimeout,
+            cancellationToken);
+
     static Task<BrowserPlatformScopeResolution> OpenUnattributedAsync(
         string targetFramework,
         string? platformVersion,
@@ -1093,6 +1182,32 @@ internal static class BrowserPlatformWorkspace
             cancellationToken);
     }
 
+    static Task<BrowserPlatformScopeResolution> OpenUnattributedAsync(
+        string targetFramework,
+        string platformVersion,
+        AssemblyReferenceIdentity assembly,
+        Host host,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        string targetKey = TargetKey(targetFramework, platformVersion);
+        return BrowserPackageWorkspace.RunPackageOperationAsync(
+            deadline => EnqueueAsync(
+                targetKey,
+                () => OpenUnattributedCoreAsync(
+                    targetKey,
+                    targetFramework,
+                    platformVersion,
+                    assembly.Name,
+                    host,
+                    deadline,
+                    assembly),
+                deadline.Token),
+            operationTimeout,
+            cancellationToken);
+    }
+
     static async Task<BrowserPlatformScopeResolution> OpenCoreAsync(
         string targetKey,
         string targetFramework,
@@ -1104,7 +1219,9 @@ internal static class BrowserPlatformWorkspace
         deadline.Token.ThrowIfCancellationRequested();
         using var packageLeases =
             new BrowserPackageWorkspace.PackageLeaseSet();
-        if (ReferenceEquals(host, ProductionHost) && platformVersion is not null)
+        if (ReferenceEquals(host, ProductionHost)
+            && platformVersion is not null
+            && selections.Any(static selection => selection.Identity is null))
         {
             foreach (string family in selections.Select(selection => selection.Family).Distinct())
             {
@@ -1136,7 +1253,8 @@ internal static class BrowserPlatformWorkspace
         string? platformVersion,
         string assembly,
         Host host,
-        BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
+        BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
+        AssemblyReferenceIdentity? identity = null)
     {
         deadline.Token.ThrowIfCancellationRequested();
         using var packageLeases =
@@ -1165,7 +1283,10 @@ internal static class BrowserPlatformWorkspace
                 targetKey,
                 targetFramework,
                 platformVersion,
-                [new PlatformSelection(known[0].Family, assembly)],
+                [new PlatformSelection(
+                    known[0].Family,
+                    assembly,
+                    identity)],
                 host,
                 deadline,
                 packageLeases,
@@ -1183,7 +1304,10 @@ internal static class BrowserPlatformWorkspace
                 targetKey,
                 targetFramework,
                 platformVersion,
-                [new PlatformSelection(Family(residentPack), assembly)],
+                [new PlatformSelection(
+                    Family(residentPack),
+                    assembly,
+                    identity)],
                 host,
                 deadline,
                 packageLeases,
@@ -1202,7 +1326,8 @@ internal static class BrowserPlatformWorkspace
             assembly,
             host,
             deadline,
-            packageLeases).ConfigureAwait(false);
+            packageLeases,
+            identity).ConfigureAwait(false);
         if (runtime.Failure is not null
             && !IsAssemblyUnavailable(runtime.Failure))
         {
@@ -1217,7 +1342,8 @@ internal static class BrowserPlatformWorkspace
             assembly,
             host,
             deadline,
-            packageLeases).ConfigureAwait(false);
+            packageLeases,
+            identity).ConfigureAwait(false);
         if (aspNetCore.Failure is not null
             && !IsAssemblyUnavailable(aspNetCore.Failure))
         {
@@ -1241,7 +1367,7 @@ internal static class BrowserPlatformWorkspace
             targetKey,
             targetFramework,
             platformVersion,
-            [new PlatformSelection(selected.Family, assembly)],
+            [new PlatformSelection(selected.Family, assembly, identity)],
             host,
             deadline,
             packageLeases,
@@ -1413,7 +1539,8 @@ internal static class BrowserPlatformWorkspace
                         selection.Assembly,
                         host,
                         deadline,
-                        packageLeases).ConfigureAwait(false);
+                        packageLeases,
+                        selection.Identity).ConfigureAwait(false);
                 if (declared.Failure is not null)
                     throw Failure(declared.Failure);
                 RealizedMemberCoordinate.Platform realized =
@@ -1448,7 +1575,9 @@ internal static class BrowserPlatformWorkspace
                     coordinates,
                     host,
                     deadline,
-                    packageLeases).ConfigureAwait(false);
+                    packageLeases,
+                    ExactIdentities(state.Scope, selections))
+                .ConfigureAwait(false);
         }
 
         requested = coordinates.Single(candidate =>
@@ -1502,7 +1631,8 @@ internal static class BrowserPlatformWorkspace
         string assembly,
         Host host,
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
-        BrowserPackageWorkspace.PackageLeaseSet packageLeases)
+        BrowserPackageWorkspace.PackageLeaseSet packageLeases,
+        AssemblyReferenceIdentity? identity = null)
     {
         RealizedMemberCoordinate.Platform? pinned =
             state.Coordinates.FirstOrDefault(coordinate =>
@@ -1517,7 +1647,8 @@ internal static class BrowserPlatformWorkspace
                 assembly,
                 host,
                 deadline,
-                packageLeases).ConfigureAwait(false)
+                packageLeases,
+                identity).ConfigureAwait(false)
             : await LoadRealizedAttemptAsync(
                 [
                     new RealizedMemberCoordinate.Platform(
@@ -1529,12 +1660,261 @@ internal static class BrowserPlatformWorkspace
                 ],
                 host,
                 deadline,
-                packageLeases).ConfigureAwait(false);
+                packageLeases,
+                identity is null
+                    ? null
+                    : new Dictionary<string, AssemblyReferenceIdentity>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        [assembly] = identity,
+                    }).ConfigureAwait(false);
         return (
             attempt.Scope is { } scope
                 ? AssertSingleCoordinate(scope, family, assembly)
                 : null,
             attempt.Failure);
+    }
+
+    static IReadOnlyDictionary<string, AssemblyReferenceIdentity>?
+        ExactIdentities(
+            BrowserPlatformScope? basis,
+            ImmutableArray<PlatformSelection> selections)
+    {
+        var identities = new Dictionary<
+            string,
+            AssemblyReferenceIdentity>(
+            StringComparer.OrdinalIgnoreCase);
+        if (basis is { ExactPackageRealization: true }
+            && BrowserPackageWorkspace.IsScopeRetained(basis))
+        {
+            foreach (WorkspaceContextMember member in basis.Members)
+            {
+                identities.TryAdd(
+                    member.Participant.Assembly.Identity.Name,
+                    member.Participant.Assembly.Identity);
+            }
+        }
+        foreach (PlatformSelection selection in selections)
+        {
+            if (selection.Identity is not null)
+                identities[selection.Assembly] = selection.Identity;
+        }
+        return identities.Count == 0 ? null : identities;
+    }
+
+    static bool TryCreateExactDemands(
+        ImmutableArray<RealizedMemberCoordinate.Platform> coordinates,
+        IReadOnlyDictionary<string, AssemblyReferenceIdentity>? identities,
+        out ImmutableArray<ExactPlatformDemand> demands)
+    {
+        var builder =
+            ImmutableArray.CreateBuilder<ExactPlatformDemand>(
+                coordinates.Length);
+        foreach (RealizedMemberCoordinate.Platform coordinate in coordinates)
+        {
+            if (coordinate.Assembly is null
+                || identities is null
+                || !identities.TryGetValue(
+                    coordinate.Assembly,
+                    out AssemblyReferenceIdentity? identity))
+            {
+                demands = [];
+                return false;
+            }
+            builder.Add(
+                new ExactPlatformDemand(
+                    coordinate.Family,
+                    coordinate.Version,
+                    coordinate.Framework,
+                    identity,
+                    coordinate.Producer));
+        }
+        demands = builder.MoveToImmutable();
+        return true;
+    }
+
+    static async Task<PlatformLoadAttempt> LoadExactAttemptAsync(
+        ImmutableArray<ExactPlatformDemand> demands,
+        Host host,
+        BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
+        BrowserPackageWorkspace.PackageLeaseSet packageLeases)
+    {
+        IPackageSourceClient packageClient = host.PackageClient
+            ?? throw new InvalidOperationException(
+                "Exact package-backed Platform realization requires a package source client.");
+        var workspace = new InspectionWorkspace();
+        var store = new TrackingPackageStore(
+            packageLeases,
+            BrowserPackageWorkspace.PackageStoreFor(packageClient));
+        try
+        {
+            await using PackageSourceSettlementLease sourceLease =
+                PackageSourceSettlementService.IssueLease(
+                    authority =>
+                        ReferenceEquals(
+                            authority.Association,
+                            packageClient.Source.Association)
+                            ? packageClient
+                            : throw new InvalidOperationException(
+                                "The Platform implementation request selected another configured source."));
+            var source = new PackagePlatformSource(
+                host.SourceAuthorization,
+                new PackagePayloadAcquisitionPlan(
+                    (authority, _) =>
+                        ReferenceEquals(
+                            authority.Association,
+                            packageClient.Source.Association)
+                            ? store
+                            : throw new InvalidOperationException(
+                                "The Platform implementation payload selected another configured source."),
+                    BrowserPackageWorkspace.PackageLimits,
+                    new BrowserPackageWorkspace
+                        .BrowserPackageOperationTransferPolicy(
+                            store,
+                            deadline),
+                    access: PackagePayloadAccess.Ranged,
+                    rangedSizeCut: 0));
+            var adapter = new PackagePlatformHouseAdapter(
+                source,
+                "browser-platform-workspace");
+            var sources = new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create(
+                    "browser-platform-workspace"),
+                PlatformSourcePolicyGeneration.Create(
+                    "browser-platform-workspace"),
+                [
+                    new(
+                        PlatformSourceFacet.Implementation,
+                        PlatformSourceSelectionMode.Precedence,
+                        [adapter.ImplementationRealization]),
+                ]);
+            var admissions =
+                ImmutableArray.CreateBuilder<
+                    WorkspacePlatformAssemblyAdmission>(
+                    demands.Length);
+            foreach (ExactPlatformDemand demand in demands)
+            {
+                deadline.Token.ThrowIfCancellationRequested();
+                TimeSpan sourceTimeout =
+                    BrowserPackageWorkspace.SourceSettlementOperationTimeout(
+                        deadline.Remaining);
+                var target = new PlatformFamilyTarget(
+                    PlatformFamilyFor(demand.Family),
+                    PlatformTargetFramework.Parse(demand.Framework),
+                    PlatformVersion.Parse(demand.Version));
+                var request = new PlatformHouseRequest(
+                    PlatformHouseRequestIdentity.Create(
+                        "browser-platform-workspace"),
+                    new PlatformTargetDemand.Exact(target),
+                    new PlatformHouseRequestOrigin.Standalone(
+                        PlatformStandaloneOperationIdentity.Create(
+                            "browser-platform-workspace")),
+                    new PlatformHouseOperation.Realize(
+                        new PlatformPopulationDemand.Library(
+                            new PlatformLibraryDemand.Assembly(
+                                demand.Identity)),
+                        PlatformViewDemand.Implementation),
+                    sources,
+                    new PlatformHouseWorkBudget(
+                        maxSourceOperations: 8,
+                        maxTargetCandidates: 0,
+                        maxAssemblies: 1,
+                        maxXmlDocuments: 0,
+                        maxPortablePdbs: 0,
+                        maxSourceDocuments: 0,
+                        maxBytes:
+                            BrowserInspectionScope.MaxRetainedImageBytes,
+                        maxForwardingHops: 0,
+                        maxDuration: sourceTimeout),
+                    deadline.Token);
+                PackagePlatformHouseResult<
+                    PackageImplementationRealization> result =
+                        await adapter.RealizeImplementationAsync(
+                                request,
+                                WorkspaceContextLoader
+                                    .RepresentativeRuntimeIdentifier,
+                                sourceLease.IssueOperationLease(
+                                    deadline.Token,
+                                    sourceTimeout,
+                                    sourceTimeout))
+                            .ConfigureAwait(false);
+                if (result is not PackagePlatformHouseResult<
+                        PackageImplementationRealization>.Succeeded succeeded)
+                {
+                    var terminal = (PackagePlatformHouseResult<
+                        PackageImplementationRealization>.NotSucceeded)result;
+                    if (terminal.Diagnostic.Kind
+                        is PackagePlatformSourceDiagnosticKind.MemberUnavailable)
+                    {
+                        return await AttemptAsync(
+                                workspace,
+                                WorkspaceContextLoader
+                                    .PlatformAssemblyUnavailable(
+                                        demand.Family,
+                                        demand.Identity.Name,
+                                        demand.Version,
+                                        demand.Framework),
+                                store.PackageKeys)
+                            .ConfigureAwait(false);
+                    }
+                    throw new InvalidOperationException(
+                        "Package-backed Platform implementation realization "
+                        + $"failed ({terminal.Diagnostic.Kind}: "
+                        + $"{terminal.Diagnostic.Summary}).");
+                }
+
+                PackageImplementationLibrary library =
+                    succeeded.Value.Libraries.SingleOrDefault(candidate =>
+                        candidate.Identity.IsEquivalentTo(demand.Identity))
+                    ?? throw new InvalidOperationException(
+                        "Package-backed Platform implementation realization "
+                        + "did not return the exact demanded assembly.");
+                string producer = library.Framework.Source.Producer.Key;
+                if (demand.Producer is not null
+                    && !producer.Equals(
+                        demand.Producer,
+                        StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        "Package-backed Platform implementation realization "
+                        + "returned a different producer than the retained coordinate.");
+                }
+                var coordinate =
+                    new RealizedMemberCoordinate.Platform(
+                        demand.Family,
+                        demand.Version,
+                        producer,
+                        demand.Framework,
+                        library.Identity.Name);
+                admissions.Add(
+                    WorkspacePlatformAssemblyAdmission
+                        .FromImage(
+                        coordinate,
+                        library.Identity,
+                        library.OpenRead,
+                        adapter.ImplementationRealization.Name));
+            }
+
+            WorkspaceContextLoadOutcome outcome =
+                WorkspaceContextLoader.AdmitPlatformAssemblies(
+                    workspace,
+                    admissions.MoveToImmutable(),
+                    demands[0].Framework,
+                    WorkspaceContextLoader.RepresentativeRuntimeIdentifier,
+                    BrowserInspectionScope.MaxRetainedImageBytes,
+                    deadline.Token);
+            return await AttemptAsync(
+                workspace,
+                outcome,
+                store.PackageKeys,
+                exactPackageRealization: true).ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            await CloseAfterFailureAsync(workspace, failure)
+                .ConfigureAwait(false);
+            throw;
+        }
     }
 
     static async Task<PlatformLoadAttempt> LoadDeclaredAttemptAsync(
@@ -1544,8 +1924,28 @@ internal static class BrowserPlatformWorkspace
         string assembly,
         Host host,
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
-        BrowserPackageWorkspace.PackageLeaseSet packageLeases)
+        BrowserPackageWorkspace.PackageLeaseSet packageLeases,
+        AssemblyReferenceIdentity? identity = null)
     {
+        if (identity is not null
+            && platformVersion is not null
+            && host.PackageClient is not null)
+        {
+            return await LoadExactAttemptAsync(
+                    [
+                        new ExactPlatformDemand(
+                            family,
+                            PlatformVersion.Parse(platformVersion).Value,
+                            PlatformTargetFramework.Parse(
+                                targetFramework).ToString(),
+                            identity),
+                    ],
+                    host,
+                    deadline,
+                    packageLeases)
+                .ConfigureAwait(false);
+        }
+
         var workspace = new InspectionWorkspace();
         var store = new TrackingPackageStore(packageLeases);
         try
@@ -1612,8 +2012,23 @@ internal static class BrowserPlatformWorkspace
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates,
         Host host,
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
-        BrowserPackageWorkspace.PackageLeaseSet packageLeases)
+        BrowserPackageWorkspace.PackageLeaseSet packageLeases,
+        IReadOnlyDictionary<string, AssemblyReferenceIdentity>? identities = null)
     {
+        if (host.PackageClient is not null
+            && TryCreateExactDemands(
+                coordinates,
+                identities,
+                out ImmutableArray<ExactPlatformDemand> demands))
+        {
+            return await LoadExactAttemptAsync(
+                    demands,
+                    host,
+                    deadline,
+                    packageLeases)
+                .ConfigureAwait(false);
+        }
+
         var workspace = new InspectionWorkspace();
         var store = new TrackingPackageStore(packageLeases);
         try
@@ -1642,8 +2057,27 @@ internal static class BrowserPlatformWorkspace
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates,
         Host host,
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
-        BrowserPackageWorkspace.PackageLeaseSet packageLeases)
+        BrowserPackageWorkspace.PackageLeaseSet packageLeases,
+        IReadOnlyDictionary<string, AssemblyReferenceIdentity>? identities = null)
     {
+        if (host.PackageClient is not null
+            && TryCreateExactDemands(
+                coordinates,
+                identities,
+                out ImmutableArray<ExactPlatformDemand> demands))
+        {
+            await using PlatformLoadAttempt exact =
+                await LoadExactAttemptAsync(
+                        demands,
+                        host,
+                        deadline,
+                        packageLeases)
+                    .ConfigureAwait(false);
+            return exact.Failure is null
+                ? (exact.ReleaseScope(), exact.PackageKeys)
+                : throw Failure(exact.Failure);
+        }
+
         var workspace = new InspectionWorkspace();
         var store = new TrackingPackageStore(packageLeases);
         try
@@ -1691,12 +2125,16 @@ internal static class BrowserPlatformWorkspace
     static async Task<PlatformLoadAttempt> AttemptAsync(
         InspectionWorkspace workspace,
         WorkspaceContextLoadOutcome outcome,
-        ImmutableHashSet<string> packageKeys)
+        ImmutableHashSet<string> packageKeys,
+        bool exactPackageRealization = false)
     {
         if (outcome is WorkspaceContextLoadOutcome.Loaded loaded)
         {
             return new PlatformLoadAttempt(
-                Scope(workspace, loaded),
+                Scope(
+                    workspace,
+                    loaded,
+                    exactPackageRealization),
                 packageKeys,
                 failure: null);
         }
@@ -1724,13 +2162,15 @@ internal static class BrowserPlatformWorkspace
 
     static BrowserPlatformScope Scope(
         InspectionWorkspace workspace,
-        WorkspaceContextLoadOutcome.Loaded loaded)
+        WorkspaceContextLoadOutcome.Loaded loaded,
+        bool exactPackageRealization = false)
     {
         EnsureAssemblyCapacity(loaded.Members.Length);
         return new BrowserPlatformScope(
             workspace,
             loaded,
-            PlatformPacks(loaded.AvailablePlatformAssemblies));
+            PlatformPacks(loaded.AvailablePlatformAssemblies),
+            exactPackageRealization);
     }
 
     static ImmutableDictionary<string, string> PlatformPacks(
@@ -1905,6 +2345,15 @@ internal static class BrowserPlatformWorkspace
                 $"Platform pack '{pack}' is not supported."),
         };
 
+    static PlatformFamily PlatformFamilyFor(string family) =>
+        family switch
+        {
+            RuntimeFamily => PlatformFamily.DotNetRuntime,
+            AspNetCoreFamily => PlatformFamily.AspNetCore,
+            _ => throw new InvalidOperationException(
+                $"Platform family '{family}' is not supported."),
+        };
+
     internal static string Pack(string family) =>
         family switch
         {
@@ -2075,15 +2524,25 @@ internal static class BrowserPlatformWorkspace
     static Host ProductionHost { get; } =
         new(
             BrowserPackageWorkspace.NetworkClient,
-            BrowserPackageWorkspace.PackageSourceAuthorization);
+            BrowserPackageWorkspace.PackageSourceAuthorization,
+            BrowserPackageWorkspace.Gallery);
 
     sealed record Host(
         HttpClient Client,
-        IPackageSourceAuthorization SourceAuthorization);
+        IPackageSourceAuthorization SourceAuthorization,
+        IPackageSourceClient? PackageClient = null);
 
     readonly record struct PlatformSelection(
         string Family,
-        string Assembly);
+        string Assembly,
+        AssemblyReferenceIdentity? Identity = null);
+
+    readonly record struct ExactPlatformDemand(
+        string Family,
+        string Version,
+        string Framework,
+        AssemblyReferenceIdentity Identity,
+        string? Producer = null);
 
     readonly record struct PlatformPlanContext(
         string Framework,
@@ -2143,9 +2602,14 @@ internal static class BrowserPlatformWorkspace
     }
 
     sealed class TrackingPackageStore(
-        BrowserPackageWorkspace.PackageLeaseSet packageLeases)
-        : IPackageStore, IPackagePayloadTransferPolicy
+        BrowserPackageWorkspace.PackageLeaseSet packageLeases,
+        BrowserPackageWorkspace.BrowserSessionPackageStore? sourceStore = null)
+        : IPackageStore, IPackagePayloadTransferPolicy, IPackageEntryStore
     {
+        readonly BrowserPackageWorkspace.BrowserSessionPackageStore _sourceStore =
+            sourceStore
+            ?? (BrowserPackageWorkspace.BrowserSessionPackageStore)
+                BrowserPackageWorkspace.SessionPackageStore;
         readonly ImmutableHashSet<string>.Builder _packageKeys =
             ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
 
@@ -2159,16 +2623,15 @@ internal static class BrowserPlatformWorkspace
             Action<string>? log = null)
         {
             IPackageContent? content =
-                BrowserPackageWorkspace.SessionPackageStore.TryGetCached(
+                _sourceStore.TryGetCached(
                     packageName,
                     version,
                     allowedSourceKeys,
                     log);
             if (content is not null)
             {
-                string packageKey = BrowserPackageWorkspace.PackageKey(
-                    packageName,
-                    version);
+                string packageKey =
+                    _sourceStore.PackageKey(packageName, version);
                 _packageKeys.Add(packageKey);
                 packageLeases.Lease(packageKey);
             }
@@ -2184,15 +2647,14 @@ internal static class BrowserPlatformWorkspace
             CancellationToken cancellationToken = default)
         {
             IPackageContent content =
-                await BrowserPackageWorkspace.SessionPackageStore.CommitAsync(
+                await _sourceStore.CommitAsync(
                     packageName,
                     version,
                     sourceKey,
                     nupkg,
                     cancellationToken).ConfigureAwait(false);
-            string packageKey = BrowserPackageWorkspace.PackageKey(
-                packageName,
-                version);
+            string packageKey =
+                _sourceStore.PackageKey(packageName, version);
             _packageKeys.Add(packageKey);
             return content;
         }
@@ -2203,14 +2665,55 @@ internal static class BrowserPlatformWorkspace
         {
             ArgumentNullException.ThrowIfNull(transfer);
             return new LeasingPackageReservation(
-                await BrowserPackageWorkspace.PackageTransferPolicy
+                await ((IPackagePayloadTransferPolicy)_sourceStore)
                     .ReserveAsync(transfer, cancellationToken)
                     .ConfigureAwait(false),
-                BrowserPackageWorkspace.PackageKey(
+                _sourceStore.PackageKey(
                     transfer.Coordinate.PackageId,
                     transfer.Coordinate.Version),
                 packageLeases);
         }
+
+        bool IPackageEntryStore.KeepsEntries =>
+            ((IPackageEntryStore)_sourceStore).KeepsEntries;
+
+        ValueTask<PackageEntryDirectory?>
+            IPackageEntryStore.ReadDirectoryAsync(
+                string packageId,
+                string version) =>
+            ((IPackageEntryStore)_sourceStore)
+                .ReadDirectoryAsync(packageId, version);
+
+        ValueTask IPackageEntryStore.PublishDirectoryAsync(
+            string packageId,
+            string version,
+            ReadOnlyMemory<byte> region,
+            long archiveLength) =>
+            ((IPackageEntryStore)_sourceStore)
+                .PublishDirectoryAsync(
+                    packageId,
+                    version,
+                    region,
+                    archiveLength);
+
+        ValueTask<byte[]?> IPackageEntryStore.ReadEntryAsync(
+            string packageId,
+            string version,
+            string entryPath) =>
+            ((IPackageEntryStore)_sourceStore)
+                .ReadEntryAsync(packageId, version, entryPath);
+
+        ValueTask IPackageEntryStore.PublishEntryAsync(
+            string packageId,
+            string version,
+            string entryPath,
+            ReadOnlyMemory<byte> content) =>
+            ((IPackageEntryStore)_sourceStore)
+                .PublishEntryAsync(
+                    packageId,
+                    version,
+                    entryPath,
+                    content);
 
         sealed class LeasingPackageReservation(
             IPackagePayloadReservation inner,

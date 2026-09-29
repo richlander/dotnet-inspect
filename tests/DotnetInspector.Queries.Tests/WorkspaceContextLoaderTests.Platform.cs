@@ -845,6 +845,62 @@ public sealed partial class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task AdmittedExactPlatformAssemblies_CreateGroupWithoutAcquisition()
+    {
+        await using var workspace = new InspectionWorkspace();
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                CallerPath,
+                AssemblyResolutionProvenance.Platform(
+                    "runtime",
+                    RuntimePackVersion,
+                    "package-backed implementation"));
+        var coordinate = new RealizedMemberCoordinate.Platform(
+            "runtime",
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            Framework,
+            assembly.Identity.Name);
+
+        var loaded = Loaded(
+            WorkspaceContextLoader.AdmitPlatformAssemblies(
+                workspace,
+                [new WorkspacePlatformAssemblyAdmission(coordinate, assembly)],
+                Framework,
+                WorkspaceContextLoader.RepresentativeRuntimeIdentifier,
+                maxRetainedImageBytes: 4 * 1024 * 1024,
+                TestContext.Current.CancellationToken));
+
+        WorkspaceContextMember member = Assert.Single(loaded.Members);
+        Assert.Equal(coordinate, member.Realized);
+        Assert.Equal(assembly.Identity, member.Participant.Assembly.Identity);
+        Assert.Equal(
+            coordinate,
+            Assert.Single(loaded.AvailablePlatformAssemblies));
+    }
+
+    [Fact]
+    public void ExactPlatformAssemblyAbsence_IsTypedWithoutAcquisition()
+    {
+        var failed = Failed(
+            WorkspaceContextLoader.PlatformAssemblyUnavailable(
+                "runtime",
+                "Missing.Platform.Assembly",
+                RuntimePackVersion,
+                Framework));
+
+        WorkspaceContextLoadFailure failure =
+            Assert.Single(failed.Failures);
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PlatformAssemblyUnavailable,
+            failure.Kind);
+        Assert.Equal(
+            "Missing.Platform.Assembly",
+            Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
+                failure.Member).Assembly);
+    }
+
+    [Fact]
     public async Task RealizedPlatformCoordinates_ReportTheMissingSelectedAssembly()
     {
         var store = new InMemoryPackageStore();
