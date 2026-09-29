@@ -112,6 +112,34 @@ public sealed class TypeMemberCompositionTests
         Assert.Empty(publicType.Members);
     }
 
+    [Fact]
+    public void PrivateScopeAttachedExtension_CountsAsPrivateReceiver()
+    {
+        byte[] image = BuildPrivateScopeExtensionImage();
+        MetadataTypeDefinitionName type =
+            Name("Fixtures", "Receiver");
+
+        MetadataTypeMemberComposition @public = Compose(
+            image,
+            type,
+            MetadataMethodAccessibilityFilter.Public);
+        MetadataTypeMemberComposition @protected = Compose(
+            image,
+            type,
+            MetadataMethodAccessibilityFilter.Protected);
+        MetadataTypeMemberComposition @private = Compose(
+            image,
+            type,
+            MetadataMethodAccessibilityFilter.Private);
+
+        Assert.Equal(
+            (0, 0, 0, 1),
+            (@public.Public, @public.Protected, @public.Internal, @public.Private));
+        Assert.Equal(0, @public.Extension);
+        Assert.Equal(0, @protected.Extension);
+        Assert.Equal(1, @private.Extension);
+    }
+
     [Theory]
     [InlineData("packages", "System.Text.Json.10.0.0.dll")]
     [InlineData(null, "System.Private.CoreLib.dll")]
@@ -280,6 +308,109 @@ public sealed class TypeMemberCompositionTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             method);
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildPrivateScopeExtensionImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("PrivateScopeExtension.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("7C6CF356-B6AC-4449-A04B-8B4B76F624F8")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("PrivateScopeExtension"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle extensionAttribute = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("ExtensionAttribute"));
+        var attributeConstructorSignature = new BlobBuilder();
+        new BlobEncoder(attributeConstructorSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                parameters => { });
+        MemberReferenceHandle extensionAttributeConstructor =
+            metadata.AddMemberReference(
+                extensionAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(attributeConstructorSignature));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle receiver = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("Receiver"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters
+                    .AddParameter()
+                    .Type()
+                    .Type(receiver, isValueType: false));
+        MethodDefinitionHandle method = metadata.AddMethodDefinition(
+            MethodAttributes.PrivateScope | MethodAttributes.Static,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("Extend"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        TypeDefinitionHandle extensions = metadata.AddTypeDefinition(
+            TypeAttributes.Abstract | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("Extensions"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+
+        BlobHandle attributeValue =
+            metadata.GetOrAddBlob(new byte[] { 0x01, 0x00, 0x00, 0x00 });
+        metadata.AddCustomAttribute(
+            method,
+            extensionAttributeConstructor,
+            attributeValue);
+        metadata.AddCustomAttribute(
+            extensions,
+            extensionAttributeConstructor,
+            attributeValue);
 
         var image = new BlobBuilder();
         new ManagedPEBuilder(

@@ -245,8 +245,8 @@ public static partial class ApiSurfaceExtractor
             return left;
         if (left == MethodAttributes.Public)
             return right;
-        if (left == MethodAttributes.Private
-            || right == MethodAttributes.Private)
+        if (left is MethodAttributes.Private or MethodAttributes.PrivateScope
+            || right is MethodAttributes.Private or MethodAttributes.PrivateScope)
         {
             return MethodAttributes.Private;
         }
