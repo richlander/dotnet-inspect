@@ -1837,7 +1837,82 @@ async function installFacades(
       export function decodeWorkspaceShareState(packet) {
         return { succeeded: true, state: JSON.parse(atob(packet)), failure: null };
       }
-      export function describeWorkspacePackageSources() {
+      export function describeWorkspacePackageSources(packet) {
+        if (workspaceSources.length === 0) {
+          let state;
+          try {
+            state = JSON.parse(atob(packet));
+          } catch (error) {
+            return {
+              succeeded: false,
+              sources: [],
+              failure: {
+                kind: "InvalidPacket",
+                path: "packet",
+                message: error instanceof Error
+                  ? error.message
+                  : "The Workspace packet is invalid.",
+              },
+            };
+          }
+          if (![2, 3, 4, 5].includes(state.f)) {
+            return {
+              succeeded: false,
+              sources: [],
+              failure: {
+                kind: "UnsupportedVersion",
+                path: "packet",
+                message: "Complete Workspace restoration does not support this packet format.",
+              },
+            };
+          }
+          if (!Array.isArray(state.t) || state.t.length === 0) {
+            return {
+              succeeded: false,
+              sources: [],
+              failure: {
+                kind: "UnsupportedDefinition",
+                path: "packet.tabs",
+                message: "Complete Workspace link activation requires at least one Package or Platform target.",
+              },
+            };
+          }
+          const states = Array.isArray(state.v) ? state.v : [];
+          const isUnscoped = view =>
+            (!Array.isArray(view?.q) || view.q.length === 0)
+            && (!Array.isArray(view?.l) || view.l.length === 0);
+          const workspace = states[0];
+          const workspaceSupported =
+            states.length === state.t.length + 1
+            && isUnscoped(workspace)
+            && workspace?.u?.k === "workspace"
+            && workspace?.r === undefined
+            && (workspace?.f === undefined
+              || workspace.f === "workspace.overview");
+          const tabsSupported = state.t.every((tab, index) => {
+            const view = states[index + 1];
+            if (!isUnscoped(view)) return false;
+            if (typeof tab?.[0] === "string" && tab[0].startsWith(":")) {
+              return view?.u === undefined
+                && view?.r === undefined
+                && view?.f === undefined;
+            }
+            return view?.u?.k === "package"
+              && view?.r?.k === "package"
+              && (view?.f === undefined || view.f === "package.overview");
+          });
+          if (!workspaceSupported || !tabsSupported) {
+            return {
+              succeeded: false,
+              sources: [],
+              failure: {
+                kind: "UnsupportedDefinition",
+                path: "packet.view.active",
+                message: "Source-free complete Workspace link activation currently supports only Workspace or Package Overview selections.",
+              },
+            };
+          }
+        }
         return { succeeded: true, sources: workspaceSources, failure: null };
       }`,
   };
