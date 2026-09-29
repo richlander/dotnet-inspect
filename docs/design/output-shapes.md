@@ -374,6 +374,7 @@ The registered adopter identities are:
 | --- | --- |
 | `type-dependencies` | `TypeDependencySectionResult` |
 | `library-api-diff` | `LibraryApiDiffOutcome` |
+| `diff-analysis` | `DiffAnalysisDocument` |
 | `asset-dependencies` | `DependencyInspectionContent` |
 | `ecosystem-change-report` | `EcosystemChangeReportDocument` |
 | `package-query` | `PackageQueryDocument` |
