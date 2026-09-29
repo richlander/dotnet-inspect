@@ -20,13 +20,13 @@ public class ValidityPipelineParityTests
         var actualFunction = Import(source, type, methodName);
         var conservativeFunction = Import(source, type, methodName);
 
-        string? expected = CSharpPrinter.PrintRaised(
+        string? expected = CSharpPrinter.PrintRaisedFullyQualified(
             expectedFunction,
             method => IrImporter.Import(source, method),
             typesProvablyDisjoint: source.AreProvablyDisjoint).Output;
         string? actual =
             ValidityCheck.RenderProjection(source, actualFunction).Output;
-        string? conservative = CSharpPrinter.PrintRaised(
+        string? conservative = CSharpPrinter.PrintRaisedFullyQualified(
             conservativeFunction,
             method => IrImporter.Import(source, method)).Output;
 
@@ -36,6 +36,20 @@ public class ValidityPipelineParityTests
             Assert.DoesNotContain("switch", conservative);
         else
             Assert.Equal(expected, conservative);
+    }
+
+    [Fact]
+    public void ValidityUsesProductQualifiedTypeArtifact()
+    {
+        var type = typeof(Annotations.LifetimeClassifier);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = Import(source, type, "Unwrap");
+
+        string? output = ValidityCheck.RenderProjection(source, function).Output;
+
+        Assert.Contains(
+            "global::ILInspector.Decompiler.Pipeline.Convert convert",
+            output);
     }
 
     [Theory]
