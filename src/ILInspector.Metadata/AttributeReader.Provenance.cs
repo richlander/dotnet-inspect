@@ -34,14 +34,22 @@ public static partial class AttributeReader
                         FixedArguments.Length: 2,
                         NamedArguments.Length: 0,
                     } decoded
-                    && decoded.FixedArguments[0].Value is string tool
-                    && decoded.FixedArguments[1].Value is string version)
+                    && decoded.FixedArguments[0].Value is null or string
+                    && decoded.FixedArguments[1].Value is null or string)
                 {
+                    string? tool =
+                        decoded.FixedArguments[0].Value as string;
+                    string? version =
+                        decoded.FixedArguments[1].Value as string;
                     rows.Add(new(
                         PdbGenerationMarkerKind.GeneratedCode,
                         PdbGenerationMarkerDisposition.Valid,
-                        new InertString(TextPolicy.Field, tool),
-                        new InertString(TextPolicy.Field, version)));
+                        tool is null
+                            ? null
+                            : new InertString(TextPolicy.Field, tool),
+                        version is null
+                            ? null
+                            : new InertString(TextPolicy.Field, version)));
                 }
                 else
                 {

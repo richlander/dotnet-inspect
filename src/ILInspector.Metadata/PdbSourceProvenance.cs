@@ -1,6 +1,8 @@
+using System.Buffers;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Text;
 using InertText;
 using Inspector.Artifacts;
 
@@ -655,23 +657,38 @@ public partial class PdbContext
             limits.MaxPathCharacters,
             limits.MaxPathSegments);
         Dictionary<int, MutableDocument> documents = [];
+        Dictionary<int, int> documentNameComponentCharacterCounts = [];
         int pathCharacters = 0;
         int pathSegments = 0;
         foreach (DocumentHandle handle in pdb.Documents)
         {
             int rowId = MetadataTokens.GetRowNumber(handle);
             Document document = pdb.GetDocument(handle);
-            string path = pdb.GetString(document.Name);
-            pathCharacters = checked(pathCharacters + path.Length);
-            if (pathCharacters > limits.MaxTotalPathCharacters)
+            int remainingPathCharacters =
+                limits.MaxTotalPathCharacters - pathCharacters;
+            if (!TryGetDocumentNameCharacterCount(
+                    pdb,
+                    document.Name,
+                    remainingPathCharacters,
+                    documentNameComponentCharacterCounts,
+                    out int documentPathCharacters))
             {
                 throw Limit(
                     PdbSourceProvenanceIncompleteReason
                         .TotalPathCharacterLimitExceeded,
-                    pathCharacters,
+                    limits.MaxTotalPathCharacters == int.MaxValue
+                        ? int.MaxValue
+                        : limits.MaxTotalPathCharacters + 1,
                     limits.MaxTotalPathCharacters,
                     "document path characters");
             }
+            string path = pdb.GetString(document.Name);
+            if (path.Length != documentPathCharacters)
+            {
+                throw new BadImageFormatException(
+                    "The Portable PDB document name changed length while it was decoded.");
+            }
+            pathCharacters += documentPathCharacters;
             int documentPathSegments = CountPathSegments(path);
             pathSegments = checked(
                 pathSegments + documentPathSegments);
@@ -707,7 +724,7 @@ public partial class PdbContext
                 new MutableDocument(
                     rowId,
                     new InertString(TextPolicy.Field, path),
-                    path.Length,
+                    documentPathCharacters,
                     documentPathSegments,
                     document.Hash.IsNil
                         ? []
@@ -1018,6 +1035,110 @@ public partial class PdbContext
                     "generation marker rows");
             }
         }
+    }
+
+    private static bool TryGetDocumentNameCharacterCount(
+        MetadataReader pdb,
+        DocumentNameBlobHandle handle,
+        int maxCharacters,
+        Dictionary<int, int> componentCharacterCounts,
+        out int characterCount)
+    {
+        BlobReader name = pdb.GetBlobReader((BlobHandle)handle);
+        if (name.RemainingBytes == 0)
+        {
+            characterCount = 0;
+            return true;
+        }
+
+        byte separator = name.ReadByte();
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(4096);
+        try
+        {
+            int count = 0;
+            bool hasComponent = false;
+            while (name.RemainingBytes > 0)
+            {
+                if (hasComponent && separator != 0)
+                {
+                    if (count == maxCharacters)
+                    {
+                        characterCount = 0;
+                        return false;
+                    }
+                    count++;
+                }
+
+                BlobHandle component = name.ReadBlobHandle();
+                int componentOffset = MetadataTokens.GetHeapOffset(component);
+                if (!componentCharacterCounts.TryGetValue(
+                        componentOffset,
+                        out int componentCharacters))
+                {
+                    if (!TryGetUtf8CharacterCount(
+                            pdb.GetBlobReader(component),
+                            maxCharacters - count,
+                            buffer,
+                            out componentCharacters))
+                    {
+                        characterCount = 0;
+                        return false;
+                    }
+                    componentCharacterCounts.Add(
+                        componentOffset,
+                        componentCharacters);
+                }
+                if (componentCharacters > maxCharacters - count)
+                {
+                    characterCount = 0;
+                    return false;
+                }
+                count += componentCharacters;
+                hasComponent = true;
+            }
+
+            characterCount = count;
+            return true;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private static bool TryGetUtf8CharacterCount(
+        BlobReader value,
+        int maxCharacters,
+        byte[] buffer,
+        out int characterCount)
+    {
+        Decoder decoder = Encoding.UTF8.GetDecoder();
+        int count = 0;
+        while (value.RemainingBytes > 0)
+        {
+            int length = Math.Min(value.RemainingBytes, buffer.Length);
+            value.ReadBytes(length, buffer, 0);
+            int chunkCharacters = decoder.GetCharCount(
+                buffer.AsSpan(0, length),
+                flush: false);
+            if (chunkCharacters > maxCharacters - count)
+            {
+                characterCount = 0;
+                return false;
+            }
+            count += chunkCharacters;
+        }
+
+        int trailingCharacters = decoder.GetCharCount(
+            [],
+            flush: true);
+        if (trailingCharacters > maxCharacters - count)
+        {
+            characterCount = 0;
+            return false;
+        }
+        characterCount = count + trailingCharacters;
+        return true;
     }
 
     private PdbSourceProvenanceOutcome PdbUnavailable()

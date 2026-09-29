@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Fixtures;
 using Inspector.Artifacts;
@@ -125,7 +126,9 @@ public class PdbSourceProvenanceTests
 
         PdbSourceProvenanceResult result =
             Assert.IsType<PdbSourceProvenanceOutcome.Available>(
-                context.InspectSourceProvenance()).Result;
+                context.InspectSourceProvenance(
+                    limits: new(
+                        maxTotalPathCharacters: documentPath.Length))).Result;
 
         PdbSourceDocumentEvidence document =
             Assert.Single(result.Documents);
@@ -138,6 +141,30 @@ public class PdbSourceProvenanceTests
             document.PathCharacterCount,
             result.Receipt.PathCharactersExamined);
         Assert.NotEqual(documentPath, document.Path.ToString());
+    }
+
+    [Fact]
+    public void UnicodeDocumentNamePreflight_CountsCharactersNotUtf8Bytes()
+    {
+        const string documentPath = "/repo/Ordinary\u03B4Source.cs";
+        (byte[] image, byte[] pdb) =
+            BuildMarkerMetadata(documentPath: documentPath);
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+        context.LoadPdbFromStream(
+            new MemoryStream(pdb, writable: false));
+
+        PdbSourceProvenanceResult result =
+            Assert.IsType<PdbSourceProvenanceOutcome.Available>(
+                context.InspectSourceProvenance(
+                    limits: new(
+                        maxTotalPathCharacters: documentPath.Length))).Result;
+
+        PdbSourceDocumentEvidence document =
+            Assert.Single(result.Documents);
+        Assert.Equal(documentPath.Length, document.PathCharacterCount);
+        Assert.Equal(documentPath, document.Path.ToString());
     }
 
     [Fact]
@@ -244,6 +271,33 @@ public class PdbSourceProvenanceTests
                     context.InspectSourceProvenance(limits: limits));
             Assert.Equal(expected, incomplete.Reason);
         }
+    }
+
+    [Fact]
+    public void CompositeDocumentNameExpansion_IsBoundedBeforeMaterialization()
+    {
+        (byte[] image, byte[] pdb) = BuildMarkerMetadata(
+            repeatedDocumentNameComponentLength: 128,
+            repeatedDocumentNameComponentCount: 16,
+            appendInvalidDocumentNameComponent: true);
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+        context.LoadPdbFromStream(
+            new MemoryStream(pdb, writable: false));
+
+        var incomplete =
+            Assert.IsType<PdbSourceProvenanceOutcome.Incomplete>(
+                context.InspectSourceProvenance(
+                    limits: new(maxTotalPathCharacters: 1024)));
+
+        Assert.Equal(
+            PdbSourceProvenanceIncompleteReason
+                .TotalPathCharacterLimitExceeded,
+            incomplete.Reason);
+        Assert.IsType<PdbSourceProvenanceOutcome.Failed>(
+            context.InspectSourceProvenance(
+                limits: new(maxTotalPathCharacters: 4096)));
     }
 
     [Fact]
@@ -377,6 +431,16 @@ public class PdbSourceProvenanceTests
         AssertDisposition(
             "NoDocumentType",
             PdbTypeSourceDisposition.Unknown);
+        PdbTypeSourceEvidence nullMarker = AssertDisposition(
+            "NullGeneratedCodeArguments",
+            PdbTypeSourceDisposition.GeneratedEvidenceOnly);
+        PdbGenerationMarkerEvidence marker =
+            Assert.Single(nullMarker.DirectMarkers);
+        Assert.Equal(
+            PdbGenerationMarkerDisposition.Valid,
+            marker.Disposition);
+        Assert.Null(marker.DeclaredTool);
+        Assert.Null(marker.DeclaredVersion);
         AssertDisposition(
             "LookalikeMarkedType",
             PdbTypeSourceDisposition.OrdinaryEvidenceOnly);
@@ -691,7 +755,10 @@ public class PdbSourceProvenanceTests
     private static (byte[] Image, byte[] Pdb) BuildMarkerMetadata(
         string documentPath =
             "/repo/obj/Tool/Tool.ExampleGenerator/Hint.g.cs",
-        bool includeCodeView = true)
+        bool includeCodeView = true,
+        int repeatedDocumentNameComponentLength = 0,
+        int repeatedDocumentNameComponentCount = 0,
+        bool appendInvalidDocumentNameComponent = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -905,9 +972,16 @@ public class PdbSourceProvenanceTests
         rowCounts[(int)TableIndex.AssemblyRef] = 3;
         rowCounts[(int)TableIndex.NestedClass] = 1;
         var pdbMetadata = new MetadataBuilder();
+        BlobHandle documentName =
+            repeatedDocumentNameComponentCount == 0
+                ? pdbMetadata.GetOrAddDocumentName(documentPath)
+                : AddRepeatedDocumentName(
+                    pdbMetadata,
+                    repeatedDocumentNameComponentLength,
+                    repeatedDocumentNameComponentCount,
+                    appendInvalidDocumentNameComponent);
         DocumentHandle document = pdbMetadata.AddDocument(
-            pdbMetadata.GetOrAddDocumentName(
-                documentPath),
+            documentName,
             default,
             default,
             default);
@@ -1001,6 +1075,25 @@ public class PdbSourceProvenanceTests
             value.WriteSerializedString(version);
             value.WriteUInt16(0);
             return value;
+        }
+
+        static BlobHandle AddRepeatedDocumentName(
+            MetadataBuilder metadata,
+            int componentLength,
+            int componentCount,
+            bool appendInvalidComponent)
+        {
+            BlobHandle component = metadata.GetOrAddBlob(
+                Encoding.UTF8.GetBytes(new string('a', componentLength)));
+            int componentOffset =
+                MetadataTokens.GetHeapOffset(component);
+            var name = new BlobBuilder();
+            name.WriteByte((byte)'/');
+            for (int index = 0; index < componentCount; index++)
+                name.WriteCompressedInteger(componentOffset);
+            if (appendInvalidComponent)
+                name.WriteCompressedInteger(0x1FFF_FFFF);
+            return metadata.GetOrAddBlob(name);
         }
     }
 

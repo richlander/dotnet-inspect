@@ -54,6 +54,11 @@ public interface NoDocumentType
 {
 }
 
+[GeneratedCode(null, null)]
+public interface NullGeneratedCodeArguments
+{
+}
+
 [lookalike::System.CodeDom.Compiler.GeneratedCode(
     "UntrustedLookalike",
     "1.0")]
