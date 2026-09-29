@@ -276,11 +276,13 @@ public sealed record MemberOverloadPopulationInspectionPlan
             ?? throw new ArgumentNullException(nameof(overloads));
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
+        Query = MemberOverloadPopulationQuery.Resolve(overloads);
     }
 
     public MemberGroupSubject Subject { get; }
     public MemberOverloadPopulationRequest Overloads { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
+    internal MemberOverloadPopulationExecutionPlan Query { get; }
 }
 
 public sealed record MemberOverloadPopulationInspectionRequest
