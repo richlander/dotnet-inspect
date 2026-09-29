@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Reflection.Metadata;
 using System.Globalization;
 using System.Text.Json;
 using DotnetInspector.Cache;
@@ -395,6 +396,55 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.DoesNotContain("produced unprojected output", error);
+    }
+
+    // A Type subject's bare Count is its Member population: the public bucket
+    // by default, every bucket with hidden declarations under --all. It equals
+    // the Metadata Composition Count, and the rows are the same population, so
+    // the host does not narrow them by name
+    // (docs/design/type-member-inspection-documents.md#composition-count).
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TypeSubjectCount_EqualsTheMemberComposition(bool all)
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory, "RealAssets", "DiffAnalysis", "10.0.0", "System.Text.Json.dll");
+        string[] arguments = all
+            ? ["type", "System.Text.Json.JsonDocument", "--library", path, "--count", "--all"]
+            : ["type", "System.Text.Json.JsonDocument", "--library", path, "--count"];
+
+        var (exit, output, error) = await RunAppAsync(arguments);
+
+        Assert.True(exit == 0, error);
+        using var stream = File.OpenRead(path);
+        using var peReader = new System.Reflection.PortableExecutable.PEReader(stream);
+        var counted = Assert.IsType<MetadataTypeMemberCompositionOutcome.Counted>(
+            MetadataTypeMemberCompositionInspection.Read(
+                peReader.GetMetadataReader(),
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create("System.Text.Json", ["JsonDocument"])).Name,
+                MetadataMemberSpelling.CSharp,
+                includeHidden: all,
+                all ? MetadataMethodAccessibilityFilter.All : MetadataMethodAccessibilityFilter.Public));
+        MetadataTypeMemberComposition composition = counted.Composition;
+        int expected = all
+            ? composition.Public + composition.Protected + composition.Internal + composition.Private
+            : composition.Public;
+        Assert.Equal(expected.ToString(System.Globalization.CultureInfo.InvariantCulture), output.Trim());
+    }
+
+    [Fact]
+    public async Task TypeSubjectRows_KeepOrdinaryFieldsWhoseNamesLookGenerated()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory, "RealAssets", "DiffAnalysis", "10.0.0", "System.Text.Json.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json.JsonDocument", "--library", path, "--all");
+
+        Assert.True(exit == 0, error);
+        Assert.Contains("s_nullLiteral", output, StringComparison.Ordinal);
     }
 
     [Fact]
