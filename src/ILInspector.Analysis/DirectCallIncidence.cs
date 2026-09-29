@@ -11,7 +11,10 @@ namespace ILInspector.Analysis;
 /// Library-body Analysis appends each method body's calls as one block
 /// (<c>LibraryBodyAnalysisAccumulator.Build</c>), so a producer population
 /// is contiguous per evidence method and grouping reduces to run-length
-/// slicing: one dictionary insert per method and no per-call hashing.
+/// slicing: one dictionary insert per method and no per-call hashing. The
+/// result is a view over the one shared population; a group is copied into
+/// its own array only when a consumer first reads it, so point lookups do
+/// not pay for every other method's slice.
 /// Contiguity is observed, not typed: a population whose token reappears
 /// after another token falls back to the general grouping loop, so the
 /// answer is exact either way.
@@ -45,31 +48,14 @@ internal static class DirectCallIncidence
             tokens[runs] = current;
             ends[runs++] = calls.Length;
 
-            var incidence =
-                new Dictionary<int, ImmutableArray<DirectCall>>(runs);
-            if (runs == 1)
-            {
-                incidence.Add(tokens[0], directCalls);
-                return incidence;
-            }
-
-            int start = 0;
+            var ordinals = new Dictionary<int, int>(runs);
             for (int run = 0; run < runs; run++)
             {
-                int end = ends[run];
-                if (!incidence.TryAdd(
-                        tokens[run],
-                        ImmutableArray.Create(
-                            directCalls,
-                            start,
-                            end - start)))
-                {
+                if (!ordinals.TryAdd(tokens[run], run))
                     return Interleaved(directCalls);
-                }
-                start = end;
             }
 
-            return incidence;
+            return new RunView(directCalls, ordinals, ends.AsSpan(0, runs));
         }
         finally
         {
@@ -102,5 +88,88 @@ internal static class DirectCallIncidence
         foreach (var pair in builders)
             incidence.Add(pair.Key, pair.Value.ToImmutable());
         return incidence;
+    }
+
+    /// <summary>
+    /// Read-only token-to-run index over one contiguous population. Keys
+    /// enumerate in run order, which is first-appearance order.
+    /// </summary>
+    sealed class RunView :
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
+    {
+        readonly ImmutableArray<DirectCall> _calls;
+        readonly Dictionary<int, int> _ordinals;
+        readonly int[] _ends;
+        readonly ImmutableArray<DirectCall>[] _groups;
+
+        internal RunView(
+            ImmutableArray<DirectCall> calls,
+            Dictionary<int, int> ordinals,
+            ReadOnlySpan<int> ends)
+        {
+            _calls = calls;
+            _ordinals = ordinals;
+            _ends = ends.ToArray();
+            _groups = new ImmutableArray<DirectCall>[_ends.Length];
+        }
+
+        public int Count => _ends.Length;
+
+        public ImmutableArray<DirectCall> this[int key] =>
+            TryGetValue(key, out ImmutableArray<DirectCall> value)
+                ? value
+                : throw new KeyNotFoundException(
+                    $"No direct calls have evidence method {key:X8}.");
+
+        public IEnumerable<int> Keys => _ordinals.Keys;
+
+        public IEnumerable<ImmutableArray<DirectCall>> Values
+        {
+            get
+            {
+                for (int run = 0; run < _ends.Length; run++)
+                    yield return Group(run);
+            }
+        }
+
+        public bool ContainsKey(int key) => _ordinals.ContainsKey(key);
+
+        public bool TryGetValue(
+            int key,
+            out ImmutableArray<DirectCall> value)
+        {
+            if (!_ordinals.TryGetValue(key, out int run))
+            {
+                value = default;
+                return false;
+            }
+            value = Group(run);
+            return true;
+        }
+
+        public IEnumerator<KeyValuePair<int, ImmutableArray<DirectCall>>>
+            GetEnumerator()
+        {
+            foreach ((int token, int run) in _ordinals)
+                yield return new(token, Group(run));
+        }
+
+        System.Collections.IEnumerator
+            System.Collections.IEnumerable.GetEnumerator() =>
+            GetEnumerator();
+
+        ImmutableArray<DirectCall> Group(int run)
+        {
+            ImmutableArray<DirectCall> group = _groups[run];
+            if (!group.IsDefault)
+                return group;
+            int start = run == 0 ? 0 : _ends[run - 1];
+            int end = _ends[run];
+            group = start == 0 && end == _calls.Length
+                ? _calls
+                : ImmutableArray.Create(_calls, start, end - start);
+            _groups[run] = group;
+            return group;
+        }
     }
 }
