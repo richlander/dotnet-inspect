@@ -590,14 +590,9 @@ static partial class FidelityCheck
             var hasTarget = targets.TryGetValue(mh, out var target);
             if (hasTarget && target.WholeMember is { } wholeMember)
             {
-                string methodName = reader.GetString(reader.GetMethodDefinition(mh).Name);
-                if (methodName != ".ctor"
-                    || TryForcePublicConstructorAccessibility(wholeMember, out wholeMember))
-                {
-                    EmitPrerenderedMember(wholeMember, sb, pad + "    ");
-                    productWholeMembers.Add(mh);
-                    continue;
-                }
+                EmitPrerenderedMember(wholeMember, sb, pad + "    ");
+                productWholeMembers.Add(mh);
+                continue;
             }
 
             EmitMethod(reader, typeHandle, mh,
@@ -1440,13 +1435,10 @@ static partial class FidelityCheck
     /// <summary>
     /// Splices the product's whole-member text into the compile-back unit,
     /// re-indenting from the product's one-level (4-space) base to the member's
-    /// position in the reconstructed type. Constructor accessibility is normalized
-    /// to public, preserving the skeleton's same-assembly binding policy while the
-    /// product continues to own the rest of the declaration. C# ignores
-    /// indentation, so that part is cosmetic; only the token stream matters for
-    /// the opcode comparison.
+    /// position in the reconstructed type. C# ignores indentation, so the
+    /// product-owned token stream remains unchanged.
     /// </summary>
-    static void EmitPrerenderedMember(
+    internal static void EmitPrerenderedMember(
         string wholeMember,
         StringBuilder sb,
         string pad)
@@ -1460,39 +1452,6 @@ static partial class FidelityCheck
             else
                 sb.Append(prefix).Append(line).Append('\n');
         }
-    }
-
-    internal static bool TryForcePublicConstructorAccessibility(
-        string wholeMember,
-        out string normalized)
-    {
-        normalized = wholeMember;
-        if (SyntaxFactory.ParseMemberDeclaration(wholeMember)
-            is not ConstructorDeclarationSyntax constructor)
-        {
-            return false;
-        }
-
-        var accessibility = constructor.Modifiers
-            .Where(token => token.IsKind(SyntaxKind.PublicKeyword)
-                || token.IsKind(SyntaxKind.PrivateKeyword)
-                || token.IsKind(SyntaxKind.ProtectedKeyword)
-                || token.IsKind(SyntaxKind.InternalKeyword))
-            .ToArray();
-        if (accessibility.Length == 0)
-            return false;
-
-        var publicToken = SyntaxFactory.Token(
-            accessibility[0].LeadingTrivia,
-            SyntaxKind.PublicKeyword,
-            accessibility[^1].TrailingTrivia);
-        var remaining = constructor.Modifiers
-            .Where(token => !accessibility.Contains(token))
-            .ToArray();
-        normalized = constructor
-            .WithModifiers(SyntaxFactory.TokenList([publicToken, .. remaining]))
-            .ToFullString();
-        return true;
     }
 
     static void EmitMethod(MetadataReader reader, TypeDefinitionHandle typeHandle,

@@ -85,6 +85,17 @@ terminal supported by the adopted surface, like Count. A terminal omitted
 from the report is unverified and prevents a merge-readiness claim for that
 adoption.
 
+NativeAOT is the only accepted performance measurement for both end-to-end
+results and kernel-level scorecards. CoreCLR timing, BenchmarkDotNet, profiler
+output, static analysis, and lower-level counters may diagnose a result, but
+they cannot establish a performance claim or substitute for NativeAOT numbers.
+
+The operator requires those numbers before merge. Publish the numeric results
+in both the visible agent session and the PR body; an artifact, issue comment,
+or external report alone is insufficient. Review and independent gates may run
+in parallel while measurement is pending, but the candidate is not merge-ready
+until both publication surfaces contain the exact-head evidence.
+
 Compare the exact effective base with the exact candidate head. Run the
 complete production-host command or operation, including startup, acquisition,
 planning, execution, and output consumption. A lower-level benchmark may
@@ -144,38 +155,55 @@ depends on its author's choices, and it costs one loop per question where
 NLinq costs one source per population. A hand-written loop appears only as
 the Old column of a path that already exists.
 
-**Same analysis, different read.** LINQ, NLinq, and Planner answer the same
-question with the same analysis: the same scope and class tests, the same
-predicates, the same guarded decoders and budgets, and the same row
-projection. Only the read machinery may differ: iteration, fusion, query
-execution, and a source-native fact that yields the same answer, such as a
-count from a table size. A gap between columns must mean that one column
-reads more efficiently, never that it omits contract work the others do.
-Only Old legitimately differs, as the labeled product baseline. A
-source-native answer is a Planner technique within this rule, not an
-exception to it; the labeled source-native ceiling column below remains
-outside the standard columns.
+**Same contract, independent read.** LINQ, NLinq, and Planner answer the same
+question over the same scope, predicates, projection, and closing. For an
+Analysis producer, fairness has two independent requirements:
 
-The oracle columns therefore call the product's own analysis code, such as
-its gate classification, predicate, and projection structs, rather than
-re-implementing it. A harness that re-implements the analysis drifts in one
-direction: it omits whatever work the pinned assets do not exercise, such as
-containment, authentication, row fidelity, or per-call memo scope. Answers
-still agree on benign assets, so the answer check cannot see the omission,
-and the timing reports a gap that is not there. The answer check also runs
-the producer's hostile safety fixtures, so omitted containment surfaces as a
-mismatch rather than a speedup.
+- **Fidelity** is exact agreement on the owner-named Roslyn-produced assembly
+  patterns. A comparator need not reproduce answers outside that fidelity
+  domain.
+- **Safety** is bounded, inert behavior for every supported ECMA-335 input.
+  Safety does not require semantic rejection of every non-Roslyn shape when
+  the owning contract permits a wrong but contained answer.
 
-**The frontier lane.** A faster algorithm for the same contract is valuable,
-and oracle authors often find one first, for example one attribute walk
-instead of one per target, or hoisting a per-Type test out of a per-method
-loop. Explore it in a separately labeled frontier experiment, never in the
-oracle column. A frontier implementation may change the algorithm but not
-the contract: it gives the same answers on benign and hostile fixtures and
-keeps the same bounds and visible failures. A frontier win becomes a Planner
-hypothesis. Port it to the product analysis, and re-measure it through the
-standard columns, where the oracle adopts it too, because the oracle calls
-the product code.
+The columns need not execute the same implementation, incidental reads, or
+checks. They may differ in iteration, fusion, query execution, decoder
+specialization, and source-native facts. A comparator is unfair when it omits
+work required by either fidelity or safety; change that comparator rather than
+crediting its time. Conversely, when LINQ or NLinq satisfies both requirements
+and beats Planner, the result is evidence that Planner should be capable of
+meeting or beating it. Do not erase that evidence by adding Planner's
+unconsumed work to the oracle or by requiring Planner to perform richer
+semantic validation than its contract needs.
+
+Share product-owned facts and mechanisms when their inputs and invariants
+align, but do not use implementation identity as the fairness test. Run the
+same Roslyn fidelity corpus and ECMA safety fixtures against every column.
+Agreement on benign assets alone is insufficient.
+
+Make each comparison inspectable and reusable. The report links the exact
+LINQ, NLinq, and Planner query implementations, population source, pinned
+NLinq provenance, and invocation. Do not publish ratios without the code that
+produced each column. When an oracle wins, identify the concrete implementation
+choice Planner can adopt.
+
+When a comparison exposes a safety check, place it at the narrowest shared
+owner. First distinguish
+[session-owned format admission](design/assembly-inspection-query.md#session-owned-format-admission)
+from containment of admitted metadata rows: admission classifies the image and
+establishes the reader, but does not make rows trustworthy. A reusable
+row- or signature-decoding containment rule belongs in the narrowest shared
+Metadata primitive so multiple producers inherit it once. A check or bound
+specific to one producer's consumed facts or work remains in that producer.
+Do not make each producer repeat general containment, move row trust into
+format admission, or move niche producer policy into a shared decoder.
+
+**The frontier lane.** LINQ and NLinq are standard possibility oracles, not
+frontier experiments, when they satisfy the fidelity and safety contract. A
+bespoke algorithm outside those columns remains a separately labeled frontier
+experiment. It may change the algorithm but not the contract. A frontier win
+that preserves Roslyn fidelity and ECMA safety becomes a Planner hypothesis;
+port it to the product and re-measure it through the standard columns.
 
 Every scorecard closing has an NLinq query; when NLinq lacks an operator, the
 fixture adds it. A source-native answer, such as a count from a table size, is
@@ -219,10 +247,13 @@ assets:
 - Report each cell as a ratio to NLinq, measured by the same binary in the
   same run. Give the geometric mean across assets and the range, with
   absolute medians alongside.
-- Check that every column gives the same answer for every closing and asset:
-  the Boolean, the count, or the rows' identity. Report a strict window's
-  failure as a failure, never as a success. Include the producer's hostile
-  safety fixtures in the check.
+- On the owner-named Roslyn fidelity corpus, check that every column gives the
+  same Boolean, count, or row identity for every closing and asset. Report a
+  strict window's failure as a failure, never as a success.
+- Run every column against the producer's ECMA safety fixtures. Check bounded,
+  inert behavior and each owner-required visible failure independently.
+  Require matching semantic answers on a safety-only input only when the
+  owning contract requires them.
 - Mark each Planner cell as shipping in the candidate or measured only in an
   experiment.
 - Run on at least two machines, and exclude a loaded run with its reason.

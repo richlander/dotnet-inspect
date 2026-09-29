@@ -28,13 +28,17 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 request.Plan.ImplementationMetrics);
         Assert.Equal(
             ImplementationMetricAnalysisRequest.CompleteProfileV1,
-            plan.RequestedEvidence);
-        Assert.Equal(
-            plan.RequestedEvidence,
-            plan.EffectiveEvidence);
+            plan.RequestedMetrics);
         Assert.False(
-            plan.EffectiveEvidence.HasFlag(
-                ImplementationMetricEvidenceKind
+            plan.RequestedMetrics.HasFlag(
+                ImplementationMetricKind
+                    .AllocationOccurrences));
+        Assert.True(
+            plan.RequiredFacts.HasFlag(
+                ImplementationMetricFactKind.DirectCalls));
+        Assert.False(
+            plan.RequiredFacts.HasFlag(
+                ImplementationMetricFactKind
                     .AllocationOccurrences));
         Assert.Equal(
             ImplementationMetricRequestOrigin
@@ -215,7 +219,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 request.Plan.ImplementationMetrics);
         Assert.Equal(
             ImplementationMetricAnalysisRequest.CompleteProfileV1,
-            plan.EffectiveEvidence);
+            plan.RequestedMetrics);
         Assert.Equal(
             ImplementationMetricRequestOrigin
                 .LegacyFeatureCompatibility,
@@ -232,8 +236,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
             maximumAttributionProbeBodies: 20,
             maximumAttributionProbeIlBytes: 20_000);
         var request = new ImplementationMetricAnalysisRequest(
-            ImplementationMetricEvidenceKind.BodySize
-                | ImplementationMetricEvidenceKind
+            ImplementationMetricKind.BodySize
+                | ImplementationMetricKind
                     .SiblingOverloadRelationships,
             limits,
             ImplementationMetricRequestOrigin.Explicit);
@@ -242,11 +246,11 @@ public sealed class LibraryBodyAnalysisExecutionTests
             ImplementationMetricAnalysisPlan.Create(request);
 
         Assert.Equal(
-            request.RequestedEvidence,
-            plan.RequestedEvidence);
+            request.RequestedMetrics,
+            plan.RequestedMetrics);
         Assert.True(
-            plan.EffectiveEvidence.HasFlag(
-                ImplementationMetricEvidenceKind.DirectCalls));
+            plan.RequiredFacts.HasFlag(
+                ImplementationMetricFactKind.DirectCalls));
         Assert.True(
             plan.WorkStages.HasFlag(
                 ImplementationMetricWorkStage
@@ -274,20 +278,20 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.False(
             plan.WorkStages.HasFlag(
                 ImplementationMetricWorkStage.SafetyCollection));
-        ImplementationMetricEvidenceKind contextCauses =
-            plan.EvidenceCausesFor(
+        ImplementationMetricKind contextCauses =
+            plan.MetricCausesFor(
                 ImplementationMetricWorkStage
                     .CanonicalMethodContext);
         Assert.False(
             contextCauses.HasFlag(
-                ImplementationMetricEvidenceKind.BodySize));
+                ImplementationMetricKind.BodySize));
         Assert.True(
             contextCauses.HasFlag(
-                ImplementationMetricEvidenceKind.DirectCalls));
+                ImplementationMetricKind
+                    .SiblingOverloadRelationships));
         Assert.False(
             contextCauses.HasFlag(
-                ImplementationMetricEvidenceKind
-                    .SiblingOverloadRelationships));
+                ImplementationMetricKind.DirectCalls));
     }
 
     [Fact]
@@ -299,7 +303,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
             maximumAttributionProbeBodies: 20,
             maximumAttributionProbeIlBytes: 20_000);
         var request = new ImplementationMetricAnalysisRequest(
-            ImplementationMetricEvidenceKind.BodySize,
+            ImplementationMetricKind.BodySize,
             limits,
             ImplementationMetricRequestOrigin.Explicit);
 
@@ -307,8 +311,15 @@ public sealed class LibraryBodyAnalysisExecutionTests
             ImplementationMetricAnalysisPlan.Create(request);
 
         Assert.Equal(
-            ImplementationMetricEvidenceKind.BodySize,
-            plan.EffectiveEvidence);
+            ImplementationMetricKind.BodySize,
+            plan.RequestedMetrics);
+        Assert.True(
+            plan.RequiredFacts.HasFlag(
+                ImplementationMetricFactKind.ManagedBody));
+        Assert.False(
+            plan.RequiredFacts.HasFlag(
+                ImplementationMetricFactKind
+                    .CanonicalMethodContext));
         Assert.True(
             plan.WorkStages.HasFlag(
                 ImplementationMetricWorkStage
@@ -331,7 +342,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
     public void MetricPlan_LocalsDecodeWithoutCanonicalContext()
     {
         var request = new ImplementationMetricAnalysisRequest(
-            ImplementationMetricEvidenceKind.Locals,
+            ImplementationMetricKind.Locals,
             MetricLimits(),
             ImplementationMetricRequestOrigin.Explicit);
 
@@ -339,10 +350,13 @@ public sealed class LibraryBodyAnalysisExecutionTests
             ImplementationMetricAnalysisPlan.Create(request);
 
         Assert.Equal(
-            ImplementationMetricEvidenceKind.Locals,
-            plan.EffectiveEvidence);
+            ImplementationMetricKind.Locals,
+            plan.RequestedMetrics);
         Assert.True(plan.UsesFocusedExecution);
-        Assert.True(plan.IncludesLocalEvidence);
+        Assert.True(plan.IncludesLocalMetric);
+        Assert.True(
+            plan.RequiredFacts.HasFlag(
+                ImplementationMetricFactKind.LocalSignature));
         Assert.True(
             plan.WorkStages.HasFlag(
                 ImplementationMetricWorkStage
@@ -362,7 +376,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
         MetricPlan_InstructionShapeUsesContextWithoutTopicProducers()
     {
         var request = new ImplementationMetricAnalysisRequest(
-            ImplementationMetricEvidenceKind.InstructionShape,
+            ImplementationMetricKind.InstructionShape,
             MetricLimits(),
             ImplementationMetricRequestOrigin.Explicit);
 
@@ -370,8 +384,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
             ImplementationMetricAnalysisPlan.Create(request);
 
         Assert.True(plan.UsesFocusedExecution);
-        Assert.True(plan.IncludesInstructionShapeEvidence);
-        Assert.False(plan.IncludesControlFlowEvidence);
+        Assert.True(plan.IncludesInstructionShapeMetric);
+        Assert.False(plan.IncludesControlFlowMetric);
         Assert.True(
             plan.WorkStages.HasFlag(
                 ImplementationMetricWorkStage
@@ -406,7 +420,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
     public void MetricPlan_DirectCallsUsesFocusedCallCollection()
     {
         var request = new ImplementationMetricAnalysisRequest(
-            ImplementationMetricEvidenceKind.DirectCalls,
+            ImplementationMetricKind.DirectCalls,
             MetricLimits(),
             ImplementationMetricRequestOrigin.Explicit);
 
@@ -414,10 +428,14 @@ public sealed class LibraryBodyAnalysisExecutionTests
             ImplementationMetricAnalysisPlan.Create(request);
 
         Assert.True(plan.UsesFocusedExecution);
-        Assert.True(plan.IncludesDirectCallEvidence);
+        Assert.True(plan.IncludesDirectCallMetric);
+        Assert.True(plan.RequiresDirectCallFacts);
         Assert.Equal(
-            ImplementationMetricEvidenceKind.DirectCalls,
-            plan.EffectiveEvidence);
+            ImplementationMetricKind.DirectCalls,
+            plan.RequestedMetrics);
+        Assert.True(
+            plan.RequiredFacts.HasFlag(
+                ImplementationMetricFactKind.DirectCalls));
         Assert.True(
             plan.WorkStages.HasFlag(
                 ImplementationMetricWorkStage
@@ -464,7 +482,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.BodySize,
+                        ImplementationMetricKind.BodySize,
                         MetricLimits(),
                         new HashSet<int> { token }));
 
@@ -492,8 +510,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     == ImplementationMetricWorkStage
                         .ManagedBodyAcquisition);
         Assert.Equal(
-            ImplementationMetricEvidenceKind.BodySize,
-            acquisition.EvidenceCauses);
+            ImplementationMetricKind.BodySize,
+            acquisition.MetricCauses);
         Assert.Equal(
             LibraryBodyAnalysisFeatures.None,
             acquisition.FeatureCauses);
@@ -539,7 +557,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.Locals,
+                        ImplementationMetricKind.Locals,
                         MetricLimits(),
                         new HashSet<int> { token }));
 
@@ -565,8 +583,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     == ImplementationMetricWorkStage
                         .LocalSignatureDecode);
         Assert.Equal(
-            ImplementationMetricEvidenceKind.Locals,
-            decode.EvidenceCauses);
+            ImplementationMetricKind.Locals,
+            decode.MetricCauses);
         Assert.Equal(1, decode.AttemptedBodies);
         Assert.Equal(1, decode.CompletedBodies);
         Assert.Equal(0, decode.FailedBodies);
@@ -595,8 +613,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.BodySize
-                            | ImplementationMetricEvidenceKind
+                        ImplementationMetricKind.BodySize
+                            | ImplementationMetricKind
                                 .Locals,
                         MetricLimits(),
                         new HashSet<int> { token }));
@@ -636,7 +654,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind
+                        ImplementationMetricKind
                             .ExceptionRegions,
                         MetricLimits(),
                         new HashSet<int> { token }));
@@ -686,7 +704,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind
+                        ImplementationMetricKind
                             .InstructionShape,
                         MetricLimits(),
                         new HashSet<int> { token }));
@@ -719,8 +737,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     == ImplementationMetricWorkStage
                         .CanonicalMethodContext);
         Assert.Equal(
-            ImplementationMetricEvidenceKind.InstructionShape,
-            context.EvidenceCauses);
+            ImplementationMetricKind.InstructionShape,
+            context.MetricCauses);
         Assert.Equal(1, context.AttemptedBodies);
         Assert.Equal(1, context.CompletedBodies);
         Assert.Equal(0, context.FailedBodies);
@@ -744,7 +762,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
 
     [Fact]
     public void
-        MetricExecution_StructuralEvidenceSharesOneCanonicalContext()
+        MetricExecution_StructuralMetricsShareOneCanonicalContext()
     {
         string path =
             typeof(ImplementationProfileSample).Assembly.Location;
@@ -760,10 +778,10 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.BodySize
-                            | ImplementationMetricEvidenceKind
+                        ImplementationMetricKind.BodySize
+                            | ImplementationMetricKind
                                 .InstructionShape
-                            | ImplementationMetricEvidenceKind
+                            | ImplementationMetricKind
                                 .ControlFlow,
                         MetricLimits(),
                         new HashSet<int> { token }));
@@ -791,9 +809,9 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     == ImplementationMetricWorkStage
                         .CanonicalMethodContext);
         Assert.Equal(
-            ImplementationMetricEvidenceKind.InstructionShape
-                | ImplementationMetricEvidenceKind.ControlFlow,
-            context.EvidenceCauses);
+            ImplementationMetricKind.InstructionShape
+                | ImplementationMetricKind.ControlFlow,
+            context.MetricCauses);
         Assert.Equal(1, context.AttemptedBodies);
         Assert.Equal(1, context.CompletedBodies);
     }
@@ -815,7 +833,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.DirectCalls,
+                        ImplementationMetricKind.DirectCalls,
                         MetricLimits(),
                         new HashSet<int> { token }));
 
@@ -854,8 +872,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     == ImplementationMetricWorkStage
                         .DirectCallCollection);
         Assert.Equal(
-            ImplementationMetricEvidenceKind.DirectCalls,
-            callCollection.EvidenceCauses);
+            ImplementationMetricKind.DirectCalls,
+            callCollection.MetricCauses);
         Assert.Equal(
             LibraryBodyAnalysisFeatures.None,
             callCollection.FeatureCauses);
@@ -902,8 +920,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.BodySize
-                            | ImplementationMetricEvidenceKind
+                        ImplementationMetricKind.BodySize
+                            | ImplementationMetricKind
                                 .SiblingOverloadRelationships,
                         RelationshipMetricLimits(),
                         familyTokens.ToHashSet()));
@@ -958,9 +976,9 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     == ImplementationMetricWorkStage
                         .SiblingRelationshipProjection);
         Assert.Equal(
-            ImplementationMetricEvidenceKind
+            ImplementationMetricKind
                 .SiblingOverloadRelationships,
-            projection.EvidenceCauses);
+            projection.MetricCauses);
         Assert.Equal(
             LibraryBodyAnalysisFeatures.None,
             projection.FeatureCauses);
@@ -990,7 +1008,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind
+                        ImplementationMetricKind
                             .SiblingOverloadRelationships,
                         RelationshipMetricLimits(),
                         new HashSet<int> { token }));
@@ -1008,13 +1026,37 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     $"{diagnostic.MethodToken:X8}: {diagnostic.Message}")));
         Assert.Empty(relationships.Relationships);
         Assert.Empty(relationships.Diagnostics);
+        MethodImplementationMetricEvidence body =
+            Assert.Single(
+                execution.ImplementationMetrics.Bodies);
+        Assert.True(body.DirectCallCollectionAttempted);
+        Assert.True(body.DirectCallCollectionComplete);
+        Assert.Null(body.DirectCalls);
+        ImplementationMetricParticipationReceipt receipt =
+            Assert.IsType<ImplementationMetricParticipationReceipt>(
+                execution.ImplementationMetrics.Participation);
+        Assert.Equal(
+            ImplementationMetricKind
+                .SiblingOverloadRelationships,
+            receipt.RequestedMetrics);
+        Assert.True(
+            receipt.RequiredFacts.HasFlag(
+                ImplementationMetricFactKind.DirectCalls));
+        ImplementationMetricStageParticipation callCollection =
+            Assert.Single(
+                receipt.ActualStages,
+                stage => stage.Stage
+                    == ImplementationMetricWorkStage
+                        .DirectCallCollection);
+        Assert.Equal(
+            ImplementationMetricKind
+                .SiblingOverloadRelationships,
+            callCollection.MetricCauses);
         Assert.False(
             execution.Receipt.Features.HasFlag(
                 LibraryBodyAnalysisFeatures.MethodEvidence));
         Assert.False(execution.ImplementationProfiles.WasRequested);
-        Assert.True(
-            execution.ImplementationMetrics
-                .Participation!.HasCompleteStageParticipation);
+        Assert.True(receipt.HasCompleteStageParticipation);
     }
 
     [Fact]
@@ -1052,7 +1094,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind
+                        ImplementationMetricKind
                             .SiblingOverloadRelationships,
                         limits,
                         family
@@ -1117,7 +1159,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind
+                        ImplementationMetricKind
                             .SiblingOverloadRelationships,
                         limits,
                         wrappers
@@ -1270,7 +1312,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.DirectCalls,
+                        ImplementationMetricKind.DirectCalls,
                         MetricLimits(),
                         new HashSet<int> { token }));
 
@@ -1302,7 +1344,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.DirectCalls,
+                        ImplementationMetricKind.DirectCalls,
                         MetricLimits(),
                         new HashSet<int> { token }));
 
@@ -1340,9 +1382,9 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind
+                        ImplementationMetricKind
                             .InstructionShape
-                            | ImplementationMetricEvidenceKind
+                            | ImplementationMetricKind
                                 .DirectCalls,
                         MetricLimits(),
                         new HashSet<int> { token }));
@@ -1390,7 +1432,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.DirectCalls,
+                        ImplementationMetricKind.DirectCalls,
                         limits,
                         new HashSet<int> { first, second }));
 
@@ -1425,9 +1467,9 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 ImmutableArray.Create(image),
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind
+                        ImplementationMetricKind
                             .InstructionShape
-                            | ImplementationMetricEvidenceKind
+                            | ImplementationMetricKind
                                 .DirectCalls,
                         MetricLimits(),
                         new HashSet<int> { token }));
@@ -1475,7 +1517,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.BodySize,
+                        ImplementationMetricKind.BodySize,
                         MetricLimits(),
                         new HashSet<int> { token }));
 
@@ -1513,7 +1555,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.BodySize,
+                        ImplementationMetricKind.BodySize,
                         MetricLimits(),
                         new HashSet<int> { token },
                         LibraryBodyAnalysisFeatures.MethodEvidence));
@@ -1529,8 +1571,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     == ImplementationMetricWorkStage
                         .CanonicalMethodContext);
         Assert.Equal(
-            ImplementationMetricEvidenceKind.None,
-            context.EvidenceCauses);
+            ImplementationMetricKind.None,
+            context.MetricCauses);
         Assert.False(
             execution.ImplementationMetrics
                 .Participation!.HasCompleteStageParticipation);
@@ -1557,7 +1599,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.Locals,
+                        ImplementationMetricKind.Locals,
                         MetricLimits(),
                         new HashSet<int> { token },
                         LibraryBodyAnalysisFeatures.MethodEvidence));
@@ -1575,8 +1617,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     == ImplementationMetricWorkStage
                         .CanonicalMethodContext);
         Assert.Equal(
-            ImplementationMetricEvidenceKind.None,
-            context.EvidenceCauses);
+            ImplementationMetricKind.None,
+            context.MetricCauses);
         Assert.True(
             context.FeatureCauses.HasFlag(
                 LibraryBodyAnalysisFeatures.MethodEvidence));
@@ -1599,7 +1641,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind
+                        ImplementationMetricKind
                             .InstructionShape,
                         MetricLimits(),
                         new HashSet<int> { token },
@@ -1619,8 +1661,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     == ImplementationMetricWorkStage
                         .CanonicalMethodContext);
         Assert.Equal(
-            ImplementationMetricEvidenceKind.InstructionShape,
-            context.EvidenceCauses);
+            ImplementationMetricKind.InstructionShape,
+            context.MetricCauses);
         Assert.True(
             context.FeatureCauses.HasFlag(
                 LibraryBodyAnalysisFeatures.MethodEvidence));
@@ -1642,7 +1684,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.DirectCalls,
+                        ImplementationMetricKind.DirectCalls,
                         MetricLimits(),
                         new HashSet<int> { token }));
 
@@ -1651,7 +1693,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.DirectCalls,
+                        ImplementationMetricKind.DirectCalls,
                         MetricLimits(),
                         new HashSet<int> { token },
                         LibraryBodyAnalysisFeatures.MethodEvidence));
@@ -1669,8 +1711,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     == ImplementationMetricWorkStage
                         .DirectCallCollection);
         Assert.Equal(
-            ImplementationMetricEvidenceKind.DirectCalls,
-            callCollection.EvidenceCauses);
+            ImplementationMetricKind.DirectCalls,
+            callCollection.MetricCauses);
         Assert.True(
             callCollection.FeatureCauses.HasFlag(
                 LibraryBodyAnalysisFeatures.MethodEvidence));
@@ -1699,7 +1741,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                         path,
                         LibraryBodyAnalysisRequest
                             .CreateImplementationMetrics(
-                                ImplementationMetricEvidenceKind
+                                ImplementationMetricKind
                                     .DirectCalls,
                                 MetricLimits(),
                                 scope))
@@ -1755,7 +1797,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.BodySize,
+                        ImplementationMetricKind.BodySize,
                         limits,
                         scope,
                         LibraryBodyAnalysisFeatures.MethodEvidence));
@@ -1831,7 +1873,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 immutableImage,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.BodySize,
+                        ImplementationMetricKind.BodySize,
                         MetricLimits(),
                         new HashSet<int>
                         {
@@ -1859,13 +1901,13 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Throws<ArgumentException>(
             () => ImplementationMetricAnalysisPlan.Create(
                 new(
-                    ImplementationMetricEvidenceKind.None,
+                    ImplementationMetricKind.None,
                     limits,
                     ImplementationMetricRequestOrigin.Explicit)));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => ImplementationMetricAnalysisPlan.Create(
                 new(
-                    (ImplementationMetricEvidenceKind)(1 << 20),
+                    (ImplementationMetricKind)(1 << 20),
                     limits,
                     ImplementationMetricRequestOrigin.Explicit)));
         Assert.Throws<ArgumentOutOfRangeException>(
@@ -1877,7 +1919,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Throws<ArgumentException>(
             () => LibraryBodyAnalysisRequest
                 .CreateImplementationMetrics(
-                    ImplementationMetricEvidenceKind.BodySize,
+                    ImplementationMetricKind.BodySize,
                     limits,
                     new HashSet<int>()));
         Assert.False(
@@ -1890,7 +1932,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Throws<ArgumentException>(
             () => ImplementationMetricAnalysisPlan.Create(
                 new(
-                    ImplementationMetricEvidenceKind.BodySize,
+                    ImplementationMetricKind.BodySize,
                     ImplementationMetricWorkLimits
                         .LegacyUnbounded,
                     ImplementationMetricRequestOrigin.Explicit)));
@@ -1969,7 +2011,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.BodySize,
+                        ImplementationMetricKind.BodySize,
                         limits,
                         tokens.ToHashSet()));
 
@@ -2017,7 +2059,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.Locals,
+                        ImplementationMetricKind.Locals,
                         limits,
                         tokens.ToHashSet()));
 
@@ -2061,7 +2103,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind
+                        ImplementationMetricKind
                             .InstructionShape,
                         limits,
                         tokens.ToHashSet()));
@@ -2352,7 +2394,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.BodySize,
+                        ImplementationMetricKind.BodySize,
                         limits,
                         new HashSet<int> { bodyToken }));
 

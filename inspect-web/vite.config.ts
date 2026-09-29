@@ -23,7 +23,17 @@ export default defineConfig({
   build: {
     manifest: "manifest.json",
     rollupOptions: {
-      input: ["index.html", "src/engine-worker-client.ts"],
+      input: [
+        "index.html",
+        "src/engine-worker-client.ts",
+        "src/browser-package-entry-cache.ts",
+      ],
+      output: {
+        entryFileNames: chunk =>
+          chunk.name === "browser-package-entry-cache"
+            ? "browser-package-entry-cache.js"
+            : "assets/[name]-[hash].js",
+      },
       preserveEntrySignatures: "strict",
       external: facadeModules,
     },

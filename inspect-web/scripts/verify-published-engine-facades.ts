@@ -31,7 +31,7 @@ interface FacadeModule extends Record<string, unknown> {
 interface HostFacade extends FacadeModule {
   asyncLoweringCanary(): Promise<string>;
   buildIdentity(): unknown;
-  configureHost(origin: string): void;
+  configureHost(origin: string): Promise<void>;
 }
 
 const productionFacades: readonly FacadeIdentity[] = [
@@ -323,7 +323,7 @@ export function inspectWebRuntimeObservation() {
   const operations: string[] = [];
   let version = "deployment";
   if (modeArgument === "production") {
-    host.configureHost("https://dotnet-inspect.net");
+    await host.configureHost("https://dotnet-inspect.net");
     const identity: unknown = host.buildIdentity();
     assert.ok(
       isRecord(identity) && typeof identity.version === "string",
@@ -423,11 +423,11 @@ export function inspectWebRuntimeObservation() {
       "callGraph.queryMemberCallGraph");
     operations.push("callGraph.queryMemberCallGraph.visibleFailure");
 
-    const vocabulary: unknown = operation(catalogFacade, "listVocabulary")();
+    const vocabulary: unknown = operation(catalogFacade, "inspectVocabulary")();
     assert.ok(
       isRecord(vocabulary),
       "catalog facade did not return the product vocabulary");
-    operations.push("catalog.listVocabulary");
+    operations.push("catalog.inspectVocabulary");
 
     assert.equal(await host.runEntryPoint(), 0);
     assert.deepEqual(

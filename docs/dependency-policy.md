@@ -116,11 +116,22 @@ The checked-in rules provide full gate coverage for these dependency claims:
    Instructions, Analysis, ILDiff, Decompiler, SourceLink, Research,
    JavaScript-export, and TypeScript-generation components stay within their
    explicit allowed sets.
-5. The Inspect Web executable depends directly only on the .NET platform,
+5. The `dotnet-inspect` CLI cannot expand beyond its initial
+   role-classified host ratchet. The current 44 project edges and 73 compiled
+   assembly edges are a ceiling rather than the desired endpoint: the CLI may
+   consume L1, L2, and L3 under the inspection-layer contract, while
+   [#8843](https://github.com/richlander/dotnet-inspect/issues/8843) owns
+   focused command-family retirement of historical low-level edges. Separate
+   rules preserve each graph's ceiling: the source-used
+   `CSharpText.MemberSlicing` project emits no CLI `AssemblyRef`, while eight
+   repository assemblies appear in compiled metadata without direct project
+   edges. Moving either kind of edge into the other graph therefore requires
+   an explicit policy change.
+6. The Inspect Web executable depends directly only on the .NET platform,
    `TsJsExport.Contracts`, Web Core, and the declared capability facade
    assemblies. Core and facade implementation boundaries remain separate
    staged claims.
-6. The Inspect Web CallGraph facade depends directly only on the .NET
+7. The Inspect Web CallGraph facade depends directly only on the .NET
    platform, Web Core, Queries, and Sections.
 
 Claims not represented by a JSON rule remain unverified by this gate. Changing

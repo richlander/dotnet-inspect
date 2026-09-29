@@ -288,7 +288,11 @@ public sealed record BrowserPackageCacheStats(
     int MaxWorkspaceAssembliesPerRole,
     long ResidentBytes,
     long MaxResidentBytes,
-    long MaxWorkspaceRetainedImageBytes);
+    long MaxWorkspaceRetainedImageBytes,
+    string EntryStoreDurability,
+    long EntryStoreHits,
+    long EntryStoreWrites,
+    string? EntryStoreError);
 
 public sealed record BrowserPlatformCatalog(
     string Tfm,
