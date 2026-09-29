@@ -175,8 +175,20 @@ internal static class DirectCallIncidence
         {
             if (_ordinals is null)
             {
-                int run = _tokens.BinarySearch(key);
-                return run < 0 ? -1 : run;
+                int low = 0;
+                int high = _tokens.Length - 1;
+                while (low <= high)
+                {
+                    int middle = low + ((high - low) >> 1);
+                    int token = _tokens[middle];
+                    if (token == key)
+                        return middle;
+                    if (token < key)
+                        low = middle + 1;
+                    else
+                        high = middle - 1;
+                }
+                return -1;
             }
             return _ordinals.TryGetValue(key, out int ordinal)
                 ? ordinal
