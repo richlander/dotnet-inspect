@@ -778,9 +778,17 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                         TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, field.GetDeclaringType(), 0),
                         _reader.GetString(field.Name));
                 case HandleKind.MemberReference:
+                    MemberReference member =
+                        _reader.GetMemberReference(
+                            (MemberReferenceHandle)handle);
+                    if (member.GetKind()
+                        != MemberReferenceKind.Field)
+                    {
+                        return (null, null);
+                    }
                     return (
                         ResolveMemberReferenceParentType(handle, callerScope),
-                        _reader.GetString(_reader.GetMemberReference((MemberReferenceHandle)handle).Name));
+                        _reader.GetString(member.Name));
                 default:
                     return (null, null);
             }
@@ -887,7 +895,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         };
     }
 
-    bool CanCanonicalizeCurrentModuleReference(TypeRef type)
+    internal bool CanCanonicalizeCurrentModuleReference(TypeRef type)
     {
         TypeRef definition = type.Kind == TypeRefKind.GenericInstance
             ? type.ElementType ?? type
@@ -918,14 +926,15 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             handle);
     }
 
-    bool TryResolveLocalTypeDefinition(
+    internal bool TryResolveLocalTypeDefinition(
         TypeRef type,
         out TypeDefinitionHandle handle)
     {
         TypeRef definition = type.Kind == TypeRefKind.GenericInstance
             ? type.ElementType ?? type
             : type;
-        if (definition.Resolution is not { Type: var name }
+        if (!CanCanonicalizeCurrentModuleReference(definition)
+            || definition.Resolution is not { Type: var name }
             || !_localTypeDefinitions.Value.TryGetValue(
                 name,
                 out handle)

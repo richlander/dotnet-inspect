@@ -90,6 +90,38 @@ public class PlatformHouseContractTests
     }
 
     [Fact]
+    public void FamilyDefaultDemand_AcceptsEachSharedFrameworkFamily()
+    {
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package-targets");
+        var policy = new PlatformVersionlessRuntimeTargetPolicy(
+            PlatformTargetSelectionPolicyIdentity.Create(
+                "versionless-aspnetcore-default"),
+            PlatformTargetSelectionPolicyGeneration.Create("generation-1"),
+            PlatformVersion.Parse("10.0.1"),
+            preferred: null,
+            new PlatformTargetDiscoveryStage(
+                new PlatformTargetDiscoveryScope.ExactFramework(
+                    PlatformTargetFramework.Parse("net10.0")),
+                [package]));
+
+        foreach (PlatformFamily family in Enum.GetValues<PlatformFamily>())
+        {
+            var demand = new PlatformTargetDemand.FamilyDefault(
+                family,
+                policy,
+                new PlatformTargetDiscoveryBudget(32, 64));
+            Assert.Equal(family, demand.Family);
+        }
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new PlatformTargetDemand.FamilyDefault(
+                (PlatformFamily)42,
+                policy,
+                new PlatformTargetDiscoveryBudget(32, 64)));
+    }
+
+    [Fact]
     public void FamilyDefaultPolicy_RejectsInvalidStageMembership()
     {
         PlatformSourceCapabilityIdentity installed =

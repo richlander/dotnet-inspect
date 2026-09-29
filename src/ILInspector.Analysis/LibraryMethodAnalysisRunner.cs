@@ -88,6 +88,15 @@ internal interface ILibraryMethodAnalysisInfrastructure
     bool HasGeneratedCodeAttribute(
         CustomAttributeHandleCollection attributes);
 
+    bool IsSourceGeneratedTypeOrEnclosing(
+        TypeDefinitionHandle typeHandle);
+
+    bool TryResolveLocalTypeDefinition(
+        TypeRef type,
+        out TypeDefinitionHandle handle);
+
+    bool CanCanonicalizeCurrentModuleReference(TypeRef type);
+
     bool HasCompilerGeneratedAttribute(
         CustomAttributeHandleCollection attributes);
 
@@ -137,6 +146,16 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition methodDefinition,
         MethodIdentity method,
         bool typeSourceGenerated,
+        out AuthenticatedSourceOwner? immediateOwner,
+        out AuthenticatedSourceOwner? ultimateOwner);
+
+    DeclaredOwnerResolution ResolveUltimateDeclaredMethod(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition,
+        MethodIdentity method,
+        bool typeSourceGenerated,
+        int maximumInstructionsPerAttributionBody,
+        CancellationToken cancellationToken,
         out AuthenticatedSourceOwner? immediateOwner,
         out AuthenticatedSourceOwner? ultimateOwner);
 
@@ -241,7 +260,7 @@ internal enum UnsafeCallProbeResult
 /// retains scheduling and primary-image lifetime. The primary metadata
 /// resolver owns metadata-dependent judgments and adapters.
 /// </summary>
-internal sealed class LibraryMethodAnalysisRunner(
+internal sealed partial class LibraryMethodAnalysisRunner(
     ILibraryMethodAnalysisInfrastructure infrastructure,
     LibraryBodyExceptionTypeClassifier? exceptionTypes = null,
     ImplementationMetricWorkBudget?
