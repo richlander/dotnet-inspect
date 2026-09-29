@@ -60,6 +60,37 @@ public abstract class MethodRowClassifier
 /// A scope guard on the source gate: the producer sees only rows the
 /// classifier puts in one of the accepted classes, in types it admits.
 /// </summary>
+/// <summary>
+/// A gate classification as a struct, so a kernel specialized to it inlines
+/// the classifier's scope and class tests. It reads rows only through the
+/// views, which enforce its classifier's declared fields.
+/// </summary>
+public interface IMethodRowClassification
+{
+    bool TypeInScope(scoped MethodRowTypeView type);
+
+    int Classify(scoped MethodDefinitionView row);
+}
+
+/// <summary>
+/// A classifier whose tests are a struct classification: its identity and
+/// declared fields are the classifier's, its answers the struct's.
+/// </summary>
+public abstract class MethodRowClassifier<TClassification> : MethodRowClassifier
+    where TClassification : struct, IMethodRowClassification
+{
+    private protected MethodRowClassifier(string identity, MethodDefinitionLayers fields)
+        : base(identity, fields)
+    {
+    }
+
+    internal sealed override bool TypeInScope(scoped MethodRowTypeView type) =>
+        default(TClassification).TypeInScope(type);
+
+    internal sealed override int Classify(scoped MethodDefinitionView row) =>
+        default(TClassification).Classify(row);
+}
+
 public sealed record SourceGateGuard(
     MethodRowClassifier Classifier,
     ulong AcceptedClasses);

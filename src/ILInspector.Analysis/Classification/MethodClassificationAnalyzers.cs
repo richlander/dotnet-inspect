@@ -32,7 +32,7 @@ public sealed record ClassifiedMethodRow(
 /// <remarks>
 /// Owned by <c>docs/design/method-classification-analyzers.md#the-analyzers</c>.
 /// </remarks>
-public sealed class MethodClassificationScope : MethodRowClassifier
+public sealed class MethodClassificationScope : MethodRowClassifier<MethodClassificationScope.Classification>
 {
     public const int PInvoke = 0;
     public const int Other = 1;
@@ -46,23 +46,27 @@ public sealed class MethodClassificationScope : MethodRowClassifier
 
     public static MethodClassificationScope Instance { get; } = new();
 
-    internal override bool TypeInScope(scoped MethodRowTypeView type) =>
-        !type.NameStartsWith("<");
-
-    internal override int Classify(scoped MethodDefinitionView row)
+    /// <summary>The scope's tests, as a struct a kernel specializes to.</summary>
+    public readonly struct Classification : IMethodRowClassification
     {
-        MethodAttributes attributes = row.Attributes;
-        if ((attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
-            return -1;
-        if (row.NameStartsWith("get_")
-            || row.NameStartsWith("set_")
-            || row.NameStartsWith("add_")
-            || row.NameStartsWith("remove_"))
-        {
-            return -1;
-        }
+        public bool TypeInScope(scoped MethodRowTypeView type) =>
+            !type.NameStartsWith("<");
 
-        return (attributes & MethodAttributes.PinvokeImpl) != 0 ? PInvoke : Other;
+        public int Classify(scoped MethodDefinitionView row)
+        {
+            MethodAttributes attributes = row.Attributes;
+            if ((attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                return -1;
+            if (row.NameStartsWith("get_")
+                || row.NameStartsWith("set_")
+                || row.NameStartsWith("add_")
+                || row.NameStartsWith("remove_"))
+            {
+                return -1;
+            }
+
+            return (attributes & MethodAttributes.PinvokeImpl) != 0 ? PInvoke : Other;
+        }
     }
 }
 
@@ -105,7 +109,7 @@ public struct PInvokeRowProjection : IMethodDefinitionProjection<ClassifiedMetho
 
 /// <summary>The P/Invoke analyzer: rows the gate classifies <c>PInvoke</c>.</summary>
 public sealed class PInvokeAnalyzer
-    : MethodDefinitionQueryProducer<PInvokeTest, PInvokeRowProjection, ClassifiedMethodRow>
+    : MethodDefinitionQueryProducer<MethodClassificationScope.Classification, PInvokeTest, PInvokeRowProjection, ClassifiedMethodRow>
 {
     PInvokeAnalyzer()
         : base(
@@ -118,6 +122,9 @@ public sealed class PInvokeAnalyzer
     }
 
     public static PInvokeAnalyzer Instance { get; } = new();
+
+    internal override MethodRowClassifier<MethodClassificationScope.Classification> GateClassifier =>
+        MethodClassificationScope.Instance;
 
     internal override SourceGateGuard? SourceGate { get; } =
         new(MethodClassificationScope.Instance, 1UL << MethodClassificationScope.PInvoke);
@@ -139,7 +146,7 @@ public struct PointerSignatureRowProjection : IMethodDefinitionProjection<Classi
 
 /// <summary>The pointer-signature analyzer: <c>Other</c> rows whose signature has a pointer.</summary>
 public sealed class PointerSignatureAnalyzer
-    : MethodDefinitionQueryProducer<PointerSignatureTest, PointerSignatureRowProjection, ClassifiedMethodRow>
+    : MethodDefinitionQueryProducer<MethodClassificationScope.Classification, PointerSignatureTest, PointerSignatureRowProjection, ClassifiedMethodRow>
 {
     PointerSignatureAnalyzer()
         : base(
@@ -152,6 +159,9 @@ public sealed class PointerSignatureAnalyzer
     }
 
     public static PointerSignatureAnalyzer Instance { get; } = new();
+
+    internal override MethodRowClassifier<MethodClassificationScope.Classification> GateClassifier =>
+        MethodClassificationScope.Instance;
 
     internal override SourceGateGuard? SourceGate { get; } =
         new(MethodClassificationScope.Instance, 1UL << MethodClassificationScope.Other);
@@ -271,7 +281,7 @@ public struct AsyncRowProjection : IMethodDefinitionProjection<ClassifiedMethodR
 /// in one pass. It declares the union of the two analyzers' fields.
 /// </summary>
 public sealed class AsyncAnalyzer
-    : MethodDefinitionQueryProducer<AsyncTest, AsyncRowProjection, ClassifiedMethodRow>
+    : MethodDefinitionQueryProducer<MethodClassificationScope.Classification, AsyncTest, AsyncRowProjection, ClassifiedMethodRow>
 {
     AsyncAnalyzer()
         : base(
@@ -284,6 +294,9 @@ public sealed class AsyncAnalyzer
     }
 
     public static AsyncAnalyzer Instance { get; } = new();
+
+    internal override MethodRowClassifier<MethodClassificationScope.Classification> GateClassifier =>
+        MethodClassificationScope.Instance;
 
     internal override SourceGateGuard? SourceGate { get; } =
         new(MethodClassificationScope.Instance, 1UL << MethodClassificationScope.Other);

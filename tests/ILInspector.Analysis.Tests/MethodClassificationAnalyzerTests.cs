@@ -274,7 +274,7 @@ public sealed class MethodClassificationAnalyzerTests
     [InlineData(ProducerTerminal.Exists)]
     [InlineData(ProducerTerminal.Complete)]
     [InlineData(ProducerTerminal.Rows)]
-    public void GateCache_IsResolvedOncePerProducerInKernelAndInterpretedPasses(ProducerTerminal terminal)
+    public void GateCache_TypedKernelTestsInlineAndInterpretedPassResolvesOnce(ProducerTerminal terminal)
     {
         GateFixtureImage builder = new();
         builder.Type("N", "First").Method("A").Method("B", PointerParameter()).Method("C");
@@ -282,9 +282,11 @@ public sealed class MethodClassificationAnalyzerTests
         builder.Type("N", "<Generated>").Method("G", PointerParameter());
         ImmutableArray<byte> image = builder.Build();
 
-        // Alone, the analyzer's pass runs as its kernel.
+        // Alone, the analyzer's pass runs as its kernel, specialized to the
+        // scope's struct classification: it tests the gate inline and never
+        // looks up the classifier's cache.
         MethodDefinitionExecution kernel = Execute(image, new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal));
-        Assert.Equal(1, kernel.GateCacheLookups);
+        Assert.Equal(0, kernel.GateCacheLookups);
 
         // Beside an independent producer, the pass is interpreted.
         MethodDefinitionExecution interpreted = Execute(

@@ -623,7 +623,7 @@ export interface MemberNavOverloadHeat {
   heatStrength: number | null;
   hub: boolean;
   description: string;
-  /** The measured size, shown on the selected row. */
+  /** The measured size, shown on every overload that has one. */
   size: number | null;
 }
 
@@ -704,8 +704,8 @@ export function renderMemberNav(options: MemberNavOptions): string {
           const heatDescription = heat === null
             ? ""
             : ` aria-description="${escapeHtml(heat.description)}" title="${escapeHtml(heat.description)}"`;
-          const size = selected && heat?.size != null
-            ? `<small class="overload-size" title="${heat.size} instructions">${heat.size}</small>`
+          const size = heat?.size != null
+            ? `<small class="overload-size" title="${heat.size} IL instructions">${heat.size}IL</small>`
             : "";
           return `<button class="type-row overload-nav-row${heatClasses} ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
             <code>${overloadNavLabelHtml(entry.group.name, overload, escapeHtml, highlight)}</code>${size}

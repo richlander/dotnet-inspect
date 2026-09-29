@@ -740,6 +740,10 @@ public sealed class MethodRowGateTests
             Assert.Equal(i.ResultOf(interpreted).Outcome, k.ResultOf(kernel).Outcome);
             Assert.Equal(i.ResultOf(interpreted).Value, k.ResultOf(kernel).Value);
             Assert.Equal(i.Receipt.For(interpreted).UnitsAttempted, k.Receipt.For(kernel).UnitsAttempted);
+
+            // A classifier that is not a struct classification is tested
+            // through its cache, resolved once for the whole kernel pass.
+            Assert.Equal(1, k.GateCacheLookups);
         }
     }
 
