@@ -1,3 +1,9 @@
+using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+
 using AnalysisBodyUseFixtures;
 using ILInspector.Analysis.Planning;
 
@@ -187,6 +193,68 @@ public sealed class AnalysisLibraryBodyUseTests
                 cancellation.Token));
     }
 
+    [Fact]
+    public void ExecuteImage_ContainsMalformedBodyAndRetainsHealthyBody()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [0x2A],
+                        unreadableSecondBody: true),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(2, result.Coverage.BodiesConsidered);
+        Assert.Equal(1, result.Coverage.BodiesExamined);
+        Assert.Equal(1, result.Coverage.BodiesUnavailable);
+        Assert.Contains(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind
+                        .MalformedBody);
+    }
+
+    [Fact]
+    public void ExecuteImage_ContainsInvalidTypedOperandToken()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [
+                            (byte)ILOpCode.Ldtoken,
+                            0xFF, 0xFF, 0x00, 0x02,
+                            (byte)ILOpCode.Pop,
+                            (byte)ILOpCode.Ret,
+                        ]),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(1, result.Coverage.OperandsConsidered);
+        Assert.Equal(1, result.Coverage.OperandsUnavailable);
+        AnalysisLibraryBodyUseDiagnostic diagnostic =
+            Assert.Single(
+                result.Diagnostics,
+                static diagnostic =>
+                    diagnostic.Kind
+                        == AnalysisLibraryBodyUseDiagnosticKind
+                            .UnresolvedOperand);
+        Assert.Contains(
+            "0x0200FFFF",
+            diagnostic.Detail,
+            StringComparison.Ordinal);
+    }
+
     static string Name(
         ILInspector.Metadata.MetadataTypeDefinitionName name) =>
         name.ToEscapedFullName();
@@ -199,4 +267,87 @@ public sealed class AnalysisLibraryBodyUseTests
                 outcome is AnalysisLibraryBodyUseOutcome.Rejected rejected
                     ? $"{rejected.Kind}: {rejected.Detail}"
                     : $"Unexpected outcome {outcome.GetType().Name}.");
+
+    static ImmutableArray<byte> BuildIndependentImage(
+        byte[] firstBody,
+        bool unreadableSecondBody = false)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("IndependentEcma335.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("89425fd2-8ab8-4194-aacd-a17392851399")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("IndependentEcma335"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Independent"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        AddMethod("Healthy", firstBody, readable: true);
+        if (unreadableSecondBody)
+            AddMethod("Malformed", [0x2A], readable: false);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return ImmutableArray.Create(image.ToArray());
+
+        void AddMethod(
+            string name,
+            byte[] il,
+            bool readable)
+        {
+            var code = new BlobBuilder();
+            code.WriteBytes(il);
+            int offset = encoder.AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+            if (!readable)
+                offset = 0x00FF_FFF0;
+
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature()
+                .Parameters(
+                    0,
+                    static returnType => returnType.Void(),
+                    static _ => { });
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(name),
+                metadata.GetOrAddBlob(signature),
+                offset,
+                MetadataTokens.ParameterHandle(1));
+        }
+    }
 }
