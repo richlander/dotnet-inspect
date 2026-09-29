@@ -17,7 +17,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [Theory]
     [InlineData("type")]
     [InlineData("member")]
-    [InlineData("implements")]
+    [InlineData("relations")]
     [InlineData("extensions")]
     public async Task SearchCommands_QueryCommittedPackageRoot(
         string operation)
@@ -39,7 +39,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "type" =>
             [
                 "find",
-                typeof(WorkspaceImplementation).FullName!,
+                typeof(TypeRelationsWorkspaceImplementation).FullName!,
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
@@ -60,12 +60,13 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--verbose",
                 "--tips", "q",
             ],
-            "implements" =>
+            "relations" =>
             [
-                "implements",
-                typeof(IWorkspaceImplementationMarker).FullName!,
+                "type",
+                typeof(ITypeRelationsWorkspaceMarker).FullName!,
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
+                "-S", "Implementers",
                 "--source", FirstFeed,
                 "--all",
                 "--json",
@@ -93,7 +94,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var result = await RunCommandAsync(arguments);
 
         Assert.True(result.Exit == 0, result.Error);
-        if (operation != "type")
+        if (operation is not ("type" or "relations"))
         {
             Assert.Contains(
                 "Using committed package Root for search:",
@@ -116,10 +117,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Contains(
             operation switch
             {
-                "type" => nameof(WorkspaceImplementation),
+                "type" => nameof(TypeRelationsWorkspaceImplementation),
                 "member" =>
                     MemberSearchServiceTests.SearchTargetMemberName,
-                "implements" => nameof(WorkspaceImplementation),
+                "relations" => nameof(TypeRelationsWorkspaceImplementation),
                 "extensions" =>
                     nameof(
                         ExtensionWorkspaceMethods.WorkspaceExtension),
@@ -154,7 +155,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var result = await RunCommandAsync(
             [
                 "depends",
-                typeof(WorkspaceImplementation).FullName!,
+                typeof(TypeRelationsWorkspaceImplementation).FullName!,
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
@@ -170,7 +171,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             result.Error,
             StringComparison.Ordinal);
         Assert.Contains(
-            typeof(IWorkspaceImplementationMarker).FullName!,
+            typeof(ITypeRelationsWorkspaceMarker).FullName!,
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains(

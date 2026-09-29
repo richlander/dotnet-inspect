@@ -148,6 +148,15 @@ public static class ArgumentPreprocessor
         }
         if (command >= 0
             && args[command].Equals(
+                "implements",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            error = "'implements' is no longer valid. Inspect an exact Type "
+                + "with '-S Implementers' or '-S \"Derived Types\"'.";
+            return true;
+        }
+        if (command >= 0
+            && args[command].Equals(
                 "workspace-state",
                 StringComparison.OrdinalIgnoreCase))
         {
@@ -586,7 +595,7 @@ public static class ArgumentPreprocessor
     private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover", "-Q", "--query-help"];
     private static readonly HashSet<string> SearchScopeCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "find", "implements", "extensions", "depends"
+        "find", "extensions", "depends"
     };
     private static readonly HashSet<string> OptionsWithFollowingValue = new(StringComparer.OrdinalIgnoreCase)
     {

@@ -51,7 +51,10 @@ This is the single highest-impact improvement. It directly enables correct code 
 
 ### 2. ~~Stale table-output flag referenced in docs~~ (FIXED)
 
-**Resolution:** Replaced the obsolete shape-specific flags with a unified `--table` flag across `api`, `find`, `diff`, and `implements` commands. Uses the tabular writer path for docker-style columnar output. Added `--no-header` to suppress column headers.
+**Resolution:** Replaced the obsolete shape-specific flags with a unified
+`--table` flag across the applicable commands. Uses the tabular writer path
+for docker-style columnar output. Added `--no-header` to suppress column
+headers.
 
 ### 3. `diff` type filter uses exact match, not globs
 

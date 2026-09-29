@@ -1,7 +1,7 @@
 ---
 id: lap-around
 description: The big walkthrough — all the major commands in one doc
-commands: [type, member, library, package, find, implements, depends, extensions, diff]
+commands: [type, member, library, package, find, depends, extensions, diff]
 areas: [routing, resolution, output, discovery, inspection, source]
 ---
 
@@ -373,12 +373,13 @@ dotnet-inspect find "Chat*" --extensions -v:q
 ChatMessage
 ```
 
-### Implements
+### Derived Types
 
 Who extends Stream?
 
 ```bash
-dotnet-inspect implements Stream -v:q
+dotnet-inspect type System.IO.Stream --platform System.Private.CoreLib \
+  -S "Derived Types" -v:q
 ```
 
 ```expect
@@ -390,7 +391,7 @@ CryptoStream
 
 ### Depends
 
-The `depends` command walks the type dependency graph upward — the inverse of `implements`.
+The `depends` command walks the type dependency graph upward — the inverse of the `Derived Types` relation section.
 
 ```bash
 dotnet-inspect depends "INumber<TSelf>"

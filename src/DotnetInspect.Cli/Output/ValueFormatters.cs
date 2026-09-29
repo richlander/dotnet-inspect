@@ -26,7 +26,7 @@ public class ByteSizeFormatter : IMarkoutValueFormatter<long>
 
 /// <summary>
 /// Renders the shared "Source" column ("source@version", or just "source" when unversioned) used
-/// identically by the find and implements commands.
+/// identically by search and Subject Relations projections.
 /// </summary>
 public static class SourceColumn
 {

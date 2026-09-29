@@ -148,9 +148,6 @@ public class SearchScopeResolutionTests
     [InlineData("find", "System.String", "platform-library")]
     [InlineData("find", "System.String", "project")]
     [InlineData("find", "System.String", "binary-directory")]
-    [InlineData("implements", "IDisposable", "library")]
-    [InlineData("implements", "IDisposable", "platform-library")]
-    [InlineData("implements", "IDisposable", "project")]
     [InlineData("extensions", "IEnumerable<T>", "library")]
     [InlineData("extensions", "IEnumerable<T>", "platform-library")]
     [InlineData("extensions", "IEnumerable<T>", "project")]
@@ -271,7 +268,6 @@ public class SearchScopeResolutionTests
 
     [Theory]
     [InlineData("find", "System.String")]
-    [InlineData("implements", "IDisposable")]
     [InlineData("extensions", "System.String")]
     public void PackagePrefixGuidance_DisclosesExpansionLimit(
         string command,

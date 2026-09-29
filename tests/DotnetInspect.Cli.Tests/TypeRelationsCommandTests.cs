@@ -555,6 +555,19 @@ public sealed class TypeRelationsCommandTests
         }
     }
 
+    [Fact]
+    public void RetiredCommandPointsToTypeRelationSections()
+    {
+        Assert.True(
+            CommandLineBuilder.TryGetRemovedCommandError(
+                ["implements", nameof(IDisposable)],
+                out string? error));
+        Assert.Contains(
+            "'implements' is no longer valid",
+            error);
+        Assert.Contains("-S Implementers", error);
+    }
+
     private static async Task<(int ExitCode, string Output, string Error)>
         ExecuteAsync(params string[] arguments)
     {
