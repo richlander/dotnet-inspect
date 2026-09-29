@@ -261,9 +261,10 @@ The selected names are package-authored framework-reference evidence only.
 The [Assembly Reference Resolution
 Ladder](assembly-reference-resolution-ladder.md) consumes this evidence only
 as framework-family eligibility. Exact Platform target selection, package
-pruning, and the requested AssemblyRef's membership in one Platform Library
-remain separate owner-issued inputs. The ladder applies package pruning before
-Platform applicability.
+pruning, and
+[target-aware Platform binding](platform-assembly-reference-binding.md)
+remain separate owner-issued inputs. The ladder evaluates retained Package
+candidates before invoking Platform binding.
 
 The nuspec `<frameworkAssemblies>` element is a legacy .NET Framework assembly
 declaration and is not shared-framework evidence.
@@ -282,10 +283,11 @@ group and does not inherit `net8.0`.
 
 The overlapping-package case remains the route-pathological case. If the same
 inspection also retains a `System.Text.Json` package edge, framework evidence
-cannot override it. PackageHouse pruning must first determine whether the
-package edge remains package-owned or delegates to Platform; only delegated or
-absent package ownership permits the ladder to consider exact Platform Library
-membership. Package versions and assembly versions are never compared.
+cannot override a successful Package binding. PackageHouse pruning first
+determines whether the edge is retained or delegated. A retained edge gets the
+first opportunity to bind, but an owner-attested Package identity miss remains
+provisional while target-aware Platform binding evaluates. Package versions
+and assembly versions are never compared.
 
 ## Conventional basis and deliberate choices
 
@@ -337,12 +339,14 @@ seven owner-separated slices:
    by PackageHouse.
 3. #8504 adds the PackageHouse request demand and exact-settlement projection
    specified here.
-4. #8503 composes
-   [package-origin AssemblyRef supply
-   routing](package-origin-assemblyref-supply-routing.md) from ordinary Package
-   correlation, Platform specialization, and orthogonal pruning.
-5. the ladder consumes that route preparation and applies its ordinary rung
-   precedence.
+4. #8503 locks
+   [Platform assembly-reference
+   binding](platform-assembly-reference-binding.md) and the thin
+   [Package-origin supplier composition](package-origin-assemblyref-supply-routing.md)
+   over ordinary Package correlation, deferred Platform binding, and
+   orthogonal pruning.
+5. the ladder consumes that complete external-supplier result under its
+   ordinary context precedence.
 6. Workspace publishes the selected platform closure as an immutable
    replacement generation.
 7. Browser/Wasm and CLI resolution consumers adopt the shared PackageHouse

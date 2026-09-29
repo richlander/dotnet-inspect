@@ -33,10 +33,11 @@ The motivating production scenarios are:
 > Given one exact external `AssemblyRef` from an acquired package Library, a
 > completed referencing-context `NoNameOwner`, complete reachable PackageRef
 > evidence, a complete selected-role filename inventory when the namesake fast
-> path misses, and eligible Platform evidence when applicable, associate the
-> request through an ordered ordinary Package search and then the Platform
-> specialization without treating package identity, filename, or Platform
-> membership as a substitute for the final Metadata binding decision.
+> path misses, and one complete target-aware Platform binding result when
+> applicable, evaluate ordered ordinary Package candidates first and then
+> Platform without treating an intermediate candidate miss, package identity,
+> filename, or Platform member name as the complete external-supplier
+> decision.
 
 It owns:
 
@@ -46,8 +47,8 @@ It owns:
   and actual reachable PackageRefs;
 - composition of package candidate correlation, selected package content, and
   the unchanged Metadata binding request;
-- the corresponding specialization over eligible Platform families, exact
-  Platform Library membership, and Platform source evidence;
+- continuation from a settled Package search with no selection into the
+  target-aware Platform binding owner;
 - preservation of package-pruning decisions as orthogonal input rather than
   AssemblyRef classification;
 - the complete supplier-association result consumed by the Assembly Reference
@@ -74,6 +75,9 @@ PackageRef declarations and reachability.
 package-edge delegation.
 [PlatformHouse realization and reference processing](platform-house-reference-processing.md)
 owns exact Platform assembly-reference resolution.
+[Platform assembly-reference binding](platform-assembly-reference-binding.md)
+owns arbitrary source `AssemblyRef` binding to one canonical Library identity
+in the selected target.
 [Package-backed Platform realization](package-backed-platform-realization.md)
 owns Platform reference- and runtime-pack realization.
 The Assembly Reference Resolution Ladder owns final route precedence and
@@ -89,7 +93,7 @@ package Library occurrence
   -> referencing context: NoNameOwner
   -> complete external supplier association
      -> ordinary Package supplier candidates
-     -> eligible Platform supplier candidates
+     -> target-aware Platform binding when no Package candidate selects
   -> selected supplier realization
   -> decoded Metadata identity and binding policy
   -> exact Library or typed non-success
@@ -104,9 +108,9 @@ Package and Platform routes use the same evidence pattern:
 | Stage | Ordinary Package route | Platform specialization |
 | --- | --- | --- |
 | Supplier eligibility | Actual reachable PackageRef | Owner-issued eligible Platform family |
-| Resource-free correlation | Exact namesake; then selected filename inventory with optional package-family ranking | Exact Platform Library membership |
-| Member correlation | Exact selected-role filename | Reference- or runtime-pack member |
-| Completion gate | Decoded `AssemblyDef` identity and Metadata binding policy | Decoded `AssemblyDef` identity and Metadata binding policy |
+| Resource-free correlation | Exact namesake; then selected filename inventory with optional package-family ranking | Selected target and namesake binding demand |
+| Member correlation | Exact selected-role filename | Namesake target reference member |
+| Completion gate | Decoded `AssemblyDef` identity and Metadata binding policy | Target-aware Platform identity policy |
 
 The correlation stages answer where bounded work should look. They do not
 replace Metadata identity or binding policy.
@@ -194,9 +198,10 @@ closure-wide Metadata scan.
 Likewise, a decoded same-name member with an incompatible version, culture,
 public key, or content is an owner-attested identity miss, not a successful
 binding. That miss is tier-local while lower Package tiers remain eligible.
-If no later tier binds, the complete Package association exports terminal
-`NameOwnedNoMatch`; a namesake filename whose decoded Metadata does not own the
-simple name contributes no such ownership.
+If no Package tier binds, every owner-attested miss remains evidence for the
+complete external-supplier decision while Platform binding is evaluated. A
+namesake filename whose decoded Metadata does not own the simple name
+contributes no such ownership.
 
 ### `System.Text.Json@10.0.0`
 
@@ -232,17 +237,20 @@ admit an undeclared package, or bind an assembly. It operates only over
 namesake files in the complete retained selected-role inventory and must be
 confirmed by decoded Metadata.
 
-## Platform is a supplier specialization
+## Platform is the second supplier stage
 
-Platform routing follows the same shape after ordinary Package association
-finds no retained Package owner:
+Platform binding follows the Package search whenever every Package tier
+settles without selecting a supplier. A Package candidate's owner-attested
+identity miss does not suppress an eligible Platform because it proves only
+that the candidate cannot satisfy the request:
 
 ```text
 exact AssemblyRef
   -> owner-issued eligible Platform families
-  -> exact Platform Library membership
-  -> reference- or runtime-pack member correlation
-  -> decoded Metadata identity and binding policy
+  -> exact selected Platform target
+  -> namesake Reference member realization
+  -> target-aware Platform identity policy
+  -> canonical target Platform identity
 ```
 
 The specialization differs in how supplier eligibility is established:
@@ -253,28 +261,33 @@ The specialization differs in how supplier eligibility is established:
 - neither a target framework nor an assembly-name prefix admits every
   installed Platform family.
 
-Exact Platform catalog or source evidence then establishes membership for the
-unchanged AssemblyRef. A known reference- or runtime-pack coordinate replaces
-PackageRef candidate resolution. The selected member still requires decoded
-Metadata identity before binding completes.
+The
+[Platform assembly-reference binding](platform-assembly-reference-binding.md)
+owner defines this stage. It realizes at most one namesake Reference member per
+eligible family, ignores only the source `AssemblyRef` version under the
+selected target, and returns the realized member's complete identity as the
+canonical target identity. Culture and public-key-token compatibility remain
+required. Complete family and source evidence returns `NoNameOwner` or
+`NameOwnedNoMatch`; unavailable or incomplete evidence does not become a miss.
 
-For an exact Reference-view request, package-backed Platform realization uses:
+Package-backed Reference binding uses:
 
 | Platform family | Reference distribution package |
 | --- | --- |
 | .NET Runtime | `Microsoft.NETCore.App.Ref` |
 | ASP.NET Core | `Microsoft.AspNetCore.App.Ref` |
 
-For an Implementation-view request with an explicit RID, it uses:
+Reference-only work consumes that selected Library. Implementation work feeds
+the canonical identity into the exact ranged realization from PR #8886:
 
 | Platform family | Runtime distribution package |
 | --- | --- |
 | .NET Runtime | `Microsoft.NETCore.App.Runtime.<rid>` |
 | ASP.NET Core | `Microsoft.AspNetCore.App.Runtime.<rid>` |
 
-Projecting the request name to `ref/<tfm>/<name>.dll` or the corresponding
-runtime member is an acquisition optimization. Decoded Metadata identity
-remains the completion gate.
+The namesake projection is an acquisition optimization. Platform binding
+retains Metadata's unchanged request and decision; exact implementation
+realization still requires complete canonical-identity equivalence.
 
 ## Azure SignalR Platform specialization
 
@@ -288,15 +301,14 @@ For `Microsoft.Azure.SignalR` 1.33.1 at `net8.0`:
 4. The already selected package Library context returns `NoNameOwner`.
 5. No retained reachable PackageRef supplies the request.
 6. The framework reference admits the ASP.NET Core Platform family.
-7. Platform target policy supplies one exact ASP.NET Core 8 target.
-8. Owner-issued Platform evidence establishes exact membership for the
-   requested Library.
-9. The Reference source selects
-   `ref/net8.0/Microsoft.AspNetCore.SignalR.Core.dll` from
-   `Microsoft.AspNetCore.App.Ref@8.0.x` and verifies its Metadata identity.
-10. An implementation-demanding operation separately follows view
-    correspondence to the
-    `Microsoft.AspNetCore.App.Runtime.<rid>@8.0.x` member.
+7. Platform target policy supplies one exact ASP.NET Core target.
+8. The Reference source realizes only the namesake
+   `ref/<target-tfm>/Microsoft.AspNetCore.SignalR.Core.dll` member.
+9. Platform binding validates name, culture, and public-key token, deliberately
+   retargets the source version to the selected target, and returns the
+   member's canonical identity.
+10. An implementation-demanding operation passes that canonical identity to
+    exact ranged runtime-pack realization.
 
 There is no modern
 `Microsoft.AspNetCore.SignalR.Core@8.0.0` component PackageRef to correlate.
@@ -312,13 +324,12 @@ For a package Library that references `System.Text.Json` but declares no
 2. The selected package Library context returns `NoNameOwner`.
 3. The reachable PackageRef set contains no ordinary Package candidate.
 4. The selected Platform context admits the .NET Runtime family.
-5. Owner-issued Platform evidence establishes exact `System.Text.Json`
-   membership.
-6. Reference work selects `System.Text.Json.dll` from
+5. Reference binding selects only `System.Text.Json.dll` from
    `Microsoft.NETCore.App.Ref`.
-7. Implementation work follows view correspondence to
+6. The target-aware identity policy returns its canonical target identity.
+7. Implementation work uses that exact identity with
    `Microsoft.NETCore.App.Runtime.<rid>`.
-8. The selected member's Metadata identity completes binding.
+8. Metadata's unchanged binding decision completes the route.
 
 The Platform route does not invent a PackageRef. Absence of a same-named
 PackageRef is an ordinary reason to continue from Package association to the
@@ -381,9 +392,9 @@ required.
 - With `System.Text.Json@10.0.0` on .NET 9, pruning retains the edge; ordinary
   Package correlation plus selected content can establish the supplier.
 - With a subsumed `System.Text.Json` edge, the Package supplier is removed and
-  exact Platform membership can establish the specialized supplier.
-- With no `System.Text.Json` edge, the prune row is irrelevant and exact
-  Platform membership can still establish the supplier.
+  target-aware Platform binding can establish the supplier.
+- With no `System.Text.Json` edge, the prune row is irrelevant and Platform
+  binding can still establish the supplier.
 
 ## Composition contract
 
@@ -403,9 +414,10 @@ The supplier-association input retains:
 - decoded identity evidence for each namesake candidate evaluated;
 - owner-issued Platform-family eligibility when the specialization is
   evaluated;
-- the exact selected Platform family composition and target when eligible;
-- owner-issued exact Platform Library membership for the unchanged request
-  when that family is evaluated; and
+- the complete selected Platform family composition and exact target for each
+  family when eligible;
+- the complete target-aware Platform binding result and canonical target
+  identity when selected; and
 - Workspace, source-plan, operation, and work-ledger identities.
 
 The composition validates:
@@ -422,39 +434,51 @@ The composition validates:
 7. prefix ranking applies only within that filename candidate set;
 8. a filename candidate remains unsettled until decoded Metadata identity
    accepts or rejects it;
-9. Platform specialization is evaluated only after the completed Package rung
-   returns `NoNameOwner`; terminal Package `NameOwnedNoMatch` does not fall
-   through;
+9. Platform binding is evaluated after every Package tier settles without a
+   selection, retaining any Package owner-attested misses as provisional
+   evidence;
 10. Platform-family eligibility comes from owner-issued framework or Workspace
    evidence;
-11. Platform membership and source evidence correspond to the selected family
-   and target; and
+11. Platform binding and source evidence correspond to the selected family
+   composition and target; and
 12. every final supplier evaluation carries the unchanged Metadata request.
 
 ## Closed association outcomes
 
-Supplier association produces:
+Only the complete Package-then-Platform association produces a delegated
+binding outcome:
 
 - **PackageOwned** — the first successful ordered Package tier owns the
   requested assembly;
-- **NameOwnedNoMatch** — the complete Package rung has one or more
-  Metadata-attested name owners but no identity-eligible supplier; this is
-  terminal and Platform specialization is not evaluated;
-- **PlatformApplicable** — the complete Package rung returned `NoNameOwner`
-  and one eligible Platform membership can supply the request;
-- **NoSupplier** — complete Package and Platform evidence establishes no name
-  owner;
+- **PlatformOwned** — no Package tier selected and target-aware Platform
+  binding selected one canonical target Library;
+- **NameOwnedNoMatch** — no supplier selected and at least one evaluated
+  Package or Platform candidate attested simple-name ownership but failed its
+  applicable identity policy;
+- **NoSupplier** — complete Package and Platform evidence establishes
+  `NoNameOwner`;
 - **Unavailable** — required Package or Platform evidence is unavailable;
 - **Ambiguous** — several equally eligible suppliers own the request;
 - **Incomplete** — reachability, pruning, selected-role, Platform, or
   finite-work evidence cannot settle; or
 - **Failed** — an owner failed while producing required evidence.
 
-The ladder consumes these outcomes under its existing precedence. Within the
-Package association, exact namesake, prefix-ranked filename, and remaining
-filename candidates are ordered tiers. The association does not select a
-lower tier while a higher-tier candidate remains unsettled. Several binding
-candidates in the same tier are ambiguous.
+The ladder consumes this one closed external-supplier result under its existing
+binding-result semantics. Within the Package stage, exact namesake,
+prefix-ranked filename, and remaining filename candidates are ordered tiers.
+The association does not select a lower tier while a higher-tier candidate
+remains unsettled. Several binding candidates in the same tier are ambiguous.
+
+| Package stage | Platform stage | Complete external result |
+| --- | --- | --- |
+| Selected | Not evaluated | `PackageOwned` |
+| No selection, no owned miss | Selected | `PlatformOwned` |
+| No selection, owned miss retained | Selected | `PlatformOwned` |
+| No selection, no owned miss | `NoNameOwner` or no eligible family | `NoSupplier` |
+| No selection, owned miss retained | `NoNameOwner` or no eligible family | `NameOwnedNoMatch` |
+| No selection | `NameOwnedNoMatch` | `NameOwnedNoMatch` |
+| Ambiguous, unavailable, rejected, incomplete, or failed | Not preferred | Same typed terminal result |
+| No selection | Ambiguous, unavailable, rejected, incomplete, or failed | Same typed terminal result |
 
 ## Pathological cases
 
@@ -463,9 +487,9 @@ candidates in the same tier are ambiguous.
 A namesake PackageRef is a candidate, but its selected role contains no
 matching filename or its namesake file does not bind. It does not own the
 AssemblyRef. The complete selected-role filename inventory decides whether a
-fallback Package candidate exists. Platform routing may proceed only when the
-complete Package rung returns `NoNameOwner`; owner-attested
-`NameOwnedNoMatch` remains terminal.
+fallback Package candidate exists. If no Package tier selects, Platform
+binding proceeds while any decoded owner-attested identity miss remains
+provisional evidence.
 
 ### Exact Package identity miss with a lower-tier supplier
 
@@ -474,7 +498,8 @@ identity does not bind while a prefix-ranked or no-affinity package contains a
 binding namesake member. The exact tier records its owner-attested miss
 locally; the lower successful tier supplies the request. Only after every
 Package tier settles without a selection can an owner-attested miss become the
-Package rung's terminal `NameOwnedNoMatch`.
+combined external decision's `NameOwnedNoMatch`, and only after Platform also
+settles without a selection.
 
 ### Prefix PackageRef with unrelated content
 
@@ -579,20 +604,22 @@ scan.
 
 The end-to-end adoption has three remaining slices:
 
-1. Add host-neutral supplier association over PackageHouse dependency,
-   selected-role, pruning, framework-reference, and exact Platform membership
-   evidence, including one reusable selected-filename index per PackageHouse
-   generation.
-2. Invoke existing PackageHouse and PlatformHouse sources for the selected
-   Package or Platform supplier while preserving Reference and Implementation
-   view demands.
+1. Add host-neutral Package supplier association over PackageHouse dependency,
+   selected-role, and pruning evidence, including one reusable
+   selected-filename index per PackageHouse generation.
+2. Invoke target-aware Platform binding after Package tiers select no supplier;
+   consume its canonical identity through the exact Reference and
+   Implementation realization paths.
 3. Adopt the same association and ladder result in CLI and Browser/Wasm, then
    retire host-local package-name, Platform-name, and overlap routing.
 
 PackageHouse dependency and framework-reference evidence already exist.
 PlatformHouse and its installed and package-backed exact-assembly adapters
-already exist. This design supplies the missing common composition between
-them; it does not introduce a package-to-Library catalog.
+already exist. [Platform assembly-reference
+binding](platform-assembly-reference-binding.md) supplies the missing
+target-aware selection step, and PR #8886 supplies exact ranged realization.
+This design composes those owners; it does not introduce a package-to-Library
+catalog.
 
 No rendering strategy applies. The result is host-neutral route evidence, not
 a section or broad information domain.
@@ -617,6 +644,9 @@ Future Release gates must prove:
 - `Microsoft.Azure.SignalR` 1.33.1 at `net8.0` resolves
   `Microsoft.AspNetCore.SignalR.Core` through the ASP.NET Core Platform
   specialization without a component PackageRef;
+- the Azure request and a cross-target `System.Text.Json` request realize at
+  most the namesake Platform Reference member before returning the canonical
+  target identity;
 - a real package Library with a `System.Text.Json` `AssemblyRef` and no
   `System.Text.Json` PackageRef resolves through the .NET Runtime Platform
   specialization;
