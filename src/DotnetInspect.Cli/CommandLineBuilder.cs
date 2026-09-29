@@ -1335,30 +1335,43 @@ public static class CommandLineBuilder
         {
             var hasVerbosity = parseResult.GetResult(rootVerbosityOption) != null;
             var verbosity = ParseVerbosity(parseResult.GetValue(rootVerbosityOption));
-
-            // -v flag present: show CLI tree view (like former `cli` command)
-            if (hasVerbosity)
-                return CliSchemaCommand.Execute(rootCommand, commandFilter: null, verbosity);
-
-            HelpWriter.WriteHelp(rootCommand);
-
             var tipLevel = ParseTipLevel(
                 parseResult.GetValue(rootTipsOption),
                 parseResult.GetResult(rootTipsOption) != null);
-            Hints.WriteTips(tipLevel,
-                new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
-                new Tip("package query", "<ID-or-prefix*>", "discover NuGet package IDs"),
-                new Tip("-T:d", "", "show more tips per command"),
-                new Tip(TypeCommand.Name, "--package <package>", "discover types in package"),
-                new Tip(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
-                new Tip(FindCommand.Name, "<pattern> --package <package>", "search API symbols in a known package"),
-                new Tip(ProjectCommand.Name, "-S Skills", "index package skills for a project"),
-                new Tip(FindCommand.Name, "<pattern> --platform", "search platform libraries"));
+
+            // -v flag present: show CLI tree view (like former `cli` command)
+            if (hasVerbosity)
+            {
+                int exitCode = CliSchemaCommand.Execute(
+                    rootCommand,
+                    commandFilter: null,
+                    verbosity);
+                if (exitCode == 0)
+                    WriteRootTips(tipLevel);
+                return exitCode;
+            }
+
+            HelpWriter.WriteHelp(rootCommand);
+            WriteRootTips(tipLevel);
             return 0;
         });
 
         QueryDiscoveryCommand.Register(rootCommand, opts);
         return rootCommand;
+    }
+
+    private static void WriteRootTips(TipLevel tipLevel)
+    {
+        Hints.WriteTips(
+            tipLevel,
+            new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
+            new Tip("package query", "<ID-or-prefix*>", "discover NuGet package IDs"),
+            new Tip("-T:d", "", "show more tips per command"),
+            new Tip(TypeCommand.Name, "--package <package>", "discover types in package"),
+            new Tip(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
+            new Tip(FindCommand.Name, "<pattern> --package <package>", "search API symbols in a known package"),
+            new Tip(ProjectCommand.Name, "-S Skills", "index package skills for a project"),
+            new Tip(FindCommand.Name, "<pattern> --platform", "search platform libraries"));
     }
 
     // Parse helpers delegated to OptionParsers (for backward compatibility)

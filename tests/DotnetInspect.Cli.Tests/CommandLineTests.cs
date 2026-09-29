@@ -67,6 +67,21 @@ public class CommandLineTests
         Assert.Contains("Tips:", withTips.Error);
     }
 
+    [Fact]
+    public async Task RootVerbosity_PreservesRequestedTips()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = ["-v:m", "-T"];
+        var result = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(tokens),
+                tokens));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.NotEmpty(result.Output);
+        Assert.Contains("Tips:", result.Error);
+    }
+
     [Theory]
     [InlineData("package", "Newtonsoft.Json")]
     [InlineData("library", "Example.dll")]
