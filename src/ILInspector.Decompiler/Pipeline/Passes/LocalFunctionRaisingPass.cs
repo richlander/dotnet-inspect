@@ -495,7 +495,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             // on collision: a definition the host already resolved keeps its
             // authoritative shape.
             function.MergeTypeFactsFrom(body);
-            environment?.Elide();
+            environment?.Elide(function);
         }
 
         if (declarations.Count == 0)
@@ -567,6 +567,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
     sealed record Environment(
         TypeRef Type,
         int ArgIndex,
+        int LocalIndex,
         Dictionary<string, Capture> Captures,
         List<StoreField> Stores,
         List<LoadField> HostReads)
@@ -577,13 +578,14 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 capture.Materialize(host, body);
         }
 
-        public void Elide()
+        public void Elide(IrFunction host)
         {
             foreach (var read in HostReads)
                 read.ReplaceWith(Captures[read.Field.Name].Substitution());
             foreach (var store in Stores)
                 if (store.Parent is not null)
                     store.Detach();
+            host.MarkLocalEliminated(LocalIndex);
         }
     }
 
@@ -675,6 +677,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         return new Environment(
             envType,
             method.ParameterTypes.Length - 1,
+            slot,
             captures,
             stores,
             hostReads);

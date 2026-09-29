@@ -175,6 +175,22 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public void IsolatedInstanceAndEnvironmentCapturingLocalFunction_CompilesBackExactly()
+    {
+        var type = typeof(InstanceLocalFunctionFidelitySamples);
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            type.Assembly.Location,
+            candidate => candidate == type.FullName,
+            method => method.Method
+                == nameof(InstanceLocalFunctionFidelitySamples.RestoreState)));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status}: {result.Detail}");
+    }
+
+    [Fact]
     public void PublishedRoslynInstanceLocalFunction_RaisesAndConsumesItsEnvironment()
     {
         string path = Path.Combine(
