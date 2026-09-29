@@ -373,6 +373,12 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                             RangedAttempt attempt;
                             try
                             {
+                                long? knownArchiveLength =
+                                    result
+                                        is PackageSourcePayloadResult.Oversized
+                                            known
+                                        ? known.AdvertisedLength
+                                        : cachedState?.Directory.ArchiveLength;
                                 attempt = await TryAcquireRangedAsync(
                                     rangedSource!,
                                     client,
@@ -383,6 +389,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                                     operation,
                                     log,
                                     requestLog,
+                                    knownArchiveLength,
                                     store as IPackageEntryStore,
                                     cachedState).ConfigureAwait(false);
                             }
@@ -585,6 +592,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         NuGetOperationContext operation,
         Action<string>? log,
         PackageArchiveRequestLog requestLog,
+        long? knownArchiveLength,
         IPackageEntryStore? entryStore = null,
         EntryCacheState? cachedState = null)
     {
@@ -600,7 +608,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 RangedLimits(limits),
                 operation.CancellationToken,
                 operation,
-                requestLog).ConfigureAwait(false);
+                requestLog,
+                knownArchiveLength).ConfigureAwait(false);
         if (open.Value is not { } reader)
         {
             return ClassifyRanged(

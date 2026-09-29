@@ -424,7 +424,7 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
-    public async Task ExplicitPackage_WithEnvironmentMarkdown_SuppressesTips()
+    public async Task ExplicitPackage_WithEnvironmentMarkdown_PreservesRequestedTips()
     {
         var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
         try
@@ -435,7 +435,7 @@ public class MemberOptionsParserTests
             Assert.True(options.FormatExplicitlySet);
             Assert.False(options.Tabular);
             Assert.False(options.TabularExplicitlySet);
-            Assert.Equal(TipLevel.Quiet, options.TipLevel);
+            Assert.Equal(TipLevel.Detailed, options.TipLevel);
         }
         finally
         {
@@ -444,7 +444,7 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
-    public async Task ExplicitPackage_WithImplicitOutput_KeepsTipsEnabled()
+    public async Task ExplicitPackage_WithImplicitOutput_PreservesRequestedTips()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--tips", "d");
 
@@ -453,13 +453,13 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
-    public async Task ExplicitPackage_WithMarkdown_SuppressesTips()
+    public async Task ExplicitPackage_WithMarkdown_PreservesRequestedTips()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--markdown", "--tips", "d");
 
         Assert.True(options.FormatExplicitlySet);
         Assert.False(options.IsRawOutput);
-        Assert.Equal(TipLevel.Quiet, options.TipLevel);
+        Assert.Equal(TipLevel.Detailed, options.TipLevel);
     }
 
     [Fact]
