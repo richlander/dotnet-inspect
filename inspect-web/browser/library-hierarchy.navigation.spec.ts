@@ -573,6 +573,10 @@ test("aggregate Library remains active through Spotlight Type and Member results
   await expect(page.locator(".subject-path-segment").nth(1))
     .toHaveText("All libraries");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(2);
+  await page.locator("#member-filter-summary").click();
+  await page.locator('[data-member-access-filter="private"]').click();
+  await expect(page.locator('[data-member-access-filter="private"]'))
+    .toHaveAttribute("aria-pressed", "true");
 
   await page.locator("#open-search").dispatchEvent("click");
   await page.locator("#spotlight-input").fill("Run");
@@ -583,6 +587,9 @@ test("aggregate Library remains active through Spotlight Type and Member results
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".subject-path-segment").nth(1))
     .toHaveText("All libraries");
+  await expect(page.locator('[data-member-access-filter="public"]'))
+    .toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Run");
   await expect(page.locator(".member-surface-list .overload-row"))
     .toHaveCount(1);
   await expect(page.locator("html"))

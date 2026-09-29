@@ -1808,7 +1808,7 @@ test("typeless member lookup and request guards stay empty", () => {
     /function memberRequestIsCurrent\([\s\S]*const type = selectedType\(\);\s*if \(!type\) return false;\s*const member = selectedMember\(type\)/);
 });
 
-test("history validates saved type and member identity before restoring Member state", () => {
+test("history restores population intent before validating saved Member identity", () => {
   const applyView =
     appSource.match(/function applyView\(view: WorkspaceView\) \{[\s\S]*?\n}\n\nconst navigationHistory/)?.[0]
     ?? "";
@@ -1821,16 +1821,19 @@ test("history validates saved type and member identity before restoring Member s
     /if \(view\.rootKind !== "platform" && view\.platform\) \{[\s\S]*state\.platformIndex\?\.target\([\s\S]*if \(!target\) return false;\s*retainPlatformPackageForTarget\(target\);/);
   assert.match(
     applyView,
-    /const memberHistory = restoreMemberHistoryState\(\s*view,\s*type,\s*member/);
+    /state\.selectedTypeId = type\?\.id \?\? defaultVisibleTypeId\(pkg\);[\s\S]*state\.memberAccessibilityFilter = isMemberAccessibility\(requestedAccessibility\)[\s\S]*const member = type\s*\? memberGroups\(type\)\.find/);
   assert.match(
     applyView,
-    /state\.selectedTypeId = type\?\.id \?\? defaultVisibleTypeId\(pkg\);[\s\S]*state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*\["public", "protected", "internal", "private"\]\.includes\([\s\S]*memberHistory\.memberAccessibilityFilter[\s\S]*\? memberHistory\.memberAccessibilityFilter[\s\S]*: "public";[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
+    /const deferOrdinaryMemberRestore = Boolean\([\s\S]*view\.memberBrowseTypeId === type\.id[\s\S]*!historyGraphTarget[\s\S]*!member\)/);
   assert.match(
     applyView,
-    /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
+    /const memberHistory = deferOrdinaryMemberRestore\s*\? \{[\s\S]*selectedMemberKey: view\.selectedMemberKey[\s\S]*memberAccessibilityFilter: state\.memberAccessibilityFilter[\s\S]*: restoreMemberHistoryState\(/);
   assert.match(
     applyView,
-    /navigationHistory\.normalizeCurrent\(\);[\s\S]*loadMemberSectionContent\(state\.memberSection\)[\s\S]*else \{\s*render\(\)/);
+    /if \(deferOrdinaryMemberRestore && type\) \{[\s\S]*render\(\);[\s\S]*restoreOrdinaryMemberHistory\([\s\S]*navigationSequence\.current\(\)/);
+  assert.match(
+    applyView,
+    /async function restoreOrdinaryMemberHistory\([\s\S]*await loadSelectedTypeMemberPopulation\(\)[\s\S]*const member = memberGroups\(type\)[\s\S]*const restored = restoreMemberHistoryState\([\s\S]*loadMemberSectionContent\(state\.memberSection\)/);
   assert.match(
     appSource,
     /const navigationHistory = createNavigationHistory\(\{\s*capture: captureView,\s*signature: workspaceViewSignature,\s*apply: applyView/);

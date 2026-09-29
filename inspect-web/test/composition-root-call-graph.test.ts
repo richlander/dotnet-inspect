@@ -850,7 +850,39 @@ test("restored selections reveal their accessibility bucket", () => {
     /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
   assert.match(
     appSource,
-    /function navigateToType\([\s\S]*?enterTypeSubject\(target, options\)[\s\S]*?state\.typeCursor = filteredTypes\(\)\.findIndex/);
+    /function navigateToType\([\s\S]*?enterTypeSubject\(target, options\)[\s\S]*?state\.typeCursor = filteredTypes\(\)\.findIndex[\s\S]*?loadCurrentSelectionData\("Loading the selected Type"\)/);
+});
+
+test("Type transitions load the current lens selection after rendering", () => {
+  assert.match(
+    appSource,
+    /onKindJump:[\s\S]*?render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
+    /onNamespaceJump:[\s\S]*?render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
+    /onKindSelect:[\s\S]*?renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
+    /onTypeFilterChange:[\s\S]*?render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
+    /onTypeSelect:[\s\S]*?render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+
+  const keyboardSelection =
+    appSource.match(/function selectTypeByCursor\([\s\S]*?\n}\n\nfunction stepTypeSelection/)?.[0]
+    ?? "";
+  assert.match(
+    keyboardSelection,
+    /state\.selectedTypeId = selected\.id[\s\S]*render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+
+  const libraryScope =
+    appSource.match(/function afterLibraryScopeChange\(\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    libraryScope,
+    /normalizeLibrarySelection\(\);\s*renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Library Type"\)/);
 });
 
 test("runtime lookup refuses ambiguous or unresolved exact targets", () => {
@@ -962,7 +994,10 @@ test("fallback ordinary families load the shared document", () => {
   const spotlight =
     appSource.match(/async function pickSpotlightMember\([\s\S]*?\n}\n\nasync function pickSpotlight\(/)?.[0]
     ?? "";
-  assert.match(spotlight, /await loadSelectedMemberOverview\(\)/);
+  assert.match(
+    spotlight,
+    /setTypeMemberPopulationIntent\("public", "csharp"\)[\s\S]*state\.selectedMemberKey = result\.memberKey[\s\S]*const selectionData = loadSelectionData\(\)[\s\S]*await selectionData/);
+  assert.doesNotMatch(spotlight, /loadSelectedMemberOverview\(\)/);
 
   const groupDocument =
     appSource.match(/async function loadSelectedMemberGroupDocument\([\s\S]*?\n}\n\nasync function loadSelectedMemberSource/)?.[0]

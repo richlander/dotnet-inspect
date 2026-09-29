@@ -3085,11 +3085,12 @@ function rebindActiveWorkspaceHistory(): void {
     history.state);
 }
 
+function loadCurrentSelectionData(reason: string): void {
+  observeAsync(loadSelectionData(), reason);
+}
+
 function restartRestoredWorkspaceSelectionData(): void {
-  const load = loadSelectionData();
-  if (load instanceof Promise) {
-    observeAsync(load, "Restoring Workspace selection");
-  }
+  loadCurrentSelectionData("Restoring Workspace selection");
 }
 
 function publishFreshEmptyWorkspaceFromHistory(
@@ -3783,6 +3784,14 @@ function applyView(view: WorkspaceView) {
     view.libraryScope,
     pkg.assemblies.map(assembly => assembly.id));
   const type = pkg.types.find(item => item.id === view.selectedTypeId);
+  state.lens = view.lens;
+  state.selectedTypeId = type?.id ?? defaultVisibleTypeId(pkg);
+  const requestedAccessibility = view.memberAccessibilityFilter ?? "";
+  state.memberAccessibilityFilter = isMemberAccessibility(requestedAccessibility)
+    ? requestedAccessibility
+    : "public";
+  const historyGraphTarget =
+    graphMemberTargetFromShare(graphMemberShareTarget(view.bodyTarget));
   const member = type
     ? memberGroups(type).find(group => group.key === view.selectedMemberKey)
     : null;
@@ -3791,24 +3800,47 @@ function applyView(view: WorkspaceView) {
     : null;
   const hasSelectedBody =
     graphSelection?.group.key === view.selectedMemberKey;
-  const memberHistory = restoreMemberHistoryState(
-    view,
-    type,
-    member,
-    member
-      ? memberSectionIdsFor(member, pkg.isRuntimePack, hasSelectedBody)
-      : []);
-  state.lens = view.lens;
-  state.selectedTypeId = type?.id ?? defaultVisibleTypeId(pkg);
+  const deferOrdinaryMemberRestore = Boolean(
+    type
+      && view.lens === "api"
+      && !view.atPackageRoot
+      && !view.atLibraryRoot
+      && view.selectedMemberKey
+      && view.memberBrowseTypeId === type.id
+      && !historyGraphTarget
+      && !member);
+  const pendingMemberSection: MemberSection = isMemberSection(view.memberSection)
+    ? view.memberSection
+    : "overview";
+  const memberHistory = deferOrdinaryMemberRestore
+    ? {
+        selectedMemberKey: view.selectedMemberKey,
+        memberBrowseTypeId: type?.id ?? "",
+        memberKindFilter: view.memberKindFilter ?? "all",
+        memberAccessibilityFilter: state.memberAccessibilityFilter,
+        memberTraitFilter: view.memberTraitFilter ?? "",
+        memberTextFilter: view.memberTextFilter ?? "",
+        selectedOverloadIndex: Number.isInteger(view.selectedOverloadIndex)
+          ? view.selectedOverloadIndex
+          : null,
+        memberSection: pendingMemberSection,
+        selectedBodyTarget: view.bodyTarget ?? null,
+      }
+    : restoreMemberHistoryState(
+        view,
+        type,
+        member,
+        member
+          ? memberSectionIdsFor(member, pkg.isRuntimePack, hasSelectedBody)
+          : []);
   reconcileAccessibilityFilter(pkg.types.find(item => item.id === state.selectedTypeId));
   state.selectedMemberKey = memberHistory.selectedMemberKey;
   state.memberBrowseTypeId = memberHistory.memberBrowseTypeId;
   state.memberKindFilter = memberHistory.memberKindFilter;
-  state.memberAccessibilityFilter =
-    ["public", "protected", "internal", "private"].includes(
-      memberHistory.memberAccessibilityFilter)
-      ? memberHistory.memberAccessibilityFilter
-      : "public";
+  state.memberAccessibilityFilter = isMemberAccessibility(
+    memberHistory.memberAccessibilityFilter)
+    ? memberHistory.memberAccessibilityFilter
+    : "public";
   state.memberTraitFilter = memberHistory.memberTraitFilter;
   state.memberTextFilter = memberHistory.memberTextFilter;
   state.selectedOverloadIndex = memberHistory.selectedOverloadIndex;
@@ -3838,8 +3870,6 @@ function applyView(view: WorkspaceView) {
   state.selectedBodyTarget = memberHistory.selectedBodyTarget;
   if (!state.atPackageRoot && !state.atLibraryRoot) revealTypeInFilters(type);
   const requestedOverloadIndex = view.selectedOverloadIndex;
-  const historyGraphTarget =
-    graphMemberTargetFromShare(graphMemberShareTarget(view.bodyTarget));
   if (!state.atPackageRoot
     && !state.atLibraryRoot
     && type
@@ -3887,12 +3917,64 @@ function applyView(view: WorkspaceView) {
     return true;
   }
   navigationHistory.normalizeCurrent();
+  if (deferOrdinaryMemberRestore && type) {
+    render();
+    observeAsync(
+      restoreOrdinaryMemberHistory(
+        view,
+        pkg,
+        type,
+        navigationSequence.current()),
+      "Restoring a Member from navigation history");
+    return true;
+  }
   if (!state.atPackageRoot && !state.atLibraryRoot && state.lens === "api" && state.selectedMemberKey && member) {
     loadMemberSectionContent(state.memberSection);
   } else {
     render();
   }
   return true;
+}
+
+async function restoreOrdinaryMemberHistory(
+  view: WorkspaceView,
+  pkg: AppPackage,
+  type: AppTypeSurface,
+  navigationSeq: number,
+) {
+  await loadSelectedTypeMemberPopulation();
+  if (!navigationSequence.isCurrent(navigationSeq)
+    || state.package !== pkg
+    || selectedType()?.id !== type.id) {
+    return;
+  }
+  const member = memberGroups(type)
+    .find(group => group.key === view.selectedMemberKey);
+  const restored = restoreMemberHistoryState(
+    view,
+    type,
+    member,
+    member
+      ? memberSectionIdsFor(member, pkg.isRuntimePack, false)
+      : []);
+  state.selectedMemberKey = restored.selectedMemberKey;
+  state.memberBrowseTypeId = restored.memberBrowseTypeId;
+  state.memberKindFilter = restored.memberKindFilter;
+  state.memberAccessibilityFilter = isMemberAccessibility(
+    restored.memberAccessibilityFilter)
+    ? restored.memberAccessibilityFilter
+    : "public";
+  state.memberTraitFilter = restored.memberTraitFilter;
+  state.memberTextFilter = restored.memberTextFilter;
+  state.selectedOverloadIndex = restored.selectedOverloadIndex;
+  state.memberSection = restored.memberSection;
+  state.selectedBodyTarget = restored.selectedBodyTarget;
+  navigationHistory.normalizeCurrent();
+  if (state.selectedMemberKey && member) {
+    loadMemberSectionContent(state.memberSection);
+  } else {
+    render();
+  }
 }
 
 async function restorePlatformHistoryView(
@@ -5135,6 +5217,7 @@ function normalizeLibrarySelection() {
 function afterLibraryScopeChange() {
   normalizeLibrarySelection();
   renderPreservingMemberFocus();
+  loadCurrentSelectionData("Loading the selected Library Type");
 }
 
 function namespaces() {
@@ -10636,6 +10719,7 @@ const packageViewActions: PackageViewBindingActions = {
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
     render();
+    loadCurrentSelectionData("Loading the selected Type");
   },
   onLibraryScopeSelect: (library, kind) => {
     if (!library) return;
@@ -10660,6 +10744,7 @@ const packageViewActions: PackageViewBindingActions = {
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
     render();
+    loadCurrentSelectionData("Loading the selected Type");
   },
   onPerformanceMemberSelect: target => {
     drillToPerfMember(
@@ -10962,6 +11047,7 @@ function bindTypePanelEvents() {
       state.memberBrowseTypeId = "";
       resetMemberFilters();
       renderPreservingMemberFocus();
+      loadCurrentSelectionData("Loading the selected Type");
     },
     onTypeNavBack: () => {
       if (state.atLibraryRoot && state.rootKind === "platform") {
@@ -11101,6 +11187,7 @@ function bindTypePanelEvents() {
       state.memberBrowseTypeId = "";
       resetMemberFilters();
       render();
+      loadCurrentSelectionData("Loading the selected Type");
       focusFilter({ immediate: true });
     },
     onTypeFilterDisclosureToggle: expanded => {
@@ -11131,6 +11218,7 @@ function bindTypePanelEvents() {
       state.typeCursor = filteredTypes()
         .findIndex(item => item.id === state.selectedTypeId);
       render();
+      loadCurrentSelectionData("Loading the selected Type");
     },
   }, keybindings);
 }
@@ -11906,6 +11994,7 @@ function selectTypeByCursor(
   state.memberBrowseTypeId = "";
   resetMemberFilters();
   render();
+  loadCurrentSelectionData("Loading the selected Type");
   requestAnimationFrame(() => {
     if (focusList) document.querySelector<HTMLElement>("#type-list")?.focus();
     document.querySelector(`[data-type="${CSS.escape(state.selectedTypeId)}"]`)?.scrollIntoView({ block: "nearest" });
@@ -13414,6 +13503,7 @@ async function pickSpotlightMember(
   activateSpotlightTypePackage(pkg);
   enterTypeSubject(type, { preserveAggregate });
   resetMemberFilters();
+  setTypeMemberPopulationIntent("public", "csharp");
   state.selectedMemberKey = result.memberKey;
   state.selectedOverloadIndex = null;
   enterMemberScope({ preserveAggregate });
@@ -13424,8 +13514,9 @@ async function pickSpotlightMember(
   state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
   if (rollbackSnapshot
     && !publishInitialLoadedWorkspace(rollbackSnapshot)) return;
+  const selectionData = loadSelectionData();
   render({ synchronizeUrl: rollbackSnapshot === null });
-  await loadSelectedMemberOverview();
+  await selectionData;
   focusTypeList(navigationGeneration, focusGeneration);
 }
 
@@ -18035,20 +18126,26 @@ async function loadSelectedTypeMemberPopulation() {
   }
 }
 
-async function selectTypeMemberPopulation(
-  accessibility: string,
-  spelling = state.memberSpelling,
+function setTypeMemberPopulationIntent(
+  accessibility: MemberAccessibility,
+  spelling: "csharp" | "metadata",
 ) {
-  if (!["public", "protected", "internal", "private"]
-      .includes(accessibility)
-    || (spelling !== "csharp" && spelling !== "metadata")) {
-    return;
-  }
   state.memberAccessibilityFilter = accessibility;
   state.memberSpelling = spelling;
   state.typeMemberPopulation = null;
   state.typeMemberPopulationError = "";
   state.typeMemberPopulationKey = "";
+}
+
+async function selectTypeMemberPopulation(
+  accessibility: string,
+  spelling = state.memberSpelling,
+) {
+  if (!isMemberAccessibility(accessibility)
+    || (spelling !== "csharp" && spelling !== "metadata")) {
+    return;
+  }
+  setTypeMemberPopulationIntent(accessibility, spelling);
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   await loadSelectedTypeMemberPopulation();
@@ -18491,6 +18588,7 @@ function navigateToType(
   resetMemberFilters();
   state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === target.id);
   render();
+  loadCurrentSelectionData("Loading the selected Type");
 }
 
 // A related type is openable only when one loaded Workspace surface owns its
