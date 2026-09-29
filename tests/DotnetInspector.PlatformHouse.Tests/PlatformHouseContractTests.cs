@@ -607,8 +607,8 @@ public class PlatformHouseContractTests
     [Fact]
     public void ClosedOperations_SeparateLiveInputsFromReceiptIdentities()
     {
-        PlatformLibraryIdentity library =
-            PlatformLibraryIdentityAuthority.Create("catalog")
+        PlatformLibraryDemandIdentity library =
+            PlatformLibraryDemandIdentityAuthority.Create("catalog")
                 .Issue("System.Runtime");
         var realize = new PlatformHouseOperation.Realize(
             new PlatformPopulationDemand.Library(
@@ -1165,7 +1165,7 @@ public class PlatformHouseContractTests
                 PlatformSourceCoordinateIdentity.Create("coordinate"),
                 new PlatformPopulationDemand.Library(
                     new PlatformLibraryDemand.PlatformLibrary(
-                        PlatformLibraryIdentityAuthority.Create("catalog")
+                        PlatformLibraryDemandIdentityAuthority.Create("catalog")
                             .Issue("System.Runtime"))),
                 PlatformSourceContributionCompleteness.Authoritative),
             PlatformSourceSettlementDisposition.Selected);
@@ -1232,7 +1232,7 @@ public class PlatformHouseContractTests
                     "second-coordinate"),
                 new PlatformPopulationDemand.Library(
                     new PlatformLibraryDemand.PlatformLibrary(
-                        PlatformLibraryIdentityAuthority.Create("catalog")
+                        PlatformLibraryDemandIdentityAuthority.Create("catalog")
                             .Issue("System.Private.CoreLib"))),
                 PlatformSourceContributionCompleteness.Authoritative),
             PlatformSourceSettlementDisposition.Selected);
@@ -1339,7 +1339,7 @@ public class PlatformHouseContractTests
             Work());
         var population = new PlatformPopulationDemand.Library(
             new PlatformLibraryDemand.PlatformLibrary(
-                PlatformLibraryIdentityAuthority.Create("catalog")
+                PlatformLibraryDemandIdentityAuthority.Create("catalog")
                     .Issue("System.Runtime")));
         var source = new PlatformSourceSettlement(
             new PlatformSourceContribution.Realization(
