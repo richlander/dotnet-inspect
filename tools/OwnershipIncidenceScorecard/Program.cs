@@ -10,8 +10,13 @@ return OwnershipIncidenceScorecardRunner.Run(args);
 
 internal static class OwnershipIncidenceScorecardRunner
 {
+    // Rows issues every population member's slice (full demand). Head
+    // issues only the first SparseMethods members (point-lookup demand, the
+    // shape of most product consumers).
     static readonly ScorecardClosing[] Questions =
-        [ScorecardClosing.Rows];
+        [ScorecardClosing.Rows, ScorecardClosing.Head];
+
+    const int SparseMethods = 6;
 
     public static int Run(string[] args)
     {
@@ -49,7 +54,9 @@ internal static class OwnershipIncidenceScorecardRunner
                     CultureInfo.InvariantCulture,
                     $"# asset: {asset.Name},"
                     + $" methods={incidence.MethodTokens.Length},"
-                    + $" calls={incidence.InputCallCount}"));
+                    + $" calls={incidence.InputCallCount},"
+                    + $" groups={incidence.DirectCallsByMethod.Count},"
+                    + $" runs={Runs(asset.Asset.DirectCalls)}"));
             if (incidence.IssuedCallCount
                 != incidence.InputCallCount)
             {
@@ -88,6 +95,26 @@ internal static class OwnershipIncidenceScorecardRunner
             return 1;
         if (options.Command == ScorecardCommand.Check)
             return 0;
+
+        foreach (ScorecardAsset<IncidenceAsset> asset in assets)
+        {
+            foreach (ScorecardClosing closing in Questions)
+            {
+                foreach (var column in columns)
+                {
+                    _ = column.Answer(closing, asset.Asset);
+                    long before = GC.GetAllocatedBytesForCurrentThread();
+                    _ = column.Answer(closing, asset.Asset);
+                    long bytes =
+                        GC.GetAllocatedBytesForCurrentThread() - before;
+                    Console.WriteLine(
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"# alloc\t{asset.Name}\t{closing}"
+                            + $"\t{column.Name}\t{bytes}"));
+                }
+            }
+        }
 
         IReadOnlyList<ScorecardCell> cells = Scorecard.Measure(
             assets,
@@ -129,6 +156,7 @@ internal static class OwnershipIncidenceScorecardRunner
                     new(
                         index,
                         index.Methods,
+                        [.. index.Methods.Take(SparseMethods)],
                         index.DirectCalls)));
         }
         return assets;
@@ -179,15 +207,33 @@ internal static class OwnershipIncidenceScorecardRunner
             int,
             ImmutableArray<DirectCall>> directCallsByMethod)
     {
-        if (closing != ScorecardClosing.Rows)
-            throw new ArgumentOutOfRangeException(nameof(closing));
+        ImmutableArray<MethodIdentity> methods = closing switch
+        {
+            ScorecardClosing.Rows => asset.Methods,
+            ScorecardClosing.Head => asset.SparseMethods,
+            _ => throw new ArgumentOutOfRangeException(nameof(closing)),
+        };
         return ScorecardAnswer<IncidenceAnswer>.OfRows(
             [
                 IncidenceAnswer.Create(
-                    asset.Methods,
+                    methods,
                     asset.DirectCalls.Length,
                     directCallsByMethod),
             ]);
+    }
+
+    static int Runs(ImmutableArray<DirectCall> calls)
+    {
+        int runs = 0;
+        int previous = 0;
+        for (int i = 0; i < calls.Length; i++)
+        {
+            int token = calls[i].EvidenceMethod.MetadataToken;
+            if (i == 0 || token != previous)
+                runs++;
+            previous = token;
+        }
+        return runs;
     }
 
     static string RowText(IncidenceAnswer answer)
@@ -234,6 +280,7 @@ internal static class OwnershipIncidenceScorecardRunner
     sealed record IncidenceAsset(
         LibraryBodyIndex Index,
         ImmutableArray<MethodIdentity> Methods,
+        ImmutableArray<MethodIdentity> SparseMethods,
         ImmutableArray<DirectCall> DirectCalls);
 
     sealed class IncidenceAnswer
