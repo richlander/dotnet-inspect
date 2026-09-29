@@ -90,6 +90,57 @@ public class PdbSourceProvenanceTests
     }
 
     [Fact]
+    public void PdbWithoutImageIdentity_IsUnavailableInsteadOfCrossBound()
+    {
+        (byte[] image, byte[] pdb) =
+            BuildMarkerMetadata(includeCodeView: false);
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+        context.LoadPdbFromStream(
+            new MemoryStream(pdb, writable: false));
+
+        var unavailable =
+            Assert.IsType<PdbSourceProvenanceOutcome.Unavailable>(
+                context.InspectSourceProvenance());
+
+        Assert.Equal(
+            PdbSourceProvenanceUnavailableReason.PdbIdentityUnavailable,
+            unavailable.Reason);
+    }
+
+    [Theory]
+    [InlineData(@"\\server\share\Ordinary.cs")]
+    [InlineData("/repo/Ordinary\tSource.cs")]
+    public void EncodingExpandingPaths_PreserveRawReceiptCounts(
+        string documentPath)
+    {
+        (byte[] image, byte[] pdb) =
+            BuildMarkerMetadata(documentPath: documentPath);
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+        context.LoadPdbFromStream(
+            new MemoryStream(pdb, writable: false));
+
+        PdbSourceProvenanceResult result =
+            Assert.IsType<PdbSourceProvenanceOutcome.Available>(
+                context.InspectSourceProvenance()).Result;
+
+        PdbSourceDocumentEvidence document =
+            Assert.Single(result.Documents);
+        Assert.Equal(documentPath.Length, document.PathCharacterCount);
+        Assert.Equal(
+            documentPath.Count(character =>
+                character is '/' or '\\') + 1,
+            document.PathSegmentCount);
+        Assert.Equal(
+            document.PathCharacterCount,
+            result.Receipt.PathCharactersExamined);
+        Assert.NotEqual(documentPath, document.Path.ToString());
+    }
+
+    [Fact]
     public void RejectedPdbs_RemainDistinctFromAvailableUnknownEvidence()
     {
         byte[] image = File.ReadAllBytes(
@@ -371,6 +422,35 @@ public class PdbSourceProvenanceTests
     }
 
     [Fact]
+    public void NetStandardFacadeMarkers_AreAuthenticGenerationEvidence()
+    {
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.MetadataSourceProvenanceNetStandard.AssemblyPath());
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+        using PdbContext context =
+            PdbContext.OpenEmbeddedPdbOnly(artifact.Assembly);
+
+        PdbSourceProvenanceResult result =
+            Assert.IsType<PdbSourceProvenanceOutcome.Available>(
+                context.InspectSourceProvenance()).Result;
+
+        AssertGenerated("NetStandardGeneratedCodeType");
+        AssertGenerated("NetStandardCompilerGeneratedType");
+
+        void AssertGenerated(string metadataName)
+        {
+            PdbTypeSourceEvidence type = Assert.Single(
+                result.Types,
+                candidate =>
+                    candidate.MetadataName.ToString() == metadataName);
+            Assert.Equal(
+                PdbTypeSourceDisposition.GeneratedEvidenceOnly,
+                type.Disposition);
+            Assert.Single(type.DirectMarkers);
+        }
+    }
+
+    [Fact]
     public void ResultConstruction_RejectsIncompleteOrForeignRows()
     {
         byte[] image = File.ReadAllBytes(
@@ -545,6 +625,22 @@ public class PdbSourceProvenanceTests
                             PdbGenerationMarkerDisposition.Malformed,
                     },
                 });
+        PdbTypeSourceEvidence malformedNested = Type(
+            "MalformedNested");
+        Assert.Equal(
+            PdbTypeSourceDisposition.Unknown,
+            malformedNested.Disposition);
+        Assert.Contains(
+            malformedNested.Contributions,
+            contribution =>
+                contribution.Kind
+                    == PdbTypeSourceContributionKind.Unknown);
+        Assert.Equal(
+            PdbTypeSourceDisposition.GeneratedEvidenceOnly,
+            Type("LegacyGeneratedCode").Disposition);
+        Assert.Equal(
+            PdbTypeSourceDisposition.GeneratedEvidenceOnly,
+            Type("LegacyCompilerGenerated").Disposition);
         PdbSourceDocumentEvidence duplicateEmbedded =
             Assert.Single(result.Documents);
         Assert.True(duplicateEmbedded.IsEmbedded);
@@ -592,7 +688,10 @@ public class PdbSourceProvenanceTests
             assembly);
     }
 
-    private static (byte[] Image, byte[] Pdb) BuildMarkerMetadata()
+    private static (byte[] Image, byte[] Pdb) BuildMarkerMetadata(
+        string documentPath =
+            "/repo/obj/Tool/Tool.ExampleGenerator/Hint.g.cs",
+        bool includeCodeView = true)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -630,11 +729,50 @@ public class PdbSourceProvenanceTests
             metadata.GetOrAddString(
                 "System.Runtime.CompilerServices"),
             metadata.GetOrAddString("CompilerGeneratedAttribute"));
+        BlobHandle frameworkToken = metadata.GetOrAddBlob(
+            Convert.FromHexString("b77a5c561934e089"));
+        AssemblyReferenceHandle system =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System"),
+                new Version(4, 0, 0, 0),
+                default,
+                frameworkToken,
+                default,
+                default);
+        AssemblyReferenceHandle mscorlib =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("mscorlib"),
+                new Version(4, 0, 0, 0),
+                default,
+                frameworkToken,
+                default,
+                default);
+        TypeReferenceHandle legacyGeneratedCode =
+            metadata.AddTypeReference(
+                system,
+                metadata.GetOrAddString("System.CodeDom.Compiler"),
+                metadata.GetOrAddString("GeneratedCodeAttribute"));
+        TypeReferenceHandle legacyCompilerGenerated =
+            metadata.AddTypeReference(
+                mscorlib,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("CompilerGeneratedAttribute"));
 
         MemberReferenceHandle generatedConstructor =
             AddConstructor(metadata, generatedCode, stringCount: 2);
         MemberReferenceHandle compilerConstructor =
             AddConstructor(metadata, compilerGenerated, stringCount: 0);
+        MemberReferenceHandle legacyGeneratedConstructor =
+            AddConstructor(
+                metadata,
+                legacyGeneratedCode,
+                stringCount: 2);
+        MemberReferenceHandle legacyCompilerConstructor =
+            AddConstructor(
+                metadata,
+                legacyCompilerGenerated,
+                stringCount: 0);
         BlobHandle methodSignature =
             metadata.GetOrAddBlob(MethodSignature());
         MethodDefinitionHandle bodylessMethod =
@@ -688,6 +826,33 @@ public class PdbSourceProvenanceTests
             systemObject,
             MetadataTokens.FieldDefinitionHandle(1),
             malformedMethod);
+        TypeDefinitionHandle malformedNested =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("MalformedNested"),
+                systemObject,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(3));
+        metadata.AddNestedType(
+            malformedNested,
+            MetadataTokens.TypeDefinitionHandle(0x7FFF));
+        TypeDefinitionHandle legacyGenerated =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Fixture"),
+                metadata.GetOrAddString("LegacyGeneratedCode"),
+                systemObject,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(3));
+        TypeDefinitionHandle legacyCompiler =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Fixture"),
+                metadata.GetOrAddString("LegacyCompilerGenerated"),
+                systemObject,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(3));
 
         BlobHandle toolA = metadata.GetOrAddBlob(
             GeneratedCodeValue("ToolA", "1.0"));
@@ -720,35 +885,29 @@ public class PdbSourceProvenanceTests
             malformedMethod,
             compilerConstructor,
             metadata.GetOrAddBlob(new byte[] { 1, 0, 1 }));
-
-        var pe = new ManagedPEBuilder(
-            PEHeaderBuilder.CreateLibraryHeader(),
-            new MetadataRootBuilder(metadata, suppressValidation: true),
-            new BlobBuilder(),
-            flags: CorFlags.ILOnly);
-        var imageBuilder = new BlobBuilder();
-        pe.Serialize(imageBuilder);
-        byte[] image = imageBuilder.ToArray();
+        metadata.AddCustomAttribute(
+            legacyGenerated,
+            legacyGeneratedConstructor,
+            toolA);
+        metadata.AddCustomAttribute(
+            legacyCompiler,
+            legacyCompilerConstructor,
+            metadata.GetOrAddBlob(new byte[] { 1, 0, 0, 0 }));
 
         int[] rowCounts = new int[64];
-        using (var reader = new PEReader(
-                   new MemoryStream(image, writable: false)))
-        {
-            MetadataReader imageMetadata = reader.GetMetadataReader();
-            foreach (TableIndex table in Enum.GetValues<TableIndex>())
-            {
-                int index = (int)table;
-                if ((uint)index < (uint)rowCounts.Length)
-                {
-                    rowCounts[index] =
-                        imageMetadata.GetTableRowCount(table);
-                }
-            }
-        }
+        rowCounts[(int)TableIndex.Module] = 1;
+        rowCounts[(int)TableIndex.TypeRef] = 5;
+        rowCounts[(int)TableIndex.TypeDef] = 7;
+        rowCounts[(int)TableIndex.MethodDef] = 2;
+        rowCounts[(int)TableIndex.MemberRef] = 4;
+        rowCounts[(int)TableIndex.CustomAttribute] = 9;
+        rowCounts[(int)TableIndex.Assembly] = 1;
+        rowCounts[(int)TableIndex.AssemblyRef] = 3;
+        rowCounts[(int)TableIndex.NestedClass] = 1;
         var pdbMetadata = new MetadataBuilder();
         DocumentHandle document = pdbMetadata.AddDocument(
             pdbMetadata.GetOrAddDocumentName(
-                "/repo/obj/Tool/Tool.ExampleGenerator/Hint.g.cs"),
+                documentPath),
             default,
             default,
             default);
@@ -766,13 +925,35 @@ public class PdbSourceProvenanceTests
             embeddedValue);
         pdbMetadata.AddMethodDebugInformation(default, default);
         pdbMetadata.AddMethodDebugInformation(default, default);
+        var contentId = new BlobContentId(
+            new Guid("412BF724-7DCC-453A-A77B-A4875C15B86E"),
+            0x12345678);
         var pdbBuilder = new PortablePdbBuilder(
             pdbMetadata,
             ImmutableArray.Create(rowCounts),
-            default);
+            default,
+            _ => contentId);
         var pdbImage = new BlobBuilder();
         pdbBuilder.Serialize(pdbImage);
-        return (image, pdbImage.ToArray());
+
+        DebugDirectoryBuilder? debugDirectory = null;
+        if (includeCodeView)
+        {
+            debugDirectory = new();
+            debugDirectory.AddCodeViewEntry(
+                "Markers.pdb",
+                contentId,
+                portablePdbVersion: 0x0100);
+        }
+        var finalPe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            debugDirectoryBuilder: debugDirectory,
+            flags: CorFlags.ILOnly);
+        var imageBuilder = new BlobBuilder();
+        finalPe.Serialize(imageBuilder);
+        return (imageBuilder.ToArray(), pdbImage.ToArray());
 
         static MemberReferenceHandle AddConstructor(
             MetadataBuilder metadata,

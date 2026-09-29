@@ -80,6 +80,7 @@
     <ProjectReference Include="../../fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SourceProvenanceFixtures/ILInspector.Metadata.SourceProvenanceFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SourceProvenanceNetStandard/ILInspector.Metadata.SourceProvenanceNetStandard.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer/ILInspector.Metadata.TypeDependencyConsumer.csproj" ReferenceOutputAssembly="false" />

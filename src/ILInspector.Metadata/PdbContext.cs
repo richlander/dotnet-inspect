@@ -268,6 +268,7 @@ public partial class PdbContext : IDisposable
     private MetadataReaderProvider? _pdbProvider;
     private MetadataReader? _pdbReader;
     private ImmutableArray<byte>? _pdbImage;
+    private bool _pdbCorrespondenceEstablished;
     private Exception? _deferredDisposalFailure;
     private bool? _isReferenceAssembly;
     private readonly List<IDisposable> _disposables = [];
@@ -826,6 +827,7 @@ public partial class PdbContext : IDisposable
         ArgumentNullException.ThrowIfNull(pdbStream);
         LastPdbLoadStatus = PdbLoadStatus.NotAttempted;
         LastPdbLoadError = null;
+        _pdbCorrespondenceEstablished = false;
 
         MetadataReaderProvider? provider = null;
         bool retained = false;
@@ -916,6 +918,8 @@ public partial class PdbContext : IDisposable
                 _pdbProvider = provider;
                 _pdbReader = reader;
                 _pdbImage = pdbImage;
+                _pdbCorrespondenceEstablished =
+                    PdbId is { IsPortable: true };
                 retained = true;
 
                 HasPdb = true;
@@ -2196,6 +2200,7 @@ public partial class PdbContext : IDisposable
                 _pdbProvider = provider;
                 _pdbReader = provider.GetMetadataReader();
                 _pdbImage = pdbImage;
+                _pdbCorrespondenceEstablished = true;
                 HasPdb = true;
                 PdbVersion++;
 

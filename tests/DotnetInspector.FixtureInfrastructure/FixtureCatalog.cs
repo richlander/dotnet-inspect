@@ -64,6 +64,8 @@ public static class FixtureIds
         "metadata.source-provenance";
     public const string MetadataSourceProvenanceLookalike =
         "metadata.source-provenance.lookalike";
+    public const string MetadataSourceProvenanceNetStandard =
+        "metadata.source-provenance.netstandard";
     public const string MetadataInterfaceImplContracts =
         "metadata.interfaceimpl.contracts";
     public const string MetadataInterfaceImplFixtures =
@@ -368,6 +370,17 @@ public static class FixtureCatalog
                 FixtureBoundary.AssemblyIdentity,
                 FixtureBoundary.CrossAssemblyBoundary),
             "metadata", "pdb", "source-provenance", "lookalike");
+
+    public static readonly FixtureDefinition
+        MetadataSourceProvenanceNetStandard =
+            Fixture(
+                FixtureIds.MetadataSourceProvenanceNetStandard,
+                "ILInspector.Metadata.SourceProvenanceNetStandard",
+                "ILInspector.Metadata.SourceProvenanceNetStandard.dll",
+                Boundaries(
+                    FixtureBoundary.FrameworkReference,
+                    FixtureBoundary.TargetFramework),
+                "metadata", "pdb", "source-provenance", "netstandard");
 
     public static readonly FixtureDefinition MetadataInterfaceImplContracts =
         Fixture(
@@ -1139,6 +1152,7 @@ public static class FixtureCatalog
         MetadataEnablements,
         MetadataSourceProvenance,
         MetadataSourceProvenanceLookalike,
+        MetadataSourceProvenanceNetStandard,
         MetadataInterfaceImplContracts,
         MetadataInterfaceImplFixtures,
         MetadataMethodImplContracts,
@@ -1572,6 +1586,8 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.SourceProvenanceFixtures",
             "ILInspector.Metadata.SourceProvenanceLookalike" =>
                 "fixtures/metadata/ILInspector.Metadata.SourceProvenanceLookalike",
+            "ILInspector.Metadata.SourceProvenanceNetStandard" =>
+                "fixtures/metadata/ILInspector.Metadata.SourceProvenanceNetStandard",
             "ILInspector.Metadata.InterfaceImplContracts" =>
                 "fixtures/metadata/ILInspector.Metadata.InterfaceImplContracts",
             "ILInspector.Metadata.InterfaceImplFixtures" =>

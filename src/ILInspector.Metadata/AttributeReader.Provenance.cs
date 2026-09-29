@@ -17,11 +17,11 @@ public static partial class AttributeReader
         foreach (CustomAttributeHandle handle in attributes)
         {
             CustomAttribute attribute = reader.GetCustomAttribute(handle);
-            if (IsFrameworkAttributeType(
+            if (IsSourceProvenanceFrameworkAttribute(
                     reader,
                     attribute.Constructor,
                     GeneratedCodeAttributeName,
-                    SystemRuntimeAssemblyName,
+                    PdbGenerationMarkerKind.GeneratedCode,
                     beforeMaterialize: null))
             {
                 if (HasExpectedConstructor(
@@ -54,11 +54,11 @@ public static partial class AttributeReader
                 continue;
             }
 
-            if (!IsFrameworkAttributeType(
+            if (!IsSourceProvenanceFrameworkAttribute(
                     reader,
                     attribute.Constructor,
                     KnownAttributeNames.CompilerGeneratedAttribute,
-                    SystemRuntimeAssemblyName,
+                    PdbGenerationMarkerKind.CompilerGenerated,
                     beforeMaterialize: null))
             {
                 continue;
@@ -84,5 +84,44 @@ public static partial class AttributeReader
         }
 
         return rows.ToImmutable();
+    }
+
+    private static bool IsSourceProvenanceFrameworkAttribute(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string fullTypeName,
+        PdbGenerationMarkerKind kind,
+        Action<int>? beforeMaterialize)
+    {
+        try
+        {
+            return TryGetAuthenticAttributeAssembly(
+                    reader,
+                    constructor,
+                    fullTypeName,
+                    beforeMaterialize,
+                    out ApiAssemblyIdentity? identity)
+                && PlatformKeys.IsPlatform(identity.PublicKeyToken)
+                && kind switch
+                {
+                    PdbGenerationMarkerKind.GeneratedCode =>
+                        identity.Name is
+                            "System.Runtime"
+                            or "netstandard"
+                            or "System",
+                    PdbGenerationMarkerKind.CompilerGenerated =>
+                        identity.Name is
+                            "System.Runtime"
+                            or "netstandard"
+                            or "mscorlib",
+                    _ => false,
+                };
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
     }
 }

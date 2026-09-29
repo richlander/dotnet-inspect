@@ -130,6 +130,10 @@ The producer consumes the PE metadata, the matching loaded Portable PDB, and
 one explicit path-profile version from the same live context. It does not
 accept a detached document list associated only by assembly name, path, or
 MVID. The detached result retains the complete binding receipt.
+An embedded Portable PDB establishes correspondence by its PE containment. A
+standalone Portable PDB requires a matching Portable CodeView identity from the
+PE; successful decoding without that positive identity is unavailable, not a
+matching result.
 
 An absent, rejected, unsupported, identity-mismatched, malformed, bounded, or
 failed PDB produces a typed unavailable or failed outcome. It does not produce
@@ -147,6 +151,7 @@ The result retains one row for every Portable PDB Document row, ordered by
 document row ID. A row contains:
 
 - document row ID and exact inert path text;
+- raw path character and segment counts used for finite-bound receipts;
 - checksum algorithm and checksum bytes when present;
 - whether the document carries Embedded Source custom debug information;
 - every exact associated method and Type-definition address;
@@ -199,6 +204,13 @@ unchanged. Dot segments, empty segments, traversal-like hint segments, an
 ambiguous pair, or a path beyond the configured scan and segment bounds do not
 match.
 
+The hint suffix follows Roslyn's pinned `AdditionalSourcesCollection` grammar:
+Unicode identifier-part characters plus period, comma, hyphen, plus, grave
+accent, underscore, spaces, parentheses, brackets, braces, slash, and
+backslash are allowed. Spaces may not terminate a segment, and empty, dot, or
+dot-dot segments are invalid. Other characters remain unknown rather than
+generated.
+
 This profile intentionally recognizes the observed
 `System.Text.Json.SourceGeneration.JsonSourceGenerator` and
 `Markout.SourceGeneration.MarkoutSourceGenerator` paths. A generator whose
@@ -235,6 +247,12 @@ Lookalike attributes do not count. Duplicate valid markers are retained as
 duplicate evidence; conflicting tool/version values coexist. A malformed
 framework marker is unknown evidence and cannot be hidden by another valid
 marker.
+
+Authentication accepts the platform-signed framework definitions or facades
+used by supported targets: `System.Runtime` and `netstandard` for both markers,
+`System` for `GeneratedCodeAttribute`, and `mscorlib` for
+`CompilerGeneratedAttribute`. Assembly name alone never establishes
+authenticity.
 
 A valid method-level `GeneratedCodeAttribute` adds one exact
 `MarkerGenerated` contribution to its declaring Type whether or not the method
@@ -405,6 +423,8 @@ independently compiled fixtures under `fixtures/metadata/` and must cover:
   hint identity are retained;
 - valid, duplicate, conflicting, lookalike, and malformed
   `GeneratedCodeAttribute` rows;
+- authentic `netstandard` facade markers and legacy framework marker
+  identities;
 - unrelated Types sharing a document remain independent when only one method
   or Type has a generation marker;
 - an attributed partial Type with an ordinary method contribution is mixed
@@ -428,9 +448,12 @@ independently compiled fixtures under `fixtures/metadata/` and must cover:
   unknown without an attribute marker;
 - `.g.cs` ordinary input remaining ordinary;
 - separator variants, dot segments, traversal-like hints, multiple eligible
-  path decompositions, long paths, and every finite bound;
+  path decompositions, invalid Roslyn hint characters and segments, long paths,
+  encoding-expanding inert paths, and every finite bound;
 - exact artifact/image/PDB binding, duplicate and foreign rows, complete
   counts, deterministic order, and detached lifetime; and
+- a standalone PDB without positive PE CodeView correspondence remaining
+  unavailable, and malformed enclosing-Type relationships becoming unknown;
 - absent, identity-mismatched, malformed, unsupported, and failed PDB outcomes
   remaining distinct from an available all-unknown result.
 

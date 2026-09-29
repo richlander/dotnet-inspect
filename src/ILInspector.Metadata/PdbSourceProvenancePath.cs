@@ -1,3 +1,4 @@
+using System.Globalization;
 using InertText;
 
 namespace ILInspector.Metadata;
@@ -29,6 +30,7 @@ public enum PdbGeneratedPathUnknownReason
     DotSegment,
     CharacterLimitExceeded,
     SegmentLimitExceeded,
+    InvalidHintName,
 }
 
 public abstract record PdbGeneratedPathClassification
@@ -156,6 +158,17 @@ public static class PdbSourceProvenancePathClassifier
         PathSegment hintStart = segments[selected.AssemblyIndex + 2];
         PathSegment hintEnd = segments[^1];
         int hintLength = hintEnd.Offset + hintEnd.Length - hintStart.Offset;
+        ReadOnlySpan<char> hint =
+            path.AsSpan(hintStart.Offset, hintLength);
+        if (!IsValidRoslynHintName(
+                path,
+                segments,
+                selected.AssemblyIndex + 2,
+                hint))
+        {
+            return new PdbGeneratedPathClassification.Unknown(
+                PdbGeneratedPathUnknownReason.InvalidHintName);
+        }
         return new PdbGeneratedPathClassification.Generated(
             new PdbGeneratedPathEvidence(
                 profile,
@@ -171,6 +184,75 @@ public static class PdbSourceProvenancePathClassifier
                 new(assembly.Offset, assembly.Length),
                 new(type.Offset, type.Length),
                 new(hintStart.Offset, hintLength)));
+    }
+
+    private static bool IsValidRoslynHintName(
+        string path,
+        IReadOnlyList<PathSegment> segments,
+        int firstHintSegment,
+        ReadOnlySpan<char> hint)
+    {
+        if (hint.IsWhiteSpace())
+            return false;
+        for (int index = firstHintSegment; index < segments.Count; index++)
+        {
+            PathSegment segment = segments[index];
+            if (path[segment.Offset + segment.Length - 1] == ' ')
+                return false;
+        }
+        foreach (char value in hint)
+        {
+            if (!IsIdentifierPartCharacter(value)
+                && value is not
+                    ('.'
+                    or ','
+                    or '-'
+                    or '+'
+                    or '`'
+                    or '_'
+                    or ' '
+                    or '('
+                    or ')'
+                    or '['
+                    or ']'
+                    or '{'
+                    or '}'
+                    or '/'
+                    or '\\'))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool IsIdentifierPartCharacter(char value)
+    {
+        if (value < 'a')
+        {
+            if (value < 'A')
+                return value is >= '0' and <= '9';
+            return value <= 'Z' || value == '_';
+        }
+        if (value <= 'z')
+            return true;
+        if (value <= '\u007F')
+            return false;
+
+        UnicodeCategory category =
+            CharUnicodeInfo.GetUnicodeCategory(value);
+        return category is
+            UnicodeCategory.UppercaseLetter
+            or UnicodeCategory.LowercaseLetter
+            or UnicodeCategory.TitlecaseLetter
+            or UnicodeCategory.ModifierLetter
+            or UnicodeCategory.OtherLetter
+            or UnicodeCategory.LetterNumber
+            or UnicodeCategory.DecimalDigitNumber
+            or UnicodeCategory.ConnectorPunctuation
+            or UnicodeCategory.NonSpacingMark
+            or UnicodeCategory.SpacingCombiningMark
+            or UnicodeCategory.Format;
     }
 
     private static bool TryCreateCandidate(

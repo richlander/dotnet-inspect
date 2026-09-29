@@ -59,6 +59,30 @@ public class PdbSourceProvenancePathTests
         AssertUnknown(path, reason);
     }
 
+    [Theory]
+    [InlineData("/repo/obj/Tool/Tool.ExampleGenerator/Bad:Hint.cs")]
+    [InlineData("/repo/obj/Tool/Tool.ExampleGenerator/Bad*.cs")]
+    [InlineData("/repo/obj/Tool/Tool.ExampleGenerator/Dir /Hint.cs")]
+    [InlineData("/repo/obj/Tool/Tool.ExampleGenerator/ \t")]
+    public void ClassifyEmbeddedDocument_RejectsInvalidRoslynHintNames(
+        string path)
+    {
+        AssertUnknown(
+            path,
+            PdbGeneratedPathUnknownReason.InvalidHintName);
+    }
+
+    [Theory]
+    [InlineData("/repo/obj/Tool/Tool.ExampleGenerator/My File.g.cs")]
+    [InlineData("/repo/obj/Tool/Tool.ExampleGenerator/Dir/Hint-{A}.g.cs")]
+    [InlineData("/repo/obj/Tool/Tool.ExampleGenerator/Δ/Hint.g.cs")]
+    public void ClassifyEmbeddedDocument_AcceptsRoslynHintNameCharacters(
+        string path)
+    {
+        Assert.IsType<PdbGeneratedPathClassification.Generated>(
+            PdbSourceProvenancePathClassifier.ClassifyEmbeddedDocument(path));
+    }
+
     [Fact]
     public void ClassifyEmbeddedDocument_RejectsAmbiguousDecomposition()
     {

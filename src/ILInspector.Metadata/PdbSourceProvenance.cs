@@ -21,6 +21,7 @@ public enum PdbSourceDocumentUnknownReason
     DotSegment,
     CharacterLimitExceeded,
     SegmentLimitExceeded,
+    InvalidHintName,
     MalformedEmbeddedSourceEvidence,
     DuplicateEmbeddedSourceEvidence,
 }
@@ -74,6 +75,8 @@ public sealed record PdbTypeSourceContribution(
 public sealed record PdbSourceDocumentEvidence(
     int DocumentRowId,
     InertString Path,
+    int PathCharacterCount,
+    int PathSegmentCount,
     ImmutableArray<byte> Checksum,
     string? ChecksumAlgorithm,
     bool? IsEmbedded,
@@ -351,7 +354,9 @@ public sealed record PdbSourceProvenanceResult
         {
             if (document.Checksum.IsDefault
                 || document.Methods.IsDefault
-                || document.Types.IsDefault)
+                || document.Types.IsDefault
+                || document.PathCharacterCount < 0
+                || document.PathSegmentCount < 0)
             {
                 throw new ArgumentException(
                     "Document evidence requires complete detached collections.",
@@ -401,9 +406,9 @@ public sealed record PdbSourceProvenanceResult
                 nameof(receipt));
         }
         int pathCharacters = documents.Sum(document =>
-            document.Path.Length);
+            document.PathCharacterCount);
         int pathSegments = documents.Sum(document =>
-            CountPathSegments(document.Path.ToString()));
+            document.PathSegmentCount);
         if (directMarkerCount != receipt.DirectMarkerCount
             || inheritedMarkerCount != receipt.InheritedMarkerCount
             || pathCharacters != receipt.PathCharactersExamined
@@ -568,6 +573,12 @@ public partial class PdbContext
 
         if (_pdbReader is null)
             return PdbUnavailable();
+        if (!_pdbCorrespondenceEstablished)
+        {
+            return Unavailable(
+                PdbSourceProvenanceUnavailableReason.PdbIdentityUnavailable,
+                "Portable PDB correspondence cannot be established because the image has no matching Portable CodeView identity.");
+        }
 
         ArtifactAcquisitionRegistration? artifact =
             _assemblyRegistration?.ArtifactRegistration;
@@ -661,8 +672,9 @@ public partial class PdbContext
                     limits.MaxTotalPathCharacters,
                     "document path characters");
             }
+            int documentPathSegments = CountPathSegments(path);
             pathSegments = checked(
-                pathSegments + CountPathSegments(path));
+                pathSegments + documentPathSegments);
 
             EmbeddedSourceEvidenceStatus embeddedStatus =
                 ReadEmbeddedSourceEvidence(handle);
@@ -695,6 +707,8 @@ public partial class PdbContext
                 new MutableDocument(
                     rowId,
                     new InertString(TextPolicy.Field, path),
+                    path.Length,
+                    documentPathSegments,
                     document.Hash.IsNil
                         ? []
                         : [.. pdb.GetBlobBytes(document.Hash)],
@@ -763,7 +777,17 @@ public partial class PdbContext
                 directMarkerCount + directMarkers.Length);
             List<PdbGenerationMarkerEvidence> inheritedMarkers = [];
             bool nestingUnknown = false;
-            TypeDefinitionHandle current = type.GetDeclaringType();
+            TypeDefinitionHandle current = default;
+            try
+            {
+                current = type.GetDeclaringType();
+            }
+            catch (Exception exception)
+                when (exception is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                nestingUnknown = true;
+            }
             HashSet<TypeDefinitionHandle> seen = [typeHandle];
             int depth = 0;
             while (!current.IsNil)
@@ -774,9 +798,27 @@ public partial class PdbContext
                     nestingUnknown = true;
                     break;
                 }
-                inheritedMarkers.AddRange(typeMarkers[current]);
-                current = metadata.GetTypeDefinition(current)
-                    .GetDeclaringType();
+                if (!typeMarkers.TryGetValue(
+                        current,
+                        out ImmutableArray<PdbGenerationMarkerEvidence>
+                            declaringMarkers))
+                {
+                    nestingUnknown = true;
+                    break;
+                }
+                inheritedMarkers.AddRange(declaringMarkers);
+                try
+                {
+                    current = metadata.GetTypeDefinition(current)
+                        .GetDeclaringType();
+                }
+                catch (Exception exception)
+                    when (exception is BadImageFormatException
+                        or ArgumentOutOfRangeException)
+                {
+                    nestingUnknown = true;
+                    break;
+                }
             }
             inheritedMarkerCount = checked(
                 inheritedMarkerCount + inheritedMarkers.Count);
@@ -1063,6 +1105,8 @@ public partial class PdbContext
                 PdbSourceDocumentUnknownReason.CharacterLimitExceeded,
             PdbGeneratedPathUnknownReason.SegmentLimitExceeded =>
                 PdbSourceDocumentUnknownReason.SegmentLimitExceeded,
+            PdbGeneratedPathUnknownReason.InvalidHintName =>
+                PdbSourceDocumentUnknownReason.InvalidHintName,
             _ => throw new ArgumentOutOfRangeException(nameof(reason)),
         };
 
@@ -1133,6 +1177,8 @@ public partial class PdbContext
     private sealed class MutableDocument(
         int rowId,
         InertString path,
+        int pathCharacterCount,
+        int pathSegmentCount,
         ImmutableArray<byte> checksum,
         string? checksumAlgorithm,
         bool? isEmbedded,
@@ -1142,6 +1188,8 @@ public partial class PdbContext
     {
         public int RowId { get; } = rowId;
         public InertString Path { get; } = path;
+        public int PathCharacterCount { get; } = pathCharacterCount;
+        public int PathSegmentCount { get; } = pathSegmentCount;
         public ImmutableArray<byte> Checksum { get; } = checksum;
         public string? ChecksumAlgorithm { get; } = checksumAlgorithm;
         public bool? IsEmbedded { get; } = isEmbedded;
@@ -1158,6 +1206,8 @@ public partial class PdbContext
             new(
                 RowId,
                 Path,
+                PathCharacterCount,
+                PathSegmentCount,
                 Checksum,
                 ChecksumAlgorithm,
                 IsEmbedded,
