@@ -6528,11 +6528,15 @@ function familyIsEligible(
     name: string;
     kind: string;
     overloads: readonly {
+      readonly accessibility: string;
       readonly declaringTypeDefinitionId?: string | null;
     }[];
   },
 ) {
-  return implementationHeatFamilyIsEligible(memberGroups(type), group);
+  return implementationHeatFamilyIsEligible(
+    type.accessibility,
+    memberGroups(type),
+    group);
 }
 
 function typeHasEligibleFamily(type: AppTypeSurface) {

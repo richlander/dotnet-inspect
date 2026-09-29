@@ -45,11 +45,13 @@ export interface ImplementationHeatFamilyCandidate {
   readonly name: string;
   readonly kind: string;
   readonly overloads: ReadonlyArray<{
+    readonly accessibility: string;
     readonly declaringTypeDefinitionId?: string | null;
   }>;
 }
 
 export function implementationHeatFamilyIsEligible(
+  typeAccessibility: string,
   groups: ReadonlyArray<ImplementationHeatFamilyCandidate>,
   group: ImplementationHeatFamilyCandidate,
 ): boolean {
@@ -60,7 +62,9 @@ export function implementationHeatFamilyIsEligible(
       && group.overloads.every(
         overload => overload.declaringTypeDefinitionId === declaringType));
   return supportedKind
+    && typeAccessibility === "public"
     && group.overloads.length > 1
+    && group.overloads.every(overload => overload.accessibility === "public")
     && groups.every(candidate =>
       candidate.name !== group.name || candidate.kind === group.kind);
 }

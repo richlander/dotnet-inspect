@@ -89,9 +89,10 @@ two public overloads and one of these shapes:
 
 A group that mixes ordinary and extension methods, or extension methods from
 multiple declaring Types, is not eligible. The Type heat query and the Browser
-apply this same predicate. For an attached extension family, the visible Type
-defines the public roster and the exact declaring Type defines the analyzed
-same-name family. Same-name methods for other receivers may therefore
+apply this same predicate: the visible Type and every roster member belong to
+the `public` accessibility bucket. For an attached extension family, the
+visible Type defines the public roster and the exact declaring Type defines the
+analyzed same-name family. Same-name methods for other receivers may therefore
 contribute the family maximum and relationships without becoming visible rows,
 just as non-public same-name methods do for an ordinary family.
 
@@ -454,9 +455,10 @@ The following gates enforce this design:
    implementation as stub plus state machine; that trivial flags follow every
    counted body; that `Utf8JsonWriter.WriteString` records the same-name
    relationships from which the Browser derives its 8 hubs; that mixed and
-   multi-declarer groups remain absent; and that one Analysis execution serves
-   every family on the Type. The family query and CLI `Member Metrics` gates
-   pass unchanged.
+   multi-declarer groups remain absent; that CoreLib's private
+   `System.Type.TryMakeArrayType` extensions remain outside Browser eligibility;
+   and that one Analysis execution serves every family on the Type. The family
+   query and CLI `Member Metrics` gates pass unchanged.
 2. Analysis-facade projection tests compare Type heat and family detail wire
    results with their completed host-neutral envelopes, including outcome,
    identities, sizes, relationships, coverage, Share, and ordered diagnostics.

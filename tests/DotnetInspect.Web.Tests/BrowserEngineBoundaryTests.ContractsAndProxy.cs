@@ -381,6 +381,41 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void MemberProjection_CarriesPrivateCoreLibExtensionScope()
+    {
+        using AssemblyInspectionSession session = AssemblyInspectionSession.Open(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "PlatformDemo",
+                "System.Private.CoreLib.dll"));
+        ApiSurface surface = session.ApiSurface(
+            ApiSurfaceExtractionScope.PublicWithNonPublicTypes);
+        ApiType receiver = Assert.Single(
+            surface.Types,
+            type => type.FullName == "System.Type");
+        BrowserMemberSurfaceInfo[] projected =
+        [
+            .. receiver.Members
+                .Where(member => member.Kind == "extension-method"
+                    && member.Name == "TryMakeArrayType")
+                .Select(member => BrowserSurfaceProjection.Member(receiver, member)),
+        ];
+
+        Assert.Equal(2, projected.Length);
+        Assert.All(
+            projected,
+            member =>
+            {
+                Assert.Equal("private", member.Accessibility);
+                Assert.Equal("System.Type", member.AnchorTypeFullName);
+                Assert.Equal(
+                    "System.Reflection.SignatureTypeExtensions",
+                    member.DeclaringTypeDefinitionId);
+            });
+    }
+
+    [Fact]
     public async Task MsdlProxy_RewritesExactSymbolRequestToCurrentSwaApi()
     {
         var inner = new RequestRecordingHandler();

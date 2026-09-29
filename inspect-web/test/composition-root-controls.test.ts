@@ -156,7 +156,7 @@ test("implementation evidence follows the expanded family after paint across pac
   const eligible = sourceText(functionDeclaration("familyIsEligible"));
   assert.match(
     eligible,
-    /implementationHeatFamilyIsEligible\(memberGroups\(type\), group\)/);
+    /implementationHeatFamilyIsEligible\(\s*type\.accessibility,\s*memberGroups\(type\),\s*group\)/);
 
   const renderMember = sourceText(functionDeclaration("renderMember"));
   assert.match(
