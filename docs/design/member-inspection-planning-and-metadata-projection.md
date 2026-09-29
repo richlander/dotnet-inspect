@@ -959,6 +959,18 @@ interface accessor composition must consume a separately owner-issued join;
 it may not scan MethodSemantics, infer from accessor names, or silently broaden
 this root-shape contract across the MethodImpl boundary.
 
+The separately owner-issued Metadata join accepts one exact local TypeDef and
+MethodDef pair. It probes a MethodDef-keyed index derived from the same
+completed physical MethodSemantics census, validates every matched role and
+aggregate owner, and posts the exact aggregate address, semantic role, and
+physical-row identity. A complete census with no match certifies absence.
+Multiple physical matches are ambiguous even when they repeat the same
+aggregate and role; invalid roles, cross-owner associations, incomplete
+census, and malformed ordering remain typed rejection. The join does not post
+the aggregate or repeat its signature and correspondence validity work. Its
+index retains at most one association index per physical row, so the existing
+retained-association budget bounds it and there is no streaming fallback.
+
 `PropertyDefinition.GetAccessors()` and `EventDefinition.GetAccessors()` are
 not valid census inputs for untrusted metadata: those SRM convenience
 projections allocate the complete `Other` array before returning, collapse

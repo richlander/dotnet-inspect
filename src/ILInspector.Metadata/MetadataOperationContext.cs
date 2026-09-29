@@ -372,10 +372,12 @@ internal enum MetadataOperationWorkKind
     InterfaceImplementationRowRead,
     MethodSemanticsAssociationRead,
     AccessorAssociationLookupProbe,
+    AccessorMethodAssociationLookupProbe,
     AccessorSafetyEvidenceRead,
     MemorySafetyIndexMaterialization,
     MethodDeclarationPublication,
     AccessorDeclarationPublication,
+    AccessorMethodAssociationPublication,
     TypeDeclarationPublication,
 }
 
