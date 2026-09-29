@@ -305,7 +305,11 @@ public static class AssemblyTypeDeclarationInventoryReader
             maximumRetainedDeclarations: int.MaxValue,
             maximumRetainedTextCharacters: int.MaxValue);
 
-    internal static AssemblyTypeDeclarationInventoryOutcome Read(
+    /// <summary>
+    /// Reads a bounded declaration inventory from one caller-owned exact
+    /// image without reopening a path.
+    /// </summary>
+    public static AssemblyTypeDeclarationInventoryOutcome Read(
         PEReader peReader,
         int maximumRetainedDeclarations,
         int maximumRetainedTextCharacters)

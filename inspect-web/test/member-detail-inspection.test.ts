@@ -80,6 +80,7 @@ function wireMemberSurface(
     anchorDigest: "abc123",
     canonicalSignature: "void Example.Widget.Run(string value)",
     anchorTypeFullName: "Example.Widget",
+    declaringTypeDefinitionId: null,
     graphSelectorKey: "Run|System.String",
     bodySelectors: [],
     ...overrides,

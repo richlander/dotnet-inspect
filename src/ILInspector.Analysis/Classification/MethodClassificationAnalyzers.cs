@@ -32,7 +32,7 @@ public sealed record ClassifiedMethodRow(
 /// <remarks>
 /// Owned by <c>docs/design/method-classification-analyzers.md#the-analyzers</c>.
 /// </remarks>
-public sealed class MethodClassificationScope : MethodRowClassifier
+public sealed class MethodClassificationScope : MethodRowClassifier<MethodClassificationScope.Classification>
 {
     public const int PInvoke = 0;
     public const int Other = 1;
@@ -46,23 +46,27 @@ public sealed class MethodClassificationScope : MethodRowClassifier
 
     public static MethodClassificationScope Instance { get; } = new();
 
-    internal override bool TypeInScope(scoped MethodRowTypeView type) =>
-        !type.NameStartsWith("<");
-
-    internal override int Classify(scoped MethodDefinitionView row)
+    /// <summary>The scope's tests, as a struct a kernel specializes to.</summary>
+    public readonly struct Classification : IMethodRowClassification
     {
-        MethodAttributes attributes = row.Attributes;
-        if ((attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
-            return -1;
-        if (row.NameStartsWith("get_")
-            || row.NameStartsWith("set_")
-            || row.NameStartsWith("add_")
-            || row.NameStartsWith("remove_"))
-        {
-            return -1;
-        }
+        public bool TypeInScope(scoped MethodRowTypeView type) =>
+            !type.NameStartsWith("<");
 
-        return (attributes & MethodAttributes.PinvokeImpl) != 0 ? PInvoke : Other;
+        public int Classify(scoped MethodDefinitionView row)
+        {
+            MethodAttributes attributes = row.Attributes;
+            if ((attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                return -1;
+            if (row.NameStartsWith("get_")
+                || row.NameStartsWith("set_")
+                || row.NameStartsWith("add_")
+                || row.NameStartsWith("remove_"))
+            {
+                return -1;
+            }
+
+            return (attributes & MethodAttributes.PinvokeImpl) != 0 ? PInvoke : Other;
+        }
     }
 }
 
@@ -105,7 +109,7 @@ public struct PInvokeRowProjection : IMethodDefinitionProjection<ClassifiedMetho
 
 /// <summary>The P/Invoke analyzer: rows the gate classifies <c>PInvoke</c>.</summary>
 public sealed class PInvokeAnalyzer
-    : MethodDefinitionQueryProducer<PInvokeTest, PInvokeRowProjection, ClassifiedMethodRow>
+    : MethodDefinitionQueryProducer<MethodClassificationScope.Classification, PInvokeTest, PInvokeRowProjection, ClassifiedMethodRow>
 {
     PInvokeAnalyzer()
         : base(
@@ -118,6 +122,9 @@ public sealed class PInvokeAnalyzer
     }
 
     public static PInvokeAnalyzer Instance { get; } = new();
+
+    internal override MethodRowClassifier<MethodClassificationScope.Classification> GateClassifier =>
+        MethodClassificationScope.Instance;
 
     internal override SourceGateGuard? SourceGate { get; } =
         new(MethodClassificationScope.Instance, 1UL << MethodClassificationScope.PInvoke);
@@ -139,7 +146,7 @@ public struct PointerSignatureRowProjection : IMethodDefinitionProjection<Classi
 
 /// <summary>The pointer-signature analyzer: <c>Other</c> rows whose signature has a pointer.</summary>
 public sealed class PointerSignatureAnalyzer
-    : MethodDefinitionQueryProducer<PointerSignatureTest, PointerSignatureRowProjection, ClassifiedMethodRow>
+    : MethodDefinitionQueryProducer<MethodClassificationScope.Classification, PointerSignatureTest, PointerSignatureRowProjection, ClassifiedMethodRow>
 {
     PointerSignatureAnalyzer()
         : base(
@@ -153,72 +160,143 @@ public sealed class PointerSignatureAnalyzer
 
     public static PointerSignatureAnalyzer Instance { get; } = new();
 
+    internal override MethodRowClassifier<MethodClassificationScope.Classification> GateClassifier =>
+        MethodClassificationScope.Instance;
+
     internal override SourceGateGuard? SourceGate { get; } =
         new(MethodClassificationScope.Instance, 1UL << MethodClassificationScope.Other);
 }
 
 // ---- Async ----
 
-/// <summary>
-/// Runtime async (the <c>MethodImplAttributes.Async</c> flag), or classic
-/// async: a <c>StateMachineRelationshipIndex</c> kickoff relationship resolved
-/// as <c>ClassicAsync</c> or <c>AsyncIterator</c>. An iterator claim or no
-/// relationship is not async. A rejected relationship fails the analyzer at
-/// that method.
-/// </summary>
-public struct AsyncTest : IMethodDefinitionPredicate
-{
-    public readonly bool Test(scoped MethodDefinitionView view) =>
-        AsyncClassification.Classify(view) is not null;
-}
-
 static class AsyncClassification
 {
     internal const MethodImplAttributes RuntimeAsyncFlag = (MethodImplAttributes)0x2000;
 
-    internal static MethodClassification? Classify(scoped MethodDefinitionView view)
-    {
-        if ((view.ImplAttributes & RuntimeAsyncFlag) != 0)
-            return MethodClassification.RuntimeAsync;
+    internal static readonly MetadataTypeNameTarget AsyncStateMachine =
+        new(KnownAttributeNames.AsyncStateMachineAttribute);
 
-        return view.StateMachineByKickoff switch
-        {
-            StateMachineRelationshipResult.Resolved
-            {
-                Relationship.Kind: StateMachineClaimKind.ClassicAsync or StateMachineClaimKind.AsyncIterator,
-            } => MethodClassification.StateMachineAsync,
-            StateMachineRelationshipResult.Rejected rejected => throw new BadImageFormatException(
-                $"The method's state-machine relationship was rejected ({rejected.Failure.Kind}): "
-                + rejected.Failure.Detail),
-            _ => null,
-        };
-    }
+    internal static readonly MetadataTypeNameTarget AsyncIteratorStateMachine =
+        new(KnownAttributeNames.AsyncIteratorStateMachineAttribute);
+
+    internal static bool IsRuntimeAsync(scoped MethodDefinitionView view) =>
+        (view.ImplAttributes & RuntimeAsyncFlag) != 0;
 }
 
+/// <summary>Runtime async: the <c>MethodImplAttributes.Async</c> (0x2000) flag.</summary>
+public struct RuntimeAsyncTest : IMethodDefinitionPredicate
+{
+    public readonly bool Test(scoped MethodDefinitionView view) =>
+        AsyncClassification.IsRuntimeAsync(view);
+}
+
+public struct RuntimeAsyncRowProjection : IMethodDefinitionProjection<ClassifiedMethodRow>
+{
+    public readonly ClassifiedMethodRow Project(scoped MethodDefinitionView view) =>
+        ClassifiedRows.Project(view, MethodClassification.RuntimeAsync, withModule: false);
+}
+
+/// <summary>The runtime-async analyzer: <c>Other</c> rows carrying the runtime async flag.</summary>
+public sealed class RuntimeAsyncAnalyzer
+    : MethodDefinitionQueryProducer<RuntimeAsyncTest, RuntimeAsyncRowProjection, ClassifiedMethodRow>
+{
+    RuntimeAsyncAnalyzer()
+        : base(
+            "MethodClassification.RuntimeAsync",
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Flags,
+            MethodDefinitionLayers.IdentityText)
+    {
+    }
+
+    public static RuntimeAsyncAnalyzer Instance { get; } = new();
+
+    internal override SourceGateGuard? SourceGate { get; } =
+        new(MethodClassificationScope.Instance, 1UL << MethodClassificationScope.Other);
+}
+
+/// <summary>
+/// Compiler async: no runtime async flag, and an
+/// <c>AsyncStateMachineAttribute</c> or <c>AsyncIteratorStateMachineAttribute</c>
+/// matched by name in place, as the Roslyn compiler emits them. It excludes
+/// runtime async, so the two analyzers' rows are disjoint.
+/// </summary>
+public struct CompilerAsyncTest : IMethodDefinitionPredicate
+{
+    public readonly bool Test(scoped MethodDefinitionView view) =>
+        !AsyncClassification.IsRuntimeAsync(view)
+        && (view.HasAttributeOfType(AsyncClassification.AsyncStateMachine)
+            || view.HasAttributeOfType(AsyncClassification.AsyncIteratorStateMachine));
+}
+
+public struct CompilerAsyncRowProjection : IMethodDefinitionProjection<ClassifiedMethodRow>
+{
+    public readonly ClassifiedMethodRow Project(scoped MethodDefinitionView view) =>
+        ClassifiedRows.Project(view, MethodClassification.StateMachineAsync, withModule: false);
+}
+
+/// <summary>The compiler-async analyzer: <c>Other</c> rows with a compiler async state-machine attribute.</summary>
+public sealed class CompilerAsyncAnalyzer
+    : MethodDefinitionQueryProducer<CompilerAsyncTest, CompilerAsyncRowProjection, ClassifiedMethodRow>
+{
+    CompilerAsyncAnalyzer()
+        : base(
+            "MethodClassification.CompilerAsync",
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Flags | MethodDefinitionLayers.AttributeTypeMatch,
+            MethodDefinitionLayers.IdentityText)
+    {
+    }
+
+    public static CompilerAsyncAnalyzer Instance { get; } = new();
+
+    internal override SourceGateGuard? SourceGate { get; } =
+        new(MethodClassificationScope.Instance, 1UL << MethodClassificationScope.Other);
+}
+
+/// <summary>
+/// Async, one pass: each row tests the runtime flag first, then the compiler
+/// attribute, through the runtime-async and compiler-async analyzers' own
+/// tests. Its rows are their union, which is disjoint.
+/// </summary>
+public struct AsyncTest : IMethodDefinitionPredicate
+{
+    public readonly bool Test(scoped MethodDefinitionView view) =>
+        default(RuntimeAsyncTest).Test(view) || default(CompilerAsyncTest).Test(view);
+}
+
+/// <summary>Carries the kind of async the test found, re-read from the runtime flag.</summary>
 public struct AsyncRowProjection : IMethodDefinitionProjection<ClassifiedMethodRow>
 {
     public readonly ClassifiedMethodRow Project(scoped MethodDefinitionView view) =>
-        ClassifiedRows.Project(
-            view,
-            AsyncClassification.Classify(view)!.Value,
-            withModule: false);
+        default(RuntimeAsyncTest).Test(view)
+            ? default(RuntimeAsyncRowProjection).Project(view)
+            : default(CompilerAsyncRowProjection).Project(view);
 }
 
-/// <summary>The async analyzer: <c>Other</c> rows that are runtime or classic async.</summary>
+/// <summary>
+/// The async analyzer: <c>Other</c> rows that are runtime or compiler async,
+/// in one pass. It declares the union of the two analyzers' fields.
+/// </summary>
 public sealed class AsyncAnalyzer
-    : MethodDefinitionQueryProducer<AsyncTest, AsyncRowProjection, ClassifiedMethodRow>
+    : MethodDefinitionQueryProducer<MethodClassificationScope.Classification, AsyncTest, AsyncRowProjection, ClassifiedMethodRow>
 {
     AsyncAnalyzer()
         : base(
             "MethodClassification.Async",
-            version: 1,
+            version: 2,
             tier: 0,
-            MethodDefinitionLayers.Flags | MethodDefinitionLayers.StateMachineRelationship,
+            MethodDefinitionLayers.Flags | MethodDefinitionLayers.AttributeTypeMatch,
             MethodDefinitionLayers.IdentityText)
     {
     }
 
     public static AsyncAnalyzer Instance { get; } = new();
+
+    internal override MethodRowClassifier<MethodClassificationScope.Classification> GateClassifier =>
+        MethodClassificationScope.Instance;
 
     internal override SourceGateGuard? SourceGate { get; } =
         new(MethodClassificationScope.Instance, 1UL << MethodClassificationScope.Other);

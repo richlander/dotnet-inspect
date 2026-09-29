@@ -329,10 +329,7 @@ public static class AssemblyContextTypeImplementationHeatQuery
             in type.Members.GroupBy(member => member.Name, StringComparer.Ordinal))
         {
             ApiMember[] members = [.. group];
-            // Eligible only when every public member of the name is an
-            // ordinary method; attached extensions, alone or mixed, are not.
-            if (members.Length < 2
-                || members.Any(member => member.Kind != "method"))
+            if (members.Length < 2 || !IsEligibleFamily(members))
             {
                 continue;
             }
@@ -354,8 +351,8 @@ public static class AssemblyContextTypeImplementationHeatQuery
                     token));
             }
 
-            // Every roster member is declared on this Type with this name, so
-            // one enumeration lists the whole analyzed family.
+            // Every roster member has one declaring Type and name, so one
+            // enumeration lists the whole analyzed family.
             ImmutableArray<ImplementationHeatRosterMember> rosterMembers =
                 roster.MoveToImmutable();
             HashSet<int> rosterTokens =
@@ -388,6 +385,25 @@ public static class AssemblyContextTypeImplementationHeatQuery
                 .. surface.InspectionFailures.Where(failure =>
                     typeTokens.Contains(failure.SubjectToken)),
             ]);
+    }
+
+    static bool IsEligibleFamily(IReadOnlyList<ApiMember> members)
+    {
+        if (members.All(member =>
+                member.Kind == "method"
+                && member.DeclaringTypeDefinitionName is null))
+        {
+            return true;
+        }
+
+        if (members.Any(member => member.Kind != "extension-method"))
+            return false;
+
+        MetadataTypeDefinitionName? declaringType =
+            members[0].DeclaringTypeDefinitionName;
+        return declaringType is not null
+            && members.All(member =>
+                member.DeclaringTypeDefinitionName == declaringType);
     }
 
     sealed record SelectedType(

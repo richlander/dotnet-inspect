@@ -196,7 +196,7 @@ public sealed class PlatformSelectedLibraryExecutorTests
                 outcome);
         Assert.IsType<
             PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Incomplete>(
+                PlatformLibraryReference>.Incomplete>(
                     terminal.TerminalRealization.Outcome);
         Assert.Equal(0, implementationInvocations);
         Assert.Equal(
@@ -246,7 +246,7 @@ public sealed class PlatformSelectedLibraryExecutorTests
                 outcome);
         Assert.IsType<
             PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Incomplete>(
+                PlatformLibraryReference>.Incomplete>(
                     terminal.TerminalRealization.Outcome);
         Assert.Equal(0, fallbackInvocations);
         Assert.Contains(
@@ -304,7 +304,7 @@ public sealed class PlatformSelectedLibraryExecutorTests
                 outcome);
         Assert.IsType<
             PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Failed>(
+                PlatformLibraryReference>.Failed>(
                     terminal.TerminalRealization.Outcome);
         Assert.Equal(0, peerInvocations);
         Assert.Contains(
@@ -363,7 +363,7 @@ public sealed class PlatformSelectedLibraryExecutorTests
                 outcome);
         Assert.IsType<
             PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Failed>(
+                PlatformLibraryReference>.Failed>(
                     terminal.TerminalRealization.Outcome);
         Assert.Equal(0, peerInvocations);
         Assert.Equal(
@@ -449,7 +449,7 @@ public sealed class PlatformSelectedLibraryExecutorTests
                 outcome);
         Assert.IsType<
             PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Incomplete>(
+                PlatformLibraryReference>.Incomplete>(
                     terminal.TerminalRealization.Outcome);
         Assert.Equal(
             2,
@@ -509,7 +509,7 @@ public sealed class PlatformSelectedLibraryExecutorTests
                 outcome);
         Assert.IsType<
             PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Incomplete>(
+                PlatformLibraryReference>.Incomplete>(
                     terminal.TerminalRealization.Outcome);
         Assert.True(
             terminal.TerminalRealization.Outcome.Receipt
@@ -780,10 +780,10 @@ public sealed class PlatformSelectedLibraryExecutorTests
             terminal.TerminalRealization.Outcome.Receipt;
         string detail = receipt.Termination
             is PlatformHouseTermination.Rejected
-            {
-                Rejection:
+        {
+            Rejection:
                     PlatformHouseRejection.OwnerEvidence owner,
-            }
+        }
                 ? $"{owner.Kind}:{owner.Evidence.Name}"
                 : receipt.Termination?.GetType().Name ?? "none";
         return $"Unexpected {receipt.SettlementKind} terminal: {detail}";

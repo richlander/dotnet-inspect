@@ -132,6 +132,7 @@ internal static partial class BrowserCatalogWireProjection
             member.AnchorDigest,
             member.CanonicalSignature,
             member.AnchorTypeFullName,
+            member.DeclaringTypeDefinitionId,
             member.GraphSelectorKey,
             [
                 .. member.BodySelectors.Select(selector => new BrowserMemberBodySelector(
