@@ -788,6 +788,67 @@ public sealed class AnalysisLibraryBodyUseTests
                     == AnalysisLibraryBodyUseDiagnosticKind.MalformedBody);
     }
 
+    [Theory]
+    [InlineData(new byte[] { 0x00, 0x00, 0x7F })]
+    [InlineData(new byte[] { 0x00, 0x01, 0x01, 0x7F })]
+    public void ExecuteImage_ReportsUndefinedMethodSignatureOperand(
+        byte[] signature)
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [
+                            (byte)ILOpCode.Call,
+                            0x01, 0x00, 0x00, 0x0A,
+                            (byte)ILOpCode.Ret,
+                        ],
+                        methodMemberReferenceSignature: signature),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Empty(result.Occurrences);
+        Assert.Equal(1, result.Coverage.OperandsUnavailable);
+        Assert.Single(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind
+                        .UnresolvedOperand
+                && diagnostic.IlOffset == 0);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0x00, 0x00, 0x7F })]
+    [InlineData(new byte[] { 0x00, 0x01, 0x01, 0x7F })]
+    public void ExecuteImage_ReportsBodyWithUndefinedOwnSignature(
+        byte[] signature)
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [(byte)ILOpCode.Ret],
+                        ownSignature: signature),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(1, result.Coverage.BodiesUnavailable);
+        Assert.Single(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind.MalformedBody);
+    }
+
     [Fact]
     public void ExecuteImage_DecodesRepeatedMalformedSignatureOnce()
     {
@@ -1341,7 +1402,9 @@ public sealed class AnalysisLibraryBodyUseTests
         bool truncatedMethodMemberReference = false,
         bool truncatedOwnSignature = false,
         int largeTruncatedParameters = 0,
-        bool unreadableMemberName = false)
+        bool unreadableMemberName = false,
+        byte[]? methodMemberReferenceSignature = null,
+        byte[]? ownSignature = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1437,6 +1500,13 @@ public sealed class AnalysisLibraryBodyUseTests
                 metadata.GetOrAddString("Truncated"),
                 metadata.GetOrAddBlob(new byte[] { 0x00 }));
         }
+        if (methodMemberReferenceSignature is not null)
+        {
+            metadata.AddMemberReference(
+                owner,
+                metadata.GetOrAddString("Malformed"),
+                metadata.GetOrAddBlob(methodMemberReferenceSignature));
+        }
 
         var bodies = new BlobBuilder();
         var encoder = new MethodBodyStreamEncoder(bodies);
@@ -1482,9 +1552,11 @@ public sealed class AnalysisLibraryBodyUseTests
                 MethodAttributes.Public | MethodAttributes.Static,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(name),
-                truncatedOwnSignature
-                    ? metadata.GetOrAddBlob(new byte[] { 0x00 })
-                    : metadata.GetOrAddBlob(signature),
+                ownSignature is not null
+                    ? metadata.GetOrAddBlob(ownSignature)
+                    : truncatedOwnSignature
+                        ? metadata.GetOrAddBlob(new byte[] { 0x00 })
+                        : metadata.GetOrAddBlob(signature),
                 offset,
                 MetadataTokens.ParameterHandle(1));
         }

@@ -156,6 +156,30 @@ public class SignatureBlobGuardTests
     }
 
     [Theory]
+    [InlineData(new byte[] { 0x00, 0x00, 0x7F })]
+    [InlineData(new byte[] { 0x00, 0x01, 0x01, 0x7F })]
+    public void CompleteMethodSignature_RejectsUndefinedTypeCodes(
+        byte[] signature)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteBytes(signature);
+        var (reader, handle) = BuildStandaloneSig(blob);
+        BlobHandle signatureHandle =
+            reader.GetStandaloneSignature(handle).Signature;
+
+        Assert.True(
+            SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                signatureHandle,
+                SignatureBlobGuard.Kind.Method));
+        Assert.False(
+            SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                reader,
+                signatureHandle,
+                SignatureBlobGuard.Kind.Method));
+    }
+
+    [Theory]
     [InlineData(new byte[] { 0x08, 0x00, 0x01 }, true)]
     [InlineData(new byte[] { 0x28, 0x00, 0x01 }, true)]
     [InlineData(new byte[] { 0x08, 0x01, 0x08, 0x10, 0x08 }, true)]
