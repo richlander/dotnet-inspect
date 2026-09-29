@@ -1,12 +1,58 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Reflection;
 
+using DotnetInspector.Fixtures;
+
 namespace ILInspector.Metadata.Tests;
 
 public sealed class MetadataRelationInspectionTests
 {
+    [Fact]
+    public void HierarchyAnalysisPassRequiresAnAdmittedSession()
+    {
+        System.Reflection.ConstructorInfo constructor =
+            Assert.Single(
+                typeof(MetadataHierarchyRelationAnalysisPass)
+                    .GetConstructors());
+
+        Assert.Equal(
+            [
+                typeof(AssemblyInspectionSession),
+                typeof(MetadataHierarchyRelationAnalysisRequest),
+            ],
+            constructor.GetParameters()
+                .Select(static parameter => parameter.ParameterType));
+    }
+
+    [Fact]
+    public void HierarchyAnalysisRejectsNativeImageBeforeProducerExecution()
+    {
+        byte[] image =
+            MetadataFormatAdmissionTests.BuildImage("v4.0.30319");
+        MetadataFormatAdmissionTests.RemoveMetadataDirectory(image);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(image, writable: false));
+
+        var rejected =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Rejected>(
+                    session.AnalyzeHierarchyRelations(
+                        new(
+                            new(
+                                TypeName("System", "Object"),
+                                MetadataHierarchyRelationKind.BaseType),
+                            MetadataOperationPolicy.Unbounded),
+                        TestContext.Current.CancellationToken));
+
+        Assert.IsType<MetadataImageFormatResult.NoMetadata>(
+            rejected.Format);
+        Assert.False(session.HasMetadata);
+    }
+
     [Fact]
     public void AssemblyReferencePopulationPushesCountAndBoundedRows()
     {
@@ -519,6 +565,511 @@ public sealed class MetadataRelationInspectionTests
             occurrence =>
                 occurrence.Member.CanonicalSignature
                     == asSpan.Member.CanonicalSignature);
+    }
+
+    [Fact]
+    public void HierarchyTargetSelectionProducesOnlyMatchingRelationForm()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+
+        var available =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Hierarchy],
+                        MetadataOperationPolicy.Unbounded,
+                        hierarchyTarget: new(
+                            TypeName("System.IO", "Stream"),
+                            MetadataHierarchyRelationKind.BaseType)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Complete,
+            available.Result.Hierarchy.Disposition);
+        Assert.Equal(7, available.Result.Hierarchy.Evidence.Length);
+        Assert.All(
+            available.Result.Hierarchy.Evidence,
+            relation =>
+            {
+                Assert.Equal(
+                    MetadataHierarchyRelationKind.BaseType,
+                    relation.Kind);
+                AssertNamedType(
+                    relation.Target,
+                    "System.IO",
+                    "Stream");
+            });
+    }
+
+    [Fact]
+    public void HierarchyTargetSelectionPreservesTypeScope()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        MetadataTypeDefinitionAddress memoryStream =
+            Address(path, "System.IO", "MemoryStream");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+
+        var available =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Hierarchy],
+                        MetadataOperationPolicy.Unbounded,
+                        typeScope: [memoryStream],
+                        hierarchyTarget: new(
+                            TypeName("System.IO", "Stream"),
+                            MetadataHierarchyRelationKind.BaseType)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Complete,
+            available.Result.Hierarchy.Disposition);
+        MetadataHierarchyRelationEvidence relation =
+            Assert.Single(available.Result.Hierarchy.Evidence);
+        Assert.Equal(memoryStream, relation.Source);
+        Assert.Equal(1, available.Result.Hierarchy.Coverage?.Considered);
+        Assert.Equal(1, available.Result.Hierarchy.Coverage?.Examined);
+    }
+
+    [Fact]
+    public void HierarchyTargetSelectionContainsProjectionBudgetFailure()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        MetadataTypeDefinitionAddress memoryStream =
+            Address(path, "System.IO", "MemoryStream");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+
+        var available =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Hierarchy],
+                        new MetadataOperationPolicy(
+                            maxMetadataRows: long.MaxValue,
+                            maxStructuredNodes: 0),
+                        typeScope: [memoryStream],
+                        hierarchyTarget: new(
+                            TypeName("System.IO", "Stream"),
+                            MetadataHierarchyRelationKind.BaseType)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            available.Result.Hierarchy.Disposition);
+        Assert.Empty(available.Result.Hierarchy.Evidence);
+        MetadataRelationDiagnostic diagnostic =
+            Assert.Single(available.Result.Hierarchy.Diagnostics);
+        Assert.Equal(
+            MetadataRelationDiagnosticKind.Limit,
+            diagnostic.Kind);
+        Assert.Equal(
+            MetadataOperationDimension.StructuredNodes,
+            diagnostic.BudgetDimension);
+        Assert.Equal(1, available.Result.Hierarchy.Coverage?.Considered);
+        Assert.Equal(0, available.Result.Hierarchy.Coverage?.Examined);
+        Assert.Equal(1, available.Result.Hierarchy.Coverage?.Limited);
+    }
+
+    [Fact]
+    public void HierarchyTargetSelectionRetainsMatchingGenericTypeSpecifications()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+
+        var available =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Hierarchy],
+                        MetadataOperationPolicy.Unbounded,
+                        hierarchyTarget: new(
+                            TypeName(
+                                "System.Collections.Generic",
+                                "IEnumerable`1"),
+                            MetadataHierarchyRelationKind.Interface)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Complete,
+            available.Result.Hierarchy.Disposition);
+        Assert.NotEmpty(available.Result.Hierarchy.Evidence);
+        Assert.All(
+            available.Result.Hierarchy.Evidence,
+            relation =>
+            {
+                Assert.Equal(
+                    MetadataHierarchyRelationKind.Interface,
+                    relation.Kind);
+                var target =
+                    Assert.IsType<MetadataTypeIdentity.GenericInstance>(
+                        relation.Target);
+                Assert.Equal(
+                    "System.Collections.Generic",
+                    target.Definition.Namespace.ToString());
+                Assert.Equal(
+                    ["IEnumerable`1"],
+                    target.Definition.Segments.Select(
+                        static segment => segment.ToString()));
+            });
+    }
+
+    [Fact]
+    public void HierarchyAnalysisMatchesRoslynGenericRelationEvidence()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        var target = new MetadataHierarchyTargetSelection(
+            TypeName(
+                "System.Collections.Generic",
+                "IEnumerable`1"),
+            MetadataHierarchyRelationKind.Interface);
+
+        var analysis =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        target,
+                        MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+        var countOnly =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        target,
+                        MetadataOperationPolicy.Unbounded,
+                        materializeRows: false),
+                    TestContext.Current.CancellationToken));
+        var relations =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Hierarchy],
+                        MetadataOperationPolicy.Unbounded,
+                        hierarchyTarget: target),
+                    TestContext.Current.CancellationToken));
+        using var pass =
+            new MetadataHierarchyRelationAnalysisPass(
+                session,
+                new(
+                    target,
+                    MetadataOperationPolicy.Unbounded));
+        var passRows =
+            ImmutableArray.CreateBuilder<
+                MetadataHierarchyRelationAnalysisRow>();
+        int passCandidateCount = 0;
+        foreach (TypeDefinitionHandle handle in pass.TypeDefinitions)
+        {
+            MetadataHierarchyRelationAnalysisUnit unit =
+                pass.Analyze(handle);
+            Assert.Null(unit.Diagnostic);
+            passCandidateCount += unit.CandidateCount;
+            if (unit.BaseRelation is { } baseRelation)
+                passRows.Add(baseRelation);
+            if (unit.InterfaceRelation is { } interfaceRelation)
+                passRows.Add(interfaceRelation);
+        }
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Complete,
+            analysis.Result.Relations.Disposition);
+        int expectedCandidates =
+            relations.Result.Hierarchy.Evidence
+                .Select(static row => row.Source)
+                .Distinct()
+                .Count();
+        Assert.Equal(
+            expectedCandidates,
+            analysis.Result.CandidateCount);
+        Assert.Equal(
+            expectedCandidates,
+            analysis.Result.Relations.Evidence.Length);
+        Assert.Equal(
+            expectedCandidates,
+            countOnly.Result.CandidateCount);
+        Assert.Equal(expectedCandidates, passCandidateCount);
+        Assert.Empty(countOnly.Result.Relations.Evidence);
+        Assert.Equal(
+            analysis.Result.Receipt.Counters,
+            pass.Counters);
+        Assert.Equal(
+            analysis.Result.Relations.Evidence
+                .SelectMany(static row =>
+                    row.MetadataTokens.Select(token => (
+                        row.Source,
+                        row.SourceType,
+                        row.Kind,
+                        Token: token))),
+            passRows
+                .SelectMany(static row =>
+                    row.MetadataTokens.Select(token => (
+                        row.Source,
+                        row.SourceType,
+                        row.Kind,
+                        Token: token))));
+        Assert.Equal(
+            relations.Result.Hierarchy.Evidence
+                .Select(static row => (
+                    row.Source,
+                    row.SourceType,
+                    row.Kind,
+                    row.MetadataToken)),
+            analysis.Result.Relations.Evidence
+                .SelectMany(static row =>
+                    row.MetadataTokens.Select(token => (
+                        row.Source,
+                        row.SourceType,
+                        row.Kind,
+                        MetadataToken: token))));
+    }
+
+    [Fact]
+    public void HierarchyAnalysisForwardPlanStopsOnlyAfterItsBound()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        var target = new MetadataHierarchyTargetSelection(
+            TypeName(
+                "System.Collections.Generic",
+                "IEnumerable`1"),
+            MetadataHierarchyRelationKind.Interface);
+        var complete =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        target,
+                        MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+        var forwardPlan =
+            new MetadataHierarchyRelationForwardPlan(
+                maximumCandidates: 6);
+        var forward =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        target,
+                        MetadataOperationPolicy.Unbounded,
+                        forwardPlan: forwardPlan),
+                    TestContext.Current.CancellationToken));
+        var noFinding =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        new(
+                            TypeName("Missing", "INotPresent"),
+                            MetadataHierarchyRelationKind.Interface),
+                        MetadataOperationPolicy.Unbounded,
+                        forwardPlan:
+                            new(
+                                maximumCandidates: 1)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.True(complete.Result.CandidateCount > 6);
+        Assert.False(complete.Result.WasStopped);
+        Assert.Null(complete.Result.ForwardPlan);
+        Assert.True(forward.Result.WasStopped);
+        Assert.Same(forwardPlan, forward.Result.ForwardPlan);
+        Assert.Equal(6, forward.Result.CandidateCount);
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            forward.Result.Relations.Disposition);
+        Assert.Equal(
+            complete.Result.Relations.Evidence
+                .Take(6)
+                .Select(static row => row.Source),
+            forward.Result.Relations.Evidence
+                .Select(static row => row.Source));
+        Assert.True(
+            forward.Result.Receipt.Counters.DeclarationCandidates
+            < complete.Result.Receipt.Counters.DeclarationCandidates);
+
+        Assert.False(noFinding.Result.WasStopped);
+        Assert.Equal(0, noFinding.Result.CandidateCount);
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Complete,
+            noFinding.Result.Relations.Disposition);
+    }
+
+    [Fact]
+    public void HierarchyTargetSelectionReportsMalformedGenericTypeSpecifications()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(
+                    HierarchyRelationSafetyFixtures
+                        .BuildMalformedGenericTypeSpecification(),
+                    writable: false));
+
+        var available =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Hierarchy],
+                        MetadataOperationPolicy.Unbounded,
+                        hierarchyTarget: new(
+                            TypeName("Sample", "ITarget`1"),
+                            MetadataHierarchyRelationKind.Interface)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Empty(available.Result.Hierarchy.Evidence);
+        MetadataRelationDiagnostic diagnostic =
+            Assert.Single(available.Result.Hierarchy.Diagnostics);
+        Assert.Equal(
+            MetadataRelationDiagnosticKind.UnsupportedShape,
+            diagnostic.Kind);
+        Assert.NotEmpty(diagnostic.Detail);
+    }
+
+    [Fact]
+    public void HierarchyAnalysisContainsMalformedGenericTypeSpecifications()
+    {
+        byte[] content =
+            HierarchyRelationSafetyFixtures
+                .BuildMalformedGenericTypeSpecification();
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(
+                    content,
+                    writable: false));
+
+        var available =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        new(
+                            TypeName("Sample", "ITarget`1"),
+                            MetadataHierarchyRelationKind.Interface),
+                        MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            available.Result.Relations.Disposition);
+        Assert.Empty(available.Result.Relations.Evidence);
+        MetadataRelationDiagnostic diagnostic =
+            Assert.Single(available.Result.Relations.Diagnostics);
+        Assert.Equal(
+            MetadataRelationDiagnosticKind.UnsupportedShape,
+            diagnostic.Kind);
+        Assert.NotEmpty(diagnostic.Detail);
+
+        using var pass =
+            new MetadataHierarchyRelationAnalysisPass(
+                session,
+                new(
+                    new(
+                        TypeName("Sample", "ITarget`1"),
+                        MetadataHierarchyRelationKind.Interface),
+                    MetadataOperationPolicy.Unbounded));
+        MetadataHierarchyRelationAnalysisUnit unit =
+            Assert.Single(
+                pass.TypeDefinitions
+                    .Select(pass.Analyze),
+                static candidate =>
+                    candidate.Diagnostic is not null);
+        Assert.Equal(
+            diagnostic.Kind,
+            unit.Diagnostic!.Kind);
+        Assert.Equal(
+            available.Result.Receipt.Counters,
+            pass.Counters);
+    }
+
+    [Fact]
+    public void HierarchyAnalysisRejectsCyclicVisibilityBeforeCandidateScan()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(
+                    HierarchyRelationSafetyFixtures
+                        .BuildCyclicNestedTypeVisibility(128),
+                    writable: false));
+
+        var available =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        new(
+                            TypeName("Sample", "ITarget"),
+                            MetadataHierarchyRelationKind.BaseType),
+                        MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            available.Result.Relations.Disposition);
+        Assert.Empty(available.Result.Relations.Evidence);
+        MetadataRelationDiagnostic diagnostic =
+            Assert.Single(available.Result.Relations.Diagnostics);
+        Assert.Equal(
+            MetadataRelationDiagnosticKind.MalformedMetadata,
+            diagnostic.Kind);
+        Assert.Contains(
+            "cycle",
+            diagnostic.Detail,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            3,
+            available.Result.Receipt.Counters.DeclarationCandidates);
+        Assert.Equal(
+            1,
+            available.Result.Receipt.Counters.RelationshipEdges);
+    }
+
+    [Fact]
+    public void SimpleTypeNameSearchMaterializesOnlyMatchingDefinitions()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+
+        var found =
+            Assert.IsType<MetadataTypeDefinitionNameSearchResult.Found>(
+                session.FindTypeDefinitionsBySimpleName("stream"));
+
+        Assert.Contains(
+            found.Names,
+            name => name.ToMetadataFullName() == "System.IO.Stream");
+        Assert.All(
+            found.Names,
+            name => Assert.Equal(
+                "Stream",
+                name.Segments[^1],
+                ignoreCase: true));
     }
 
     [Fact]

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The Subject Relations enablement scorecard: compares the pre-pushdown
+    metadata path, idiomatic LINQ, the NLinq oracle, and the shipping targeted
+    planner over base-type and interface populations. Publish NativeAOT to time:
+      dotnet publish tools/SubjectRelationsScorecard -c Release -r <rid> -p:PublishAot=true -p:IsPublishable=true -o <dir>
+    See docs/evidence-and-validation.md#performance-oracles-for-queryspace-enablement.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>subject-relations-scorecard</AssemblyName>
+    <RootNamespace>SubjectRelationsScorecard</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Speed</OptimizationPreference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\..\tests\DotnetInspector.PerformanceOracles\DotnetInspector.PerformanceOracles.csproj" />
+    <ProjectReference Include="..\..\tests\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
+  </ItemGroup>
+
+</Project>
