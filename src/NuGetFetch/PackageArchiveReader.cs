@@ -173,7 +173,8 @@ internal static class PackageArchiveRangeAccess
         ZipReadLimits limits,
         CancellationToken cancellationToken,
         NuGetOperationContext? operationContext,
-        PackageArchiveRequestLog? requestLog = null)
+        PackageArchiveRequestLog? requestLog = null,
+        long? knownArchiveLength = null)
     {
         ArgumentNullException.ThrowIfNull(limits);
         if (memory.RangeIgnored)
@@ -208,7 +209,16 @@ internal static class PackageArchiveRangeAccess
             if (!NuGetHttpRequest.TryCreatePreservingPathAndQuery(url, out Uri? archiveUri))
                 throw new InvalidDataException("The package archive URL is not a well-formed absolute URI.");
             session.UseCredential(credential);
-            source = new HttpRangeSource(archiveUri!, session.SendAsync);
+            source = new HttpRangeSource(
+                archiveUri!,
+                session.SendAsync,
+                new()
+                {
+                    KnownLength = knownArchiveLength,
+                    UsePreflightFreeRequests =
+                        OperatingSystem.IsBrowser()
+                        && knownArchiveLength is not null,
+                });
             ZipDirectory directory = await ZipArchiveReader.ReadDirectoryAsync(
                 source,
                 limits,

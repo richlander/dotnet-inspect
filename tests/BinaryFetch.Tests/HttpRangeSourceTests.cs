@@ -16,6 +16,14 @@ public sealed class HttpRangeSourceTests
     private static HttpRangeSource Source(RangeHandler handler) =>
         new(new HttpClient(handler), new Uri("https://range.example/archive.bin"));
 
+    private static HttpRangeSource Source(
+        RangeHandler handler,
+        HttpRangeSourceOptions options) =>
+        new(
+            new HttpClient(handler),
+            new Uri("https://range.example/archive.bin"),
+            options);
+
     [Fact]
     public async Task TailRead_WithVisibleHeaders_ReturnsTheSuffixAndTheTotal()
     {
@@ -93,6 +101,90 @@ public sealed class HttpRangeSourceTests
         Assert.Equal(representation[10_000..11_234], slice);
         Assert.Equal("bytes=10000-11233", handler.Requests[1].Headers.Range!.ToString());
         Assert.Equal("\"v1\"", handler.Requests[1].Headers.IfRange!.EntityTag!.ToString());
+    }
+
+    [Fact]
+    public async Task PreflightFreeRead_UsesAbsoluteRangesWithoutIfRange()
+    {
+        byte[] representation = Representation(50_000);
+        var handler = new RangeHandler(representation) { ETag = "\"v1\"" };
+        await using HttpRangeSource source = Source(
+            handler,
+            new()
+            {
+                KnownLength = representation.Length,
+                UsePreflightFreeRequests = true,
+            });
+
+        ReadOnlyMemory<byte> tail = await source.ReadTailAsync(
+            100,
+            TestContext.Current.CancellationToken);
+        var slice = new byte[10];
+        await source.ReadRangeAsync(
+            1_000,
+            slice,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(representation[^100..], tail.ToArray());
+        Assert.Equal(representation[1_000..1_010], slice);
+        Assert.Equal(
+            "bytes=49900-49999",
+            handler.Requests[0].Headers.Range!.ToString());
+        Assert.Equal(
+            "bytes=1000-1009",
+            handler.Requests[1].Headers.Range!.ToString());
+        Assert.All(handler.Requests, request =>
+            Assert.Null(request.Headers.IfRange));
+    }
+
+    [Fact]
+    public async Task PreflightFreeRead_StillRefusesAChangedValidator()
+    {
+        byte[] representation = Representation(50_000);
+        var handler = new RangeHandler(representation) { ETag = "\"v1\"" };
+        await using HttpRangeSource source = Source(
+            handler,
+            new()
+            {
+                KnownLength = representation.Length,
+                UsePreflightFreeRequests = true,
+            });
+        await source.ReadTailAsync(
+            100,
+            TestContext.Current.CancellationToken);
+
+        handler.ETag = "\"v2\"";
+        RangeFetchException changed =
+            await Assert.ThrowsAsync<RangeFetchException>(
+                () => source.ReadRangeAsync(
+                        0,
+                        new byte[10],
+                        TestContext.Current.CancellationToken)
+                    .AsTask());
+
+        Assert.Equal(
+            RangeFetchFailure.RepresentationChanged,
+            changed.Failure);
+        Assert.Null(handler.Requests[1].Headers.IfRange);
+    }
+
+    [Fact]
+    public void PreflightFreeRead_RequiresAKnownPositiveLength()
+    {
+        var handler = new RangeHandler(Representation(10));
+
+        Assert.Throws<ArgumentException>(() =>
+            Source(
+                handler,
+                new() { UsePreflightFreeRequests = true }));
+        Assert.Throws<ArgumentException>(() =>
+            Source(
+                handler,
+                new()
+                {
+                    KnownLength = 0,
+                    UsePreflightFreeRequests = true,
+                }));
     }
 
     [Fact]
