@@ -20,7 +20,7 @@ import type { WorkerOperationCatalog } from "./worker-runtime-realm.ts";
 
 export interface EngineStartupClient {
   readonly host: Pick<EngineClient["host"], "buildIdentity">;
-  readonly catalog: Pick<EngineClient["catalog"], "listVocabulary" | "listHomeDemos">;
+  readonly catalog: Pick<EngineClient["catalog"], "inspectVocabulary" | "listHomeDemos">;
   readonly package: Pick<
     EngineClient["package"],
     "listPackageActivityEcosystems" | "listPackageQueryCatalog"
@@ -29,7 +29,7 @@ export interface EngineStartupClient {
 
 interface StartupReads {
   readonly buildIdentity: EngineStartupClient["host"]["buildIdentity"];
-  readonly listVocabulary: EngineStartupClient["catalog"]["listVocabulary"];
+  readonly inspectVocabulary: EngineStartupClient["catalog"]["inspectVocabulary"];
   readonly listHomeDemos: EngineStartupClient["catalog"]["listHomeDemos"];
   readonly listPackageActivityEcosystems:
     EngineStartupClient["package"]["listPackageActivityEcosystems"];
@@ -62,7 +62,7 @@ export function registerEngineWorkerStartupOperations(
     });
   }
   register(engineStartupOperations.buildIdentity, reads.buildIdentity);
-  register(engineStartupOperations.listVocabulary, reads.listVocabulary);
+  register(engineStartupOperations.inspectVocabulary, reads.inspectVocabulary);
   register(engineStartupOperations.listHomeDemos, reads.listHomeDemos);
   register(
     engineStartupOperations.listPackageActivityEcosystems,
@@ -114,10 +114,37 @@ export function bindEngineWorkerStartupClient(
       }
     };
   }
+  const inspectVocabulary = bind(engineStartupOperations.inspectVocabulary);
+  type Vocabulary = Awaited<ReturnType<typeof inspectVocabulary>>;
+  let cachedVocabulary: Vocabulary | undefined;
+  let pendingVocabulary: Promise<Vocabulary> | undefined;
+  function requireOpenEpoch(): void {
+    const snapshot = host.snapshot();
+    if (snapshot.epochToken !== epoch)
+      throw new Error("Startup client belongs to a closed Worker epoch.");
+    if (snapshot.phase === "draining")
+      throw new Error("Startup read could not start: worker-restarted.");
+    if (snapshot.phase === "closed" || snapshot.phase === "absent")
+      throw new Error("Startup read could not start: epoch-unavailable.");
+  }
+  async function readVocabulary(): Promise<Vocabulary> {
+    requireOpenEpoch();
+    if (cachedVocabulary !== undefined)
+      return cachedVocabulary;
+    pendingVocabulary ??= inspectVocabulary()
+      .then(value => {
+        cachedVocabulary = value;
+        return value;
+      })
+      .finally(() => {
+        pendingVocabulary = undefined;
+      });
+    return await pendingVocabulary;
+  }
   return {
     host: { buildIdentity: bind(engineStartupOperations.buildIdentity) },
     catalog: {
-      listVocabulary: bind(engineStartupOperations.listVocabulary),
+      inspectVocabulary: readVocabulary,
       listHomeDemos: bind(engineStartupOperations.listHomeDemos),
     },
     package: {
