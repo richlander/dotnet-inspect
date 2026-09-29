@@ -791,7 +791,7 @@ public class MetricSectionTests
 
         JsonElement root = content.RootElement;
         Assert.Equal(
-            LibraryStructuralReport.CurrentMethodologyVersion,
+            "library-metrics.v1",
             root.GetProperty("methodologyVersion").GetString());
         Assert.NotEmpty(
             root.GetProperty("population")
