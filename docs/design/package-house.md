@@ -1281,7 +1281,8 @@ cannot yield the compile handoff required by the shared operation. Bare
 discovery also retains complete Library inspection because its applicability
 catalog includes facts outside the Address result. Population row failures in
 ordinary output are lowered once as rows; the CLI does not repeat their
-portable diagnostics on stderr.
+portable diagnostics on stderr. Failed settlements preserve retained
+configured-source authority messages alongside the terminal reason.
 
 Other package-backed Library modes and Workspace-backed Address requests still
 use their existing paths. Browser/Wasm adoption and final removal of the

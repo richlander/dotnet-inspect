@@ -683,6 +683,52 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        LibraryAddressCommand_ConfiguredPackagePreservesAuthorityFailure()
+    {
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-address-package-authority-").FullName;
+        string feedDirectory = Path.Combine(tempDir, "feed");
+        Directory.CreateDirectory(feedDirectory);
+        await File.WriteAllTextAsync(
+            Path.Combine(feedDirectory, "Probe.1.0.0.nupkg"),
+            "not a package archive",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "address",
+                "0x06000001+0x0",
+                "--package",
+                "Probe@1.0.0",
+                "--source",
+                feedDirectory,
+                "--library",
+                "lib/net11.0/Probe.dll",
+                "-S",
+                "Context: Member",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "invalid protocol metadata",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(
+                feedDirectory,
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryAddressCommand_UsesExplicitPackageLibraryWithinTfm()
     {
         var openMethod = typeof(AssemblyInspectionSession).GetMethod(

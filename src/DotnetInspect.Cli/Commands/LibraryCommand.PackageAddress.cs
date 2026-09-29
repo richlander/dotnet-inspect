@@ -699,11 +699,21 @@ public partial class LibraryCommand
         };
         CommandError.Write(
             $"Library '{library}': {message}");
-        foreach (PackageHouseFailure.Stage failure
-            in result.Evidence.Failures
-                .OfType<PackageHouseFailure.Stage>())
+        var written = new HashSet<string>(
+            [message],
+            StringComparer.Ordinal);
+        foreach (PackageHouseFailure failure in result.Evidence.Failures)
         {
-            CommandError.Write(failure.Reason.ToString());
+            string? detail = failure switch
+            {
+                PackageHouseFailure.Authority authority =>
+                    authority.Failure.Message,
+                PackageHouseFailure.Stage stage =>
+                    stage.Reason.ToString(),
+                _ => null,
+            };
+            if (detail is not null && written.Add(detail))
+                CommandError.Write(detail);
         }
     }
 
