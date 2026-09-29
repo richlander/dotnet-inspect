@@ -391,13 +391,21 @@ with their existing owners rather than becoming plan execution state.
 owned by
 [Traversal target-framework policy](traversal-target-framework-policy.md).
 Existing constructors use its `ProductDefault(net12.0)` value; callers may
-supply a configured policy. The policy is immutable traversal intent retained
-by every Workspace created from the plan, and registration replacement
-preserves the exact instance.
+supply a configured policy. The current implementation retains that value as
+immutable traversal intent in every Workspace created from the plan, and
+registration replacement preserves the exact instance.
 
-This adoption does not consume the policy to select assets, rewrite explicit
-contexts, or begin acquisition or traversal. Those remain focused follow-on
-adoptions under the owners identified by the policy design.
+The corrected policy contract reclassifies this plan value as construction
+intent, not the final effective target of a Platform-aware traversal. A
+realized Workspace with a Platform slot issues the operation target from that
+slot's exact framework and generation. Only a future mode that explicitly
+excludes Platform dependencies may use configured or `net12.0` fallback intent
+with an empty slot. That correction is not yet implemented.
+
+This adoption does not consume the plan value to select assets, rewrite
+explicit contexts, begin acquisition or traversal, or reconstruct a target
+from a realized member. Platform-slot realization and traversal-operation
+admission remain focused follow-on adoptions under their owning designs.
 
 ##### Request-to-plan adoption and evidence
 
