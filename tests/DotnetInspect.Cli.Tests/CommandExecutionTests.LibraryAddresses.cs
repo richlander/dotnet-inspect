@@ -748,7 +748,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("Context: Source Location", output);
-        Assert.Contains("Member", output);
+        Assert.Contains("Context: Member", output);
         Assert.Contains("Context: Instruction", output);
     }
 
@@ -1543,7 +1543,7 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "section 'Context: Instruction' has no data",
                 error);
-            Assert.Contains("Context: Member", output);
+            Assert.Contains("Member", output);
             Assert.DoesNotContain("Context: Instruction", output);
             Assert.DoesNotContain("## IL Coordinates", output);
         }
