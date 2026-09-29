@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 
 using AnalysisBodyUseFixtures;
 using ILInspector.Analysis.Planning;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -118,6 +119,54 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void ExecutePath_AttributesIteratorBodyToDeclaredType()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecutePath(
+                    FixturePath,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        using var image = new PEReader(
+            File.OpenRead(FixturePath));
+        MetadataReader reader = image.GetMetadataReader();
+        MethodDefinitionHandle kickoff = reader.MethodDefinitions.Single(
+            handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                nameof(BodyUseSource.IteratorUse)));
+        StateMachineRelationshipResult.Resolved relationship =
+            Assert.IsType<StateMachineRelationshipResult.Resolved>(
+                StateMachineRelationshipIndex
+                    .Create(reader)
+                    .GetByKickoff(kickoff));
+        Assert.Equal(
+            StateMachineClaimKind.Iterator,
+            relationship.Relationship.Kind);
+        Assert.True(
+            relationship.Relationship.TryGetMethod(
+                StateMachineMethodRole.MoveNext,
+                out var moveNext));
+
+        Assert.Contains(
+            result.Occurrences,
+            occurrence =>
+                Name(occurrence.SourceType)
+                    == "AnalysisBodyUseFixtures.BodyUseSource"
+                && Name(occurrence.TargetType)
+                    == "AnalysisBodyUseFixtures.BodyUseTarget"
+                && occurrence.PhysicalMethodToken == moveNext.Token
+                && occurrence.OperandKind
+                    == AnalysisLibraryBodyUseOperandKind.Constructor);
+        Assert.DoesNotContain(
+            result.Occurrences,
+            static occurrence =>
+                Name(occurrence.SourceType).Contains(
+                    "<IteratorUse>d__",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ExecutePath_ReportsExactInstructionLimit()
     {
         AnalysisLibraryBodyUseResult result =
@@ -165,17 +214,23 @@ public sealed class AnalysisLibraryBodyUseTests
         Assert.Equal(
             AnalysisLibraryBodyUseDisposition.Partial,
             result.Disposition);
-        AnalysisLibraryBodyUseDiagnostic diagnostic =
-            Assert.Single(
-                result.Diagnostics,
+        AnalysisLibraryBodyUseDiagnostic[] diagnostics =
+            [.. result.Diagnostics.Where(
                 static diagnostic =>
                     diagnostic.Kind
                             == AnalysisLibraryBodyUseDiagnosticKind.Limit
                         && diagnostic.Detail.Contains(
                             "Library body-use occurrence",
-                            StringComparison.Ordinal));
-        Assert.Equal(1, diagnostic.Limit);
-        Assert.True(diagnostic.AttemptedCharge > diagnostic.Limit);
+                            StringComparison.Ordinal))];
+        Assert.NotEmpty(diagnostics);
+        Assert.All(
+            diagnostics,
+            static diagnostic =>
+            {
+                Assert.Equal(1, diagnostic.Limit);
+                Assert.True(
+                    diagnostic.AttemptedCharge > diagnostic.Limit);
+            });
         Assert.True(result.Occurrences.Length <= 1);
     }
 
@@ -253,6 +308,97 @@ public sealed class AnalysisLibraryBodyUseTests
             "0x0200FFFF",
             diagnostic.Detail,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExecuteImage_StopsBeforeUnadmittedMalformedInstruction()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [
+                            (byte)ILOpCode.Nop,
+                            0xFF,
+                        ]),
+                    new(
+                        new(
+                            MaximumInstructionsPerBody: 1)),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        AnalysisLibraryBodyUseDiagnostic diagnostic =
+            Assert.Single(
+                result.Diagnostics,
+                static diagnostic =>
+                    diagnostic.Kind
+                        == AnalysisLibraryBodyUseDiagnosticKind.Limit);
+        Assert.Equal(1, diagnostic.Limit);
+        Assert.Equal(2, diagnostic.AttemptedCharge);
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind.MalformedBody);
+    }
+
+    [Fact]
+    public void ExecuteImage_AcceptsExactInstructionLimit()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [(byte)ILOpCode.Ret]),
+                    new(
+                        new(
+                            MaximumInstructionsPerBody: 1)),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Complete,
+            result.Disposition);
+        Assert.Equal(1, result.Coverage.BodiesExamined);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExecuteImage_RejectsNestedInvalidTypeSpecAtomically(
+        bool genericInstance)
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentTypeSpecImage(
+                        genericInstance),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(2, result.Coverage.OperandsConsidered);
+        Assert.Equal(1, result.Coverage.OperandsExamined);
+        Assert.Equal(1, result.Coverage.OperandsUnavailable);
+        AnalysisLibraryBodyUseOccurrence occurrence =
+            Assert.Single(result.Occurrences);
+        Assert.Equal(0, occurrence.IlOffset);
+        Assert.DoesNotContain(
+            result.Occurrences,
+            static occurrence => occurrence.IlOffset == 6);
+        Assert.Single(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind
+                        .UnresolvedOperand);
     }
 
     static string Name(
@@ -349,5 +495,119 @@ public sealed class AnalysisLibraryBodyUseTests
                 offset,
                 MetadataTokens.ParameterHandle(1));
         }
+    }
+
+    static ImmutableArray<byte> BuildIndependentTypeSpecImage(
+        bool genericInstance)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("IndependentEcma335.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("c4051295-5f43-489c-b1ee-48ac76306c9e")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("IndependentEcma335"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Independent"),
+            metadata.GetOrAddString("Owner"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle target =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Independent"),
+                metadata.GetOrAddString("Target`1"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddGenericParameter(
+            target,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            0);
+
+        var typeSpec = new BlobBuilder();
+        SignatureTypeEncoder type =
+            new BlobEncoder(typeSpec)
+                .TypeSpecificationSignature();
+        if (genericInstance)
+        {
+            type.GenericInstantiation(
+                    target,
+                    1,
+                    isValueType: false)
+                .AddArgument()
+                .Type(
+                    MetadataTokens.TypeDefinitionHandle(ushort.MaxValue),
+                    isValueType: false);
+        }
+        else
+        {
+            type.SZArray().Type(
+                MetadataTokens.TypeDefinitionHandle(ushort.MaxValue),
+                isValueType: false);
+        }
+        TypeSpecificationHandle nestedInvalid =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(typeSpec));
+
+        var code = new BlobBuilder();
+        var instructions = new InstructionEncoder(code);
+        instructions.OpCode(ILOpCode.Ldtoken);
+        instructions.Token(target);
+        instructions.OpCode(ILOpCode.Pop);
+        instructions.OpCode(ILOpCode.Ldtoken);
+        instructions.Token(nestedInvalid);
+        instructions.OpCode(ILOpCode.Pop);
+        instructions.OpCode(ILOpCode.Ret);
+        var bodies = new BlobBuilder();
+        int bodyOffset =
+            new MethodBodyStreamEncoder(bodies).AddMethodBody(
+                instructions,
+                maxStack: 1);
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature()
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Use"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return ImmutableArray.Create(image.ToArray());
     }
 }

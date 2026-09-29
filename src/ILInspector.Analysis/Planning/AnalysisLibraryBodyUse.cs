@@ -20,10 +20,11 @@ internal sealed class AnalysisLibraryBodyUseProducer
         CancellationToken cancellationToken)
         : base(
             "AnalysisLibraryBodyUse",
-            version: 1,
+            version: 2,
             tier: 0,
             MethodDefinitionLayers.Body
-                | MethodDefinitionLayers.ModuleLookup,
+                | MethodDefinitionLayers.ModuleLookup
+                | MethodDefinitionLayers.StateMachineRelationship,
             parameters:
                 $"instructions={limits.MaximumInstructionsPerBody};"
                 + $"occurrences={limits.MaximumOccurrences}")
@@ -48,8 +49,10 @@ internal sealed class AnalysisLibraryBodyUseProducer
                     view.MethodHandle,
                     view.MethodDefinition,
                     view.GetBody(),
+                    view.StateMachineByImplementation,
                     _limits.MaximumInstructionsPerBody,
-                    _limits.MaximumOccurrences);
+                    _limits.MaximumOccurrences,
+                    _cancellationToken);
             return new(fact);
         }
         catch (Exception exception)

@@ -345,6 +345,16 @@ internal sealed class MethodRowGate
     /// per-row rejection, is returned for the reader to interpret.
     /// </summary>
     internal StateMachineRelationshipResult StateMachineByKickoff()
+        => StateMachines().GetByKickoff(_methodHandle);
+
+    /// <summary>
+    /// The row's state-machine implementation relationship under the same
+    /// execution-scoped index and failure policy as the kickoff relationship.
+    /// </summary>
+    internal StateMachineRelationshipResult StateMachineByImplementation()
+        => StateMachines().GetByImplementation(_methodHandle);
+
+    StateMachineRelationshipIndex StateMachines()
     {
         if (_stateMachines is null)
         {
@@ -359,7 +369,7 @@ internal sealed class MethodRowGate
             Abort(StateMachineRelationships, "The state-machine relationship budget is exhausted.");
         }
 
-        return _stateMachines.GetByKickoff(_methodHandle);
+        return _stateMachines;
     }
 
     // ---- Tier 2 ----

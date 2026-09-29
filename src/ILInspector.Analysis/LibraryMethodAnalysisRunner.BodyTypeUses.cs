@@ -16,8 +16,10 @@ internal sealed partial class LibraryMethodAnalysisRunner
         MethodDefinitionHandle methodHandle,
         MethodDefinition methodDefinition,
         MethodBodyBlock body,
+        StateMachineRelationshipResult stateMachineByImplementation,
         int maximumInstructions,
-        int maximumOccurrences)
+        int maximumOccurrences,
+        CancellationToken cancellationToken)
     {
         int methodToken = MetadataTokens.GetToken(methodHandle);
         try
@@ -34,37 +36,76 @@ internal sealed partial class LibraryMethodAnalysisRunner
             bool sourceGenerated =
                 _infrastructure.IsSourceGeneratedTypeOrEnclosing(
                     typeHandle);
-            DeclaredOwnerResolution resolution =
-                _infrastructure.ResolveUltimateDeclaredMethod(
-                    methodHandle,
-                    methodDefinition,
-                    physicalMethod,
-                    sourceGenerated,
-                    out _,
-                    out AuthenticatedSourceOwner? ultimateOwner);
             bool compilerGenerated =
                 _infrastructure.HasCompilerGeneratedAttribute(
                     methodDefinition.GetCustomAttributes())
                 || _infrastructure.HasCompilerGeneratedAttribute(
                     typeDefinition.GetCustomAttributes());
-            MethodIdentity? logicalMethod = resolution switch
+            DeclaredOwnerResolution resolution;
+            MethodIdentity? logicalMethod;
+            if (stateMachineByImplementation
+                is StateMachineRelationshipResult.Resolved stateMachine)
             {
-                DeclaredOwnerResolution.None when !compilerGenerated =>
-                    physicalMethod,
-                DeclaredOwnerResolution.Resolved => ultimateOwner!.Value.Method,
-                _ => null,
-            };
+                MethodDefinitionHandle kickoffHandle =
+                    stateMachine.Relationship.Kickoff.Handle;
+                MethodDefinition kickoffDefinition =
+                    _infrastructure.Reader.GetMethodDefinition(
+                        kickoffHandle);
+                TypeDefinitionHandle kickoffTypeHandle =
+                    kickoffDefinition.GetDeclaringType();
+                TypeDefinition kickoffType =
+                    _infrastructure.Reader.GetTypeDefinition(
+                        kickoffTypeHandle);
+                GenericScope kickoffScope =
+                    _infrastructure.CreateScope(
+                        kickoffType,
+                        kickoffDefinition);
+                logicalMethod =
+                    _infrastructure.CreateMethodIdentity(
+                        kickoffTypeHandle,
+                        kickoffHandle,
+                        kickoffDefinition,
+                        kickoffScope);
+                resolution = DeclaredOwnerResolution.Resolved;
+            }
+            else if (stateMachineByImplementation
+                is StateMachineRelationshipResult.Rejected)
+            {
+                logicalMethod = null;
+                resolution = DeclaredOwnerResolution.Rejected;
+            }
+            else
+            {
+                resolution =
+                    _infrastructure.ResolveUltimateDeclaredMethod(
+                        methodHandle,
+                        methodDefinition,
+                        physicalMethod,
+                        sourceGenerated,
+                        out _,
+                        out AuthenticatedSourceOwner? ultimateOwner);
+                logicalMethod = resolution switch
+                {
+                    DeclaredOwnerResolution.None
+                        when !compilerGenerated => physicalMethod,
+                    DeclaredOwnerResolution.Resolved =>
+                        ultimateOwner!.Value.Method,
+                    _ => null,
+                };
+            }
 
             byte[] il = body.GetILBytes() ?? [];
-            MethodInstructions decoded = DecodeBody(
-                il,
-                body.ExceptionRegions);
-            if (decoded.Instructions.Length > maximumInstructions)
+            if (!InstructionDecoder.TryDecodeBounded(
+                    il,
+                    maximumInstructions,
+                    cancellationToken,
+                    out ImmutableArray<DecodedInstruction> instructions,
+                    out int decodedInstructionCount))
             {
                 return BodyTypeUseMethodFact.CreateLimited(
                     typeHandle,
                     methodToken,
-                    decoded.Instructions.Length,
+                    checked((long)decodedInstructionCount + 1),
                     maximumInstructions);
             }
 
@@ -79,8 +120,9 @@ internal sealed partial class LibraryMethodAnalysisRunner
             int operandsExamined = 0;
             int operandsUnavailable = 0;
             foreach (DecodedInstruction instruction
-                in decoded.Instructions)
+                in instructions)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!TryClassify(
                         instruction,
                         out AnalysisLibraryBodyUseOperandKind kind))
@@ -113,17 +155,15 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     continue;
                 }
 
-                if (roots.IsDefaultOrEmpty
-                    || roots.Any(IsUnavailableType))
+                string? unavailable = roots.IsDefaultOrEmpty
+                    ? "no typed root"
+                    : roots
+                        .Select(UnavailableTypeReason)
+                        .FirstOrDefault(
+                            static reason => reason is not null);
+                if (unavailable is not null)
                 {
                     operandsUnavailable++;
-                    string unsupported =
-                        roots.FirstOrDefault(
-                            static type =>
-                                type.Kind
-                                    == TypeRefKind.Unsupported)
-                            ?.UnsupportedReason
-                        ?? "no typed root";
                     diagnostics.Add(
                         new(
                             AnalysisLibraryBodyUseDiagnosticKind
@@ -131,7 +171,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                             methodToken,
                             instruction.Offset,
                             $"The {kind} operand 0x{token:X8} could not "
-                                + $"be resolved ({unsupported})."));
+                                + $"be resolved ({unavailable})."));
                     continue;
                 }
 
@@ -332,11 +372,64 @@ internal sealed partial class LibraryMethodAnalysisRunner
         }
     }
 
-    static bool IsUnavailableType(TypeRef type) =>
-        type.Kind == TypeRefKind.Unsupported
-        && type.FunctionPointerSignature is null
-        && (type.ModifierType is null
-            || type.UnmodifiedType is null);
+    static string? UnavailableTypeReason(TypeRef type)
+    {
+        switch (type.Kind)
+        {
+            case TypeRefKind.GenericInstance:
+                if (type.ElementType is null)
+                    return "generic instance definition is unavailable";
+                string? unavailable =
+                    UnavailableTypeReason(type.ElementType);
+                if (unavailable is not null)
+                    return unavailable;
+                foreach (TypeRef argument in type.TypeArguments)
+                {
+                    unavailable = UnavailableTypeReason(argument);
+                    if (unavailable is not null)
+                        return unavailable;
+                }
+                return null;
+            case TypeRefKind.SzArray
+                or TypeRefKind.Array
+                or TypeRefKind.ByRef
+                or TypeRefKind.Pointer
+                or TypeRefKind.Pinned:
+                return type.ElementType is { } element
+                    ? UnavailableTypeReason(element)
+                    : "element type is unavailable";
+            case TypeRefKind.Unsupported
+                when type.ModifierType is { } modifier
+                    && type.UnmodifiedType is { } unmodified:
+                if (type.IsRequiredModifier
+                    && UnavailableTypeReason(modifier)
+                        is { } modifierUnavailable)
+                {
+                    return modifierUnavailable;
+                }
+                return UnavailableTypeReason(unmodified);
+            case TypeRefKind.Unsupported
+                when type.FunctionPointerSignature is { } signature:
+                string? signatureUnavailable =
+                    UnavailableTypeReason(signature.ReturnType);
+                if (signatureUnavailable is not null)
+                    return signatureUnavailable;
+                foreach (TypeRef parameter in signature.ParameterTypes)
+                {
+                    signatureUnavailable =
+                        UnavailableTypeReason(parameter);
+                    if (signatureUnavailable is not null)
+                        return signatureUnavailable;
+                }
+                return null;
+            case TypeRefKind.Unsupported:
+                return string.IsNullOrWhiteSpace(type.UnsupportedReason)
+                    ? "unsupported Type shape"
+                    : type.UnsupportedReason;
+            default:
+                return null;
+        }
+    }
 
     static ImmutableArray<TypeRef> ResolveOperandTypes(
         IMethodCallResolver resolver,

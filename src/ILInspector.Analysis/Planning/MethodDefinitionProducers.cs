@@ -46,7 +46,7 @@ public enum MethodDefinitionLayers
     IdentityText = 64,
 
     /// <summary>
-    /// Tier 1: the method's kickoff relationship from the Metadata semantic
+    /// Tier 1: the method's relationship from the Metadata semantic
     /// substrate <c>StateMachineRelationshipIndex</c>, built once per execution
     /// and bounded by its own budgets. Its global budget exhaustion aborts; a
     /// per-row rejection is a recoverable failure.
@@ -416,6 +416,16 @@ public readonly ref struct MethodDefinitionView
         {
             Require(MethodDefinitionLayers.StateMachineRelationship);
             return _unit.Gate.StateMachineByKickoff();
+        }
+    }
+
+    /// <summary>Tier 1: the method's implementation relationship from <c>StateMachineRelationshipIndex</c>.</summary>
+    public StateMachineRelationshipResult StateMachineByImplementation
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.StateMachineRelationship);
+            return _unit.Gate.StateMachineByImplementation();
         }
     }
 

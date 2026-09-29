@@ -38,6 +38,11 @@ public static class BodyUseSource
         return Local();
     }
 
+    public static IEnumerable<BodyUseTarget> IteratorUse()
+    {
+        yield return new BodyUseTarget();
+    }
+
     public static Type TargetType() => typeof(BodyUseTarget);
 
     static T Identity<T>(T value) => value;

@@ -145,8 +145,8 @@ The producer reuses:
 - `LibraryBodyAnalysisService` for exact-image execution;
 - `MethodDefinitionProducer` and its typed outcome and receipt;
 - `ILInspector.Instructions` for bounded decode and physical offsets;
-- `LibraryBodyDeclaredSourceResolver` plus owner-issued state-machine
-  relationships for declared ownership;
+- `LibraryBodyDeclaredSourceResolver` plus
+  `StateMachineRelationshipIndex` for declared ownership;
 - existing Analysis generic-scope and same-image token resolution; and
 - `MetadataTypeDefinitionAddress` and structured Type names.
 
