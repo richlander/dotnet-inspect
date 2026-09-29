@@ -205,6 +205,9 @@ normalize repeated identities, but it preserves these exact join currencies:
 
 - method identity: module version ID plus metadata token;
 - public Member identity: Type definition ID plus stable selector;
+- attached-extension declaration identity: the exact metadata declaring-Type
+  definition ID, separate from the visible receiver Type carried by the Member
+  anchor;
 - overload relationships: caller and callee method identity, and, for the
   family detail result, evidence-body identity, IL offset, and call kind; and
 - subject identity: assembly name, version, culture, and public-key token.

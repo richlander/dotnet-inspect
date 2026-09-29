@@ -30,8 +30,14 @@ test("heat admits only coherent ordinary or single-declarer extension families",
     name: "Deserialize",
     kind: "extension-method",
     overloads: [
-      { anchorTypeFullName: "System.Text.Json.JsonSerializer" },
-      { anchorTypeFullName: "System.Text.Json.JsonSerializer" },
+      {
+        anchorTypeFullName: "System.Text.Json.JsonDocument",
+        declaringTypeDefinitionId: "System.Text.Json.JsonSerializer",
+      },
+      {
+        anchorTypeFullName: "System.Text.Json.JsonDocument",
+        declaringTypeDefinitionId: "System.Text.Json.JsonSerializer",
+      },
     ],
   };
   assert.equal(
@@ -52,7 +58,10 @@ test("heat admits only coherent ordinary or single-declarer extension families",
         ...extensions,
         overloads: [
           extensions.overloads[0]!,
-          { anchorTypeFullName: "Example.OtherExtensions" },
+          {
+            anchorTypeFullName: "System.Text.Json.JsonDocument",
+            declaringTypeDefinitionId: "Example.OtherExtensions",
+          },
         ],
       }),
     false);

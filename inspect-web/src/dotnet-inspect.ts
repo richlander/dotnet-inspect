@@ -6528,7 +6528,7 @@ function familyIsEligible(
     name: string;
     kind: string;
     overloads: readonly {
-      readonly anchorTypeFullName?: string;
+      readonly declaringTypeDefinitionId?: string | null;
     }[];
   },
 ) {

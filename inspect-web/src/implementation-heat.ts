@@ -45,7 +45,7 @@ export interface ImplementationHeatFamilyCandidate {
   readonly name: string;
   readonly kind: string;
   readonly overloads: ReadonlyArray<{
-    readonly anchorTypeFullName?: string;
+    readonly declaringTypeDefinitionId?: string | null;
   }>;
 }
 
@@ -53,12 +53,12 @@ export function implementationHeatFamilyIsEligible(
   groups: ReadonlyArray<ImplementationHeatFamilyCandidate>,
   group: ImplementationHeatFamilyCandidate,
 ): boolean {
-  const declaringType = group.overloads[0]?.anchorTypeFullName;
+  const declaringType = group.overloads[0]?.declaringTypeDefinitionId;
   const supportedKind = group.kind === "method"
     || (group.kind === "extension-method"
       && Boolean(declaringType)
       && group.overloads.every(
-        overload => overload.anchorTypeFullName === declaringType));
+        overload => overload.declaringTypeDefinitionId === declaringType));
   return supportedKind
     && group.overloads.length > 1
     && groups.every(candidate =>

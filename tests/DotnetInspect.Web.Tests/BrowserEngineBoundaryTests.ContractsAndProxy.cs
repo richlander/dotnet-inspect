@@ -10,6 +10,7 @@ using System.Text;
 using System.Xml;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
@@ -342,6 +343,41 @@ public sealed partial class BrowserEngineBoundaryTests
             });
 
         Assert.Equal("protected", finalizer.Accessibility);
+    }
+
+    [Fact]
+    public void MemberProjection_CarriesExactExtensionDeclarerDistinctFromReceiver()
+    {
+        using AssemblyInspectionSession session = AssemblyInspectionSession.Open(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+        ApiSurface surface = session.ApiSurface(includeAll: true);
+        ApiType receiver = Assert.Single(
+            surface.Types,
+            type => type.FullName
+                == "ILInspector.Analysis.ImplementationProfileFixtures"
+                    + ".ImplementationHeatWidget");
+        BrowserMemberSurfaceInfo[] projected =
+        [
+            .. receiver.Members
+                .Where(member => member.Kind == "extension-method"
+                    && member.Name == "Shift")
+                .Select(member => BrowserSurfaceProjection.Member(receiver, member)),
+        ];
+
+        Assert.Equal(2, projected.Length);
+        Assert.All(
+            projected,
+            member => Assert.Equal(receiver.FullName, member.AnchorTypeFullName));
+        Assert.Equal(
+            [
+                "ILInspector.Analysis.ImplementationProfileFixtures"
+                    + ".ImplementationHeatWidgetExtensions",
+                "ILInspector.Analysis.ImplementationProfileFixtures"
+                    + ".OtherImplementationHeatWidgetExtensions",
+            ],
+            projected
+                .Select(member => member.DeclaringTypeDefinitionId)
+                .Order(StringComparer.Ordinal));
     }
 
     [Fact]
