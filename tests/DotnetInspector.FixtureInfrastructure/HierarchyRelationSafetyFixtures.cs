@@ -7,6 +7,67 @@ namespace DotnetInspector.Fixtures;
 
 public static class HierarchyRelationSafetyFixtures
 {
+    public static byte[] BuildCyclicNestedTypeVisibility(
+        int nestedTypeCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            nestedTypeCount);
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("CyclicHierarchy.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("CyclicHierarchy"),
+            new Version(1, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle target = metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("ITarget"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        for (int index = 0; index < nestedTypeCount; index++)
+        {
+            TypeDefinitionHandle cyclic =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic,
+                    metadata.GetOrAddString("Sample"),
+                    metadata.GetOrAddString($"Cyclic{index}"),
+                    target,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddNestedType(cyclic, cyclic);
+        }
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
+    }
+
     public static byte[] BuildMalformedGenericTypeSpecification()
     {
         var metadata = new MetadataBuilder();

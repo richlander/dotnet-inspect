@@ -1284,8 +1284,6 @@ public static class TypeCommand
         }
 
         ExactTypeRelationsInspectionOutcome outcome;
-        bool appliesSemanticRowSelection =
-            options.TypeRelationsRowSelection is not null;
         try
         {
             outcome = await ExactTypeRelationsInspectionOperation
@@ -1299,19 +1297,35 @@ public static class TypeCommand
                         },
                     accepted.Plan,
                     count: options.Count
-                        && !appliesSemanticRowSelection
-                        ? new SubjectRelationPopulationCountRequest()
-                        : null,
-                    rows: options.Count
-                        && !appliesSemanticRowSelection
-                        ? null
-                        : new SubjectRelationPopulationRowsRequest(
-                            appliesSemanticRowSelection
-                                ? int.MaxValue
-                                : options.Limit ?? int.MaxValue),
-                    includeNonPublic: options.IncludeAll,
-                    cancellationToken: cancellationToken)
+                            ? new SubjectRelationPopulationCountRequest()
+                            : null,
+                        rows: options.Count
+                            ? null
+                            : new SubjectRelationPopulationRowsRequest(
+                                options.TypeRelationsRowSelection is null
+                                    ? options.Limit ?? int.MaxValue
+                                    : int.MaxValue),
+                        rowSelection: options.TypeRelationsRowSelection,
+                        includeNonPublic: options.IncludeAll,
+                        cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (WorkspaceTypeRelationRowSelectionException failure)
+        {
+            RowsCohortSemanticFailure<SubjectRelationForm> semantic =
+                failure.Failure;
+            string section = semantic.Identity
+                is SubjectRelationForm.Interface
+                    ? SectionNames.Implementers
+                    : SectionNames.DerivedTypes;
+            CommandError.Write(
+                $"Type relation row selection stage "
+                    + $"{semantic.Failure.StageNumber} for "
+                    + $"'{section}' requires row "
+                    + $"{semantic.Failure.RequiredPosition}, but only "
+                    + $"{semantic.Failure.AvailableCount} candidate rows "
+                    + "are available.");
+            return 1;
         }
         catch (Exception ex)
         {
@@ -1328,49 +1342,10 @@ public static class TypeCommand
         }
 
         IReadOnlyList<WorkspaceTypeRelationCandidateRow> candidates =
-            OrderTypeRelationCandidates(
-                available.Relations.Candidates,
-                implementers,
-                derivedTypes);
-        if (appliesSemanticRowSelection)
-        {
-            if (available.Relations.Population.Rows
-                    is not SubjectRelationPopulationRowsOutcome.Read
-                || !TrySelectTypeRelationCandidates(
-                    options,
-                    candidates,
-                    implementers,
-                    derivedTypes,
-                    out candidates))
-            {
-                if (available.Relations.Population.Rows
-                    is not SubjectRelationPopulationRowsOutcome.Read)
-                {
-                    CommandError.Write(
-                        "Subject Relations rows are unavailable.");
-                }
-                return 1;
-            }
-        }
+            available.Relations.Candidates;
 
         if (options.Count)
         {
-            if (appliesSemanticRowSelection)
-            {
-                if (!available.Relations.Relations.Evidence.IsComplete)
-                {
-                    CommandError.Write(
-                        "The exact Subject Relations count is incomplete "
-                            + "because one or more candidate assemblies "
-                            + "could not be inspected or resolved.");
-                    return 1;
-                }
-                CountOutput.WriteCount(
-                    candidates.Count,
-                    outputPath: null);
-                return 0;
-            }
-
             if (available.Relations.Population.Count
                 is SubjectRelationPopulationCountOutcome.Counted counted)
             {
@@ -1508,88 +1483,6 @@ public static class TypeCommand
                     + $"{producer.Coverage.Limited} limited."
                     + (details.Length == 0 ? "" : $" {details}"));
         }
-    }
-
-    private static bool TrySelectTypeRelationCandidates(
-        TypeOptions options,
-        IReadOnlyList<WorkspaceTypeRelationCandidateRow> candidates,
-        bool implementers,
-        bool derivedTypes,
-        out IReadOnlyList<WorkspaceTypeRelationCandidateRow> selected)
-    {
-        var results = new List<WorkspaceTypeRelationCandidateRow>();
-        foreach ((SubjectRelationForm Form, string Name) section in
-            new[]
-            {
-                (SubjectRelationForm.Interface, SectionNames.Implementers),
-                (SubjectRelationForm.BaseType, SectionNames.DerivedTypes),
-            })
-        {
-            if (section.Form == SubjectRelationForm.Interface
-                    ? !implementers
-                    : !derivedTypes)
-            {
-                continue;
-            }
-
-            WorkspaceTypeRelationCandidateRow[] sectionRows =
-            [
-                .. candidates
-                    .Where(row => row.Form == section.Form),
-            ];
-            if (!CliSemanticRowSelection.TrySelect(
-                    options.TypeRelationsRowSelection,
-                    sectionRows,
-                    section.Name,
-                    failure =>
-                        $"Type relation row selection stage "
-                        + $"{failure.Failure.StageNumber} for "
-                        + $"'{failure.Identity}' requires row "
-                        + $"{failure.Failure.RequiredPosition}, but only "
-                        + $"{failure.Failure.AvailableCount} candidate rows "
-                        + "are available.",
-                    out IReadOnlyList<
-                        WorkspaceTypeRelationCandidateRow> selectedRows))
-            {
-                selected = [];
-                return false;
-            }
-            results.AddRange(selectedRows);
-        }
-
-        selected = results;
-        return true;
-    }
-
-    private static IReadOnlyList<WorkspaceTypeRelationCandidateRow>
-        OrderTypeRelationCandidates(
-            IReadOnlyList<WorkspaceTypeRelationCandidateRow> candidates,
-            bool implementers,
-            bool derivedTypes)
-    {
-        var results = new List<WorkspaceTypeRelationCandidateRow>();
-        foreach (SubjectRelationForm form in new[]
-        {
-            SubjectRelationForm.Interface,
-            SubjectRelationForm.BaseType,
-        })
-        {
-            if (form == SubjectRelationForm.Interface
-                    ? !implementers
-                    : !derivedTypes)
-            {
-                continue;
-            }
-
-            results.AddRange(
-                candidates
-                    .Where(row => row.Form == form)
-                    .OrderBy(
-                        TypeRelationCandidateName,
-                        StringComparer.Ordinal));
-        }
-
-        return results;
     }
 
     private sealed record CliTypeRelationsRequest(

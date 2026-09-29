@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using InertText;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Sections;
 
@@ -47,6 +48,25 @@ public sealed record WorkspaceTypeRelationsInspectionResult(
     SubjectRelationPopulationContinuationAuthority?
         ContinuationAuthority);
 
+public sealed class WorkspaceTypeRelationRowSelectionException
+    : InvalidOperationException
+{
+    public WorkspaceTypeRelationRowSelectionException(
+        RowsCohortSemanticFailure<SubjectRelationForm> failure)
+        : base(
+            "The Subject Relations row selection could not be applied "
+                + "to the complete candidate population.")
+    {
+        Failure = failure
+            ?? throw new ArgumentNullException(nameof(failure));
+    }
+
+    public RowsCohortSemanticFailure<SubjectRelationForm> Failure
+    {
+        get;
+    }
+}
+
 /// <summary>
 /// Executes one resolved QuerySpace Subject Relations plan against an exact
 /// Workspace Type and settles its requested Count and Rows terminals.
@@ -62,6 +82,7 @@ public static class WorkspaceTypeRelationsInspectionOperation
         SubjectRelationPopulationRowsRequest? rows = null,
         SubjectRelationPopulationContinuationAuthority?
             continuationAuthority = null,
+        RowSelectionIntent<string>? rowSelection = null,
         bool includeNonPublic = false,
         CancellationToken cancellationToken = default)
     {
@@ -72,12 +93,31 @@ public static class WorkspaceTypeRelationsInspectionOperation
                 "Subject Relations execution requires Count, Rows, or both.");
         }
         ValidateHierarchySelection(plan.Selection);
+        bool appliesRowSelection =
+            rowSelection is { Operations.Count: > 0 };
+        if (appliesRowSelection
+            && (rows?.Continuation is not null
+                || continuationAuthority is not null))
+        {
+            throw new ArgumentException(
+                "Subject Relations semantic row selection cannot resume "
+                    + "a producer continuation.",
+                nameof(rowSelection));
+        }
 
         bool producerCandidatePopulation =
             CanUseProducerCandidatePopulation(plan.Selection);
+        bool countSelectionNeedsNoRows =
+            count is not null
+            && rows is null
+            && appliesRowSelection
+            && producerCandidatePopulation
+            && plan.Selection.Form is not null;
         bool countNeedsRows =
             count is not null
-            && !producerCandidatePopulation;
+            && (!producerCandidatePopulation
+                || (appliesRowSelection
+                    && !countSelectionNeedsNoRows));
         int producerStart =
             rows?.Continuation is not null
             && continuationAuthority is not null
@@ -85,7 +125,8 @@ public static class WorkspaceTypeRelationsInspectionOperation
                 : 0;
         bool producerShapesRows =
             rows is not null
-            && producerCandidatePopulation;
+            && producerCandidatePopulation
+            && !appliesRowSelection;
         WorkspaceTypeHierarchyRelationExecutionPlan executionPlan =
             producerShapesRows && count is null
                 ? WorkspaceTypeHierarchyRelationExecutionPlan.ForwardRows(
@@ -121,16 +162,66 @@ public static class WorkspaceTypeRelationsInspectionOperation
             .. relations.Rows.Where(plan.Selection.Matches),
         ];
         ImmutableArray<WorkspaceTypeRelationCandidateRow> candidates =
-            ProjectCandidates(selected);
+            OrderCandidates(
+                ProjectCandidates(selected));
+        int? selectedCount = null;
+        if (countSelectionNeedsNoRows
+            && relations.Evidence.IsComplete)
+        {
+            RowSelectionPlan<string> selectionPlan =
+                RowsCohortExecutor.ResolveUnorderedSelection(
+                    rowSelection!);
+            if (!RowSelectionCountExecutor.TryApply(
+                    relations.CandidateCount,
+                    selectionPlan,
+                    out RowSelectionCountResult countSelection))
+            {
+                throw new InvalidOperationException(
+                    "An unordered Subject Relations Count selection "
+                        + "could not execute as a cardinality plan.");
+            }
+            if (!countSelection.IsSuccess)
+            {
+                throw SelectionFailure(
+                    plan.Selection.Form!.Value,
+                    countSelection.Failure);
+            }
+            selectedCount = countSelection.Count;
+        }
+        else if (appliesRowSelection)
+        {
+            RowsCohortResult<
+                SubjectRelationForm,
+                WorkspaceTypeRelationCandidateRow> selection =
+                    RowsCohortExecutor.ApplyUnordered(
+                        CandidateSequences(
+                            candidates,
+                            plan.Selection.Form),
+                        rowSelection!);
+            if (!selection.IsSuccess)
+            {
+                throw new WorkspaceTypeRelationRowSelectionException(
+                    selection.Failure
+                        ?? throw new InvalidOperationException(
+                            "Failed row selection requires a semantic "
+                                + "failure."));
+            }
+            candidates =
+            [
+                .. selection.RowSets.SelectMany(
+                    static set => set.Values),
+            ];
+        }
 
         SubjectRelationPopulationCountOutcome? countOutcome =
             count is null
                 ? null
                 : relations.Evidence.IsComplete
                     ? new SubjectRelationPopulationCountOutcome.Counted(
-                        countNeedsRows
-                            ? candidates.Length
-                            : relations.CandidateCount)
+                        selectedCount
+                            ?? (countNeedsRows
+                                ? candidates.Length
+                                : relations.CandidateCount))
                     : new SubjectRelationPopulationCountOutcome.Incomplete();
         SubjectRelationPopulationRowsOutcome? rowsOutcome = null;
         ImmutableArray<WorkspaceTypeRelationCandidateRow> candidateRows = [];
@@ -281,6 +372,71 @@ public static class WorkspaceTypeRelationsInspectionOperation
                     group.Value)),
         ];
     }
+
+    private static WorkspaceTypeRelationRowSelectionException
+        SelectionFailure(
+            SubjectRelationForm form,
+            RowWindowFailure? failure) =>
+        new(
+            new(
+                form,
+                failure
+                    ?? throw new InvalidOperationException(
+                        "Failed Count selection requires a semantic "
+                            + "failure.")));
+
+    private static ImmutableArray<WorkspaceTypeRelationCandidateRow>
+        OrderCandidates(
+            ImmutableArray<WorkspaceTypeRelationCandidateRow> candidates) =>
+        [
+            .. CandidateForms(null)
+                .SelectMany(form =>
+                    candidates
+                        .Where(candidate => candidate.Form == form)
+                        .OrderBy(
+                            CandidateName,
+                            StringComparer.Ordinal)),
+        ];
+
+    private static RowsCohortSequence<
+        SubjectRelationForm,
+        WorkspaceTypeRelationCandidateRow>[] CandidateSequences(
+            ImmutableArray<WorkspaceTypeRelationCandidateRow> candidates,
+            SubjectRelationForm? selectedForm) =>
+        [
+            .. CandidateForms(selectedForm)
+                .Select(form =>
+                    RowsCohortSequence<
+                        SubjectRelationForm,
+                        WorkspaceTypeRelationCandidateRow>.Create(
+                            form,
+                            [
+                                .. candidates.Where(
+                                    candidate =>
+                                        candidate.Form == form),
+                            ])),
+        ];
+
+    private static IEnumerable<SubjectRelationForm> CandidateForms(
+        SubjectRelationForm? selectedForm)
+    {
+        if (selectedForm is null
+            or SubjectRelationForm.Interface)
+        {
+            yield return SubjectRelationForm.Interface;
+        }
+        if (selectedForm is null
+            or SubjectRelationForm.BaseType)
+        {
+            yield return SubjectRelationForm.BaseType;
+        }
+    }
+
+    private static string CandidateName(
+        WorkspaceTypeRelationCandidateRow candidate) =>
+        MetadataTypeNameFormatter.FormatFullName(
+            ((InspectionGraphTypeIdentity.AcquiredDefinition)
+                candidate.Candidate.Identity).Type);
 
     private static bool CanUseProducerCandidatePopulation(
         SubjectRelationPopulationSelection selection)

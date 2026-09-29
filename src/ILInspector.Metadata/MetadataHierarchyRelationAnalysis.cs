@@ -120,6 +120,7 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
 {
     readonly MetadataHierarchyRelationAnalysisRequest _request;
     readonly MetadataOperationContext _operation;
+    readonly MetadataVisibilityResolver? _visibility;
     readonly bool _ownsOperation;
 
     public MetadataHierarchyRelationAnalysisPass(
@@ -131,25 +132,40 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
             ?? throw new ArgumentNullException(nameof(request));
         _operation = new(request.Policy);
         _ownsOperation = true;
-        if (_operation.AdmitImage(reader)
-            is MetadataImageAdmissionResult.Rejected rejected)
+        try
+        {
+            if (_operation.AdmitImage(reader)
+                is MetadataImageAdmissionResult.Rejected rejected)
+            {
+                throw new InvalidOperationException(
+                    "The metadata image exceeds the hierarchy-analysis row "
+                        + $"budget ({rejected.Failure.ImageMetadataRows} > "
+                        + $"{rejected.Failure.MaxMetadataRows}).");
+            }
+            _visibility = request.IncludeNonPublic
+                ? null
+                : new MetadataVisibilityResolver(reader);
+        }
+        catch
         {
             _operation.Dispose();
-            throw new InvalidOperationException(
-                "The metadata image exceeds the hierarchy-analysis row "
-                    + $"budget ({rejected.Failure.ImageMetadataRows} > "
-                    + $"{rejected.Failure.MaxMetadataRows}).");
+            throw;
         }
     }
 
     internal MetadataHierarchyRelationAnalysisPass(
         MetadataHierarchyRelationAnalysisRequest request,
-        MetadataOperationContext operation)
+        MetadataOperationContext operation,
+        MetadataReader reader)
     {
         _request = request
             ?? throw new ArgumentNullException(nameof(request));
         _operation = operation
             ?? throw new ArgumentNullException(nameof(operation));
+        ArgumentNullException.ThrowIfNull(reader);
+        _visibility = request.IncludeNonPublic
+            ? null
+            : new MetadataVisibilityResolver(reader);
     }
 
     public MetadataOperationCounters Counters => _operation.Counters;
@@ -167,9 +183,10 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
             TypeDefinition definition =
                 reader.GetTypeDefinition(handle);
             if ((!_request.IncludeNonPublic
-                    && !MetadataVisibility.IsExternallyVisible(
+                    && !_visibility!.IsExternallyVisible(
                         reader,
-                        handle))
+                        handle,
+                        _operation))
                 || (!_request.IncludeHidden
                     && AttributeReader.HasHiddenAttribute(
                         reader,
@@ -309,10 +326,13 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                 Diagnostic: null);
         }
         catch (Exception exception)
-            when (exception is BadImageFormatException
-                or ArgumentException
-                or InvalidOperationException
-                or OverflowException)
+            when (exception
+                    is not MetadataVisibilityGraphException
+                && exception is
+                    (BadImageFormatException
+                        or ArgumentException
+                        or InvalidOperationException
+                        or OverflowException))
         {
             return Unavailable(
                 new(
@@ -622,10 +642,6 @@ internal static partial class MetadataRelationInspection
                 request.IncludeHidden,
                 materializeRows,
                 forwardPlan);
-        using var pass =
-            new MetadataHierarchyRelationAnalysisPass(
-                analysisRequest,
-                operation);
         int matched = 0;
         int considered = 0;
         int excluded = 0;
@@ -637,6 +653,11 @@ internal static partial class MetadataRelationInspection
 
         try
         {
+            using var pass =
+                new MetadataHierarchyRelationAnalysisPass(
+                    analysisRequest,
+                    operation,
+                    reader);
             foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
             {
                 cancellationToken.ThrowIfCancellationRequested();

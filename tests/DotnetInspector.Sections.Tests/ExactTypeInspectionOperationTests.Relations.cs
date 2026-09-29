@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Queries;
 using QuerySpace;
 using QuerySpace.Operations;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Sections.Tests;
 
@@ -70,6 +71,123 @@ public sealed partial class ExactTypeInspectionOperationTests
                 row.Form));
         Assert.True(
             available.Relations.Relations.Evidence.IsComplete);
+    }
+
+    [Fact]
+    public async Task SemanticSelectionSettlesCountInsideSharedOperation()
+    {
+        byte[] assembly = BuildHierarchyAssembly();
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Hierarchy.dll", assembly));
+        using var client = new HttpClient(new FailingHandler());
+        SubjectRelationsQueryPlan plan = Assert.IsType<
+            SubjectRelationsQueryPlanResult.Accepted>(
+                SubjectRelationsQuery.ResolveIntent(
+                    SubjectRelationsRouteKind.Type,
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                SubjectRelationsQuery.DirectionTermKey,
+                                PortableQueryOperator.Equal,
+                                "incoming"),
+                            new(
+                                SubjectRelationsQuery.FormTermKey,
+                                PortableQueryOperator.Equal,
+                                "interface"),
+                        ],
+                        [],
+                        [],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+        RowSelectionIntent<string> selection =
+            RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Head(1),
+                ]);
+
+        ExactTypeRelationsInspectionOutcome outcome =
+            await ExactTypeRelationsInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "Relations.IContract"),
+                LoadOptions(client, store),
+                plan,
+                count: new SubjectRelationPopulationCountRequest(),
+                rowSelection: selection,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var available = Assert.IsType<
+            ExactTypeRelationsInspectionOutcome.Available>(outcome);
+        Assert.Equal(
+            1,
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    available.Relations.Population.Count).Value);
+        Assert.Null(available.Relations.Population.Rows);
+        Assert.Empty(available.Relations.Candidates);
+        Assert.Empty(available.Relations.Relations.Rows);
+        Assert.Equal(2, available.Relations.Relations.CandidateCount);
+        Assert.True(
+            available.Relations.Relations.Evidence.IsComplete);
+    }
+
+    [Fact]
+    public async Task UnsatisfiedSemanticSelectionFailsInsideSharedOperation()
+    {
+        byte[] assembly = BuildHierarchyAssembly();
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Hierarchy.dll", assembly));
+        using var client = new HttpClient(new FailingHandler());
+        SubjectRelationsQueryPlan plan = Assert.IsType<
+            SubjectRelationsQueryPlanResult.Accepted>(
+                SubjectRelationsQuery.ResolveIntent(
+                    SubjectRelationsRouteKind.Type,
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                SubjectRelationsQuery.DirectionTermKey,
+                                PortableQueryOperator.Equal,
+                                "incoming"),
+                            new(
+                                SubjectRelationsQuery.FormTermKey,
+                                PortableQueryOperator.Equal,
+                                "interface"),
+                        ],
+                        [],
+                        [],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+        RowSelectionIntent<string> selection =
+            RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Window(1, 3),
+                ]);
+
+        WorkspaceTypeRelationRowSelectionException failure =
+            await Assert.ThrowsAsync<
+                WorkspaceTypeRelationRowSelectionException>(
+                    () => ExactTypeRelationsInspectionOperation.ExecuteAsync(
+                        new ExactTypeInspectionRequest(
+                            PackageId,
+                            Version,
+                            Framework,
+                            "Relations.IContract"),
+                        LoadOptions(client, store),
+                        plan,
+                        count:
+                            new SubjectRelationPopulationCountRequest(),
+                        rowSelection: selection,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            SubjectRelationForm.Interface,
+            failure.Failure.Identity);
+        Assert.Equal(3, failure.Failure.Failure.RequiredPosition);
+        Assert.Equal(2, failure.Failure.Failure.AvailableCount);
     }
 
     [Fact]

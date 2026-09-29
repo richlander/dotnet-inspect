@@ -318,7 +318,14 @@ identity. They are not duplicated as a second set of public `request-*` keys.
 A compatible row-query binding may apply residual shaping to a returned
 segment, but it cannot widen acquisition, authorize another producer, change
 the canonical population, or strengthen completion. Sections and convenience
-commands lower their gestures to the same typed population request.
+commands lower their gestures to the same typed population request. Type
+relation row selection and its Count terminal execute in the shared section
+operation over the canonical per-form candidate ordering; the CLI formats a
+typed semantic failure but does not order, select, or count a private copy of
+the candidate population. An exact single-form Count applies head, tail, and
+window stages to exact producer cardinality without constructing Rows.
+Residual selection remains exhaustive when its ordering cannot be proven from
+a producer prefix.
 
 For incoming Type hierarchy relations, the exact focused metadata Type name
 and selected Interface or Base Type form reach the Metadata producer. Metadata
@@ -374,7 +381,11 @@ remains subject to bounded image admission, relationship/name traversal, and
 blob reads; it must not create unbounded work, unsafe memory behavior, assembly
 loading, or another containment failure. A malformed or non-canonical target
 may be rejected as incomplete and is not promised an exact semantic answer.
-Its failure remains visible in producer disposition and diagnostics.
+Its failure remains visible in producer disposition and diagnostics. Hierarchy
+analysis uses one lazy, memoized nested-Type visibility resolver per admitted
+image. It charges declaring-Type edges to the relationship budget, detects
+cycles by identity, and aborts that malformed family instead of repeating a
+declaring-Type walk for each candidate.
 
 The canonical row unit is one logical relation. Each row preserves:
 

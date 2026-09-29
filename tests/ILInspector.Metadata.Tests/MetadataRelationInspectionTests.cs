@@ -894,6 +894,48 @@ public sealed class MetadataRelationInspectionTests
     }
 
     [Fact]
+    public void HierarchyAnalysisRejectsCyclicVisibilityBeforeCandidateScan()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(
+                    HierarchyRelationSafetyFixtures
+                        .BuildCyclicNestedTypeVisibility(128),
+                    writable: false));
+
+        var available =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        new(
+                            TypeName("Sample", "ITarget"),
+                            MetadataHierarchyRelationKind.BaseType),
+                        MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            available.Result.Relations.Disposition);
+        Assert.Empty(available.Result.Relations.Evidence);
+        MetadataRelationDiagnostic diagnostic =
+            Assert.Single(available.Result.Relations.Diagnostics);
+        Assert.Equal(
+            MetadataRelationDiagnosticKind.MalformedMetadata,
+            diagnostic.Kind);
+        Assert.Contains(
+            "cycle",
+            diagnostic.Detail,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            3,
+            available.Result.Receipt.Counters.DeclarationCandidates);
+        Assert.Equal(
+            1,
+            available.Result.Receipt.Counters.RelationshipEdges);
+    }
+
+    [Fact]
     public void SimpleTypeNameSearchMaterializesOnlyMatchingDefinitions()
     {
         string path = Path.Combine(

@@ -1,6 +1,7 @@
 using DotnetInspector.Queries;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Sections;
 
@@ -41,6 +42,7 @@ public static class ExactTypeRelationsInspectionOperation
         SubjectRelationsQueryPlan plan,
         SubjectRelationPopulationCountRequest? count = null,
         SubjectRelationPopulationRowsRequest? rows = null,
+        RowSelectionIntent<string>? rowSelection = null,
         bool includeNonPublic = false,
         CancellationToken cancellationToken = default)
     {
@@ -66,6 +68,7 @@ public static class ExactTypeRelationsInspectionOperation
                 plan,
                 count,
                 rows,
+                rowSelection,
                 includeNonPublic,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -77,6 +80,7 @@ public static class ExactTypeRelationsInspectionOperation
         SubjectRelationsQueryPlan plan,
         SubjectRelationPopulationCountRequest? count = null,
         SubjectRelationPopulationRowsRequest? rows = null,
+        RowSelectionIntent<string>? rowSelection = null,
         bool includeNonPublic = false,
         CancellationToken cancellationToken = default)
     {
@@ -153,6 +157,7 @@ public static class ExactTypeRelationsInspectionOperation
                             plan,
                             count,
                             rows,
+                            rowSelection: rowSelection,
                             includeNonPublic: includeNonPublic,
                             cancellationToken: cancellationToken);
                     outcome =
