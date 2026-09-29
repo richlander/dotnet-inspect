@@ -44,9 +44,10 @@ development model and rationale. The binding summary:
   QuerySpace means the question reaches the work: building every row and then
   filtering, counting, or limiting it is LINQ in QuerySpace clothing unless the
   owning design names that as a reference slice.
-- **Modernization must satisfy intent, not only structure.** Wiring modern
-  substrate while retaining legacy work or cost is incomplete adoption. Report exact
-  base/head NativeAOT performance for every supported terminal, like Count; follow [the evidence contract](docs/evidence-and-validation.md#nativeaot-beforeafter-for-modernization).
+- **NativeAOT is the only accepted performance measurement.** The operator
+  requires exact base/head numbers for every supported terminal before merge;
+  publish them in the visible agent session and PR body, then follow the
+  [evidence contract](docs/evidence-and-validation.md#nativeaot-beforeafter-for-modernization).
 - **Choose rendering strategy deliberately.** Use Markout as the default
   host-neutral substrate for centralized, multi-format rendering, and call out
   host-specific rendering that bypasses it. Broad information domains such as
@@ -503,7 +504,7 @@ Start every reviewer prompt with the complete canonical
 [adversarial-review prompt](docs/adversarial-review-prompt.md); do not omit,
 paraphrase, reorder, or precede it with domain instructions. Append the
 self-contained candidate instructions for the seat, directly or with the
-optional [fill-in template](docs/templates/adversarial-review-prompt.md). Follow
+optional [review frame checklist](docs/templates/adversarial-review-prompt.md). Follow
 [running a round](docs/round-orchestration.md#running-a-round) for mechanics
 and reporting.
 

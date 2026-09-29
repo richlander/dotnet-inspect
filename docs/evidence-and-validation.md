@@ -85,6 +85,17 @@ terminal supported by the adopted surface, like Count. A terminal omitted
 from the report is unverified and prevents a merge-readiness claim for that
 adoption.
 
+NativeAOT is the only accepted performance measurement for both end-to-end
+results and kernel-level scorecards. CoreCLR timing, BenchmarkDotNet, profiler
+output, static analysis, and lower-level counters may diagnose a result, but
+they cannot establish a performance claim or substitute for NativeAOT numbers.
+
+The operator requires those numbers before merge. Publish the numeric results
+in both the visible agent session and the PR body; an artifact, issue comment,
+or external report alone is insufficient. Review and independent gates may run
+in parallel while measurement is pending, but the candidate is not merge-ready
+until both publication surfaces contain the exact-head evidence.
+
 Compare the exact effective base with the exact candidate head. Run the
 complete production-host command or operation, including startup, acquisition,
 planning, execution, and output consumption. A lower-level benchmark may

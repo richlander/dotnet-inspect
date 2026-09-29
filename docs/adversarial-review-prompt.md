@@ -137,6 +137,13 @@ shows material unnecessary work or unjustified duplication that violates the
 owned work-reduction claim; otherwise classify a different preferred factoring
 as a design question, not a blocking finding.
 
+NativeAOT is the only accepted performance measurement. Other runtimes,
+profilers, counters, or static evidence may explain a result but cannot prove a
+performance claim. The operator requires exact-head NativeAOT numbers before
+merge, published in both the visible agent session and PR body. Review may run
+while measurement is pending, but do not report the candidate as merge-ready
+until both publication surfaces contain the numbers.
+
 For an Analysis producer, review fidelity and safety as separate properties.
 Fidelity is exact agreement on the owner-named Roslyn-produced assembly
 patterns. Safety is bounded, inert behavior for every supported ECMA-335 input;
