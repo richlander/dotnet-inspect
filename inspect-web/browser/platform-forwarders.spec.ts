@@ -53,6 +53,39 @@ test("XML forwarders open each immediate Library and restore fresh history actio
   await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
 });
 
+// PR-fast: copies through both forwarding hops and the ordinary defining Type.
+test("XML forwarded and defining Type subjects display and copy the same qualified name", async ({ page }) => {
+  await openXml(page);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          document.documentElement.dataset.copiedTypeName = text;
+        },
+      },
+    });
+  });
+  for (const destination of ["System.Xml.ReaderWriter", "System.Private.Xml", null]) {
+    const copyType = page.getByRole("button", {
+      name: "Copy type name System.Xml.XmlReader", exact: true,
+    });
+    await expect(copyType).toHaveText("System.Xml.XmlReader");
+    await page.evaluate(() => { delete document.documentElement.dataset.copiedTypeName; });
+    await copyType.click();
+    await expect(page.locator("html"))
+      .toHaveAttribute("data-copied-type-name", "System.Xml.XmlReader");
+    if (destination) {
+      await page.getByRole("button", { name: destination, exact: true }).click();
+      await expect(page.locator(`[data-type="${destination}:System.Xml.XmlReader"]`))
+        .toHaveAttribute("aria-selected", "true");
+    } else {
+      await expect(page.locator('[data-inspector-tab][data-lens="api"]'))
+        .toHaveAttribute("aria-selected", "true");
+    }
+  }
+});
+
 test("unavailable forwarding preserves subject, location and actionable focus", async ({ page }) => {
   await openXml(page, { forwarderFailure: true });
   const source = page.url();

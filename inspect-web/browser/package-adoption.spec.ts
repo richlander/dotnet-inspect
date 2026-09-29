@@ -3210,17 +3210,23 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(await forwardedRows.count()).toBeGreaterThan(100);
     await page.locator('[data-type="System.Xml:System.Xml.XmlReader"]').click();
     await expect(page.locator("#forwarded-type-title")).toHaveText("System.Xml.XmlReader");
+    const copyType = page.getByRole("button", {
+      name: "Copy type name System.Xml.XmlReader", exact: true,
+    });
+    await expect(copyType).toHaveText("System.Xml.XmlReader");
     await expect(page.locator('[data-inspector-tab]')).toHaveCount(1);
     await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
     await page.locator("[data-platform-forwarder]").click();
     await expect(page.locator("[data-platform-forwarder]"))
       .toHaveText("System.Private.Xml", { timeout: 120_000 });
     await expect(page.locator("#forwarded-type-title")).toBeFocused();
+    await expect(copyType).toHaveText("System.Xml.XmlReader");
     await page.locator("[data-platform-forwarder]").click();
     await expect(page.locator('[data-type="System.Private.Xml:System.Xml.XmlReader"]'))
       .toHaveAttribute("aria-selected", "true", { timeout: 120_000 });
     await expect(page.locator('[data-inspector-tab][data-lens="api"]'))
       .toHaveAttribute("aria-selected", "true");
+    await expect(copyType).toHaveText("System.Xml.XmlReader");
     await expect(page.locator("#inspector-panel")).toContainText("Read");
     await expect(page.locator("[data-platform-forwarder]")).toHaveCount(0);
   });

@@ -8273,7 +8273,7 @@ function currentInspectedSubjectPath(): readonly SubjectPathSegment[] {
   if (forwarder && !state.atPackageRoot && !state.atLibraryRoot && state.package) {
     return [...inspectedSubjectPath(state.package, null), {
       kind: "type",
-      label: `${forwarder.namespace ? `${forwarder.namespace}.` : ""}${forwarder.name}`,
+      label: forwarder.name,
       copyable: true,
     }];
   }
