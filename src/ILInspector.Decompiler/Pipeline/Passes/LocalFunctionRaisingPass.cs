@@ -413,10 +413,26 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             .Select(group => group.Key)
             .ToHashSet(StringComparer.Ordinal);
 
+        // Every surviving body is flattened into the same declaration scope. A
+        // declaration can therefore shadow a member reference in a sibling body,
+        // even though each candidate was independently safe against the host and
+        // its own body.
+        var shadowingNames = candidates
+            .Where(candidate => !collidingNames.Contains(candidate.Name))
+            .Where(candidate => candidates.Any(
+                scopeCandidate => !collidingNames.Contains(scopeCandidate.Name)
+                    && HasShadowedInstanceMemberReference(
+                        scopeCandidate.Body,
+                        candidate.Method,
+                        candidate.Name)))
+            .Select(candidate => candidate.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
         var declarations = new List<LocalFunctionStatement>();
         foreach (var candidate in candidates)
         {
-            if (collidingNames.Contains(candidate.Name))
+            if (collidingNames.Contains(candidate.Name)
+                || shadowingNames.Contains(candidate.Name))
                 continue;
 
             var method = candidate.Method;

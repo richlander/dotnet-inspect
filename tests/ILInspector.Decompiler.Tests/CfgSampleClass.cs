@@ -2466,6 +2466,29 @@ public class CfgSampleClass
         }
     }
 
+    // Both local functions flatten into one declaration scope. The authored
+    // member call in Other must not bind to the sibling local declaration.
+    public int SiblingInstanceLocalFunctionShadowingMember(int value)
+    {
+        return Read(value) + Other(value);
+
+        int Read(int current) => current + _localFunctionState;
+        int Other(int current) => this.Read(current);
+    }
+
+    // The same cross-body binding hazard applies to method groups.
+    public int SiblingInstanceLocalFunctionShadowingMemberGroup(int value)
+    {
+        return Read(value) + Other(value);
+
+        int Read(int current) => current + _localFunctionState;
+        int Other(int current)
+        {
+            Func<int, int> callback = this.Read;
+            return callback(current);
+        }
+    }
+
     // Adversarial breadth: one capturing local function called twice. Both calls
     // pass `ref env` for the same environment local; the pass must drop the ref-env
     // argument from each and recover a single declaration.

@@ -296,6 +296,32 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void SiblingInstanceLocalFunctionShadowingMember_DeclinesShadowingDeclaration()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingMember),
+            function => Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>(),
+                declaration => declaration.Name == "Other"));
+
+        Assert.Contains("g__Read", output);
+        Assert.Contains("int Other(int current)", output);
+    }
+
+    [Fact]
+    public void SiblingInstanceLocalFunctionShadowingMemberGroup_DeclinesShadowingDeclaration()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingMemberGroup),
+            function => Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>(),
+                declaration => declaration.Name == "Other"));
+
+        Assert.Contains("g__Read", output);
+        Assert.Contains("int Other(int current)", output);
+    }
+
+    [Fact]
     public void InstanceLocalFunctionCalledOnForeignReceiver_StaysLowered()
     {
         var (function, context) = InstanceLocalFunctionReceiverFixture(
