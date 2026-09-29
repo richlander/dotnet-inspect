@@ -589,6 +589,15 @@ internal static class MetadataMethodGroupInspection
         int maximumMembers,
         int maximumRetainedTextCharacters)
     {
+        if (!materializeRows)
+        {
+            return ExecuteCount(
+                model,
+                selection,
+                startOrdinal,
+                maximumMembers);
+        }
+
         var fold =
             new Fold(
                 model,
@@ -604,6 +613,54 @@ internal static class MetadataMethodGroupInspection
                 break;
         }
         return fold.Complete();
+    }
+
+    private static MetadataMethodGroupInspectionOutcome ExecuteCount(
+        Analysis model,
+        Selection selection,
+        int startOrdinal,
+        int maximumMembers)
+    {
+        bool groupExists = false;
+        int matchCount = 0;
+        foreach (MethodDefinitionHandle handle in model.Methods)
+        {
+            MethodDefinition method =
+                model.GetMethod(handle);
+            CandidateKind kind =
+                selection.Classify(handle, method);
+            if (kind is CandidateKind.OutsideGroup)
+                continue;
+            groupExists = true;
+            if (kind is CandidateKind.Filtered)
+                continue;
+
+            matchCount++;
+            if (matchCount > maximumMembers)
+            {
+                return new MetadataMethodGroupInspectionOutcome.Incomplete(
+                    MetadataMethodGroupInspectionBound.Members,
+                    maximumMembers,
+                    matchCount);
+            }
+        }
+
+        if (!groupExists)
+        {
+            return new MetadataMethodGroupInspectionOutcome
+                .MemberGroupNotFound();
+        }
+
+        bool continuationOutOfRange =
+            startOrdinal > matchCount
+                || (startOrdinal == matchCount && matchCount != 0);
+        return new MetadataMethodGroupInspectionOutcome.Read(
+            model.DeclaringType,
+            MetadataTokens.GetToken(model.TypeHandle),
+            matchCount,
+            [],
+            NextOrdinal: null,
+            ContinuationOutOfRange: continuationOutOfRange);
     }
 
     private static bool TryGetAccessorMethods(
