@@ -25,7 +25,7 @@ public abstract class MethodRowClassifier
         MethodDefinitionLayers.Flags
         | MethodDefinitionLayers.NameComparison
         | MethodDefinitionLayers.SignatureShape
-        | MethodDefinitionLayers.StateMachineRelationship;
+        | MethodDefinitionLayers.AttributeTypeMatch;
 
     private protected MethodRowClassifier(string identity, MethodDefinitionLayers fields)
     {
@@ -60,6 +60,37 @@ public abstract class MethodRowClassifier
 /// A scope guard on the source gate: the producer sees only rows the
 /// classifier puts in one of the accepted classes, in types it admits.
 /// </summary>
+/// <summary>
+/// A gate classification as a struct, so a kernel specialized to it inlines
+/// the classifier's scope and class tests. It reads rows only through the
+/// views, which enforce its classifier's declared fields.
+/// </summary>
+public interface IMethodRowClassification
+{
+    bool TypeInScope(scoped MethodRowTypeView type);
+
+    int Classify(scoped MethodDefinitionView row);
+}
+
+/// <summary>
+/// A classifier whose tests are a struct classification: its identity and
+/// declared fields are the classifier's, its answers the struct's.
+/// </summary>
+public abstract class MethodRowClassifier<TClassification> : MethodRowClassifier
+    where TClassification : struct, IMethodRowClassification
+{
+    private protected MethodRowClassifier(string identity, MethodDefinitionLayers fields)
+        : base(identity, fields)
+    {
+    }
+
+    internal sealed override bool TypeInScope(scoped MethodRowTypeView type) =>
+        default(TClassification).TypeInScope(type);
+
+    internal sealed override int Classify(scoped MethodDefinitionView row) =>
+        default(TClassification).Classify(row);
+}
+
 public sealed record SourceGateGuard(
     MethodRowClassifier Classifier,
     ulong AcceptedClasses);
@@ -151,10 +182,13 @@ internal sealed class MethodRowGate
     internal const string TypeSpecificationGuard = "TypeSpecificationGuard";
     internal const string IdentityWork = "IdentityWork";
     internal const string IdentityDecodeFailures = "IdentityDecodeFailures";
-    internal const string StateMachineRelationships = "StateMachineRelationships";
+    internal const string AttributeTypeChain = "AttributeTypeChain";
 
     readonly SignatureShapeWalker _signatures;
     readonly Dictionary<MethodRowClassifier, ClassifierCache> _classifiers = [];
+    readonly Dictionary<(EntityHandle Constructor, MetadataTypeNameTarget Target), bool> _attributeConstructors = [];
+    readonly Dictionary<(EntityHandle Type, MetadataTypeNameTarget Target), bool> _attributeTypes = [];
+    readonly Dictionary<(BlobHandle Signature, MetadataTypeNameTarget Target), bool> _attributeTypeSpecs = [];
 
     // The identity budget: legacy's per-scan budgets, per execution.
     int _identityWorkRemaining = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
@@ -231,9 +265,27 @@ internal sealed class MethodRowGate
     internal bool TypeInScope(
         MethodRowClassifier classifier,
         TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition) =>
+        TypeInScope(CacheFor(classifier), typeHandle, typeDefinition);
+
+    /// <summary>
+    /// The classifier's per-execution cache. A consumer resolves it once and
+    /// passes it to <see cref="TypeInScope(ClassifierCache, TypeDefinitionHandle, TypeDefinition)"/>
+    /// and <see cref="ClassOf(ClassifierCache, ref MethodDefinitionUnit)"/>, so
+    /// no per-unit call looks the classifier up. Every consumer of one
+    /// classifier resolves the same cache, so their answers are shared.
+    /// </summary>
+    internal ClassifierCache Resolve(MethodRowClassifier classifier) => CacheFor(classifier);
+
+    /// <summary>How many times a classifier's cache was looked up in this execution.</summary>
+    internal int CacheLookups { get; private set; }
+
+    internal bool TypeInScope(
+        ClassifierCache cache,
+        TypeDefinitionHandle typeHandle,
         TypeDefinition typeDefinition)
     {
-        ClassifierCache cache = CacheFor(classifier);
+        MethodRowClassifier classifier = cache.Classifier;
         if (cache.TypeHandle != typeHandle || cache.TypeHandle.IsNil)
         {
             cache.TypeHandle = typeHandle;
@@ -255,9 +307,12 @@ internal sealed class MethodRowGate
         return cache.TypeInScope;
     }
 
-    internal int ClassOf(MethodRowClassifier classifier, ref MethodDefinitionUnit unit)
+    internal int ClassOf(MethodRowClassifier classifier, ref MethodDefinitionUnit unit) =>
+        ClassOf(CacheFor(classifier), ref unit);
+
+    internal int ClassOf(ClassifierCache cache, ref MethodDefinitionUnit unit)
     {
-        ClassifierCache cache = CacheFor(classifier);
+        MethodRowClassifier classifier = cache.Classifier;
         if (cache.RowToken != _rowToken || _rowToken == 0)
         {
             cache.RowToken = _rowToken;
@@ -281,17 +336,19 @@ internal sealed class MethodRowGate
 
     ClassifierCache CacheFor(MethodRowClassifier classifier)
     {
+        CacheLookups++;
         if (!_classifiers.TryGetValue(classifier, out ClassifierCache? cache))
         {
-            cache = new ClassifierCache();
+            cache = new ClassifierCache(classifier);
             _classifiers[classifier] = cache;
         }
 
         return cache;
     }
 
-    sealed class ClassifierCache
+    internal sealed class ClassifierCache(MethodRowClassifier classifier)
     {
+        public readonly MethodRowClassifier Classifier = classifier;
         public TypeDefinitionHandle TypeHandle;
         public bool TypeInScope;
         public Exception? TypeFailure;
@@ -314,29 +371,86 @@ internal sealed class MethodRowGate
 
     internal bool SignatureHasPointer() => _signatures.MethodHasPointer(_methodDefinition);
 
-    StateMachineRelationshipIndex? _stateMachines;
-
     /// <summary>
-    /// The row's kickoff relationship. The index is built once per execution;
-    /// its global budget exhaustion aborts, and any other result, including a
-    /// per-row rejection, is returned for the reader to interpret.
+    /// Whether one of the row's custom attributes has the target type,
+    /// checked in attribute order and stopping at the first match, as
+    /// <c>AttributeReader.HasAttribute</c> does, but compared in place with no
+    /// name materialized. Each constructor's answer and each attribute type's
+    /// answer is memoized for the execution, and a TypeSpec parent's answer
+    /// per signature blob. A nested chain that repeats a handle or exceeds its
+    /// bound, or a TypeSpec blob over legacy's guard, aborts; an unreadable
+    /// name is a recoverable failure.
     /// </summary>
-    internal StateMachineRelationshipResult StateMachineByKickoff()
+    internal bool HasAttributeOfType(MetadataTypeNameTarget target)
     {
-        if (_stateMachines is null)
+        foreach (CustomAttributeHandle handle in _methodDefinition.GetCustomAttributes())
         {
-            _stateMachines = StateMachineRelationshipIndex.Create(Reader);
-        }
-
-        if (_stateMachines.Relationships is StateMachineRelationshipsResult.Rejected
+            EntityHandle constructor = Reader.GetCustomAttribute(handle).Constructor;
+            if (!_attributeConstructors.TryGetValue((constructor, target), out bool matches))
             {
-                Failure.Kind: StateMachineRelationshipFailureKind.BudgetExceeded,
-            })
-        {
-            Abort(StateMachineRelationships, "The state-machine relationship budget is exhausted.");
+                matches = ConstructorTypeMatches(constructor, target);
+                _attributeConstructors[(constructor, target)] = matches;
+            }
+
+            if (matches)
+                return true;
         }
 
-        return _stateMachines.GetByKickoff(_methodHandle);
+        return false;
+    }
+
+    bool ConstructorTypeMatches(EntityHandle constructor, MetadataTypeNameTarget target) =>
+        constructor.Kind switch
+        {
+            HandleKind.MemberReference => TypeMatches(
+                Reader.GetMemberReference((MemberReferenceHandle)constructor).Parent,
+                target),
+            HandleKind.MethodDefinition => TypeMatches(
+                Reader.GetMethodDefinition((MethodDefinitionHandle)constructor).GetDeclaringType(),
+                target),
+            _ => false,
+        };
+
+    bool TypeMatches(EntityHandle type, MetadataTypeNameTarget target)
+    {
+        if (type.IsNil)
+            return false;
+        if (_attributeTypes.TryGetValue((type, target), out bool known))
+            return known;
+
+        // TypeSpec aliases share a blob, and the answer depends only on the
+        // blob, so each blob is read once however many TypeSpec rows name it.
+        BlobHandle signature = type.Kind == HandleKind.TypeSpecification
+            ? Reader.GetTypeSpecification((TypeSpecificationHandle)type).Signature
+            : default;
+        if (!signature.IsNil && _attributeTypeSpecs.TryGetValue((signature, target), out known))
+        {
+            _attributeTypes[(type, target)] = known;
+            return known;
+        }
+
+        bool matches = MetadataTypeNameMatch.Matches(Reader, type, target) switch
+        {
+            MetadataTypeNameMatchResult.Match => true,
+            MetadataTypeNameMatchResult.NoMatch => false,
+            MetadataTypeNameMatchResult.Malformed => throw new BadImageFormatException(
+                "An attribute type's name could not be read."),
+            _ => AbortChain(),
+        };
+        _attributeTypes[(type, target)] = matches;
+        if (!signature.IsNil)
+            _attributeTypeSpecs[(signature, target)] = matches;
+        return matches;
+    }
+
+    bool AbortChain()
+    {
+        Abort(
+            AttributeTypeChain,
+            "An attribute type's nested chain repeats a handle or exceeds "
+            + $"{MetadataSafetyPolicy.MaxRelationshipNodes} nodes, or its TypeSpec "
+            + $"blob exceeds {TypeSpecGuard.MaxCumulativeBytes} bytes or the signature shape bounds.");
+        return false;
     }
 
     // ---- Tier 2 ----

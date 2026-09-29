@@ -326,6 +326,61 @@ public class StackSlotLiveRangeCrossBlockTests
     }
 
     [Fact]
+    public void SequentialBooleanAndIntegerRangesUseSemanticLoadIdentity()
+    {
+        var booleanStore = Store(0);
+        var booleanLoad = new StoreLocal(0, Boolean, new LoadStackSlot(Slot, Int32));
+        var integerStore = Store(2);
+        var integerLoad = new StoreLocal(1, Int32, new LoadStackSlot(Slot, Int32));
+        var function = Run(BlockOf(
+            0,
+            booleanStore,
+            booleanLoad,
+            integerStore,
+            integerLoad,
+            new Return(null)));
+
+        Assert.Equal(Slot, booleanStore.Slot);
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(booleanLoad.Value).Slot);
+        var rewrittenStore = Assert.Single(function.Descendants.OfType<StoreStackSlot>(),
+            store => store.Slot != Slot);
+        var rewrittenLoad = Assert.Single(function.Descendants.OfType<LoadStackSlot>(),
+            load => load.Slot != Slot);
+        Assert.Equal(rewrittenStore.Slot, rewrittenLoad.Slot);
+        Assert.Equal(Int32, rewrittenStore.Value.ResultType);
+        Assert.Equal(Int32, rewrittenLoad.Type);
+    }
+
+    [Fact]
+    public void BooleanRangeWithNumericObserverStaysUnsplit()
+    {
+        var function = Run(BlockOf(
+            0,
+            Store(0),
+            new StoreLocal(0, Boolean, new LoadStackSlot(Slot, Int32)),
+            new StoreLocal(1, Int32, new LoadStackSlot(Slot, Int32)),
+            Store(2),
+            new StoreLocal(1, Int32, new LoadStackSlot(Slot, Int32)),
+            new Return(null)));
+
+        Assert.False(Split(function));
+    }
+
+    [Fact]
+    public void SequentialBooleanRangesStayUnsplit()
+    {
+        var function = Run(BlockOf(
+            0,
+            Store(0),
+            new StoreLocal(0, Boolean, new LoadStackSlot(Slot, Int32)),
+            Store(1),
+            new StoreLocal(1, Boolean, new LoadStackSlot(Slot, Int32)),
+            new Return(null)));
+
+        Assert.False(Split(function));
+    }
+
+    [Fact]
     public void CompetingDiamondDefinitions_StayUnsplit()
     {
         var entry = BlockOf(

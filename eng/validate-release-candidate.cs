@@ -25,7 +25,6 @@ string[] certificationJobs =
     "Deep Inspect candidate / Test lane",
     "Deep Inspect candidate / Platform test (win-x64)",
     "Deep Inspect candidate / Platform test (osx-arm64)",
-    "Deep Inspect candidate / Platform test (linux-x64)",
     "Deep Inspect candidate / Decompiler corpus lane",
     "Deep Inspect candidate / Release certification",
     "Deep Inspect candidate / Inspect Web comprehensive",

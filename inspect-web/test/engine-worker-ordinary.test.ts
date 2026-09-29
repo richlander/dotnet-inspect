@@ -92,6 +92,9 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     openUploadedLibrary: () => unexpected("openUploadedLibrary"),
   },
   package: {
+    openPlatformForwarderView: () => unexpected("openPlatformForwarderView"),
+    activatePlatformForwarder: () => unexpected("activatePlatformForwarder"),
+    closePlatformForwarderView: () => unexpected("closePlatformForwarderView"),
     classifyPackageGraphIdentities: () =>
       unexpected("classifyPackageGraphIdentities"),
     getPlatformCatalog: () => unexpected("getPlatformCatalog"),
@@ -136,8 +139,14 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryLibraryApiDiff"),
     queryMemberDeclaration: () =>
       unexpected("queryMemberDeclaration"),
+    queryMemberGroupDocument: () =>
+      unexpected("queryMemberGroupDocument"),
     queryPlatformMemberDeclaration: () =>
       unexpected("queryPlatformMemberDeclaration"),
+    queryPlatformMemberGroupDocument: () =>
+      unexpected("queryPlatformMemberGroupDocument"),
+    queryUploadedLibraryMemberGroupDocument: () =>
+      unexpected("queryUploadedLibraryMemberGroupDocument"),
     queryTypeProjection: () => unexpected("queryTypeProjection"),
     queryPackageMetadataTable: () =>
       unexpected("queryPackageMetadataTable"),
@@ -443,6 +452,109 @@ test("uploaded Library input uses a bounded structured-clone byte tuple", () => 
     assert.equal(oversizedInput.reason, "oversized");
     assert.match(oversizedInput.message, /exceeds 33554432 bytes/);
   }
+});
+
+test("uploaded Library MemberGroup queries use the retained exact image", async () => {
+  const content = [0x4d, 0x5a, 0x00, 0x01];
+  const identity = `sha256:${"a".repeat(64)}`;
+  let received:
+    [string, number[], string, string] | undefined;
+  const state = fixture({
+    library: {
+      async openUploadedLibrary(declaredName, bytes) {
+        return {
+          content: {
+            outcome: "Available",
+            declaredName,
+            digest: "a".repeat(64),
+            byteLength: bytes.length,
+            provenance: {
+              contentRef: "browser-upload",
+              digest: identity,
+              declaredName,
+            },
+            assembly: null,
+            surface: null,
+            inspectionFailures: [],
+            failure: null,
+            isComplete: true,
+          },
+          share: {
+            kind: "NonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "embedded-library/share",
+            reason: "Uploaded Library bytes are session-local.",
+          },
+          diagnostics: [],
+        };
+      },
+    },
+    metadata: {
+      async queryUploadedLibraryMemberGroupDocument(
+        declaredName,
+        bytes,
+        typeIdentity,
+        memberName,
+      ) {
+        received = [declaredName, bytes, typeIdentity, memberName];
+        return {
+          outcome: "Available",
+          detail: null,
+          document: {
+            typeIdentity,
+            memberName,
+            count: 1,
+            rows: [{
+              metadataToken: 0x06000001,
+              baselineOrdinal: 1,
+              displaySignature: "void Run()",
+              canonicalSignature: "M:Example.Widget.Run",
+              fingerprint: "run",
+              accessibility: "Public",
+              receiver: "This",
+            }],
+          },
+          diagnostics: [],
+        };
+      },
+    },
+  });
+
+  const opened =
+    state.client.library.openUploadedLibrary("Uploaded.dll", content);
+  await state.environment.flushAsync();
+  await opened;
+
+  const document =
+    state.client.metadata.queryUploadedLibraryMemberGroupDocument(
+      identity,
+      "Example.Widget",
+      "Run",
+    );
+  await state.environment.flushAsync();
+
+  assert.equal((await document).outcome, "Available");
+  assert.deepEqual(received, [
+    "Uploaded.dll",
+    content,
+    "Example.Widget",
+    "Run",
+  ]);
+
+  const mismatched =
+    state.client.metadata.queryUploadedLibraryMemberGroupDocument(
+      `sha256:${"b".repeat(64)}`,
+      "Example.Widget",
+      "Run",
+    );
+  const mismatchFailure = assert.rejects(
+    mismatched,
+    /not the image retained in this Worker epoch/,
+  );
+  await state.environment.flushAsync();
+  await mismatchFailure;
+  state.host.dispose();
 });
 
 test("format 3 packet remains opaque across Browser Worker transport", async () => {
@@ -1921,6 +2033,54 @@ test("JSON tuple codec rejects unsafe trees and enforces explicit bounds", () =>
   assert.equal(encode(["id", null, excessive]).kind, "rejected");
 });
 
+test("forwarder transport preserves opaque actions, route evidence, and non-success", async () => {
+  const calls: unknown[][] = [];
+  const result = {
+    status: "stale" as const,
+    message: "The Library view changed.",
+    view: null,
+    hops: [
+      { sourceAssembly: "System.Xml", targetAssembly: "System.Xml.ReaderWriter" },
+      { sourceAssembly: "System.Xml.ReaderWriter", targetAssembly: "System.Private.Xml" },
+    ],
+    resolutionKind: "Resolved",
+    terminalAssembly: "System.Private.Xml",
+    houseStatus: "Completed",
+    sourceStatus: null,
+  };
+  const state = fixture({
+    package: {
+      openPlatformForwarderView: async (...args) => {
+        calls.push(args);
+        return result;
+      },
+      activatePlatformForwarder: async (action) => {
+        calls.push([action]);
+        return result;
+      },
+      closePlatformForwarderView: (view) => {
+        calls.push([view]);
+        return false;
+      },
+    },
+  });
+  const opened = state.client.package.openPlatformForwarderView(
+    "net11.0", "11.0.0-rc.1.26425.128", "System.Xml.dll", "netcore.app",
+  );
+  const activated = state.client.package.activatePlatformForwarder("opaque-action");
+  const closed = state.client.package.closePlatformForwarderView("opaque-view");
+  await state.environment.flushAsync();
+  assert.deepEqual(await opened, result);
+  assert.deepEqual(await activated, result);
+  assert.equal(await closed, false);
+  assert.deepEqual(calls, [
+    ["net11.0", "11.0.0-rc.1.26425.128", "System.Xml.dll", "netcore.app"],
+    ["opaque-action"],
+    ["opaque-view"],
+  ]);
+  state.host.dispose();
+});
+
 test("a closed-epoch ordinary client cannot dispatch into a replacement", async () => {
   let calls = 0;
   const state = fixture({
@@ -1967,15 +2127,18 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "openUploadedLibrary",
     ],
     package: [
+      "activatePlatformForwarder",
       "activateWorkspacePackageOccurrence",
       "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
+      "closePlatformForwarderView",
       "getPackageDocument",
       "getPlatformCatalog",
       "getPlatformVersions",
       "loadRuntimePack",
       "loadRuntimePackAssembly",
       "matchPackageDependencyCoordinate",
+      "openPlatformForwarderView",
       "packageCacheStats",
       "prefetchPlatformPacks",
       "queryLibraries",
@@ -1998,7 +2161,9 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryLibraryApiDiff",
       "queryGraphMemberSurface",
       "queryMemberDeclaration",
+      "queryMemberGroupDocument",
       "queryPlatformMemberDeclaration",
+      "queryPlatformMemberGroupDocument",
       "queryPackageHeapEntries",
       "queryPackageMetadata",
       "queryPackageMetadataTable",
@@ -2006,6 +2171,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMetadata",
       "queryPlatformMetadataTable",
       "queryTypeProjection",
+      "queryUploadedLibraryMemberGroupDocument",
     ],
     analysis: [
       "queryCloneCandidates",
@@ -2078,7 +2244,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 88);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 94);
 
   const state = fixture();
   const groups = [

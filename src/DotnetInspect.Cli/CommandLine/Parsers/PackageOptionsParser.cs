@@ -320,6 +320,14 @@ public static class PackageOptionsParser
                 parseResult,
                 opts,
                 args);
+        bool selectsSemanticRowPopulation =
+            selectsVersionPopulation
+            || selectsSourceLinkFiles
+            || selectsPackageFiles
+            || selectsPackageLayout
+            || selectsPackageTfms
+            || selectsEcosystemDependencies
+            || selectsCloneCandidateRows;
         RowSelectionIntent<string>? versionRowSelection = null;
         if (selectsVersionPopulation
             && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
@@ -405,12 +413,7 @@ public static class PackageOptionsParser
         }
 
         RowSelectionIntent<string>? packageSectionRowSelection = null;
-        if (!selectsVersionPopulation
-            && !selectsSourceLinkFiles
-            && !selectsPackageFiles
-            && !selectsPackageLayout
-            && !selectsPackageTfms
-            && !selectsCloneCandidateRows
+        if (!selectsSemanticRowPopulation
             && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                 parseResult,
                 "Package section",
@@ -420,12 +423,16 @@ public static class PackageOptionsParser
             return new InvalidArguments(
                 packageSectionRowSelectionError!);
         }
-        packageSectionRowSelection =
-            DependencyQueryOptions.AppendLegacyRows(
-                parseResult,
-                opts,
-                packageSectionRowSelection,
-                out int? legacyHierarchyWindowStageIndex);
+        int? legacyHierarchyWindowStageIndex = null;
+        if (!selectsSemanticRowPopulation)
+        {
+            packageSectionRowSelection =
+                DependencyQueryOptions.AppendLegacyRows(
+                    parseResult,
+                    opts,
+                    packageSectionRowSelection,
+                    out legacyHierarchyWindowStageIndex);
+        }
         int? dependencyDepth =
             int.TryParse(
                 parseResult.GetValue(args.DepthOption),
@@ -561,13 +568,7 @@ public static class PackageOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Count = parseResult.GetValue(opts.Count),
             EnvelopeOutput = parseResult.GetValue(opts.Envelope),
-            Rows = selectsVersionPopulation
-                || selectsSourceLinkFiles
-                || selectsPackageFiles
-                || selectsPackageLayout
-                || selectsPackageTfms
-                || selectsEcosystemDependencies
-                || selectsCloneCandidateRows
+            Rows = selectsSemanticRowPopulation
                 ? null
                 : opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)

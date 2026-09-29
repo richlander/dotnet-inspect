@@ -420,6 +420,10 @@ public static class IrPasses
         // Consume exclusive two-load address spills atomically, after expression
         // movement is finished and before their surviving storage materializes.
         new PointerElementCompoundAssignmentPass(),
+        // A split Boolean range can still carry the evaluation stack's I4
+        // zero/one constants. Once every final producer and observer agrees,
+        // recover their Boolean identity immediately before materialization.
+        new BooleanSlotIdentityPass(),
         // Refresh reference assignment testimony immediately before storage
         // consumes it. Final binding still runs after later rewrites.
         new ReferenceSlotTargetBindingPass(),

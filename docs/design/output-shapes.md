@@ -28,6 +28,8 @@ focused-owner gaps; it defines no product syntax, behavior, or gates.
 
 Related docs:
 
+- [CLI output format and destination](cli-output-format-and-destination.md) —
+  `--format` presentation selection and `-o` / `--output` destination grammar
 - [Output style guide](style-guide.md#machine-names-and-identifiers) — machine
   property and semantic identifier naming
 - [Output composition model](output-composition.md) — section selection, filtering, and writer capabilities
@@ -134,7 +136,7 @@ sources, PDB Source, categories or additional sections, row/field/column
 projection, and alternate formats remain outside this complete transport.
 Share is `NonProjectable` at `comparison/endpoints`.
 
-Package Activity registers `ecosystem-change-report` at schema version `1`.
+Package Activity registers `ecosystem-change-report` at schema version `2`.
 Unprojected `--json` and `--envelope.content` share the owner-issued
 `EcosystemChangeReportDocument` serializer. Report scope, interval, security
 selection, and semantic result limit remain service inputs. Projection, Count,

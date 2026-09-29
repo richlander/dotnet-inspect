@@ -2884,9 +2884,12 @@ internal static class LibraryMetadataService
                     case MethodClassificationDemand.AsyncAnalyzer:
                         inspection.AsyncMethodCount = count.Value;
                         break;
-                    default:
+                    case MethodClassificationAnalyzer.PointerSignature:
                         inspection.UnsafeMethodCount = count.Value;
                         break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"No consumer asks for the {question.Analyzer} count.");
                 }
 
                 break;

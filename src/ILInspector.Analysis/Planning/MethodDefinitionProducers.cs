@@ -46,12 +46,10 @@ public enum MethodDefinitionLayers
     IdentityText = 64,
 
     /// <summary>
-    /// Tier 1: the method's kickoff relationship from the Metadata semantic
-    /// substrate <c>StateMachineRelationshipIndex</c>, built once per execution
-    /// and bounded by its own budgets. Its global budget exhaustion aborts; a
-    /// per-row rejection is a recoverable failure.
+    /// Tier 1: in-place match of the method's custom attribute types against a
+    /// full type name, memoized per attribute constructor and per type handle.
     /// </summary>
-    StateMachineRelationship = 128,
+    AttributeTypeMatch = 128,
 }
 
 /// <summary>
@@ -409,14 +407,12 @@ public readonly ref struct MethodDefinitionView
         }
     }
 
-    /// <summary>Tier 1: the method's kickoff relationship from <c>StateMachineRelationshipIndex</c>.</summary>
-    public StateMachineRelationshipResult StateMachineByKickoff
+    /// <summary>Tier 1: whether a custom attribute on the method has the target type, matched in place.</summary>
+    public bool HasAttributeOfType(MetadataTypeNameTarget target)
     {
-        get
-        {
-            Require(MethodDefinitionLayers.StateMachineRelationship);
-            return _unit.Gate.StateMachineByKickoff();
-        }
+        ArgumentNullException.ThrowIfNull(target);
+        Require(MethodDefinitionLayers.AttributeTypeMatch);
+        return _unit.Gate.HasAttributeOfType(target);
     }
 
     /// <summary>Tier 2: the row's identity text, through the gate's identity budget.</summary>

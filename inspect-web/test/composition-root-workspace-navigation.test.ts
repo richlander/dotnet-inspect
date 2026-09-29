@@ -1254,7 +1254,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /const predecessorEntryId = ensureCurrentHistoryEntryId\(\);[\s\S]*const successorState = predecessorEntryId[\s\S]*packageActivityHistoryState\([\s\S]*predecessorEntryId,[\s\S]*returnFocus[\s\S]*if \(!workspaceLocation\.push\(PACKAGE_ACTIVITY_PATH, successorState\)\) \{[\s\S]*reportProductNavigationFailure\(\s*"activity",[\s\S]*return false;[\s\S]*state\.packageQueryOpen = false;[\s\S]*state\.packageActivityOpen = true;[\s\S]*focusPackageActivityInput\(\)/);
   assert.match(
     appSource,
-    /function focusPackageActivityInput\(\) \{[\s\S]*const packageSet = document\.querySelector<HTMLSelectElement>\([\s\S]*if \(packageSet && !packageSet\.disabled\) \{[\s\S]*packageSet\.focus\(\);[\s\S]*document\.activeElement === packageSet[\s\S]*focusLevelOneHeading\(\)/);
+    /function focusPackageActivityInput\(\) \{[\s\S]*const ecosystem = document\.querySelector<HTMLSelectElement>\(\s*"#package-changes-ecosystem"\);[\s\S]*if \(ecosystem && !ecosystem\.disabled\) \{[\s\S]*ecosystem\.focus\(\);[\s\S]*document\.activeElement === ecosystem[\s\S]*focusLevelOneHeading\(\)/);
   assert.match(
     closeActivityRoute,
     /packageChangesController\.cancel\("disposed"\);[\s\S]*state\.packageActivityOpenedFromApp[\s\S]*history\.back\(\)[\s\S]*state\.packageActivityOpen = false;[\s\S]*workspaceLocation\.replace\("\/"\)/);
@@ -1833,7 +1833,7 @@ test("history validates saved type and member identity before restoring Member s
     /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
   assert.match(
     applyView,
-    /navigationHistory\.normalizeCurrent\(\);[\s\S]*loadSelectedMemberSource\(\)[\s\S]*else \{\s*render\(\)/);
+    /navigationHistory\.normalizeCurrent\(\);[\s\S]*loadMemberSectionContent\(state\.memberSection\)[\s\S]*else \{\s*render\(\)/);
   assert.match(
     appSource,
     /const navigationHistory = createNavigationHistory\(\{\s*capture: captureView,\s*signature: workspaceViewSignature,\s*apply: applyView/);

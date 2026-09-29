@@ -358,7 +358,7 @@ modal.
 Home, Workspace, Type Explorer, Package query, Package Activity, and
 Diagnostics are routed full-bleed surfaces rather than dialogs. Navigation
 places focus on their visible level-one heading or, for Package query, its
-prefix input, and for Package Activity, its package-set selector under that
+prefix input, and for Package Activity, its Ecosystem selector under that
 heading. Type Explorer's entry, exact-Type route state, return, and restoration
 effects are separately owned by
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) and its
@@ -751,7 +751,7 @@ outcomes.
 10. Repeat with text that is not a valid package-ID prefix and confirm that the
     query surface starts with an empty prefix.
 11. Activate the visible `Package Activity` action and confirm that Spotlight
-    closes, `/activity` is pushed, and the package-set selector receives focus.
+    closes, `/activity` is pushed, and the Ecosystem selector receives focus.
     Use Back and Forward and confirm the prior Search focus and Activity
     destination are restored.
 12. Open general and command-scoped Spotlight at the narrow supported width and
@@ -822,7 +822,7 @@ outcomes.
    level-one heading, no coordinate/subject command, and a persistent
    `dotnet-inspect` control that opens Workspace. Confirm that Type Explorer
    focuses its heading, Package query places initial focus on its prefix input,
-   and Package Activity focuses its package-set selector under its heading.
+   and Package Activity focuses its Ecosystem selector under its heading.
 10. Use Browser Back and Forward while a modal is open and confirm that the
    modal is dismissed, the restored destination heading receives focus, and the
    modal does not reopen.

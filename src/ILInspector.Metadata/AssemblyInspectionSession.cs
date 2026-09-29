@@ -216,6 +216,22 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
+    /// Produces the qualified whole-Library Type-to-Type signature-use
+    /// population for this exact image.
+    /// </summary>
+    public MetadataLibrarySignatureUseOutcome LibrarySignatureUses(
+        MetadataLibrarySignatureUseRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _image.EnsureAlive();
+        return MetadataLibrarySignatureUseInspection.Execute(
+            _image.PEReader,
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// Executes request-driven Count and bounded Rows over this image's
     /// canonical assembly-reference relation population.
     /// </summary>

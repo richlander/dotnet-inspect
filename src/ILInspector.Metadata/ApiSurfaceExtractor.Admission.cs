@@ -215,21 +215,58 @@ public static partial class ApiSurfaceExtractor
     }
 
     /// <summary>
+    /// The narrower of two accessibilities in the ECMA-335 order: the access
+    /// that only consumers admitted by both have.
+    /// </summary>
+    static MethodAttributes NarrowerAccess(
+        MethodAttributes left,
+        MethodAttributes right)
+    {
+        if (left == right || right == MethodAttributes.Public)
+            return left;
+        if (left == MethodAttributes.Public)
+            return right;
+        if (left == MethodAttributes.Private
+            || right == MethodAttributes.Private)
+        {
+            return MethodAttributes.Private;
+        }
+        if (left == MethodAttributes.FamORAssem)
+            return right;
+        if (right == MethodAttributes.FamORAssem)
+            return left;
+        // Family and Assembly, or either with FamANDAssem.
+        return MethodAttributes.FamANDAssem;
+    }
+
+    /// <summary>
+    /// The access an <c>api.accessibility</c> spelling names; no spelling is
+    /// public.
+    /// </summary>
+    static MethodAttributes AccessOf(string? accessibility) => accessibility switch
+    {
+        null or "" or "public" => MethodAttributes.Public,
+        "private" => MethodAttributes.Private,
+        "private protected" => MethodAttributes.FamANDAssem,
+        "internal" => MethodAttributes.Assembly,
+        "protected" => MethodAttributes.Family,
+        "protected internal" => MethodAttributes.FamORAssem,
+        _ => throw new InvalidOperationException(
+            $"Unknown accessibility '{accessibility}'."),
+    };
+
+    /// <summary>
     /// A C# property or event accessor is represented by its property or event
-    /// row, except a private MethodImpl accessor: that is the explicit-interface
-    /// shape, whose property or event row is private.
+    /// row. An explicit implementation's accessors compose into its property or
+    /// event record too, which takes their effective access.
     /// </summary>
     static bool IsFoldedAccessorMethod(
         Dictionary<MethodDefinitionHandle, ApiMethodSemanticsKind> accessorMethods,
-        MethodDefinitionHandle methodHandle,
-        bool isExplicitImplementation,
-        MethodAttributes methodAccess)
+        MethodDefinitionHandle methodHandle)
         => accessorMethods.TryGetValue(
                 methodHandle,
                 out ApiMethodSemanticsKind semantics)
-            && IsCSharpAccessor(semantics)
-            && !(isExplicitImplementation
-                && methodAccess == MethodAttributes.Private);
+            && IsCSharpAccessor(semantics);
 
     /// <summary>
     /// A compiler-named method or field (its name starts with <c>&lt;</c>) is
@@ -253,6 +290,23 @@ public static partial class ApiSurfaceExtractor
             && IsHiddenMember(reader, attributes, beforeMaterialize);
 
     /// <summary>
+    /// A hidden (<c>EditorBrowsable(Never)</c>) property or event is omitted
+    /// from the public-facing population. An explicit implementation, one
+    /// whose accessor is a MethodImpl body, is exempt, as its accessor methods
+    /// are.
+    /// </summary>
+    static bool IsHiddenAccessorOwner(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        HashSet<MethodDefinitionHandle> explicitImplementationBodies,
+        MethodDefinitionHandle firstAccessor,
+        MethodDefinitionHandle secondAccessor,
+        Action<int>? beforeMaterialize = null)
+        => !(explicitImplementationBodies.Contains(firstAccessor)
+                || explicitImplementationBodies.Contains(secondAccessor))
+            && IsHiddenMember(reader, attributes, beforeMaterialize);
+
+    /// <summary>
     /// A hidden (<c>EditorBrowsable(Never)</c>) property, field, or event is
     /// omitted from the public-facing population.
     /// </summary>
@@ -266,41 +320,70 @@ public static partial class ApiSurfaceExtractor
             beforeMaterialize);
 
     /// <summary>
-    /// A property's access is its most accessible accessor's access.
+    /// A property's access is the join of its accessors' effective access, so
+    /// an explicit implementation's property takes its interface's bucket.
     /// </summary>
     static MethodAttributes PropertyAccess(
         MetadataReader reader,
-        PropertyAccessors accessors)
+        PropertyAccessors accessors,
+        Dictionary<MethodDefinitionHandle, InterfaceImplementationAccess>
+            interfaceImplementations)
     {
-        MethodAttributes access = 0;
-        if (!accessors.Getter.IsNil)
-        {
-            access = reader.GetMethodDefinition(accessors.Getter).Attributes
-                & MethodAttributes.MemberAccessMask;
-        }
-        if (!accessors.Setter.IsNil)
-        {
-            MethodAttributes setterAccess =
-                reader.GetMethodDefinition(accessors.Setter).Attributes
-                & MethodAttributes.MemberAccessMask;
-            if (setterAccess > access)
-                access = setterAccess;
-        }
-
-        return access;
+        MethodAttributes? access = null;
+        access = JoinAccessorAccess(
+            reader, accessors.Getter, interfaceImplementations, access);
+        access = JoinAccessorAccess(
+            reader, accessors.Setter, interfaceImplementations, access);
+        return access ?? 0;
     }
 
     /// <summary>
-    /// An event's access is its adder's access; an event without an adder is
-    /// not an API declaration.
+    /// An event's access is the join of its adder's and remover's effective
+    /// access; an event without an adder is not an API declaration.
     /// </summary>
     static MethodAttributes? EventAccess(
         MetadataReader reader,
-        EventAccessors accessors)
-        => accessors.Adder.IsNil
-            ? null
-            : reader.GetMethodDefinition(accessors.Adder).Attributes
-                & MethodAttributes.MemberAccessMask;
+        EventAccessors accessors,
+        Dictionary<MethodDefinitionHandle, InterfaceImplementationAccess>
+            interfaceImplementations)
+    {
+        if (accessors.Adder.IsNil)
+            return null;
+
+        MethodAttributes? access = JoinAccessorAccess(
+            reader, accessors.Adder, interfaceImplementations, null);
+        return JoinAccessorAccess(
+            reader, accessors.Remover, interfaceImplementations, access);
+    }
+
+    /// <summary>An accessor method's effective access.</summary>
+    static MethodAttributes AccessorAccess(
+        MetadataReader reader,
+        MethodDefinitionHandle accessor,
+        Dictionary<MethodDefinitionHandle, InterfaceImplementationAccess>
+            interfaceImplementations)
+        => MethodEffectiveAccess(
+            reader.GetMethodDefinition(accessor).Attributes
+                & MethodAttributes.MemberAccessMask,
+            accessor,
+            interfaceImplementations);
+
+    static MethodAttributes? JoinAccessorAccess(
+        MetadataReader reader,
+        MethodDefinitionHandle accessor,
+        Dictionary<MethodDefinitionHandle, InterfaceImplementationAccess>
+            interfaceImplementations,
+        MethodAttributes? access)
+    {
+        if (accessor.IsNil)
+            return access;
+
+        MethodAttributes accessorAccess =
+            AccessorAccess(reader, accessor, interfaceImplementations);
+        return access is { } joined
+            ? JoinAccess(joined, accessorAccess)
+            : accessorAccess;
+    }
 
     /// <summary>
     /// A property, field, or event passes the access rule when the population
