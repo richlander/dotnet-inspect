@@ -118,9 +118,19 @@ export function bindEngineWorkerStartupClient(
   type Vocabulary = Awaited<ReturnType<typeof inspectVocabulary>>;
   let cachedVocabulary: Vocabulary | undefined;
   let pendingVocabulary: Promise<Vocabulary> | undefined;
-  function readVocabulary(): Promise<Vocabulary> {
+  function requireOpenEpoch(): void {
+    const snapshot = host.snapshot();
+    if (snapshot.epochToken !== epoch)
+      throw new Error("Startup client belongs to a closed Worker epoch.");
+    if (snapshot.phase === "draining")
+      throw new Error("Startup read could not start: worker-restarted.");
+    if (snapshot.phase === "closed" || snapshot.phase === "absent")
+      throw new Error("Startup read could not start: epoch-unavailable.");
+  }
+  async function readVocabulary(): Promise<Vocabulary> {
+    requireOpenEpoch();
     if (cachedVocabulary !== undefined)
-      return Promise.resolve(cachedVocabulary);
+      return cachedVocabulary;
     pendingVocabulary ??= inspectVocabulary()
       .then(value => {
         cachedVocabulary = value;
@@ -129,7 +139,7 @@ export function bindEngineWorkerStartupClient(
       .finally(() => {
         pendingVocabulary = undefined;
       });
-    return pendingVocabulary;
+    return await pendingVocabulary;
   }
   return {
     host: { buildIdentity: bind(engineStartupOperations.buildIdentity) },

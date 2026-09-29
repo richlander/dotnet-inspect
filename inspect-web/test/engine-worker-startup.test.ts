@@ -259,6 +259,33 @@ test("a closed-epoch client cannot dispatch into a replacement epoch", async () 
   state.host.dispose();
 });
 
+test("a cached vocabulary cannot outlive its disposed epoch", async () => {
+  const state = fixture();
+  const warm = state.client.catalog.inspectVocabulary();
+  await state.environment.flushAsync();
+  assert.deepEqual(await warm, vocabulary);
+  state.host.dispose();
+  await assert.rejects(
+    state.client.catalog.inspectVocabulary(),
+    /epoch-unavailable/);
+  assert.deepEqual(state.calls, ["vocabulary"]);
+});
+
+test("a cached vocabulary cannot cross into a replacement epoch", async () => {
+  const state = fixture();
+  const warm = state.client.catalog.inspectVocabulary();
+  await state.environment.flushAsync();
+  assert.deepEqual(await warm, vocabulary);
+  state.host.restart();
+  assert.equal(state.host.start("https://inspect.example").kind, "started");
+  await state.environment.flushAsync();
+  await assert.rejects(
+    state.client.catalog.inspectVocabulary(),
+    /closed Worker epoch/);
+  assert.deepEqual(state.calls, ["vocabulary"]);
+  state.host.dispose();
+});
+
 test("Worker errors reject active reads and leave no success-shaped result", async () => {
   const state = fixture({ reads: { buildIdentity: () => new Promise(() => undefined) } });
   const pending = assert.rejects(state.client.host.buildIdentity(), /Worker message delivery failed/);
