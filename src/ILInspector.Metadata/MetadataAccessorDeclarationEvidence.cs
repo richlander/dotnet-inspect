@@ -991,7 +991,7 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                 MetadataAccessorDeclarationMechanism.TypeCategory,
         };
         MetadataEventTypeCategoryStatus typeCategory =
-            ReadEventTypeCategory(identity, site);
+            ReadEventTypeCategory(eventType, site);
         site = site with
         {
             Mechanism =
@@ -1039,6 +1039,12 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                         "The conventional accessor");
             if (signatureFailure is not null)
                 throw new BadImageFormatException(signatureFailure);
+            if (IsStatic(accessor.Method.Attributes)
+                == decoded.Signature.Header.IsInstance)
+            {
+                throw new BadImageFormatException(
+                    "An accessor MethodDef Static flag contradicts its signature instance bit.");
+            }
 
             MetadataAccessorRoleCorrespondenceEvidence role =
                 root switch
@@ -1283,25 +1289,36 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             InstanceMatches: null);
 
     MetadataEventTypeCategoryStatus ReadEventTypeCategory(
-        MetadataTypeIdentity eventType,
+        TypeNode eventType,
         MetadataAccessorDeclarationSite site)
     {
-        while (eventType is MetadataTypeIdentity.Modified modified)
-            eventType = modified.Type;
+        while (eventType is ModifiedTypeNode modified)
+            eventType = modified.Inner;
 
-        MetadataNamedTypeIdentity? definition;
+        MetadataTypeNameParts definition;
+        MetadataTypeScopeDescriptor scope;
         bool isValueType;
         switch (eventType)
         {
-            case MetadataTypeIdentity.Named named:
-                definition = named.Definition;
-                isValueType = named.IsValueType;
+            case NamedTypeNode named:
+                definition = named.MetadataName
+                    ?? throw new BadImageFormatException(
+                        "The EventDef type lacks a complete definition name.");
+                scope = named.ExactScope
+                    ?? throw new BadImageFormatException(
+                        "The EventDef type lacks an exact definition scope.");
+                isValueType = !named.IsReferenceType;
                 break;
-            case MetadataTypeIdentity.GenericInstance generic:
-                definition = generic.Definition;
-                isValueType = generic.IsValueType;
+            case GenericTypeNode generic:
+                definition = generic.MetadataName
+                    ?? throw new BadImageFormatException(
+                        "The EventDef type lacks a complete definition name.");
+                scope = generic.ExactScope
+                    ?? throw new BadImageFormatException(
+                        "The EventDef type lacks an exact definition scope.");
+                isValueType = !generic.IsReferenceType;
                 break;
-            case MetadataTypeIdentity.GenericParameter:
+            case GenericParameterNode:
                 return MetadataEventTypeCategoryStatus.Unavailable;
             default:
                 throw new BadImageFormatException(
@@ -1313,9 +1330,9 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             throw new BadImageFormatException(
                 "The EventDef type is not a delegate type.");
         }
-        if (definition.Scope.Kind
+        if (scope.Kind
                 != MetadataTypeScopeKind.CurrentModule
-            || definition.Scope.ModuleVersionId
+            || scope.ModuleVersionId
                 != MetadataModuleIdentity.ReadVersionId(_reader))
         {
             return MetadataEventTypeCategoryStatus.Unavailable;
@@ -1323,10 +1340,8 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
 
         MetadataTypeDefinitionNameResult nameResult =
             MetadataTypeDefinitionName.Create(
-                definition.Namespace.ToString(),
-                definition.Segments
-                    .Select(segment => segment.ToString())
-                    .ToImmutableArray());
+                definition.Namespace,
+                definition.Segments.ToImmutableArray());
         if (nameResult
             is not MetadataTypeDefinitionNameResult.Valid valid)
         {
