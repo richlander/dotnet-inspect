@@ -135,7 +135,8 @@ public static class PackageLibraryAddressInspection
                 kind => new InspectionDiagnostic(
                     MaterializationCode(kind),
                     InspectionDiagnosticSeverity.Error,
-                    MaterializationMessage(kind))));
+                    MaterializationMessage(kind),
+                    failure.Handoff.Asset.Path)));
     }
 
     private static InspectionEnvelope<LibraryAddressInspectionOutcome>
@@ -329,7 +330,7 @@ public static class PackageLibraryAddressInspection
                 .ArtifactPublication =>
                 "The selected package Library could not be published as Artifacts.",
             PackageHouseLibraryMaterializationFailureKind.MetadataProjection =>
-                "Metadata could not project one selected package Library assembly.",
+                "The selected managed assembly contains invalid metadata.",
             PackageHouseLibraryMaterializationFailureKind
                 .AssemblyIdentityMismatch =>
                 "The selected API and implementation assemblies did not retain one managed identity.",

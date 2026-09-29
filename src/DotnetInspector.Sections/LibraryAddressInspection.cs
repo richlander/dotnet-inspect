@@ -57,7 +57,8 @@ public abstract record LibraryAddressIntent
         public IlPoint(
             int methodToken,
             int ilOffset,
-            ILOffsetProjectionCapabilities capabilities)
+            ILOffsetProjectionCapabilities capabilities,
+            bool browsableUrls = false)
         {
             LibraryAddressInspectionContract.ValidateIlPoint(
                 methodToken,
@@ -67,11 +68,13 @@ public abstract record LibraryAddressIntent
             MethodToken = methodToken;
             ILOffset = ilOffset;
             Capabilities = capabilities;
+            BrowsableUrls = browsableUrls;
         }
 
         public int MethodToken { get; }
         public int ILOffset { get; }
         public ILOffsetProjectionCapabilities Capabilities { get; }
+        public bool BrowsableUrls { get; }
     }
 
     public sealed record HeapPoint : LibraryAddressIntent
@@ -103,7 +106,9 @@ public abstract record LibraryAddressIntent
 
         public Population(
             IEnumerable<LibraryAddressPopulationRecord> records,
-            ILOffsetProjectionCapabilities capabilities)
+            ILOffsetProjectionCapabilities capabilities,
+            bool browsableUrls = false,
+            bool allowNonBoundaryContextAbsence = false)
         {
             ArgumentNullException.ThrowIfNull(records);
             LibraryAddressInspectionContract.ValidateCapabilities(
@@ -133,6 +138,9 @@ public abstract record LibraryAddressIntent
 
             Records = snapshot;
             Capabilities = capabilities;
+            BrowsableUrls = browsableUrls;
+            AllowNonBoundaryContextAbsence =
+                allowNonBoundaryContextAbsence;
         }
 
         public ImmutableArray<LibraryAddressPopulationRecord> Records
@@ -141,6 +149,8 @@ public abstract record LibraryAddressIntent
         }
 
         public ILOffsetProjectionCapabilities Capabilities { get; }
+        public bool BrowsableUrls { get; }
+        public bool AllowNonBoundaryContextAbsence { get; }
     }
 }
 

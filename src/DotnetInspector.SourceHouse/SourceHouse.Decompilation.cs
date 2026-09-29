@@ -235,10 +235,26 @@ public static partial class SourceHouse
         {
             using AssemblyInspectionSession session =
                 AssemblyInspectionSession.Open(descriptor);
+            using var catalog = new TypeResolutionCatalog();
+            ApiSurfaceExtractionResult ExtractTargetSurface(
+                bool includeCompilerGenerated = false) =>
+                request.Product
+                    == SourceHouseDecompilationProduct.StructuredTypeDocument
+                    ? session.BoundedApiSurface(
+                        descriptor,
+                        catalog,
+                        request.Plan.BindingPolicy,
+                        ApiSurfaceExtractionScope.IncludeAll,
+                        request.Plan.Limits.TargetBounds,
+                        includeCompilerGenerated)
+                    : session.BoundedApiSurface(
+                        ApiSurfaceExtractionScope.IncludeAll,
+                        request.Plan.Limits.TargetBounds,
+                        includeCompilerGenerated:
+                            includeCompilerGenerated);
+
             ApiSurfaceExtractionResult extraction =
-                session.BoundedApiSurface(
-                    ApiSurfaceExtractionScope.IncludeAll,
-                    request.Plan.Limits.TargetBounds);
+                ExtractTargetSurface();
             if (extraction is ApiSurfaceExtractionResult.Exceeded)
             {
                 return Incomplete(
@@ -252,9 +268,7 @@ public static partial class SourceHouse
             if (!TargetExists(surface, request.Target)
                 && RequiresCompilerGeneratedSurface(request.Target))
             {
-                extraction = session.BoundedApiSurface(
-                    ApiSurfaceExtractionScope.IncludeAll,
-                    request.Plan.Limits.TargetBounds,
+                extraction = ExtractTargetSurface(
                     includeCompilerGenerated: true);
                 if (extraction is ApiSurfaceExtractionResult.Exceeded)
                 {

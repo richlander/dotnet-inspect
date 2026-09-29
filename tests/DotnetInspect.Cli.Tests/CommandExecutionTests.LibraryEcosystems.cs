@@ -74,8 +74,16 @@ public partial class CommandExecutionTests
                 exit == 0,
                 $"Expected exit code 0, got {exit}.{Environment.NewLine}{error}");
             Assert.Empty(error);
-            Assert.Contains("| Microsoft.Extensions |", output, StringComparison.Ordinal);
-            Assert.Contains("| AI |", output, StringComparison.Ordinal);
+            Assert.Contains(
+                output.Split('\n'),
+                line => line.TrimStart().StartsWith(
+                    "Microsoft.Extensions  ",
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                output.Split('\n'),
+                line => line.TrimStart().StartsWith(
+                    "AI  ",
+                    StringComparison.Ordinal));
             Assert.Equal(
                 2,
                 output.Split('\n').Count(

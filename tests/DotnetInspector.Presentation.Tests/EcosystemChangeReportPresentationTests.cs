@@ -94,12 +94,12 @@ public sealed class EcosystemChangeReportPresentationTests
         EcosystemChangeReportPlan plan =
             EcosystemChangeReportPlan.Resolve(
                 new EcosystemChangeReportRequest(
-                    new EcosystemChangePackageSelection.PackageSet(
-                        "package-set.real-witness",
+                    new EcosystemChangePackageSelection.PackagePrefix(
+                        "ecosystem.real-witness",
                         [
-                            new PackageCoordinate(
+                            new PackagePrefixDeclaration(
                                 "Microsoft.Extensions.AI"),
-                            new PackageCoordinate("Contoso.Fallback"),
+                            new PackagePrefixDeclaration("Contoso.Fallback"),
                         ])),
                 new FixedTimeProvider(ReferenceTime));
 
@@ -122,7 +122,10 @@ public sealed class EcosystemChangeReportPresentationTests
             document.Request.ThroughInclusive);
         Assert.Equal(
             ["Microsoft.Extensions.AI", "Contoso.Fallback"],
-            document.Request.PackageScope.PackageIds);
+            document.Request.PackageScope.Prefixes);
+        Assert.Equal(
+            "ecosystem.real-witness",
+            document.Request.PackageScope.SelectionId);
         Assert.Equal(4, document.Rows.Length);
 
         EcosystemChangeReportRowPresentation deletion =
@@ -173,12 +176,18 @@ public sealed class EcosystemChangeReportPresentationTests
         string json = EcosystemChangeReportJson.Serialize(document);
         using JsonDocument parsed = JsonDocument.Parse(json);
         JsonElement root = parsed.RootElement;
+        JsonElement scope = root.GetProperty("request")
+            .GetProperty("package_scope");
+        Assert.Equal("PackagePrefix", scope.GetProperty("kind").GetString());
         Assert.Equal(
-            "PackageSet",
-            root.GetProperty("request")
-                .GetProperty("package_scope")
-                .GetProperty("kind")
-                .GetString());
+            "ecosystem.real-witness",
+            scope.GetProperty("selection_id").GetString());
+        Assert.Equal(
+            ["Microsoft.Extensions.AI", "Contoso.Fallback"],
+            scope.GetProperty("prefixes").EnumerateArray()
+                .Select(static prefix => prefix.GetString()));
+        Assert.False(scope.TryGetProperty("package_ids", out _));
+        Assert.Equal(2, root.GetProperty("schema_version").GetInt32());
         Assert.Equal(
             "PublishedFallback",
             root.GetProperty("rows")[1]
@@ -204,7 +213,7 @@ public sealed class EcosystemChangeReportPresentationTests
             EcosystemChangeReportView.Create(document),
             EcosystemChangeReportViewContext.Default);
         Assert.Contains(
-            "# package-set.real-witness",
+            "# ecosystem.real-witness",
             markdown,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -331,8 +340,9 @@ public sealed class EcosystemChangeReportPresentationTests
             EcosystemChangePackageScopeKind.PackagePrefix,
             document.Request.PackageScope.Kind);
         Assert.Equal(
-            "Microsoft.Extensions.",
-            document.Request.PackageScope.Prefix);
+            ["Microsoft.Extensions."],
+            document.Request.PackageScope.Prefixes);
+        Assert.Null(document.Request.PackageScope.SelectionId);
         Assert.Equal(horizon, document.Summary.CapturedHorizon);
         Assert.Equal(
             NuGetCatalogCompletion.SourceHorizonReached,

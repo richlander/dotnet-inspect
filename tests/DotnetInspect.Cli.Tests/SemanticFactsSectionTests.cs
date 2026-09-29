@@ -28,6 +28,8 @@ public class SemanticFactsSectionTests
         Assert.Contains("array", result.Output);
         Assert.Contains("stackalloc", result.Output);
         Assert.Contains("virtual dispatch", result.Output);
+        Assert.Contains("Lifetime Uses", result.Output);
+        Assert.Contains("length-read", result.Output);
         Assert.DoesNotContain("Confidence", result.Output);
         Assert.DoesNotContain("construction", result.Output);
         Assert.DoesNotContain("Root Reach", result.Output);
@@ -81,6 +83,8 @@ public class SemanticFactsSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Context: Allocation", result.Output);
         Assert.Contains("| IL Offset | Allocation Kind |", result.Output);
+        Assert.Contains("Lifetime Uses", result.Output);
+        Assert.Contains("length-read", result.Output);
         Assert.DoesNotContain("Performance Triage", result.Output);
     }
 

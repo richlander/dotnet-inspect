@@ -778,7 +778,7 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             SignatureBlobGuard.ValidateComplete(
                 _reader,
                 signatureBlob,
-                SignatureBlobGuard.Kind.Method);
+                SignatureBlobGuard.Kind.Property);
         if (validation
             != SignatureBlobGuard.CompleteValidationKind.Valid)
         {
@@ -905,23 +905,35 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                 RawSemantics = accessor.RawSemantics,
                 Method = accessor.Method.Method,
             };
-            MethodSignature<TypeNode> decodedSignature =
+            DecodedAccessorSignature decoded =
                 DecodeAccessorSignature(
                     accessor.Method.Method.Handle,
                     owner,
                     site);
             string? signatureFailure =
                 MetadataStructuralTypeValidator
-                    .ValidateAccessorMethodSignature(
-                        decodedSignature,
-                        accessor.Method.TypeParameters.Length,
+                    .ValidateMethodSignature(
+                        decoded.Signature,
+                        decoded.TypeParameterCount,
+                        decoded.MethodParameterCount,
                         "The conventional accessor");
             if (signatureFailure is not null)
                 throw new BadImageFormatException(signatureFailure);
 
             MetadataMethodSignatureIdentity signature =
                 accessor.Method.Signature;
-            SignatureHeader header = decodedSignature.Header;
+            SignatureHeader header = decoded.Signature.Header;
+            if (header.HasExplicitThis
+                || header.IsGeneric
+                || header.CallingConvention
+                    != SignatureCallingConvention.Default
+                || decoded.Signature.GenericParameterCount != 0
+                || decoded.Signature.RequiredParameterCount
+                    != decoded.Signature.ParameterTypes.Length)
+            {
+                throw new BadImageFormatException(
+                    "A conventional accessor does not carry a complete ordinary method signature.");
+            }
             bool methodIsStatic =
                 (accessor.Method.Attributes
                     & MethodAttributes.Static) != 0;
@@ -970,7 +982,7 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             }
         }
 
-        MethodSignature<TypeNode> DecodeAccessorSignature(
+        DecodedAccessorSignature DecodeAccessorSignature(
             MethodDefinitionHandle handle,
             TypeDefinition owner,
             MetadataAccessorDeclarationSite site)
@@ -1010,7 +1022,10 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                 throw new BadImageFormatException(
                     "A conventional accessor signature cannot be decoded completely.");
             }
-            return decoded.Value;
+            return new(
+                decoded.Value,
+                generic.TypeParameters.Count,
+                generic.MethodParameters.Count);
         }
 
         if (root
@@ -1459,6 +1474,11 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         int? PhysicalRowNumber = null,
         ushort? RawSemantics = null,
         MetadataMethodAddress? Method = null);
+
+    readonly record struct DecodedAccessorSignature(
+        MethodSignature<TypeNode> Signature,
+        int TypeParameterCount,
+        int MethodParameterCount);
 
     const MethodAttributes AccessorDeclarationModifierMask =
         MethodAttributes.Static

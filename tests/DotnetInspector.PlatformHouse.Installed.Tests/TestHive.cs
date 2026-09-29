@@ -30,12 +30,13 @@ internal sealed class TestHive : IDisposable
 
     internal string CreateReferencePack(
         string version,
-        string targetFramework)
+        string targetFramework,
+        string packName = "Microsoft.NETCore.App.Ref")
     {
         string directory = Path.Combine(
             Root,
             "packs",
-            "Microsoft.NETCore.App.Ref",
+            packName,
             version,
             "ref",
             targetFramework);

@@ -19,7 +19,7 @@ public static class PlatformDocumentationHouseAdapter
         ArgumentNullException.ThrowIfNull(subject);
 
         LibraryReference library =
-            materialization.RealizedLibrary
+            materialization.RealizedLibrary?.Library
             ?? throw new ArgumentException(
                 "The platform adapter requires a completed one-Library realization receipt.",
                 nameof(materialization));
@@ -58,9 +58,9 @@ public static class PlatformDocumentationHouseAdapter
         bool authoritativeAbsence =
             materialization.HouseReceipt.Request.Operation
                 is PlatformHouseOperationSnapshot.Realize
-                {
-                    ContentDemand: var contentDemand,
-                }
+            {
+                ContentDemand: var contentDemand,
+            }
             && contentDemand.HasFlag(
                 PlatformLibraryContentDemand
                     .CompiledXmlDocumentation);

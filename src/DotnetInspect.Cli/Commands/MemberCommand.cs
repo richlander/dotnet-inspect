@@ -409,7 +409,10 @@ public static class MemberCommand
             // Check each member filter before producing output
             if (options.MemberFilter.Count > 0)
             {
-                var memberValidation = ApiTypeLookupService.ValidateMemberFilters(apiType, options.MemberFilter);
+                var memberValidation = ApiTypeLookupService.ValidateMemberFilters(
+                    apiType,
+                    options.MemberFilter,
+                    includeAccessorMethods: true);
                 if (!memberValidation.IsValid)
                 {
                     // The ranking/graph surfaces walk the full IL index and surface non-public
@@ -417,9 +420,19 @@ public static class MemberCommand
                     // would match a non-public member, hint at --all instead of dead-ending.
                     if (!options.IncludeAll && apiDllPath is { } dllForHint)
                     {
-                        var allMemberNames = AssemblyReader.ExtractApiSurface(dllForHint, includeAll: true)?
-                            .Types.FirstOrDefault(t => t.FullName == apiType.FullName)?
-                            .Members.Select(m => m.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        ApiType? allType =
+                            AssemblyReader.ExtractApiSurface(
+                                    dllForHint,
+                                    includeAll: true)?
+                                .Types.FirstOrDefault(
+                                    type =>
+                                        type.FullName
+                                        == apiType.FullName);
+                        var allMemberNames = allType is null
+                            ? null
+                            : ApiTypeLookupService.GetMemberNames(
+                                allType,
+                                includeAccessorMethods: true);
                         if (allMemberNames is { Count: > 0 })
                         {
                             var nonPublic = ApiTypeLookupService.FindNonPublicMatches(
@@ -791,6 +804,41 @@ public static class MemberCommand
                 {
                     return 1;
                 }
+            }
+
+            if (MemberGroupDocumentOutput.IsSelected(
+                    apiType,
+                    effectiveOptions,
+                    executionPlan))
+            {
+                string? memberGroupAssemblyPath =
+                    apiType.SourceAssemblyPath
+                    ?? sourceAssembly?.Path
+                    ?? apiDllPath;
+                if (memberGroupAssemblyPath is null)
+                {
+                    CommandError.Write(
+                        "The exact member group's defining Library has no local inspection path.");
+                    return 1;
+                }
+                return await MemberGroupDocumentOutput.WriteAsync(
+                    apiType,
+                    effectiveOptions,
+                    memberGroupAssemblyPath,
+                    CancellationToken.None);
+            }
+            if (effectiveOptions.Tree
+                && !(effectiveOptions.Count
+                    && effectiveOptions.IncludeSections is { Count: 1 })
+                && (effectiveOptions.IncludeSections is not { Count: 1 }
+                    || !effectiveOptions.IncludeSections.Contains(
+                        SectionNames.CallGraph)))
+            {
+                CommandError.Write(
+                    "--tree requires exactly one selected tree shape.",
+                    "Use an exact method-group name or "
+                        + "-S \"Call Graph\" --tree.");
+                return 1;
             }
 
             // Enrich with local XML docs only (source info is in the source command)

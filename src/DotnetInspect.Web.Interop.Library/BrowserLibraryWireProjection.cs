@@ -352,6 +352,7 @@ internal static class BrowserLibraryWireProjection
             member.AnchorDigest,
             member.CanonicalSignature,
             member.AnchorTypeFullName,
+            member.DeclaringTypeDefinitionId,
             member.GraphSelectorKey,
             [
                 .. member.BodySelectors.Select(selector =>

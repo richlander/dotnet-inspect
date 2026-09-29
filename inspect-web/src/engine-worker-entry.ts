@@ -54,9 +54,9 @@ registerEngineWorkerStartupOperations(operations, {
   async listHomeDemos() {
     return (await import("/inspect-web-catalog.js")).listHomeDemos();
   },
-  async listPackageActivityPackageSets() {
+  async listPackageActivityEcosystems() {
     return (await import("/inspect-web-package.js"))
-      .listPackageActivityPackageSets();
+      .listPackageActivityEcosystems();
   },
   async listPackageQueryCatalog() {
     return (await import("/inspect-web-package.js")).listPackageQueryCatalog();
