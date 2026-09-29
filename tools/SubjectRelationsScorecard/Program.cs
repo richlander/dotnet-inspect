@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -200,7 +199,8 @@ readonly struct HierarchyRelationRow(
     MetadataReader reader,
     TypeDefinitionHandle source,
     EntityHandle target,
-    MetadataHierarchyRelationKind kind)
+    MetadataHierarchyRelationKind kind,
+    int metadataToken)
 {
     public MetadataReader Reader { get; } = reader;
 
@@ -210,6 +210,8 @@ readonly struct HierarchyRelationRow(
 
     public MetadataHierarchyRelationKind Kind { get; } = kind;
 
+    public int MetadataToken { get; } = metadataToken;
+
     public int SourceToken => MetadataTokens.GetToken(Source);
 }
 
@@ -217,6 +219,8 @@ struct HierarchyRelationRows :
     NLinq.IEnumerator<HierarchyRelationRows, HierarchyRelationRow>
 {
     readonly MetadataReader _reader;
+    readonly MetadataHierarchyRelationAnalysis _analysis;
+    readonly MetadataHierarchyRelationKind _kind;
     TypeDefinitionHandleCollection.Enumerator _types;
     InterfaceImplementationHandleCollection.Enumerator _interfaces;
     TypeDefinitionHandle _source;
@@ -224,9 +228,14 @@ struct HierarchyRelationRows :
     bool _basePending;
     bool _inType;
 
-    public HierarchyRelationRows(MetadataReader reader)
+    public HierarchyRelationRows(
+        MetadataReader reader,
+        MetadataHierarchyRelationAnalysis analysis,
+        MetadataHierarchyRelationKind kind)
     {
         _reader = reader;
+        _analysis = analysis;
+        _kind = kind;
         _types = reader.TypeDefinitions.GetEnumerator();
     }
 
@@ -244,19 +253,22 @@ struct HierarchyRelationRows :
                         _reader,
                         _source,
                         _definition.BaseType,
-                        MetadataHierarchyRelationKind.BaseType);
+                        MetadataHierarchyRelationKind.BaseType,
+                        MetadataTokens.GetToken(_source));
                 }
-                if (_interfaces.MoveNext())
+                if (_kind != MetadataHierarchyRelationKind.BaseType
+                    && _interfaces.MoveNext())
                 {
                     InterfaceImplementation implementation =
-                        _reader.GetInterfaceImplementation(
+                        _analysis.ReadInterfaceImplementation(
                             _interfaces.Current);
                     hasMore = true;
                     return new(
                         _reader,
                         _source,
                         implementation.Interface,
-                        MetadataHierarchyRelationKind.Interface);
+                        MetadataHierarchyRelationKind.Interface,
+                        MetadataTokens.GetToken(_interfaces.Current));
                 }
                 _inType = false;
             }
@@ -269,10 +281,10 @@ struct HierarchyRelationRows :
 
             _source = _types.Current;
             _definition = _reader.GetTypeDefinition(_source);
-            if (!IsExternallyVisible(_reader, _source)
-                || AttributeReader.HasHiddenAttribute(
-                    _reader,
-                    _definition.GetCustomAttributes()))
+            if (!_analysis.IncludesSource(
+                    _source,
+                    includeNonPublic: false,
+                    includeHidden: false))
             {
                 continue;
             }
@@ -298,28 +310,6 @@ struct HierarchyRelationRows :
                 return accumulator;
             accumulator = function.Invoke(accumulator, row);
         }
-    }
-
-    static bool IsExternallyVisible(
-        MetadataReader reader,
-        TypeDefinitionHandle handle)
-    {
-        while (!handle.IsNil)
-        {
-            TypeDefinition definition = reader.GetTypeDefinition(handle);
-            TypeAttributes visibility =
-                definition.Attributes & TypeAttributes.VisibilityMask;
-            TypeDefinitionHandle declaring =
-                definition.GetDeclaringType();
-            if (declaring.IsNil
-                    ? visibility != TypeAttributes.Public
-                    : visibility != TypeAttributes.NestedPublic)
-            {
-                return false;
-            }
-            handle = declaring;
-        }
-        return true;
     }
 }
 
@@ -348,23 +338,37 @@ static class HierarchyPopulation
         HierarchyAsset asset,
         ScorecardShape shape)
     {
+        using var analysis =
+            new MetadataHierarchyRelationAnalysis(
+                asset.Metadata,
+                MetadataOperationPolicy.Unbounded);
+        var selectedPredicate =
+            new Selected(
+                analysis,
+                new(asset.Target, asset.Kind));
         var selected =
-            new HierarchyRelationRows(asset.Metadata)
+            new HierarchyRelationRows(
+                asset.Metadata,
+                analysis,
+                asset.Kind)
                 .Where<
                     HierarchyRelationRows,
                     HierarchyRelationRow,
                     Selected>(
-                        new(asset.Kind, asset.Target));
+                        selectedPredicate);
         switch (closing)
         {
             case ScorecardClosing.Exists:
                 return ScorecardAnswer<int>.OfExists(
-                    new HierarchyRelationRows(asset.Metadata)
+                    new HierarchyRelationRows(
+                        asset.Metadata,
+                        analysis,
+                        asset.Kind)
                         .Any<
                             HierarchyRelationRows,
                             HierarchyRelationRow,
                             Selected>(
-                                new(asset.Kind, asset.Target)));
+                                selectedPredicate));
             case ScorecardClosing.Count:
                 return ScorecardAnswer<int>.OfCount(
                     selected.CountFold<
@@ -481,9 +485,17 @@ static class HierarchyPopulation
         HierarchyAsset asset,
         ScorecardShape shape)
     {
+        using var analysis =
+            new MetadataHierarchyRelationAnalysis(
+                asset.Metadata,
+                MetadataOperationPolicy.Unbounded);
+        var selected =
+            new Selected(
+                analysis,
+                new(asset.Target, asset.Kind));
         IEnumerable<int> rows =
-            Enumerate(asset.Metadata)
-                .Where(row => Matches(row, asset.Kind, asset.Target))
+            Enumerate(asset.Metadata, analysis, asset.Kind)
+                .Where(selected.Invoke)
                 .Select(static row => row.SourceToken);
         return Answer(closing, rows, shape);
     }
@@ -500,7 +512,10 @@ static class HierarchyPopulation
             result.Hierarchy.Evidence
                 .Where(evidence =>
                     evidence.Kind == asset.Kind
-                    && Matches(evidence.Target, asset.Target))
+                    && MetadataHierarchyRelationAnalysis
+                        .MatchesTargetIdentity(
+                            evidence.Target,
+                            asset.Target))
                 .Select(static evidence =>
                     evidence.Source.Definition.Value);
         return Answer(closing, rows, shape);
@@ -549,9 +564,11 @@ static class HierarchyPopulation
         };
 
     static IEnumerable<HierarchyRelationRow> Enumerate(
-        MetadataReader reader)
+        MetadataReader reader,
+        MetadataHierarchyRelationAnalysis analysis,
+        MetadataHierarchyRelationKind kind)
     {
-        var rows = new HierarchyRelationRows(reader);
+        var rows = new HierarchyRelationRows(reader, analysis, kind);
         while (true)
         {
             HierarchyRelationRow row =
@@ -575,97 +592,28 @@ static class HierarchyPopulation
                 "Unknown relation inspection outcome."),
         };
 
-    static bool Matches(
-        HierarchyRelationRow row,
-        MetadataHierarchyRelationKind kind,
-        MetadataTypeDefinitionName target) =>
-        row.Kind == kind
-        && Matches(row.Reader, row.Target, target);
-
-    static bool Matches(
-        MetadataReader reader,
-        EntityHandle handle,
-        MetadataTypeDefinitionName target)
-    {
-        if (target.Segments.Length != 1)
-            return false;
-        string targetNamespace = target.Namespace.ToString();
-        string targetName = target.Segments[0].ToString();
-        return handle.Kind switch
-        {
-            HandleKind.TypeDefinition =>
-                Matches(
-                    reader,
-                    reader.GetTypeDefinition(
-                        (TypeDefinitionHandle)handle),
-                    targetNamespace,
-                    targetName),
-            HandleKind.TypeReference =>
-                Matches(
-                    reader,
-                    reader.GetTypeReference(
-                        (TypeReferenceHandle)handle),
-                    targetNamespace,
-                    targetName),
-            _ => false,
-        };
-    }
-
-    static bool Matches(
-        MetadataReader reader,
-        TypeDefinition definition,
-        string targetNamespace,
-        string targetName) =>
-        definition.GetDeclaringType().IsNil
-        && reader.StringComparer.Equals(
-            definition.Namespace,
-            targetNamespace)
-        && reader.StringComparer.Equals(
-            definition.Name,
-            targetName);
-
-    static bool Matches(
-        MetadataReader reader,
-        TypeReference reference,
-        string targetNamespace,
-        string targetName) =>
-        reference.ResolutionScope.Kind
-            != HandleKind.TypeReference
-        && reader.StringComparer.Equals(
-            reference.Namespace,
-            targetNamespace)
-        && reader.StringComparer.Equals(
-            reference.Name,
-            targetName);
-
-    static bool Matches(
-        MetadataTypeIdentity identity,
-        MetadataTypeDefinitionName target)
-    {
-        MetadataNamedTypeIdentity? named = identity switch
-        {
-            MetadataTypeIdentity.Named value => value.Definition,
-            MetadataTypeIdentity.GenericInstance value =>
-                value.Definition,
-            _ => null,
-        };
-        return named is not null
-            && MetadataTypeDefinitionName.Create(
-                    named.Namespace.ToString(),
-                    [.. named.Segments.Select(static segment =>
-                        segment.ToString())])
-                is MetadataTypeDefinitionNameResult.Valid valid
-            && valid.Name == target;
-    }
-
     readonly struct Selected(
-        MetadataHierarchyRelationKind kind,
-        MetadataTypeDefinitionName target) :
+        MetadataHierarchyRelationAnalysis analysis,
+        MetadataHierarchyTargetSelection selection) :
         IFunc<HierarchyRelationRow, bool>
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool Invoke(HierarchyRelationRow row) =>
-            Matches(row, kind, target);
+            analysis.Analyze(
+                row.Source,
+                row.Reader.GetTypeDefinition(row.Source),
+                row.Target,
+                row.Kind,
+                row.MetadataToken,
+                selection) switch
+            {
+                MetadataHierarchyRelationAnalysisResult.Selected => true,
+                MetadataHierarchyRelationAnalysisResult.NoMatch => false,
+                MetadataHierarchyRelationAnalysisResult.Rejected rejected =>
+                    throw new BadImageFormatException(rejected.Detail),
+                _ => throw new InvalidOperationException(
+                    "Unknown hierarchy analysis result."),
+            };
     }
 
     readonly struct ToToken :
