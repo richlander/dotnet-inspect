@@ -220,7 +220,7 @@ function isFacadeModule(value: unknown): value is FacadeModule {
 
 interface HostFacade extends FacadeModule {
   asyncLoweringCanary(): Promise<string>;
-  configureHost(origin: string): void;
+  configureHost(origin: string): Promise<void>;
 }
 
 function isHostFacade(value: unknown): value is HostFacade {
@@ -404,7 +404,7 @@ assert.deepEqual(
 
 const host = facadeModule("inspect-web-host");
 assert.ok(isHostFacade(host), "the host facade has an unexpected public shape");
-host.configureHost("https://dotnet-inspect.test");
+await host.configureHost("https://dotnet-inspect.test");
 assert.match(
   importedState.calls.at(-1) ?? "",
   new RegExp(

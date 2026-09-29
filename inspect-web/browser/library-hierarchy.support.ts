@@ -225,6 +225,9 @@ const historicalPlatformTarget: PlatformCatalogTarget = {
   }],
 };
 interface PlatformFixture {
+  forwarders?: boolean;
+  forwarderFailure?: boolean;
+  forwarderPending?: boolean;
   warmup?: "pending" | "fail-once";
   discoveryFailure?: boolean;
   catalogFailure?: boolean;
@@ -288,6 +291,11 @@ async function installFacades(
         ? { ...row, file: "PhysicalPayload.dll" } : row),
       ...(platform?.duplicateLibrary ? [{ ...platformTarget.rows[0]!, pack: "aspnetcore.app" as const }] : []),
       ...(platform?.nativeCoreLib ? [{ ...platformRow("System.Private.CoreLib", "impl", false), publicTypes: 1 }] : []),
+      ...(platform?.forwarders ? [
+        { ...platformRow("System.Xml", "facade"), forwardsTo: "System.Xml.ReaderWriter" },
+        { ...platformRow("System.Xml.ReaderWriter", "facade"), forwardsTo: "System.Private.Xml" },
+        { ...platformRow("System.Private.Xml", "impl", false), publicTypes: 1 },
+      ] : []),
     ],
   };
   const fixtureChannelName = `inspect-web-library-fixture-${randomUUID()}`;
@@ -611,12 +619,73 @@ async function installFacades(
         const types = row.publicTypes ? [{
           ...surfaces[0].types[0], id: assembly.id + ":Example.Widget",
           assembly: file, assemblyName: assembly.name, assemblyId: assembly.id, platformPack: pack,
+          ...(platformOptions.forwarders && assembly.name === "System.Private.Xml" ? {
+            id: assembly.id + ":System.Xml.XmlReader",
+            definitionId: "System.Xml.XmlReader",
+            name: "XmlReader", displayName: "XmlReader", namespace: "System.Xml",
+          } : {}),
         }] : [];
         return JSON.stringify({
           ...surfaces[0], package: "Microsoft.NETCore.App", version, frameworks: [tfm], activeFramework: tfm,
           defaultAssemblyId: assembly.id, assemblies: [assembly], types,
           totalMembers: row.publicTypes,
         });
+      }
+      let forwarderView = null;
+      let forwarderViewSequence = 0;
+      const forwarderSurfaces = new Map();
+      export async function openPlatformForwarderView(tfm, version, file, pack) {
+        const catalogRow = platformTarget.rows.find(row => row.assembly + ".dll" === file && row.pack === pack);
+        document.documentElement.dataset.platformLibraryRequest =
+          JSON.stringify([tfm, version, file, pack, catalogRow?.file ?? file]);
+        const key = JSON.stringify([tfm, version, file, pack]);
+        let surface = forwarderSurfaces.get(key);
+        if (!surface) {
+          surface = JSON.parse(await loadRuntimePackAssembly(
+            tfm, version, file, pack, catalogRow?.file ?? file));
+          forwarderSurfaces.set(key, surface);
+        }
+        const assembly = surface.assemblies.find(row => row.id === surface.defaultAssemblyId);
+        const id = "forwarder-view-" + ++forwarderViewSequence;
+        const target = platformOptions.forwarders
+          ? { "System.Xml": "System.Xml.ReaderWriter", "System.Xml.ReaderWriter": "System.Private.Xml" }[assembly.name]
+          : null;
+        forwarderView = {
+          id, surface, family: "runtime", framework: tfm, version, assembly: assembly.name,
+          forwarders: target ? [{
+            id: assembly.name + ":System.Xml.XmlReader", name: "System.Xml.XmlReader",
+            namespace: "System.Xml", targetAssembly: target, action: id + ":XmlReader",
+          }] : [],
+          selectedTypeId: null,
+        };
+        document.documentElement.dataset.forwarderView = id;
+        return {
+          status: "opened", message: null, view: forwarderView,
+          hops: [], resolutionKind: null, terminalAssembly: null, houseStatus: null, sourceStatus: null,
+        };
+      }
+      export function closePlatformForwarderView(id) {
+        document.documentElement.dataset.closedForwarderView = id;
+        if (forwarderView?.id !== id) return false;
+        forwarderView = null;
+        return true;
+      }
+      export async function activatePlatformForwarder(action) {
+        const source = forwarderView;
+        const declaration = source?.forwarders.find(row => row.action === action);
+        document.documentElement.dataset.forwarderAction = action;
+        if (platformOptions.forwarderPending)
+          await new Promise(resolve => document.addEventListener("finish-forwarder", resolve, { once: true }));
+        if (platformOptions.forwarderFailure || !declaration || forwarderView !== source)
+          return {
+            status: platformOptions.forwarderFailure ? "unavailable" : "stale",
+            message: "The forwarded Type destination is unavailable.", view: null,
+            hops: [], resolutionKind: null, terminalAssembly: null, houseStatus: null, sourceStatus: null,
+          };
+        const result = await openPlatformForwarderView(
+          source.framework, source.version, declaration.targetAssembly + ".dll", "netcore.app");
+        result.view.selectedTypeId = result.view.forwarders[0]?.id ?? result.view.surface.types[0]?.id;
+        return result;
       }
       export async function queryPackage(id, version, framework) {
         const surface = surfaceFor(id);
@@ -1782,7 +1851,22 @@ async function installFacades(
       const homeDemoResults = ${JSON.stringify(homeDemos?.results ?? {})};
       const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
       const workspaceSources = ${JSON.stringify(workspaceSources)};
-      export function listVocabulary() { return { schema_version: 1, sections: [] }; }
+      export function inspectVocabulary() {
+        return {
+          content: {
+            formatVersion: 1,
+            catalog: { value: "dotnet-inspect.product" },
+            identity: { value: "sha256:${"0".repeat(64)}" },
+            vocabularies: [],
+          },
+          share: {
+            kind: "nonProjectable",
+            path: "vocabulary/share",
+            reason: "Static catalog.",
+          },
+          diagnostics: [],
+        };
+      }
       export async function listHomeDemos() {
         if (homeDemoCatalogPending) {
           document.documentElement.dataset.homeDemoCatalogPending = "true";

@@ -70,7 +70,29 @@ public sealed class MetadataStructuralTypeValidatorTests
     }
 
     [Fact]
-    public void MethodSignature_AcceptsVarArgsOptionalParameters()
+    public void MethodSignature_AcceptsVarArgsFixedParameters()
+    {
+        TypeNode int32 = Provider.GetPrimitiveType(PrimitiveTypeCode.Int32);
+        var signature = new MethodSignature<TypeNode>(
+            new SignatureHeader(
+                SignatureKind.Method,
+                SignatureCallingConvention.VarArgs,
+                SignatureAttributes.None),
+            Provider.GetPrimitiveType(PrimitiveTypeCode.Void),
+            requiredParameterCount: 1,
+            genericParameterCount: 0,
+            [int32]);
+
+        Assert.Null(
+            MetadataStructuralTypeValidator.ValidateMethodSignature(
+                signature,
+                typeParameterCount: 0,
+                methodParameterCount: 0,
+                "The method"));
+    }
+
+    [Fact]
+    public void MethodSignature_RejectsVarArgsOptionalParameters()
     {
         TypeNode int32 = Provider.GetPrimitiveType(PrimitiveTypeCode.Int32);
         var signature = new MethodSignature<TypeNode>(
@@ -83,7 +105,7 @@ public sealed class MetadataStructuralTypeValidatorTests
             genericParameterCount: 0,
             [int32, int32]);
 
-        Assert.Null(
+        Assert.NotNull(
             MetadataStructuralTypeValidator.ValidateMethodSignature(
                 signature,
                 typeParameterCount: 0,
