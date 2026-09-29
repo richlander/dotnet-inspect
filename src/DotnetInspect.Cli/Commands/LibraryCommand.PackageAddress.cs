@@ -707,7 +707,8 @@ public partial class LibraryCommand
             string? detail = failure switch
             {
                 PackageHouseFailure.Authority authority =>
-                    authority.Failure.Message,
+                    FormatPackageAuthorityFailure(
+                        authority.Failure),
                 PackageHouseFailure.Stage stage =>
                     stage.Reason.ToString(),
                 _ => null,
@@ -715,6 +716,15 @@ public partial class LibraryCommand
             if (detail is not null && written.Add(detail))
                 CommandError.Write(detail);
         }
+    }
+
+    private static string FormatPackageAuthorityFailure(
+        PackageAuthorityFailure failure)
+    {
+        string authority = failure.Authority.ToString();
+        return authority.Length == 0
+            ? failure.Message
+            : $"{authority}: {failure.Message}";
     }
 
     private sealed class SingleAddressSourceAuthorization(
