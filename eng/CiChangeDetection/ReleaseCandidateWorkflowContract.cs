@@ -142,7 +142,9 @@ internal static class ReleaseCandidateWorkflowContract
             FindStep(source, "Require green main and an unreleased version"),
             "run",
             "release candidate source validation");
-        RequireContains(sourceRun, ".check_runs[] | select(.name == \"ci-required\")");
+        RequireContains(
+            sourceRun,
+            ".check_runs[] | select(.name == \"ci / ci-required\")");
         RequireContains(sourceRun, "test \"$skill_version\" = \"$version\"");
         RequireContains(
             sourceRun,

@@ -41,7 +41,7 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" \
             --jq '
-              [.check_runs[] | select(.name == "ci-required")]
+              [.check_runs[] | select(.name == "ci / ci-required")]
               | sort_by(.id)
               | last
               | .status == "completed" and .conclusion == "success"
