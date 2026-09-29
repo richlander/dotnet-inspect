@@ -884,6 +884,21 @@ public class LibraryInspectionView
     [MarkoutIgnoreColumnWhen(
         nameof(LibraryMetricNotesEmpty),
         nameof(LibraryMetricRow.Notes))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricPositionEmpty),
+        nameof(LibraryMetricRow.Position))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricTypeEmpty),
+        nameof(LibraryMetricRow.Type))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricTypeKeyEmpty),
+        nameof(LibraryMetricRow.TypeKey))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricDegreeEmpty),
+        nameof(LibraryMetricRow.Degree))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricRoleEmpty),
+        nameof(LibraryMetricRow.Role))]
     public List<LibraryMetricRow>? LibraryMetricsSection
     {
         get
@@ -1091,6 +1106,9 @@ public class LibraryInspectionView
                 asyncDisposition.AbsentCount.ToString(),
                 null));
 
+        if (document.TypeLeverage is { } leverage)
+            AddTypeLeverageRows(rows, leverage);
+
         rows.AddRange(
             document.Diagnostics.Select(static diagnostic => new LibraryMetricRow(
                 "Diagnostic",
@@ -1108,6 +1126,118 @@ public class LibraryInspectionView
                 diagnostic.Message)));
 
         return rows;
+    }
+
+    private static void AddTypeLeverageRows(
+        List<LibraryMetricRow> rows,
+        LibraryStructuralTypeLeverageDocument leverage)
+    {
+        IReadOnlyDictionary<
+            MetadataTypeDefinitionAddress,
+            LibraryStructuralTypeLeverageRow> byType =
+                leverage.Rows.ToDictionary(static row => row.Type);
+
+        rows.Add(
+            new(
+                "Sea-Level Types",
+                "Qualification",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                $"ranking {leverage.SeaLevel.Disposition}; "
+                    + $"role {leverage.RoleDisposition}; signature "
+                    + $"{leverage.SignatureUse.Disposition}; sites "
+                    + $"{leverage.SignatureUse.Coverage.Examined}/"
+                    + $"{leverage.SignatureUse.Coverage.Considered}; "
+                    + $"occurrences {leverage.SignatureUse.OccurrenceCount}; "
+                    + $"diagnostics "
+                    + leverage.SignatureUse.Diagnostics.Length));
+        AddTypeLeverageOrder(
+            rows,
+            "Sea-Level Types",
+            "Signature incoming",
+            leverage.SeaLevel.Types,
+            byType,
+            static row => row.SignatureIncomingDegree);
+
+        rows.Add(
+            new(
+                "Mountain-Peak Types",
+                "Qualification",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                $"ranking {leverage.MountainPeak.Disposition}; "
+                    + $"role {leverage.RoleDisposition}; body "
+                    + $"{leverage.BodyUse.Disposition}; bodies "
+                    + $"{leverage.BodyUse.Coverage.BodiesExamined}/"
+                    + $"{leverage.BodyUse.Coverage.BodiesConsidered}; "
+                    + $"operands "
+                    + $"{leverage.BodyUse.Coverage.OperandsExamined}/"
+                    + $"{leverage.BodyUse.Coverage.OperandsConsidered}; "
+                    + $"occurrences {leverage.BodyUse.OccurrenceCount}; "
+                    + $"diagnostics "
+                    + leverage.BodyUse.Diagnostics.Length));
+        AddTypeLeverageOrder(
+            rows,
+            "Mountain-Peak Types",
+            "Body outgoing",
+            leverage.MountainPeak.Types,
+            byType,
+            static row => row.BodyOutgoingDegree);
+    }
+
+    private static void AddTypeLeverageOrder(
+        List<LibraryMetricRow> rows,
+        string category,
+        string measure,
+        IReadOnlyList<MetadataTypeDefinitionAddress> order,
+        IReadOnlyDictionary<
+            MetadataTypeDefinitionAddress,
+            LibraryStructuralTypeLeverageRow> byType,
+        Func<LibraryStructuralTypeLeverageRow, int> degree)
+    {
+        for (int index = 0; index < order.Count; index++)
+        {
+            MetadataTypeDefinitionAddress address = order[index];
+            LibraryStructuralTypeLeverageRow leverageRow = byType[address];
+            rows.Add(
+                new(
+                    category,
+                    measure,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Position: index + 1,
+                    Type: leverageRow.Name.ToMetadataFullName(),
+                    TypeKey:
+                        $"{address.ModuleVersionId:N}:"
+                            + $"0x{address.Definition.Value:X8}",
+                    Degree: degree(leverageRow),
+                    Role: leverageRow.Role));
+        }
     }
 
     private static string FormatMetric(LibraryStructuralMetric metric) =>
@@ -1212,6 +1342,26 @@ public class LibraryInspectionView
     public static bool LibraryMetricNotesEmpty(
         List<LibraryMetricRow>? rows)
         => rows is null || rows.All(row => row.Notes is null);
+
+    public static bool LibraryMetricPositionEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.Position is null);
+
+    public static bool LibraryMetricTypeEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.Type is null);
+
+    public static bool LibraryMetricTypeKeyEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.TypeKey is null);
+
+    public static bool LibraryMetricDegreeEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.Degree is null);
+
+    public static bool LibraryMetricRoleEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.Role is null);
 
     // Kind-scoped performance sections. The optimization-opportunity scan is holistic; each
     // section renders the subset whose shape maps to it (see PerformanceKinds) with a tight,
@@ -2194,7 +2344,12 @@ public record LibraryMetricRow(
     InertString? MaximumBodiesText,
     string? Present,
     string? Absent,
-    string? Notes)
+    string? Notes,
+    int? Position = null,
+    string? Type = null,
+    string? TypeKey = null,
+    int? Degree = null,
+    LibraryStructuralTypeRole? Role = null)
 {
     /// <inheritdoc cref="LibraryViewText"/>
     public string Category { get; init; } = LibraryViewText.Contain(Category);
@@ -2249,6 +2404,21 @@ public record LibraryMetricRow(
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
     public string? Notes { get; init; } = LibraryViewText.Contain(Notes);
+
+    [MarkoutSkipNull]
+    public int? Position { get; init; } = Position;
+
+    [MarkoutSkipNull]
+    public string? Type { get; init; } = LibraryViewText.Contain(Type);
+
+    [MarkoutSkipNull]
+    public string? TypeKey { get; init; } = LibraryViewText.Contain(TypeKey);
+
+    [MarkoutSkipNull]
+    public int? Degree { get; init; } = Degree;
+
+    [MarkoutSkipNull]
+    public LibraryStructuralTypeRole? Role { get; init; } = Role;
 }
 
 /// <summary>

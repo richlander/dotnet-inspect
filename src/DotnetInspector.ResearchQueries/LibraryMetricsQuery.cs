@@ -1,4 +1,5 @@
 using ILInspector.Analysis;
+using ILInspector.Metadata;
 using ILInspector.Research;
 
 namespace DotnetInspector.Queries;
@@ -46,6 +47,28 @@ public static class LibraryMetricsQuery
         try
         {
             return Project(LibraryStructuralReport.Execute(analysis));
+        }
+        catch (Exception ex)
+        {
+            return new LibraryMetricsResult.Failed(ex);
+        }
+    }
+
+    public static LibraryMetricsResult Execute(
+        LibraryBodyAnalysisExecution analysis,
+        MetadataLibrarySignatureUseResult signatureUse,
+        AnalysisLibraryBodyUseResult bodyUse)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
+        ArgumentNullException.ThrowIfNull(signatureUse);
+        ArgumentNullException.ThrowIfNull(bodyUse);
+        try
+        {
+            return Project(
+                LibraryStructuralReport.Execute(
+                    analysis,
+                    signatureUse,
+                    bodyUse));
         }
         catch (Exception ex)
         {
