@@ -1462,7 +1462,7 @@ public static class DirectCallDefinitionResolver
                 if (SignatureBlobGuard.IsSafeToDecode(
                     reader,
                     property.Signature,
-                    SignatureBlobGuard.Kind.Method))
+                    SignatureBlobGuard.Kind.Property))
                 {
                     MethodSignature<TypeRef> propertySignature =
                         property.DecodeSignature(

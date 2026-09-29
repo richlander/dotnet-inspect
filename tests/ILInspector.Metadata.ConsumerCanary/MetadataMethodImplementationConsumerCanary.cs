@@ -5,6 +5,39 @@ namespace ILInspector.Metadata.ConsumerCanary;
 
 public static class MetadataMethodImplementationConsumerCanary
 {
+    public static MetadataLibrarySignatureUseOutcome
+        InspectLibrarySignatureUses(string assemblyPath)
+    {
+        using var assembly = AssemblyInspectionSession.Open(assemblyPath);
+        return assembly.LibrarySignatureUses(
+            new(MetadataOperationPolicy.Unbounded));
+    }
+
+    public static bool Consume(
+        MetadataLibrarySignatureUseOutcome outcome) =>
+        outcome switch
+        {
+            MetadataLibrarySignatureUseOutcome.Available available =>
+                available.Result.Types.All(
+                    type =>
+                        type.Type.ModuleVersionId
+                            == available.Result.Receipt.ModuleVersionId
+                        && type.Name.Segments.Length > 0)
+                && available.Result.Occurrences.All(
+                    occurrence =>
+                        occurrence.Source.ModuleVersionId
+                            == available.Result.Receipt.ModuleVersionId
+                        && occurrence.Target.ModuleVersionId
+                            == available.Result.Receipt.ModuleVersionId)
+                && available.Result.Coverage.Considered
+                    == available.Result.Coverage.Examined
+                        + available.Result.Coverage.Unavailable
+                        + available.Result.Coverage.Limited,
+            MetadataLibrarySignatureUseOutcome.Rejected rejected =>
+                rejected.Detail.Length > 0,
+            _ => false,
+        };
+
     public static MetadataTypeDeclarationResult PostType(
         string assemblyPath,
         MetadataTypeDefinitionAddress type)
