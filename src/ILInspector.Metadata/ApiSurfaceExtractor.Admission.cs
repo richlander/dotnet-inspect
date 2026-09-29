@@ -18,6 +18,25 @@ public static partial class ApiSurfaceExtractor
         bool includeAll)
         => includeAll || effectiveAccess == MethodAttributes.Public;
 
+    internal static MetadataMethodAccessibilityFilter AccessibilityBucket(
+        MethodAttributes access) =>
+        access switch
+        {
+            MethodAttributes.Public =>
+                MetadataMethodAccessibilityFilter.Public,
+            MethodAttributes.Family
+                or MethodAttributes.FamANDAssem
+                or MethodAttributes.FamORAssem =>
+                MetadataMethodAccessibilityFilter.Protected,
+            MethodAttributes.Assembly =>
+                MetadataMethodAccessibilityFilter.Internal,
+            MethodAttributes.Private
+                or MethodAttributes.PrivateScope =>
+                MetadataMethodAccessibilityFilter.Private,
+            _ => throw new BadImageFormatException(
+                "The member accessibility is invalid."),
+        };
+
     /// <summary>
     /// A method's effective access. A private body that implements an
     /// interface member through a MethodImpl is reachable by exactly the
@@ -226,8 +245,8 @@ public static partial class ApiSurfaceExtractor
             return left;
         if (left == MethodAttributes.Public)
             return right;
-        if (left == MethodAttributes.Private
-            || right == MethodAttributes.Private)
+        if (left is MethodAttributes.Private or MethodAttributes.PrivateScope
+            || right is MethodAttributes.Private or MethodAttributes.PrivateScope)
         {
             return MethodAttributes.Private;
         }
@@ -276,6 +295,16 @@ public static partial class ApiSurfaceExtractor
         string name,
         bool includeCompilerGenerated)
         => name.StartsWith('<') && !includeCompilerGenerated;
+
+    /// <summary>
+    /// The same rule read from the string heap without decoding the name.
+    /// </summary>
+    static bool IsExcludedCompilerNamedMember(
+        MetadataReader reader,
+        StringHandle name,
+        bool includeCompilerGenerated)
+        => !includeCompilerGenerated
+            && reader.StringComparer.StartsWith(name, "<");
 
     /// <summary>
     /// A hidden (<c>EditorBrowsable(Never)</c>) method is omitted from the
@@ -397,4 +426,7 @@ public static partial class ApiSurfaceExtractor
     /// </summary>
     static bool IsEnumStorageField(bool isEnum, string fieldName)
         => isEnum && fieldName == "value__";
+
+    static bool IsEnumStorageField(bool isEnum, MetadataReader reader, StringHandle fieldName)
+        => isEnum && reader.StringComparer.Equals(fieldName, "value__");
 }
