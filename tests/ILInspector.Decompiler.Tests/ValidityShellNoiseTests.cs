@@ -280,6 +280,22 @@ public class ValidityShellNoiseTests
         Assert.Equal(["CS0161"], defects.Select(d => d.Id));
     }
 
+    [Fact]
+    public void FullyQualifiedMissingTargetNamespace_IsFiltered()
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel(
+            "sealed class __Shell { global::Target.Namespace.Value M() => null; }");
+        var diagnostic = Assert.Single(diagnostics, d => d.Id == "CS0400");
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            [diagnostic],
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Real")),
+            semanticModel);
+
+        Assert.Empty(defects);
+    }
+
     [Theory]
     [InlineData(
         "CS0266",
