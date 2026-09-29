@@ -81,6 +81,8 @@ internal static partial class WorkflowContract
         YamlMappingNode root = RequireMapping(
             yaml.Documents[0].RootNode,
             "workflow root");
+        RequireScalarValue(root, "name", "PR CI", "workflow");
+        RequireAbsent(root, "run-name", "workflow");
         RequireExactScalarValues(
             GetRequiredMapping(root, "env", "workflow"),
             new Dictionary<string, string>(StringComparer.Ordinal)
@@ -140,6 +142,7 @@ internal static partial class WorkflowContract
         (string provenanceRunSha256, string provenancePin) =
             ValidateProvenanceStep(steps, validateProvenancePin);
         ValidateSelfTestStep(selfTestSteps);
+        ValidatePlanningStep(steps);
 
         return new WorkflowContractResult(
             provenanceRunSha256,
@@ -761,22 +764,25 @@ internal static partial class WorkflowContract
             GetRequiredMapping(root, "on", "workflow");
         RequireExactKeys(
             triggers,
-            ["push", "pull_request", "merge_group"],
+            ["workflow_call", "pull_request", "merge_group"],
             "workflow.on");
 
-        YamlMappingNode push =
-            GetRequiredMapping(triggers, "push", "workflow.on");
-        RequireExactKeys(push, ["branches"], "workflow.on.push");
-        YamlSequenceNode pushBranches =
-            GetRequiredSequence(push, "branches", "workflow.on.push");
-        if (pushBranches.Children.Count != 1 ||
-            RequireScalar(
-                pushBranches.Children[0],
-                "workflow.on.push.branches entry") != "main")
-        {
-            throw new InvalidOperationException(
-                "workflow.on.push.branches must contain only main.");
-        }
+        YamlMappingNode workflowCall =
+            GetRequiredMapping(triggers, "workflow_call", "workflow.on");
+        RequireExactKeys(
+            workflowCall,
+            ["inputs"],
+            "workflow.on.workflow_call");
+        YamlMappingNode inputs = GetRequiredMapping(
+            workflowCall,
+            "inputs",
+            "workflow.on.workflow_call");
+        RequireExactKeys(
+            inputs,
+            ["event-name", "base-sha"],
+            "workflow.on.workflow_call.inputs");
+        ValidateRequiredStringInput(inputs, "event-name");
+        ValidateRequiredStringInput(inputs, "base-sha");
 
         if (!TryGetNode(
                 triggers,
@@ -808,6 +814,76 @@ internal static partial class WorkflowContract
             throw new InvalidOperationException(
                 "workflow.on.merge_group.types must contain only " +
                 "checks_requested.");
+        }
+    }
+
+    private static void ValidateRequiredStringInput(
+        YamlMappingNode inputs,
+        string inputName) =>
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                inputs,
+                inputName,
+                "workflow.on.workflow_call.inputs"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["required"] = "true",
+                ["type"] = "string",
+            },
+            $"workflow.on.workflow_call.inputs.{inputName}");
+
+    private static void ValidatePlanningStep(YamlSequenceNode steps)
+    {
+        YamlMappingNode planningStep = RequireMapping(
+            steps.Children[4],
+            "jobs.changes planning step");
+        RequireExactKeys(
+            planningStep,
+            ["name", "id", "shell", "run", "env"],
+            "jobs.changes planning step");
+        RequireScalarValue(
+            planningStep,
+            "name",
+            "Plan changes",
+            "jobs.changes planning step");
+        RequireScalarValue(
+            planningStep,
+            "id",
+            "plan",
+            "jobs.changes planning step");
+        RequireScalarValue(
+            planningStep,
+            "shell",
+            "bash",
+            "jobs.changes planning step");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                planningStep,
+                "env",
+                "jobs.changes planning step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["BASH_ENV"] = "",
+                ["CI_EVENT_NAME"] =
+                    "${{ inputs.event-name || github.event_name }}",
+                ["CI_EVENT_BASE_SHA"] =
+                    "${{ inputs.base-sha || github.event.merge_group.base_sha || github.event.before }}",
+            },
+            "jobs.changes planning step.env");
+        string run = GetRequiredScalar(
+            planningStep,
+            "run",
+            "jobs.changes planning step");
+        if (!run.Contains(
+                "case \"$CI_EVENT_NAME\" in",
+                StringComparison.Ordinal) ||
+            !run.Contains(
+                "Unsupported CI planning event: $CI_EVENT_NAME",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "jobs.changes planning step.run must dispatch and report " +
+                "through CI_EVENT_NAME.");
         }
     }
 

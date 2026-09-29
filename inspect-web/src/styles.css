@@ -1127,7 +1127,6 @@ kbd {
   height: 28px;
   padding: 0 12px 0 16px;
 }
-.member-list .overload-nav-row .overload-size { color: var(--muted); font: 10px var(--mono); font-variant-numeric: tabular-nums; }
 .sig-name { color: var(--text); }
 .sig-type { color: var(--blue); }
 .sig-keyword, .sig-modifier { color: var(--syntax-kw); }

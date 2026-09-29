@@ -54,7 +54,10 @@ public sealed partial class DesktopPackageSourceComposition
         NuGetSourceOptions? sourceOptions = null,
         string? requiredProducerKey = null,
         Action<string>? log = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IEnumerable<string>? implementationNames = null,
+        PackageHouseLibraryCompanionDemand libraryCompanionDemand =
+            PackageHouseLibraryCompanionDemand.None)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
@@ -68,7 +71,10 @@ public sealed partial class DesktopPackageSourceComposition
                 _options.OperationTimeout),
             PackageHouseTargetContext.Exact(targetFramework),
             PackageHouseAssetSelectionKind.Compile,
-            PackageHouseLibraryHandoffMode.SelectedLibraries);
+            PackageHouseLibraryHandoffMode.SelectedLibraries,
+            assetDemand: PackageAssetDemand.SurfaceAndImplementation,
+            implementationNames: implementationNames,
+            libraryCompanionDemand: libraryCompanionDemand);
         return new(
             ExecuteHouseAsync(
                 request,
@@ -177,7 +183,11 @@ public sealed partial class DesktopPackageSourceComposition
             PackageAssetDemand assetDemand =
                 PackageAssetDemand.SurfaceAndImplementation,
             IEnumerable<string>? implementationNames = null,
-            PackageDocumentDemand? documentDemand = null)
+            PackageDocumentDemand? documentDemand = null,
+            PackageHouseLibraryHandoffMode libraryHandoff =
+                PackageHouseLibraryHandoffMode.PackageOnly,
+            PackageHouseLibraryCompanionDemand libraryCompanionDemand =
+                PackageHouseLibraryCompanionDemand.None)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Exact(coordinate),
@@ -187,7 +197,9 @@ public sealed partial class DesktopPackageSourceComposition
             compileTargetContext,
             assetDemand,
             implementationNames,
-            documentDemand);
+            documentDemand,
+            libraryHandoff,
+            libraryCompanionDemand);
         return ExecuteAndProjectPayloadAsync(
             request,
             coordinate.PackageId,
@@ -239,14 +251,26 @@ public sealed partial class DesktopPackageSourceComposition
             PackagePayloadLimits? limits,
             IPackagePayloadTransferPolicy? transferPolicy,
             PackageHouseTargetContext? compileTargetContext = null,
-            PackagePayloadAccess access = PackagePayloadAccess.Complete)
+            PackagePayloadAccess access = PackagePayloadAccess.Complete,
+            PackageAssetDemand assetDemand =
+                PackageAssetDemand.SurfaceAndImplementation,
+            IEnumerable<string>? implementationNames = null,
+            PackageHouseLibraryHandoffMode libraryHandoff =
+                PackageHouseLibraryHandoffMode.PackageOnly,
+            PackageHouseLibraryCompanionDemand libraryCompanionDemand =
+                PackageHouseLibraryCompanionDemand.None)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Selecting(selection),
             compileTargetContext is null
                 ? PackageHouseOperationProfile.Acquire
                 : PackageHouseOperationProfile.Realize,
-            compileTargetContext);
+            compileTargetContext,
+            assetDemand,
+            implementationNames,
+            documentDemand: null,
+            libraryHandoff,
+            libraryCompanionDemand);
         return ExecuteAndProjectPayloadAsync(
             request,
             selection.PackageId,
@@ -394,7 +418,11 @@ public sealed partial class DesktopPackageSourceComposition
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
         IEnumerable<string>? implementationNames = null,
-        PackageDocumentDemand? documentDemand = null) =>
+        PackageDocumentDemand? documentDemand = null,
+        PackageHouseLibraryHandoffMode libraryHandoff =
+            PackageHouseLibraryHandoffMode.PackageOnly,
+        PackageHouseLibraryCompanionDemand libraryCompanionDemand =
+            PackageHouseLibraryCompanionDemand.None) =>
         new(
             demand,
             PackageHouseOperation.Create(
@@ -405,9 +433,11 @@ public sealed partial class DesktopPackageSourceComposition
             profile == PackageHouseOperationProfile.Realize
                 ? PackageHouseAssetSelectionKind.Compile
                 : null,
+            libraryHandoff,
             assetDemand: assetDemand,
             implementationNames: implementationNames,
-            documentDemand: documentDemand);
+            documentDemand: documentDemand,
+            libraryCompanionDemand: libraryCompanionDemand);
 
     private static bool TryCreateSelectionRequest(
         string packageId,

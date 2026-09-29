@@ -268,9 +268,10 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                     + "effective-after-package-acquisition",
                 "Library[schema:137:C24A9CDF35E9]",
                 "focus=Library Info->Assembly references,"
-                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
-                    + "Library Info->Extension methods,Library Info->Resources,"
+                    + "Library Info->Extension methods,"
+                    + "Library Info->Method classification (Library Info counts),"
+                    + "Library Info->Resources,"
                     + "Library Info->Type forwarders;"
                     + "discovery=none",
                 "focus:pdb=True;source=True;cached=False;"
@@ -281,9 +282,10 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                     + "render-after-package-acquisition",
                 "Library[schema:137:C24A9CDF35E9]",
                 "focus=Library Info->Assembly references,"
-                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
-                    + "Library Info->Extension methods,Library Info->Resources,"
+                    + "Library Info->Extension methods,"
+                    + "Library Info->Method classification (Library Info counts),"
+                    + "Library Info->Resources,"
                     + "Library Info->Type forwarders;discovery=none",
                 "focus:pdb=False;source=False;cached=False;"
                     + "discovery:not-reached"),
@@ -292,14 +294,16 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "schema-static-without-target/effective-with-target",
                 "Library[schema:139:0A3D09C334A8]",
                 "focus=Library Info->Assembly references,"
-                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
-                    + "Library Info->Extension methods,Library Info->Resources,"
+                    + "Library Info->Extension methods,"
+                    + "Library Info->Method classification (Library Info counts),"
+                    + "Library Info->Resources,"
                     + "Library Info->Type forwarders;"
                     + "discovery=Library Info->Assembly references,"
-                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
-                    + "Library Info->Extension methods,Library Info->Resources,"
+                    + "Library Info->Extension methods,"
+                    + "Library Info->Method classification (Library Info counts),"
+                    + "Library Info->Resources,"
                     + "Library Info->Type forwarders,"
                     + "ReadyToRun applicability->ReadyToRun image,"
                     + "References applicability->Assembly references,"

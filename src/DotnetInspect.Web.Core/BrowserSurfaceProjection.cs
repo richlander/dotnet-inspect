@@ -374,6 +374,7 @@ internal static class BrowserSurfaceProjection
             anchor.Fingerprint,
             anchor.CanonicalSignature,
             anchor.TypeFullName,
+            member.DeclaringTypeDefinitionName?.ToEscapedFullName(),
             Analysis.CallGraphMemberResolver.CreateSelector(type, member).Key,
             [
                 .. Analysis.CallGraphMemberResolver.CreateBodySelectors(type, member)
@@ -461,7 +462,8 @@ internal static class BrowserSurfaceProjection
                 + DefinitionNameLength(type.DefinitionName);
             long memberText = TextLength(member.Name)
                 + TextLength(member.Signature)
-                + TextLength(member.ReturnType);
+                + TextLength(member.ReturnType)
+                + DefinitionNameLength(member.DeclaringTypeDefinitionName);
             if (member.SignatureModel is { } signature)
             {
                 memberText += TextLength(signature.ReturnType)
@@ -511,6 +513,7 @@ internal static class BrowserSurfaceProjection
             Retain(member.AnchorDigest);
             Retain(member.CanonicalSignature);
             Retain(member.AnchorTypeFullName);
+            Retain(member.DeclaringTypeDefinitionId);
             Retain(member.GraphSelectorKey);
             foreach (BrowserParameterSurfaceInfo parameter in member.Parameters)
             {

@@ -63,6 +63,15 @@ public class PropertyAccessorSignatureConsistencyTests
                 type => type.Namespace == "Samples").Members,
             member => member.Kind == "property");
 
+        if (mismatch is AccessorMismatch.PropertyGenericHeader
+            or AccessorMismatch.PropertyReservedHeader)
+        {
+            Assert.Equal(
+                SignatureDecodeStatus.Degraded,
+                property.SignatureDecodeStatus);
+            return;
+        }
+
         Assert.Null(property.SignatureDecodeStatus);
         Assert.All(
             property.SignatureModel!.Accessors,

@@ -118,10 +118,12 @@ test("implementation evidence remains subtle member-list heat", () => {
     heatTarget,
     /state\.rootKind === "library"[\s\S]*navMode\(\) !== "member"/);
   assert.doesNotMatch(heatTarget, /stableSelectors/);
+  // Heat eligibility follows the producer: a pure single-declarer extension
+  // group is eligible, while mixed or multi-declarer groups remain excluded.
   const eligible = sourceText(functionDeclaration("familyIsEligible"));
   assert.match(
     eligible,
-    /group\.kind === "method"[\s\S]*group\.overloads\.length > 1[\s\S]*candidate\.name !== group\.name \|\| candidate\.kind === "method"/);
+    /implementationHeatFamilyIsEligible\(\s*type\.accessibility,\s*memberGroups\(type\),\s*group\)/);
 
   const renderMember = sourceText(functionDeclaration("renderMember"));
   assert.doesNotMatch(renderMember, /Implementation evidence|>Implementation</);

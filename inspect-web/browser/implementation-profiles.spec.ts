@@ -127,6 +127,7 @@ test("Type heat paints the member list without an Implementation section", async
     "aria-description",
     "98 instructions; 100% of the largest body in this family",
   );
+  await expect(rows.locator(".overload-size")).toHaveCount(0);
   await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
   await expect(rows.nth(1)).not.toHaveClass(/\bheated\b/);
 
