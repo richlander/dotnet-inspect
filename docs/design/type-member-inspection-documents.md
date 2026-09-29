@@ -756,6 +756,68 @@ Exact overload Rows are the join currency for optional documentation
 attachments and overload-scoped metrics. Those producers may not add, remove,
 reorder, or replace rows.
 
+### Exact-overload analysis model
+
+Metadata owns one exact-overload analysis model. LINQ, NLinq, QuerySpace
+Planner, and any future executor are projections of that model; they do not
+define separate populations and compare only their final cardinality.
+
+The model guarantees declaration fidelity for assemblies produced by Roslyn
+and bounded containment for every admitted assembly. Containment does not
+invent C# semantics for arbitrary IL. A non-Roslyn or malformed shape that
+cannot satisfy the model returns a typed unsupported, incomplete, or failed
+outcome rather than a plausible partial population.
+
+One execution has three phases:
+
+1. **Prepare.** Resolve one structured Type-definition name to one exact
+   TypeDef. Validate and index MethodSemantics and other cross-table
+   relationships that touch that Type. Preparation is bounded, generation-
+   specific, and reusable by every terminal in the execution.
+2. **Select.** Enumerate only the resolved TypeDef's MethodDefs in metadata
+   order. Apply exact metadata name and ordinary-method membership, validated
+   accessor exclusion, effective accessibility, receiver classification, and
+   hidden admission. Cheap in-place metadata comparisons precede attribute or
+   signature work, but no optimization may skip validation required to settle
+   the population.
+3. **Close.** Count folds selected units without constructing result rows.
+   Rows retains only the requested handle window and then projects display
+   signature, canonical identity, fingerprint, accessibility, and receiver.
+   Combined Count and Rows share one selection pass.
+
+The Roslyn fidelity contract includes:
+
+- structured declaring-Type and exact metadata-name identity;
+- ordinary methods distinct from constructors, operators, accessors, and
+  explicit-interface declarations;
+- MethodSemantics validation before accessor exclusion;
+- effective accessibility, including interface implementation evidence;
+- exhaustive `this`, `static`, and `extension` classification, with extension
+  taking precedence over metadata-static;
+- hidden-declaration admission independent of accessibility;
+- stable metadata order; and
+- the same canonical signature, fingerprint, and row identity used by exact
+  Member inspection.
+
+The arbitrary-assembly containment contract includes:
+
+- SRM-only inspection with no inspected-assembly loading or execution;
+- bounded metadata, relationship, candidate, signature, and retained-text
+  work;
+- validation before trusting cross-table ownership or role claims;
+- visible typed failure for malformed or exhausted work; and
+- diagnostics that do not reproduce hostile artifact text.
+
+A performance scorecard first constructs this owner-issued model, then
+projects it into idiomatic LINQ, NLinq, and Planner executions. Every column
+receives the same prepared source, predicate, row projector, bounds, and
+terminal. The scorecard reports shared preparation, terminal-kernel, and
+composed costs separately. When the QuerySpace enablement scorecard adds an
+Old column, that column is the exact pre-QuerySpace production path being
+replaced, not eager whole-API extraction or another historical
+implementation. Answer equivalence covers outcome kind, completion, Count,
+ordered row identity, and failure, not only cardinality.
+
 ## Documentation attachment
 
 Documentation is typed attached content, not population membership and not
