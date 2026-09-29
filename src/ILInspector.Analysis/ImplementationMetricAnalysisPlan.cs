@@ -1,7 +1,7 @@
 namespace ILInspector.Analysis;
 
 [Flags]
-internal enum ImplementationMetricEvidenceKind
+internal enum ImplementationMetricKind
 {
     None = 0,
     BodySize = 1 << 0,
@@ -30,6 +30,30 @@ internal enum ImplementationMetricEvidenceKind
         | UnsafePresence
         | DirectReflectionCalls
         | Async,
+}
+
+[Flags]
+internal enum ImplementationMetricFactKind
+{
+    None = 0,
+    SourceAttribution = 1 << 0,
+    ManagedBody = 1 << 1,
+    LocalSignature = 1 << 2,
+    CanonicalMethodContext = 1 << 3,
+    DirectCalls = 1 << 4,
+    AllocationSignals = 1 << 5,
+    AllocationOccurrences = 1 << 6,
+    BodySignals = 1 << 7,
+    Safety = 1 << 8,
+    All = SourceAttribution
+        | ManagedBody
+        | LocalSignature
+        | CanonicalMethodContext
+        | DirectCalls
+        | AllocationSignals
+        | AllocationOccurrences
+        | BodySignals
+        | Safety,
 }
 
 [Flags]
@@ -121,7 +145,7 @@ internal sealed record ImplementationMetricWorkLimits
 }
 
 internal sealed record ImplementationMetricAnalysisRequest(
-    ImplementationMetricEvidenceKind RequestedEvidence,
+    ImplementationMetricKind RequestedMetrics,
     ImplementationMetricWorkLimits Limits,
     ImplementationMetricRequestOrigin Origin)
 {
@@ -151,120 +175,122 @@ internal sealed record ImplementationMetricAnalysisRequest(
             origin);
     }
 
-    internal static ImplementationMetricEvidenceKind CompleteProfileV1 =>
-        ImplementationMetricEvidenceKind.BodySize
-        | ImplementationMetricEvidenceKind.InstructionShape
-        | ImplementationMetricEvidenceKind.ControlFlow
-        | ImplementationMetricEvidenceKind.ExceptionRegions
-        | ImplementationMetricEvidenceKind.Locals
-        | ImplementationMetricEvidenceKind.DirectCalls
-        | ImplementationMetricEvidenceKind.SiblingOverloadRelationships
-        | ImplementationMetricEvidenceKind.AllocationCount
-        | ImplementationMetricEvidenceKind.ThrowCount
-        | ImplementationMetricEvidenceKind.UnsafePresence
-        | ImplementationMetricEvidenceKind.DirectReflectionCalls
-        | ImplementationMetricEvidenceKind.Async;
+    internal static ImplementationMetricKind CompleteProfileV1 =>
+        ImplementationMetricKind.BodySize
+        | ImplementationMetricKind.InstructionShape
+        | ImplementationMetricKind.ControlFlow
+        | ImplementationMetricKind.ExceptionRegions
+        | ImplementationMetricKind.Locals
+        | ImplementationMetricKind.DirectCalls
+        | ImplementationMetricKind.SiblingOverloadRelationships
+        | ImplementationMetricKind.AllocationCount
+        | ImplementationMetricKind.ThrowCount
+        | ImplementationMetricKind.UnsafePresence
+        | ImplementationMetricKind.DirectReflectionCalls
+        | ImplementationMetricKind.Async;
 }
 
 internal sealed record ImplementationMetricAnalysisPlan(
-    ImplementationMetricEvidenceKind RequestedEvidence,
-    ImplementationMetricEvidenceKind EffectiveEvidence,
+    ImplementationMetricKind RequestedMetrics,
+    ImplementationMetricFactKind RequiredFacts,
     ImplementationMetricWorkStage WorkStages,
     ImplementationMetricWorkLimits Limits,
     ImplementationMetricRequestOrigin Origin)
 {
     internal bool UsesFocusedExecution =>
-        (EffectiveEvidence & ~FocusedEvidence)
-            == ImplementationMetricEvidenceKind.None;
+        (RequestedMetrics & ~FocusedMetrics)
+            == ImplementationMetricKind.None;
 
-    internal bool IncludesHeaderEvidence =>
-        (EffectiveEvidence & HeaderEvidence)
-            != ImplementationMetricEvidenceKind.None;
+    internal bool IncludesHeaderMetrics =>
+        (RequestedMetrics & HeaderMetrics)
+            != ImplementationMetricKind.None;
 
-    internal bool IncludesLocalEvidence =>
-        EffectiveEvidence.HasFlag(
-            ImplementationMetricEvidenceKind.Locals);
+    internal bool IncludesLocalMetric =>
+        RequestedMetrics.HasFlag(
+            ImplementationMetricKind.Locals);
 
-    internal bool IncludesInstructionShapeEvidence =>
-        EffectiveEvidence.HasFlag(
-            ImplementationMetricEvidenceKind.InstructionShape);
+    internal bool IncludesInstructionShapeMetric =>
+        RequestedMetrics.HasFlag(
+            ImplementationMetricKind.InstructionShape);
 
-    internal bool IncludesControlFlowEvidence =>
-        EffectiveEvidence.HasFlag(
-            ImplementationMetricEvidenceKind.ControlFlow);
+    internal bool IncludesControlFlowMetric =>
+        RequestedMetrics.HasFlag(
+            ImplementationMetricKind.ControlFlow);
 
-    internal bool IncludesDirectCallEvidence =>
-        EffectiveEvidence.HasFlag(
-            ImplementationMetricEvidenceKind.DirectCalls);
+    internal bool IncludesDirectCallMetric =>
+        RequestedMetrics.HasFlag(
+            ImplementationMetricKind.DirectCalls);
 
-    internal bool IncludesFocusedContextEvidence =>
-        (EffectiveEvidence & FocusedContextEvidence)
-            != ImplementationMetricEvidenceKind.None;
+    internal bool RequiresDirectCallFacts =>
+        RequiredFacts.HasFlag(
+            ImplementationMetricFactKind.DirectCalls);
+
+    internal bool IncludesFocusedContextMetrics =>
+        (RequestedMetrics & FocusedContextMetrics)
+            != ImplementationMetricKind.None;
 
     internal bool RequiresCanonicalContext =>
-        WorkStages.HasFlag(
-            ImplementationMetricWorkStage.CanonicalMethodContext);
+        RequiredFacts.HasFlag(
+            ImplementationMetricFactKind.CanonicalMethodContext);
 
     internal bool RequiresLocalSignatureDecode =>
-        WorkStages.HasFlag(
-            ImplementationMetricWorkStage.LocalSignatureDecode);
+        RequiredFacts.HasFlag(
+            ImplementationMetricFactKind.LocalSignature);
 
-    internal ImplementationMetricEvidenceKind EvidenceCausesFor(
+    internal ImplementationMetricKind MetricCausesFor(
         ImplementationMetricWorkStage stage)
     {
-        ImplementationMetricEvidenceKind causes =
+        ImplementationMetricKind causes =
             stage switch
             {
                 ImplementationMetricWorkStage.SourceAttribution
                     or ImplementationMetricWorkStage
                         .SourceAttributionBodyProbe =>
-                    ImplementationMetricEvidenceKind.All,
+                    ImplementationMetricKind.All,
                 ImplementationMetricWorkStage.ManagedBodyAcquisition =>
-                    BodyEvidence,
+                    MetricsRequiringManagedBody,
                 ImplementationMetricWorkStage.LocalSignatureDecode =>
-                    ContextEvidence
-                    | ImplementationMetricEvidenceKind.Locals,
+                    MetricsRequiringLocalSignature,
                 ImplementationMetricWorkStage.CanonicalMethodContext =>
-                    ContextEvidence,
+                    MetricsRequiringContext,
                 ImplementationMetricWorkStage.DirectCallCollection =>
-                    CallEvidence,
+                    MetricsRequiringCalls,
                 ImplementationMetricWorkStage
                     .AllocationSignalCollection =>
-                    ImplementationMetricEvidenceKind.AllocationCount,
+                    ImplementationMetricKind.AllocationCount,
                 ImplementationMetricWorkStage
                     .AllocationOccurrenceCollection =>
-                    ImplementationMetricEvidenceKind
-                        .AllocationOccurrences,
+                    ImplementationMetricKind.AllocationOccurrences,
                 ImplementationMetricWorkStage.BodySignalCollection =>
-                    ImplementationMetricEvidenceKind.ThrowCount,
+                    ImplementationMetricKind.ThrowCount,
                 ImplementationMetricWorkStage.SafetyCollection =>
-                    ImplementationMetricEvidenceKind.UnsafePresence,
+                    ImplementationMetricKind.UnsafePresence,
                 ImplementationMetricWorkStage
                     .SiblingRelationshipProjection =>
-                    ImplementationMetricEvidenceKind
+                    ImplementationMetricKind
                         .SiblingOverloadRelationships,
-                _ => ImplementationMetricEvidenceKind.None,
+                _ => ImplementationMetricKind.None,
             };
-        return EffectiveEvidence & causes;
+        return RequestedMetrics & causes;
     }
 
     internal static ImplementationMetricAnalysisPlan Create(
         ImplementationMetricAnalysisRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ImplementationMetricEvidenceKind requested =
-            request.RequestedEvidence;
-        if (requested == ImplementationMetricEvidenceKind.None)
+        ImplementationMetricKind requested =
+            request.RequestedMetrics;
+        if (requested == ImplementationMetricKind.None)
         {
             throw new ArgumentException(
-                "Implementation metric evidence cannot be empty.",
+                "Implementation metric request cannot be empty.",
                 nameof(request));
         }
-        if ((requested & ~ImplementationMetricEvidenceKind.All) != 0)
+        if ((requested & ~ImplementationMetricKind.All) != 0)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(request),
-                "Implementation metric evidence contains an unknown kind.");
+                "Implementation metric request contains an unknown kind.");
         }
         if (request.Origin
                 == ImplementationMetricRequestOrigin.Explicit
@@ -275,83 +301,133 @@ internal sealed record ImplementationMetricAnalysisPlan(
                 nameof(request));
         }
 
-        ImplementationMetricEvidenceKind effective = requested;
-        if (effective.HasFlag(
-                ImplementationMetricEvidenceKind
-                    .SiblingOverloadRelationships))
-        {
-            effective |=
-                ImplementationMetricEvidenceKind.DirectCalls;
-        }
-
+        ImplementationMetricFactKind requiredFacts =
+            NormalizeRequiredFacts(requested);
         return new(
             requested,
-            effective,
-            ComputeWorkStages(effective),
+            requiredFacts,
+            ComputeWorkStages(requested, requiredFacts),
             request.Limits,
             request.Origin);
     }
 
+    static ImplementationMetricFactKind NormalizeRequiredFacts(
+        ImplementationMetricKind metrics)
+    {
+        ImplementationMetricFactKind facts =
+            ImplementationMetricFactKind.SourceAttribution;
+        if ((metrics & MetricsRequiringManagedBody)
+            != ImplementationMetricKind.None)
+        {
+            facts |= ImplementationMetricFactKind.ManagedBody;
+        }
+        if ((metrics & MetricsRequiringLocalSignature)
+            != ImplementationMetricKind.None)
+        {
+            facts |=
+                ImplementationMetricFactKind.LocalSignature;
+        }
+        if ((metrics & MetricsRequiringContext)
+            != ImplementationMetricKind.None)
+        {
+            facts |=
+                ImplementationMetricFactKind
+                    .CanonicalMethodContext;
+        }
+        if ((metrics & MetricsRequiringCalls)
+            != ImplementationMetricKind.None)
+        {
+            facts |= ImplementationMetricFactKind.DirectCalls;
+        }
+        if (metrics.HasFlag(
+            ImplementationMetricKind.AllocationCount))
+        {
+            facts |=
+                ImplementationMetricFactKind.AllocationSignals;
+        }
+        if (metrics.HasFlag(
+            ImplementationMetricKind.AllocationOccurrences))
+        {
+            facts |=
+                ImplementationMetricFactKind
+                    .AllocationOccurrences;
+        }
+        if (metrics.HasFlag(
+            ImplementationMetricKind.ThrowCount))
+        {
+            facts |= ImplementationMetricFactKind.BodySignals;
+        }
+        if (metrics.HasFlag(
+            ImplementationMetricKind.UnsafePresence))
+        {
+            facts |= ImplementationMetricFactKind.Safety;
+        }
+        return facts;
+    }
+
     static ImplementationMetricWorkStage ComputeWorkStages(
-        ImplementationMetricEvidenceKind evidence)
+        ImplementationMetricKind metrics,
+        ImplementationMetricFactKind facts)
     {
         ImplementationMetricWorkStage stages =
             ImplementationMetricWorkStage.SourceAttribution
             | ImplementationMetricWorkStage
                 .SourceAttributionBodyProbe;
 
-        if ((evidence & BodyEvidence) != 0)
+        if (facts.HasFlag(
+            ImplementationMetricFactKind.ManagedBody))
         {
             stages |=
                 ImplementationMetricWorkStage
                     .ManagedBodyAcquisition;
         }
-        if ((evidence & ContextEvidence) != 0)
-        {
-            stages |=
-                ImplementationMetricWorkStage.LocalSignatureDecode
-                | ImplementationMetricWorkStage
-                    .CanonicalMethodContext;
-        }
-        else if (evidence.HasFlag(
-            ImplementationMetricEvidenceKind.Locals))
+        if (facts.HasFlag(
+            ImplementationMetricFactKind.LocalSignature))
         {
             stages |=
                 ImplementationMetricWorkStage.LocalSignatureDecode;
         }
-        if ((evidence & CallEvidence) != 0)
+        if (facts.HasFlag(
+            ImplementationMetricFactKind.CanonicalMethodContext))
+        {
+            stages |=
+                ImplementationMetricWorkStage
+                    .CanonicalMethodContext;
+        }
+        if (facts.HasFlag(
+            ImplementationMetricFactKind.DirectCalls))
         {
             stages |=
                 ImplementationMetricWorkStage.DirectCallCollection;
         }
-        if (evidence.HasFlag(
-            ImplementationMetricEvidenceKind.AllocationCount))
+        if (facts.HasFlag(
+            ImplementationMetricFactKind.AllocationSignals))
         {
             stages |=
                 ImplementationMetricWorkStage
                     .AllocationSignalCollection;
         }
-        if (evidence.HasFlag(
-            ImplementationMetricEvidenceKind.AllocationOccurrences))
+        if (facts.HasFlag(
+            ImplementationMetricFactKind.AllocationOccurrences))
         {
             stages |=
                 ImplementationMetricWorkStage
                     .AllocationOccurrenceCollection;
         }
-        if (evidence.HasFlag(
-            ImplementationMetricEvidenceKind.ThrowCount))
+        if (facts.HasFlag(
+            ImplementationMetricFactKind.BodySignals))
         {
             stages |=
                 ImplementationMetricWorkStage.BodySignalCollection;
         }
-        if (evidence.HasFlag(
-            ImplementationMetricEvidenceKind.UnsafePresence))
+        if (facts.HasFlag(
+            ImplementationMetricFactKind.Safety))
         {
             stages |=
                 ImplementationMetricWorkStage.SafetyCollection;
         }
-        if (evidence.HasFlag(
-            ImplementationMetricEvidenceKind
+        if (metrics.HasFlag(
+            ImplementationMetricKind
                 .SiblingOverloadRelationships))
         {
             stages |=
@@ -361,39 +437,45 @@ internal sealed record ImplementationMetricAnalysisPlan(
         return stages;
     }
 
-    const ImplementationMetricEvidenceKind BodyEvidence =
-        ImplementationMetricEvidenceKind.All
-        & ~ImplementationMetricEvidenceKind.Async;
+    const ImplementationMetricKind HeaderMetrics =
+        ImplementationMetricKind.BodySize
+        | ImplementationMetricKind.ExceptionRegions;
 
-    const ImplementationMetricEvidenceKind HeaderEvidence =
-        ImplementationMetricEvidenceKind.BodySize
-        | ImplementationMetricEvidenceKind.ExceptionRegions;
-
-    const ImplementationMetricEvidenceKind FocusedEvidence =
-        HeaderEvidence
-        | ImplementationMetricEvidenceKind.Locals
-        | FocusedContextEvidence
-        | ImplementationMetricEvidenceKind.DirectCalls
-        | ImplementationMetricEvidenceKind
+    const ImplementationMetricKind FocusedMetrics =
+        HeaderMetrics
+        | ImplementationMetricKind.Locals
+        | FocusedContextMetrics
+        | ImplementationMetricKind.DirectCalls
+        | ImplementationMetricKind
             .SiblingOverloadRelationships;
 
-    const ImplementationMetricEvidenceKind FocusedContextEvidence =
-        ImplementationMetricEvidenceKind.InstructionShape
-        | ImplementationMetricEvidenceKind.ControlFlow;
+    const ImplementationMetricKind FocusedContextMetrics =
+        ImplementationMetricKind.InstructionShape
+        | ImplementationMetricKind.ControlFlow;
 
-    const ImplementationMetricEvidenceKind ContextEvidence =
-        FocusedContextEvidence
-        | ImplementationMetricEvidenceKind.DirectCalls
-        | ImplementationMetricEvidenceKind.AllocationCount
-        | ImplementationMetricEvidenceKind.AllocationOccurrences
-        | ImplementationMetricEvidenceKind.ThrowCount
-        | ImplementationMetricEvidenceKind.UnsafePresence
-        | ImplementationMetricEvidenceKind.DirectReflectionCalls;
+    const ImplementationMetricKind MetricsRequiringContext =
+        FocusedContextMetrics
+        | ImplementationMetricKind.DirectCalls
+        | ImplementationMetricKind.AllocationCount
+        | ImplementationMetricKind.AllocationOccurrences
+        | ImplementationMetricKind.ThrowCount
+        | ImplementationMetricKind.UnsafePresence
+        | ImplementationMetricKind.DirectReflectionCalls
+        | ImplementationMetricKind
+            .SiblingOverloadRelationships;
 
-    const ImplementationMetricEvidenceKind CallEvidence =
-        ImplementationMetricEvidenceKind.DirectCalls
-        | ImplementationMetricEvidenceKind
+    const ImplementationMetricKind MetricsRequiringCalls =
+        ImplementationMetricKind.DirectCalls
+        | ImplementationMetricKind
             .SiblingOverloadRelationships
-        | ImplementationMetricEvidenceKind.UnsafePresence
-        | ImplementationMetricEvidenceKind.DirectReflectionCalls;
+        | ImplementationMetricKind.UnsafePresence
+        | ImplementationMetricKind.DirectReflectionCalls;
+
+    const ImplementationMetricKind MetricsRequiringLocalSignature =
+        MetricsRequiringContext
+        | ImplementationMetricKind.Locals;
+
+    const ImplementationMetricKind MetricsRequiringManagedBody =
+        ImplementationMetricKind.All
+        & ~ImplementationMetricKind.Async;
 }
