@@ -85,7 +85,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
                     bool gateInScope;
                     try
                     {
-                        gateInScope = gate.TypeInScope(sourceGate.Classifier, typeHandle, typeDefinition);
+                        gateInScope = gate.TypeInScope(state.GateCache ??= gate.Resolve(sourceGate.Classifier), typeHandle, typeDefinition);
                     }
                     catch (Exception ex)
                         when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
@@ -298,13 +298,48 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         unitsVisited = 0;
         if (!AllowsKernel)
             return false;
+        if (SourceGate is not { } sourceGate)
+            return RunKernelCore<UngatedKernel>(state, reader, peReader, lookup, gate, null!, out unitsVisited);
+        return RunGatedKernel(state, reader, peReader, lookup, gate, sourceGate, out unitsVisited);
+    }
 
+    /// <summary>
+    /// The kernel for a gated producer. The base resolves the classifier's
+    /// cache once and tests through it; a producer whose gate classification
+    /// is a struct specializes the kernel to it instead.
+    /// </summary>
+    private protected virtual bool RunGatedKernel(
+        MethodDefinitionExecution.ProducerState state,
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
+        SourceGateGuard sourceGate,
+        out int unitsVisited) =>
+        RunKernelCore<CachedGateKernel>(state, reader, peReader, lookup, gate, sourceGate, out unitsVisited);
+
+    /// <summary>
+    /// The closed-query kernel: one loop specialized to the producer's gate,
+    /// predicate, and projection. The gate strategy decides only how scope
+    /// and class are tested; containment, early stop, and receipts are the
+    /// same for every strategy.
+    /// </summary>
+    private protected bool RunKernelCore<TGate>(
+        MethodDefinitionExecution.ProducerState state,
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
+        SourceGateGuard sourceGate,
+        out int unitsVisited)
+        where TGate : struct, IKernelGate
+    {
         bool exists = state.Terminal == ProducerTerminal.Exists;
         bool rows = state.Terminal == ProducerTerminal.Rows;
         bool typeScoped = HasTypeScope;
-        SourceGateGuard? sourceGate = SourceGate;
         TPredicate predicate = default;
         TProjection projection = default;
+        TGate gateTests = default;
         var unit = new MethodDefinitionUnit(reader, peReader, lookup, gate);
         var accumulator = new QueryAccumulator<TRow>();
         int visited = 0;
@@ -320,8 +355,8 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
                 TypeDefinition typeDefinition = reader.GetTypeDefinition(typeHandle);
                 try
                 {
-                    if (sourceGate is not null
-                        && !gate.TypeInScope(sourceGate.Classifier, typeHandle, typeDefinition))
+                    if (gateTests.Gated
+                        && !gateTests.TypeInScope(state, gate, sourceGate, typeHandle, typeDefinition))
                     {
                         continue;
                     }
@@ -341,9 +376,9 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
                     unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                     visited++;
                 state.Execution.PassUnitsVisited = visited;
-                    if (sourceGate is not null)
+                    if (gateTests.Gated)
                     {
-                        bool? accepted = MethodDefinitionExecution.GateAccepts(ref unit, state, sourceGate);
+                        bool? accepted = gateTests.Accepts(ref unit, state, sourceGate);
                         if (accepted is null)
                             goto Done;
                         if (!accepted.Value)
@@ -408,4 +443,138 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         state.Failure = new ProducerFailure(token, unit, $"{ex.GetType().Name}: {ex.Message}");
         state.IsActive = false;
     }
+}
+
+/// <summary>How a closed-query kernel tests its source gate.</summary>
+internal interface IKernelGate
+{
+    bool Gated { get; }
+
+    bool TypeInScope(
+        MethodDefinitionExecution.ProducerState state,
+        MethodRowGate gate,
+        SourceGateGuard guard,
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition);
+
+    bool? Accepts(
+        ref MethodDefinitionUnit unit,
+        MethodDefinitionExecution.ProducerState state,
+        SourceGateGuard guard);
+}
+
+/// <summary>A producer with no source gate.</summary>
+internal readonly struct UngatedKernel : IKernelGate
+{
+    public bool Gated => false;
+
+    public bool TypeInScope(
+        MethodDefinitionExecution.ProducerState state,
+        MethodRowGate gate,
+        SourceGateGuard guard,
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition) => true;
+
+    public bool? Accepts(
+        ref MethodDefinitionUnit unit,
+        MethodDefinitionExecution.ProducerState state,
+        SourceGateGuard guard) => true;
+}
+
+/// <summary>A gate whose classifier is tested through its resolved per-execution cache.</summary>
+internal readonly struct CachedGateKernel : IKernelGate
+{
+    public bool Gated => true;
+
+    public bool TypeInScope(
+        MethodDefinitionExecution.ProducerState state,
+        MethodRowGate gate,
+        SourceGateGuard guard,
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition) =>
+        gate.TypeInScope(state.GateCache ??= gate.Resolve(guard.Classifier), typeHandle, typeDefinition);
+
+    public bool? Accepts(
+        ref MethodDefinitionUnit unit,
+        MethodDefinitionExecution.ProducerState state,
+        SourceGateGuard guard) =>
+        MethodDefinitionExecution.GateAccepts(ref unit, state, guard);
+}
+
+/// <summary>
+/// A gate whose classification is the struct <typeparamref name="TClassification"/>,
+/// tested inline. A kernel pass has one producer, so nothing shares the
+/// classifier's answers and no cache is kept; containment is the cached
+/// gate's.
+/// </summary>
+internal readonly struct TypedGateKernel<TClassification> : IKernelGate
+    where TClassification : struct, IMethodRowClassification
+{
+    public bool Gated => true;
+
+    public bool TypeInScope(
+        MethodDefinitionExecution.ProducerState state,
+        MethodRowGate gate,
+        SourceGateGuard guard,
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition) =>
+        default(TClassification).TypeInScope(new MethodRowTypeView(gate, typeDefinition, guard.Classifier));
+
+    public bool? Accepts(
+        ref MethodDefinitionUnit unit,
+        MethodDefinitionExecution.ProducerState state,
+        SourceGateGuard guard)
+    {
+        int unitClass;
+        try
+        {
+            unitClass = default(TClassification).Classify(new MethodDefinitionView(ref unit, guard.Classifier));
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+        {
+            MethodDefinitionExecution.FailGate(ref unit, state, ex);
+            return null;
+        }
+
+        return unitClass is >= 0 and < 64
+            && ((guard.AcceptedClasses >> unitClass) & 1) != 0;
+    }
+}
+
+/// <summary>
+/// A closed query whose source gate classification is the struct
+/// <typeparamref name="TGate"/>, so its kernel is one loop specialized to the
+/// gate, predicate, and projection.
+/// </summary>
+public abstract class MethodDefinitionQueryProducer<TGate, TPredicate, TProjection, TRow>
+    : MethodDefinitionQueryProducer<TPredicate, TProjection, TRow>
+    where TGate : struct, IMethodRowClassification
+    where TPredicate : struct, IMethodDefinitionPredicate
+    where TProjection : struct, IMethodDefinitionProjection<TRow>
+{
+    private protected MethodDefinitionQueryProducer(
+        string identity,
+        int version,
+        int tier,
+        MethodDefinitionLayers layers,
+        MethodDefinitionLayers rowLayers)
+        : base(identity, version, tier, layers, rowLayers)
+    {
+    }
+
+    /// <summary>The gate classifier; its classification must be <typeparamref name="TGate"/>.</summary>
+    internal abstract MethodRowClassifier<TGate> GateClassifier { get; }
+
+    private protected sealed override bool RunGatedKernel(
+        MethodDefinitionExecution.ProducerState state,
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
+        SourceGateGuard sourceGate,
+        out int unitsVisited) =>
+        ReferenceEquals(sourceGate.Classifier, GateClassifier)
+            ? RunKernelCore<TypedGateKernel<TGate>>(state, reader, peReader, lookup, gate, sourceGate, out unitsVisited)
+            : base.RunGatedKernel(state, reader, peReader, lookup, gate, sourceGate, out unitsVisited);
 }

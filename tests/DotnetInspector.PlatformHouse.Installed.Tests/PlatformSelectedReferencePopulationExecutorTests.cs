@@ -9,11 +9,16 @@ namespace DotnetInspector.PlatformHouse.Installed.Tests;
 
 public sealed class PlatformSelectedReferencePopulationExecutorTests
 {
-    [Fact]
-    public async Task InstalledPopulationCompletesAndSuppressesPackageWork()
+    [Theory]
+    [InlineData(PlatformFamily.DotNetRuntime)]
+    [InlineData(PlatformFamily.AspNetCore)]
+    public async Task InstalledPopulationCompletesAndSuppressesPackageWork(
+        PlatformFamily family)
     {
         Harness context = await CreateContextAsync(
-            referenceCapabilities: null);
+            referenceCapabilities: null,
+            family: family);
+        Assert.Equal(family, context.Request.Target.Family);
         int packageDiscoveries = 0;
         int packageRealizations = 0;
 
@@ -181,11 +186,15 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
                     .Candidates));
     }
 
-    [Fact]
-    public async Task PackageFallbackReceivesExactSelectedAssociation()
+    [Theory]
+    [InlineData(PlatformFamily.DotNetRuntime)]
+    [InlineData(PlatformFamily.AspNetCore)]
+    public async Task PackageFallbackReceivesExactSelectedAssociation(
+        PlatformFamily family)
     {
         Harness context = await CreateContextAsync(
-            referenceCapabilities: null);
+            referenceCapabilities: null,
+            family: family);
         context = context with
         {
             Request = CreateRequest(
@@ -317,7 +326,8 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
     static async ValueTask<Harness> CreateContextAsync(
         IReadOnlyList<PlatformSourceCapabilityIdentity>?
             referenceCapabilities,
-        int maxAssemblies = 8)
+        int maxAssemblies = 8,
+        PlatformFamily family = PlatformFamily.DotNetRuntime)
     {
         CancellationToken cancellation =
             TestContext.Current.CancellationToken;
@@ -348,9 +358,9 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
             PlatformSourceAssociationRouteIdentity.Create(
                 "package-association-route");
         PlatformFamilyTarget installedTarget =
-            Target("net11.0", "11.0.0-rc.1");
+            Target("net11.0", "11.0.0-rc.1", family);
         PlatformFamilyTarget packageTarget =
-            Target("net10.0", "10.0.12");
+            Target("net10.0", "10.0.12", family);
         var seed = new Harness(
             Request: null!,
             contents,
@@ -377,7 +387,7 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
             referenceCapabilities)
     {
         var targetDemand = new PlatformTargetDemand.FamilyDefault(
-            PlatformFamily.DotNetRuntime,
+            context.InstalledTarget.Family,
             new PlatformVersionlessRuntimeTargetPolicy(
                 PlatformTargetSelectionPolicyIdentity.Create(
                     "versionless-runtime-default"),
@@ -592,9 +602,10 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
 
     static PlatformFamilyTarget Target(
         string framework,
-        string version) =>
+        string version,
+        PlatformFamily family = PlatformFamily.DotNetRuntime) =>
         new(
-            PlatformFamily.DotNetRuntime,
+            family,
             PlatformTargetFramework.Parse(framework),
             PlatformVersion.Parse(version));
 

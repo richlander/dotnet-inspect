@@ -87,6 +87,16 @@ public static class CommandLineBuilder
             rootCommand.Parse([PackageCommand.Name, .. routerArgs]);
         if (HasParsedOption(packageParse, "--version"))
         {
+            // The Package probe captures unknown options in its variadic positional
+            // argument. Preserve an earlier malformed token's diagnostic.
+            if (HasEarlierPositionalOption(
+                    packageParse,
+                    "--version"))
+            {
+                error = null;
+                return false;
+            }
+
             error = "'--version' requires the explicit 'package' command. "
                 + "Use 'package Package --version VERSION'.";
             return true;
@@ -94,6 +104,36 @@ public static class CommandLineBuilder
 
         error = null;
         return false;
+    }
+
+    private static bool HasEarlierPositionalOption(
+        ParseResult parseResult,
+        string optionAlias)
+    {
+        Token? optionToken =
+            CliArgumentOwnership.GetOptionResults(parseResult)
+                .FirstOrDefault(result =>
+                    result.IdentifierToken?.Value.Equals(
+                        optionAlias,
+                        StringComparison.Ordinal) == true)
+                ?.IdentifierToken;
+        if (optionToken is null)
+            return false;
+
+        var precedingTokens = new HashSet<Token>(
+            parseResult.Tokens.TakeWhile(token =>
+                !ReferenceEquals(
+                    token,
+                    optionToken)),
+            ReferenceEqualityComparer.Instance);
+        return parseResult.CommandResult.Children
+            .OfType<ArgumentResult>()
+            .SelectMany(result => result.Tokens)
+            .Any(token =>
+                token.Value.StartsWith(
+                    "-",
+                    StringComparison.Ordinal)
+                && precedingTokens.Contains(token));
     }
 
     /// <summary>

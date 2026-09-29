@@ -704,7 +704,7 @@ public sealed class StructuralSignatureBuilder
         if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
                 _reader,
                 property.Signature,
-                SignatureBlobGuard.Kind.Method))
+                SignatureBlobGuard.Kind.Property))
         {
             throw new BadImageFormatException(
                 "The property signature exceeds the structural safety limit "

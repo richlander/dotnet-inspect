@@ -73,6 +73,41 @@ public sealed class InstalledPlatformHouseAdapterTests
     }
 
     [Fact]
+    public void DiscoverTargets_AspNetCoreFamilyDefaultSeesOnlyItsFamily()
+    {
+        using var hive = new TestHive();
+        hive.CreateReferencePack("11.0.0-rc.1", "net11.0");
+        hive.CreateReferencePack(
+            "10.0.12", "net10.0", "Microsoft.AspNetCore.App.Ref");
+        hive.CreateReferencePack(
+            "11.0.0-rc.1", "net11.0", "Microsoft.AspNetCore.App.Ref");
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformHouseRequest request = FamilyDefaultRequest(
+            adapter,
+            TestContext.Current.CancellationToken,
+            PlatformFamily.AspNetCore);
+
+        var succeeded = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledReferenceTargetInventory>.Succeeded>(
+                    adapter.DiscoverTargets(request));
+        var attempt =
+            Assert.IsType<PlatformTargetDiscoveryAttempt.Succeeded>(
+                InstalledPlatformTargetDiscovery.PrepareAttempt(
+                    succeeded));
+
+        Assert.All(
+            attempt.Candidates,
+            candidate => Assert.Equal(
+                PlatformFamily.AspNetCore,
+                candidate.Target.Family));
+        Assert.Equal(
+            ["10.0.12", "11.0.0-rc.1"],
+            attempt.Candidates.Select(
+                candidate => candidate.Target.Version.Value));
+    }
+
+    [Fact]
     public void DiscoverTargets_RejectsUnauthorizedCapabilityBeforeSourceWork()
     {
         using var hive = new TestHive();
@@ -371,7 +406,8 @@ public sealed class InstalledPlatformHouseAdapterTests
 
     static PlatformHouseRequest FamilyDefaultRequest(
         InstalledPlatformHouseAdapter adapter,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PlatformFamily family = PlatformFamily.DotNetRuntime)
     {
         PlatformSourceCapabilityIdentity fallback =
             PlatformSourceCapabilityIdentity.Create("package-fallback");
@@ -385,7 +421,7 @@ public sealed class InstalledPlatformHouseAdapterTests
         return new(
             PlatformHouseRequestIdentity.Create("family-default-discover"),
             new PlatformTargetDemand.FamilyDefault(
-                PlatformFamily.DotNetRuntime,
+                family,
                 new PlatformVersionlessRuntimeTargetPolicy(
                     PlatformTargetSelectionPolicyIdentity.Create(
                         "versionless-runtime-default"),

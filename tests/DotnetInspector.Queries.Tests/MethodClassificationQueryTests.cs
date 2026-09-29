@@ -23,34 +23,6 @@ public sealed class MethodClassificationQueryTests
     static readonly FindingSubject Subject = new("fixture.dll", "fixture.dll");
 
     /// <summary>
-    /// Fixtures where reading classic async from StateMachineRelationshipIndex
-    /// departs from legacy's attribute-name match. A rejected relationship
-    /// (a null state-machine type) fails the async analyzer; an attribute
-    /// naming a type that is not the method's state machine is not async.
-    /// Any other departure fails these gates.
-    /// </summary>
-    static readonly Dictionary<string, string?> AsyncDepartures = new(StringComparer.Ordinal)
-    {
-        [FixtureIds.AnalysisAsyncSiblingFriend] = null,
-        [FixtureIds.AnalysisLookalike] = null,
-        [FixtureIds.AnalysisSpoofSystemRuntime] = "System.AsyncAttributeSpoofer::Analyze",
-    };
-
-    static bool IsRejectedDeparture(string path) =>
-        FixtureIdFor(path) is { } id && AsyncDepartures.TryGetValue(id, out string? notAsync) && notAsync is null;
-
-    /// <summary>Legacy rows, minus the attribute-only async rows the index does not confirm.</summary>
-    static List<ClassifiedMethodInfo> ConfirmedLegacy(string path, List<ClassifiedMethodInfo> legacy)
-    {
-        if (FixtureIdFor(path) is not { } id || !AsyncDepartures.TryGetValue(id, out string? notAsync) || notAsync is null)
-            return legacy;
-        return legacy
-            .Where(row => !(row.Classification == MethodClassification.StateMachineAsync
-                && $"{row.DeclaringType}::{row.MethodName}" == notAsync))
-            .ToList();
-    }
-
-    /// <summary>
     /// Real assets: every built repository fixture, the platform assemblies
     /// this suite runs on, and this test assembly.
     /// </summary>
@@ -114,16 +86,6 @@ public sealed class MethodClassificationQueryTests
         MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [], Subject);
         Assert.Null(result.Critical);
 
-        if (result.MergedRows.IsDefault)
-        {
-            // A rejected state-machine relationship fails the async analyzer
-            // instead of counting as async.
-            Assert.True(IsRejectedDeparture(path), $"Unexpected async failure in {FixtureIdFor(path) ?? path}.");
-            return;
-        }
-
-        legacy = ConfirmedLegacy(path, legacy);
-
         Assert.Equal(legacy.Count, result.MergedRows.Length);
         for (int i = 0; i < legacy.Count; i++)
         {
@@ -171,17 +133,14 @@ public sealed class MethodClassificationQueryTests
             new(MethodClassificationAnalyzer.PInvoke, ClassificationClosing.Count),
             new(MethodClassificationAnalyzer.Async, ClassificationClosing.Count),
             new(MethodClassificationAnalyzer.PointerSignature, ClassificationClosing.Exists),
+            new(MethodClassificationAnalyzer.Async, ClassificationClosing.Exists),
+            new(MethodClassificationAnalyzer.RuntimeAsync, ClassificationClosing.Rows),
+            new(MethodClassificationAnalyzer.CompilerAsync, ClassificationClosing.Rows),
+            new(MethodClassificationAnalyzer.RuntimeAsync, ClassificationClosing.Count),
+            new(MethodClassificationAnalyzer.CompilerAsync, ClassificationClosing.Count),
         ];
         using var peReader = new PEReader(File.OpenRead(path));
         MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, questions);
-        if (result.AnswerTo(questions[2]) is ClassificationAnswer.Failed)
-        {
-            Assert.True(IsRejectedDeparture(path), $"Unexpected async failure in {FixtureIdFor(path) ?? path}.");
-            return;
-        }
-
-        legacy = ConfirmedLegacy(path, legacy);
-
         // Legacy orders, exactly as LibraryMetadataService and LibraryInspectionView sorted them.
         var pinvoke = legacy.Where(static m => m.Classification == MethodClassification.PInvoke)
             .OrderBy(static m => m.DeclaringType).ThenBy(static m => m.MethodName).ToList();
@@ -208,6 +167,19 @@ public sealed class MethodClassificationQueryTests
         Assert.Equal(new ClassificationAnswer.Count(pinvoke.Count), result.AnswerTo(questions[5]));
         Assert.Equal(new ClassificationAnswer.Count(async.Count), result.AnswerTo(questions[6]));
         Assert.Equal(new ClassificationAnswer.Exists(pointer.Count > 0), result.AnswerTo(questions[7]));
+        Assert.Equal(new ClassificationAnswer.Exists(async.Count > 0), result.AnswerTo(questions[8]));
+
+        // The two async analyzers split legacy's async rows, disjointly, and
+        // each Count equals its Rows.
+        var runtime = legacy.Where(static m => m.Classification == MethodClassification.RuntimeAsync).ToList();
+        var compiler = legacy.Where(static m => m.Classification == MethodClassification.StateMachineAsync).ToList();
+        AssertRows(runtime, result.AnswerTo(questions[9]));
+        AssertRows(compiler, result.AnswerTo(questions[10]));
+        Assert.Equal(new ClassificationAnswer.Count(runtime.Count), result.AnswerTo(questions[11]));
+        Assert.Equal(new ClassificationAnswer.Count(compiler.Count), result.AnswerTo(questions[12]));
+        Assert.Empty(
+            Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(questions[9])).Methods.Select(static row => row.Token)
+                .Intersect(Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(questions[10])).Methods.Select(static row => row.Token)));
     }
 
     [Fact]
@@ -271,6 +243,80 @@ public sealed class MethodClassificationQueryTests
     }
 
     [Fact]
+    public void Async_ExistsStopsAtTheFirstAsyncMethodInOnePass()
+    {
+        // Runtime async first, then a method whose attribute type nests
+        // beyond the chain bound: reading its attribute would abort.
+        byte[] image = AsyncImage(runtimeAsync: true, hostileAttribute: true);
+        ClassificationQuestion exists = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Exists);
+        ClassificationQuestion count = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Count);
+
+        using (var peReader = new PEReader(ImmutableArray.Create(image)))
+        {
+            MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [exists]);
+
+            Assert.Equal(new ClassificationAnswer.Exists(true), result.AnswerTo(exists));
+            Assert.Null(result.Critical);
+            (ClassificationClosing closing, WorkReceipt receipt) = Assert.Single(result.Receipts);
+            Assert.Equal(ClassificationClosing.Exists, closing);
+            Assert.Equal(
+                [AsyncAnalyzer.Instance.Identity],
+                receipt.Producers.Select(static participation => participation.Producer));
+        }
+
+        // The same scope's Count reads the hostile attribute and aborts.
+        using (var peReader = new PEReader(ImmutableArray.Create(image)))
+        {
+            MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [count]);
+            Assert.IsType<ClassificationAnswer.Aborted>(result.AnswerTo(count));
+            Assert.NotNull(result.Critical);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    public void Async_ExistsCountAndRowsAgree(
+        bool runtimeAsync,
+        bool compilerAsync,
+        bool expected)
+    {
+        byte[] image = AsyncImage(runtimeAsync, hostileAttribute: false, compilerAsync);
+        ClassificationQuestion exists = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Exists);
+        ClassificationQuestion count = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Count);
+        ClassificationQuestion rows = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Rows);
+
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [exists, count, rows]);
+
+        Assert.Equal(new ClassificationAnswer.Exists(expected), result.AnswerTo(exists));
+        var listed = Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(rows));
+        Assert.Equal(new ClassificationAnswer.Count(listed.Methods.Length), result.AnswerTo(count));
+    }
+
+    [Fact]
+    public void Async_RowsCarryTheirKindInTheRequestedOrder()
+    {
+        byte[] image = AsyncImage(runtimeAsync: true, hostileAttribute: false, compilerAsync: true);
+        ClassificationQuestion metadata = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Rows);
+        ClassificationQuestion model = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Rows, ClassifiedRowOrder.Model);
+
+        using var legacyReader = new PEReader(ImmutableArray.Create(image));
+        List<ClassifiedMethodInfo> legacy = MethodClassificationScanner.Scan(legacyReader);
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [metadata, model]);
+
+        Assert.Equal(
+            legacy.Select(static row => (row.MethodName, row.Classification)),
+            Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(metadata)).Methods
+                .Select(static row => (row.MethodName.ToString(), row.Classification)));
+        Assert.Equal(
+            ["Runtime", "Compiler"],
+            Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(model)).Methods.Select(static row => row.MethodName.ToString()));
+    }
+
+    [Fact]
     public void LegacyOrder_IsANamedOrderWithAsyncBeforePointerWithinOneMethod()
     {
         static ClassifiedMethodRow Row(int ordinal, MethodClassification classification) =>
@@ -290,85 +336,9 @@ public sealed class MethodClassificationQueryTests
             ClassifiedMethodRowOrders.Apply(rows, ClassifiedMethodRowOrders.Legacy).Select(static row => (row.Ordinal, row.Classification)));
     }
 
-    [Fact]
-    public void Async_RejectedStateMachineRelationshipFailsTheAnalyzer()
-    {
-        string path = FixtureCatalog.AnalysisAsyncSiblingFriend.AssemblyPath();
-        ClassificationQuestion count = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Count);
-        ClassificationQuestion pointer = new(MethodClassificationAnalyzer.PointerSignature, ClassificationClosing.Count);
-
-        using var peReader = new PEReader(File.OpenRead(path));
-        MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [count, pointer]);
-
-        var failed = Assert.IsType<ClassificationAnswer.Failed>(result.AnswerTo(count));
-        Assert.Equal(TokenLabel(path, "MalformedAsyncSourceFixture", "AnalyzeAsync"), failed.Failure.Unit);
-        Assert.IsType<ClassificationAnswer.Count>(result.AnswerTo(pointer));
-        Assert.Null(result.Critical);
-    }
-
     static IEnumerable<ClassifiedMethodObservation> Payloads(FindingInspection<ClassifiedMethodObservation> inspection) =>
         Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Complete>(inspection.Value)
             .Findings.Select(static finding => finding.Payload);
-
-    [Theory]
-    [InlineData(FixtureIds.AnalysisAsyncSiblingFriend, "MalformedAsyncSourceFixture", "AnalyzeAsync")]
-    [InlineData(FixtureIds.AnalysisLookalike, null, null)]
-    public void Async_AcceptedDeparture_RejectedRelationshipFails(string fixtureId, string? type, string? method)
-    {
-        string path = FixtureCatalog.Get(fixtureId).AssemblyPath();
-        ClassificationQuestion count = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Count);
-
-        using var peReader = new PEReader(File.OpenRead(path));
-        MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [count]);
-
-        var failed = Assert.IsType<ClassificationAnswer.Failed>(result.AnswerTo(count));
-        if (type is not null)
-            Assert.Equal(TokenLabel(path, type, method!), failed.Failure.Unit);
-
-        Assert.Null(result.Critical);
-    }
-
-    [Fact]
-    public void Async_AcceptedDeparture_SpoofedAttributeIsNotAsync()
-    {
-        string path = FixtureCatalog.Get(FixtureIds.AnalysisSpoofSystemRuntime).AssemblyPath();
-        using (var legacyReader = new PEReader(File.OpenRead(path)))
-        {
-            Assert.Contains(
-                MethodClassificationScanner.Scan(legacyReader),
-                static row => row.MethodName == "Analyze"
-                    && row.DeclaringType == "System.AsyncAttributeSpoofer"
-                    && row.Classification == MethodClassification.StateMachineAsync);
-        }
-
-        ClassificationQuestion rows = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Rows);
-        using var peReader = new PEReader(File.OpenRead(path));
-        MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [rows]);
-
-        var listed = Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(rows));
-        Assert.DoesNotContain(
-            listed.Methods,
-            static row => row.MethodName.ToString() == "Analyze"
-                && row.DeclaringType.ToString() == "System.AsyncAttributeSpoofer");
-    }
-
-    [Fact]
-    public void Finding_FailedAnalyzerIsAFailedInspectionNamingIt()
-    {
-        string path = FixtureCatalog.AnalysisAsyncSiblingFriend.AssemblyPath();
-        using var peReader = new PEReader(File.OpenRead(path));
-
-        MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [], Subject);
-
-        Assert.True(result.MergedRows.IsDefault);
-        var failed = Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(result.Finding!.Value);
-        Assert.Contains("MethodClassification.Async", failed.Error.Reason);
-        Assert.Contains(TokenLabel(path, "MalformedAsyncSourceFixture", "AnalyzeAsync"), failed.Error.Reason);
-        Assert.Null(result.Critical);
-
-        using var again = new PEReader(File.OpenRead(path));
-        Assert.Null(MethodClassificationQuery.Execute(again, []).Finding);
-    }
 
     [Fact]
     public void Finding_MalformedPointerSignatureIsAFailedInspectionNamingIt()
@@ -402,6 +372,79 @@ public sealed class MethodClassificationQueryTests
             result.MergedRows.Select(static row => (row.DeclaringType.ToString(), row.MethodName.ToString(), row.Classification)));
     }
 
+    /// <summary>
+    /// One public type: a compiler-async method first (when asked), then a
+    /// runtime-async method (when asked), then a method whose attribute type
+    /// nests beyond the chain bound (when asked).
+    /// </summary>
+    static byte[] AsyncImage(bool runtimeAsync, bool hostileAttribute, bool compilerAsync = false)
+    {
+        var metadata = new System.Reflection.Metadata.Ecma335.MetadataBuilder();
+        metadata.AddModule(0, metadata.GetOrAddString("Async.dll"), metadata.GetOrAddGuid(Guid.NewGuid()), default, default);
+        metadata.AddAssembly(metadata.GetOrAddString("Async"), new Version(1, 0, 0, 0), default, default, default, default);
+        System.Reflection.Metadata.AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"), new Version(10, 0, 0, 0), default, default, default, default);
+
+        var ctorSignature = new System.Reflection.Metadata.BlobBuilder();
+        new System.Reflection.Metadata.Ecma335.BlobEncoder(ctorSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(0, static r => r.Void(), static _ => { });
+        System.Reflection.Metadata.BlobHandle ctorBlob = metadata.GetOrAddBlob(ctorSignature);
+        System.Reflection.Metadata.MemberReferenceHandle Constructor(System.Reflection.Metadata.EntityHandle parent) =>
+            metadata.AddMemberReference(parent, metadata.GetOrAddString(".ctor"), ctorBlob);
+
+        System.Reflection.Metadata.MemberReferenceHandle asyncConstructor = Constructor(metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("AsyncStateMachineAttribute")));
+        System.Reflection.Metadata.EntityHandle deep = metadata.AddTypeReference(
+            runtime, metadata.GetOrAddString("System.Runtime"), metadata.GetOrAddString("CompilerServices"));
+        for (int i = 0; i < MetadataSafetyPolicy.MaxRelationshipNodes; i++)
+            deep = metadata.AddTypeReference(deep, default, metadata.GetOrAddString("AsyncStateMachineAttribute"));
+        System.Reflection.Metadata.MemberReferenceHandle hostileConstructor = Constructor(deep);
+
+        metadata.AddTypeDefinition(default, default, metadata.GetOrAddString("<Module>"), default,
+            System.Reflection.Metadata.Ecma335.MetadataTokens.FieldDefinitionHandle(1),
+            System.Reflection.Metadata.Ecma335.MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(System.Reflection.TypeAttributes.Public, metadata.GetOrAddString("N"), metadata.GetOrAddString("T"), default,
+            System.Reflection.Metadata.Ecma335.MetadataTokens.FieldDefinitionHandle(1),
+            System.Reflection.Metadata.Ecma335.MetadataTokens.MethodDefinitionHandle(1));
+
+        var voidSignature = new System.Reflection.Metadata.BlobBuilder();
+        new System.Reflection.Metadata.Ecma335.BlobEncoder(voidSignature)
+            .MethodSignature()
+            .Parameters(0, static r => r.Void(), static _ => { });
+        System.Reflection.Metadata.BlobHandle voidBlob = metadata.GetOrAddBlob(voidSignature);
+        void Method(string name, System.Reflection.MethodImplAttributes impl, System.Reflection.Metadata.MemberReferenceHandle? attribute)
+        {
+            System.Reflection.Metadata.MethodDefinitionHandle method = metadata.AddMethodDefinition(
+                System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.Static,
+                impl,
+                metadata.GetOrAddString(name),
+                voidBlob,
+                -1,
+                System.Reflection.Metadata.Ecma335.MetadataTokens.ParameterHandle(1));
+            if (attribute is { } constructor)
+                metadata.AddCustomAttribute(method, constructor, default);
+        }
+
+        if (compilerAsync)
+            Method("Compiler", System.Reflection.MethodImplAttributes.IL, asyncConstructor);
+        if (runtimeAsync)
+            Method("Runtime", (System.Reflection.MethodImplAttributes)0x2000, null);
+        if (hostileAttribute)
+            Method("Hostile", System.Reflection.MethodImplAttributes.IL, hostileConstructor);
+        Method("Plain", System.Reflection.MethodImplAttributes.IL, null);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new System.Reflection.Metadata.Ecma335.MetadataRootBuilder(metadata),
+            new System.Reflection.Metadata.BlobBuilder());
+        var output = new System.Reflection.Metadata.BlobBuilder();
+        pe.Serialize(output);
+        return output.ToArray();
+    }
+
     /// <summary>One public type with one public method whose signature is truncated (00 01 01).</summary>
     static byte[] TruncatedSignatureImage()
     {
@@ -432,48 +475,11 @@ public sealed class MethodClassificationQueryTests
         return output.ToArray();
     }
 
-    /// <summary>The content-free label of <c>type::method</c> in the assembly at <paramref name="path"/>.</summary>
-    static string TokenLabel(string path, string typeName, string methodName)
-    {
-        using var peReader = new PEReader(File.OpenRead(path));
-        System.Reflection.Metadata.MetadataReader reader = peReader.GetMetadataReader();
-        foreach (System.Reflection.Metadata.TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
-        {
-            System.Reflection.Metadata.TypeDefinition type = reader.GetTypeDefinition(typeHandle);
-            if (reader.GetString(type.Name) != typeName)
-                continue;
-            foreach (System.Reflection.Metadata.MethodDefinitionHandle methodHandle in type.GetMethods())
-            {
-                if (reader.GetString(reader.GetMethodDefinition(methodHandle).Name) == methodName)
-                    return $"MethodDef 0x{System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(methodHandle):X8}";
-            }
-        }
-
-        throw new InvalidOperationException($"{typeName}::{methodName} was not found.");
-    }
-
     static void AssertRows(List<ClassifiedMethodInfo> expected, ClassificationAnswer answer)
     {
         var rows = Assert.IsType<ClassificationAnswer.Rows>(answer).Methods;
         Assert.Equal(
             expected.Select(static m => (m.DeclaringType, m.MethodName, m.Signature, m.ModuleName)),
             rows.Select(static r => (r.DeclaringType.ToString(), r.MethodName.ToString(), r.Signature.ToString(), r.ModuleName?.ToString())));
-    }
-
-    static string? FixtureIdFor(string path)
-    {
-        foreach (FixtureDefinition fixture in FixtureCatalog.All)
-        {
-            try
-            {
-                if (string.Equals(fixture.AssemblyPath(), path, StringComparison.OrdinalIgnoreCase))
-                    return fixture.Id;
-            }
-            catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException or NotSupportedException)
-            {
-            }
-        }
-
-        return null;
     }
 }
