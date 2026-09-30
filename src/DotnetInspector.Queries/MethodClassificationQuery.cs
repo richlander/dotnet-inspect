@@ -84,22 +84,13 @@ public sealed record ClassificationQuestion
         ClassifiedRowOrder order = ClassifiedRowOrder.Metadata,
         int? headCount = null)
     {
-        if (closing == ClassificationClosing.Head)
-        {
-            if (headCount is not > 0)
-                throw new ArgumentOutOfRangeException(nameof(headCount));
-            if (order != ClassifiedRowOrder.Metadata)
-            {
-                throw new ArgumentException(
-                    "Head supports metadata order only.",
-                    nameof(order));
-            }
-        }
-        else if (headCount is not null)
+        Execution = new ClassificationExecution(closing, headCount);
+        if (closing == ClassificationClosing.Head
+            && order != ClassifiedRowOrder.Metadata)
         {
             throw new ArgumentException(
-                "A Head count is valid only for the Head closing.",
-                nameof(headCount));
+                "Head supports metadata order only.",
+                nameof(order));
         }
 
         Analyzer = analyzer;
@@ -121,8 +112,7 @@ public sealed record ClassificationQuestion
         int count) =>
         new(analyzer, ClassificationClosing.Head, headCount: count);
 
-    internal ClassificationExecution Execution =>
-        new(Closing, HeadCount);
+    internal ClassificationExecution Execution { get; }
 }
 
 /// <summary>
@@ -287,9 +277,13 @@ public static class MethodClassificationQuery
         }
 
         var executions =
-            new Dictionary<ClassificationExecution, MethodDefinitionExecution>();
-        foreach (ClassificationExecution execution in requestedExecutions)
+            new MethodDefinitionExecution[requestedExecutions.Count];
+        for (int executionIndex = 0;
+            executionIndex < requestedExecutions.Count;
+            executionIndex++)
         {
+            ClassificationExecution execution =
+                requestedExecutions[executionIndex];
             var requests = new List<ProducerRequest>();
             foreach (MethodClassificationAnalyzer analyzer in Enum.GetValues<MethodClassificationAnalyzer>())
             {
@@ -320,7 +314,7 @@ public static class MethodClassificationQuery
                     ? accepted.Description
                     : throw new InvalidOperationException(
                         "The method classification request must plan.");
-            executions[execution] = MethodDefinitionExecution.Execute(
+            executions[executionIndex] = MethodDefinitionExecution.Execute(
                 description,
                 "MethodClassification",
                 peReader);
@@ -330,7 +324,11 @@ public static class MethodClassificationQuery
         foreach (ClassificationQuestion question in questions)
         {
             answers.Add((question, Answer(
-                executions[question.Execution].ResultOf(ProducerFor(question.Analyzer)),
+                ExecutionOf(
+                    requestedExecutions,
+                    executions,
+                    question.Execution)
+                    .ResultOf(ProducerFor(question.Analyzer)),
                 question)));
         }
 
@@ -339,8 +337,11 @@ public static class MethodClassificationQuery
         if (finding)
         {
             merged = Merge(
-                executions[new ClassificationExecution(
-                    ClassificationClosing.Rows)],
+                ExecutionOf(
+                    requestedExecutions,
+                    executions,
+                    new ClassificationExecution(
+                        ClassificationClosing.Rows)),
                 out string? failure);
             inspection = merged.IsDefault
                 ? new FindingInspection<ClassifiedMethodObservation>(
@@ -357,9 +358,10 @@ public static class MethodClassificationQuery
         var receipts =
             ImmutableDictionary.CreateBuilder<ClassificationExecution, WorkReceipt>();
         CriticalFailure? critical = null;
-        foreach (ClassificationExecution execution in requestedExecutions)
+        for (int i = 0; i < requestedExecutions.Count; i++)
         {
-            MethodDefinitionExecution completed = executions[execution];
+            ClassificationExecution execution = requestedExecutions[i];
+            MethodDefinitionExecution completed = executions[i];
             receipts[execution] = completed.Receipt;
             critical ??= completed.Receipt.Critical;
         }
@@ -370,6 +372,21 @@ public static class MethodClassificationQuery
             inspection,
             critical,
             receipts.ToImmutable());
+    }
+
+    static MethodDefinitionExecution ExecutionOf(
+        IReadOnlyList<ClassificationExecution> identities,
+        IReadOnlyList<MethodDefinitionExecution> executions,
+        ClassificationExecution identity)
+    {
+        for (int i = 0; i < identities.Count; i++)
+        {
+            if (identities[i] == identity)
+                return executions[i];
+        }
+
+        throw new InvalidOperationException(
+            $"The method classification execution '{identity}' did not run.");
     }
 
     static MethodClassificationResult Empty(
