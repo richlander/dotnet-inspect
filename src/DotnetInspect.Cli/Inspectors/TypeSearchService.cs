@@ -1395,7 +1395,7 @@ internal static class TypeSearchService
     /// <summary>
     /// The broadened match of one pattern after the Direct and exact
     /// Namespace tiers miss: the first non-empty of Prefix, Substring, and
-    /// Partial, in the order owned by find-search-service.md#classification.
+    /// Partial, in the order owned by type-find-population-selection.md.
     /// </summary>
     private sealed record BroadenedMatch(
         string EffectivePattern,
@@ -1403,117 +1403,65 @@ internal static class TypeSearchService
         List<TypeSearchResult> Candidates,
         Dictionary<string, double>? Similarities);
 
-    private static readonly Comparer<string> WithinTierOrder =
-        Comparer<string>.Create(TypeNameMatchRanking.CompareWithinTier);
-
     /// <summary>
     /// Classifies a missed pattern over a census already in Find source order.
     /// Duplicate full names collapse to the first source-ranked candidate, and
-    /// each tier orders by <see cref="TypeNameMatchRanking.CompareWithinTier"/>
-    /// with source order as the stable tie-break.
+    /// the host-neutral population selector preserves each exact candidate
+    /// association while applying the shared tier order.
     /// </summary>
     private static BroadenedMatch? ClassifyBroadened(
         string pattern,
         IReadOnlyList<TypeSearchResult> census,
         int? limit)
     {
-        if (!IsCompatibilityFallbackEligible(pattern))
-            return null;
-
-        // Explicit generic notation keeps only the similarity fallback: a
-        // prefix or substring cannot honor its arity.
-        List<TypeSearchResult> prefix = [];
-        List<TypeSearchResult> substring = [];
-        foreach (TypeSearchResult candidate
-            in TypeNameMatchRanking.IsBroadenable(pattern)
-                ? census.DistinctBy(static candidate => candidate.FullName)
-                : [])
-        {
-            switch (TypeNameMatchRanking.Classify(candidate.FullName, pattern))
-            {
-                case TypeNameMatchTier.Prefix:
-                    prefix.Add(candidate);
-                    break;
-                case TypeNameMatchTier.Substring:
-                    substring.Add(candidate);
-                    break;
-            }
-        }
-
-        if (prefix.Count > 0)
-        {
-            string effectivePattern = pattern;
-            if (LooksLikeNamespacePrefix(pattern))
-            {
-                effectivePattern = $"{pattern}*";
-                CommandError.WriteNote(
-                    $"No exact matches for '{pattern}'. Showing prefix "
-                    + $"matches for '{effectivePattern}'.");
-            }
-
-            return new(
-                effectivePattern,
-                TypeFindMatchKind.Prefix,
-                Ranked(prefix, limit),
-                null);
-        }
-
-        if (substring.Count > 0)
-        {
-            return new(
+        TypeFindPopulationSelection<TypeSearchResult>? selection =
+            TypeFindPopulationSelector.Select(
                 pattern,
-                TypeFindMatchKind.Substring,
-                Ranked(substring, limit),
-                null);
-        }
-
-        List<(string Name, double Similarity)> suggestions =
-            TypeMatcher.FindClosest(
-                    census
-                        .Select(static candidate => candidate.FullName)
-                        .Distinct(StringComparer.Ordinal),
-                    pattern,
-                    minSimilarity: 0.5,
-                    maxResults: 5)
-                .ToList();
-        if (suggestions.Count == 0)
+                [
+                    .. census.Select(candidate =>
+                        new TypeFindPopulationCandidate<TypeSearchResult>(
+                            candidate,
+                            candidate.FullName)),
+                ],
+                limit);
+        if (selection is null)
             return null;
 
-        Dictionary<string, double> similarities =
-            suggestions.ToDictionary(
-                static suggestion => suggestion.Name,
-                static suggestion => suggestion.Similarity,
-                StringComparer.Ordinal);
-        List<TypeSearchResult> partial =
-        [
-            .. census
-                .Where(candidate =>
-                    similarities.ContainsKey(candidate.FullName))
-                .DistinctBy(static candidate => candidate.FullName)
-                .OrderByDescending(candidate =>
-                    similarities[candidate.FullName])
-                .ThenBy(
-                    static candidate => candidate.FullName,
-                    WithinTierOrder),
-        ];
-        return new(
-            pattern,
-            TypeFindMatchKind.Partial,
-            partial,
-            similarities);
-
-        static List<TypeSearchResult> Ranked(
-            List<TypeSearchResult> candidates,
-            int? limit)
+        TypeFindMatchKind kind = selection.Tier switch
         {
-            IEnumerable<TypeSearchResult> ordered =
-                candidates.OrderBy(
-                    static candidate => candidate.FullName,
-                    WithinTierOrder);
-            if (limit is { } count)
-                ordered = ordered.Take(count);
-            return [.. ordered];
+            TypeFindPopulationTier.Prefix =>
+                TypeFindMatchKind.Prefix,
+            TypeFindPopulationTier.Substring =>
+                TypeFindMatchKind.Substring,
+            TypeFindPopulationTier.Partial =>
+                TypeFindMatchKind.Partial,
+            _ => throw new InvalidOperationException(
+                "Unknown Type Find population tier."),
+        };
+        if (kind == TypeFindMatchKind.Prefix
+            && !string.Equals(
+                selection.EffectivePattern,
+                pattern,
+                StringComparison.Ordinal))
+        {
+            CommandError.WriteNote(
+                $"No exact matches for '{pattern}'. Showing prefix "
+                + $"matches for '{selection.EffectivePattern}'.");
         }
+
+        return new(
+            selection.EffectivePattern,
+            kind,
+            [
+                .. selection.Matches.Select(
+                    static match => match.Candidate.Association),
+            ],
+            kind == TypeFindMatchKind.Partial
+                ? selection.Matches.ToDictionary(
+                    static match => match.Candidate.FullName,
+                    static match => match.Similarity,
+                    StringComparer.Ordinal)
+                : null);
     }
 
     private static async Task<List<TypeFindResult>> FindSinglePatternAsync(

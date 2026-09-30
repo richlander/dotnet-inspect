@@ -2,7 +2,7 @@
 
 ## Status, owner, and claim
 
-Status: **design contract** for
+Status: **implemented and Release-gated contract** for
 [#8643](https://github.com/richlander/dotnet-inspect/issues/8643).
 
 The **PDB Source Provenance** owner in `ILInspector.Metadata` defines this
@@ -26,8 +26,8 @@ document for which this methodology found no source-generator evidence. It
 does not prove human authorship, physical syntax-tree origin, or the absence of
 files generated before compiler invocation.
 
-The contract is **unverified** until the Release gates under
-[Required evidence](#required-evidence) land.
+The Release gates and pinned real-asset evidence under
+[Required evidence](#required-evidence) verify this contract.
 
 ## User question
 
@@ -130,6 +130,14 @@ The producer consumes the PE metadata, the matching loaded Portable PDB, and
 one explicit path-profile version from the same live context. It does not
 accept a detached document list associated only by assembly name, path, or
 MVID. The detached result retains the complete binding receipt.
+An embedded Portable PDB establishes correspondence by its PE containment. A
+standalone Portable PDB requires a matching Portable CodeView identity from the
+PE; successful decoding without that positive identity is unavailable, not a
+matching result.
+
+Loading a standalone replacement updates the retained PDB reader and its
+correspondence state atomically. A rejected replacement reports its typed load
+status but does not invalidate or replace a previously retained matching PDB.
 
 An absent, rejected, unsupported, identity-mismatched, malformed, bounded, or
 failed PDB produces a typed unavailable or failed outcome. It does not produce
@@ -147,6 +155,7 @@ The result retains one row for every Portable PDB Document row, ordered by
 document row ID. A row contains:
 
 - document row ID and exact inert path text;
+- raw path character and segment counts used for finite-bound receipts;
 - checksum algorithm and checksum bytes when present;
 - whether the document carries Embedded Source custom debug information;
 - every exact associated method and Type-definition address;
@@ -199,6 +208,13 @@ unchanged. Dot segments, empty segments, traversal-like hint segments, an
 ambiguous pair, or a path beyond the configured scan and segment bounds do not
 match.
 
+The hint suffix follows Roslyn's pinned `AdditionalSourcesCollection` grammar:
+Unicode identifier-part characters plus period, comma, hyphen, plus, grave
+accent, underscore, spaces, parentheses, brackets, braces, slash, and
+backslash are allowed. Spaces may not terminate a segment, and empty, dot, or
+dot-dot segments are invalid. Other characters remain unknown rather than
+generated.
+
 This profile intentionally recognizes the observed
 `System.Text.Json.SourceGeneration.JsonSourceGenerator` and
 `Markout.SourceGeneration.MarkoutSourceGenerator` paths. A generator whose
@@ -236,6 +252,12 @@ duplicate evidence; conflicting tool/version values coexist. A malformed
 framework marker is unknown evidence and cannot be hidden by another valid
 marker.
 
+Authentication accepts the platform-signed framework definitions or facades
+used by supported targets: `System.Runtime` and `netstandard` for both markers,
+`System` for `GeneratedCodeAttribute`, and `mscorlib` for
+`CompilerGeneratedAttribute`. Assembly name alone never establishes
+authenticity.
+
 A valid method-level `GeneratedCodeAttribute` adds one exact
 `MarkerGenerated` contribution to its declaring Type whether or not the method
 has a body, sequence points, or a document association. It does not rewrite
@@ -246,9 +268,11 @@ this way. The compiler-synthesis rule therefore applies only at Type or
 enclosing-Type grain.
 
 Enclosing-Type inheritance follows exact Metadata nesting identity with a
-finite relationship bound. A cycle, malformed declaring-Type relationship, or
-bound failure yields unknown evidence for affected Types rather than generated
-success.
+finite relationship bound. At every hop, nested visibility requires a non-nil
+declaring Type and top-level visibility requires a nil declaring Type. A
+missing row, nil parent for a nested Type, cycle, out-of-range handle, other
+malformed relationship, or bound failure yields unknown evidence for affected
+Types rather than generated success.
 
 ## Type-contribution evidence
 
@@ -270,9 +294,10 @@ method and Type association.
 A method-to-document association is a **mapped destination**, not proof of the
 physical syntax tree that produced the method. C# `#line` and
 `#pragma checksum` can map an ordinary syntax tree to a generated-looking
-document path with its declared checksum. Portable PDB sequence points do not
-retain a separate physical-origin identity from which this owner could recover
-that distinction.
+document path. When Roslyn also embeds the physical document, it records the
+actual embedded-source checksum rather than an inconsistent checksum declared
+by the pragma. Portable PDB sequence points do not retain a separate
+physical-origin identity from which this owner could recover that distinction.
 
 `MappedGenerated` and `MappedOrdinary` therefore state exactly the PDB evidence
 observed. They are never renamed `PhysicallyGenerated`, `PhysicallyOrdinary`,
@@ -294,6 +319,10 @@ and `MarkerGenerated` contribution remain in the Type row even when the method
 is abstract, bodyless, has only hidden sequence points, or has no PDB method
 row. A method with both a marker and mapped evidence retains both
 contributions.
+
+An entirely absent Portable PDB `MethodDebugInformation` table means that no
+method has mapped-document associations. A non-empty table must match the PE
+MethodDef population; a partial table is malformed rather than absence.
 
 A valid `CompilerGeneratedAttribute` directly on a Type or enclosing Type
 identifies the Type itself as compiler synthesis. It adds a
@@ -352,6 +381,7 @@ Metadata Type definition exactly once. Its receipt records:
 - method-to-document association count;
 - generation-marker rows examined;
 - path characters and segments examined;
+- unique document-checksum bytes examined;
 - direct and inherited marker counts;
 - each aggregate-disposition count; and
 - the exact finite bounds.
@@ -364,6 +394,19 @@ A global enumeration or resource-bound failure returns typed incomplete
 output and no available complete document. Per-row malformed or ambiguous
 untrusted evidence becomes an unknown row when the producer can still prove
 complete bounded enumeration.
+
+Each authenticated generation-marker row consumes the remaining global marker
+budget before its value is decoded or its evidence record is materialized.
+
+Each distinct document-checksum blob consumes the remaining global checksum
+budget before it is materialized. The producer materializes one immutable value
+per exact Blob-heap handle and reuses that value for every referencing document.
+
+The producer uses state-advancing bounded UTF-8 decoding to preflight compressed
+Portable PDB document-name components against the remaining total
+path-character budget before materializing the expanded path. Repeated
+component references therefore consume the same raw character budget as the
+expanded path without requiring an unbounded intermediate string.
 
 The detached result retains no MetadataReader, PDB reader, stream, artifact
 lease, path authority, or source-content capability.
@@ -404,6 +447,8 @@ independently compiled fixtures under `fixtures/metadata/` and must cover:
   hint identity are retained;
 - valid, duplicate, conflicting, lookalike, and malformed
   `GeneratedCodeAttribute` rows;
+- authentic `netstandard` facade markers and legacy framework marker
+  identities;
 - unrelated Types sharing a document remain independent when only one method
   or Type has a generation marker;
 - an attributed partial Type with an ordinary method contribution is mixed
@@ -419,16 +464,22 @@ independently compiled fixtures under `fixtures/metadata/` and must cover:
 - ordinary-evidence-only, generated-evidence-only, mixed-evidence
   partial-Type, and no-document unknown aggregates;
 - an ordinary method mapped by `#line` and `#pragma checksum` to the same
-  generated-looking embedded document row produces `MappedGenerated` evidence
-  without a physical-origin claim;
+  generated-looking embedded document row produces `MappedGenerated` evidence,
+  retains Roslyn's actual embedded-source checksum, and makes no physical-origin
+  claim;
 - embedded ordinary source remaining unknown rather than ordinary;
 - explicit generated output outside the supported path profile remaining
   unknown without an attribute marker;
 - `.g.cs` ordinary input remaining ordinary;
 - separator variants, dot segments, traversal-like hints, multiple eligible
-  path decompositions, long paths, and every finite bound;
+  path decompositions, invalid Roslyn hint characters and segments, long paths,
+  encoding-expanding inert paths, and every finite bound;
+- repeated references to one large checksum blob retaining one immutable value
+  and exceeding the checksum-byte limit before materialization;
 - exact artifact/image/PDB binding, duplicate and foreign rows, complete
   counts, deterministic order, and detached lifetime; and
+- a standalone PDB without positive PE CodeView correspondence remaining
+  unavailable, and malformed enclosing-Type relationships becoming unknown;
 - absent, identity-mismatched, malformed, unsupported, and failed PDB outcomes
   remaining distinct from an available all-unknown result.
 
@@ -443,6 +494,31 @@ commit. It requires:
 
 The canary records exact counts as change-sensitive evidence, not as a
 permanent product invariant.
+
+The implementation canary rebuilt commit
+`b8dafb797636da14319e5896052c40ba9e0c1370` in Release, admitted the PE through
+an artifact-backed stream, loaded the Portable PDB from a stream, and produced:
+
+| Evidence | Exact count |
+| --- | ---: |
+| Documents | 3,272 |
+| Types | 4,347 |
+| Method-to-document associations | 52,973 |
+| Authentic generation-marker rows | 19,819 |
+| Ordinary-evidence-only Types | 1,411 |
+| Generated-evidence-only Types | 2,790 |
+| Mixed-evidence Types | 0 |
+| Unknown Types | 146 |
+| Markout generated-path documents | 244 |
+| System.Text.Json generated-path documents | 2,625 |
+| Valid System.Text.Json `GeneratedCodeAttribute` rows | 53 |
+
+On Linux x64 with .NET SDK `11.0.100-rc.1.26425.128`, the median of five warm
+measurements was 6.2 ms for PE/PDB opening. Temporary phase instrumentation
+over five additional warm inspections measured medians of 36.3 ms for document
+classification, 211.6 ms for association construction, and 39.7 ms for
+aggregate construction. These measurements are implementation evidence, not a
+runtime guarantee.
 
 ## Production adoption
 
