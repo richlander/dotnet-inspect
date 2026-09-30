@@ -24,6 +24,32 @@ test("complexity cells disclose evidence and activate exact type keys", async ({
   await expect(activation).toHaveText("Example.B");
 });
 
+test("structural salience preserves issued orders and exact interactions", async ({
+  page,
+}) => {
+  await page.goto("/browser/library-metrics.html");
+  const salience = page.locator(".metrics-salience-section");
+  await expect(salience).toContainText("Structural Salience");
+  await expect(salience).toContainText("Example · 7 external source Types");
+  await expect(salience.locator(".metrics-salience-order").first())
+    .toContainText("A");
+  await expect(salience.locator(".metrics-salience-order").first())
+    .toContainText("7 incoming peers · foundation");
+  await expect(salience.locator(".metrics-salience-order").nth(1))
+    .toContainText("6 outgoing peers · orchestrator");
+
+  await salience.locator(
+    '[data-metrics-salience-type-key="Example.B"]',
+  ).first().click();
+  await expect(page.locator("#metrics-activated-type"))
+    .toHaveText("Example.B");
+
+  await salience.locator("[data-metrics-salience-namespace]")
+    .selectOption("Example.Tools");
+  await expect(page.locator("#metrics-selected-namespace"))
+    .toHaveText("Example.Tools");
+});
+
 test("reciprocal relationship evidence remains independently reachable", async ({
   page,
 }) => {

@@ -1269,6 +1269,11 @@ const initialState = {
   typeLeverageError: "",
   typeLeverageKey: "",
   typeLeveragePresentation: null as TypeLeveragePresentation | null,
+  libraryMetricsLeverageNamespace: null as string | null,
+  libraryMetricsLeverageLoading: false,
+  libraryMetricsLeverageError: "",
+  libraryMetricsLeverageKey: "",
+  libraryMetricsLeveragePresentation: null as TypeLeveragePresentation | null,
   packages: [],
   package: null,
   uploadedLibrary: null,
@@ -3349,15 +3354,38 @@ const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
   ],
   queryShard: (target, exactNamespace) =>
     target.queryShard(exactNamespace),
-  isCurrent: target =>
-    state.typeLeverageEnabled
-    && currentTypeLeverageKey() === target.key,
+  isCurrent: target => target.consumer === "metrics"
+    ? currentLibraryMetricsTypeLeverageKey() === target.key
+    : state.typeLeverageEnabled
+      && currentTypeLeverageKey() === target.key,
   describeError: errorMessage,
   reportOperationDiagnostic: diagnostic => {
     console.error("Type leverage operation authority failure.", diagnostic);
     return undefined;
   },
   publish: published => {
+    if (currentLibraryMetricsTypeLeverageKey() === published.key) {
+      state.libraryMetricsLeverageKey = published.key;
+      switch (published.status) {
+        case "loading":
+          state.libraryMetricsLeverageLoading = true;
+          state.libraryMetricsLeverageError = "";
+          state.libraryMetricsLeveragePresentation = null;
+          break;
+        case "ready":
+          state.libraryMetricsLeverageLoading = false;
+          state.libraryMetricsLeverageError = "";
+          state.libraryMetricsLeveragePresentation = published.presentation;
+          break;
+        case "failed":
+          state.libraryMetricsLeverageLoading = false;
+          state.libraryMetricsLeverageError = published.message;
+          state.libraryMetricsLeveragePresentation = null;
+          break;
+      }
+      render();
+      return;
+    }
     state.typeLeverageKey = published.key;
     switch (published.status) {
       case "loading":
@@ -5041,6 +5069,7 @@ function filteredTypes() {
 }
 
 interface TypeLeverageTarget {
+  readonly consumer: "type-browser" | "metrics";
   readonly key: string;
   readonly libraryKey: string;
   readonly requestedNamespaces: readonly string[];
@@ -5060,12 +5089,16 @@ function typeLeverageWorkspaceGeneration(pkg: AppPackage) {
   return generation;
 }
 
-function typeLeverageTarget(): TypeLeverageTarget | null {
+function createTypeLeverageTarget(
+  consumer: TypeLeverageTarget["consumer"],
+  requestedNamespaces: readonly string[],
+  allowLibraryRoot: boolean,
+): TypeLeverageTarget | null {
   const pkg = state.package;
   const library = selectedLibrary();
   if (!pkg
     || !library
-    || state.rootKind === "library"
+    || (!allowLibraryRoot && state.rootKind === "library")
     || aggregateLibrarySubjectIsActive()) {
     return null;
   }
@@ -5084,15 +5117,11 @@ function typeLeverageTarget(): TypeLeverageTarget | null {
       row.pack,
       assemblyFileName,
     ]);
-    const requestedNamespaces = state.namespaceFilter !== ""
-      ? [state.namespaceFilter === GLOBAL_NAMESPACE_FILTER
-        ? ""
-        : state.namespaceFilter]
-      : [];
     return {
+      consumer,
       libraryKey: salienceLibraryKey,
       requestedNamespaces,
-      key: JSON.stringify([salienceLibraryKey, requestedNamespaces]),
+      key: JSON.stringify([salienceLibraryKey, consumer, requestedNamespaces]),
       queryIndex: () => inspectPlatformLibraryNamespaceLeverage(
         pkg.activeFramework,
         pkg.version,
@@ -5120,15 +5149,11 @@ function typeLeverageTarget(): TypeLeverageTarget | null {
     pkg.activeFramework,
     library.id,
   ]);
-  const requestedNamespaces = state.namespaceFilter !== ""
-    ? [state.namespaceFilter === GLOBAL_NAMESPACE_FILTER
-      ? ""
-      : state.namespaceFilter]
-    : [];
   return {
+    consumer,
     libraryKey: salienceLibraryKey,
     requestedNamespaces,
-    key: JSON.stringify([salienceLibraryKey, requestedNamespaces]),
+    key: JSON.stringify([salienceLibraryKey, consumer, requestedNamespaces]),
     queryIndex: () => inspectPackageLibraryNamespaceLeverage(
       pkg.id,
       pkg.version,
@@ -5143,6 +5168,28 @@ function typeLeverageTarget(): TypeLeverageTarget | null {
       exactNamespace,
     ),
   };
+}
+
+function typeLeverageTarget(): TypeLeverageTarget | null {
+  const requestedNamespaces = state.namespaceFilter !== ""
+    ? [state.namespaceFilter === GLOBAL_NAMESPACE_FILTER
+      ? ""
+      : state.namespaceFilter]
+    : [];
+  return createTypeLeverageTarget(
+    "type-browser",
+    requestedNamespaces,
+    false,
+  );
+}
+
+function libraryMetricsTypeLeverageTarget(): TypeLeverageTarget | null {
+  if (!state.atLibraryRoot || state.libraryLens !== "metrics") return null;
+  const requestedNamespaces =
+    state.libraryMetricsLeverageNamespace === null
+      ? []
+      : [state.libraryMetricsLeverageNamespace];
+  return createTypeLeverageTarget("metrics", requestedNamespaces, true);
 }
 
 function currentTypeLeverageKey() {
@@ -5160,6 +5207,21 @@ function currentTypeLeveragePresentation() {
   return state.typeLeveragePresentation ?? typeLeverage.presentation(key);
 }
 
+function currentLibraryMetricsTypeLeverageKey() {
+  try {
+    return libraryMetricsTypeLeverageTarget()?.key ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function currentLibraryMetricsTypeLeveragePresentation() {
+  const key = currentLibraryMetricsTypeLeverageKey();
+  if (key === null || state.libraryMetricsLeverageKey !== key) return null;
+  return state.libraryMetricsLeveragePresentation
+    ?? typeLeverage.presentation(key);
+}
+
 function loadTypeLeverage(retry = false) {
   let target: TypeLeverageTarget | null;
   try {
@@ -5171,10 +5233,29 @@ function loadTypeLeverage(retry = false) {
     renderPreservingMemberFocus();
     return;
   }
+
   if (!target) return;
   state.typeLeverageEnabled = true;
   state.typeLeverageKey = target.key;
   state.typeLeverageError = "";
+  if (retry) typeLeverage.retry(target);
+  else typeLeverage.request(target);
+}
+
+function loadLibraryMetricsTypeLeverage(retry = false) {
+  let target: TypeLeverageTarget | null;
+  try {
+    target = libraryMetricsTypeLeverageTarget();
+  } catch (error) {
+    state.libraryMetricsLeverageLoading = false;
+    state.libraryMetricsLeverageError = errorMessage(error);
+    state.libraryMetricsLeveragePresentation = null;
+    render();
+    return;
+  }
+  if (!target) return;
+  state.libraryMetricsLeverageKey = target.key;
+  state.libraryMetricsLeverageError = "";
   if (retry) typeLeverage.retry(target);
   else typeLeverage.request(target);
 }
@@ -9741,6 +9822,10 @@ function renderPackageLibraryMetrics() {
     loading: state.packageLibraryMetricsLoading,
     error: state.packageLibraryMetricsError,
     data: state.packageLibraryMetrics,
+    salienceLoading: state.libraryMetricsLeverageLoading,
+    salienceError: state.libraryMetricsLeverageError,
+    salience: currentLibraryMetricsTypeLeveragePresentation(),
+    selectedSalienceNamespace: state.libraryMetricsLeverageNamespace,
     escapeHtml,
   });
 }
@@ -9793,8 +9878,13 @@ function maybeAutoLoadPackageLibraryMetrics() {
   if (!state.atLibraryRoot || state.libraryLens !== "metrics") return;
   if (aggregateLibrarySubjectIsActive()) return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packageLibraryMetricsKey === packageScopeSignature()) return;
-  observeAsync(loadPackageLibraryMetrics(), "Loading library metrics");
+  if (state.packageLibraryMetricsKey !== packageScopeSignature())
+    observeAsync(loadPackageLibraryMetrics(), "Loading library metrics");
+  const leverageKey = currentLibraryMetricsTypeLeverageKey();
+  if (leverageKey !== null
+    && state.libraryMetricsLeverageKey !== leverageKey) {
+    loadLibraryMetricsTypeLeverage();
+  }
 }
 
 // The Library Metadata lens describes one image-level container: metadata format version,
@@ -11574,7 +11664,10 @@ async function openPlatformLensLibrary(
     else await loadPackageIntegrations();
   }
   else if (lens === "analysis") await loadPackagePerformance();
-  else if (lens === "metrics") await loadPackageLibraryMetrics();
+  else if (lens === "metrics") {
+    loadLibraryMetricsTypeLeverage();
+    await loadPackageLibraryMetrics();
+  }
   else await loadPackageMetadata();
 }
 
@@ -12613,6 +12706,12 @@ function bindEvents() {
   bindLibraryControlsEvents();
   bindLibraryMetricsInteractions(document, {
     activateType: activateLibraryMetricsType,
+    selectSalienceNamespace: exactNamespace => {
+      if (state.libraryMetricsLeverageNamespace === exactNamespace) return;
+      state.libraryMetricsLeverageNamespace = exactNamespace;
+      loadLibraryMetricsTypeLeverage();
+    },
+    retrySalience: () => loadLibraryMetricsTypeLeverage(true),
   });
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);

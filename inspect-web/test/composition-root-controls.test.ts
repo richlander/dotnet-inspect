@@ -82,6 +82,42 @@ test("qualified Type leverage exposes a cache-bypassing retry", () => {
   );
 });
 
+test("Metrics lens requests and presents exact structural-salience shards", () => {
+  const target = sourceText(
+    functionDeclaration("libraryMetricsTypeLeverageTarget"),
+  );
+  const loader = sourceText(
+    functionDeclaration("loadLibraryMetricsTypeLeverage"),
+  );
+  const renderer = sourceText(
+    functionDeclaration("renderPackageLibraryMetrics"),
+  );
+  const autoLoad = sourceText(
+    functionDeclaration("maybeAutoLoadPackageLibraryMetrics"),
+  );
+
+  assert.match(
+    target,
+    /state\.atLibraryRoot[\s\S]*state\.libraryLens !== "metrics"[\s\S]*libraryMetricsLeverageNamespace[\s\S]*createTypeLeverageTarget\("metrics", requestedNamespaces, true\)/,
+  );
+  assert.match(
+    loader,
+    /libraryMetricsTypeLeverageTarget\(\)[\s\S]*typeLeverage\.retry\(target\)[\s\S]*typeLeverage\.request\(target\)/,
+  );
+  assert.match(
+    renderer,
+    /salienceLoading: state\.libraryMetricsLeverageLoading[\s\S]*salience: currentLibraryMetricsTypeLeveragePresentation\(\)[\s\S]*selectedSalienceNamespace: state\.libraryMetricsLeverageNamespace/,
+  );
+  assert.match(
+    autoLoad,
+    /libraryMetricsLeverageKey !== leverageKey[\s\S]*loadLibraryMetricsTypeLeverage\(\)/,
+  );
+  assert.match(
+    appSource,
+    /selectSalienceNamespace: exactNamespace => \{[\s\S]*state\.libraryMetricsLeverageNamespace = exactNamespace;[\s\S]*loadLibraryMetricsTypeLeverage\(\);[\s\S]*retrySalience: \(\) => loadLibraryMetricsTypeLeverage\(true\)/,
+  );
+});
+
 test("shared HTML escaping covers text and attribute delimiters", () => {
   const helper = sourceText(functionDeclaration("escapeHtml"));
   assert.deepEqual(
@@ -778,7 +814,7 @@ test("typed library controls own library and Platform picker bindings", () => {
     /onPlatformLensLibrarySelect: \(lens, name, pack\) =>\s*observeAsync\(\s*openPlatformLensLibrary\(lens, name, pack\),\s*"Opening a platform library"\)/);
   assert.match(
     appSource,
-    /else if \(lens === "metrics"\) await loadPackageLibraryMetrics\(\)/);
+    /else if \(lens === "metrics"\) \{\s*loadLibraryMetricsTypeLeverage\(\);\s*await loadPackageLibraryMetrics\(\);\s*}/);
   assert.doesNotMatch(
     workspaceBinding,
     /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);

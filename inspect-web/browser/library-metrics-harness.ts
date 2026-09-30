@@ -3,6 +3,7 @@ import {
   bindLibraryMetricsInteractions,
   renderLibraryMetricsSurface,
 } from "../src/library-metrics.ts";
+import { projectTypeLeverage } from "../src/type-leverage.ts";
 
 const types = [
   { key: "Example.A", display: "Example.A" },
@@ -66,6 +67,60 @@ const data: BrowserLibraryMetrics = {
     message: null,
   },
 };
+const salience = projectTypeLeverage({
+  schemaVersion: 1,
+  outcome: "available",
+  methodologyVersion: "structural-salience.v1",
+  evidenceMode: "signature",
+  disposition: "complete",
+  coverage: { considered: 5, examined: 5, unavailable: 0, limited: 0 },
+  namespaces: [{
+    namespace: "Example",
+    typeCount: 5,
+    externalIncomingSourceTypeCount: 7,
+    topLeverage: true,
+  }, {
+    namespace: "Example.Tools",
+    typeCount: 2,
+    externalIncomingSourceTypeCount: 2,
+    topLeverage: false,
+  }],
+  diagnostics: [],
+  failure: null,
+  compileLibrary: data.compileLibrary,
+}, [{
+  schemaVersion: 1,
+  outcome: "available",
+  methodologyVersion: "structural-salience.v1",
+  evidenceMode: "signature",
+  namespace: "Example",
+  disposition: "complete",
+  coverage: { considered: 5, examined: 5, unavailable: 0, limited: 0 },
+  types: [{
+    typeDefinitionId: "Example.A",
+    typeDisplay: "Example.A",
+    designationEligible: true,
+    signatureIncomingDegree: 7,
+    signatureOutgoingDegree: 1,
+    role: "foundation",
+    seaLevel: true,
+    mountainPeak: false,
+  }, {
+    typeDefinitionId: "Example.B",
+    typeDisplay: "Example.B",
+    designationEligible: true,
+    signatureIncomingDegree: 2,
+    signatureOutgoingDegree: 6,
+    role: "orchestrator",
+    seaLevel: false,
+    mountainPeak: true,
+  }],
+  seaLevelOrder: ["Example.A", "Example.B"],
+  mountainPeakOrder: ["Example.B", "Example.A"],
+  diagnostics: [],
+  failure: null,
+  compileLibrary: data.compileLibrary,
+}]);
 
 const app = document.querySelector("#app");
 if (!(app instanceof HTMLElement))
@@ -82,6 +137,10 @@ app.innerHTML = renderLibraryMetricsSurface({
   loading: false,
   error: "",
   data,
+  salienceLoading: false,
+  salienceError: "",
+  salience,
+  selectedSalienceNamespace: null,
   escapeHtml: value => String(value).replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
@@ -90,8 +149,15 @@ app.innerHTML = renderLibraryMetricsSurface({
 const activation = document.createElement("output");
 activation.id = "metrics-activated-type";
 app.append(activation);
+const namespaceSelection = document.createElement("output");
+namespaceSelection.id = "metrics-selected-namespace";
+app.append(namespaceSelection);
 bindLibraryMetricsInteractions(app, {
   activateType: typeKey => {
     activation.value = typeKey;
   },
+  selectSalienceNamespace: exactNamespace => {
+    namespaceSelection.value = exactNamespace;
+  },
+  retrySalience: () => undefined,
 });

@@ -1468,6 +1468,21 @@ kbd {
 .metrics-relationship-node circle { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
 .metrics-relationship-node text { fill: var(--muted); font-size: 10px; }
 .metrics-visual-caption { margin: 10px 0 0; color: var(--dim); font: 10px/1.5 var(--mono); }
+.metrics-salience-section { display: grid; gap: 14px; }
+.metrics-salience-namespace { display: grid; gap: 5px; max-width: 560px; color: var(--muted); font: 10px var(--mono); }
+.metrics-salience-namespace select { min-width: 0; height: 30px; color: var(--text); border: 1px solid var(--line); border-radius: 5px; background: var(--panel); font: 12px var(--mono); }
+.metrics-salience-orders { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.metrics-salience-order { min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; }
+.metrics-salience-order h3 { margin: 0; padding: 10px 12px; color: var(--text); border-bottom: 1px solid var(--line); font-size: 13px; }
+.metrics-salience-order > p { margin: 0; padding: 8px 12px; color: var(--dim); border-top: 1px solid var(--line); font: 10px var(--mono); }
+.metrics-salience-types { display: grid; }
+.metrics-salience-type { display: grid; gap: 3px; min-width: 0; padding: 9px 12px; color: var(--text); text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; }
+.metrics-salience-type:last-child { border-bottom: 0; }
+.metrics-salience-type:hover,
+.metrics-salience-type:focus-visible { background: var(--panel-active); }
+.metrics-salience-type span { overflow: hidden; text-overflow: ellipsis; font: 12px var(--mono); }
+.metrics-salience-type small { color: var(--dim); font: 10px var(--mono); }
+.metrics-salience-loading { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .metadata-surface-scroll > .metadata-shape-section { padding: 0; }
 .metadata-shape-section .section-title { min-height: 40px; margin: 0; padding: 0 16px; border-bottom: 1px solid var(--line); }
 .metadata-shape-section .fact-rows { border-top: 0; }
@@ -2894,6 +2909,7 @@ kbd {
   .library-opportunities-scroll .opp-row { padding-inline: 12px; }
   .library-analysis-scroll .perf-row { grid-template-columns: 32px minmax(0, 1fr); align-items: start; padding-inline: 12px; }
   .library-analysis-scroll .perf-meta { grid-column: 2; justify-content: flex-start; }
+  .metrics-salience-orders { grid-template-columns: minmax(0, 1fr); }
   .metadata-surface-head { padding-inline: 12px; }
   .metadata-surface-scroll > .document-section,
   .metadata-surface-scroll > [data-type-graph-surface] > .document-section { padding-inline: 12px; }

@@ -1,5 +1,6 @@
 import type {
   BrowserLibraryNamespaceLeverage,
+  BrowserLibraryNamespaceLeverageRow,
   BrowserLibrarySignatureUseCoverage,
   BrowserLibraryTypeLeverageRow,
   BrowserLibraryTypeLeverageShard,
@@ -29,9 +30,18 @@ interface NamespaceLeverageCue {
   readonly description: string;
 }
 
+export interface TypeLeverageShardPresentation {
+  readonly namespace: string;
+  readonly seaLevelOrder: readonly BrowserLibraryTypeLeverageRow[];
+  readonly mountainPeakOrder: readonly BrowserLibraryTypeLeverageRow[];
+}
+
 export interface TypeLeveragePresentation {
   readonly byType: ReadonlyMap<string, TypeLeverageCue>;
   readonly byNamespace: ReadonlyMap<string, NamespaceLeverageCue>;
+  readonly namespaceOrder: readonly BrowserLibraryNamespaceLeverageRow[];
+  readonly shardsByNamespace:
+    ReadonlyMap<string, TypeLeverageShardPresentation>;
   readonly seaLevelCount: number;
   readonly mountainPeakCount: number;
   readonly methodologyVersion: string;
@@ -171,6 +181,8 @@ export function projectTypeLeverage(
   }
 
   const byType = new Map<string, TypeLeverageCue>();
+  const shardsByNamespace =
+    new Map<string, TypeLeverageShardPresentation>();
   const seenTypeIds = new Set<string>();
   const loadedNamespaces = new Set<string>();
   const diagnostics = [...index.diagnostics];
@@ -219,6 +231,11 @@ export function projectTypeLeverage(
       row => row.mountainPeak,
       "Mountain-peak",
     );
+    shardsByNamespace.set(shard.namespace!, {
+      namespace: shard.namespace!,
+      seaLevelOrder: shard.seaLevelOrder.map(id => rows.get(id)!),
+      mountainPeakOrder: shard.mountainPeakOrder.map(id => rows.get(id)!),
+    });
     for (const [id, row] of rows) {
       if (!row.seaLevel && !row.mountainPeak) continue;
       const parts = [
@@ -246,6 +263,8 @@ export function projectTypeLeverage(
   return {
     byType,
     byNamespace,
+    namespaceOrder: [...index.namespaces],
+    shardsByNamespace,
     seaLevelCount,
     mountainPeakCount,
     methodologyVersion,

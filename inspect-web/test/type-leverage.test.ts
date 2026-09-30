@@ -117,6 +117,20 @@ test("owner-issued namespace and Type designations drive presentation", () => {
 
   assert.equal(projection.byNamespace.get("Example.Core")?.topLeverage, true);
   assert.equal(projection.byNamespace.get("Example.Tools")?.topLeverage, false);
+  assert.deepEqual(
+    projection.namespaceOrder.map(row => row.namespace),
+    ["Example.Core", "Example.Tools"],
+  );
+  assert.deepEqual(
+    projection.shardsByNamespace.get("Example.Core")
+      ?.seaLevelOrder.map(row => row.typeDefinitionId),
+    shard.seaLevelOrder,
+  );
+  assert.deepEqual(
+    projection.shardsByNamespace.get("Example.Core")
+      ?.mountainPeakOrder.map(row => row.typeDefinitionId),
+    shard.mountainPeakOrder,
+  );
   assert.equal(projection.seaLevelCount, 2);
   assert.equal(projection.mountainPeakCount, 1);
   assert.equal(sea?.seaLevel, true);
