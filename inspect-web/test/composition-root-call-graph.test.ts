@@ -892,17 +892,20 @@ test("Type transitions load the current lens selection after rendering", () => {
     ?? "";
   assert.match(
     indexedLensSelection,
-    /workspaceScope === "type"[\s\S]*state\.lens = selected\[0\];\s*render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+    /workspaceScope === "type"[\s\S]*state\.lens = selected\[0\];\s*render\(\);\s*loadCurrentTypeApiData\(\)/);
 
   const horizontalLensSelection =
     appSource.match(/function stepHorizontal\([\s\S]*?\n}\n\n\/\/ Enter drills/)?.[0]
     ?? "";
   assert.match(
     horizontalLensSelection,
-    /state\.lens = next\[0\];\s*render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+    /state\.lens = next\[0\];\s*render\(\);\s*loadCurrentTypeApiData\(\)/);
   assert.match(
     appSource,
-    /onTypeLensSelect:[\s\S]*?state\.lens = lens;[\s\S]*?render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+    /onTypeLensSelect:[\s\S]*?state\.lens = lens;[\s\S]*?render\(\);\s*loadCurrentTypeApiData\(\)/);
+  assert.match(
+    appSource,
+    /function loadCurrentTypeApiData\(\): void \{\s*if \(state\.lens === "api"\) \{\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
 });
 
 test("same-key Type population consumers join one current operation", () => {

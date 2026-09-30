@@ -3111,6 +3111,12 @@ function loadCurrentSelectionData(reason: string): void {
   observeAsync(loadSelectionData(), reason);
 }
 
+function loadCurrentTypeApiData(): void {
+  if (state.lens === "api") {
+    loadCurrentSelectionData("Loading the selected Type");
+  }
+}
+
 function restartRestoredWorkspaceSelectionData(): void {
   loadCurrentSelectionData("Restoring Workspace selection");
 }
@@ -6350,7 +6356,7 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
     if (selected) {
       state.lens = selected[0];
       render();
-      loadCurrentSelectionData("Loading the selected Type");
+      loadCurrentTypeApiData();
     }
   } else if (workspaceScope === "member") {
     const member = selectedMember(selectedType());
@@ -7341,7 +7347,7 @@ function stepHorizontal(delta: number) {
     if (!next) return;
     state.lens = next[0];
     render();
-    loadCurrentSelectionData("Loading the selected Type");
+    loadCurrentTypeApiData();
   }
 }
 
@@ -11590,7 +11596,7 @@ function bindScopeBarEvents() {
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       render();
-      loadCurrentSelectionData("Loading the selected Type");
+      loadCurrentTypeApiData();
     },
   }, scopeBarState);
 }
