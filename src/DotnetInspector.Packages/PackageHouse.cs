@@ -314,12 +314,12 @@ public sealed class PackageHouse
             }
             if (request.Operation.Profile
                     == PackageHouseOperationProfile.Acquire
-                && request.DocumentDemand is null
+                && request.FileDemand is null
                 && _payloadAcquisition?.Access
                     == PackagePayloadAccess.Ranged)
             {
                 throw new InvalidOperationException(
-                    "Ranged payload access requires a Realize operation or a document demand; an Acquire operation without one selects nothing to bound the read.");
+                    "Ranged payload access requires a Realize operation or a file demand; an Acquire operation without one selects nothing to bound the read.");
             }
             if (sourceOperation.RequestTimeout
                     != request.Operation.RequestTimeout
@@ -650,7 +650,7 @@ public sealed class PackageHouse
                 PackageRangedRead? rangedRead =
                     payloadAcquisition.Access == PackagePayloadAccess.Ranged
                         ? new PackageRangedRead(
-                            directory => request.DocumentDemand is { } documents
+                            directory => request.FileDemand is { } documents
                                 ? new PackageRangedSelection(
                                     documents.Select(
                                         [.. directory.EnumerateEntries()]))
@@ -718,18 +718,18 @@ public sealed class PackageHouse
                     payload.Origin,
                     payload.Content.GenerationIdentity,
                     payloadResult.Transfer!);
-                if (request.DocumentDemand?.Unmatched(
+                if (request.FileDemand?.Unmatched(
                         payload.Content.EnumerateEntries())
-                    is [_, ..] unmatchedDocuments)
+                    is [_, ..] unmatchedFiles)
                 {
-                    // A named document the archive does not list is a
+                    // A named file the archive does not list is a
                     // visible failure, never an empty success
-                    // (docs/design/package-read-demand.md#document-demand).
+                    // (docs/design/package-read-demand.md#exact-file-demand).
                     InertString reason = Reason(
                         "The package does not contain "
                         + string.Join(
                             ", ",
-                            unmatchedDocuments.Select(
+                            unmatchedFiles.Select(
                                 static name => $"'{name}'"))
                         + ".");
                     failures.Add(

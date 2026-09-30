@@ -203,6 +203,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryMethodBodyComparisonTargets"),
     queryMethodBodyComparison: () =>
       unexpected("queryMethodBodyComparison"),
+    queryRetainedMethodBodyComparisonTargets: () =>
+      unexpected("queryRetainedMethodBodyComparisonTargets"),
+    queryRetainedMethodBodyComparison: () =>
+      unexpected("queryRetainedMethodBodyComparison"),
     cancelMethodBodyComparison: () =>
       unexpected("cancelMethodBodyComparison"),
     queryMemberSourceComparison: () =>
@@ -2154,6 +2158,8 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberSourceComparison",
       "queryMethodBodyComparison",
       "queryMethodBodyComparisonTargets",
+      "queryRetainedMethodBodyComparison",
+      "queryRetainedMethodBodyComparisonTargets",
       "queryPlatformMemberSource",
       "queryTypeMemberSource",
     ],
@@ -2201,7 +2207,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 97);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 99);
 
   const state = fixture();
   const groups = [

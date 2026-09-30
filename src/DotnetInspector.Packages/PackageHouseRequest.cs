@@ -278,7 +278,7 @@ public sealed class PackageHouseRequest
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
         IEnumerable<string>? implementationNames = null,
-        PackageDocumentDemand? documentDemand = null,
+        PackageFileDemand? fileDemand = null,
         PackageHouseEvidenceDemand evidenceDemand =
             PackageHouseEvidenceDemand.None,
         PackageHouseLibraryCompanionDemand libraryCompanionDemand =
@@ -333,12 +333,12 @@ public sealed class PackageHouseRequest
             }
         }
 
-        if (documentDemand is not null
+        if (fileDemand is not null
             && operation.Profile != PackageHouseOperationProfile.Acquire)
         {
             throw new ArgumentException(
-                "Only an Acquire operation carries a document demand.",
-                nameof(documentDemand));
+                "Only an Acquire operation carries a file demand.",
+                nameof(fileDemand));
         }
 
         if (evidenceDemand != PackageHouseEvidenceDemand.None
@@ -371,7 +371,7 @@ public sealed class PackageHouseRequest
         LibraryHandoff = libraryHandoff;
         Association = association;
         AssetDemand = assetDemand;
-        DocumentDemand = documentDemand;
+        FileDemand = fileDemand;
         EvidenceDemand = evidenceDemand;
         LibraryCompanionDemand = libraryCompanionDemand;
         ImplementationNames = implementationNames is null
@@ -409,13 +409,13 @@ public sealed class PackageHouseRequest
     public PackageImplementationNames? ImplementationNames { get; }
 
     /// <summary>
-    /// The package documents an Acquire operation reads, or
+    /// The package files an Acquire operation reads, or
     /// <see langword="null"/>. It bounds a ranged read, which an Acquire
     /// operation may take only with one, and every named entry and folder
     /// must be listed by the acquired archive's directory
-    /// (docs/design/package-read-demand.md#document-demand).
+    /// (docs/design/package-read-demand.md#exact-file-demand).
     /// </summary>
-    public PackageDocumentDemand? DocumentDemand { get; }
+    public PackageFileDemand? FileDemand { get; }
 
     /// <summary>
     /// Additional package-authored evidence this compile realization reads.
