@@ -257,11 +257,7 @@ public sealed class AssemblyAcquisitionRegistration
     /// </summary>
     public ArtifactAcquisitionRegistration? ArtifactRegistration { get; }
 
-    /// <summary>
-    /// Opaque Metadata view of the exact artifact identity that authorized this
-    /// descriptor, when it was projected from an artifact.
-    /// </summary>
-    public AssemblyArtifactIdentity? ArtifactIdentity { get; }
+    internal AssemblyArtifactIdentity? ArtifactIdentity { get; }
 
     internal Guid Value => _value;
 

@@ -161,6 +161,18 @@ public sealed class AssemblyInspectionSession :
     public AssemblyArtifactIdentity? ArtifactIdentity =>
         _image.ArtifactIdentity;
 
+    /// <summary>
+    /// Whether this session and <paramref name="assembly"/> retain the same
+    /// acquisition-issued artifact identity.
+    /// </summary>
+    public bool IsSameArtifact(ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return ArtifactIdentity is { } sessionArtifact
+            && assembly.Registration.ArtifactIdentity is { } assemblyArtifact
+            && sessionArtifact == assemblyArtifact;
+    }
+
     public MetadataDeclarationSession CreateDeclarationSession(
         MetadataOperationContext operationContext)
     {

@@ -104,8 +104,9 @@ available when only the optional provenance binding is rejected.
 Metadata projects that identity to Research as the opaque
 `AssemblyArtifactIdentity`; equality preserves the underlying
 acquisition-issued artifact identity across equivalent assembly descriptors
-without exposing the Artifacts contract floor as a Research dependency. This
-is a layer-owned view of the same identity, not a second identity scheme.
+through the session and Metadata-owned correspondence check, without exposing
+the Artifacts contract floor as a Research dependency. This is a layer-owned
+view of the same identity, not a second identity scheme.
 
 The detached document retains the owner-issued immutable source coordinate
 when one exists. A local or otherwise mutable artifact retains an explicitly

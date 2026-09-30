@@ -278,15 +278,14 @@ public static class LibraryNameFamilySummary
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(session);
 
-        AssemblyArtifactIdentity? artifact =
-            assembly.Registration.ArtifactIdentity;
-        if (artifact is null)
+        if (assembly.Registration.ModuleVersionId is not Guid registeredMvid)
         {
             return new LibraryNameFamilySummaryOutcome.Unavailable(
                 LibraryNameFamilyUnavailableReason.MissingArtifactBinding,
                 "Library name families require an artifact-backed assembly.");
         }
-        if (session.ArtifactIdentity != artifact)
+        if (session.ArtifactIdentity is not { } artifact
+            || !session.IsSameArtifact(assembly))
         {
             return new LibraryNameFamilySummaryOutcome.Rejected(
                 LibraryNameFamilyRejectionReason.ArtifactIdentityMismatch,
@@ -306,10 +305,8 @@ public static class LibraryNameFamilySummary
                     .IdentifierWordGrammarMismatch,
                 "The identifier-word oracle uses a different grammar.");
         }
-
         Guid moduleVersionId = session.ModuleVersionId();
-        if (assembly.Registration.ModuleVersionId is not Guid registeredMvid
-            || registeredMvid != moduleVersionId)
+        if (registeredMvid != moduleVersionId)
         {
             return new LibraryNameFamilySummaryOutcome.Rejected(
                 LibraryNameFamilyRejectionReason.ModuleIdentityMismatch,
