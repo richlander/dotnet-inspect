@@ -183,7 +183,7 @@ public sealed partial class DesktopPackageSourceComposition
             PackageAssetDemand assetDemand =
                 PackageAssetDemand.SurfaceAndImplementation,
             IEnumerable<string>? implementationNames = null,
-            PackageDocumentDemand? documentDemand = null,
+            PackageFileDemand? fileDemand = null,
             PackageHouseLibraryHandoffMode libraryHandoff =
                 PackageHouseLibraryHandoffMode.PackageOnly,
             PackageHouseLibraryCompanionDemand libraryCompanionDemand =
@@ -197,7 +197,7 @@ public sealed partial class DesktopPackageSourceComposition
             compileTargetContext,
             assetDemand,
             implementationNames,
-            documentDemand,
+            fileDemand,
             libraryHandoff,
             libraryCompanionDemand);
         return ExecuteAndProjectPayloadAsync(
@@ -217,23 +217,23 @@ public sealed partial class DesktopPackageSourceComposition
 
     /// <summary>
     /// Ranged access must be bounded: a compile realization's selection or a
-    /// document demand bounds the read, so a caller that supplies neither has
+    /// file demand bounds the read, so a caller that supplies neither has
     /// asked for an unbounded ranged read and is refused before any work
-    /// starts (docs/design/package-read-demand.md#document-demand).
+    /// starts (docs/design/package-read-demand.md#exact-file-demand).
     /// </summary>
     private static void RequireRealizationForRangedAccess(
         PackagePayloadAccess access,
         PackageHouseTargetContext? compileTargetContext,
-        PackageDocumentDemand? documentDemand = null)
+        PackageFileDemand? fileDemand = null)
     {
         if (!Enum.IsDefined(access))
             throw new ArgumentOutOfRangeException(nameof(access));
         if (access == PackagePayloadAccess.Ranged
             && compileTargetContext is null
-            && documentDemand is null)
+            && fileDemand is null)
         {
             throw new ArgumentException(
-                "Ranged payload access requires PackageHouse compile realization or a document demand; supply a compile target context or a document demand.",
+                "Ranged payload access requires PackageHouse compile realization or a file demand; supply a compile target context or a file demand.",
                 nameof(access));
         }
     }
@@ -268,7 +268,7 @@ public sealed partial class DesktopPackageSourceComposition
             compileTargetContext,
             assetDemand,
             implementationNames,
-            documentDemand: null,
+            fileDemand: null,
             libraryHandoff,
             libraryCompanionDemand);
         return ExecuteAndProjectPayloadAsync(
@@ -371,30 +371,14 @@ public sealed partial class DesktopPackageSourceComposition
             sourceOperation;
         try
         {
-            var failures = new List<PackageAuthorityFailure>();
-            PackageSourceAuthorization authorization =
-                AuthorizeSourcesForCore(
+            IPackageSourceAuthorization authorization =
+                AuthorizeHouseSources(
                     packageId,
                     sourceOptions,
-                    static () => { },
-                    failures);
-            if (requiredProducerKey is not null)
-            {
-                ConfiguredPackageAuthority[] matchingAuthorities =
-                    MatchRequiredProducer(
-                        authorization.Authorities,
-                        requiredProducerKey,
-                        failures);
-                authorization =
-                    PackageSourceAuthorization.ObserveAuthorities(
-                        matchingAuthorities,
-                        failures);
-            }
+                    requiredProducerKey);
 
             var house = new PackageHouse(
-                new SinglePackageAuthorization(
-                    packageId,
-                    authorization),
+                authorization,
                 payloadAcquisition,
                 log,
                 _versionSettlement);
@@ -411,6 +395,36 @@ public sealed partial class DesktopPackageSourceComposition
         }
     }
 
+    private IPackageSourceAuthorization AuthorizeHouseSources(
+        string packageId,
+        NuGetSourceOptions? sourceOptions,
+        string? requiredProducerKey)
+    {
+        var failures = new List<PackageAuthorityFailure>();
+        PackageSourceAuthorization authorization =
+            AuthorizeSourcesForCore(
+                packageId,
+                sourceOptions,
+                static () => { },
+                failures);
+        if (requiredProducerKey is not null)
+        {
+            ConfiguredPackageAuthority[] matchingAuthorities =
+                MatchRequiredProducer(
+                    authorization.Authorities,
+                    requiredProducerKey,
+                    failures);
+            authorization =
+                PackageSourceAuthorization.ObserveAuthorities(
+                    matchingAuthorities,
+                    failures);
+        }
+
+        return new SinglePackageAuthorization(
+            packageId,
+            authorization);
+    }
+
     private PackageHouseRequest CreateHouseRequest(
         PackageHouseDemand demand,
         PackageHouseOperationProfile profile,
@@ -418,7 +432,7 @@ public sealed partial class DesktopPackageSourceComposition
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
         IEnumerable<string>? implementationNames = null,
-        PackageDocumentDemand? documentDemand = null,
+        PackageFileDemand? fileDemand = null,
         PackageHouseLibraryHandoffMode libraryHandoff =
             PackageHouseLibraryHandoffMode.PackageOnly,
         PackageHouseLibraryCompanionDemand libraryCompanionDemand =
@@ -436,7 +450,7 @@ public sealed partial class DesktopPackageSourceComposition
             libraryHandoff,
             assetDemand: assetDemand,
             implementationNames: implementationNames,
-            documentDemand: documentDemand,
+            fileDemand: fileDemand,
             libraryCompanionDemand: libraryCompanionDemand);
 
     private static bool TryCreateSelectionRequest(
