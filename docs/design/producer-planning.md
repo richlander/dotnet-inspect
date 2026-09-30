@@ -693,7 +693,7 @@ decided when the second tier adopts it.
 | [Assembly image lifetime](assembly-image-lifetime.md) and [resource ownership](resource-ownership-and-borrowing.md) | Level 1. Supplies and tracks the borrowed subject. |
 | [QuerySpace](query-space-library.md) and [source delegation](source-delegation.md) | Level 2. Owns request meaning, collapse, and completion evidence, and plans reads against sources. |
 | [Package read demand](package-read-demand.md) | Consumes the declared requests in a work description. |
-| [Stateless core services](stateless-core-services.md) and [analysis index cache](analysis-index-cache.md) | Own retention and caching of the detached results. |
+| [Stateless core services](stateless-core-services.md) | Owns service lifetime classification; Analysis results remain operation-local unless a focused owner defines reuse. |
 | Research ([ownership paths](generic-research-ownership-paths.md), [assembly context](research-assembly-context-ownership.md)) | Intended second adopter as a higher tier. |
 | Decompiler IR passes | Separate rewriting pipeline. Not an adopter. |
 
