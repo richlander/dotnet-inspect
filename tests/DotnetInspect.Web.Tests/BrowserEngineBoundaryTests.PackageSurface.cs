@@ -619,12 +619,13 @@ public sealed partial class BrowserEngineBoundaryTests
         string packageId =
             $"Browser.Documentation.Ranged.{Guid.NewGuid():N}";
         const string version = "1.0.0";
-        const string assemblyName = "CSharpText.MemberSlicing.dll";
+        const string assemblyName =
+            "InspectWeb.DocumentationFixtures.dll";
         const string documentationId =
-            "M:CSharpText.MemberSlicing.MemberTextSlicer.ExtractMemberText"
-            + "(System.String,System.Int32,System.Int32,System.String,"
-            + "System.Collections.Generic.IReadOnlyList{System.Int32})";
-        string assemblyPath = typeof(MemberTextSlicer).Assembly.Location;
+            "M:InspectWeb.DocumentationFixtures.WidgetExtensions.Measure"
+            + "(InspectWeb.DocumentationFixtures.Widget,System.Int32)";
+        string assemblyPath =
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath();
         byte[] packageBytes = PackageEntries(
             ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
                 $"""
@@ -639,11 +640,16 @@ public sealed partial class BrowserEngineBoundaryTests
                  """)),
             ($"ref/net11.0/{assemblyName}",
                 File.ReadAllBytes(assemblyPath)),
+            ("ref/net11.0/InspectWeb.DocumentationFixtures.xml",
+                File.ReadAllBytes(
+                    FixtureCatalog.InspectWebDocumentation.AssetPath(
+                        "documentation"))),
             ($"lib/net11.0/{assemblyName}",
                 File.ReadAllBytes(assemblyPath)),
-            ("lib/net11.0/CSharpText.MemberSlicing.pdb",
+            ("lib/net11.0/InspectWeb.DocumentationFixtures.pdb",
                 File.ReadAllBytes(
-                    Path.ChangeExtension(assemblyPath, ".pdb"))),
+                    FixtureCatalog.InspectWebDocumentation.AssetPath(
+                        "pdb"))),
             ("lib/net11.0/Unrelated.dll", new byte[2 * MiB]),
             ("content/padding.bin", new byte[2 * MiB]));
         Assert.True(packageBytes.Length > 4 * MiB);
@@ -672,6 +678,12 @@ public sealed partial class BrowserEngineBoundaryTests
 
         DocumentationQueryOutcome first = await Read(store);
         int requests = handler.Requested.Count;
+        Assert.True(
+            persistence.ContainsEntry(
+                "lib/net11.0/InspectWeb.DocumentationFixtures.pdb"));
+        Assert.False(
+            persistence.ContainsEntry(
+                "lib/net11.0/Unrelated.dll"));
         var recreatedStore =
             new BrowserPackageWorkspace.BrowserSessionPackageStore(
                 source,
@@ -683,12 +695,12 @@ public sealed partial class BrowserEngineBoundaryTests
             var completed =
                 Assert.IsType<DocumentationQueryOutcome.Completed>(
                     outcome);
-            var authored =
-                Assert.IsType<AuthoredDocumentationOutcome.Available>(
-                    completed.AuthoredSource);
+            var compiled =
+                Assert.IsType<CompiledDocumentationOutcome.Available>(
+                    completed.CompiledXml);
             Assert.Contains(
-                "Locates the declaration",
-                authored.Documentation.Summary,
+                "Measures a widget",
+                compiled.Documentation.Summary,
                 StringComparison.Ordinal);
         }
         Assert.Equal(requests, handler.Requested.Count);

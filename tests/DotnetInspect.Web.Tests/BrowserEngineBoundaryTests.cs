@@ -1114,6 +1114,17 @@ public sealed partial class BrowserEngineBoundaryTests
 
         public bool IsPersistent => true;
 
+        public bool ContainsEntry(string path)
+        {
+            string suffix =
+                "/entries/"
+                + PackageEntryStoreNames.EntryFileName(path);
+            return _items.Keys.Any(
+                key => key.EndsWith(
+                    suffix,
+                    StringComparison.Ordinal));
+        }
+
         public ValueTask<byte[]?> ReadAsync(string key) =>
             ValueTask.FromResult<byte[]?>(
                 _items.TryGetValue(key, out byte[]? content)
