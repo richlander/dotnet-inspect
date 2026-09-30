@@ -16,6 +16,7 @@ namespace ILInspector.Analysis;
 /// scanned once, so each method's custom attributes are read at most once;
 /// each claimed state-machine Type's <c>MethodImpl</c> rows are read once;
 /// each attribute value blob is parsed once, within the type-name bound;
+/// each lifted-method name is classified once, within the type-name bound;
 /// attribute constructors and Type attribute answers are memoized; and a
 /// declaring-chain walk is bounded by
 /// <see cref="MetadataSafetyPolicy.MaxRelationshipNodes"/>. No other body is
@@ -34,6 +35,7 @@ internal sealed class BodyUseOwnerAttribution(MetadataReader reader)
     readonly Dictionary<EntityHandle, string[]?> _stateMachineConstructors = [];
     readonly Dictionary<EntityHandle, bool> _compilerGeneratedConstructors = [];
     readonly Dictionary<BlobHandle, string?> _stateMachineLeaves = [];
+    readonly Dictionary<StringHandle, LiftedMethodNameKind> _liftedMethodNames = [];
     readonly Dictionary<TypeDefinitionHandle, bool> _compilerGeneratedTypes = [];
     readonly HashSet<TypeDefinitionHandle> _scannedHosts = [];
     readonly HashSet<TypeDefinitionHandle> _malformedHosts = [];
@@ -56,14 +58,14 @@ internal sealed class BodyUseOwnerAttribution(MetadataReader reader)
         TypeDefinitionHandle ownerType = definition.GetDeclaringType();
         if (_reader.StringComparer.StartsWith(definition.Name, "<"))
         {
-            string name = _reader.GetString(definition.Name);
-            if (CompilerGeneratedNames.TryGetLiftedOwnerName(name, out _))
+            LiftedMethodNameKind name = ClassifyLiftedMethodName(definition.Name);
+            if (name == LiftedMethodNameKind.Canonical)
             {
                 return TryLiftedHost(ownerType, out TypeDefinitionHandle host)
                     ? BodyUseOwner.Logical(host)
                     : BodyUseOwner.Rejected;
             }
-            if (CompilerGeneratedNames.HasLiftedMethodMarker(name))
+            if (name == LiftedMethodNameKind.Rejected)
                 return BodyUseOwner.Rejected;
         }
 
@@ -71,6 +73,44 @@ internal sealed class BodyUseOwnerAttribution(MetadataReader reader)
             || IsCompilerGeneratedType(ownerType)
             ? BodyUseOwner.PhysicalOnly
             : BodyUseOwner.Logical(ownerType);
+    }
+
+    LiftedMethodNameKind ClassifyLiftedMethodName(StringHandle handle)
+    {
+        if (_liftedMethodNames.TryGetValue(
+                handle,
+                out LiftedMethodNameKind kind))
+        {
+            return kind;
+        }
+
+        int encodedBytes = _reader.GetBlobReader(handle).Length;
+        if (encodedBytes
+            > MetadataSafetyPolicy.MaxTypeNameCharacters * 3)
+        {
+            kind = LiftedMethodNameKind.Rejected;
+        }
+        else
+        {
+            string name = _reader.GetString(handle);
+            if (name.Length > MetadataSafetyPolicy.MaxTypeNameCharacters)
+            {
+                kind = LiftedMethodNameKind.Rejected;
+            }
+            else if (CompilerGeneratedNames.IsLocalFunctionOrLambda(name))
+            {
+                kind = LiftedMethodNameKind.Canonical;
+            }
+            else
+            {
+                kind = CompilerGeneratedNames.HasLiftedMethodMarker(name)
+                    ? LiftedMethodNameKind.Rejected
+                    : LiftedMethodNameKind.Ordinary;
+            }
+        }
+
+        _liftedMethodNames.Add(handle, kind);
+        return kind;
     }
 
     // Roslyn nests a lifted body's closure Types (<>c, <>c__DisplayClass...)
@@ -391,6 +431,13 @@ internal sealed class BodyUseOwnerAttribution(MetadataReader reader)
         name = default;
         return false;
     }
+}
+
+enum LiftedMethodNameKind
+{
+    Ordinary,
+    Canonical,
+    Rejected,
 }
 
 /// <summary>A body's logical-owner attribution.</summary>

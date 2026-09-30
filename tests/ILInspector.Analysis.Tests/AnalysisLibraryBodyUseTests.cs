@@ -1130,6 +1130,40 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void ExecuteImage_BoundsSharedLiftedMethodNameWork()
+    {
+        const int methods = 512;
+        ImmutableArray<byte> image =
+            BuildSharedLiftedMethodNameImage(
+                methods,
+                nameCharacters: 8 * 1024);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "SharedLiftedMethodName.dll",
+                    image,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Qualified,
+            result.Disposition);
+        Assert.Equal(methods, result.Coverage.BodiesPhysicalOnly);
+        Assert.Equal(methods, result.Diagnostics.Length);
+        Assert.All(
+            result.Diagnostics,
+            static diagnostic => Assert.Equal(
+                AnalysisLibraryBodyUseDiagnosticKind.UnavailableLogicalOwner,
+                diagnostic.Kind));
+        Assert.True(
+            allocated < 4 * 1024 * 1024,
+            $"Allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void ExecuteImage_ReportsFailedCurrentImageBinding()
     {
         AnalysisLibraryBodyUseResult result =
@@ -2353,6 +2387,61 @@ public sealed class AnalysisLibraryBodyUseTests
                     static _ => { });
             return metadata.GetOrAddBlob(signature);
         }
+    }
+
+    static ImmutableArray<byte> BuildSharedLiftedMethodNameImage(
+        int methods,
+        int nameCharacters)
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "SharedLiftedMethodName",
+            new Guid("342f7858-aad5-44f6-ad9d-acde265db6a3"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Host"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature()
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        BlobHandle sharedSignature = metadata.GetOrAddBlob(signature);
+        StringHandle sharedName = metadata.GetOrAddString(
+            $"<{new string('A', nameCharacters)}>g__Local|0_0");
+
+        var code = new BlobBuilder();
+        code.WriteByte((byte)ILOpCode.Ret);
+        var bodies = new BlobBuilder();
+        int bodyOffset = new MethodBodyStreamEncoder(bodies)
+            .AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+        for (int i = 0; i < methods; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                sharedName,
+                sharedSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        }
+        return Serialize(metadata, bodies);
     }
 
     static MetadataBuilder CreateMetadata(

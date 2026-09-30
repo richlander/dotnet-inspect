@@ -100,6 +100,10 @@ hosts as malformed, including bodies unrelated to state machines. This breadth i
 cannot tell which of the host's generated bodies it would have attributed, so
 none is published as if the host were readable.
 
+Each distinct lifted-method name is classified once per execution. A name
+longer than `MetadataSafetyPolicy.MaxTypeNameCharacters` rejects generated
+ownership visibly without repeated materialization.
+
 Attribution changes only which Type a body's uses belong to. Body use owns the
 facts it consumes, and failures of those facts remain visible. These make the
 body malformed or limited, or the operand unavailable, with a typed diagnostic:
