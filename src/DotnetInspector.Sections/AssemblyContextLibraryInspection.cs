@@ -27,6 +27,30 @@ public sealed record AssemblyContextLibraryInspectionRun<T>(
 /// </summary>
 public static class AssemblyContextLibraryInspection
 {
+    /// <summary>
+    /// Issues one operation lease for a materialized Library, executes a
+    /// resource-free inspection, and releases the lease before owner
+    /// retirement begins.
+    /// </summary>
+    public static T? ExecuteOperation<T>(
+        LibraryReference reference,
+        LibraryContentOwner owner,
+        Func<LibraryOperationLease, T> inspect)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(inspect);
+        if (owner.IssueOperationLease(reference)
+            is not LibraryOperationLeaseIssueOutcome.Issued issued)
+        {
+            return null;
+        }
+
+        using LibraryOperationLease lease = issued.Lease;
+        return inspect(lease);
+    }
+
     /// <param name="materialization">
     /// A started <see cref="AssemblyContextLibraryAdapter.MaterializeAsync(AssemblyContextGroup, AssemblyContextParticipant, AssemblyContextLibraryRole, AssemblyContextLibraryMaterializationLimits, CancellationToken)"/>
     /// call. The adapter captures its group snapshot before its first await,

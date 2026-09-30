@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 
+using CSharpText;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -25,7 +27,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// Two environment shapes are taken: the <b>folded</b>
 /// <c>new &lt;&gt;c__DisplayClass { f = v, ... }</c> on the delegate target, and the
 /// <b>local</b> form where the environment is a local allocated and field-set
-/// across statements (its allocation and capture stores are then elided). A
+/// across statements. A capture-defining field store whose value is not already
+/// a stable binder is recovered as a source local at the same statement before
+/// the environment allocation and remaining capture stores are elided. A
 /// display class read in any way other than its capture stores and lambda
 /// delegate targets is left as-is.</item>
 /// </list>
@@ -42,6 +46,53 @@ namespace ILInspector.Decompiler.Pipeline;
 public sealed class LambdaRaisingPass : IIrPass
 {
     sealed record RaisedLambda(Lambda Lambda, IrFunction TypeFacts);
+
+    sealed class LocalCapture
+    {
+        IrExpression _value;
+
+        public LocalCapture(
+            FieldRef field,
+            StoreField store,
+            IrExpression value,
+            int? placeholderIndex)
+        {
+            Field = field;
+            Store = store;
+            _value = value;
+            PlaceholderIndex = placeholderIndex;
+        }
+
+        public FieldRef Field { get; }
+        public StoreField Store { get; }
+        public int? PlaceholderIndex { get; }
+        public bool RequiresMaterialization => PlaceholderIndex is not null;
+
+        public IrExpression Substitution() => (IrExpression)_value.Clone();
+
+        public void Materialize(IrFunction host, IEnumerable<RaisedLambda> raised)
+        {
+            if (PlaceholderIndex is not { } placeholder)
+                return;
+
+            int local = host.AddLocal(Field.Type, Field.Name);
+            foreach (var lambda in raised)
+            {
+                foreach (var load in lambda.Lambda.Descendants
+                    .OfType<LoadLocal>()
+                    .Where(load => load.Index == placeholder)
+                    .ToList())
+                {
+                    load.ReplaceWith(new LoadLocal(local, Field.Type));
+                }
+            }
+
+            var children = Store.DetachChildren();
+            var value = (IrExpression)children[^1];
+            Store.ReplaceWith(new StoreLocal(local, Field.Type, value));
+            _value = new LoadLocal(local, Field.Type);
+        }
+    }
 
     public string Name => "lambda-raising";
 
@@ -109,7 +160,13 @@ public sealed class LambdaRaisingPass : IIrPass
         // rather than the delegate creation: it is the earliest outer offset the
         // lambda subsumes, so the closure allocation fact and its setup IL anchor
         // to this statement in the mixed view (see Finish).
-        return RaiseWithCaptures(creation, captures, env.Creation, context, out _);
+        return RaiseWithCaptures(
+            creation,
+            captures,
+            env.Creation,
+            context,
+            materializedCaptureFields: null,
+            out _);
     }
 
     // Recover lambdas whose captured environment is a local <>c__DisplayClass set
@@ -133,13 +190,15 @@ public sealed class LambdaRaisingPass : IIrPass
 
             // The allocation must be the only store to the slot — otherwise the
             // environment outlives this setup and elision is unsound.
-            if (function.Descendants.OfType<StoreLocal>().Count(s => s.Index == slot) != 1)
+            int storesToSlot =
+                function.Descendants.OfType<StoreLocal>().Count(s => s.Index == slot);
+            if (storesToSlot != 1)
                 continue;
 
             // Classify every read of the local: a capture store's receiver, a
             // lambda delegate target, or an outer-body read of a capture field.
             // Any other use means we cannot elide it.
-            var captures = new Dictionary<string, IrExpression>(StringComparer.Ordinal);
+            var captures = new Dictionary<string, LocalCapture>(StringComparer.Ordinal);
             var captureStores = new List<StoreField>();
             var creations = new List<DelegateCreation>();
             var outerReads = new List<LoadField>();
@@ -148,15 +207,35 @@ public sealed class LambdaRaisingPass : IIrPass
             {
                 if (load.Parent is StoreField store
                     && ReferenceEquals(store.Instance, load)
-                    && Equals(store.Field.DeclaringType, dcType)
-                    && IsCaptureValue(store.Value, function))
+                    && Equals(store.Field.DeclaringType, dcType))
                 {
                     // A field stored more than once is mutated after the capture:
                     // the environment is shared by reference, so a lambda call
                     // between the stores must observe the earlier value. Eliding
                     // the stores and substituting one value would lose that —
                     // bail and leave the environment lowered.
-                    if (!captures.TryAdd(store.Field.Name, store.Value))
+                    int? placeholder = null;
+                    if (!IsCaptureValue(store.Value, function))
+                    {
+                        if (!CanMaterializeCaptureValue(
+                                store.Value,
+                                store.Field,
+                                function))
+                        {
+                            elidable = false;
+                            break;
+                        }
+                        placeholder = -1 - captures.Count;
+                    }
+                    if (!captures.TryAdd(
+                            store.Field.Name,
+                            new LocalCapture(
+                                store.Field,
+                                store,
+                                placeholder is null
+                                    ? store.Value
+                                    : new LoadLocal(placeholder.Value, store.Field.Type),
+                                placeholder)))
                     {
                         elidable = false;
                         break;
@@ -187,52 +266,31 @@ public sealed class LambdaRaisingPass : IIrPass
             if (!elidable || creations.Count == 0)
                 continue;
 
-            // Sound elision requires each lambda's consumed capture fields to be
-            // stored before that lambda's delegate is created. The environment is
-            // shared by reference, so a delegate created (and later invoked) before a
-            // field it reads is stored observes the field's prior value, while the
-            // raised lambda reads the substituted later value (#1358). Disjoint
-            // captures may still interleave (`store a; create g1; store b; create g2`)
-            // because each creation follows the stores it actually depends on. The
-            // setup must be straight-line: the allocation, capture stores, and
-            // creations are direct statements of one block (a store nested in control
-            // flow is conditional and cannot be elided).
-            if (alloc.Parent is not Block setupBlock)
-                continue;
-            var storeIndexByField = new Dictionary<string, int>(StringComparer.Ordinal);
-            bool layoutOk = true;
-            foreach (var store in captureStores)
+            // The allocation must dominate every classified use. Each field store
+            // must dominate its outer reads here and the lambdas that consume that
+            // field below. Uses may sit in nested control flow when the defining
+            // statement dominates the containing statement; nested definitions do
+            // not escape their block.
+            if (captureStores
+                    .Cast<IrNode>()
+                    .Concat(creations)
+                    .Concat(outerReads)
+                    .Any(use => !DefinitionDominatesUse(alloc, use, function))
+                || outerReads.Any(read =>
+                    !captures.TryGetValue(read.Field.Name, out var capture)
+                    || !DefinitionDominatesUse(capture.Store, read, function)))
             {
-                int index = StatementIndex(store, setupBlock);
-                if (index < 0)
-                {
-                    layoutOk = false;
-                    break;
-                }
-                storeIndexByField[store.Field.Name] = index;
-            }
-            if (!layoutOk)
                 continue;
+            }
 
-            // Every outer-body read must reference a known capture field and sit
-            // in the setup block after that field's single store. The read then
-            // observes exactly the stored source, so substituting `dc.f` with that
-            // source is sound. A read that is unstored, or nested under control
-            // flow / before its store (StatementIndex -1 or <= the store), is not
-            // provably dominated by the store, so the whole environment stays
-            // lowered rather than risk substituting a default/stale value.
-            bool outerReadsOk = true;
-            foreach (var outerRead in outerReads)
-            {
-                if (!storeIndexByField.TryGetValue(outerRead.Field.Name, out int storeIndex)
-                    || StatementIndex(outerRead, setupBlock) is var readIndex && readIndex <= storeIndex)
-                {
-                    outerReadsOk = false;
-                    break;
-                }
-            }
-            if (!outerReadsOk)
-                continue;
+            var substitutions = captures.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value.Substitution(),
+                StringComparer.Ordinal);
+            var materializedCaptureFields = captures.Values
+                .Where(capture => capture.RequiresMaterialization)
+                .Select(capture => capture.Field.Name)
+                .ToHashSet(StringComparer.Ordinal);
 
             // Raise every lambda first; commit nothing unless all succeed and each
             // lambda's read fields are stored before its creation. The environment
@@ -240,10 +298,16 @@ public sealed class LambdaRaisingPass : IIrPass
             var raised = new List<(DelegateCreation Creation, RaisedLambda Raised)>(creations.Count);
             foreach (var creation in creations)
             {
-                int creationIndex = StatementIndex(creation, setupBlock);
-                if (creationIndex < 0
-                    || RaiseWithCaptures(creation, captures, alloc.Value, context, out var readFields) is not { } lambda
-                    || readFields.Any(field => storeIndexByField[field] >= creationIndex))
+                if (RaiseWithCaptures(
+                        creation,
+                        substitutions,
+                        alloc.Value,
+                        context,
+                        materializedCaptureFields,
+                        out var readFields) is not { } lambda
+                    || readFields.Any(field =>
+                        !captures.TryGetValue(field, out var capture)
+                        || !DefinitionDominatesUse(capture.Store, creation, function)))
                 {
                     raised = null!;
                     break;
@@ -253,6 +317,9 @@ public sealed class LambdaRaisingPass : IIrPass
             if (raised is null)
                 continue;
 
+            foreach (var capture in captures.Values)
+                capture.Materialize(function, raised.Select(item => item.Raised));
+
             foreach (var (creation, lambda) in raised)
             {
                 context.Stepper.StepOver($"raise captured lambda {creation.Method.Name}", creation);
@@ -260,35 +327,47 @@ public sealed class LambdaRaisingPass : IIrPass
                 creation.ReplaceWith(lambda.Lambda);
             }
             foreach (var outerRead in outerReads)
-                outerRead.ReplaceWith(captures[outerRead.Field.Name].Clone());
+                outerRead.ReplaceWith(captures[outerRead.Field.Name].Substitution());
             foreach (var store in captureStores)
-                store.Detach();
+                if (store.Parent is not null)
+                    store.Detach();
             alloc.Detach();
             function.MarkLocalEliminated(slot);
         }
     }
 
-    // The index within <paramref name="block"/> of the direct statement containing
-    // <paramref name="node"/>, or -1 when the node is not a direct statement of that
-    // block — it lives in a nested block (under control flow) or another block
-    // entirely. The walk fails on the first intervening block boundary, so a node
-    // inside a conditional/loop body does not resolve to the enclosing statement.
-    static int StatementIndex(IrNode node, Block block)
+    static bool DefinitionDominatesUse(
+        IrNode definition,
+        IrNode use,
+        IrFunction function)
+    {
+        if (definition.Parent is not Block block
+            || StatementInBlock(use, block) is not { } useStatement
+            || definition.ChildIndex >= useStatement.ChildIndex)
+        {
+            return false;
+        }
+
+        var dominatedStatements = block.Children
+            .Skip(definition.ChildIndex + 1)
+            .Take(useStatement.ChildIndex - definition.ChildIndex)
+            .ToList();
+        return !ReferenceOwnership.RewriteWouldInvalidateLabels(
+            function,
+            dominatedStatements,
+            [definition]);
+    }
+
+    static IrNode? StatementInBlock(IrNode node, Block block)
     {
         for (var current = node; current.Parent is not null; current = current.Parent)
         {
             if (ReferenceEquals(current.Parent, block))
-            {
-                var statements = block.Children;
-                for (int i = 0; i < statements.Count; i++)
-                    if (ReferenceEquals(statements[i], current))
-                        return i;
-                return -1;
-            }
-            if (current.Parent is Block)
-                return -1;  // nested under a different block — i.e. control flow
+                return current;
+            if (current is Lambda or LocalFunctionStatement)
+                return null;
         }
-        return -1;
+        return null;
     }
 
     // Import and raise the lambda body, then substitute each read of a captured
@@ -298,6 +377,7 @@ public sealed class LambdaRaisingPass : IIrPass
     // the local-display-class caller can verify each is stored before this creation.
     static RaisedLambda? RaiseWithCaptures(
         DelegateCreation creation, Dictionary<string, IrExpression> captures, IrNode provenance, PassContext context,
+        IReadOnlySet<string>? materializedCaptureFields,
         out IReadOnlyCollection<string> readFields)
     {
         readFields = [];
@@ -317,7 +397,10 @@ public sealed class LambdaRaisingPass : IIrPass
         if (!completeAfterSubstitution)
             scope.Run(body, IrPasses.CapturingLambdaCompletion);
 
-        var thisReads = body.Descendants.OfType<LoadArgument>().Where(a => a.Index == 0).ToList();
+        var thisReads = body.DescendantsOutsideNestedFunctions
+            .OfType<LoadArgument>()
+            .Where(a => a.Index == 0)
+            .ToList();
         if (!thisReads.All(a => a.Parent is LoadField field
                 && Equals(field.Field.DeclaringType, creation.Method.DeclaringType)
                 && captures.ContainsKey(field.Field.Name)))
@@ -327,7 +410,9 @@ public sealed class LambdaRaisingPass : IIrPass
             .Select(a => ((LoadField)a.Parent!).Field.Name)
             .ToHashSet(StringComparer.Ordinal);
 
-        foreach (var load in body.Descendants.OfType<LoadField>().ToList())
+        foreach (var load in body.DescendantsOutsideNestedFunctions
+            .OfType<LoadField>()
+            .ToList())
         {
             if (load.Instance is LoadArgument { Index: 0 }
                 && Equals(load.Field.DeclaringType, creation.Method.DeclaringType)
@@ -343,7 +428,11 @@ public sealed class LambdaRaisingPass : IIrPass
             body,
             provenance,
             allowLocals,
-            CapturedBinderNames(readFields, captures, RootFunction(creation)));
+            CapturedBinderNames(
+                readFields,
+                captures,
+                RootFunction(creation),
+                materializedCaptureFields));
     }
 
     // A hoisted capture binds a variable, not an expression: a parameter/this load
@@ -356,25 +445,62 @@ public sealed class LambdaRaisingPass : IIrPass
         _ => false,
     };
 
+    static bool CanMaterializeCaptureValue(
+        IrExpression value,
+        FieldRef field,
+        IrFunction function)
+    {
+        if (!CSharpIdentifier.IsIdentifierLike(field.Name))
+            return false;
+
+        foreach (var node in Self(value))
+        {
+            if (node is LoadLocal local
+                && (local.Index < 0
+                    || local.Index >= function.Locals.Length
+                    || GeneratedCodeIdentity.IsDisplayClassName(
+                        function.Locals[local.Index])))
+            {
+                return false;
+            }
+            if (node is LoadArgument argument
+                && GeneratedCodeIdentity.IsDisplayClassName(argument.Type))
+            {
+                return false;
+            }
+            if (node is LoadField load
+                && GeneratedCodeIdentity.IsDisplayClassName(
+                    load.Field.DeclaringType))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     static bool CapturesAreArgumentOnly(IEnumerable<IrExpression> values)
         => values.All(value => value is LoadArgument);
 
     static ImmutableArray<string> CapturedBinderNames(
         IEnumerable<string> readFields,
         IReadOnlyDictionary<string, IrExpression> captures,
-        IrFunction host)
+        IrFunction host,
+        IReadOnlySet<string>? materializedCaptureFields)
     {
         var names = ImmutableArray.CreateBuilder<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (string field in readFields.Order(StringComparer.Ordinal))
         {
-            string? name = captures[field] switch
-            {
-                LoadArgument => null,
-                LoadLocal local when local.Index < host.LocalNames.Length
-                    => host.LocalNames[local.Index],
-                _ => null,
-            };
+            string? name = materializedCaptureFields?.Contains(field) == true
+                ? field
+                : captures[field] switch
+                {
+                    LoadArgument => null,
+                    LoadLocal local when local.Index >= 0
+                        && local.Index < host.LocalNames.Length
+                        => host.LocalNames[local.Index],
+                    _ => null,
+                };
             if (name is not null && seen.Add(name))
                 names.Add(name);
         }

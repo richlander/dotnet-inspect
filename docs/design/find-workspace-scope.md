@@ -2,8 +2,11 @@
 
 ## Status and owner
 
-Proposed. This is Find's host-adoption slice for the `Broad` candidate intent
-that [Search scope resolution](search-scope-resolution.md#default-activation)
+Partially adopted: the unscoped CLI default realizes the platform Workspace
+through PlatformHouse. Explicit selectors and Browser alignment remain in the
+ordered adoption plan below. This is Find's host-adoption slice for the `Broad`
+candidate intent that
+[Search scope resolution](search-scope-resolution.md#default-activation)
 leaves to each consumer, tracked by
 [#6761](https://github.com/richlander/dotnet-inspect/issues/6761). It owns one
 claim:
@@ -73,6 +76,13 @@ package lists are owned by the Ecosystem packs; since package-set retirement
 slice 3 (#8818) the Microsoft.Extensions and ASP.NET Core lists are empty, so
 the default realizes the two platform families alone.
 
+Installed Platform discovery is a host-configured capability, not ambient
+machine probing. CoreCLR hosts may derive the active runtime root from their
+runtime layout; NativeAOT hosts require a valid `DOTNET_ROOT` to authorize
+installed SDK and reference-pack discovery. Without that capability, Find uses
+the package-backed Platform fallback. It intentionally does not search `PATH`
+for another SDK.
+
 ## Gesture model
 
 | Invocation | Workspace searched |
@@ -135,7 +145,8 @@ survive in shared packets, and are not searched; `find --ecosystem aspire`
 therefore finds `AddProject` in `Aspire.Hosting` but not `AddRedis` in
 `Aspire.Hosting.Redis`.
 
-Searching prefix populations is the following slice, tracked by
+Searching prefix populations is the following
+[Ecosystem Find Search](ecosystem-find-search.md) slice, tracked by
 [#8811](https://github.com/richlander/dotnet-inspect/issues/8811): the cheap
 named-population answer is printed complete first, prefix packages follow as
 streamed TSV or JSONL rows, and blocking formats skip prefixes with a stderr
@@ -305,7 +316,9 @@ Breaking under CLI change classification:
 ## Reproduction
 
 - `eng/measure-find-scope-cost.sh <binary> <work-dir> [warm] [cold]`: scope
-  scenarios; `ONLY="..."` selects a subset. `perf-bounded.tsv` is
+  scenarios; `ONLY="..."` selects a subset and
+  `TERMINALS="markdown json jsonl tsv table count rows"` selects output
+  terminals (`tsv` by default). `perf-bounded.tsv` is
   `ONLY="platform-installed platform-remote core-packages package-sets
   package-named"` with 5 warm and 3 cold samples; `perf-prefix.tsv` is
   `ONLY=package-prefix` with 2 and 1.

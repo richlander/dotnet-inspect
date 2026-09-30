@@ -221,6 +221,12 @@ internal static class BrowserPackageWorkspace
         MaxEntryCount = 4_096,
         MaxUniqueDirectories = 16_384,
     };
+    static readonly PackagePayloadLimits FilePayloadLimits =
+        PayloadLimits with
+        {
+            MaxArchiveBytes = PackagePayloadLimits.Default.MaxArchiveBytes,
+            MaxExpandedBytes = MaxCachedPackageBytes,
+        };
     // Browser/Wasm reaches this state serially. The CLR test host can resume independent
     // asynchronous operations on different workers, so the same gate also protects the scope
     // registry and every entry lifecycle transition.
@@ -289,6 +295,8 @@ internal static class BrowserPackageWorkspace
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
         SourceAuthorizationFor(Gallery);
     internal static IPackageStore SessionPackageStore => Store;
+    internal static BrowserSessionPackageStore PackageStoreFor(
+        IPackageSourceClient source) => StoreFor(source);
     internal static IPackagePayloadTransferPolicy PackageTransferPolicy =>
         Store;
     internal static PackagePayloadLimits PackageLimits => PayloadLimits;
@@ -425,7 +433,8 @@ internal static class BrowserPackageWorkspace
         string path,
         IPackageSourceClient source,
         TimeSpan operationTimeout,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        BrowserSessionPackageStore? packageStore = null) =>
         RunPackageOperationAsync(
             async deadline =>
             {
@@ -433,21 +442,28 @@ internal static class BrowserPackageWorkspace
                 ArgumentException.ThrowIfNullOrWhiteSpace(version);
                 ArgumentException.ThrowIfNullOrWhiteSpace(path);
                 ArgumentNullException.ThrowIfNull(source);
+                if (!BrowserPackage.IsBrowsableDocumentPath(path))
+                {
+                    throw new InvalidOperationException(
+                        $"'{path}' is not a browsable document in "
+                            + $"{packageId} {version}.");
+                }
 
                 IPackageSourceAuthorization authorization =
                     SourceAuthorizationFor(source);
-                BrowserSessionPackageStore store = StoreFor(source);
+                BrowserSessionPackageStore store =
+                    packageStore ?? StoreFor(source);
                 TimeSpan remaining =
                     SourceSettlementOperationTimeout(deadline.Remaining);
                 var operation = PackageHouseOperation.Create(
                     PackageHouseOperationProfile.Acquire,
                     requestTimeout: remaining,
                     operationTimeout: remaining);
-                var request = new PackageHouseRequest(
-                    new PackageHouseDemand.Exact(
-                        PackageSourceCoordinate.Create(
-                            packageId,
-                            version)),
+                var request = new PackageFileAcquisitionRequest(
+                    PackageSourceCoordinate.Create(
+                        packageId,
+                        version),
+                    path,
                     operation);
                 await using PackageSourceSettlementLease sourceLease =
                     PackageSourceSettlementService.IssueLease(
@@ -463,36 +479,42 @@ internal static class BrowserPackageWorkspace
                         deadline.Token,
                         operation.RequestTimeout,
                         operation.OperationTimeout);
-                var house = new PackageHouse(
-                    authorization,
-                    new PackagePayloadAcquisitionPlan(
-                        (authority, _) =>
-                            ReferenceEquals(
-                                authority.Association,
-                                source.Source.Association)
-                                ? store
-                                : throw new InvalidOperationException(
-                                    "The package payload requested another configured source."),
-                        PackageLimits,
-                        new BrowserPackageOperationTransferPolicy(
-                            store,
-                            deadline)));
-                PackageHouseSettlement settlement =
-                    await house.ExecuteAsync(
-                            request,
-                            sourceOperation)
-                        .ConfigureAwait(false);
-                if (settlement is not PackageHouseSettlement.Acquired acquired
-                    || settlement.Result is not PackageHouseResult.Settled)
+                PackageFileAcquisitionResult result =
+                    await PackageFileAcquisition.ExecuteAsync(
+                        request,
+                        authorization,
+                        new PackageFileAcquisitionPlan(
+                            (authority, _) =>
+                                ReferenceEquals(
+                                    authority.Association,
+                                    source.Source.Association)
+                                    ? store
+                                    : throw new InvalidOperationException(
+                                        "The package payload requested another configured source."),
+                            FilePayloadLimits,
+                            new BrowserPackageOperationTransferPolicy(
+                                store,
+                                deadline)),
+                        sourceOperation)
+                    .ConfigureAwait(false);
+                if (result is not PackageFileAcquisitionResult.Acquired file)
                 {
+                    if (result.Status
+                        is PackageFileAcquisitionStatus.Missing
+                            or PackageFileAcquisitionStatus.Ambiguous)
+                    {
+                        throw new InvalidOperationException(
+                            $"'{path}' is not a browsable document in "
+                                + $"{packageId} {version}.");
+                    }
                     throw new InvalidOperationException(
                         $"PackageHouse could not acquire {packageId} {version}: "
-                            + DescribePackageHouseResult(settlement.Result));
+                            + DescribePackageHouseResult(
+                                result.Settlement.Result));
                 }
 
                 return await BrowserPackage.ReadDocumentAsync(
-                        acquired,
-                        path,
+                        file,
                         deadline.Token)
                     .ConfigureAwait(false);
             },
@@ -676,12 +698,12 @@ internal static class BrowserPackageWorkspace
             string.IsNullOrWhiteSpace(targetFramework)
                 ? PackageHouseTargetContext.OwnerDefault()
                 : PackageHouseTargetContext.Exact(targetFramework);
-        TimeSpan operationTimeout =
+        TimeSpan remaining =
             SourceSettlementOperationTimeout(deadline.Remaining);
         var operation = PackageHouseOperation.Create(
             PackageHouseOperationProfile.Realize,
-            requestTimeout: operationTimeout,
-            operationTimeout: operationTimeout);
+            requestTimeout: remaining,
+            operationTimeout: remaining);
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Exact(settled.Result.Coordinate),
             operation,
@@ -1110,7 +1132,7 @@ internal static class BrowserPackageWorkspace
             "The package source association is not registered with a configured Browser source identity.");
     }
 
-    static IPackageSourceAuthorization SourceAuthorizationFor(
+    internal static IPackageSourceAuthorization SourceAuthorizationFor(
         IPackageSourceClient source)
     {
         if (SourceAuthorizations.TryGetValue(
@@ -1297,27 +1319,52 @@ internal static class BrowserPackageWorkspace
             string assemblyIdOrName,
             string documentationId,
             CancellationToken cancellationToken = default) =>
+        QueryMemberDocumentationAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyIdOrName,
+            documentationId,
+            Gallery,
+            PackageOperationTimeout,
+            cancellationToken);
+
+    internal static Task<DocumentationQueryOutcome>
+        QueryMemberDocumentationAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyIdOrName,
+            string documentationId,
+            IPackageSourceClient source,
+            TimeSpan operationTimeout,
+            CancellationToken cancellationToken,
+            BrowserSessionPackageStore? packageStore = null) =>
         RunPackageOperationAsync(
             async deadline =>
             {
-                IPackageSourceClient source = Gallery;
+                ArgumentNullException.ThrowIfNull(source);
                 IPackageSourceAuthorization authorization =
                     SourceAuthorizationFor(source);
+                BrowserSessionPackageStore store =
+                    packageStore ?? StoreFor(source);
                 TimeSpan operationTimeout =
                     SourceSettlementOperationTimeout(deadline.Remaining);
                 var operation = PackageHouseOperation.Create(
                     PackageHouseOperationProfile.Realize,
                     requestTimeout: operationTimeout,
                     operationTimeout: operationTimeout);
-                var request = new PackageHouseRequest(
+                var request = new PackageLibraryRealizationRequest(
                     new PackageHouseDemand.Exact(
                         PackageSourceCoordinate.Create(
                             packageId,
                             version)),
+                    targetFramework,
+                    new PackageLibrarySelector(assemblyIdOrName),
+                    PackageLibraryRealizationDepth.Implementation,
                     operation,
-                    PackageHouseTargetContext.Exact(targetFramework),
-                    PackageHouseAssetSelectionKind.Compile,
-                    PackageHouseLibraryHandoffMode.SelectedLibraries);
+                    PackageHouseLibraryCompanionDemand
+                        .ImplementationPortablePdb);
                 await using PackageSourceSettlementLease sourceLease =
                     PackageSourceSettlementService.IssueLease(
                         authority =>
@@ -1327,68 +1374,52 @@ internal static class BrowserPackageWorkspace
                                 ? source
                                 : throw new InvalidOperationException(
                                     "The package settlement requested another configured source."));
-                PackageSourceOperationLease sourceOperation =
+                using PackageSourceOperationLease sourceOperation =
                     sourceLease.IssueOperationLease(
                         deadline.Token,
                         operation.RequestTimeout,
                         operation.OperationTimeout);
-                var house = new PackageHouse(
-                    authorization,
-                    new PackagePayloadAcquisitionPlan(
+                PackageLibraryRealizationResult library =
+                    await PackageLibraryRealization.ExecuteAsync(
+                        request,
+                        authorization,
+                        new PackageLibraryRealizationPlan(
                         (authority, _) =>
                             ReferenceEquals(
                                 authority.Association,
                                 source.Source.Association)
-                                ? StoreFor(source)
+                                ? store
                                 : throw new InvalidOperationException(
                                     "The package payload requested another configured source."),
                         PackageLimits,
                         new BrowserPackageOperationTransferPolicy(
-                            PackageTransferPolicy,
-                            deadline)));
-                PackageHouseSettlement settlement =
-                    await house.ExecuteAsync(
-                            request,
-                            sourceOperation)
+                            store,
+                            deadline)),
+                        sourceOperation)
                         .ConfigureAwait(false);
-                if (settlement is not PackageHouseSettlement.Acquired acquired
-                    || settlement.Result
-                        is not PackageHouseResult.Settled
-                    || settlement.Result.Evidence.Realization
-                        is not PackageHouseRealizationReceipt.Compile realization)
+                if (library
+                    is not PackageLibraryRealizationResult.Realized realized)
                 {
                     throw new InvalidOperationException(
-                        $"PackageHouse could not realize {packageId} {version} "
-                            + $"for {targetFramework}: "
-                            + DescribePackageHouseResult(settlement.Result));
+                        library.Status
+                        is PackageLibraryRealizationStatus.Missing
+                            or PackageLibraryRealizationStatus.Ambiguous
+                        ? $"'{assemblyIdOrName}' did not select exactly "
+                            + $"one compile Library of {packageId} "
+                            + $"{version} ({library.Status})."
+                        : $"PackageHouse could not realize {packageId} "
+                            + $"{version} for {targetFramework}: "
+                            + DescribePackageHouseResult(
+                                library.Settlement.Result));
                 }
-
-                PackageCompileAsset? asset =
-                    realization.Selection.FindAsset(assemblyIdOrName)
-                    ?? realization.Selection.Assets.FirstOrDefault(
-                        candidate =>
-                            BrowserPackageCoordinate.MatchesAssembly(
-                                candidate,
-                                assemblyIdOrName));
-                if (asset is null)
-                {
-                    throw new InvalidOperationException(
-                        $"'{assemblyIdOrName}' is not a selected compile assembly of "
-                            + $"{packageId} {version}.");
-                }
-                PackageHouseLibraryHandoff.Compile handoff =
-                    realization.LibraryHandoffs
-                        .OfType<PackageHouseLibraryHandoff.Compile>()
-                        .Single(candidate =>
-                            ReferenceEquals(candidate.Asset, asset));
                 return await BrowserPackageDocumentationQuery.ExecuteAsync(
-                        acquired,
-                        handoff,
+                        realized.Acquired,
+                        realized.Handoff,
                         documentationId,
                         deadline.Token)
                     .ConfigureAwait(false);
             },
-            PackageOperationTimeout,
+            operationTimeout,
             cancellationToken);
 
     private static string DescribePackageHouseResult(
@@ -2580,18 +2611,27 @@ internal static class BrowserPackageWorkspace
         };
     }
 
-    static bool MatchesGalleryProducer(string requiredProducer) =>
-        Gallery.Source.Producer.PortableKey.Equals(
+    internal static bool MatchesConfiguredProducer(
+        IPackageSourceClient source,
+        string configuredSourceUrl,
+        string requiredProducer) =>
+        source.Source.Producer.PortableKey.Equals(
             requiredProducer,
             StringComparison.Ordinal)
-        || Gallery.Source.Producer.Key.Equals(
+        || source.Source.Producer.Key.Equals(
             requiredProducer,
             StringComparison.Ordinal)
         || NuGetCache.GetSourceKey(
-                PackageSource.NuGetOrg.Url)
+                configuredSourceUrl)
             .Equals(
                 requiredProducer,
                 StringComparison.Ordinal);
+
+    static bool MatchesGalleryProducer(string requiredProducer) =>
+        MatchesConfiguredProducer(
+            Gallery,
+            PackageSource.NuGetOrg.Url,
+            requiredProducer);
 
     static void ObserveAndRemovePendingAcquisition(
         PendingAcquisitionKey key,
@@ -4605,8 +4645,7 @@ internal sealed class BrowserPackage
             string? kind =
                 isRoot && fileName.Equals("README.md", StringComparison.OrdinalIgnoreCase) ? "readme"
                 : isRoot && fileName.Equals("PACKAGE.md", StringComparison.OrdinalIgnoreCase) ? "package"
-                : fileName.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
-                    && IsUnderSkillsDirectory(segments) ? "skill"
+                : IsSkillDocumentPath(entry.Path) ? "skill"
                 : null;
             if (kind is null)
                 continue;
@@ -4633,12 +4672,11 @@ internal sealed class BrowserPackage
     }
 
     internal static async Task<BrowserPackageDocumentPayload> ReadDocumentAsync(
-        PackageHouseSettlement.Acquired settlement,
-        string path,
+        PackageFileAcquisitionResult.Acquired file,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(settlement);
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(file);
+        PackageHouseSettlement.Acquired settlement = file.Settlement;
         IPackageContent content = settlement.Payload.Content;
         PackageSourceCoordinate coordinate = settlement.Payload.Coordinate;
         if (content is not IPackageContentEntryManifest manifest)
@@ -4652,39 +4690,14 @@ internal sealed class BrowserPackage
                 manifest.EnumerateEntriesWithLengths(),
                 coordinate.PackageId,
                 coordinate.Version)
-            .FirstOrDefault(candidate => candidate.Path.Equals(path, StringComparison.Ordinal))
+            .FirstOrDefault(candidate => candidate.Path.Equals(
+                file.Entry.Path,
+                StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
-                $"'{path}' is not a browsable document in "
+                $"'{file.Entry.Path}' is not a browsable document in "
                     + $"{coordinate.PackageId} {coordinate.Version}.");
 
-        Stream input;
-        if (document.Kind is "readme" or "skill")
-        {
-            PackageDocumentEntryResolution resolution =
-                PackageDocumentEntryResolver.Resolve(
-                    settlement,
-                    document.Path);
-            PackageContentEntry entry = resolution.Entry
-                ?? throw new InvalidOperationException(
-                    $"The requested package document entry could not be resolved: "
-                        + $"{resolution.Status}.");
-            input = settlement.OpenPayloadRead(
-                entry.Path,
-                entry.Length);
-        }
-        else
-        {
-            input = content.TryOpenEntry(
-                    document.Path,
-                    PackageDocumentContentLimits.MaxDecodedBytes,
-                    out Stream? eager)
-                ? eager
-                : throw new InvalidOperationException(
-                    $"The requested package entry was not found in "
-                        + $"{coordinate.PackageId} {coordinate.Version}.");
-        }
-
-        await using (input)
+        await using (PackageHousePayloadRead input = file.OpenRead())
         {
             return new BrowserPackageDocumentPayload(
                 document.Kind,
@@ -4809,6 +4822,30 @@ internal sealed class BrowserPackage
             if (segments[index].Equals("skills", StringComparison.OrdinalIgnoreCase))
                 return true;
         return false;
+    }
+
+    internal static bool IsBrowsableDocumentPath(string path)
+    {
+        string[] segments = path.Split('/');
+        string fileName = segments[^1];
+        return segments.Length == 1
+                && (fileName.Equals(
+                        "README.md",
+                        StringComparison.OrdinalIgnoreCase)
+                    || fileName.Equals(
+                        "PACKAGE.md",
+                        StringComparison.OrdinalIgnoreCase))
+            || IsSkillDocumentPath(path);
+    }
+
+    static bool IsSkillDocumentPath(string path)
+    {
+        string[] segments = path.Split('/');
+        string fileName = segments[^1];
+        return fileName.EndsWith(
+                ".md",
+                StringComparison.OrdinalIgnoreCase)
+                && IsUnderSkillsDirectory(segments);
     }
 
     static string SkillDisplayName(string[] segments)

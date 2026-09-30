@@ -278,11 +278,40 @@ public sealed class PackageHouseRequest
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
         IEnumerable<string>? implementationNames = null,
-        PackageDocumentDemand? documentDemand = null,
+        PackageFileDemand? fileDemand = null,
         PackageHouseEvidenceDemand evidenceDemand =
             PackageHouseEvidenceDemand.None,
         PackageHouseLibraryCompanionDemand libraryCompanionDemand =
             PackageHouseLibraryCompanionDemand.None)
+        : this(
+            demand,
+            operation,
+            targetContext,
+            assetSelection,
+            libraryHandoff,
+            association,
+            assetDemand,
+            implementationNames,
+            fileDemand,
+            evidenceDemand,
+            libraryCompanionDemand,
+            allowReferenceOnlyImplementationNames: false)
+    {
+    }
+
+    internal PackageHouseRequest(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext? targetContext,
+        PackageHouseAssetSelectionKind? assetSelection,
+        PackageHouseLibraryHandoffMode libraryHandoff,
+        PackageHouseRequestAssociation? association,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string>? implementationNames,
+        PackageFileDemand? fileDemand,
+        PackageHouseEvidenceDemand evidenceDemand,
+        PackageHouseLibraryCompanionDemand libraryCompanionDemand,
+        bool allowReferenceOnlyImplementationNames)
     {
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(operation);
@@ -332,13 +361,24 @@ public sealed class PackageHouseRequest
                     nameof(implementationNames));
             }
         }
+        if (allowReferenceOnlyImplementationNames
+            && (implementationNames is null
+                || assetSelection
+                    != PackageHouseAssetSelectionKind.Compile
+                || libraryHandoff
+                    != PackageHouseLibraryHandoffMode.SelectedLibraries))
+        {
+            throw new ArgumentException(
+                "Reference-only implementation names require named compile implementation demand with selected Library handoffs.",
+                nameof(allowReferenceOnlyImplementationNames));
+        }
 
-        if (documentDemand is not null
+        if (fileDemand is not null
             && operation.Profile != PackageHouseOperationProfile.Acquire)
         {
             throw new ArgumentException(
-                "Only an Acquire operation carries a document demand.",
-                nameof(documentDemand));
+                "Only an Acquire operation carries a file demand.",
+                nameof(fileDemand));
         }
 
         if (evidenceDemand != PackageHouseEvidenceDemand.None
@@ -371,9 +411,11 @@ public sealed class PackageHouseRequest
         LibraryHandoff = libraryHandoff;
         Association = association;
         AssetDemand = assetDemand;
-        DocumentDemand = documentDemand;
+        FileDemand = fileDemand;
         EvidenceDemand = evidenceDemand;
         LibraryCompanionDemand = libraryCompanionDemand;
+        AllowReferenceOnlyImplementationNames =
+            allowReferenceOnlyImplementationNames;
         ImplementationNames = implementationNames is null
             ? null
             : PackageImplementationNames.Create(
@@ -409,13 +451,21 @@ public sealed class PackageHouseRequest
     public PackageImplementationNames? ImplementationNames { get; }
 
     /// <summary>
-    /// The package documents an Acquire operation reads, or
+    /// Whether a named implementation demand is satisfied when the same name
+    /// selects an API asset whose owner-issued correspondence has no
+    /// implementation counterpart. Other unmatched names remain a visible
+    /// realization failure.
+    /// </summary>
+    internal bool AllowReferenceOnlyImplementationNames { get; }
+
+    /// <summary>
+    /// The package files an Acquire operation reads, or
     /// <see langword="null"/>. It bounds a ranged read, which an Acquire
     /// operation may take only with one, and every named entry and folder
     /// must be listed by the acquired archive's directory
-    /// (docs/design/package-read-demand.md#document-demand).
+    /// (docs/design/package-read-demand.md#exact-file-demand).
     /// </summary>
-    public PackageDocumentDemand? DocumentDemand { get; }
+    public PackageFileDemand? FileDemand { get; }
 
     /// <summary>
     /// Additional package-authored evidence this compile realization reads.

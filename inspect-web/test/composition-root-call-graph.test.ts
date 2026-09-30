@@ -489,13 +489,13 @@ test("projected members remain distinct from the public API surface", () => {
     /partitionGraphMembers\(item\.api\)/);
   assert.match(
     appSource,
-    /\$\{member\.graphOnly \? "graph:" : ""\}\$\{member\.kind\}:\$\{member\.name\}/);
+    /\$\{graphOnly \|\| member\.graphOnly \? "graph:" : ""\}\$\{member\.kind\}:\$\{member\.name\}/);
   assert.match(
     appSource,
     /memberSectionIdsFor\(\s*member,\s*state\.package\?\.isRuntimePack,\s*memberHasSelectedBody\(member\)\)/);
   assert.match(
     appSource,
-    /searchableMemberGroups\(memberGroups\(type\)\)/);
+    /searchableMemberGroups\(groupMembers\(type\.api\)\)/);
 });
 
 test("shared graph projection validates before committing API state", () => {
@@ -850,7 +850,86 @@ test("restored selections reveal their accessibility bucket", () => {
     /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
   assert.match(
     appSource,
-    /function navigateToType\([\s\S]*?enterTypeSubject\(target, options\)[\s\S]*?state\.typeCursor = filteredTypeRows\(\)\.findIndex/);
+    /function navigateToType\([\s\S]*?enterTypeSubject\(target, options\)[\s\S]*?state\.typeCursor = filteredTypeRows\(\)\.findIndex[\s\S]*?loadCurrentSelectionData\("Loading the selected Type"\)/);
+});
+
+test("Type transitions load the current lens selection after rendering", () => {
+  assert.match(
+    appSource,
+    /onKindJump:[\s\S]*?render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
+    /onNamespaceJump:[\s\S]*?render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
+    /onNamespaceSelect:[\s\S]*?renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
+    /onKindSelect:[\s\S]*?renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
+    /onTypeFilterChange:[\s\S]*?render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
+    /onTypeSelect:[\s\S]*?render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+
+  const keyboardSelection =
+    appSource.match(/function selectTypeByCursor\([\s\S]*?\n}\n\nfunction stepTypeSelection/)?.[0]
+    ?? "";
+  assert.match(
+    keyboardSelection,
+    /state\.selectedTypeId = selected\.id[\s\S]*render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+
+  const libraryScope =
+    appSource.match(/function afterLibraryScopeChange\(\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    libraryScope,
+    /normalizeLibrarySelection\(\);\s*renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Library Type"\)/);
+
+  const indexedLensSelection =
+    appSource.match(/function selectScopeLensByIndex\([\s\S]*?\n}\n\n\/\/ The resident runtime/)?.[0]
+    ?? "";
+  assert.match(
+    indexedLensSelection,
+    /workspaceScope === "type"[\s\S]*state\.lens = selected\[0\];\s*render\(\);\s*loadCurrentTypeApiData\(\)/);
+
+  const horizontalLensSelection =
+    appSource.match(/function stepHorizontal\([\s\S]*?\n}\n\n\/\/ Enter drills/)?.[0]
+    ?? "";
+  assert.match(
+    horizontalLensSelection,
+    /state\.lens = next\[0\];\s*render\(\);\s*loadCurrentTypeApiData\(\)/);
+  assert.match(
+    appSource,
+    /onTypeLensSelect:[\s\S]*?state\.lens = lens;[\s\S]*?render\(\);\s*loadCurrentTypeApiData\(\)/);
+  assert.match(
+    appSource,
+    /if \(!state\.atPackageRoot && !state\.atLibraryRoot && type\) \{\s*loadCurrentSelectionData\("Restoring a Type from navigation history"\);/);
+  assert.match(
+    appSource,
+    /async function activatePlatformForwarder[\s\S]*showContentDetailAfterRender\(\);\s*render\(\);\s*loadCurrentSelectionData\("Loading the forwarded Type"\)/);
+  assert.match(
+    appSource,
+    /function loadCurrentTypeApiData\(\): void \{\s*if \(state\.lens === "api"\) \{\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+});
+
+test("same-key Type population consumers join one current operation", () => {
+  const populationLoad =
+    appSource.match(/interface TypeMemberPopulationLoad[\s\S]*?\n}\n\nfunction setTypeMemberPopulationIntent/)?.[0]
+    ?? "";
+  assert.match(
+    populationLoad,
+    /state\.typeMemberPopulationLoading[\s\S]*state\.typeMemberPopulationKey === key[\s\S]*typeMemberPopulationLoad\?\.key === key[\s\S]*return typeMemberPopulationLoad\.promise/);
+  assert.match(
+    populationLoad,
+    /const load: TypeMemberPopulationLoad = \{[\s\S]*typeMemberPopulationLoad = load;[\s\S]*load\.promise = \(async \(\) => \{/);
+  assert.match(
+    populationLoad,
+    /if \(typeMemberPopulationLoad !== load[\s\S]*state\.typeMemberPopulationKey !== key\)[\s\S]*return receipt;/);
+  assert.match(
+    populationLoad,
+    /if \(typeMemberPopulationLoad === load[\s\S]*state\.typeMemberPopulationKey === key\) \{[\s\S]*typeMemberPopulationLoad = null;[\s\S]*normalizeMemberSelection\(\)/);
 });
 
 test("runtime lookup refuses ambiguous or unresolved exact targets", () => {
@@ -944,7 +1023,7 @@ test("member family re-entry leaves exact ordinary methods for the shared docume
     /state\.selectedOverloadIndex = graphOnlyTarget \? 0 : null;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview";/);
 });
 
-test("restored ordinary families load the shared document", () => {
+test("fallback ordinary families load the shared document", () => {
   const overview =
     appSource.match(/function loadSelectedMemberOverview\([\s\S]*?\n}/)?.[0]
     ?? "";
@@ -962,7 +1041,17 @@ test("restored ordinary families load the shared document", () => {
   const spotlight =
     appSource.match(/async function pickSpotlightMember\([\s\S]*?\n}\n\nasync function pickSpotlight\(/)?.[0]
     ?? "";
-  assert.match(spotlight, /await loadSelectedMemberOverview\(\)/);
+  assert.match(
+    spotlight,
+    /setTypeMemberPopulationIntent\("public", "csharp"\)[\s\S]*state\.selectedMemberKey = result\.memberKey[\s\S]*const selectionData = loadSelectionData\(\)[\s\S]*await selectionData/);
+  assert.doesNotMatch(spotlight, /loadSelectedMemberOverview\(\)/);
+
+  const groupDocument =
+    appSource.match(/async function loadSelectedMemberGroupDocument\([\s\S]*?\n}\n\nasync function loadSelectedMemberSource/)?.[0]
+    ?? "";
+  assert.match(
+    groupDocument,
+    /member\.completeCountStatus === "available"[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
 
   const drillOut =
     appSource.match(/function drillOut\(\)[\s\S]*?\n}\n\nfunction exitMemberScope/)?.[0]
@@ -1002,7 +1091,7 @@ test("restored ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     loadSelection,
-    /if \(state\.memberSection === "overview"\) \{\s*return loadSelectedMemberOverview\(\);\s*}[\s\S]*member\.overloads\.length > 1/);
+    /await loadSelectedTypeMemberPopulation\(\);[\s\S]*if \(state\.memberSection === "overview"\) \{\s*await loadSelectedMemberOverview\(\);\s*return;\s*}[\s\S]*member\.overloads\.length > 1/);
 });
 
 test("member navigation excludes graph-only projections from ordinary filters", () => {
@@ -1011,13 +1100,16 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     ?? "";
   assert.match(
     filters,
-    /filterMemberGroups\(publicMemberGroups\(type\), memberFilterState\(\)\)/);
+    /filterMemberGroups\(selectedMemberGroups\(type\), memberFilterState\(\)\)/);
   assert.match(
     filters,
-    /function publicMemberGroups\([\s\S]*?searchableMemberGroups\(memberGroups\(type\)\)/);
+    /function selectedMemberGroups\([\s\S]*?return declaredMemberGroups\(type\)/);
   assert.match(
     filters,
-    /publicMemberGroups\(type\)\s*\.flatMap\(group => group\.overloads\)/);
+    /selectedMemberGroups\(type\)\s*\.flatMap\(group => group\.overloads\)/);
+  assert.match(
+    appSource,
+    /function declaredMemberGroups\([\s\S]*partitionGraphMembers\(type\.api\)[\s\S]*searchableMemberGroups\(groupMembers\(publicMembers\)\)/);
 
   const entries =
     appSource.match(/function memberNavEntries\([\s\S]*?\n}\n\nfunction memberNavCursor/)?.[0]
@@ -1029,7 +1121,9 @@ test("member navigation excludes graph-only projections from ordinary filters", 
   const pane =
     appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\nfunction renderScopeBar/)?.[0]
     ?? "";
-  assert.match(pane, /memberCount: publicMemberGroups\(type\)\.length/);
+  assert.match(
+    pane,
+    /memberCount: groups\.reduce\([\s\S]*group\.overloads\.length/);
 });
 
 test("type API reports the filtered member count once in its header", () => {
@@ -1041,9 +1135,46 @@ test("type API reports the filtered member count once in its header", () => {
     /<h1 id="api-surface-title">Members<\/h1>/);
   assert.match(
     renderApi,
-    /<p>\$\{visibleGroups\.length} of \$\{publicGroups\.length} member groups/);
+    /<p>\$\{populationSummary}\$\{definingLibraryHtml}/);
   assert.doesNotMatch(renderApi, /member-filter-result/);
   assert.doesNotMatch(renderApi, /member groups visible/);
+});
+
+test("member population status stays visible outside collapsed filters", () => {
+  const filters =
+    appSource.match(/function renderMemberFilterControls\([\s\S]*?\n}\n\nfunction renderTypeMemberPopulationStatus/)?.[0]
+    ?? "";
+  assert.doesNotMatch(filters, /typeMemberPopulationError|inspection-error/);
+
+  const status =
+    appSource.match(/function renderTypeMemberPopulationStatus\([\s\S]*?\n}\n\nfunction memberPopulationSummary/)?.[0]
+    ?? "";
+  assert.match(
+    status,
+    /phase === "loading"[\s\S]*role="status"[\s\S]*phase === "failed"[\s\S]*role="alert"/);
+
+  const summary =
+    appSource.match(/function memberPopulationSummary\([\s\S]*?\n}\n\nfunction compositionFilterButton/)?.[0]
+    ?? "";
+  assert.match(
+    summary,
+    /phase === "failed"[\s\S]*complete population unavailable[\s\S]*Member population unavailable/);
+  assert.match(
+    summary,
+    /loading complete population[\s\S]*Loading member population/);
+
+  const renderApi =
+    appSource.match(/function renderApiLens\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
+    ?? "";
+  assert.match(
+    renderApi,
+    /api-surface-controls">\$\{populationStatus}\$\{renderMemberFilterControls\(item\)}/);
+  assert.match(
+    renderApi,
+    /const graphGroups = groupMembers\(graphMembers, true\)/);
+  assert.match(
+    renderApi,
+    /typeMemberPopulationPhase\(item\) === "failed"[\s\S]*Member population unavailable\./);
 });
 
 test("member API uses full-area overload and selected-member surfaces", () => {
@@ -1065,7 +1196,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.doesNotMatch(emptyMember, /typeHeadingHtml/);
   assert.match(
     renderMember,
-    /member\.kind === "method"[\s\S]*class="member-surface member-overload-surface"[\s\S]*?<h1 id="member-surface-title">\$\{escapeHtml\(member\.name\)}<\/h1>[\s\S]*?\$\{document\.count} \$\{document\.count === 1 \? "overload" : "overloads"}/);
+    /member\.kind === "method"[\s\S]*member\.completeCountStatus === "available"[\s\S]*member\.overloads\.map\(\(overload, index\) =>[\s\S]*highlight\(overload\.signature\)/);
   assert.match(
     renderMember,
     /memberGroupDocumentLoading[\s\S]*Building the shared MemberGroup document/);
@@ -1075,9 +1206,6 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.match(
     renderMember,
     /document\.rows\.map\(row =>[\s\S]*row\.metadataToken[\s\S]*detail unavailable/);
-  assert.doesNotMatch(
-    renderMember,
-    /member\.overloads\.map\(\(overload, index\) =>/);
   assert.match(
     renderMember,
     /const callGraphExplore = state\.memberSection === "call-graph"[\s\S]*class="member-surface-actions"[\s\S]*id="call-graph-explore" data-graph-explore/);
@@ -1152,6 +1280,19 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.doesNotMatch(
     stylesSource,
     /\.api-surface-head p span \{[^}]*display: none;/s);
+});
+
+test("Spotlight indexes the stable eager member inventory", () => {
+  const candidates =
+    appSource.match(/function spotlightMemberCandidates\([\s\S]*?\n}\n\nfunction spotlightMemberMatches/)?.[0]
+    ?? "";
+  assert.match(
+    candidates,
+    /searchableMemberGroups\(groupMembers\(type\.api\)\)/);
+  assert.doesNotMatch(candidates, /memberGroups\(type\)/);
+  assert.doesNotMatch(
+    candidates,
+    /memberAccessibilityFilter|memberSpelling|typeMemberPopulation/);
 });
 
 test("type metadata uses a full-area working surface without the inset type heading", () => {
@@ -1390,7 +1531,6 @@ test("member filters retain an exact selected graph target", () => {
   const typePanelCall = onlyCallExpressionNamed(appSyntax, "bindTypePanel");
   const actions = objectArgument(typePanelCall, 1, "bindTypePanel");
   for (const name of [
-    "onMemberAccessibilityFilterSelect",
     "onMemberFilterChange",
     "onMemberFilterClear",
     "onMemberFilterKeyDown",
@@ -1401,6 +1541,11 @@ test("member filters retain an exact selected graph target", () => {
       sourceText(callbackProperty(actions, name)),
       /normalizeMemberSelection\(\)/);
   }
+  assert.match(
+    sourceText(callbackProperty(
+      actions,
+      "onMemberAccessibilityFilterSelect")),
+    /selectTypeMemberPopulation\(value \?\? "public"\)/);
 });
 
 test("pending graph restoration replaces its current history entry", () => {

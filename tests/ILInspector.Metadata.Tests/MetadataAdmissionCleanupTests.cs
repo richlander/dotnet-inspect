@@ -905,7 +905,6 @@ public sealed class MetadataAdmissionCleanupTests
 
         Assert.Throws<OverflowException>(
             () => AssemblyInspectionSession.OpenPrefetched(stream));
-
         Assert.Equal(1, stream.DisposeCount);
     }
 

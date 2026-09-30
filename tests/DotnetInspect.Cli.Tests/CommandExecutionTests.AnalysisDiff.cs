@@ -1151,14 +1151,32 @@ public partial class CommandExecutionTests
                 "invalid AssemblyRef row",
                 findingMarkdown.Output,
                 StringComparison.Ordinal);
-            // The analysis-set result has no JSON transport yet; it is
-            // rejected visibly instead of emitting a partial shape.
             Assert.Equal(1, findingJson.Exit);
-            Assert.Empty(findingJson.Output);
-            Assert.Contains(
-                "not yet supported",
-                findingJson.Error,
-                StringComparison.Ordinal);
+            Assert.Empty(findingJson.Error);
+            using (JsonDocument findingDocument =
+                JsonDocument.Parse(findingJson.Output))
+            {
+                JsonElement root = findingDocument.RootElement;
+                Assert.Equal(
+                    "Transitions",
+                    root.GetProperty("comparison")
+                        .GetProperty("views").GetString());
+                Assert.Equal(
+                    "Compared",
+                    root.GetProperty("outcomes")[0]
+                        .GetProperty("kind").GetString());
+                Assert.Empty(
+                    root.GetProperty("transitions").EnumerateArray());
+                Assert.Contains(
+                    root.GetProperty("apiInspectionFailures")
+                        .EnumerateArray(),
+                    failure => failure.GetProperty("detail")
+                        .GetString()?
+                        .Contains(
+                            "invalid AssemblyRef row",
+                            StringComparison.Ordinal)
+                        is true);
+            }
             Assert.Equal(1, findingTable.Exit);
             Assert.Contains(
                 "API comparison is incomplete",
@@ -1692,21 +1710,22 @@ public partial class CommandExecutionTests
         Assert.Contains("use -S Transitions", error, StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData("--json")]
-    [InlineData("--envelope")]
-    public async Task Diff_AnalysisWithJsonTransport_IsRejectedBeforeAcquisition(
-        string transport)
+    [Fact]
+    public async Task Diff_AnalysisJsonProjection_IsRejectedBeforeAcquisition()
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
             "--analysis", "api",
-            transport,
+            "--json", "--rows", "1",
             "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("not yet supported with --analysis", error, StringComparison.Ordinal);
+        Assert.Contains(
+            "Complete analysis Diff transport cannot be combined",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

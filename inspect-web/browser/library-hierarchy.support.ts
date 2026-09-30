@@ -254,6 +254,7 @@ interface DiagnosticsFixture {
   cachePending?: boolean;
   libraryApiFailure?: boolean;
   libraryApiIncomplete?: boolean;
+  deferTypeMemberPopulation?: boolean;
 }
 
 interface PackageLoadingFixture {
@@ -1011,6 +1012,140 @@ async function installFacades(
       }`,
     metadata: `
       ${surfaceLookup}
+      function typeMemberPopulation(
+        surface, typeIdentity, spelling, accessibility) {
+        function accessibilityBucket(member) {
+          const value = member.accessibility || "public";
+          if (value === "public") return "public";
+          if (value.includes("protected")) return "protected";
+          if (value.includes("internal")) return "internal";
+          return "private";
+        }
+        function populationMember(member) {
+          if (spelling !== "csharp") return member;
+          const memberAccessibility = member.accessibility || "public";
+          if (member.signature.startsWith(memberAccessibility + " ")) {
+            return member;
+          }
+          const receiver = member.isExtension
+            ? "extension "
+            : member.isStatic ? "static " : "";
+          return {
+            ...member,
+            signature: memberAccessibility + " " + receiver + member.signature,
+          };
+        }
+        const type = surface.types.find(item =>
+          item.definitionId === typeIdentity || item.queryId === typeIdentity);
+        if (!type) {
+          return {
+            outcome: "Rejected",
+            detail: "The exact Type was not found.",
+            population: null,
+            diagnostics: [],
+          };
+        }
+        const members = type.api.filter(member => !member.graphOnly);
+        const composition = {
+          public: 0,
+          protected: 0,
+          internal: 0,
+          private: 0,
+          static: 0,
+          this: 0,
+          extension: 0,
+        };
+        const completeCounts = new Map();
+        for (const member of members) {
+          composition[accessibilityBucket(member)]++;
+          if (member.isExtension) composition.extension++;
+          else if (member.isStatic) composition.static++;
+          else composition.this++;
+          const key = member.kind + ":" + member.name;
+          completeCounts.set(key, (completeCounts.get(key) ?? 0) + 1);
+        }
+        const groups = new Map();
+        for (const member of members) {
+          if (accessibilityBucket(member) !== accessibility) continue;
+          const key = member.kind + ":" + member.name;
+          const group = groups.get(key) ?? {
+            key,
+            name: member.name,
+            kind: member.kind,
+            completeCount: completeCounts.get(key) ?? 0,
+            members: [],
+          };
+          group.members.push(populationMember(member));
+          groups.set(key, group);
+        }
+        return {
+          outcome: "Available",
+          detail: null,
+          population: {
+            typeIdentity: type.queryId,
+            spelling,
+            accessibility,
+            composition,
+            groups: [...groups.values()],
+          },
+          diagnostics: [],
+        };
+      }
+      let typeMemberPopulationReleased =
+        ${JSON.stringify(diagnostics.deferTypeMemberPopulation !== true)};
+      async function waitForTypeMemberPopulationGate() {
+        if (typeMemberPopulationReleased) return;
+        await new Promise(resolve =>
+          document.addEventListener(
+            "finish-type-member-population",
+            () => {
+              typeMemberPopulationReleased = true;
+              resolve();
+            },
+            { once: true }));
+      }
+      export async function queryTypeMemberPopulation(
+        id, version, framework, assembly, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset.typeMemberPopulationRequest =
+          JSON.stringify([
+            id, version, framework, assembly, typeIdentity, spelling,
+            accessibility,
+          ]);
+        await waitForTypeMemberPopulationGate();
+        return typeMemberPopulation(
+          surfaceFor(id, version, framework),
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
+      export async function queryPlatformTypeMemberPopulation(
+        framework, version, assembly, pack, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset.platformTypeMemberPopulationRequest =
+          JSON.stringify([
+            framework, version, assembly, pack, typeIdentity, spelling,
+            accessibility,
+          ]);
+        await waitForTypeMemberPopulationGate();
+        return typeMemberPopulation(
+          surfaceFor("Microsoft.NETCore.App", version, framework),
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
+      export async function queryUploadedLibraryTypeMemberPopulation(
+        declaredName, content, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset.uploadedTypeMemberPopulationRequest =
+          JSON.stringify([
+            declaredName, content.length, typeIdentity, spelling,
+            accessibility,
+          ]);
+        await waitForTypeMemberPopulationGate();
+        return typeMemberPopulation(
+          surfaces[0],
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
       function memberGroupDocument(surface, typeIdentity, memberName) {
         const type = surface.types.find(item =>
           item.definitionId === typeIdentity || item.queryId === typeIdentity);
@@ -1423,7 +1558,9 @@ async function installFacades(
         [0x06000100]: 98,
         [0x06000101]: 5,
         [0x06000102]: 40,
-        [0x06000103]: 36
+        [0x06000103]: 36,
+        [0x06000104]: 70,
+        [0x06000105]: 12
       };
       async function typeImplementationHeat(
         surface,
@@ -1446,37 +1583,55 @@ async function installFacades(
           throw new Error("Type implementation-heat query unavailable.");
         const type = surface.types.find(item =>
           item.definitionId === typeDefinitionId);
-        const byName = new Map();
+        const publicByName = new Map();
         for (const member of type?.api ?? []) {
-          if (!byName.has(member.name)) byName.set(member.name, []);
-          byName.get(member.name).push(member);
+          if ((member.accessibility ?? "public") !== "public") continue;
+          if (!publicByName.has(member.name)) publicByName.set(member.name, []);
+          publicByName.get(member.name).push(member);
         }
-        const families = [...byName.entries()]
+        const families = [...publicByName.entries()]
           .filter(([, members]) => members.length > 1)
-          .map(([name, members]) => ({
-            member: name,
-            roster: members.map(member => ({
-              typeDefinitionId,
-              stableSelector: member.stableSelector,
-              metadataToken: member.metadataToken
-            })),
-            methods: members.map(member => ({
-              metadataToken: member.metadataToken,
-              isRosterMember: true,
-              hasBody: true,
-              size: typeHeatSizes[member.metadataToken] ?? 10,
-              isTrivial: false,
-              isComplete: true
-            })),
-            relationships: name === "Run" && members.length === 2
-              ? [{
-                  callerToken: members[0].metadataToken,
-                  calleeToken: members[1].metadataToken
-                }]
-              : [],
-            unavailableBodies: [],
-            analysisDiagnostics: []
-          }));
+          .map(([name, roster]) => {
+            const methods = (type?.api ?? [])
+              .filter(member => member.name === name);
+            const rosterTokens = new Set(
+              roster.map(member => member.metadataToken));
+            return {
+              member: name,
+              roster: roster.map(member => ({
+                typeDefinitionId,
+                stableSelector: member.stableSelector,
+                metadataToken: member.metadataToken
+              })),
+              methods: methods.map(member => ({
+                metadataToken: member.metadataToken,
+                isRosterMember: rosterTokens.has(member.metadataToken),
+                hasBody: true,
+                size: typeHeatSizes[member.metadataToken] ?? 10,
+                isTrivial: false,
+                isComplete: true
+              })),
+              relationships: name === "Run" && roster.length === 2
+                ? [
+                    {
+                      callerToken: roster[0].metadataToken,
+                      calleeToken: roster[1].metadataToken
+                    },
+                    ...(methods.some(member =>
+                      member.metadataToken === 0x06000104)
+                      && methods.some(member =>
+                        member.metadataToken === 0x06000105)
+                      ? [{
+                          callerToken: 0x06000104,
+                          calleeToken: 0x06000105
+                        }]
+                      : [])
+                  ]
+                : [],
+              unavailableBodies: [],
+              analysisDiagnostics: []
+            };
+          });
         return {
           schemaVersion: 1,
           outcome: "available",

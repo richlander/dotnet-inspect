@@ -5,6 +5,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using ILInspector.AnalysisHarness;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
@@ -20,19 +21,35 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
         string artifacts = Path.Combine(
             AppContext.BaseDirectory,
             "PinnedArtifacts");
+        string systemTextJson = Path.Combine(
+            artifacts,
+            "packages",
+            "System.Text.Json.10.0.0.dll");
+        string coreLibrary = Path.Combine(
+            artifacts,
+            "System.Private.CoreLib.dll");
+        BodyUseScorecardCheck scorecard = BodyUseScorecard.Check(
+            BodyUseScorecard.LoadAssets(
+                [systemTextJson, coreLibrary]),
+            cancellationToken:
+                TestContext.Current.CancellationToken);
+        Assert.True(
+            scorecard.Agrees,
+            string.Join(
+                Environment.NewLine,
+                scorecard.Mismatches.Select(static mismatch =>
+                    $"{mismatch.Asset} {mismatch.Column}: "
+                        + $"{mismatch.Answer}; oracle "
+                        + mismatch.OracleAnswer)));
+
         Measurement[] measurements =
         [
             Measure(
                 "System.Text.Json",
-                Path.Combine(
-                    artifacts,
-                    "packages",
-                    "System.Text.Json.10.0.0.dll")),
+                systemTextJson),
             Measure(
                 "System.Private.CoreLib",
-                Path.Combine(
-                    artifacts,
-                    "System.Private.CoreLib.dll")),
+                coreLibrary),
         ];
 
         string[] lines =
@@ -201,8 +218,6 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
         using var builder =
             new LibraryBodyAnalysisBuilder(path, reader, image);
         var runner = new LibraryMethodAnalysisRunner(builder);
-        StateMachineRelationshipIndex stateMachines =
-            StateMachineRelationshipIndex.Create(reader);
         var occurrences =
             ImmutableArray.CreateBuilder<CanonicalOccurrence>();
         int types = 0;
@@ -250,7 +265,7 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
                         method,
                         image.GetMethodBody(
                             method.RelativeVirtualAddress),
-                        stateMachines.GetByImplementation(methodHandle),
+                        int.MaxValue,
                         int.MaxValue,
                         int.MaxValue,
                         cancellationToken);

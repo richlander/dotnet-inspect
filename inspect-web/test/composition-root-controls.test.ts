@@ -121,12 +121,26 @@ test("implementation evidence remains subtle member-list heat", () => {
     heatTarget,
     /state\.rootKind === "library"[\s\S]*navMode\(\) !== "member"/);
   assert.doesNotMatch(heatTarget, /stableSelectors/);
-  // Heat eligibility follows the producer: a pure single-declarer extension
-  // group is eligible, while mixed or multi-declarer groups remain excluded.
-  const eligible = sourceText(functionDeclaration("familyIsEligible"));
+  const requestGroups =
+    sourceText(functionDeclaration("typeHeatRequestGroups"));
+  assert.match(
+    requestGroups,
+    /publicMembers\.filter\(member => member\.accessibility === "public"\)/);
+  const eligible =
+    sourceText(functionDeclaration("typeHeatRequestFamilyIsEligible"));
   assert.match(
     eligible,
-    /implementationHeatFamilyIsEligible\(\s*type\.accessibility,\s*memberGroups\(type\),\s*group\)/);
+    /implementationHeatFamilyIsEligible\(\s*type\.accessibility,\s*groups,\s*group\)/);
+  const visible = sourceText(functionDeclaration("navGroupHeatIdentity"));
+  assert.match(
+    visible,
+    /implementationHeatVisibleFamilyIsEligible\(groups, appGroup\)/);
+  assert.match(
+    visible,
+    /implementationHeatVisibleFamilyMatchesRequest\(\s*requestGroup,\s*appGroup\)/);
+  assert.match(
+    visible,
+    /declarationMetadataToken \?\? overload\.metadataToken/);
 
   const renderMember = sourceText(functionDeclaration("renderMember"));
   assert.doesNotMatch(renderMember, /Implementation evidence|>Implementation</);
@@ -649,7 +663,7 @@ test("typed package view owns package navigation bindings", () => {
     /function enterRetainedLibrarySubject\([\s\S]*state\.libraryScope === null[\s\S]*selectAggregateLibrarySubject\(options\)[\s\S]*selectLibrarySubject\(selectedLibrary\(\)\?\.id \?\? "", options\)/);
   assert.match(
     appSource,
-    /function drillIn\(\)[\s\S]*if \(state\.atPackageRoot\) \{\s*if \(!enterRetainedLibrarySubject\(\)\) return;/);
+    /function drillIn\(\)[\s\S]*if \(state\.atPackageRoot\) \{\s*if \(!enterRetainedLibrarySubject\(\)\) return;[\s\S]*if \(state\.atLibraryRoot\) \{[\s\S]*render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\);/);
   assert.match(
     appSource,
     /async function pickSpotlightMember[\s\S]*navigationPreservesAggregateLibraryScope\(pkg\)[\s\S]*enterTypeSubject\(type, \{ preserveAggregate \}\)[\s\S]*enterMemberScope\(\{ preserveAggregate \}\)/);
@@ -679,15 +693,21 @@ test("typed package view owns package navigation bindings", () => {
     /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId\)/);
   assert.match(
     appSource,
-    /function drillToPerfMember\([\s\S]*resetMemberSectionState\(\);[\s\S]*loadSelectedMemberDocumentation\(\)/);
+    /function drillToPerfMember\([\s\S]*setTypeMemberPopulationIntent\("public", "csharp"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent\)/);
   const drillToPerfMember =
     appSource.match(/function drillToPerfMember\([\s\S]*?\n}/)?.[0] ?? "";
+  const selectPerformanceMember =
+    appSource.match(/async function selectPerformanceMember\([\s\S]*?\n}/)?.[0]
+    ?? "";
   assert.match(
-    drillToPerfMember,
-    /const group = memberGroups\(targetType\)\s*\.find\(candidate => candidate\.overloads\.includes\(member\)\)/);
+    selectPerformanceMember,
+    /const populationReceipt = await loadSelectedTypeMemberPopulation\(\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationReceipt !== populationReceipt[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*await loadSelectedMemberDocumentation\(\)/);
+  assert.match(
+    appSource,
+    /const receipt: TypeMemberPopulationReceipt = \{[\s\S]*generation: \+\+typeMemberPopulationGeneration,[\s\S]*typeMemberPopulationReceipt = receipt;[\s\S]*return receipt;/);
   assert.doesNotMatch(
     drillToPerfMember,
-    /group\.overloads\.length > 1|selectedOverloadIndex = null/);
+    /group\.overloads\.length > 1/);
   assert.doesNotMatch(
     drillToPerfMember,
     /memberSection = "facts"|loadSelectedMemberFacts\(\)/);
@@ -1206,7 +1226,6 @@ test("typed type panel owns its rendered control bindings", () => {
       new RegExp(`    ${name}: [\\s\\S]*?(?=\\n    on[A-Z])`))?.[0]
       ?? "";
   for (const [name, stateField] of [
-    ["onMemberCompositionAccessibilitySelect", "memberAccessibilityFilter"],
     ["onMemberCompositionKindSelect", "memberKindFilter"],
     ["onMemberCompositionTraitSelect", "memberTraitFilter"],
   ] as const) {
@@ -1219,6 +1238,11 @@ test("typed type panel owns its rendered control bindings", () => {
         + "[\\s\\S]*enterMemberScope\\(\\);[\\s\\S]*render\\(\\)"));
     assert.equal(source.match(/\brender\(\)/g)?.length, 1);
   }
+  const accessibilitySource =
+    callbackSource("onMemberCompositionAccessibilitySelect");
+  assert.match(
+    accessibilitySource,
+    /enterMemberNavigation\(\(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*enterMemberScope\(\);[\s\S]*selectTypeMemberPopulation\(value\)/);
   assert.match(
     binding,
     /onMemberGroupOpen: memberKey => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);\s*if \(!contentFrameMedia\.matches\)\s*restoreContentNavigationFocus\(focusGeneration\);/);
@@ -1404,6 +1428,13 @@ test("typed scope bar owns its rendered control bindings", () => {
         ],
       },
       "call:render()",
+      {
+        if: 'target === "type"',
+        whenTrue: [
+          'call:loadCurrentSelectionData("Loading the selected Type")',
+        ],
+        whenFalse: [],
+      },
     ]);
 
   const typeLens = callbackProperty(actions, "onTypeLensSelect");
@@ -1415,10 +1446,17 @@ test("typed scope bar owns its rendered control bindings", () => {
       'assign:state.selectedMemberKey = ""',
       'assign:state.memberBrowseTypeId = ""',
       "call:render()",
+      "call:loadCurrentTypeApiData()",
     ]);
   assert.match(
     scopeBarSource,
-    /function bindItemActions\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-library-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\][\s\S]*export function bindScopeBar\([\s\S]*bindItemActions\(root, actions\)/);
+    /function bindRovingTabs\([\s\S]*tab\.onfocus =[\s\S]*tab\.onkeydown =[\s\S]*function bindItemActions\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-library-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\][\s\S]*export function bindScopeBar\([\s\S]*bindItemActions\(root, actions, controller\)/);
+  assert.match(
+    scopeBarSource,
+    /private bindGroup\([\s\S]*group\.trigger\.onclick =[\s\S]*group\.trigger\.onkeydown =[\s\S]*item\.onfocus =[\s\S]*item\.onkeydown =/);
+  assert.doesNotMatch(
+    scopeBarSource,
+    /(?:tab|group\.trigger|item)\.addEventListener\("(?:focus|keydown|click)"/);
   for (const selector of [
     "[data-scope]",
     "[data-package-lens]",
@@ -1984,7 +2022,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
   assert.match(typeLensLoader, /return loadSelectedTypeMetadata\(\)/);
   assert.match(
     selectionLoader,
-    /const typeLensLoad = loadSelectedTypeLensData\(\);\s*if \(typeLensLoad !== "member"\) return typeLensLoad;/);
+    /const typeLensLoad = loadSelectedTypeLensData\(\);\s*if \(typeLensLoad !== "member"\) \{\s*await typeLensLoad;\s*return;\s*}[\s\S]*await loadSelectedTypeMemberPopulation\(\)/);
   assert.match(
     appSource,
     /async function loadPackageFromSpotlight[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadPackage\([\s\S]*if \(loaded\) \{[\s\S]*destination = \(await buildStateUrl\(\)\)\.toString\(\);[\s\S]*failWorkspaceCatalogAction\([\s\S]*rollbackSnapshot,[\s\S]*return;[\s\S]*publishCurrentWorkspace\(retainedSnapshot\);\s*workspaceLocation\.push\(destination\);\s*render\(\{ synchronizeUrl: false \}\);\s*focusTypeList\(navigationGeneration, focusGeneration\)/);
@@ -1993,7 +2031,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /async function openPlatformLibrary[\s\S]*const navigationGeneration = scopeOnly \? null : beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*spotlight\.reset\(\)[\s\S]*await loadSelectionData\(\);[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
   assert.match(
     appSource,
-    /async function pickSpotlightMember[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadSelectedMemberOverview\(\);[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
+    /async function pickSpotlightMember[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
   assert.match(
     appSource,
     /async function pickSpotlight\([\s\S]*packageResult:[\s\S]*typeId: string,[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);

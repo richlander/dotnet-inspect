@@ -339,51 +339,41 @@ public partial class PackageCommand
             return 1;
         }
 
-        // The request names its document directly, so an archive above the
-        // size cut is read by range: the root folder and, for a Skill, the
-        // Skill's folder (docs/design/package-read-demand.md#document-demand).
-        PackageDocumentDemand documents;
-        try
-        {
-            int folderEnd = documentPath.LastIndexOf('/') + 1;
-            documents = isSkill
-                ? PackageDocumentDemand.Create(
-                    [documentPath],
-                    [documentPath[..folderEnd]])
-                : PackageDocumentDemand.Create([documentPath]);
-        }
-        catch (ArgumentException)
-        {
-            // A path the document demand cannot name, such as one with a
-            // '..' segment, keeps the existing package-content path.
-            return null;
-        }
-
         await using DesktopPackageSourceComposition composition =
             context.CreatePackageSourceComposition();
         using var stores = new SearchPackageStores();
-        ConfiguredPackagePayloadResult result =
-            await composition.AcquirePinnedAsync(
-                    target.PackageName,
-                    pinnedVersion,
+        PackageFileAcquisitionResult result;
+        try
+        {
+            result = await composition.AcquireFileAsync(
+                    PackageSourceCoordinate.Create(
+                        target.PackageName,
+                        pinnedVersion),
+                    documentPath,
                     stores.GetStore,
                     options.SourceOptions,
-                    context.Logger.Log,
-                    access: PackagePayloadAccess.Ranged,
-                    documentDemand: documents)
+                    context.Logger.Log)
                 .ConfigureAwait(false);
-        if (result.HouseSettlement
-                is not PackageHouseSettlement.Acquired settlement)
+        }
+        catch (ArgumentException)
         {
+            // A path the exact-file operation cannot name, such as one with a
+            // '..' segment, keeps the existing package-content path.
+            return null;
+        }
+        if (result is not PackageFileAcquisitionResult.Acquired file)
+        {
+            if (TryWritePackageFileSelectionFailure(result.Status))
+                return 1;
             return null;
         }
 
-        if (settlement.Result.Evidence.Acquisition?.Transfer
+        if (file.Settlement.Result.Evidence.Acquisition?.Transfer
             is { } transfer)
         {
             context.Logger.Log(
                 $"Package transfer for {target.PackageName}@{pinnedVersion} "
-                + $"({documents}): {transfer.Path}, "
+                + $"({file.Entry.Path}): {transfer.Path}, "
                 + $"{transfer.RequestCount} package requests, "
                 + $"{transfer.BytesReceived} bytes received.");
         }
@@ -391,7 +381,8 @@ public partial class PackageCommand
         // The directory lists every entry, so a ranged read answers this
         // check as the complete archive does; a possible tool wrapper takes
         // the complete package-content path, which follows the redirect.
-        if (MayRequireLegacyToolWrapperHandling(settlement.Payload.Content))
+        if (MayRequireLegacyToolWrapperHandling(
+                file.Settlement.Payload.Content))
         {
             context.Logger.Log(
                 $"{target.PackageName}@{pinnedVersion} may be a .NET tool wrapper; "
@@ -403,28 +394,8 @@ public partial class PackageCommand
             && HasUnstructuredOutputPath(options)
             && ProjectionDestinationWriter.IsFile(destination))
         {
-            PackageDocumentEntryResolution resolution =
-                PackageDocumentEntryResolver.Resolve(
-                    settlement,
-                    documentPath);
-            if (resolution.Status
-                == PackageDocumentEntryResolutionStatus.ManifestUnavailable)
-            {
-                return null;
-            }
-            if (TryWritePackageDocumentSelectionFailure(
-                    resolution.Status))
-            {
-                return 1;
-            }
-
-            PackageContentEntry entry = resolution.Entry
-                ?? throw new InvalidOperationException(
-                    "A resolved package document entry is required.");
             await using PackageHousePayloadRead input =
-                settlement.OpenPayloadRead(
-                    entry.Path,
-                    entry.Length);
+                file.OpenRead();
             await ProjectionDestinationWriter.WriteExactBytesAsync(
                     destination,
                     input)
@@ -432,49 +403,33 @@ public partial class PackageCommand
             return 0;
         }
 
-        InspectionEnvelope<PackageDocumentContentDocument> inspection =
-            await PackageDocumentContentInspection.ExecuteAsync(
-                    new(settlement, documentPath))
+        InspectionEnvelope<PackageFileContentDocument> inspection =
+            await PackageFileContentInspection.ExecuteAsync(
+                    new(
+                        file,
+                        PackageDocumentContentLimits.MaxDecodedBytes))
                 .ConfigureAwait(false);
         if (inspection.Content.Status
-            != PackageDocumentContentStatus.Completed)
+            != PackageFileContentStatus.Completed)
         {
-            string? selectionFailure = inspection.Diagnostics
-                .Select(static diagnostic => diagnostic.Code switch
-                {
-                    "package-document-content.entry-missing" =>
-                        "--content requires exactly one selected package "
-                        + "content file; found 0.",
-                    "package-document-content.entry-ambiguous" =>
-                        "--content requires exactly one selected package "
-                        + "content file; found 2.",
-                    _ => null,
-                })
-                .FirstOrDefault(static message => message is not null);
-            if (selectionFailure is not null)
-            {
-                CommandError.Write(selectionFailure);
-                return 1;
-            }
-
             CommandError.Write(
                 "Could not read the selected package document.",
                 inspection.Content.Detail?.ToString()
-                    ?? "The package document content operation failed.");
+                    ?? "The package file content operation failed.");
             return 1;
         }
 
-        PackageDocumentContentDocument document = inspection.Content;
+        PackageFileContentDocument document = inspection.Content;
         byte[] exactContent =
             ImmutableCollectionsMarshal.AsArray(document.Content) ?? [];
-        var file = new PackageFile(
+        var projectedFile = new PackageFile(
             document.Path!,
             document.Size,
             IsReadme: !isSkill);
         PackageFileContent content = CreatePackageFileContent(
             target.PackageName,
             pinnedVersion,
-            file,
+            projectedFile,
             options.ContentScope,
             normalizeGithubLinksToRaw: !options.PreferRenderedUrls,
             includeExactContent:
@@ -490,15 +445,15 @@ public partial class PackageCommand
             options);
     }
 
-    private static bool TryWritePackageDocumentSelectionFailure(
-        PackageDocumentEntryResolutionStatus status)
+    private static bool TryWritePackageFileSelectionFailure(
+        PackageFileAcquisitionStatus status)
     {
         string? message = status switch
         {
-            PackageDocumentEntryResolutionStatus.Missing =>
+            PackageFileAcquisitionStatus.Missing =>
                 "--content requires exactly one selected package "
                 + "content file; found 0.",
-            PackageDocumentEntryResolutionStatus.Ambiguous =>
+            PackageFileAcquisitionStatus.Ambiguous =>
                 "--content requires exactly one selected package "
                 + "content file; found 2.",
             _ => null,

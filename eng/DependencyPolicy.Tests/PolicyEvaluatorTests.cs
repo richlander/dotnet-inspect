@@ -946,7 +946,6 @@ public sealed class PolicyEvaluatorTests
         Assert.Equal(
             [
                 "CSharpText",
-                "CSharpText.MemberSlicing",
                 "DotnetInspector.Cache",
                 "DotnetInspector.DocumentationHouse.Direct",
                 "DotnetInspector.Ecosystems",

@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DotnetInspector.PerformanceOracles\DotnetInspector.PerformanceOracles.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Queries.PerformanceOracles\DotnetInspector.Queries.PerformanceOracles.csproj" />
   </ItemGroup>
 
 </Project>

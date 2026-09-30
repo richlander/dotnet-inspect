@@ -14,25 +14,18 @@ public sealed class ResearchAssemblyContext
     readonly Lazy<IReadOnlyDictionary<int, IReadOnlyList<DirectCall>>> _callsByCaller;
     readonly Lazy<IReadOnlyDictionary<int, IReadOnlyList<UnsafeEvidence>>> _unsafeEvidenceByToken;
 
-    ResearchAssemblyContext(LibraryBodyIndex index)
+    ResearchAssemblyContext(MemberProjectionAnalysisInput analysis)
     {
-        Index = index;
-        _signals = new(() => index.GetMethodSignals());
-        _leverageByToken = new(() => index.TopLeverage(int.MaxValue)
-            .ToDictionary(entry => entry.Method.MetadataToken, entry => entry));
-        _callsByCaller = new(() => index
-            .GetDirectCallsByEvidenceMethod()
-            .ToDictionary(
-                pair => pair.Key,
-                pair => (IReadOnlyList<DirectCall>)pair.Value));
-        _unsafeEvidenceByToken = new(() => index.UnsafeEvidence
-            .GroupBy(evidence => evidence.Member.MetadataToken)
-            .ToDictionary(
-                group => group.Key,
-                group => (IReadOnlyList<UnsafeEvidence>)group.ToArray()));
+        ArgumentNullException.ThrowIfNull(analysis);
+        Analysis = analysis;
+        _signals = new(() => analysis.Signals);
+        _leverageByToken = new(() => analysis.LeverageByToken);
+        _callsByCaller = new(() => analysis.CallsByEvidenceMethod);
+        _unsafeEvidenceByToken =
+            new(() => analysis.UnsafeEvidenceByToken);
     }
 
-    public LibraryBodyIndex Index { get; }
+    public MemberProjectionAnalysisInput Analysis { get; }
     public IReadOnlyDictionary<int, MethodSignals> Signals => _signals.Value;
     public IReadOnlyDictionary<int, MethodLeverage> LeverageByToken => _leverageByToken.Value;
     public IReadOnlyDictionary<int, IReadOnlyList<DirectCall>> CallsByCaller => _callsByCaller.Value;
@@ -48,8 +41,9 @@ public sealed class ResearchAssemblyContext
             new FindingSubject(subject.Id, subject.Display));
     }
 
-    public static ResearchAssemblyContext Create(LibraryBodyIndex index) =>
-        new(index);
+    public static ResearchAssemblyContext Create(
+        MemberProjectionAnalysisInput analysis) =>
+        new(analysis);
 }
 
 public sealed record ResearchFactContext(

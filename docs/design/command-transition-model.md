@@ -904,10 +904,13 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
 #### Producers and views
 
 `--analysis` selects producers. `-S` selects views of the result. A Diff
-section never chooses a producer. It is a projection of the envelope Content
-that the selected analyses produced, which is the original role of sections.
-One request therefore runs each selected analysis's comparison once, and any
-combination of views may be selected over it.
+section never chooses a producer. It is a projection of the
+`DiffAnalysisDocument` Content that the selected analyses produced, which is
+the original role of sections. `DiffAnalysisInspection` dispatches each
+selected producer once, then constructs only the requested Changes, Summary,
+and Transitions payloads. Summary may compute transitions for its counts
+without retaining the Transitions payload. Hosts consume that same completed
+document rather than reconstructing comparison semantics.
 
 Diff's existing keyed comparisons become the first registered Compare
 participations. Each row names the owner-issued comparison the analysis
@@ -1021,10 +1024,23 @@ and behavior.
 
 #### Content and failure
 
-A request with `--analysis` returns one Diff-owned `DiffAnalysisResult`: an
-ordered list of per-analysis outcomes, in selection order. It is Diff's own
-result shape for this operation, not a universal diff type. Each entry names
-its analysis identity and is exactly one of:
+`DiffAnalysisOperation` produces one internal `DiffAnalysisResult`: an ordered
+list of native per-analysis outcomes in selection order. It is Diff's
+producer result, not a universal diff type. `DiffAnalysisInspection` projects
+that result into one
+`InspectionEnvelope<DiffAnalysisDocument>` for host delivery. The Document
+retains the comparison context, selected analyses and views, flattened outcome
+state, typed API inspection failures independently of the selected view, the
+selected API Changes payload, selected Summary rows, and selected Transitions
+rows. A selected-Library composition may additionally retain the owner-issued
+`LibraryApiDiffOutcome`, including its exact endpoint summaries,
+`ComparisonDocument<LibraryApiTypeDiff>`, and non-success evidence. The
+generic operation and the rich Library presentation consume one
+`AssemblyContextApiComparisonResult`; a host must not rerun API comparison or
+reconstruct Type/member correspondence. API Changes retain both
+compatibility-classified rows and unmatched producer correspondence such as a
+changed Type definition or member without a compatibility classification.
+Each outcome names its analysis identity and is exactly one of:
 
 - **Compared.** The analysis's native keyed comparison, such as
   `ApiFindingComparison` or `FindingComparison<T>`. Research keeps the
@@ -1032,7 +1048,9 @@ its analysis identity and is exactly one of:
   ([Research composition](finding-nomenclature.md#research-composition)).
 - **Unavailable.** The analysis could not run at this surface for these
   endpoints. It keeps its owner-issued typed reason, such as API "not
-  compared".
+  compared". A host may resolve this state before dispatch when it cannot
+  construct the analysis on that platform. Such an outcome short-circuits the
+  producer and does not participate in shared body preparation.
 - **Failed.** The analysis's producer failed. It keeps its owner-issued typed
   diagnostic.
 
@@ -1046,12 +1064,34 @@ outcome. When a selected member resolves nothing, drifts across versions, is
 ambiguous, or selects no Analysis method, the request exits non-zero with the
 typed target diagnostic before any analysis runs.
 
-A request without `--analysis` keeps today's Content. The default single-`api`
-Library request still delivers `InspectionEnvelope<LibraryApiDiffOutcome>`, so
-default output does not change. A request with `--analysis` delivers
-`InspectionEnvelope<DiffAnalysisResult>`. The JSON transport of that Content
-lands with its Browser/Wasm adoption. Until then, `--envelope` and `--json`
-with `--analysis` are rejected visibly rather than emitting a partial shape.
+A request without analysis-set views keeps today's Content. The default
+single-`api` Library request still delivers
+`InspectionEnvelope<LibraryApiDiffOutcome>`, so default output does not change.
+An explicit `--analysis` request, or a request selecting Summary or
+Transitions, delivers `InspectionEnvelope<DiffAnalysisDocument>`.
+Unprojected `--json` writes that exact Content and `--envelope` writes the same
+Content with `result_kind` `diff-analysis`, schema version `2`, Share, and
+ordered diagnostics. Type and Member targets remain semantic request inputs;
+presentation-only columns, fields, row or line clipping, and tabular formats
+are rejected before acquisition. Inspect Web's Metadata facade consumes the
+same envelope for its existing Library-root Compare operation. Its production
+request selects Library surface, `api`, and Changes; Type and Member Compare
+continue to project from the retained `libraryApi` presentation. Browser-valid
+`api-attribute` requests execute, while body-dependent analyses retain typed
+host-resolved `Unavailable` outcomes without producer preparation.
+
+For rendered output, explicit `--analysis api` changes delivery ownership, not
+presentation intent. Without an explicit Changes section, table, TSV, and
+JSONL retain the established changed-Type summary rows; an explicit Changes
+section selects detailed compatibility and unclassified evidence rows.
+Member-surface Changes exclude unmatched Type-definition correspondence, and a
+classified whole-Type addition or removal subsumes unmatched constituent
+member additions or removals. Hosts order rows by the full Type identity before
+lowering the displayed Type name or applying a row window. `--name-only`
+continues to take precedence over table, TSV, and JSONL shape selection.
+Member filtering follows the owner-issued typed Member subject rather than a
+closed list of change kinds. Explicit Changes intent follows the resolved
+section selection, including wildcard selectors.
 
 #### Demo and evidence
 
@@ -1076,9 +1116,10 @@ Two coherent steps deliver analysis selection to both production hosts:
    `Summary`, `Changes`, and `Transitions` views, the pairwise `--finding` and
    `Finding Transitions` retirements, and discovery through `explain`, `-D`,
    and help.
-2. **Transport and Browser/Wasm.** The JSON transport of `DiffAnalysisResult`
-   and the website's adoption of the same validation, catalog, and result,
-   with C# and TypeScript call sites.
+2. **Transport and Browser/Wasm.** The JSON transport of
+   `DiffAnalysisDocument` and the website's adoption of the same validation,
+   catalog, and envelope, with C# and TypeScript call sites. Browser-host
+   availability is an input to the shared operation, not a second result model.
 
 Shipped product skills are updated once both have landed
 ([#8611](https://github.com/richlander/dotnet-inspect/issues/8611)).

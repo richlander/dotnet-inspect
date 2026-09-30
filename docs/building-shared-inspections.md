@@ -23,7 +23,15 @@ terminal result seam is [Inspection envelope](design/inspection-envelope.md).
 The whole-product context is [Inspection Space](inspection-space.md).
 [#6639](https://github.com/richlander/dotnet-inspect/issues/6639) uses this
 guide to assess and modernize every CLI command family and its applicable
-website experience.
+website experience. That assessment records stages as Complete, Needed, or Not
+applicable; it does not require infrastructure that the product question does
+not need.
+
+[#8802](https://github.com/richlander/dotnet-inspect/issues/8802) validates the
+capability-led decision process through the MemberGroup document adoption
+described below. The adoption reaches both production hosts and retires their
+default host-local overload-family construction without making its particular
+stack a universal facade.
 
 ## What success looks like
 
@@ -119,6 +127,40 @@ Preserve dependency direction. A lower producer must not reference the CLI,
 browser DTOs, Markout, host storage, or filesystem paths supplied only by a
 desktop host. Browser/Wasm and NativeAOT compatibility are default requirements
 for reusable product paths.
+
+## Choose only the infrastructure the question needs
+
+Modern infrastructure is not a checklist. Start from the semantic question and
+select the smallest owner chain that preserves its facts, work, failures, and
+production use.
+
+| Capability | Use when | Stop there when | Do not use it to |
+| --- | --- | --- | --- |
+| L1 Query | A reusable executable semantic question needs typed inputs and a resource-free result independent of host or output. | One typed result answers the question without shared section, row-set, or shaping semantics. | Wrap an ordinary owner call merely to route it through `DotnetInspector.Queries`. |
+| L2 inspection or Section | Consumers share named sections, declared row units, Count, order, shaping, applicability, or one inspection composed from several L1 results. | The L2 result completely describes the shared inspection; hosts need only authorization, lifetime, and presentation adapters. | Move producer facts, CLI options, browser state, or rendering into `DotnetInspector.Sections`. |
+| QuerySpace | The capability has portable row intent, filtering, ordering, limits, Count or Exists, continuation, or several requests that should share one source plan. | The question reaches source work and each terminal avoids unrelated materialization. | Wrap a scalar call, static option, or eagerly materialized row list in query vocabulary. |
+| `InspectionEnvelope<TContent>` | One completed host-neutral operation hands detached Content, Share, and diagnostics to a host. | The envelope is the final shared boundary; internal prerequisites retain their owning contracts. | Act as authorization, operation lifetime, progressive events, or a universal return type. |
+| Host-specific composition | Authority, operation lifetime, transport, navigation, interaction, or rendering genuinely differs by host without changing semantic facts. | Each host lowers its gesture to owner-issued requests and preserves the same shared result. | Keep a second semantic algorithm, reconstruct identity, or privately add facts that another host also needs. |
+
+Apply the choices in this order:
+
+1. Name the fact owner and typed answer.
+2. Add an L1 Query only when execution of that semantic question must be
+   shared.
+3. Add L2 only when the shared inspection has sections, row semantics, or
+   composition above one query result.
+4. Add QuerySpace only when portable intent or terminal-directed row work is
+   part of the capability.
+5. Add one envelope only where the completed detached result crosses to a
+   host.
+6. Leave gestures, authorization, lifetime, transport, interaction, and
+   presentation with their hosts.
+
+If only one host has a product question, keep its composition host-specific
+unless a focused design records an approved narrower reusable substrate. A
+desktop filesystem capability and a Browser-retained Workspace may still
+supply different authorized inputs to the same shared operation; that
+difference does not justify separate semantic implementations.
 
 ## Design the result before the host
 
@@ -635,6 +677,49 @@ direct or legacy paths and their retirement conditions, and link the owners
 that issue each typed currency. The complete #6639 inventory can then measure
 shared product adoption without making #6639 the implementation owner for every
 command.
+
+## Worked pattern: MemberGroup documents
+
+The capability-led pilot for
+[#8802](https://github.com/richlander/dotnet-inspect/issues/8802) is the current
+MemberGroup inspection delivered by
+[#8792](https://github.com/richlander/dotnet-inspect/pull/8792) and completed
+through the QuerySpace route in
+[#8860](https://github.com/richlander/dotnet-inspect/pull/8860):
+
+- the product question is one exact method group's bounded overload population,
+  demonstrated by `System.Text.Json.JsonSerializer.Serialize`;
+- Metadata owns the exact declarations, while the
+  [Type/Member inspection design](design/type-member-inspection-documents.md)
+  owns `MemberGroupDocument` and its Count/Rows identity;
+- the exact-overload query binds owner-issued accessibility, receiver, and
+  hidden-state facets, then uses QuerySpace for portable intent, Count, Rows,
+  continuation, and terminal-directed work;
+- [`MemberGroupDocumentInspectionOperation`](../src/DotnetInspector.Sections/MemberGroupDocumentInspection.cs)
+  composes that population into one resource-free L2 Document and preserves
+  typed rejection, incompleteness, failure, Share, and diagnostics in
+  `InspectionEnvelope<MemberGroupDocumentInspectionOutcome>`;
+- CLI
+  [`MemberGroupDocumentOutput`](../src/DotnetInspect.Cli/Output/MemberGroupDocumentOutput.cs)
+  lowers the default and explicit Tree gestures to the operation, then renders
+  the returned Count and Rows;
+- Inspect Web's TypeScript
+  [member-group loader](../inspect-web/src/dotnet-inspect.ts) invokes the
+  generated `queryMemberGroupDocument` facade for package, Platform, and
+  uploaded-Library Browser experiences; and
+- the superseded default host-local overload-family construction is retired.
+  Advanced explicit sections and exact-Member drill-down remain only where
+  they answer distinct current questions.
+
+The focused singleton `PointerFreeUnsafeMethod` case proves the subject
+boundary: a one-row population remains a MemberGroup rather than silently
+changing into an exact Member. The neighboring 15-row `Serialize` family
+proves that CLI default Tree, explicit Tree, and Browser family views consume
+the same owner-issued population; a missing group remains typed rejection.
+
+This pilot uses the full stack because its question needs the full stack. It
+does not imply that a scalar Query needs a Section, that every Section needs
+QuerySpace, or that an intermediate owner result needs an envelope.
 
 ## Worked pattern: type relationships
 
