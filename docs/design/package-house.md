@@ -27,17 +27,13 @@ and typed-fallback planning. Archive-backed planning derives every narrowing
 and terminal from one validated ZIP central-directory snapshot. The
 content-demand owner composes existing source, archive, asset-selection,
 Metadata, cache, and transfer owners without absorbing their algorithms.
-Library-returning terminals may reuse the existing selected-Library
-implementation-PDB companion mechanics for explicit preparation:
-owner-issued implementation correspondence adds only exact companion entries,
-File List projects those entries without widening to the companion's complete
-root, and PackageHouse may retain the listed raw PDB entry without returning it
-with the Library. Its receipt carries a resource-free exact-companion locator
-bound to the package, selected Library correspondence, and directory snapshot.
-A later host-neutral PDB operation presents that locator to PackageHouse before
-external providers, so warm state is an optimization rather than the semantic
-handoff. The current direct companion handoff remains transitional until the
-focused PDB-settlement owner tracked by
+Best Library plus TFM-wide File List returns one selected DLL and no PDB
+content. The complete target inventory carries typed evidence for whether
+owner-issued implementation correspondence has a listed adjacent PDB. A later
+host-neutral PDB operation may request the exact implementation/PDB files or
+skip to an external provider. Root-narrowed inventory cannot claim absence
+outside its winning root. The current direct companion handoff remains
+transitional until the focused PDB-settlement owner tracked by
 [#9002](https://github.com/richlander/dotnet-inspect/issues/9002).
 
 [#7423](https://github.com/richlander/dotnet-inspect/issues/7423) extends that

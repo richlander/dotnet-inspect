@@ -15,9 +15,10 @@ package/TFM/root-family narrowing and whether cache, manifest,
 archive-directory, ranged, or complete acquisition satisfies a query. This
 document owns only entry expansion after the House resolves that narrowing
 against one validated ZIP central-directory snapshot and selects ranged
-execution, including the exact selected-Library PDB companion closure reused by
-library-returning semantic terminals. Commands and hosts do not select an
-access mode.
+execution. The current direct selected-Library PDB companion remains an
+existing request path; the semantic content-query successor instead uses File
+List evidence followed by an exact Files request. Commands and hosts do not
+select an access mode.
 
 The claim has five parts:
 
@@ -242,11 +243,12 @@ companion is `ImplementationPortablePdb`: for each selected implementation
 assembly, the House derives the same-directory, same-stem `.pdb` path.
 
 This section describes the current direct realization handoff. The semantic
-content-query successor uses the same exact-entry expansion for explicit
-preparation, retains the raw package entry without returning PDB content with
-the Library, and issues a resource-free exact-companion locator for the later
-host-neutral PDB operation to present back to PackageHouse. That settlement
-owner is tracked by
+content-query successor does not request this companion with Best Library.
+Instead, Best Library plus TFM-wide File List downloads one DLL and reports
+typed directory evidence for the owner-issued implementation DLL and adjacent
+PDB. A later host-neutral PDB operation may request those exact entries through
+the Files terminal or skip to an external provider. That settlement owner is
+tracked by
 [#9002](https://github.com/richlander/dotnet-inspect/issues/9002). Until that
 successor and its production composition land, current callers continue to
 receive the existing companion handoff.
