@@ -1078,6 +1078,9 @@ classified whole-Type addition or removal subsumes unmatched constituent
 member additions or removals. Hosts order rows by the full Type identity before
 lowering the displayed Type name or applying a row window. `--name-only`
 continues to take precedence over table, TSV, and JSONL shape selection.
+Member filtering follows the owner-issued typed Member subject rather than a
+closed list of change kinds. Explicit Changes intent follows the resolved
+section selection, including wildcard selectors.
 
 #### Demo and evidence
 

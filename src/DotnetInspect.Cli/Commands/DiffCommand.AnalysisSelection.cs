@@ -187,7 +187,7 @@ public partial class DiffCommand
             selection,
             views,
             DetailedChanges:
-                options.ExactIncludeSections?.Contains(
+                options.IncludeSections?.Contains(
                     DiffSections.Changes.Name) == true);
         return true;
     }

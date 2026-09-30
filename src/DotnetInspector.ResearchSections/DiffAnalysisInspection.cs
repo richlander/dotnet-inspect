@@ -531,7 +531,7 @@ public static class DiffAnalysisInspection
             input.MemberTargetIdentities
             ?? throw new InvalidOperationException(
                 "Member targets were not resolved.");
-        return IsMemberChange(change.Kind)
+        return change.Subject?.Kind == ApiChangeSubjectKind.Member
             ? MatchesHandle(change.Subject?.OldMember, targetIdentities)
                 || MatchesHandle(change.Subject?.NewMember, targetIdentities)
             : IsWholeTypeChange(change.Kind)
@@ -539,16 +539,6 @@ public static class DiffAnalysisInspection
                     typeFullName,
                     StringComparer.Ordinal);
     }
-
-    private static bool IsMemberChange(ChangeKind kind)
-        => kind is ChangeKind.MemberAdded
-            or ChangeKind.MemberRemoved
-            or ChangeKind.MemberSignatureChanged
-            or ChangeKind.VirtualRemoved
-            or ChangeKind.AbstractMemberAdded
-            or ChangeKind.EnumValueChanged
-            or ChangeKind.MemberAttributeAdded
-            or ChangeKind.MemberAttributeRemoved;
 
     private static bool IsWholeTypeChange(ChangeKind kind)
         => kind is ChangeKind.TypeAdded or ChangeKind.TypeRemoved;

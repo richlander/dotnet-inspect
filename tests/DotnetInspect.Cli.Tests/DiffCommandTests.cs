@@ -3142,6 +3142,81 @@ public class DiffCommandTests
                 .GetProperty("types").EnumerateArray());
     }
 
+    [Fact]
+    public async Task ExecuteAsync_ApiAnalysisMemberScopeRetainsGenericConstraintChanges()
+    {
+        string v1 = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = $"{v1}..{v2}",
+                    Analysis = ["api"],
+                    TypeFilter = ["MethodConstraintChange"],
+                    MemberFilter = ["Apply"],
+                    JsonOutput = true,
+                }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement changes =
+            document.RootElement.GetProperty("changes");
+        Assert.Equal(1, changes.GetProperty("totalBreaking").GetInt32());
+        Assert.Equal(1, changes.GetProperty("totalAdditive").GetInt32());
+        JsonElement type = Assert.Single(
+            changes.GetProperty("types").EnumerateArray());
+        Assert.Equal(
+            ["TypeParameterConstraintTightened", "TypeParameterConstraintLoosened"],
+            type.GetProperty("changes").EnumerateArray()
+                .Select(change => change.GetProperty("kind").GetString()));
+        Assert.Empty(type.GetProperty("unclassifiedChanges").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task CommandLine_ApiAnalysisMemberScopePreservesBreakingGenericConstraint()
+    {
+        string v1 = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+        string range = $"{v1}..{v2}";
+
+        async Task<(int ExitCode, string Output, string Error)> Run(
+            params string[] prefix)
+        {
+            string[] args = CommandLineBuilder.PreprocessArgs(
+            [
+                "diff",
+                "--library", range,
+                .. prefix,
+                "--type", "LibraryApiDiffFixture.MethodConstraintChange",
+                "--member", "Apply",
+                "--breaking",
+                "-S", "Changes",
+                "--tsv",
+            ]);
+            return await ConsoleCapture.RunAsync(async () =>
+                await CommandLineBuilder.CreateRootCommand()
+                    .Parse(args)
+                    .InvokeAsync());
+        }
+
+        var implicitResult = await Run();
+        var explicitResult = await Run("--analysis", "api");
+
+        Assert.Equal(0, implicitResult.ExitCode);
+        Assert.Equal(0, explicitResult.ExitCode);
+        Assert.Empty(implicitResult.Error);
+        Assert.Empty(explicitResult.Error);
+        Assert.Contains("Summary\t1 breaking", implicitResult.Output);
+        Assert.Contains("Summary\t1 breaking", explicitResult.Output);
+        Assert.Contains("TypeParameterConstraintTightened", implicitResult.Output);
+        Assert.Contains("TypeParameterConstraintTightened", explicitResult.Output);
+        Assert.DoesNotContain("TypeParameterConstraintLoosened", implicitResult.Output);
+        Assert.DoesNotContain("TypeParameterConstraintLoosened", explicitResult.Output);
+    }
+
     [Theory]
     [InlineData("AddedType", "TypeAdded")]
     [InlineData("RemovedType", "TypeRemoved")]
@@ -3267,6 +3342,43 @@ public class DiffCommandTests
             StringComparison.Ordinal);
         Assert.DoesNotContain("Versions", explicitOutput);
         Assert.DoesNotContain("change", explicitOutput);
+    }
+
+    [Fact]
+    public async Task CommandLine_ExplicitApiWildcardChangesPreservesDetailedRows()
+    {
+        string v1 = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+        string range = $"{v1}..{v2}";
+
+        async Task<(int ExitCode, string Output, string Error)> Run(
+            params string[] prefix)
+        {
+            string[] args = CommandLineBuilder.PreprocessArgs(
+            [
+                "diff",
+                "--library", range,
+                .. prefix,
+                "--type", "LibraryApiDiffFixture.HardChangedType",
+                "-S", "Cha*",
+                "--tsv",
+            ]);
+            return await ConsoleCapture.RunAsync(async () =>
+                await CommandLineBuilder.CreateRootCommand()
+                    .Parse(args)
+                    .InvokeAsync());
+        }
+
+        var implicitResult = await Run();
+        var explicitResult = await Run("--analysis", "api");
+
+        Assert.Equal(0, implicitResult.ExitCode);
+        Assert.Equal(0, explicitResult.ExitCode);
+        Assert.Empty(implicitResult.Error);
+        Assert.Empty(explicitResult.Error);
+        Assert.Equal(implicitResult.Output, explicitResult.Output);
+        Assert.Contains("classification", explicitResult.Output);
+        Assert.Contains("VirtualRemoved", explicitResult.Output);
     }
 
     [Theory]

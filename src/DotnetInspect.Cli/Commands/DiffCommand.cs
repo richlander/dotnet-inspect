@@ -2737,7 +2737,7 @@ public partial class DiffCommand
         HashSet<int> NewBodyMetadataTokens);
 
     static bool MatchesMemberTarget(string typeFullName, ApiChange change, ResolvedDiffMemberTargets targets)
-        => IsMemberChange(change.Kind)
+        => change.Subject?.Kind == ApiChangeSubjectKind.Member
             ? MatchesHandle(change.Subject?.OldMember, targets.MemberIdentities)
               || MatchesHandle(change.Subject?.NewMember, targets.MemberIdentities)
             : IsWholeTypeChange(change.Kind) && targets.TypeNames.Contains(typeFullName);
@@ -3305,11 +3305,6 @@ public partial class DiffCommand
         error = null;
         return matches.SingleOrDefault();
     }
-
-    static bool IsMemberChange(ChangeKind kind)
-        => kind is ChangeKind.MemberAdded or ChangeKind.MemberRemoved or ChangeKind.MemberSignatureChanged
-            or ChangeKind.VirtualRemoved or ChangeKind.AbstractMemberAdded or ChangeKind.EnumValueChanged
-            or ChangeKind.MemberAttributeAdded or ChangeKind.MemberAttributeRemoved;
 
     static bool IsWholeTypeChange(ChangeKind kind)
         => kind is ChangeKind.TypeAdded or ChangeKind.TypeRemoved;
