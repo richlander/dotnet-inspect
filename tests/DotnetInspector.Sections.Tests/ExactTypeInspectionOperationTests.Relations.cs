@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -73,6 +74,105 @@ public sealed partial class ExactTypeInspectionOperationTests
                 row.Form));
         Assert.True(
             available.Relations.Relations.Evidence.IsComplete);
+    }
+
+    [Fact]
+    public async Task PlatformForwarderLoadsOnlyItsTerminalFocusContext()
+    {
+        const string runtimePackageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string runtimeVersion = "11.0.0";
+        const string facade = "Facade";
+        const string terminal = "Terminal";
+        var terminalIdentity = new AssemblyReferenceIdentity(
+            terminal,
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        byte[] package = Archive(
+            ($"runtimes/linux-x64/lib/{Framework}/{facade}.dll",
+                BuildMetadataAssembly(
+                    facade,
+                    Guid.NewGuid(),
+                    definesType: false,
+                    "Relations",
+                    "IContract",
+                    terminalIdentity)),
+            ($"runtimes/linux-x64/lib/{Framework}/{terminal}.dll",
+                BuildMetadataAssembly(
+                    terminal,
+                    Guid.NewGuid(),
+                    definesType: true,
+                    "Relations",
+                    "IContract")));
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            runtimePackageId,
+            runtimeVersion,
+            NuGetCache.GetSourceKey(SourceUrl),
+            new MemoryStream(package),
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new FailingHandler());
+        SubjectRelationsQueryPlan plan = Assert.IsType<
+            SubjectRelationsQueryPlanResult.Accepted>(
+                SubjectRelationsQuery.ResolveIntent(
+                    SubjectRelationsRouteKind.Type,
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                SubjectRelationsQuery.DirectionTermKey,
+                                PortableQueryOperator.Equal,
+                                "incoming"),
+                            new(
+                                SubjectRelationsQuery.FormTermKey,
+                                PortableQueryOperator.Equal,
+                                "interface"),
+                        ],
+                        [],
+                        [],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+
+        ExactTypeRelationsInspectionOutcome outcome =
+            await ExactTypeRelationsInspectionOperation.ExecuteAsync(
+                new TypeRelationsInspectionRequest(
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members =
+                        [
+                            WorkspaceMemberCoordinate.Platform(
+                                "runtime",
+                                facade,
+                                runtimeVersion,
+                                Framework),
+                        ],
+                    },
+                    "Relations.IContract",
+                    FocusAssemblyName: facade),
+                LoadOptions(client, store),
+                plan,
+                count: new SubjectRelationPopulationCountRequest(),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var available = Assert.IsType<
+            ExactTypeRelationsInspectionOutcome.Available>(outcome);
+        Assert.Equal(
+            0,
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    available.Relations.Population.Count).Value);
+        Assert.Equal(
+            [facade, terminal],
+            available.Relations.Relations.Sources
+                .Select(static source => source.Assembly.Name));
+        var focus = Assert.IsType<
+            StructuralSubjectIdentity.ContextTypeSubject>(
+                available.Relations.Relations.Focus);
+        Assert.Equal(
+            terminal,
+            focus.Library.Identity.Assembly.Name);
     }
 
     [Fact]

@@ -90,15 +90,25 @@ public static class ExactTypeRelationsInspectionOperation
         ArgumentNullException.ThrowIfNull(capabilities);
         ArgumentNullException.ThrowIfNull(plan);
         WorkspaceContextInput input = request.Context;
-        for (int expansion = 0;
-            expansion <= MaxPlatformFocusExpansions;
-            expansion++)
+        var workspace = new InspectionWorkspace(
+            new WorkspacePlan([], [input]));
+        var contexts = new List<WorkspaceDeclarationContext>();
+        var selectedPlatformAssemblies =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (WorkspaceMemberCoordinate.PlatformMember member
+            in input.Members.OfType<
+                WorkspaceMemberCoordinate.PlatformMember>())
         {
-            var workspace = new InspectionWorkspace(
-                new WorkspacePlan([], [input]));
-            ExactTypeRelationsInspectionOutcome? outcome = null;
-            WorkspaceContextInput? expandedInput = null;
-            try
+            if (member.Assembly is not null)
+                selectedPlatformAssemblies.Add(member.Assembly);
+        }
+        string? focusAssemblyName = request.FocusAssemblyName;
+        ExactTypeRelationsInspectionOutcome? outcome = null;
+        try
+        {
+            for (int expansion = 0;
+                expansion <= MaxPlatformFocusExpansions;
+                expansion++)
             {
                 WorkspaceDeclarationContext context =
                     await WorkspaceContextLoader.LoadDeclarationContextAsync(
@@ -122,8 +132,9 @@ public static class ExactTypeRelationsInspectionOperation
                 }
                 else
                 {
+                    contexts.Add(context);
                     WorkspaceDeclarationPopulation population =
-                        workspace.CaptureDeclarationPopulation([context])
+                        workspace.CaptureDeclarationPopulation([.. contexts])
                             is WorkspaceDeclarationPopulationCapture
                                 .Captured captured
                             ? captured.Population
@@ -135,18 +146,19 @@ public static class ExactTypeRelationsInspectionOperation
                             population,
                             request.Type,
                             request.SelectionKind,
-                            request.FocusAssemblyName,
+                            focusAssemblyName,
                             request.FocusLibrary,
                             cancellationToken: cancellationToken);
                     if (focus
                         is WorkspaceExactTypeFocusOutcome
                             .PlatformAssemblyRequired required)
                     {
-                        expandedInput =
+                        WorkspaceContextInput? expandedInput =
                             expansion < MaxPlatformFocusExpansions
-                                ? ExpandPlatformContext(
-                                    input,
-                                    required.Assembly)
+                                ? CreatePlatformFocusContext(
+                                    request.Context,
+                                    required.Assembly,
+                                    selectedPlatformAssemblies)
                                 : null;
                         if (expandedInput is null)
                         {
@@ -158,7 +170,13 @@ public static class ExactTypeRelationsInspectionOperation
                                             + $"'{required.Assembly.Name}', "
                                             + "but the candidate context "
                                             + "cannot be expanded.");
+                            break;
                         }
+                        selectedPlatformAssemblies.Add(
+                            required.Assembly.Name);
+                        input = expandedInput;
+                        focusAssemblyName = required.Assembly.Name;
+                        continue;
                     }
                     else if (focus
                         is WorkspaceExactTypeFocusOutcome
@@ -201,49 +219,41 @@ public static class ExactTypeRelationsInspectionOperation
                                 relations);
                     }
                 }
+                break;
             }
-            catch (Exception failure)
-            {
-                await DirectWorkspaceOperationLifetime.CloseAfterFailureAsync(
-                        workspace,
-                        failure)
-                    .ConfigureAwait(false);
-                throw;
-            }
-
-            await DirectWorkspaceOperationLifetime.CloseAsync(
+        }
+        catch (Exception failure)
+        {
+            await DirectWorkspaceOperationLifetime.CloseAfterFailureAsync(
                     workspace,
-                    "Exact Type Subject Relations inspection")
+                    failure)
                 .ConfigureAwait(false);
-            if (expandedInput is not null)
-            {
-                input = expandedInput;
-                continue;
-            }
-            return outcome
-                ?? new ExactTypeRelationsInspectionOutcome.Unavailable(
-                    "The exact Type focus did not produce an outcome.");
+            throw;
         }
 
-        return new ExactTypeRelationsInspectionOutcome.Unavailable(
-            "The exact Type focus exceeded the platform expansion bound.");
+        await DirectWorkspaceOperationLifetime.CloseAsync(
+                workspace,
+                "Exact Type Subject Relations inspection")
+            .ConfigureAwait(false);
+        return outcome
+            ?? new ExactTypeRelationsInspectionOutcome.Unavailable(
+                "The exact Type focus exceeded the platform expansion bound.");
     }
 
-    private static WorkspaceContextInput? ExpandPlatformContext(
-        WorkspaceContextInput input,
-        AssemblyReferenceIdentity required)
+    private static WorkspaceContextInput? CreatePlatformFocusContext(
+        WorkspaceContextInput rootInput,
+        AssemblyReferenceIdentity required,
+        IReadOnlySet<string> selectedAssemblies)
     {
         WorkspaceMemberCoordinate.PlatformMember[] platformMembers =
         [
-            .. input.Members.OfType<
+            .. rootInput.Members.OfType<
                 WorkspaceMemberCoordinate.PlatformMember>(),
         ];
         if (platformMembers.Length == 0
-            || input.Members.Count != platformMembers.Length
-            || platformMembers.Any(member =>
-                member.Assembly?.Equals(
-                    required.Name,
-                    StringComparison.OrdinalIgnoreCase) is true))
+            || rootInput.Members.Count != platformMembers.Length
+            || platformMembers.Any(member => member.Assembly is null)
+            || selectedAssemblies.Contains(required.Name))
         {
             return null;
         }
@@ -266,11 +276,10 @@ public static class ExactTypeRelationsInspectionOperation
             return null;
         }
 
-        return input with
+        return rootInput with
         {
             Members =
             [
-                .. input.Members,
                 WorkspaceMemberCoordinate.Platform(
                     root.Family,
                     required.Name,
