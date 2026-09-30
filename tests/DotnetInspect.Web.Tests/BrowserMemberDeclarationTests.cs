@@ -305,6 +305,50 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Equal(
             packageMembers.Composition.Public,
             packageMembers.Groups.Sum(group => group.Members.Length));
+        BrowserTypeMemberPopulationInspection metadataPopulation =
+            TypeMemberPopulation(
+                await MetadataExports.QueryTypeMemberPopulation(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "metadata",
+                    "public"));
+        BrowserTypeMemberPopulation metadataMembers =
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                metadataPopulation.Population);
+        BrowserTypeMemberPopulationGroup getter = Assert.Single(
+            metadataMembers.Groups,
+            group => group.Name == "get_Type");
+        Assert.All(
+            getter.Members,
+            static member => Assert.Null(member.BaselineOrdinal));
+        BrowserTypeMemberPopulationGroup metadataMethod = Assert.Single(
+            metadataMembers.Groups,
+            group => group.Name == "PointerFreeUnsafeMethod");
+        Assert.Equal<int?>(
+            [1],
+            metadataMethod.Members.Select(member => member.BaselineOrdinal));
+        BrowserTypeMemberPopulationInspection privatePopulation =
+            TypeMemberPopulation(
+                await MetadataExports.QueryTypeMemberPopulation(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "metadata",
+                    "private"));
+        BrowserTypeMemberPopulation privateMembers =
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                privatePopulation.Population);
+        BrowserMemberSurface[] privateRows =
+            [.. privateMembers.Groups.SelectMany(group => group.Members)];
+        Assert.NotEmpty(privateRows);
+        Assert.All(
+            privateRows,
+            static member => Assert.Null(member.BaselineOrdinal));
 
         BrowserTypeMemberPopulationInspection uploadedPopulation =
             TypeMemberPopulation(

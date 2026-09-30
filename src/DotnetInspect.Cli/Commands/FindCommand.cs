@@ -89,6 +89,16 @@ public class FindCommand
             }
             await using PlatformFindSearchWorkspace? platformWorkspaceLifetime =
                 platformWorkspace;
+            ExplicitFindSearchWorkspace? explicitWorkspace =
+                platformWorkspace is null
+                    ? new(
+                        options,
+                        context.HttpClient,
+                        logger.Log,
+                        cancellationToken)
+                    : null;
+            await using ExplicitFindSearchWorkspace? explicitWorkspaceLifetime =
+                explicitWorkspace;
 
             if (options.Members)
             {
@@ -99,7 +109,8 @@ public class FindCommand
                     logger,
                     context.HttpClient,
                     cancellationToken,
-                    platformWorkspace);
+                    platformWorkspace,
+                    explicitWorkspace);
             }
 
             FindSearchResult<TypeFindResult> search =
@@ -110,7 +121,8 @@ public class FindCommand
                     context.HttpClient,
                     cancellationToken,
                     context,
-                    platformWorkspace);
+                    platformWorkspace,
+                    explicitWorkspace);
             FindSearchResult<MemberFindResult>? memberTier =
                 await FindBroadenedMembersAsync(
                     options,
@@ -119,7 +131,8 @@ public class FindCommand
                     logger,
                     context.HttpClient,
                     cancellationToken,
-                    platformWorkspace);
+                    platformWorkspace,
+                    explicitWorkspace);
             List<MemberFindResult> members = memberTier?.Rows ?? [];
             List<TypeFindResult> results =
                 WithoutSupersededWeakRows(search.Rows, members);
@@ -223,7 +236,8 @@ public class FindCommand
             VerboseLogger logger,
             HttpClient httpClient,
             CancellationToken cancellationToken,
-            PlatformFindSearchWorkspace? platformWorkspace)
+            PlatformFindSearchWorkspace? platformWorkspace,
+            ExplicitFindSearchWorkspace? explicitWorkspace)
     {
         HashSet<string> settled = new(
             typeRows
@@ -249,7 +263,8 @@ public class FindCommand
             logger,
             httpClient,
             cancellationToken,
-            platformWorkspace);
+            platformWorkspace,
+            explicitWorkspace);
     }
 
     /// <summary>
@@ -366,7 +381,8 @@ public class FindCommand
         VerboseLogger logger,
         HttpClient httpClient,
         CancellationToken cancellationToken,
-        PlatformFindSearchWorkspace? platformWorkspace)
+        PlatformFindSearchWorkspace? platformWorkspace,
+        ExplicitFindSearchWorkspace? explicitWorkspace)
     {
         // Strip the leading '.' sentinel from each segment so ".Serialize" and "Serialize" both search
         // the member named "Serialize". ".ctor"/".cctor" are preserved (they are real member names).
@@ -388,7 +404,8 @@ public class FindCommand
                 logger,
                 httpClient,
                 cancellationToken,
-                platformWorkspace);
+                platformWorkspace,
+                explicitWorkspace);
         List<MemberFindResult> results = search.Rows;
         int observedRowCount = results.Count;
         if (!TrySelectRows(
