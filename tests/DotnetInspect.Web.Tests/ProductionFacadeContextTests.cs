@@ -187,6 +187,7 @@ public sealed class ProductionFacadeContextTests
             "DecodeWorkspaceShareState",
             "DescribeWorkspacePackageSources",
             "EncodeWorkspaceShareState",
+            "ListEcosystems",
             "ListHomeDemos",
             "InspectVocabulary",
             "ObserveRetainedWorkspaceSettlement",
@@ -244,7 +245,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(126, everyExport.Length);
+        Assert.Equal(127, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

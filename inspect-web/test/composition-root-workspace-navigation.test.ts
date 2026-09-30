@@ -107,7 +107,7 @@ test("data bar shows versioned linked build provenance", () => {
   assert.match(
     appSource,
     /async function loadBuildIdentity\(\) \{[\s\S]*state\.buildIdentity = await engineClient\.host\.buildIdentity\(\);[\s\S]*state\.buildIdentityStatus = "ready";[\s\S]*state\.buildIdentityStatus = "failed"/);
-  assert.equal(appSource.match(/\bdataBarHtml\(\{/g)?.length, 5);
+  assert.equal(appSource.match(/\bdataBarHtml\(\{/g)?.length, 6);
   assert.match(
     appSource,
     /<\/main>[\s\S]{0,700}\$\{dataBarHtml\(\{/);
@@ -619,7 +619,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /function retainFailedWorkspaceUrl\(\) \{\s*const failedState = failedWorkspaceUrlState;\s*const retainedState = retainWorkspaceUrlPreservation\(\s*failedState,\s*location\.href,\s*workspaceUrlProjection\(\)\);\s*if \(retainedState\) return true;\s*if \(failedState\?\.kind === "route"\s*&& !recoverWorkspaceRouteFailure\(\s*failedState,\s*location,\s*url => workspaceLocation\.replace\(url, history\.state\)\)\) \{\s*return true;\s*\}\s*failedWorkspaceUrlState = null;\s*return false;\s*\}/);
   assert.match(
     appSource,
-    /if \(\(state\.loading[\s\S]*!loadingPackageContent[\s\S]*!retainedWorkspacePostingVisible\)[\s\S]*\|\| state\.error\) \{[\s\S]*return;\s*\}\s*retainFailedWorkspaceUrl\(\);\s*if \(state\.workspaceSubjectOpen && isProductHomeDemosPath\(location\.pathname\)\)/);
+    /if \(\(state\.loading[\s\S]*!loadingPackageContent[\s\S]*!retainedWorkspacePostingVisible\)[\s\S]*\|\| state\.error\) \{[\s\S]*return;\s*\}\s*retainFailedWorkspaceUrl\(\);\s*if \(productEcosystemsVisible\) \{[\s\S]*renderProductEcosystemsPage\(\);[\s\S]*return;\s*\}\s*if \(state\.workspaceSubjectOpen && isProductHomeDemosPath\(location\.pathname\)\)/);
   assert.match(
     appSource,
     /navigation: navigationHistory\.snapshot\(\),[\s\S]*failedWorkspaceUrlState: failedWorkspaceUrlState[\s\S]*structuredClone\(failedWorkspaceUrlState\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\);[\s\S]*failedWorkspaceUrlState = snapshot\.failedWorkspaceUrlState[\s\S]*structuredClone\(snapshot\.failedWorkspaceUrlState\)/);
@@ -668,7 +668,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
   assert.match(
     appSource,
-    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*state\.packageActivityOpen = isPackageActivityPath\(location\.pathname\);[\s\S]*state\.typeExplorerOpen = isTypeExplorerPath\(location\.pathname\);[\s\S]*const diagnosticsOpen = isDiagnosticsPath\(location\.pathname\);[\s\S]*const productHomeDemosOpen = isProductHomeDemosPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!diagnosticsOpen\s*&& !state\.packageQueryOpen\s*&& !state\.packageActivityOpen\s*&& !state\.typeExplorerOpen\s*&& !productHomeDemosOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
+    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*state\.packageActivityOpen = isPackageActivityPath\(location\.pathname\);[\s\S]*state\.typeExplorerOpen = isTypeExplorerPath\(location\.pathname\);[\s\S]*const diagnosticsOpen = isDiagnosticsPath\(location\.pathname\);[\s\S]*const productHomeDemosOpen = isProductHomeDemosPath\(location\.pathname\);[\s\S]*const productEcosystemsOpen = isProductEcosystemsPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!diagnosticsOpen\s*&& !state\.packageQueryOpen\s*&& !state\.packageActivityOpen\s*&& !state\.typeExplorerOpen\s*&& !productHomeDemosOpen\s*&& !productEcosystemsOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
   const restore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction showEngineFailure/)?.[0]
     ?? "";
@@ -739,7 +739,7 @@ test("malformed package routes use the contained restore failure path", () => {
     1);
   assert.equal(
     appSource.match(/\${renderQueryNotice\(\)}/g)?.length,
-    5);
+    6);
   assert.match(
     appSource,
     /state\.queryNotice && state\.queryNoticeRetryAction\s*\? '<button id="retry-notice"/);

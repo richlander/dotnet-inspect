@@ -23,7 +23,8 @@ function subjectTab(page: Page, subject: string) {
 
 async function openProductDestination(
   page: Page,
-  destination: "home" | "query" | "workspace" | "activity",
+  destination:
+    "home" | "query" | "workspace" | "ecosystems" | "activity" | "demos",
 ): Promise<void> {
   await page.locator("[data-product-navigation-button]").click();
   await page.locator(
@@ -2018,6 +2019,31 @@ async function installFacades(
       }`,
     catalog: `
       const homeDemos = ${JSON.stringify(homeDemos?.catalog ?? [])};
+      const productEcosystems = [{
+        id: "ecosystem.runtime",
+        title: ".NET Runtime",
+        summary: ".NET Runtime libraries and product demos.",
+        corePackageCount: 0,
+        namespaceRootCount: 1,
+        toolPackageCount: 0,
+        demoCount: 3,
+        hasPackageSet: false,
+        hasScanner: false,
+        hasPopulationLoader: true,
+        hasWorkspaceRegistration: true,
+      }, {
+        id: "ecosystem.aspire",
+        title: "Aspire",
+        summary: "Aspire package and demo content.",
+        corePackageCount: 2,
+        namespaceRootCount: 1,
+        toolPackageCount: 1,
+        demoCount: 2,
+        hasPackageSet: true,
+        hasScanner: true,
+        hasPopulationLoader: false,
+        hasWorkspaceRegistration: true,
+      }];
       const homeDemoResults = ${JSON.stringify(homeDemos?.results ?? {})};
       const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
       const workspaceSources = ${JSON.stringify(workspaceSources)};
@@ -2044,6 +2070,9 @@ async function installFacades(
             "finish-home-demo-catalog", resolve, { once: true }));
         }
         return { demos: homeDemos };
+      }
+      export function listEcosystems() {
+        return { ecosystems: productEcosystems };
       }
       export async function runHomeDemo(id) {
         document.documentElement.dataset.homeDemoRun = id;

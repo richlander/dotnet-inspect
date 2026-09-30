@@ -219,6 +219,11 @@ import {
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
 import {
+  isProductEcosystemsPath,
+  productEcosystemsViewHtml,
+  setProductEcosystemCatalog,
+} from "./product-ecosystems.ts";
+import {
   installStaleDeploymentDetection,
   retainSuccessfulImport,
   STALE_DEPLOYMENT_NOTICE,
@@ -915,6 +920,7 @@ let inspectEncodeWorkspaceShareState:
   EngineClient["catalog"]["encodeWorkspaceShareState"];
 let inspectRunHomeDemo: EngineClient["catalog"]["runHomeDemo"];
 let productHomeDemoCatalogError = "";
+let productEcosystemCatalogError = "";
 
 // The Worker client stays off the first-paint path. It is imported after the
 // home view paints, then starts exactly one epoch when bootstrap supplies the
@@ -4389,6 +4395,7 @@ if (state.typeExplorerOpen) {
 }
 const diagnosticsOpen = isDiagnosticsPath(location.pathname);
 const productHomeDemosOpen = isProductHomeDemosPath(location.pathname);
+const productEcosystemsOpen = isProductEcosystemsPath(location.pathname);
 if (diagnosticsOpen) {
   state.diagnosticsCapturedAtUtc = new Date().toISOString();
   diagnosticsHeadingFocusPending = true;
@@ -4405,6 +4412,7 @@ state.home = state.credits
     && !state.packageActivityOpen
     && !state.typeExplorerOpen
     && !productHomeDemosOpen
+    && !productEcosystemsOpen
     && !initialLocation.package
     && !initialWorkspace.hasWorkspaceState
     && !initialLocation.routeFailure);
@@ -7873,12 +7881,18 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
       || state.platformSelection !== null
       || retainedWorkspacePostingVisible)
     && state.engineReady;
+  const productEcosystemsVisible =
+    isProductEcosystemsPath(location.pathname)
+    && state.engineReady;
   const showingInterstitial =
     (state.loading
       && !loadingPackageContent
       && !retainedWorkspacePostingVisible)
     || state.error
-    || (!state.home && !state.package && !workspaceCatalogVisible);
+    || (!state.home
+      && !state.package
+      && !workspaceCatalogVisible
+      && !productEcosystemsVisible);
   if (!showingInterstitial) loadingBotSrc = null;
   if ((state.loading
       && !loadingPackageContent
@@ -7888,6 +7902,22 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     return;
   }
   retainFailedWorkspaceUrl();
+  if (productEcosystemsVisible) {
+    renderProductEcosystemsPage();
+    if (state.settings) {
+      document.querySelector<HTMLElement>("#settings-title")
+        ?.focus({ preventScroll: true });
+    } else if (state.keyboardHelp) {
+      document.querySelector<HTMLElement>("#keyboard-help-title")
+        ?.focus({ preventScroll: true });
+    } else if (homeFocus) {
+      restoreHomeFocus(homeFocus);
+    } else if (levelOneHeadingHadFocus) {
+      focusLevelOneHeading();
+    }
+    restorePackageRouteReturnFocus();
+    return;
+  }
   if (state.workspaceSubjectOpen && isProductHomeDemosPath(location.pathname)) {
     renderProductDemosPage();
     if (state.settings) {
@@ -15812,6 +15842,63 @@ function openProductDemos(): void {
     focusWorkspaceOrHeading());
 }
 
+function openProductEcosystems(): void {
+  dismissModalsForRoutedNavigation();
+  navigationSequence.begin();
+  state.loading = !state.engineReady;
+  clearNavigationError();
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
+  supersedeRetainedLocationIntentForRoutedNavigation();
+  state.home = false;
+  state.credits = false;
+  discardPackageQueryTermEditors();
+  state.packageQueryOpen = false;
+  state.packageActivityOpen = false;
+  packageQueryController.cancel();
+  packageChangesController.cancel("disposed");
+  spotlight.reset();
+  workspaceLocation.push("/ecosystems");
+  render();
+  if (state.engineReady) {
+    afterCurrentNavigationFrame(() => focusLevelOneHeading());
+  }
+}
+
+function renderProductEcosystemsPage(): void {
+  document.title = "Ecosystems — dotnet-inspect";
+  replaceChildrenPreservingRenderedInteractions(app, `
+    <div class="home ecosystems-page"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
+      <header class="home-bar">
+        ${renderBrand()}
+        <div class="home-bar-actions">
+          <a class="home-link" href="/">Home</a>
+          <button id="home-settings" aria-label="Open settings" title="Settings">⚙</button>
+          <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
+        </div>
+      </header>
+      <div class="notice-stack">${renderQueryNotice()}</div>
+      <main class="detail-scroll ecosystems-content">
+        ${productEcosystemsViewHtml(escapeHtml, productEcosystemCatalogError)}
+      </main>
+      ${dataBarHtml({ buildIdentity: state.buildIdentity }, escapeHtml)}
+      ${state.spotlightOpen ? spotlight.modalHtml() : ""}
+    </div>
+    ${state.settings ? renderSettingsViewHtml() : ""}
+    ${state.keyboardHelp ? renderKeyboardHelpDialog(keyboardHelpBindings) : ""}
+    ${renderLibraryOpenDialog({
+      open: state.libraryOpen,
+      busy: state.libraryOpenBusy,
+      error: state.libraryOpenError,
+    }, escapeHtml)}`);
+  bindHomeShell(document, homeShellActions);
+  bindLibraryOpenEvents();
+  bindSettingsPanelEvents();
+  if (state.spotlightOpen) spotlight.bind(document, "modal");
+}
+
 function renderProductDemosPage(): void {
   document.title = "Demos — dotnet-inspect";
   replaceChildrenPreservingRenderedInteractions(app, `
@@ -16404,6 +16491,7 @@ function goHome(): boolean {
 
 function currentProductDestination(): ProductDestination | null {
   if (isDiagnosticsPath(location.pathname) || state.credits) return null;
+  if (isProductEcosystemsPath(location.pathname)) return "ecosystems";
   if (isProductHomeDemosPath(location.pathname)) return "demos";
   if (state.packageQueryOpen) return "query";
   if (state.packageActivityOpen) return "activity";
@@ -16460,6 +16548,10 @@ function navigateProductDestination(destination: ProductDestination): void {
   }
   if (destination === "activity") {
     openPackageActivityRoute("application-activity");
+    return;
+  }
+  if (destination === "ecosystems") {
+    openProductEcosystems();
     return;
   }
   if (destination === "demos") {
@@ -23390,6 +23482,15 @@ async function bootstrap() {
         `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
+      setProductEcosystemCatalog(
+        (await engineClient.catalog.listEcosystems()).ecosystems ?? []);
+      productEcosystemCatalogError = "";
+    } catch (error) {
+      setProductEcosystemCatalog([]);
+      productEcosystemCatalogError =
+        `Ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
+    }
+    try {
       state.packageChangesEcosystems = packageChangesEcosystems(
         await engineClient.package.listPackageActivityEcosystems());
       state.packageChangesCatalogError = "";
@@ -23437,6 +23538,13 @@ async function bootstrap() {
       state.diag = computeDiagnostics(tStart, tEngine, performance.now());
       render();
       focusPackageActivityInput();
+      return;
+    }
+    if (isProductEcosystemsPath(location.pathname)) {
+      state.loading = false;
+      state.diag = computeDiagnostics(tStart, tEngine, performance.now());
+      render();
+      afterCurrentNavigationFrame(() => focusLevelOneHeading());
       return;
     }
     if (isProductHomeDemosPath(location.pathname)) {
@@ -23658,6 +23766,10 @@ async function navigateInAppUrl(url: URL) {
   }
   if (isProductHomeDemosPath(url.pathname)) {
     openProductDemos();
+    return;
+  }
+  if (isProductEcosystemsPath(url.pathname)) {
+    openProductEcosystems();
     return;
   }
   if (isPackageQueryPath(url.pathname)) {
@@ -24425,6 +24537,7 @@ window.addEventListener("popstate", () => {
       || isPackageActivityPath(location.pathname)
       || isTypeExplorerPath(location.pathname)
       || isCreditsPath(location.pathname)
+      || isProductEcosystemsPath(location.pathname)
       || isProductHomeDemosPath(location.pathname));
   if (unavailableGlobalWorkspace) {
     unavailableWorkspaceAdmissionRejected =
@@ -24522,6 +24635,23 @@ window.addEventListener("popstate", () => {
     clearNavigationError();
     if (!clearWorkspaceRouteFailure()) {
       render();
+      return;
+    }
+    if (isProductEcosystemsPath(location.pathname)) {
+      clearNavigationError();
+      if (!clearWorkspaceRouteFailure()) {
+        render();
+        return;
+      }
+      state.queryNotice = "";
+      state.queryNoticeRetryAction = null;
+      state.credits = false;
+      state.home = false;
+      state.loading = !state.engineReady;
+      render();
+      if (state.engineReady) {
+        afterCurrentNavigationFrame(() => focusLevelOneHeading());
+      }
       return;
     }
     const focusWorkspaceOnEntry =

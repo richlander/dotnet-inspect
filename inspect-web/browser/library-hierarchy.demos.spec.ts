@@ -217,6 +217,43 @@ async function openHomeDemo(
   return share;
 }
 
+test("Ecosystems is a first-class product catalog destination", async ({
+  page,
+}, testInfo) => {
+  await installHomeDemo(page, "Methods", "package");
+  await page.goto("/");
+  await openProductDestination(page, "ecosystems");
+  await expect(page).toHaveURL("/ecosystems");
+  await expect(page.getByRole("heading", { name: "Ecosystems", exact: true }))
+    .toBeFocused();
+  await expect(page.locator(
+    "[data-ecosystem='ecosystem.runtime'] + [data-ecosystem='ecosystem.aspire']",
+  )).toBeVisible();
+  await expect(page.locator("[data-ecosystem='ecosystem.aspire']"))
+    .toContainText("2 core packages");
+  await expect(page.locator("[data-ecosystem='ecosystem.aspire']"))
+    .toContainText("Integration scanner");
+  await expect(page.locator(".ecosystem-catalog button, .ecosystem-catalog a"))
+    .toHaveCount(0);
+  await page.locator("[data-product-navigation-button]").click();
+  await expect(page.locator(
+    "[data-product-destination][aria-current='page']",
+  )).toHaveText(["Ecosystems"]);
+  await page.keyboard.press("Escape");
+  await page.screenshot({ path: testInfo.outputPath("ecosystems-wide.png") });
+
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await page.getByRole("link", { name: "Ecosystems", exact: true }).click();
+  await expect(page).toHaveURL("/ecosystems");
+  await page.reload();
+  await expect(page.locator("[data-ecosystem='ecosystem.runtime']")).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth))
+    .toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("ecosystems-narrow.png") });
+});
+
 test("Demos is a dedicated page reached from Home and the data bar", async ({
   page,
 }, testInfo) => {
