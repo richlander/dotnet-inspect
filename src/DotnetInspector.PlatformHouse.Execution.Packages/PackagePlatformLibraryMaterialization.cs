@@ -828,8 +828,7 @@ public static class PackagePlatformLibraryMaterializer
                 library.Identity,
                 library.ContentDigest),
             library.Identity,
-            library.ContentLength,
-            _ => library.OpenRead());
+            library.ContentSnapshot);
     }
 
     static bool ValidContribution(

@@ -103,6 +103,36 @@ public sealed class ArtifactContributionScope : IDisposable
     }
 
     /// <summary>
+    /// Registers one already immutable source snapshot in the owning
+    /// generation.
+    /// </summary>
+    public ArtifactContribution Register(
+        IArtifactProvenance provenance,
+        ImmutableArray<byte> snapshot,
+        string? mediaType = null,
+        string? kind = null)
+    {
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        ArgumentNullException.ThrowIfNull(provenance);
+        if (snapshot.IsDefault)
+            throw new ArgumentException(
+                "The artifact snapshot is uninitialized.",
+                nameof(snapshot));
+        byte[] bytes =
+            ImmutableCollectionsMarshal.AsArray(snapshot)!;
+        return _authority.RegisterContribution(
+            this,
+            _authorization,
+            provenance,
+            _ => new MemoryStream(bytes, writable: false),
+            mediaType,
+            kind,
+            snapshot);
+    }
+
+    /// <summary>
     /// Reports whether this scope minted the supplied contribution.
     /// </summary>
     public bool Owns(ArtifactContribution contribution)
@@ -139,7 +169,8 @@ public sealed class ArtifactContribution
         ArtifactContributionScope scope,
         ArtifactDescriptor descriptor,
         ArtifactAcquisitionRegistration registration,
-        Func<CancellationToken, Stream> openRead)
+        Func<CancellationToken, Stream> openRead,
+        ImmutableArray<byte> snapshot)
     {
         _authority = authority;
         _authorization = authorization;
@@ -147,11 +178,13 @@ public sealed class ArtifactContribution
         Descriptor = descriptor;
         Registration = registration;
         _openRead = openRead;
+        Snapshot = snapshot;
     }
 
     internal ArtifactContributionScope Scope { get; }
     public ArtifactDescriptor Descriptor { get; }
     public ArtifactAcquisitionRegistration Registration { get; }
+    internal ImmutableArray<byte> Snapshot { get; }
 
     /// <summary>Opens source content during the active admission.</summary>
     public Stream OpenRead(ArtifactAdmissionLease lease)
@@ -610,7 +643,8 @@ public sealed class ArtifactGenerationAuthority
         IArtifactProvenance provenance,
         Func<CancellationToken, Stream> openRead,
         string? mediaType,
-        string? kind)
+        string? kind,
+        ImmutableArray<byte> snapshot = default)
     {
         lock (_gate)
         {
@@ -631,7 +665,8 @@ public sealed class ArtifactGenerationAuthority
                 scope,
                 descriptor,
                 registration,
-                openRead);
+                openRead,
+                snapshot);
         }
     }
 

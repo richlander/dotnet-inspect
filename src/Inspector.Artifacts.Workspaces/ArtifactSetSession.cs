@@ -1823,6 +1823,14 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         long maxArtifactBytes,
         CancellationToken cancellationToken)
     {
+        if (!contribution.Snapshot.IsDefault)
+        {
+            if (contribution.Snapshot.Length > maxArtifactBytes)
+                throw new ArtifactMaterializationLimitException();
+            return ImmutableCollectionsMarshal.AsArray(
+                contribution.Snapshot)!;
+        }
+
         Stream stream = contribution.OpenRead(_admissionLease);
         Exception? primary = null;
         try
@@ -1859,11 +1867,22 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         long maxArtifactBytes,
         CancellationToken cancellationToken)
     {
-        if (stream.CanSeek
-            && checked(stream.Length - stream.Position)
-                > maxArtifactBytes)
+        if (stream.CanSeek)
         {
-            throw new ArtifactMaterializationLimitException();
+            long remainingLength =
+                checked(stream.Length - stream.Position);
+            if (remainingLength > maxArtifactBytes
+                || remainingLength > Array.MaxLength)
+            {
+                throw new ArtifactMaterializationLimitException();
+            }
+
+            var bytes = new byte[(int)remainingLength];
+            await stream.ReadExactlyAsync(
+                    bytes,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return bytes;
         }
 
         using var destination = new MemoryStream();

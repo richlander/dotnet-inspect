@@ -526,6 +526,42 @@ public sealed partial class ArtifactSetSessionTests
     }
 
     [Fact]
+    public async Task ArtifactSetSession_RejectsOversizeImmutableSnapshot()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        await using var session = new ArtifactSetSession(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = 1,
+                MaxArtifactBytes = 2,
+                MaxRetainedBytes = 2,
+            });
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution =
+                    scope.Register(
+                        new Provenance("oversize-snapshot"),
+                        ImmutableArray.Create<byte>(1, 2, 3));
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+
+        var rejected =
+            Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(
+                await session.SealAsync(cancellationToken));
+        ArtifactSetAdmissionFailure failure =
+            Assert.Single(rejected.Failures);
+        Assert.Equal(
+            "artifact.session.artifact-byte-limit",
+            failure.Diagnostic.Code);
+    }
+
+    [Fact]
     public async Task ArtifactSetSession_SourceObjectDisposalIsMaterializationFailure()
     {
         CancellationToken cancellationToken =

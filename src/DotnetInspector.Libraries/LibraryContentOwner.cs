@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using Inspector.Artifacts;
 using Inspector.Artifacts.Workspaces;
@@ -707,6 +708,7 @@ public readonly ref struct LibraryContentView
 
     public LibraryContentReference Reference { get; }
     public ReadOnlySpan<byte> Content => _content.Content;
+    public ImmutableArray<byte> Snapshot => _content.Snapshot;
 
     /// <summary>
     /// Uses a zero-copy seekable stream only for the synchronous callback.

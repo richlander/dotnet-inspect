@@ -1,10 +1,14 @@
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using DotnetInspector.Libraries;
 using DotnetInspector.PlatformHouse;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
+using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using QuerySpace.Rows;
 
 namespace DotnetInspector.Sections;
@@ -41,7 +45,6 @@ public sealed record TypeRelationsInspectionRequest(
 public static class ExactTypeRelationsInspectionOperation
 {
     private const int MaxPlatformFocusExpansions = 16;
-    private const int MaxPlatformAssemblyBytes = 512 * 1024 * 1024;
 
     public static async Task<ExactTypeRelationsInspectionOutcome> ExecuteAsync(
         ExactTypeInspectionRequest request,
@@ -419,54 +422,35 @@ public static class ExactTypeRelationsInspectionOperation
         var completed =
             (PlatformLibraryArtifactMaterializationOutcome.Completed)
                 realization;
-        WorkspaceRegistrationRevision registrations =
-            workspace.GetRegistrationSnapshot()
-                is WorkspaceRegistrationReadResult.Available available
-                    ? available.Revision
-                    : throw new InvalidOperationException(
-                        "The Workspace registration snapshot is unavailable.");
-        WorkspaceLibraryAdmissionOutcome libraryAdmission =
-            await workspace.AdmitLibraryBatchAsync(
-                    registrations,
-                    completed.Artifacts,
-                    [completed.Library.Owner])
-                .ConfigureAwait(false);
-        if (libraryAdmission
-            is not WorkspaceLibraryAdmissionOutcome.Accepted accepted)
-        {
-            throw new InvalidOperationException(
-                "The exact Platform Library could not be admitted to the "
-                    + $"Workspace ({libraryAdmission.GetType().Name}).");
-        }
-
-        if (accepted.Receipt.Occurrences.Length != 1)
-        {
-            throw new InvalidOperationException(
-                "The exact Platform Library admission did not retain one "
-                    + "Library occurrence.");
-        }
-        WorkspaceLibraryOccurrence occurrence =
-            accepted.Receipt.Occurrences[0];
-        if (workspace.IssueLibraryOperation(occurrence)
-            is not WorkspaceLibraryOperationIssueOutcome.Issued issued)
-        {
-            throw new InvalidOperationException(
-                "The exact Platform Library operation could not be issued.");
-        }
-        ResolvedAssemblyReference assemblyReference;
-        using (LibraryOperationLease lease = issued.Lease)
-        {
-            LibraryContentReference content =
-                completed.Library.Value.Library.ImplementationAssembly
+        LibraryContentOwner owner = completed.Library.Owner;
+        LibraryReference library = completed.Library.Value.Library;
+        ExactLibrarySourceCoordinate.Platform coordinate =
+            library.SourceCoordinate
+                as ExactLibrarySourceCoordinate.Platform
+                ?? throw new InvalidOperationException(
+                    "The exact Platform Library has no Platform coordinate.");
+        LibraryContentReference content =
+            library.ImplementationAssembly
                 ?? throw new InvalidOperationException(
                     "The exact Platform implementation Library has no "
                         + "implementation assembly.");
-            PlatformLibraryArtifactProvenance contentProvenance =
-                content.Provenance
-                    as PlatformLibraryArtifactProvenance
-                    ?? throw new InvalidOperationException(
-                        "The exact Platform implementation Library has no "
-                            + "PlatformHouse provenance.");
+        PlatformLibraryArtifactProvenance artifactProvenance =
+            content.Provenance
+                as PlatformLibraryArtifactProvenance
+                ?? throw new InvalidOperationException(
+                    "The exact Platform implementation Library has no "
+                        + "PlatformHouse provenance.");
+        ResolvedAssemblyReference assemblyReference;
+        Exception? primaryFailure = null;
+        try
+        {
+            if (owner.IssueOperationLease(library)
+                is not LibraryOperationLeaseIssueOutcome.Issued issued)
+            {
+                throw new InvalidOperationException(
+                    "The exact Platform Library operation could not be "
+                        + "issued.");
+            }
             AssemblyResolutionProvenance selection =
                 AssemblyResolutionProvenance.Platform(
                     target.Family switch
@@ -479,51 +463,44 @@ public static class ExactTypeRelationsInspectionOperation
                             "Unknown Platform family."),
                     },
                     target.Version.Value,
-                    contentProvenance.Contribution.Capability.Name);
-            assemblyReference = lease.Snapshot(
-                content,
-                selection,
-                static (view, state, _) =>
-                    SnapshotAssembly(view, state),
-                cancellationToken);
+                    artifactProvenance.Contribution.Capability.Name);
+            using (LibraryOperationLease lease = issued.Lease)
+            {
+                assemblyReference = lease.Snapshot(
+                    content,
+                    selection,
+                    static (view, state, _) =>
+                        SnapshotAssembly(view, state),
+                    cancellationToken);
+            }
+        }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
+        }
+        finally
+        {
+            await RetirePlatformLibraryAsync(
+                    completed,
+                    primaryFailure)
+                .ConfigureAwait(false);
         }
 
-        RetainedAssemblyContextGroup retained =
-            RetainedAssemblyContextGroup.Create(
-                workspace,
-                [assemblyReference],
-                new AssemblyContextGroupOptions
-                {
-                    MaxRetainedImageBytes = MaxPlatformAssemblyBytes,
-                },
-                cancellationToken);
-        if (retained is not RetainedAssemblyContextGroup.Ready ready)
-        {
-            throw new InvalidOperationException(
-                "The exact Platform implementation assembly could not be "
-                    + "retained for hierarchy inspection.");
-        }
-        if (ready.Group.Participants.Length != 1)
-        {
-            throw new InvalidOperationException(
-                "The exact Platform implementation context did not retain "
-                    + "one participant.");
-        }
-        AssemblyContextParticipant participant =
-            ready.Group.Participants[0];
-        ResolvedAssemblyReference retainedAssembly = participant.Assembly;
-        ExactLibrarySourceCoordinate.Platform coordinate =
-            completed.Library.Value.Library.SourceCoordinate
-                as ExactLibrarySourceCoordinate.Platform
-                ?? throw new InvalidOperationException(
-                    "The exact Platform Library has no Platform coordinate.");
-        PlatformLibraryArtifactProvenance artifactProvenance =
-            completed.Library.Value.Library.ImplementationAssembly!
-                .Provenance
-                as PlatformLibraryArtifactProvenance
-                ?? throw new InvalidOperationException(
-                    "The exact Platform implementation Library has no "
-                        + "PlatformHouse provenance.");
+        IAcquisitionFreeAssemblyBindingPolicy bindingPolicy =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
+                [
+                    (
+                        assemblyReference,
+                        (IAcquisitionFreeAssemblyBindingPolicy)
+                            NoResolverAssemblyBindingPolicy.Instance
+                    ),
+                ]);
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [new AssemblyContextParticipant(
+                    assemblyReference,
+                    bindingPolicy)]);
         int order = workspace.BeginDeclarationContext();
         var context = new WorkspaceDeclarationContext(
             new WorkspaceDeclarationContextReceipt(
@@ -535,16 +512,16 @@ public static class ExactTypeRelationsInspectionOperation
                     new WorkspaceDeclarationMember(
                         new(workspace.Identity, order, 0),
                         coordinate,
-                        retainedAssembly.Identity,
+                        assemblyReference.Identity,
                         new WorkspaceDeclarationOrigin.PlatformPopulation(
                             target,
                             WorkspacePlatformPopulationMemberRole.Focus,
                             artifactProvenance.Contribution.Capability.Name,
-                            retainedAssembly.Identity.Name),
-                        retainedAssembly.Provenance),
+                            assemblyReference.Identity.Name),
+                        assemblyReference.Provenance),
                 ],
                 []),
-            ready.Group);
+            group);
         return workspace.PublishDeclarationContext(context);
     }
 
@@ -552,11 +529,13 @@ public static class ExactTypeRelationsInspectionOperation
         scoped LibraryContentView view,
         AssemblyResolutionProvenance provenance)
     {
-        byte[] content = view.Content.ToArray();
+        ImmutableArray<byte> content = view.Snapshot;
+        byte[] bytes =
+            ImmutableCollectionsMarshal.AsArray(content)!;
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromArtifactIfManaged(
                 view.Reference.Registration,
-                () => new MemoryStream(content, writable: false),
+                () => new MemoryStream(bytes, writable: false),
                 provenance)
             ?? throw new BadImageFormatException(
                 "The exact Platform implementation Library is not a "
@@ -569,5 +548,48 @@ public static class ExactTypeRelationsInspectionOperation
                     + "identity during Workspace projection.");
         }
         return assembly;
+    }
+
+    private static async ValueTask RetirePlatformLibraryAsync(
+        PlatformLibraryArtifactMaterializationOutcome.Completed completed,
+        Exception? primaryFailure)
+    {
+        var cleanupFailures = new List<Exception>();
+        try
+        {
+            await completed.Library.Owner.DisposeAsync()
+                .ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            cleanupFailures.Add(failure);
+        }
+        cleanupFailures.AddRange(
+            completed.Library.Owner.CleanupFailures);
+        cleanupFailures.AddRange(
+            completed.Library.Owner.ReleaseFailures.Select(
+                static failure => failure.Failure));
+
+        try
+        {
+            await completed.Artifacts.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            cleanupFailures.Add(failure);
+        }
+        cleanupFailures.AddRange(completed.Artifacts.CleanupFailures);
+        if (cleanupFailures.Count == 0)
+            return;
+        if (primaryFailure is not null)
+        {
+            ArtifactSetSession.AttachCleanupFailures(
+                primaryFailure,
+                cleanupFailures);
+            return;
+        }
+        throw new AggregateException(
+            "The exact Platform Library could not be retired.",
+            cleanupFailures);
     }
 }

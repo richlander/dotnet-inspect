@@ -139,6 +139,7 @@ public readonly ref struct ArtifactContentView
     public ArtifactGenerationIdentity Generation => Reference.Generation;
     public ArtifactIdentity Artifact => Reference.Artifact;
     public ReadOnlySpan<byte> Content => _content.AsSpan();
+    public ImmutableArray<byte> Snapshot => _content;
 
     /// <summary>
     /// Uses a zero-copy seekable stream only for the synchronous callback.

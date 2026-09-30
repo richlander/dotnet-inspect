@@ -115,13 +115,15 @@ public static class PlatformHouseExactImplementationLibraryExecutor
         if (attempt
             is PlatformLibraryRealizationSourceAttempt.Succeeded succeeded)
         {
-            return await PlatformHouseArtifactMaterializer.MaterializeAsync(
+            PlatformLibraryArtifactMaterializationOutcome outcome =
+                await PlatformHouseArtifactMaterializer.MaterializeAsync(
                     request,
                     PlatformViewDemand.Implementation,
                     [succeeded.Item],
                     consumed,
                     identityPrefix)
                 .ConfigureAwait(false);
+            return outcome;
         }
 
         var terminal =

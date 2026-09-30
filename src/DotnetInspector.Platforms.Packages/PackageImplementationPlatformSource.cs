@@ -915,10 +915,43 @@ public sealed partial class PackagePlatformSource
 
             await using (stream)
             {
-                if (stream.CanSeek && stream.Length > allowed)
+                if (stream is MemoryStream memory
+                    && memory.Position == 0
+                    && memory.TryGetBuffer(
+                        out ArraySegment<byte> retained)
+                    && retained.Offset == 0
+                    && retained.Count == memory.Length
+                    && retained.Count == retained.Array!.Length)
                 {
-                    throw Incomplete(
-                        "A selected runtime-pack member exceeds the byte allowance.");
+                    if (retained.Count > allowed)
+                    {
+                        throw Incomplete(
+                            "A selected runtime-pack member exceeds the byte allowance.");
+                    }
+
+                    _remainingBytes -= retained.Count;
+                    return retained.Array;
+                }
+
+                if (stream.CanSeek)
+                {
+                    long remainingLength =
+                        stream.Length - stream.Position;
+                    if (remainingLength > allowed)
+                    {
+                        throw Incomplete(
+                            "A selected runtime-pack member exceeds the byte allowance.");
+                    }
+
+                    var exactBytes =
+                        new byte[(int)remainingLength];
+                    await stream.ReadExactlyAsync(
+                            exactBytes,
+                            _operation.OperationCancellationToken)
+                        .ConfigureAwait(false);
+                    _operation.ThrowIfExpired();
+                    _remainingBytes -= exactBytes.LongLength;
+                    return exactBytes;
                 }
 
                 using var snapshot = new MemoryStream();

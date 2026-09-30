@@ -1,9 +1,58 @@
+using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using Inspector.Artifacts.Workspaces;
 
 namespace Inspector.Artifacts.Tests;
 
 public sealed partial class ArtifactSetSessionTests
 {
+    [Fact]
+    public async Task ArtifactContentLease_PreservesRegisteredImmutableSnapshot()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] bytes = [1, 2, 3];
+        ImmutableArray<byte> snapshot =
+            ImmutableCollectionsMarshal.AsImmutableArray(bytes);
+        await using var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution =
+                    scope.Register(
+                        new Provenance("immutable-snapshot"),
+                        snapshot);
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+        using ArtifactQueryLease query =
+            session.IssueLease(
+                session.CreateQueryAuthorization());
+        ArtifactContentReference reference =
+            session.GetContentReference(
+                Assert.Single(session.GetCatalog(query)).Identity,
+                query);
+        using ArtifactContentLease content =
+            session.IssueContentLease(reference, query);
+
+        var accessed =
+            Assert.IsType<
+                ArtifactContentAccessOutcome<
+                    ImmutableArray<byte>>.Accessed>(
+                content.WithContent(
+                    static (view, _) => view.Snapshot,
+                    cancellationToken));
+
+        Assert.Same(
+            bytes,
+            ImmutableCollectionsMarshal.AsArray(accessed.Value));
+    }
+
     [Fact]
     public async Task ArtifactContentLease_SurvivesQueryReplacementAndPinsRetirement()
     {

@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using DotnetInspector.Platforms;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
@@ -66,11 +68,36 @@ public sealed class PlatformLibraryArtifactMaterializationItem
             compiledXmlDocumentation;
     }
 
+    public PlatformLibraryArtifactMaterializationItem(
+        PlatformSourceContribution.Realization contribution,
+        IArtifactProvenance provenance,
+        AssemblyReferenceIdentity identity,
+        ImmutableArray<byte> snapshot,
+        PlatformLibraryArtifactCompanionMaterializationItem?
+            compiledXmlDocumentation = null)
+        : this(
+            contribution,
+            provenance,
+            identity,
+            snapshot.IsDefault
+                ? throw new ArgumentException(
+                    "The Platform Library snapshot is uninitialized.",
+                    nameof(snapshot))
+                : snapshot.Length,
+            _ => new MemoryStream(
+                ImmutableCollectionsMarshal.AsArray(snapshot)!,
+                writable: false),
+            compiledXmlDocumentation)
+    {
+        Snapshot = snapshot;
+    }
+
     internal PlatformSourceContribution.Realization Contribution { get; }
     internal IArtifactProvenance Provenance { get; }
     internal AssemblyReferenceIdentity Identity { get; }
     internal long ContentLength { get; }
     internal Func<CancellationToken, Stream> OpenRead { get; }
+    internal ImmutableArray<byte> Snapshot { get; }
     internal PlatformLibraryArtifactCompanionMaterializationItem?
         CompiledXmlDocumentation
     { get; }
@@ -490,12 +517,18 @@ public static class PlatformHouseArtifactMaterializer
                             PlatformLibraryArtifactMaterializationItem item
                             in preparedPlan.Items)
                         {
+                            var provenance =
+                                new PlatformLibraryArtifactProvenance(
+                                    item.Contribution,
+                                    item.Provenance);
                             ArtifactContribution contribution =
-                                scope.Register(
-                                    new PlatformLibraryArtifactProvenance(
-                                        item.Contribution,
-                                        item.Provenance),
-                                    item.OpenRead);
+                                item.Snapshot.IsDefault
+                                    ? scope.Register(
+                                        provenance,
+                                        item.OpenRead)
+                                    : scope.Register(
+                                        provenance,
+                                        item.Snapshot);
                             contributions.Add(contribution);
                             ArtifactIdentity identity =
                                 contribution.Descriptor.Identity;

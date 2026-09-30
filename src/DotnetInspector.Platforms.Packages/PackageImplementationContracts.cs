@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms.Formats;
@@ -210,7 +211,7 @@ public sealed record PackageImplementationFramework
 /// <summary>One immutable managed assembly selected by a runtime manifest.</summary>
 public sealed class PackageImplementationLibrary
 {
-    private readonly byte[] _content;
+    private readonly ImmutableArray<byte> _content;
 
     internal PackageImplementationLibrary(
         PackageImplementationFramework framework,
@@ -223,16 +224,21 @@ public sealed class PackageImplementationLibrary
         ManifestCoordinate = manifestCoordinate;
         Identity = identity;
         ContentDigest = contentDigest;
-        _content = content;
+        _content =
+            ImmutableCollectionsMarshal.AsImmutableArray(content);
     }
 
     public PackageImplementationFramework Framework { get; }
     public PlatformManifestAssetCoordinate ManifestCoordinate { get; }
     public AssemblyReferenceIdentity Identity { get; }
     public PackagePlatformContentDigest ContentDigest { get; }
-    public long ContentLength => _content.LongLength;
+    public long ContentLength => _content.Length;
+    public ImmutableArray<byte> ContentSnapshot => _content;
 
-    public Stream OpenRead() => new MemoryStream(_content, writable: false);
+    public Stream OpenRead() =>
+        new MemoryStream(
+            ImmutableCollectionsMarshal.AsArray(_content)!,
+            writable: false);
 }
 
 /// <summary>Complete immutable package-backed implementation closure.</summary>
