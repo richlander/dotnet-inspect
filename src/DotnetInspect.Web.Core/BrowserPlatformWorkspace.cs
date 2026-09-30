@@ -1222,13 +1222,14 @@ internal static class BrowserPlatformWorkspace
 
     static Task<BrowserPlatformScopeResolution> OpenUnattributedAsync(
         string targetFramework,
-        string platformVersion,
+        string? platformVersion,
         AssemblyReferenceIdentity assembly,
         Host host,
         TimeSpan operationTimeout,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(assembly);
+        platformVersion = NormalizeOptionalVersion(platformVersion);
         string targetKey = TargetKey(targetFramework, platformVersion);
         return BrowserPackageWorkspace.RunPackageOperationAsync(
             deadline => EnqueueAsync(
@@ -2081,9 +2082,10 @@ internal static class BrowserPlatformWorkspace
                         + "did not return the exact demanded assembly.");
                 string producer = library.Framework.Source.Producer.Key;
                 if (demand.Producer is not null
-                    && !producer.Equals(
-                        demand.Producer,
-                        StringComparison.Ordinal))
+                    && !BrowserPackageWorkspace.MatchesConfiguredProducer(
+                        packageClient,
+                        library.Framework.Authority.Source.Url,
+                        demand.Producer))
                 {
                     throw new InvalidOperationException(
                         "Package-backed Platform implementation realization "

@@ -104,6 +104,68 @@ public sealed partial class BrowserEngineBoundaryTests
         await BrowserPackageWorkspace.RemoveScopeAsync(second.Scope);
     }
 
+    [Theory]
+    [InlineData("", "net11.0", "11.0.7393")]
+    [InlineData("latest", "net10.0", "10.0.7393")]
+    public async Task PlatformWorkspace_FloatingExactUnattributedVersionSettles(
+        string platformVersion,
+        string targetFramework,
+        string version)
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string assemblyFileName =
+            "InspectWeb.MethodBodyFixtures.dll";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            FixtureCatalog.InspectWebMethodBodies.AssemblyPath(),
+            TestContext.Current.CancellationToken);
+        AssemblyReferenceIdentity identity;
+        using (var image = new PEReader(
+            new MemoryStream(assembly, writable: false)))
+        {
+            identity = AssemblyReferenceIdentity.FromAssemblyDefinition(
+                image.GetMetadataReader());
+        }
+
+        var handler = new ExactPlatformRangeHandler(
+            packageId,
+            version,
+            RuntimePackage(
+                assemblyFileName,
+                assembly,
+                targetFramework));
+        using IPackageSourceClient packageClient =
+            BrowserPackageWorkspace.CreateGallerySource(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromSeconds(30),
+                    OperationTimeout = TimeSpan.FromSeconds(30),
+                });
+        using var networkClient =
+            new HttpClient(handler, disposeHandler: false);
+        IPackageSourceAuthorization sourceAuthorization =
+            BrowserPackageWorkspace.SourceAuthorizationFor(packageClient);
+
+        await using BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                targetFramework,
+                platformVersion,
+                identity,
+                "",
+                networkClient,
+                packageClient,
+                sourceAuthorization,
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken);
+        Assert.Equal(version, resolution.Coordinate.Version);
+        Assert.True(resolution.Scope.ExactPackageRealization);
+        Assert.True(handler.RangeRequests >= 1);
+        Assert.Equal(
+            identity.Name,
+            resolution.Participant.Participant.Assembly.Identity.Name);
+    }
+
     [Fact]
     public async Task PlatformCallGraph_UsesExactRangedRuntimeAssemblies()
     {
@@ -923,7 +985,8 @@ public sealed partial class BrowserEngineBoundaryTests
 
     static byte[] RuntimePackage(
         string assemblyFileName,
-        byte[] assembly)
+        byte[] assembly,
+        string targetFramework = "net11.0")
     {
         using var bytes = new MemoryStream();
         using (var archive = new ZipArchive(
@@ -931,8 +994,9 @@ public sealed partial class BrowserEngineBoundaryTests
             ZipArchiveMode.Create,
             leaveOpen: true))
         {
-            const string prefix =
-                "runtimes/linux-x64/lib/net11.0/";
+            string prefix =
+                $"runtimes/linux-x64/lib/{targetFramework}/";
+            string frameworkVersion = targetFramework[3..];
             Write(
                 archive,
                 prefix + "Microsoft.NETCore.App.runtimeconfig.json",
@@ -943,9 +1007,9 @@ public sealed partial class BrowserEngineBoundaryTests
                 Encoding.UTF8.GetBytes(
                     $$"""
                       {
-                        "runtimeTarget":{"name":".NETCoreApp,Version=v11.0/linux-x64"},
+                        "runtimeTarget":{"name":".NETCoreApp,Version=v{{frameworkVersion}}/linux-x64"},
                         "targets":{
-                          ".NETCoreApp,Version=v11.0/linux-x64":{
+                          ".NETCoreApp,Version=v{{frameworkVersion}}/linux-x64":{
                             "Fixture/1.0.0":{
                               "runtime":{
                                 "{{assemblyFileName}}":{},
@@ -1052,6 +1116,8 @@ public sealed partial class BrowserEngineBoundaryTests
     {
         readonly Dictionary<string, (string PackageId, byte[] Archive)>
             _packages = new(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, string> _documents =
+            new(StringComparer.OrdinalIgnoreCase);
         readonly ConcurrentDictionary<string, int> _requests =
             new(StringComparer.OrdinalIgnoreCase);
         long _packageBytesServed;
@@ -1080,6 +1146,14 @@ public sealed partial class BrowserEngineBoundaryTests
             foreach ((string packageId, byte[] archive) in packages)
             {
                 string package = packageId.ToLowerInvariant();
+                _documents[
+                    $"/v3-flatcontainer/{package}/index.json"] =
+                    $$"""{"versions":["{{version}}"]}""";
+                _documents[
+                    $"/v3/registration5-gz-semver2/{package}/index.json"] =
+                    "{\"items\":[{\"items\":[{\"catalogEntry\":{\"version\":\""
+                    + version
+                    + "\",\"listed\":true}}]}]}";
                 var item = (packageId, archive);
                 _packages[$"/packages/{package}.{version}.nupkg"] = item;
                 _packages[
@@ -1109,6 +1183,9 @@ public sealed partial class BrowserEngineBoundaryTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             string path = request.RequestUri!.AbsolutePath;
+            if (_documents.TryGetValue(path, out string? document))
+                return Json(document);
+
             if (!_packages.TryGetValue(
                     path,
                     out (string PackageId, byte[] Archive) package))
@@ -1173,5 +1250,12 @@ public sealed partial class BrowserEngineBoundaryTests
                 Content = content,
             });
         }
+
+        static Task<HttpResponseMessage> Json(string json) =>
+            Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json),
+                });
     }
 }
