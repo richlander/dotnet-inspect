@@ -121,12 +121,26 @@ test("implementation evidence remains subtle member-list heat", () => {
     heatTarget,
     /state\.rootKind === "library"[\s\S]*navMode\(\) !== "member"/);
   assert.doesNotMatch(heatTarget, /stableSelectors/);
-  // Heat eligibility follows the producer: a pure single-declarer extension
-  // group is eligible, while mixed or multi-declarer groups remain excluded.
-  const eligible = sourceText(functionDeclaration("familyIsEligible"));
+  const requestGroups =
+    sourceText(functionDeclaration("typeHeatRequestGroups"));
+  assert.match(
+    requestGroups,
+    /publicMembers\.filter\(member => member\.accessibility === "public"\)/);
+  const eligible =
+    sourceText(functionDeclaration("typeHeatRequestFamilyIsEligible"));
   assert.match(
     eligible,
-    /implementationHeatFamilyIsEligible\(\s*type\.accessibility,\s*memberGroups\(type\),\s*group\)/);
+    /implementationHeatFamilyIsEligible\(\s*type\.accessibility,\s*groups,\s*group\)/);
+  const visible = sourceText(functionDeclaration("navGroupHeatIdentity"));
+  assert.match(
+    visible,
+    /implementationHeatVisibleFamilyIsEligible\(groups, appGroup\)/);
+  assert.match(
+    visible,
+    /implementationHeatVisibleFamilyMatchesRequest\(\s*requestGroup,\s*appGroup\)/);
+  assert.match(
+    visible,
+    /declarationMetadataToken \?\? overload\.metadataToken/);
 
   const renderMember = sourceText(functionDeclaration("renderMember"));
   assert.doesNotMatch(renderMember, /Implementation evidence|>Implementation</);
