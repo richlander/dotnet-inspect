@@ -172,7 +172,6 @@ function inspection(
         analysis: "api",
         kind: "Compared",
         findings: ["metadata.type", "metadata.member"],
-        detail: null,
       }],
       apiInspectionFailures: [],
       changes: { types: [] },

@@ -194,11 +194,13 @@ function requireInteger(value: unknown, description: string): void {
 }
 
 function requireNullableString(value: unknown, description: string): void {
-  if (value !== null) requireString(value, description);
+  if (value !== null && value !== undefined)
+    requireString(value, description);
 }
 
 function requireNullableInteger(value: unknown, description: string): void {
-  if (value !== null) requireInteger(value, description);
+  if (value !== null && value !== undefined)
+    requireInteger(value, description);
 }
 
 function requireStringArray(value: unknown, description: string): string[] {
@@ -216,7 +218,8 @@ function requireNullableEnum(
   description: string,
   values: readonly string[],
 ): void {
-  if (value !== null) requireEnum(value, description, values);
+  if (value !== null && value !== undefined)
+    requireEnum(value, description, values);
 }
 
 function requireEnum(
