@@ -1,7 +1,7 @@
 -------------------- MODULE OpenQueryRoutingSettlement --------------------
 EXTENDS Naturals, Sequences, TLC
 
-CONSTANTS FirstUnit, SecondUnit, ThirdUnit, Mutation
+CONSTANTS FirstUnit, SecondUnit, ThirdUnit, Mutation, Scenario
 
 ASSUME /\ FirstUnit # SecondUnit
        /\ FirstUnit # ThirdUnit
@@ -34,6 +34,12 @@ ChargeSettled == "ChargeSettled"
 Mutations ==
     {NoMutation, ExclusiveAllMatches, StopAfterAny, ChargeSettled}
 
+ExhaustionScenario == "Exhaustion"
+EarlySettlementScenario == "EarlySettlement"
+Scenarios == {ExhaustionScenario, EarlySettlementScenario}
+
+ASSUME Scenario \in Scenarios
+
 Running == "Running"
 Done == "Done"
 Phases == {Running, Done}
@@ -49,10 +55,12 @@ FacetAUnits == {SecondUnit}
 FacetBUnits == {SecondUnit, ThirdUnit}
 
 HeadLimit(consumer) ==
-    CASE consumer = AllMatches -> 3
+    CASE consumer = AllMatches ->
+             IF Scenario = EarlySettlementScenario THEN 2 ELSE 3
       [] consumer = ExactOnly -> 1
       [] consumer = FacetA -> 1
-      [] consumer = FacetB -> 3
+      [] consumer = FacetB ->
+             IF Scenario = EarlySettlementScenario THEN 1 ELSE 3
 
 Min(left, right) == IF left < right THEN left ELSE right
 
@@ -275,6 +283,12 @@ DoneHasReferenceResults ==
 DoneHasNoActiveConsumer ==
     phase = Done
     => ActiveConsumers = {}
+
+EarlySettlementLeavesUnreadUnit ==
+    /\ Scenario = EarlySettlementScenario
+    /\ phase = Done
+    => /\ cursor < Len(Units)
+       /\ status \in [Consumers -> {Reached}]
 
 EventuallyDone == <>(phase = Done)
 

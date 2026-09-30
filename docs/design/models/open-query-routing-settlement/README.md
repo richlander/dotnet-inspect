@@ -9,7 +9,8 @@ QuerySpace, Find, Finding, or source implementation behavior.
 ## Scope
 
 `OpenQueryRoutingSettlement.tla` models three source units in deterministic
-unit order and four Head consumers over one shared traversal:
+unit order and four Head consumers over one shared traversal. The exhaustion
+scenario uses these bounds:
 
 - `AllMatches` accepts an exclusive Exact-or-Similar classification and needs
   three rows;
@@ -23,6 +24,10 @@ Exact and Similar deliberately overlap on the second unit. Correct exclusive
 classification emits only Exact there. The traversal may visit the consumers
 for one unit in any order. Each consumer settles independently, and source
 progress continues until the remaining consumers settle or exhaust.
+
+The early-settlement scenario lowers only `AllMatches` and `FacetB` to bounds
+they both reach on the second unit. All four consumers then settle there, and
+the traversal completes through `FinishReached` with the third unit unread.
 
 The model abstracts:
 
@@ -48,13 +53,15 @@ would require separate exhaustive semantics.
 | Exhaustion is recorded only after that consumer visits the complete source | `ExhaustionFollowsSource` |
 | Terminal results equal independent reference executions | `DoneHasReferenceResults` |
 | Shared traversal cannot finish with an active consumer | `DoneHasNoActiveConsumer` |
+| All-consumer settlement stops with the next source unit unread | `EarlySettlementLeavesUnreadUnit` |
 | Fair execution reaches a terminal state | `EventuallyDone` |
 
 ## Configurations
 
 | Configuration | Purpose | Expected result |
 | --- | --- | --- |
-| `Safety.cfg` | Correct exclusive and inclusive routing with independent settlement | Exit `0` |
+| `Safety.cfg` | Correct routing where one consumer exhausts below its Head bound | Exit `0` |
+| `EarlySettlement.cfg` | Every consumer reaches Head on unit 2 and unit 3 remains unread | Exit `0` |
 | `BrokenExclusiveAllMatches.cfg` | Emits both Exact and Similar for one exclusively classified unit | Exit `12`, violating `ExclusiveClassificationIsSingle` |
 | `BrokenStopAfterAny.cfg` | Stops the shared traversal after the first consumer settles | Exit `12`, violating `ExhaustionFollowsSource` |
 | `BrokenChargeSettled.cfg` | Continues visiting consumers after their Head settles | Exit `12`, violating `SettledConsumersAreNotCharged` |
@@ -70,6 +77,7 @@ The recorded validation used TLA+ v1.8.0 build `2026.08.11.125311`
 | Configuration | Generated states | Distinct states | Depth | Exit |
 | --- | ---: | ---: | ---: | ---: |
 | `Safety.cfg` | 72 | 37 | 14 | 0 |
+| `EarlySettlement.cfg` | 67 | 33 | 11 | 0 |
 | `BrokenExclusiveAllMatches.cfg` | 35 | 18 | 7 | 12 |
 | `BrokenStopAfterAny.cfg` | 73 | 38 | 14 | 12 |
 | `BrokenChargeSettled.cfg` | 70 | 36 | 13 | 12 |
@@ -88,6 +96,6 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   OpenQueryRoutingSettlement.tla
 ```
 
-The positive configuration must complete without an invariant or liveness
+Both positive configurations must complete without an invariant or liveness
 violation. Each broken configuration must produce the exact safety violation
 recorded in `eng/tla-expected-exit-codes.txt`.
