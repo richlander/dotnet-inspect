@@ -812,6 +812,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_NamespaceHeadStopsBeforeLaterTypeSource()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindNamespaceHead-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "System.Text.Json.*",
+            "--library",
+            typeof(JsonSerializer).Assembly.Location,
+            "--bin",
+            missing,
+            "-n",
+            "1",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
     public async Task Find_SemanticHeadStopsBeforeLaterMemberSource()
     {
         string missing = Path.Combine(

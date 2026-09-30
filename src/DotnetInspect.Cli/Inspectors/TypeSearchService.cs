@@ -1167,7 +1167,8 @@ internal static class TypeSearchService
                     return inspected;
             }
 
-            List<TypeSearchResult> allTypes = await collect(null, null);
+            List<TypeSearchResult> allTypes =
+                await collect(pattern, options.Limit);
             List<TypeSearchResult> descendants =
             [
                 .. NamespaceCandidates(
@@ -1399,7 +1400,21 @@ internal static class TypeSearchService
         candidate.ClassifiedPattern = pattern;
         candidate.ClassifiedIntent = intent;
         candidate.Classification =
-            ClassifyCandidate(pattern, candidate, intent);
+            intent == FindTypeMatchIntent.Ordinary
+            && TryGetNamespaceDescendantPattern(
+                pattern,
+                out NamespaceSearchPattern namespacePattern)
+                ? IsInNamespace(
+                    candidate,
+                    namespacePattern.Namespace,
+                    namespacePattern.Match)
+                    ? ToFindResult(
+                        namespacePattern.Pattern,
+                        TypeFindMatchKind.Namespace,
+                        similarity: 1.0,
+                        candidate)
+                    : null
+                : ClassifyCandidate(pattern, candidate, intent);
         return candidate.Classification is not null;
     }
 
