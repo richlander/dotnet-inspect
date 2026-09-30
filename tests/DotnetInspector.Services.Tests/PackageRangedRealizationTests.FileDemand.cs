@@ -236,6 +236,11 @@ public sealed partial class PackageRangedRealizationTests
                 PackagePayloadOrigin.Ranged);
             Assert.Equal(PackageTransferPath.Ranged, receipt.Path);
             Assert.True(receipt.BytesReceived < archive.Length);
+            Assert.IsType<PackageHouseContentNarrowing.PackageWide>(
+                acquired.Settlement.Result.Request.ContentQuery!.Narrowing);
+            Assert.Equal(
+                [Path],
+                acquired.Settlement.Payload.Content.EnumerateEntries());
 
             await using PackageHousePayloadRead read = acquired.OpenRead();
             using var output = new MemoryStream();

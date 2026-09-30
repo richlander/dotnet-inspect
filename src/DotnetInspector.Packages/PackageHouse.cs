@@ -312,9 +312,17 @@ public sealed class PackageHouse
                 throw new InvalidOperationException(
                     "An Acquire or Realize operation requires an authority-scoped package store capability.");
             }
+            if (_payloadAcquisition is { } configuredPayload
+                && request.Operation.Profile
+                    is PackageHouseOperationProfile.Acquire
+                        or PackageHouseOperationProfile.Realize)
+            {
+                ValidatePayloadPlanning(request, configuredPayload);
+            }
             if (request.Operation.Profile
                     == PackageHouseOperationProfile.Acquire
                 && request.FileDemand is null
+                && request.ContentQuery is null
                 && _payloadAcquisition?.Access
                     == PackagePayloadAccess.Ranged)
             {
@@ -647,17 +655,15 @@ public sealed class PackageHouse
                             candidate,
                             authorization);
                 string rangedPackageId = candidate.Coordinate.PackageId;
+                PackagePayloadAccess payloadAccess =
+                    SelectPayloadAccess(request, payloadAcquisition);
                 PackageRangedRead? rangedRead =
-                    payloadAcquisition.Access == PackagePayloadAccess.Ranged
+                    payloadAccess == PackagePayloadAccess.Ranged
                         ? new PackageRangedRead(
-                            directory => request.FileDemand is { } documents
-                                ? new PackageRangedSelection(
-                                    documents.Select(
-                                        [.. directory.EnumerateEntries()]))
-                                : SelectRangedEntries(
-                                    request,
-                                    rangedPackageId,
-                                    directory),
+                            directory => SelectRangedEntries(
+                                request,
+                                rangedPackageId,
+                                directory),
                             payloadAcquisition.RangedSizeCut)
                         : null;
                 ConfiguredPackagePayloadResult payloadResult =
@@ -711,6 +717,27 @@ public sealed class PackageHouse
                         selectionUsesOriginalSources);
                 }
 
+                IReadOnlyList<string> acquiredEntryPaths =
+                    request.ContentQuery is not null
+                        || request.FileDemand is not null
+                        ? [.. payload.Content.EnumerateEntries()]
+                        : [];
+                IReadOnlyList<string> unmatchedFiles =
+                    request.ContentQuery?.FilesTerminal?.Unmatched(
+                        acquiredEntryPaths)
+                    ?? request.FileDemand?.Unmatched(acquiredEntryPaths)
+                    ?? [];
+                if (request.ContentQuery is { } contentQuery)
+                {
+                    payloadResult = ProjectSemanticContent(
+                        payloadResult,
+                        contentQuery,
+                        acquiredEntryPaths);
+                    payload = payloadResult.Payload
+                        ?? throw new InvalidOperationException(
+                            "Semantic content projection requires an acquired payload.");
+                }
+
                 PackageHouseAcquisitionReceipt acquisition = new(
                     decision,
                     payloadResult.Authority!,
@@ -718,9 +745,7 @@ public sealed class PackageHouse
                     payload.Origin,
                     payload.Content.GenerationIdentity,
                     payloadResult.Transfer!);
-                if (request.FileDemand?.Unmatched(
-                        payload.Content.EnumerateEntries())
-                    is [_, ..] unmatchedFiles)
+                if (unmatchedFiles is [_, ..])
                 {
                     // A named file the archive does not list is a
                     // visible failure, never an empty success
@@ -1394,6 +1419,19 @@ public sealed class PackageHouse
         string packageId,
         IPackageContent directory)
     {
+        if (request.ContentQuery?.FilesTerminal is { } semanticFiles)
+        {
+            return new PackageRangedSelection(
+                semanticFiles.Select(
+                    [.. directory.EnumerateEntries()]));
+        }
+        if (request.FileDemand is { } legacyFiles)
+        {
+            return new PackageRangedSelection(
+                legacyFiles.Select(
+                    [.. directory.EnumerateEntries()]));
+        }
+
         PackageImplementationNames? names = request.ImplementationNames;
         PackageRangedSelection selected = request.AssetSelection switch
         {
@@ -1418,6 +1456,71 @@ public sealed class PackageHouse
             == PackageHouseEvidenceDemand.FrameworkReferences
                 ? AddRootManifest(selected, directory)
                 : selected;
+    }
+
+    private static void ValidatePayloadPlanning(
+        PackageHouseRequest request,
+        PackagePayloadAcquisitionPlan payloadAcquisition)
+    {
+        bool semantic = request.ContentQuery is not null;
+        if (semantic != payloadAcquisition.HouseOwnsAccess)
+        {
+            throw new InvalidOperationException(
+                semantic
+                    ? "A semantic content query requires a House-planned payload acquisition capability."
+                    : "A House-planned payload acquisition capability requires a semantic content query.");
+        }
+    }
+
+    private static PackagePayloadAccess SelectPayloadAccess(
+        PackageHouseRequest request,
+        PackagePayloadAcquisitionPlan payloadAcquisition)
+    {
+        if (!payloadAcquisition.HouseOwnsAccess)
+            return payloadAcquisition.Access;
+
+        return request.ContentQuery?.FilesTerminal is not null
+            ? PackagePayloadAccess.Ranged
+            : throw new NotSupportedException(
+                "PackageHouse does not yet support the requested semantic content terminals.");
+    }
+
+    private static ConfiguredPackagePayloadResult ProjectSemanticContent(
+        ConfiguredPackagePayloadResult payloadResult,
+        PackageHouseContentQuery query,
+        IReadOnlyCollection<string> acquiredEntryPaths)
+    {
+        AcquiredPackageSourcePayload payload =
+            payloadResult.Payload
+            ?? throw new ArgumentException(
+                "Semantic content projection requires an acquired payload.",
+                nameof(payloadResult));
+        PackageHouseContentTerminal.Files files =
+            query.FilesTerminal
+            ?? throw new NotSupportedException(
+                "PackageHouse does not yet support the requested semantic content terminals.");
+        IReadOnlyList<string> selected =
+            files.Select(acquiredEntryPaths);
+        IPackageContent content = SelectedPackageContent.Create(
+            payload.Content,
+            selected);
+        var semanticPayload = new AcquiredPackageSourcePayload(
+            payload.Coordinate,
+            content,
+            payload.ProducerKey,
+            payload.Producer
+                ?? throw new InvalidOperationException(
+                    "A configured package payload requires producer identity."),
+            payload.Origin);
+        return new ConfiguredPackagePayloadResult(
+            payloadResult.Authority,
+            payloadResult.Source,
+            semanticPayload,
+            payloadResult.Failures,
+            payloadResult.NotFoundAuthorities,
+            payloadResult.ReportingAuthorities,
+            payloadResult.SelectionUsesOriginalSources,
+            transfer: payloadResult.Transfer);
     }
 
     private static PackageRangedSelection SelectRangedCompileEntries(

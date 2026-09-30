@@ -524,13 +524,15 @@ All gates run in Release.
    [package-backed platform source](package-backed-platform-realization.md)
    no longer reads every member's identity at realization. That change belongs
    to its owner.
-8. File demand and pull reads over ranged content, composed by
-   `PackageFileAcquisition`. Exact `package --content` requests for a root
-   `README.md` or `skills/**/SKILL.md` path call its desktop adapter, including
-   separator, raw, JSONL, and `--out` projections. The Browser/Wasm document
-   viewer calls the same operation for root `README.md`, root `PACKAGE.md`, and
-   `skills/**/*.md`. Other Inspect Web package operations retain their existing
-   acquisition paths.
+8. Semantic exact Files demand and pull reads, composed by
+   `PackageFileAcquisition`. PackageHouse selects cache, size-first ranged
+   access, and complete fallback while publishing only the queried entry.
+   Exact `package --content` requests for a root `README.md` or
+   `skills/**/SKILL.md` path call its desktop adapter, including separator,
+   raw, JSONL, and `--out` projections. The Browser/Wasm document viewer calls
+   the same operation for root `README.md`, root `PACKAGE.md`, and
+   `skills/**/*.md`. Legacy folder-expanded `PackageFileDemand` remains for
+   other callers until their semantic-query adoption slices land.
 9. `diff --history` realizes each version cell with ranged access: Metadata
    cells with `Surface`, whose package Root prepares no implementation role,
    and Analysis cells with `SurfaceAndImplementation`. A history over the

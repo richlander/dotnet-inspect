@@ -265,6 +265,7 @@ public static class PackageLibraryRealization
             fileDemand: null,
             evidenceDemand: PackageHouseEvidenceDemand.None,
             libraryCompanionDemand: request.CompanionDemand,
+            contentQuery: null,
             allowReferenceOnlyImplementationNames: implementation);
 
     private static PackageLibraryRealizationResult Project(
