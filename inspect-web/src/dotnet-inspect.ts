@@ -3314,7 +3314,8 @@ const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
     ...index.namespaces
       .filter(row => row.topLeverage)
       .map(row => row.namespace),
-    ...target.requestedNamespaces,
+    ...target.requestedNamespaces.filter(namespace =>
+      index.namespaces.some(row => row.namespace === namespace)),
   ],
   queryShard: (target, exactNamespace) =>
     target.queryShard(exactNamespace),
@@ -4901,7 +4902,8 @@ function filteredTypes() {
   const leverageFilter = leverage ? state.typeLeverageFilter : "";
   return state.package.types.filter(item => {
     return typeMatchesFilterText(item, needle)
-      && (!state.namespaceFilter || item.namespace === state.namespaceFilter)
+      && (selectedNamespaceFilter() === null
+        || item.namespace === selectedNamespaceFilter())
       && (!state.kindFilter || typeKind(item.kind) === state.kindFilter)
       && (!state.libraryScope || state.libraryScope.has(libraryKey(item)))
       && state.accessibilityFilter.has(item.accessibilityId)
@@ -4958,8 +4960,10 @@ function typeLeverageTarget(): TypeLeverageTarget | null {
       row.pack,
       assemblyFileName,
     ]);
-    const requestedNamespaces = state.namespaceFilter
-      ? [state.namespaceFilter]
+    const requestedNamespaces = state.namespaceFilter !== ""
+      ? [state.namespaceFilter === GLOBAL_NAMESPACE_FILTER
+        ? ""
+        : state.namespaceFilter]
       : [];
     return {
       libraryKey: salienceLibraryKey,
@@ -4992,8 +4996,10 @@ function typeLeverageTarget(): TypeLeverageTarget | null {
     pkg.activeFramework,
     library.id,
   ]);
-  const requestedNamespaces = state.namespaceFilter
-    ? [state.namespaceFilter]
+  const requestedNamespaces = state.namespaceFilter !== ""
+    ? [state.namespaceFilter === GLOBAL_NAMESPACE_FILTER
+      ? ""
+      : state.namespaceFilter]
     : [];
   return {
     libraryKey: salienceLibraryKey,
@@ -5081,7 +5087,7 @@ function filteredTypeRows(): Array<AppTypeSurface | BrowserPlatformForwarderRow>
   const definitions = filteredTypes();
   const forwarders = filterForwardedTypes(
     currentPlatformForwarderView()?.forwarders ?? [],
-    { text: state.typeFilter, namespace: state.namespaceFilter, kind: state.kindFilter });
+    { text: state.typeFilter, namespace: selectedNamespaceFilter() ?? "", kind: state.kindFilter });
   return forwarders.length === 0 ? definitions : [...definitions, ...forwarders]
     .sort((left, right) =>
       left.namespace.localeCompare(right.namespace)
@@ -5598,7 +5604,8 @@ function revealTypeInFilters(type: AppTypeSurface | null | undefined) {
     type);
   if (!typeMatchesFilterText(type, state.typeFilter.toLowerCase()))
     state.typeFilter = "";
-  if (state.namespaceFilter && type.namespace !== state.namespaceFilter)
+  if (selectedNamespaceFilter() !== null
+    && type.namespace !== selectedNamespaceFilter())
     state.namespaceFilter = "";
   if (state.kindFilter && typeKind(type.kind) !== state.kindFilter)
     state.kindFilter = "";
@@ -6114,7 +6121,9 @@ function typeFilterSummary() {
       .join(", ");
   return [
     state.typeFilter,
-    state.namespaceFilter,
+    state.namespaceFilter === GLOBAL_NAMESPACE_FILTER
+      ? "(global namespace)"
+      : state.namespaceFilter,
     state.kindFilter,
     currentTypeLeveragePresentation() && state.typeLeverageFilter
       ? state.typeLeverageFilter.replace("-", " ")
@@ -6139,8 +6148,18 @@ function namespaceOptions() {
   }
   return [...counts.keys()]
     .sort((a, b) => a.localeCompare(b))
-    .map(ns => `<option value="${escapeHtml(ns)}" ${state.namespaceFilter === ns ? "selected" : ""}>${escapeHtml(ns || "(global namespace)")} · ${counts.get(ns)}</option>`)
+    .map(ns => {
+      const value = ns || GLOBAL_NAMESPACE_FILTER;
+      return `<option value="${escapeHtml(value)}" ${state.namespaceFilter === value ? "selected" : ""}>${escapeHtml(ns || "(global namespace)")} · ${counts.get(ns)}</option>`;
+    })
     .join("");
+}
+
+const GLOBAL_NAMESPACE_FILTER = "__dotnet_inspect_global_namespace__";
+
+function selectedNamespaceFilter(): string | null {
+  if (state.namespaceFilter === GLOBAL_NAMESPACE_FILTER) return "";
+  return state.namespaceFilter || null;
 }
 
 // Collapse a raw kind string ("sealed class", "readonly struct", "enum", …) to a
@@ -6164,7 +6183,8 @@ const KIND_ORDER: readonly TypeKind[] =
 function typeKinds() {
   if (!state.package) return [];
   const present = new Set(state.package.types
-    .filter(item => !state.namespaceFilter || item.namespace === state.namespaceFilter)
+    .filter(item => selectedNamespaceFilter() === null
+      || item.namespace === selectedNamespaceFilter())
     .filter(item => !state.libraryScope || state.libraryScope.has(libraryKey(item)))
     .filter(item => state.accessibilityFilter.has(item.accessibilityId))
     .map(item => typeKind(item.kind)));
@@ -11252,6 +11272,7 @@ function bindTypePanelEvents() {
       state.typeFilter = "";
       state.namespaceFilter = "";
       state.kindFilter = "";
+      state.typeLeverageFilter = "";
       state.accessibilityFilter = defaultAccessibilityFilter(state.package);
       renderPreservingMemberFocus();
     },

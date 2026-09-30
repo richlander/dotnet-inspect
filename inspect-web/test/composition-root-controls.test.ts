@@ -1173,6 +1173,9 @@ test("typed type panel owns its rendered control bindings", () => {
     clearFilters,
     /state\.accessibilityFilter = defaultAccessibilityFilter\(state\.package\)/);
   assert.match(
+    clearFilters,
+    /state\.typeLeverageFilter = ""/);
+  assert.match(
     binding,
     /onTypeFilterChange: value => \{[\s\S]*?render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},/);
   assert.match(
@@ -1285,6 +1288,21 @@ test("typed type panel owns its rendered control bindings", () => {
       "#nav-to-types": 0,
       "#clear-filter": 0,
       "#namespace-jump": 0,
+    });
+
+    test("structural salience requests only indexed exact namespaces", () => {
+      assert.match(
+        appSource,
+        /target\.requestedNamespaces\.filter\(namespace =>\s*index\.namespaces\.some\(row => row\.namespace === namespace\)\)/);
+      assert.match(
+        appSource,
+        /const GLOBAL_NAMESPACE_FILTER = "__dotnet_inspect_global_namespace__"/);
+      assert.match(
+        appSource,
+        /state\.namespaceFilter === GLOBAL_NAMESPACE_FILTER\s*\? ""\s*: state\.namespaceFilter/);
+      assert.match(
+        appSource,
+        /const value = ns \|\| GLOBAL_NAMESPACE_FILTER/);
     });
   assert.equal(selectorCount("#type-filter"), 1);
   assert.equal(selectorCount("#type-list"), 5);
