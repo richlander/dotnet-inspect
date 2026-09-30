@@ -1157,12 +1157,17 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   const libraryDiff = state.client.metadata.queryLibraryApiDiff(
     "operation-1",
     {
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
       targetFramework: "net11.0",
       compileAssetId: "lib/net11.0/Example.dll",
+      surface: "Library",
+      analyses: ["api"],
+      views: "Changes",
+      typeNames: [],
+      memberTargetIdentities: [],
     },
   );
   const libraryDiffCancellation =
@@ -1251,12 +1256,17 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(libraryDiffArguments, [
     "operation-1",
     {
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
       targetFramework: "net11.0",
       compileAssetId: "lib/net11.0/Example.dll",
+      surface: "Library",
+      analyses: ["api"],
+      views: "Changes",
+      typeNames: [],
+      memberTargetIdentities: [],
     },
   ]);
   assert.deepEqual(libraryDiffCancelArguments, [

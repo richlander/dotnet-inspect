@@ -270,6 +270,18 @@ export interface BrowserLibraryApiDiffRequest {
   readonly targetVersion: string;
   readonly targetFramework: string;
   readonly compileAssetId: string;
+  readonly surface: "Member" | "Type" | "Library";
+  readonly analyses: ReadonlyArray<string>;
+  readonly views:
+    | "Changes"
+    | "Summary"
+    | "Transitions"
+    | "Changes, Summary"
+    | "Changes, Transitions"
+    | "Summary, Transitions"
+    | "Changes, Summary, Transitions";
+  readonly typeNames: ReadonlyArray<string>;
+  readonly memberTargetIdentities: ReadonlyArray<string>;
 }
 
 export interface BrowserLibraryApiDiffResult {
@@ -1227,4 +1239,3 @@ export async function queryUploadedLibraryMemberGroupDocument(declaredName: stri
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMemberGroupDocumentInspection;
 }
-

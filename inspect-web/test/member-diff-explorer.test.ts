@@ -156,14 +156,19 @@ function context(
     types: [type],
   };
   const result: BrowserLibraryApiDiffResult = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     request: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
       targetFramework: "net11.0",
       compileAssetId: "lib/net11.0/Example.dll",
+      surface: "Library",
+      analyses: ["api"],
+      views: "Changes",
+      typeNames: [],
+      memberTargetIdentities: [],
     },
     kind: "Succeeded",
     value: document,

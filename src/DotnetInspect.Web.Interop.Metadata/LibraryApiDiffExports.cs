@@ -4,6 +4,7 @@ using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using DotnetInspect.Web;
 using NuGet.Versioning;
@@ -14,9 +15,14 @@ namespace DotnetInspect.Web.Interop.Metadata;
 public static partial class MetadataExports
 {
     const int MaxLibraryApiDiffRequestFieldCharacters = 4_096;
+    const string BrowserBodyAnalysisUnavailable =
+        "Browser/Wasm does not construct method-body comparison inputs.";
 
     static readonly BrowserManagedOperationBridge LibraryApiDiffOperations =
         new();
+    static readonly InspectionCapabilityCatalog DiffAnalysisCapabilities =
+        InspectionCapabilityCatalog.Create(
+            [DiffAnalysisCatalog.ProductModule]);
 
     [JSExport]
     public static string CancelLibraryApiDiff(
@@ -40,6 +46,7 @@ public static partial class MetadataExports
         string requestJson)
     {
         BrowserLibraryApiDiffRequest? parsedRequest = null;
+        AnalysisSetValidationResult.Accepted? parsedSelection = null;
         Exception? requestError = null;
         try
         {
@@ -50,7 +57,7 @@ public static partial class MetadataExports
                         .BrowserLibraryApiDiffRequest)
                 ?? throw new ArgumentException(
                     "A Library API diff request is required.");
-            ValidateLibraryApiDiffRequest(parsedRequest);
+            parsedSelection = ValidateLibraryApiDiffRequest(parsedRequest);
         }
         catch (Exception error) when (
             error is ArgumentException
@@ -77,12 +84,17 @@ public static partial class MetadataExports
                         request = parsedRequest
                             ?? throw new InvalidOperationException(
                                 "The validated Library API diff request is unavailable.");
+                        AnalysisSetValidationResult.Accepted selection =
+                            parsedSelection
+                                ?? throw new InvalidOperationException(
+                                    "The validated Diff analysis selection is unavailable.");
                         return new BrowserManagedOperationBodyResult<
                             BrowserLibraryApiDiffResult,
                             string,
                             string>.Succeeded(
                                 await QueryLibraryApiDiffCore(
                                     request,
+                                    selection,
                                     token));
                     }
                     catch (Exception error) when (
@@ -140,7 +152,7 @@ public static partial class MetadataExports
                 string,
                 string>.Failed failure =>
                     new BrowserLibraryApiDiffResult(
-                        1,
+                        BrowserLibraryApiDiffSchema.Version,
                         request(),
                         BrowserLibraryApiDiffResultKind.Failed,
                         Value: null,
@@ -163,7 +175,7 @@ public static partial class MetadataExports
                 string,
                 string>.Canceled canceled =>
                     new BrowserLibraryApiDiffResult(
-                        1,
+                        BrowserLibraryApiDiffSchema.Version,
                         request(),
                         BrowserLibraryApiDiffResultKind.Canceled,
                         Value: null,
@@ -181,6 +193,7 @@ public static partial class MetadataExports
 
     static async Task<BrowserLibraryApiDiffResult> QueryLibraryApiDiffCore(
         BrowserLibraryApiDiffRequest request,
+        AnalysisSetValidationResult.Accepted selection,
         CancellationToken cancellationToken)
     {
         await using BrowserScopeLease<BrowserInspectionScope> targetLease =
@@ -216,20 +229,42 @@ public static partial class MetadataExports
             currentScope.SurfaceParticipant(currentCoordinate, currentAsset);
 
         cancellationToken.ThrowIfCancellationRequested();
-        InspectionEnvelope<LibraryApiDiffOutcome> inspection =
+        InspectionEnvelope<DiffAnalysisDocument> inspection =
             targetScope.UseSurfaceParticipant(
                 targetParticipant,
                 (targetGroup, target) =>
                     currentScope.UseSurfaceParticipant(
                         currentParticipant,
                         (currentGroup, current) =>
-                            LibraryApiDiffInspection.Execute(
+                            DiffAnalysisLibraryInspection.Execute(
                                 targetGroup,
                                 target,
                                 currentGroup,
                                 current,
                                 ApiSurfaceScope.Public,
-                                BrowserApiSurfacePolicy.Limits)));
+                                BrowserApiSurfacePolicy.Limits,
+                                new DiffAnalysisLibraryInspectionRequest(
+                                    request.PackageId,
+                                    request.TargetVersion,
+                                    request.CurrentVersion,
+                                    DiffAnalysisCapabilities,
+                                    selection,
+                                    ViewsOf(request.Views),
+                                    new HashSet<string>(
+                                        request.TypeNames,
+                                        StringComparer.Ordinal),
+                                    request.TypeNames,
+                                    selection.Surface
+                                        == AnalysisReportSurfaceKind.Member
+                                            ? new HashSet<string>(
+                                                request.MemberTargetIdentities,
+                                                StringComparer.Ordinal)
+                                            : null,
+                                    BeforePaths: [],
+                                    AfterPaths: [],
+                                    PrepareBodySignals: null,
+                                    HostUnavailability:
+                                        BrowserHostUnavailability(selection)))));
         cancellationToken.ThrowIfCancellationRequested();
 
         return BrowserLibraryApiDiffWireProjection.Project(
@@ -269,10 +304,10 @@ public static partial class MetadataExports
                     + $"for framework '{coordinate.Framework}'.");
     }
 
-    static void ValidateLibraryApiDiffRequest(
+    static AnalysisSetValidationResult.Accepted ValidateLibraryApiDiffRequest(
         BrowserLibraryApiDiffRequest request)
     {
-        if (request.SchemaVersion != 1)
+        if (request.SchemaVersion != BrowserLibraryApiDiffSchema.Version)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(request),
@@ -302,6 +337,93 @@ public static partial class MetadataExports
                 "Library API diff requires exact current and target package versions.",
                 nameof(request));
         }
+
+        ArgumentNullException.ThrowIfNull(request.Analyses);
+        ArgumentNullException.ThrowIfNull(request.TypeNames);
+        ArgumentNullException.ThrowIfNull(request.MemberTargetIdentities);
+        DiffAnalysisDocumentViews views = ViewsOf(request.Views);
+        if (views == DiffAnalysisDocumentViews.None)
+        {
+            throw new BrowserLibraryApiDiffRequestException(
+                "The Diff analysis view selection is unsupported.");
+        }
+        AnalysisReportSurfaceKind surface = SurfaceOf(request.Surface);
+        int targetCount = surface switch
+        {
+            AnalysisReportSurfaceKind.Library
+                when request.TypeNames.Length == 0
+                    && request.MemberTargetIdentities.Length == 0 => 1,
+            AnalysisReportSurfaceKind.Type
+                when request.MemberTargetIdentities.Length == 0 =>
+                    request.TypeNames.Length,
+            AnalysisReportSurfaceKind.Member =>
+                request.MemberTargetIdentities.Length,
+            AnalysisReportSurfaceKind.Library or AnalysisReportSurfaceKind.Type =>
+                throw new BrowserLibraryApiDiffRequestException(
+                    "The Diff analysis target identities do not match the selected surface."),
+            _ => throw new BrowserLibraryApiDiffRequestException(
+                "The Diff analysis surface is unsupported in Browser Compare."),
+        };
+        AnalysisSetValidationResult validation =
+            DiffAnalysisCapabilities.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                surface,
+                targetCount,
+                request.Analyses);
+        if (validation is AnalysisSetValidationResult.Accepted accepted)
+            return accepted;
+
+        var rejected = (AnalysisSetValidationResult.Rejected)validation;
+        throw new BrowserLibraryApiDiffRequestException(
+            "The Diff analysis selection was rejected: "
+                + string.Join(
+                    "; ",
+                    rejected.Rejections.Select(rejection =>
+                        $"{rejection.RequestedIdentity ?? "<set>"}: "
+                            + $"{rejection.SetReason?.ToString()
+                                ?? rejection.RequestReason?.ToString()
+                                ?? "unsupported"}")));
+    }
+
+    static DiffAnalysisHostUnavailability[] BrowserHostUnavailability(
+        AnalysisSetValidationResult.Accepted selection) =>
+    [
+        .. selection.Analyses
+            .Where(analysis =>
+                analysis.ParticipationFor(AnalysisOperationKind.Compare)
+                    ?.For(selection.Surface)?.ProducerRoute is { } route
+                && (route == DiffAnalysisCatalog.BodySignalRoute
+                    || route == DiffAnalysisCatalog.RetainedResearchRoute))
+            .Select(analysis => new DiffAnalysisHostUnavailability(
+                analysis.Id,
+                BrowserBodyAnalysisUnavailable)),
+    ];
+
+    static AnalysisReportSurfaceKind SurfaceOf(
+        BrowserDiffAnalysisSurface surface) =>
+        surface switch
+        {
+            BrowserDiffAnalysisSurface.Member =>
+                AnalysisReportSurfaceKind.Member,
+            BrowserDiffAnalysisSurface.Type =>
+                AnalysisReportSurfaceKind.Type,
+            BrowserDiffAnalysisSurface.Library =>
+                AnalysisReportSurfaceKind.Library,
+            _ => throw new BrowserLibraryApiDiffRequestException(
+                "The Diff analysis surface is unsupported in Browser Compare."),
+        };
+
+    static DiffAnalysisDocumentViews ViewsOf(BrowserDiffAnalysisViews views)
+    {
+        if ((views & ~(
+                BrowserDiffAnalysisViews.Changes
+                | BrowserDiffAnalysisViews.Summary
+                | BrowserDiffAnalysisViews.Transitions)) != 0)
+        {
+            throw new BrowserLibraryApiDiffRequestException(
+                "The Diff analysis view selection is unsupported.");
+        }
+        return (DiffAnalysisDocumentViews)(int)views;
     }
 
     static void RequireBoundedRequestField(string value, string parameterName)

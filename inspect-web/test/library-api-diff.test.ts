@@ -62,14 +62,19 @@ function succeeded(
   compileAssetId = "lib/net11.0/Example.dll",
 ): BrowserLibraryApiDiffResult {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     request: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageId: "Example.Package",
       currentVersion,
       targetVersion,
       targetFramework: "net11.0",
       compileAssetId,
+      surface: "Library",
+      analyses: ["api"],
+      views: "Changes",
+      typeNames: [],
+      memberTargetIdentities: [],
     },
     kind: "Succeeded",
     value: {
@@ -154,7 +159,25 @@ function inspection(
     packet: null,
   };
   return {
-    content,
+    content: {
+      comparison: {
+        name: "Example.Package",
+        beforeVersion: "1.0.0",
+        afterVersion: "2.0.0",
+        surface: "Library",
+        views: "Changes",
+        analyses: ["api"],
+      },
+      outcomes: [{
+        analysis: "api",
+        kind: "Compared",
+        findings: ["metadata.type", "metadata.member"],
+        detail: null,
+      }],
+      apiInspectionFailures: [],
+      changes: { types: [] },
+      libraryApi: content,
+    },
     share,
     diagnostics: [],
   };
@@ -240,20 +263,30 @@ test("replacement Package contexts cancel old work and suppress late publication
   assert.deepEqual(cancellations, ["one"]);
   assert.deepEqual(requests, [
     {
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
       targetFramework: "net11.0",
       compileAssetId: "lib/net11.0/Example.dll",
+      surface: "Library",
+      analyses: ["api"],
+      views: "Changes",
+      typeNames: [],
+      memberTargetIdentities: [],
     },
     {
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.5.0",
       targetFramework: "net11.0",
       compileAssetId: "lib/net11.0/Example.dll",
+      surface: "Library",
+      analyses: ["api"],
+      views: "Changes",
+      typeNames: [],
+      memberTargetIdentities: [],
     },
   ]);
   pending.get("one")?.resolve(succeeded("1.0.0"));
