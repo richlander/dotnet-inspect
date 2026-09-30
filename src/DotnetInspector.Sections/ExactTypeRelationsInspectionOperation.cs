@@ -36,6 +36,8 @@ public sealed record TypeRelationsInspectionRequest(
 /// </summary>
 public static class ExactTypeRelationsInspectionOperation
 {
+    private const int MaxPlatformFocusExpansions = 16;
+
     public static async Task<ExactTypeRelationsInspectionOutcome> ExecuteAsync(
         ExactTypeInspectionRequest request,
         WorkspaceContextLoadOptions capabilities,
@@ -88,98 +90,193 @@ public static class ExactTypeRelationsInspectionOperation
         ArgumentNullException.ThrowIfNull(capabilities);
         ArgumentNullException.ThrowIfNull(plan);
         WorkspaceContextInput input = request.Context;
-        var workspace = new InspectionWorkspace(
-            new WorkspacePlan([], [input]));
-        ExactTypeRelationsInspectionOutcome outcome;
-        try
+        for (int expansion = 0;
+            expansion <= MaxPlatformFocusExpansions;
+            expansion++)
         {
-            WorkspaceDeclarationContext context =
-                await WorkspaceContextLoader.LoadDeclarationContextAsync(
-                    workspace,
-                    input,
-                    capabilities,
-                    cancellationToken).ConfigureAwait(false);
-            if (context.Group is null)
+            var workspace = new InspectionWorkspace(
+                new WorkspacePlan([], [input]));
+            ExactTypeRelationsInspectionOutcome? outcome = null;
+            WorkspaceContextInput? expandedInput = null;
+            try
             {
-                string detail = string.Join(
-                    " ",
-                    context.Receipt.Failures
-                        .OfType<WorkspaceDeclarationFailure.ContextLoad>()
-                        .Select(failure => failure.Failure.Message));
-                outcome = new ExactTypeRelationsInspectionOutcome.Unavailable(
-                    string.IsNullOrWhiteSpace(detail)
-                        ? "The exact Type candidate context could not be loaded."
-                        : detail);
-            }
-            else
-            {
-                InspectionEnvelope<
-                    SelectedContextExactTypeInspectionResult>? inspection =
-                    request.IncludeTypeInspection
-                        ? SelectedContextExactTypeInspectionOperation.Execute(
-                                workspace,
-                                context,
-                                new(
-                                    request.Type,
-                                    request.SelectionKind))
-                        : null;
-                WorkspaceDeclarationPopulation population =
-                    workspace.CaptureDeclarationPopulation([context])
-                        is WorkspaceDeclarationPopulationCapture
-                            .Captured captured
-                        ? captured.Population
-                        : throw new InvalidOperationException(
-                            "The loaded exact Type context could not be "
-                                + "captured as a relation population.");
-                WorkspaceExactTypeFocusOutcome focus =
-                    WorkspaceExactTypeFocusQuery.Execute(
-                        population,
-                        request.Type,
-                        request.SelectionKind,
-                        request.FocusAssemblyName,
-                        request.FocusLibrary,
-                        cancellationToken: cancellationToken);
-                if (focus
-                    is not WorkspaceExactTypeFocusOutcome.Found found)
+                WorkspaceDeclarationContext context =
+                    await WorkspaceContextLoader.LoadDeclarationContextAsync(
+                        workspace,
+                        input,
+                        capabilities,
+                        cancellationToken).ConfigureAwait(false);
+                if (context.Group is null)
                 {
-                    outcome =
-                        new ExactTypeRelationsInspectionOutcome.Unavailable(
-                            ((WorkspaceExactTypeFocusOutcome.Unavailable)
-                                focus).Detail);
+                    string detail = string.Join(
+                        " ",
+                        context.Receipt.Failures
+                            .OfType<WorkspaceDeclarationFailure.ContextLoad>()
+                            .Select(failure => failure.Failure.Message));
+                    outcome = new ExactTypeRelationsInspectionOutcome
+                        .Unavailable(
+                            string.IsNullOrWhiteSpace(detail)
+                                ? "The exact Type candidate context could not "
+                                    + "be loaded."
+                                : detail);
                 }
                 else
                 {
-                    WorkspaceTypeRelationsInspectionResult relations =
-                        WorkspaceTypeRelationsInspectionOperation.Execute(
-                            workspace,
+                    WorkspaceDeclarationPopulation population =
+                        workspace.CaptureDeclarationPopulation([context])
+                            is WorkspaceDeclarationPopulationCapture
+                                .Captured captured
+                            ? captured.Population
+                            : throw new InvalidOperationException(
+                                "The loaded exact Type context could not be "
+                                    + "captured as a relation population.");
+                    WorkspaceExactTypeFocusOutcome focus =
+                        WorkspaceExactTypeFocusQuery.Execute(
                             population,
-                            found,
-                            plan,
-                            count,
-                            rows,
-                            rowSelection: rowSelection,
-                            includeNonPublic: includeNonPublic,
+                            request.Type,
+                            request.SelectionKind,
+                            request.FocusAssemblyName,
+                            request.FocusLibrary,
                             cancellationToken: cancellationToken);
-                    outcome =
-                        new ExactTypeRelationsInspectionOutcome.Available(
-                            inspection,
-                            relations);
+                    if (focus
+                        is WorkspaceExactTypeFocusOutcome
+                            .PlatformAssemblyRequired required)
+                    {
+                        expandedInput =
+                            expansion < MaxPlatformFocusExpansions
+                                ? ExpandPlatformContext(
+                                    input,
+                                    required.Assembly)
+                                : null;
+                        if (expandedInput is null)
+                        {
+                            outcome =
+                                new ExactTypeRelationsInspectionOutcome
+                                    .Unavailable(
+                                        "The exact Type focus requires "
+                                            + $"platform assembly "
+                                            + $"'{required.Assembly.Name}', "
+                                            + "but the candidate context "
+                                            + "cannot be expanded.");
+                        }
+                    }
+                    else if (focus
+                        is WorkspaceExactTypeFocusOutcome
+                            .Unavailable unavailable)
+                    {
+                        outcome =
+                            new ExactTypeRelationsInspectionOutcome.Unavailable(
+                                unavailable.Detail);
+                    }
+                    else
+                    {
+                        var found =
+                            (WorkspaceExactTypeFocusOutcome.Found)focus;
+                        InspectionEnvelope<
+                            SelectedContextExactTypeInspectionResult>?
+                            inspection =
+                                request.IncludeTypeInspection
+                                    ? SelectedContextExactTypeInspectionOperation
+                                        .Execute(
+                                            workspace,
+                                            context,
+                                            new(
+                                                request.Type,
+                                                request.SelectionKind))
+                                    : null;
+                        WorkspaceTypeRelationsInspectionResult relations =
+                            WorkspaceTypeRelationsInspectionOperation.Execute(
+                                workspace,
+                                population,
+                                found,
+                                plan,
+                                count,
+                                rows,
+                                rowSelection: rowSelection,
+                                includeNonPublic: includeNonPublic,
+                                cancellationToken: cancellationToken);
+                        outcome =
+                            new ExactTypeRelationsInspectionOutcome.Available(
+                                inspection,
+                                relations);
+                    }
                 }
             }
-        }
-        catch (Exception failure)
-        {
-            await DirectWorkspaceOperationLifetime.CloseAfterFailureAsync(
+            catch (Exception failure)
+            {
+                await DirectWorkspaceOperationLifetime.CloseAfterFailureAsync(
+                        workspace,
+                        failure)
+                    .ConfigureAwait(false);
+                throw;
+            }
+
+            await DirectWorkspaceOperationLifetime.CloseAsync(
                     workspace,
-                    failure)
+                    "Exact Type Subject Relations inspection")
                 .ConfigureAwait(false);
-            throw;
+            if (expandedInput is not null)
+            {
+                input = expandedInput;
+                continue;
+            }
+            return outcome
+                ?? new ExactTypeRelationsInspectionOutcome.Unavailable(
+                    "The exact Type focus did not produce an outcome.");
         }
 
-        await DirectWorkspaceOperationLifetime.CloseAsync(
-                workspace,
-                "Exact Type Subject Relations inspection")
-            .ConfigureAwait(false);
-        return outcome;
+        return new ExactTypeRelationsInspectionOutcome.Unavailable(
+            "The exact Type focus exceeded the platform expansion bound.");
+    }
+
+    private static WorkspaceContextInput? ExpandPlatformContext(
+        WorkspaceContextInput input,
+        AssemblyReferenceIdentity required)
+    {
+        WorkspaceMemberCoordinate.PlatformMember[] platformMembers =
+        [
+            .. input.Members.OfType<
+                WorkspaceMemberCoordinate.PlatformMember>(),
+        ];
+        if (platformMembers.Length == 0
+            || input.Members.Count != platformMembers.Length
+            || platformMembers.Any(member =>
+                member.Assembly?.Equals(
+                    required.Name,
+                    StringComparison.OrdinalIgnoreCase) is true))
+        {
+            return null;
+        }
+
+        WorkspaceMemberCoordinate.PlatformMember root =
+            platformMembers[0];
+        if (platformMembers.Any(member =>
+            !member.Family.Equals(
+                root.Family,
+                StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(
+                member.Version,
+                root.Version,
+                StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(
+                member.Framework,
+                root.Framework,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+
+        return input with
+        {
+            Members =
+            [
+                .. input.Members,
+                WorkspaceMemberCoordinate.Platform(
+                    root.Family,
+                    required.Name,
+                    root.Version,
+                    root.Framework),
+            ],
+        };
     }
 }

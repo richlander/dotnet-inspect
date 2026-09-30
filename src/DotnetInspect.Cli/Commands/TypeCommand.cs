@@ -1522,6 +1522,7 @@ public static class TypeCommand
                             [
                                 WorkspaceMemberCoordinate.Platform(
                                     pinnedFamily,
+                                    options.PlatformAssembly,
                                     version: pinnedVersion,
                                     framework: pinnedFramework),
                             ],
@@ -1564,6 +1565,7 @@ public static class TypeCommand
                         [
                             WorkspaceMemberCoordinate.Platform(
                                 resolvedFamily,
+                                options.PlatformAssembly,
                                 version: platformVersion,
                                 framework: framework),
                         ],

@@ -20,6 +20,11 @@ public abstract record WorkspaceExactTypeFocusOutcome
         string Detail,
         ImmutableArray<WorkspaceExactTypeFocusMemberOutcome> Members)
         : WorkspaceExactTypeFocusOutcome;
+
+    public sealed record PlatformAssemblyRequired(
+        AssemblyReferenceIdentity Assembly,
+        ImmutableArray<WorkspaceExactTypeFocusMemberOutcome> Members)
+        : WorkspaceExactTypeFocusOutcome;
 }
 
 public sealed record WorkspaceExactTypeFocusMemberOutcome(
@@ -344,6 +349,20 @@ public static class WorkspaceExactTypeFocusQuery
                         is ExactLibrarySourceCoordinate.Platform
                             ? AssemblyResolutionScope.Platform
                             : AssemblyResolutionScope.Any);
+            if (resolution
+                is AssemblyContextTypeResolutionResult.Available
+                {
+                    Outcome: TypeResolutionOutcome.UnboundBinding unbound,
+                }
+                && member.Coordinate
+                    is ExactLibrarySourceCoordinate.Platform
+                && unbound.TerminalAssemblyIdentity is { } required)
+            {
+                return new WorkspaceExactTypeFocusOutcome
+                    .PlatformAssemblyRequired(
+                        required,
+                        outcomes.ToImmutable());
+            }
             if (resolution
                 is not AssemblyContextTypeResolutionResult.Available
                 {

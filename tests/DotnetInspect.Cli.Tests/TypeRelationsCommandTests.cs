@@ -26,9 +26,20 @@ public sealed class TypeRelationsCommandTests
             "-S",
             section,
             "--count");
+        var terminal = await ExecuteAsync(
+            "type",
+            type,
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            section,
+            "--count");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
+        Assert.Equal(0, terminal.ExitCode);
+        Assert.Empty(terminal.Error);
+        Assert.Equal(terminal.Output, result.Output);
         Assert.True(int.Parse(result.Output.Trim()) > 0);
     }
 
