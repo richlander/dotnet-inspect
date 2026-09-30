@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
@@ -46,6 +47,123 @@ internal static class MethodBodyOperations
         return scope.UseImplementationParticipant(
             implementation,
             query);
+    }
+
+    internal static async Task<T> WithRetainedPackageParticipantAsync<T>(
+        string retainedDefinitionId,
+        string realizationId,
+        string navigationId,
+        string packageId,
+        string version,
+        string framework,
+        string assembly,
+        Func<AssemblyContextGroup, AssemblyContextParticipant, T> query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        BrowserRetainedWorkspacePackageOperationAdmission admission =
+            await BrowserRetainedWorkspaceActivationRegistry.Owner
+                .EnterPackageOperationAsync(
+                    retainedDefinitionId,
+                    realizationId,
+                    navigationId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (admission
+            is BrowserRetainedWorkspacePackageOperationAdmission.Superseded)
+        {
+            throw new MethodBodyUnavailableException(
+                "ContextUnavailable: the retained Workspace realization "
+                    + "is not active.");
+        }
+        if (admission
+            is BrowserRetainedWorkspacePackageOperationAdmission.Unavailable
+                unavailable)
+        {
+            throw new MethodBodyUnavailableException(
+                $"ContextUnavailable: {unavailable.Message}");
+        }
+
+        var admitted =
+            (BrowserRetainedWorkspacePackageOperationAdmission.Admitted)
+                admission;
+        using WorkspaceRealizationOperationLease operation =
+            admitted.Operation;
+        BrowserRetainedWorkspacePackagePresentation presentation =
+            admitted.Presentation;
+        BrowserPackageSurfaceInfo surface = presentation.Surface;
+        if (!string.Equals(surface.Package, packageId, StringComparison.Ordinal)
+            || !string.Equals(surface.Version, version, StringComparison.Ordinal)
+            || !string.Equals(
+                surface.ActiveFramework,
+                framework,
+                StringComparison.Ordinal))
+        {
+            throw new MethodBodyUnavailableException(
+                "ContextUnavailable: the method-body Package coordinate "
+                    + "does not match the admitted Workspace row.");
+        }
+
+        CompleteRestorationPackageLibrary[] libraries =
+        [
+            .. presentation.Inventory.Libraries.Where(
+                candidate =>
+                    string.Equals(
+                        candidate.Asset.Id,
+                        assembly,
+                        StringComparison.Ordinal)
+                    || string.Equals(
+                        candidate.Asset.AssemblyName,
+                        assembly,
+                        StringComparison.Ordinal)),
+        ];
+        if (libraries.Length != 1)
+        {
+            throw new MethodBodyUnavailableException(
+                libraries.Length == 0
+                    ? $"ContextUnavailable: assembly '{assembly}' is not in "
+                        + "the admitted Workspace Package row."
+                    : $"ContextUnavailable: assembly '{assembly}' is "
+                        + "ambiguous in the admitted Workspace Package row.");
+        }
+
+        WorkspaceDeclarationContext[] contexts =
+        [
+            .. operation.Workspace.GetDeclarationContextsSnapshot().Where(
+                candidate =>
+                    ReferenceEquals(
+                        candidate.Receipt.Workspace,
+                        operation.Realization)
+                    && candidate.Receipt.Order
+                        == presentation.ContextIndex),
+        ];
+        if (contexts.Length != 1 || contexts[0].Group is not { } group)
+        {
+            throw new MethodBodyUnavailableException(
+                "ContextUnavailable: the admitted Workspace Package context "
+                    + "is unavailable.");
+        }
+
+        CompleteRestorationPackageLibrary library = libraries[0];
+        AssemblyContextParticipant[] participants =
+        [
+            .. group.Participants.Where(
+                candidate =>
+                    AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                        candidate.Assembly.Identity,
+                        library.Subject.Identity)),
+        ];
+        if (participants.Length != 1)
+        {
+            throw new MethodBodyUnavailableException(
+                participants.Length == 0
+                    ? "ContextUnavailable: the admitted Workspace Package "
+                        + "implementation participant is unavailable."
+                    : "ContextUnavailable: the admitted Workspace Package "
+                        + "implementation participant is ambiguous.");
+        }
+
+        return query(group, participants[0]);
     }
 
     internal static MetadataMethodAddress RequireAddress(
