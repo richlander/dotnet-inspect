@@ -821,7 +821,10 @@ function resolveView(token: string): {
 } {
   const workspaceSubjectOpen = token === "workspace";
   const atPackageRoot =
-    workspaceSubjectOpen || token === "pkg" || token.startsWith("pkg:");
+    workspaceSubjectOpen
+    || token === "package"
+    || token === "pkg"
+    || token.startsWith("pkg:");
   const atLibraryRoot = token === "library" || token.startsWith("library:");
   const packageLensToken = atPackageRoot ? token.split(":")[1] : undefined;
   const libraryLensToken = atLibraryRoot ? token.split(":")[1] : undefined;

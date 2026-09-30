@@ -13,13 +13,19 @@ namespace ILInspector.Decompiler.Pipeline;
 /// otherwise-unspeakable <c>Enclosing.&lt;Outer&gt;g__Name|N_M(args)</c>).
 ///
 /// <para>Slice — local functions may carry body locals/slots and print in a
-/// nested scope. A capturing local function takes its
+/// nested scope. An instance local function may recover its implicit
+/// receiver when every direct call targets the enclosing method's exact
+/// <c>this</c>; the receiver is then an ordinary source capture rather than a
+/// declared parameter. A capturing local function takes its
 /// <c>&lt;&gt;c__DisplayClass</c> environment (a struct) by <c>ref</c> as its
 /// last parameter; the host sets the captured fields directly on a local and
 /// passes <c>ref env</c>. This recovers it by substituting each <c>env.f</c>
 /// read in the body and each proven host-side read with the captured value,
 /// dropping the environment parameter from the declaration and the
 /// <c>ref env</c> argument from each call, and eliding the capture stores.
+/// A capture store initialized from a field read on the proven host receiver is
+/// reconstructed as a source local at the same statement so later receiver
+/// mutation cannot change the captured value.
 /// Isolated local-function scopes accept only parameter-backed captures because
 /// host local-slot indices do not carry binder identity into that separate local
 /// pool. Left as-is: an environment shared with another local function or used
@@ -209,6 +215,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
     sealed record Candidate(
         MethodRef Method,
         List<Call> Calls,
+        bool ConsumesHostReceiver,
         Environment? Environment,
         IrFunction Body,
         ImmutableArray<string> CapturedBinderNames,
@@ -246,8 +253,20 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         {
             var calls = group.ToList();
             var method = calls[0].Callee;
-            if (method.HasThis)
-                continue;  // instance receiver — out of this slice
+            if (method.Name == function.Name
+                && Equals(method.DeclaringType, function.DeclaringType))
+            {
+                continue;
+            }
+            if (!referencesByIdentity.TryGetValue(group.Key, out var references))
+                continue;
+            bool consumesHostReceiver = method.HasThis;
+            if (consumesHostReceiver
+                && (references.Count != calls.Count
+                    || !CallsUseHostReceiver(function, calls)))
+            {
+                continue;
+            }
 
             var environment = ResolveEnvironment(method, calls, function);
             // A display-class parameter we could not resolve to a clean, single-use
@@ -258,12 +277,22 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             if (calls.Any(call => !CanPreserveParameterRefKinds(call.Callee, visibleParameterCount)))
                 continue;
 
+            string sourceName = CSharpNaming.MethodName(method.Name);
+            if (HasShadowedInstanceMemberReference(
+                    function,
+                    method,
+                    sourceName,
+                    plannedEnvironment: environment))
+                continue;
+
             if (!context.TryEnterCrossMethodPipeline(method, out var importScope))
                 continue;
             using (importScope)
             {
                 var body = importScope.Import();
                 if (body is null)
+                    continue;
+                if (body.Signature.HasThis != method.HasThis)
                     continue;
 
                 // LocalFunctionStatement has no type-parameter list, so a type parameter
@@ -295,8 +324,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 // `static int Own(T x)` calling itself as `Own(1, false)` — CS1503, at
                 // Full. They are not in the host's descendants, so they must be gathered
                 // from the body.
-                if (!referencesByIdentity.TryGetValue(group.Key, out var references)
-                    || !TypeParametersAreTheHostsOwn(body.Signature, references)
+                if (!TypeParametersAreTheHostsOwn(body.Signature, references)
                     || !TypeParametersAreTheHostsOwn(body.Signature, SelfReferences(body, group.Key)))
                 {
                     continue;
@@ -309,12 +337,34 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     continue;
                 if (SelfCalls(body, method).Any(call => !CanRewriteSelfCall(call)))
                     continue;
+                if (consumesHostReceiver
+                    && !SelfReferencesUseOwnReceiver(body, method))
+                {
+                    continue;
+                }
+                if (HasShadowedInstanceMemberReference(
+                        body,
+                        method,
+                        sourceName,
+                        function))
+                    continue;
 
                 importScope.Run(body, IrPasses.Default);
 
                 if (HasOtherLocalFunctionCall(body, method))
                     continue;
                 if (SelfCalls(body, method).Any(call => !CanRewriteSelfCall(call)))
+                    continue;
+                if (consumesHostReceiver
+                    && !SelfReferencesUseOwnReceiver(body, method))
+                {
+                    continue;
+                }
+                if (HasShadowedInstanceMemberReference(
+                        body,
+                        method,
+                        sourceName,
+                        function))
                     continue;
                 // And vote again on the body's self-references, for the same reason the
                 // foreign check above runs twice: IrPasses.Run can ADD reference nodes.
@@ -348,7 +398,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 if ((environment is not null
                         && needsIsolatedLocalScope
                         && environment.Captures.Values.Any(
-                            value => value is not LoadArgument))
+                            capture => !capture.IsArgumentCapture))
                     || body.Descendants.OfType<UnsupportedNode>().Any()
                     || !IsPrintableBody(body, allowLocalStatements: true))
                     continue;
@@ -356,10 +406,11 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 candidates.Add(new Candidate(
                     method,
                     calls,
+                    consumesHostReceiver,
                     environment,
                     body,
                     capturedBinderNames,
-                    CSharpNaming.MethodName(method.Name)));
+                    sourceName));
             }
         }
 
@@ -374,19 +425,50 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             .Select(group => group.Key)
             .ToHashSet(StringComparer.Ordinal);
 
+        // Every surviving body is flattened into the same declaration scope. A
+        // declaration can therefore shadow a member reference in a sibling body
+        // or in the host after a sibling environment performs its proven
+        // substitutions, even though each candidate was independently safe.
+        var scopeCandidates = candidates
+            .Where(candidate => !collidingNames.Contains(candidate.Name))
+            .ToList();
+        var shadowingNames = scopeCandidates
+            .Where(candidate => scopeCandidates.Any(scopeCandidate =>
+                HasShadowedInstanceMemberReference(
+                    scopeCandidate.Body,
+                    candidate.Method,
+                    candidate.Name,
+                    function)
+                || scopeCandidate.Environment is { } environment
+                    && HasShadowedInstanceMemberReference(
+                        function,
+                        candidate.Method,
+                        candidate.Name,
+                        plannedEnvironment: environment)))
+            .Select(candidate => candidate.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
         var declarations = new List<LocalFunctionStatement>();
         foreach (var candidate in candidates)
         {
-            if (collidingNames.Contains(candidate.Name))
+            if (collidingNames.Contains(candidate.Name)
+                || shadowingNames.Contains(candidate.Name))
                 continue;
 
             var method = candidate.Method;
             var calls = candidate.Calls;
+            bool consumesHostReceiver = candidate.ConsumesHostReceiver;
             var environment = candidate.Environment;
             var body = candidate.Body;
             string name = candidate.Name;
 
-            RewriteSelfCalls(body, method, name);
+            environment?.MaterializeCaptures(function, body);
+            RewriteSelfCalls(
+                body,
+                method,
+                name,
+                consumesHostReceiver,
+                environment is not null);
             if (body.Body.Blocks is [{ Children: [Return { Value: null } trailingReturn] }]
                 && IsVoid(body.Signature.ReturnType))
             {
@@ -408,6 +490,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             {
                 context.Stepper.StepOver($"raise local function {name}", call);
                 var arguments = call.DetachChildren().Cast<IrExpression>().ToList();
+                if (consumesHostReceiver)
+                    arguments.RemoveAt(0);
                 if (environment is not null)
                     arguments.RemoveAt(arguments.Count - 1);   // drop the ref-env argument
                 call.ReplaceWith(LocalInvocation(name, method, arguments));
@@ -421,7 +505,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 method.ReturnType,
                 parameters,
                 VisibleParameterRefKinds(method, parameters.Length),
-                isStatic: environment is null,
+                isStatic: environment is null && !consumesHostReceiver,
                 body.Locals,
                 body.LocalNames,
                 body.UsesUpdatedMemorySafetyRules,
@@ -455,7 +539,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             // on collision: a definition the host already resolved keeps its
             // authoritative shape.
             function.MergeTypeFactsFrom(body);
-            environment?.Elide();
+            environment?.Elide(function);
         }
 
         if (declarations.Count == 0)
@@ -469,20 +553,94 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         return raised;
     }
 
+    sealed class Capture
+    {
+        IrExpression _value;
+
+        public Capture(
+            FieldRef field,
+            StoreField store,
+            IrExpression value,
+            int? placeholderIndex)
+        {
+            Field = field;
+            Store = store;
+            _value = value;
+            PlaceholderIndex = placeholderIndex;
+        }
+
+        public FieldRef Field { get; }
+        public StoreField Store { get; }
+        public int? PlaceholderIndex { get; }
+        public bool IsArgumentCapture
+            => PlaceholderIndex is null && _value is LoadArgument;
+        public string? BinderName(IrFunction host)
+            => PlaceholderIndex is not null
+                ? Field.Name
+                : _value switch
+                {
+                    LoadArgument => null,
+                    LoadLocal local when local.Index < host.LocalNames.Length
+                        => host.LocalNames[local.Index],
+                    _ => null,
+                };
+
+        public IrExpression Substitution() => (IrExpression)_value.Clone();
+
+        public bool IsBoundReceiver(IrFunction host)
+            => LocalFunctionRaisingPass.IsBoundReceiver(host, _value);
+
+        public void Materialize(IrFunction host, IrFunction body)
+        {
+            if (PlaceholderIndex is not { } placeholder)
+                return;
+
+            int local = host.AddLocal(Field.Type, Field.Name);
+            foreach (var load in body.Descendants.OfType<LoadLocal>()
+                .Where(load => load.Index == placeholder)
+                .ToList())
+            {
+                load.ReplaceWith(new LoadLocal(local, Field.Type));
+            }
+
+            var children = Store.DetachChildren();
+            var value = (IrExpression)children[^1];
+            Store.ReplaceWith(new StoreLocal(local, Field.Type, value));
+            _value = new LoadLocal(local, Field.Type);
+        }
+    }
+
     /// <summary>The captured environment of a capturing local function: the host's struct display-class local, its field bindings, and the body argument that names it.</summary>
     sealed record Environment(
         TypeRef Type,
         int ArgIndex,
-        Dictionary<string, IrExpression> Captures,
+        int LocalIndex,
+        Dictionary<string, Capture> Captures,
         List<StoreField> Stores,
         List<LoadField> HostReads)
     {
-        public void Elide()
+        public void MaterializeCaptures(IrFunction host, IrFunction body)
+        {
+            foreach (var capture in Captures.Values)
+                capture.Materialize(host, body);
+        }
+
+        public bool SubstitutesToBoundReceiver(
+            IrFunction host,
+            IrExpression expression)
+            => expression is LoadField read
+                && HostReads.Any(hostRead => ReferenceEquals(hostRead, read))
+                && Captures.TryGetValue(read.Field.Name, out var capture)
+                && capture.IsBoundReceiver(host);
+
+        public void Elide(IrFunction host)
         {
             foreach (var read in HostReads)
-                read.ReplaceWith(Captures[read.Field.Name].Clone());
+                read.ReplaceWith(Captures[read.Field.Name].Substitution());
             foreach (var store in Stores)
-                store.Detach();
+                if (store.Parent is not null)
+                    store.Detach();
+            host.MarkLocalEliminated(LocalIndex);
         }
     }
 
@@ -504,20 +662,42 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         if (calls.Any(c => c.Arguments[^1] is not LoadLocalAddress address || address.Index != slot))
             return null;
 
-        var captures = new Dictionary<string, IrExpression>(StringComparer.Ordinal);
+        var captures = new Dictionary<string, Capture>(StringComparer.Ordinal);
         var stores = new List<StoreField>();
         foreach (var store in function.Descendants.OfType<StoreField>())
         {
             if (store.Instance is LoadLocalAddress { Index: var s } && s == slot && Equals(store.Field.DeclaringType, envType))
             {
-                if (!IsCaptureValue(store.Value, function))
-                    return null;
+                int? placeholder = null;
+                if (!CanSubstituteCaptureValue(store.Value, function))
+                {
+                    if (!CanMaterializeCaptureValue(
+                            store.Value,
+                            store.Field,
+                            function))
+                    {
+                        return null;
+                    }
+                    placeholder = -1 - captures.Count;
+                }
                 // Exactly one store per captured field: a second store means the
                 // captured variable is reassigned, so no single substituted value
                 // is live at every call site (the reassignment may even follow the
                 // call). Leave those to the honest fallback.
-                if (!captures.TryAdd(store.Field.Name, store.Value))
+                if (!captures.TryAdd(
+                        store.Field.Name,
+                        new Capture(
+                            store.Field,
+                            store,
+                            placeholder is null
+                                ? store.Value
+                                : new LoadLocal(
+                                    placeholder.Value,
+                                    store.Field.Type),
+                            placeholder)))
+                {
                     return null;
+                }
                 stores.Add(store);
             }
         }
@@ -552,6 +732,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         return new Environment(
             envType,
             method.ParameterTypes.Length - 1,
+            slot,
             captures,
             stores,
             hostReads);
@@ -633,7 +814,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             if (!IsEnvironmentArgument(
                     arg,
                     environment.ArgIndex,
-                    environmentParameter))
+                    environmentParameter,
+                    body.Signature.HasThis))
                 continue;
             if (arg.Parent is not LoadField load
                 || !Equals(load.Field.DeclaringType, environment.Type)
@@ -649,20 +831,15 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 && IsEnvironmentArgument(
                     arg,
                     environment.ArgIndex,
-                    environmentParameter)
+                    environmentParameter,
+                    body.Signature.HasThis)
                 && Equals(load.Field.DeclaringType, environment.Type)
-                && environment.Captures.TryGetValue(load.Field.Name, out var value))
+                && environment.Captures.TryGetValue(load.Field.Name, out var capture))
             {
-                string? name = value switch
-                {
-                    LoadArgument => null,
-                    LoadLocal local when local.Index < host.LocalNames.Length
-                        => host.LocalNames[local.Index],
-                    _ => null,
-                };
+                string? name = capture.BinderName(host);
                 if (name is not null && seenNames.Add(name))
                     names.Add(name);
-                load.ReplaceWith(value.Clone());
+                load.ReplaceWith(capture.Substitution());
             }
         }
         capturedBinderNames = names.ToImmutable();
@@ -672,10 +849,11 @@ public sealed class LocalFunctionRaisingPass : IIrPass
     static bool IsEnvironmentArgument(
         LoadArgument argument,
         int environmentArgumentIndex,
-        Parameter environmentParameter)
+        Parameter environmentParameter,
+        bool bodyHasThis)
         => argument.Parameter is { } binding
             ? ReferenceEquals(binding, environmentParameter)
-            : argument.Index == environmentArgumentIndex;
+            : argument.Index == environmentArgumentIndex + (bodyHasThis ? 1 : 0);
 
     /// <summary>
     /// Whether the body reaches a DIFFERENT local function. Mutual and nested local
@@ -695,11 +873,20 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             .Select(LocalFunctionReference)
             .Any(m => m is not null && !SameLocalFunctionMethod(m, method));
 
-    static void RewriteSelfCalls(IrFunction body, MethodRef method, string name)
+    static void RewriteSelfCalls(
+        IrFunction body,
+        MethodRef method,
+        string name,
+        bool consumesReceiver,
+        bool consumesEnvironment)
     {
         foreach (var call in SelfCalls(body, method).ToList())
         {
             var arguments = call.DetachChildren().Cast<IrExpression>().ToList();
+            if (consumesReceiver)
+                arguments.RemoveAt(0);
+            if (consumesEnvironment)
+                arguments.RemoveAt(arguments.Count - 1);
             call.ReplaceWith(LocalInvocation(name, method, arguments));
         }
     }
@@ -708,6 +895,204 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         => body.Descendants.OfType<Call>()
             .Where(call => SameLocalFunctionMethod(call.Callee, method));
 
+    static bool SelfReferencesUseOwnReceiver(IrFunction body, MethodRef method)
+    {
+        var references = body.Descendants
+            .Where(node => LocalFunctionReference(node) is { } reference
+                && SameLocalFunctionMethod(reference, method))
+            .ToList();
+        return references.All(node => node is Call)
+            && CallsUseHostReceiver(body, references.Cast<Call>());
+    }
+
+    static bool HasShadowedInstanceMemberReference(
+        IrFunction function,
+        MethodRef localMethod,
+        string localName,
+        IrFunction? enclosingHost = null,
+        Environment? plannedEnvironment = null)
+    {
+        foreach (var node in function.Descendants)
+        {
+            MethodRef? method = null;
+            IrExpression? receiver = null;
+            string memberName;
+            bool isHostReceiver = false;
+            switch (node)
+            {
+                case Call
+                {
+                    Callee.HasThis: true,
+                    Arguments.Count: > 0,
+                } call:
+                    method = call.Callee;
+                    receiver = call.Arguments[0];
+                    memberName = CSharpNaming.SourceMethodName(method);
+                    break;
+                case DelegateCreation
+                {
+                    Method.HasThis: true,
+                } creation:
+                    method = creation.Method;
+                    receiver = creation.Target;
+                    memberName = CSharpNaming.SourceMethodName(method);
+                    break;
+                case LoadFunctionPointer
+                {
+                    Method.HasThis: true,
+                    Instance: { } instance,
+                } pointer:
+                    method = pointer.Method;
+                    receiver = instance;
+                    memberName = CSharpNaming.SourceMethodName(method);
+                    break;
+                case LoadField
+                {
+                    UsesAccessorStorage: false,
+                    Field.BackingPropertyName: null,
+                    Instance: { } instance,
+                } field:
+                    memberName = SourceFieldName(field.Field);
+                    receiver = instance;
+                    break;
+                case StoreField
+                {
+                    Field.BackingPropertyName: null,
+                    Instance: { } instance,
+                } field:
+                    memberName = SourceFieldName(field.Field);
+                    receiver = instance;
+                    break;
+                case LoadFieldAddress
+                {
+                    Field.BackingPropertyName: null,
+                    Instance: { } instance,
+                } field:
+                    memberName = SourceFieldName(field.Field);
+                    receiver = instance;
+                    break;
+                case NullCoalescingFieldAssignment
+                {
+                    Field.BackingPropertyName: null,
+                    Instance: { } instance,
+                } field:
+                    memberName = SourceFieldName(field.Field);
+                    receiver = instance;
+                    break;
+                case NullCoalescingFieldAssignmentExpression
+                {
+                    Field.BackingPropertyName: null,
+                    Instance: { } instance,
+                } field:
+                    memberName = SourceFieldName(field.Field);
+                    receiver = instance;
+                    break;
+                case LoadProperty
+                {
+                    Instance: { } instance,
+                    IndexArguments.Count: 0,
+                } property:
+                    memberName = property.PropertyName;
+                    receiver = instance;
+                    break;
+                case StoreProperty
+                {
+                    Instance: { } instance,
+                    IndexArguments.Count: 0,
+                } property:
+                    memberName = property.PropertyName;
+                    receiver = instance;
+                    break;
+                case NullCoalescingPropertyAssignment
+                {
+                    Instance: { } instance,
+                    IndexArguments.Count: 0,
+                } property:
+                    memberName = property.PropertyName;
+                    receiver = instance;
+                    break;
+                case EventSubscription
+                {
+                    Instance: { } instance,
+                } subscription:
+                    memberName = subscription.EventName;
+                    receiver = instance;
+                    break;
+                case DeconstructionTarget
+                {
+                    Kind: DeconstructionTargetKind.Field,
+                    Field.BackingPropertyName: null,
+                    Field: { } field,
+                    IsThisInstance: true,
+                }:
+                    memberName = SourceFieldName(field);
+                    isHostReceiver = true;
+                    break;
+                case DeconstructionTarget
+                {
+                    Kind: DeconstructionTargetKind.Property,
+                    Instance: { } instance,
+                    IndexArguments.Count: 0,
+                } property:
+                    memberName = property.PropertyName;
+                    receiver = instance;
+                    break;
+                default:
+                    continue;
+            }
+
+            if ((method is null || !SameLocalFunctionMethod(method, localMethod))
+                && (isHostReceiver
+                    || receiver is not null
+                        && (IsHostReceiver(function, receiver)
+                            || enclosingHost is not null
+                                && IsBoundReceiver(enclosingHost, receiver)
+                            || plannedEnvironment is not null
+                                && plannedEnvironment.SubstitutesToBoundReceiver(
+                                    function,
+                                    receiver)))
+                && string.Equals(memberName, localName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static string SourceFieldName(FieldRef field)
+        => CSharpNaming.PrimaryConstructorCaptureName(field.Name) ?? field.Name;
+
+    static bool CallsUseHostReceiver(IrFunction function, IEnumerable<Call> calls)
+        => function.Signature.HasThis
+            && calls.All(call =>
+                !call.IsVirtual
+                && call.ConstrainedTo is null
+                && call.Arguments.Count == call.Callee.ParameterTypes.Length + 1
+                && IsHostReceiver(function, call.Arguments[0]));
+
+    static bool IsHostReceiver(IrFunction function, IrExpression expression)
+        => expression is LoadArgument
+            {
+                Index: 0,
+                Type: var receiverType,
+                Parameter: var receiverParameter,
+            }
+            && Equals(receiverType, function.DeclaringType)
+            && (receiverParameter is null
+                || ReferenceEquals(
+                    receiverParameter,
+                    function.ReceiverParameter));
+
+    static bool IsBoundReceiver(IrFunction function, IrExpression expression)
+        => function.ReceiverParameter is { } receiverParameter
+            && expression is LoadArgument
+            {
+                Type: var receiverType,
+                Parameter: { } binding,
+            }
+            && Equals(receiverType, function.DeclaringType)
+            && ReferenceEquals(binding, receiverParameter);
+
     static bool CanPreserveParameterRefKinds(MethodRef method, int visibleParameterCount)
         => !method.ParameterTypes.Take(visibleParameterCount).Any(type => type.Kind == TypeRefKind.ByRef)
             || !method.HasRefReadOnlyParameters
@@ -715,7 +1100,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 && method.ParameterRefKinds.Length == method.ParameterTypes.Length;
 
     static bool CanRewriteSelfCall(Call call)
-        => call.Arguments.Count == call.Callee.ParameterTypes.Length
+        => call.Arguments.Count
+                == call.Callee.ParameterTypes.Length + (call.Callee.HasThis ? 1 : 0)
             && CanPreserveParameterRefKinds(call.Callee, call.Callee.ParameterTypes.Length);
 
     static LocalFunctionInvocation LocalInvocation(
@@ -745,12 +1131,85 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         => left.Name == right.Name
             && Equals(left.DeclaringType, right.DeclaringType);
 
-    static bool IsCaptureValue(IrExpression value, IrFunction function) => value switch
+    static bool CanSubstituteCaptureValue(
+        IrExpression value,
+        IrFunction function)
+        => value switch
     {
-        LoadArgument => true,
-        LoadLocal local => !GeneratedCodeIdentity.IsDisplayClassName(function.Locals[local.Index]),
+        LoadArgument argument => !ArgumentCanChange(function, argument),
+        LoadLocal local => !GeneratedCodeIdentity.IsDisplayClassName(
+                function.Locals[local.Index])
+            && !LocalCanChange(function, local.Index),
         _ => false,
     };
+
+    static bool ArgumentCanChange(IrFunction function, LoadArgument argument)
+        => function.Descendants.Any(node =>
+            !IsInsideNestedFunction(node)
+            && node switch
+            {
+                StoreArgument store => PlaceIdentity.SameArgument(
+                    argument.Index,
+                    argument.Parameter,
+                    store.Index,
+                    store.Parameter),
+                LoadArgumentAddress address => PlaceIdentity.SameArgument(
+                    argument.Index,
+                    argument.Parameter,
+                    address.Index,
+                    address.Parameter),
+                IncrementDecrement { Target: LoadArgument target }
+                    => PlaceIdentity.SameVariable(argument, target),
+                DeconstructionTarget
+                {
+                    Kind: DeconstructionTargetKind.Argument,
+                } target => PlaceIdentity.SameArgument(
+                    argument.Index,
+                    argument.Parameter,
+                    target.ArgumentIndex,
+                    target.ArgumentParameter),
+                _ => false,
+            });
+
+    static bool LocalCanChange(IrFunction function, int index)
+    {
+        int stores = 0;
+        foreach (var node in function.Descendants)
+        {
+            if (IsInsideNestedFunction(node))
+                continue;
+            switch (node)
+            {
+                case StoreLocal store when store.Index == index:
+                    if (++stores > 1)
+                        return true;
+                    break;
+                case LoadLocalAddress address when address.Index == index:
+                case IncrementDecrement
+                    {
+                        Target: LoadLocal { Index: var incrementedLocal },
+                    } when incrementedLocal == index:
+                case DeconstructionTarget
+                    {
+                        Kind: DeconstructionTargetKind.Local,
+                        LocalIndex: var assignedLocal,
+                        IsDeclared: false,
+                    } when assignedLocal == index:
+                case NullCoalescingAssignment assignment
+                    when assignment.LocalIndex == index:
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    static bool CanMaterializeCaptureValue(
+        IrExpression value,
+        FieldRef captureField,
+        IrFunction function)
+        => value is LoadField { Instance: { } instance } load
+            && Equals(load.Field.Type, captureField.Type)
+            && IsHostReceiver(function, instance);
 
     static bool IsDisplayClassParameter(TypeRef type)
         => GeneratedCodeIdentity.IsDisplayClassName(type.Kind == TypeRefKind.ByRef ? type.ElementType! : type);
@@ -767,12 +1226,14 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             if (statement is Return returnStatement)
                 return i == statements.Count - 1
                     && (returnStatement.Value is not null
-                        || i == 0 && IsVoid(body.Signature.ReturnType));
+                        || IsVoid(body.Signature.ReturnType));
             if (statement is ExpressionStatement)
                 continue;
             if (allowLocalStatements && statement is StoreLocal)
                 continue;
             if (allowLocalStatements && statement is StoreStackSlot)
+                continue;
+            if (allowLocalStatements && statement is StoreField)
                 continue;
             if (statement is IfStatement)
                 continue;

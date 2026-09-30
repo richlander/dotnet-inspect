@@ -187,6 +187,13 @@ NLinq provenance, and invocation. Do not publish ratios without the code that
 produced each column. When an oracle wins, identify the concrete implementation
 choice Planner can adopt.
 
+Commit those implementations, sources, provenance, and invocations with the
+enablement so later work can rerun and extend the same comparison. These
+benchmarks are development aids, not continually supported tests or a product
+performance offering, and they need not be built or run by CI. A shared
+performance harness may centralize them later; do not block an individual
+producer enablement on that future work.
+
 When a comparison exposes a safety check, place it at the narrowest shared
 owner. First distinguish
 [session-owned format admission](design/assembly-inspection-query.md#session-owned-format-admission)

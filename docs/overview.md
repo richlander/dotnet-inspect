@@ -298,6 +298,11 @@ producers that will extend that space.
   Metadata's physical exception-region facts and Instructions' decoded
   exception-flow facts under the
   [exception facts composition](design/exception-facts-composition.md).
+  The target
+  [Assembly Analysis Operation](design/assembly-analysis-operation.md)
+  composes a resource-free producer description, exact owner-issued assembly
+  access, QuerySpace sources, stateless service execution, and detached
+  producer outcomes without taking ownership from those focused contracts.
   `AnalysisFindings` exposes reusable typed censuses and comparisons for
   allocations, call sites, unsafe operations, and unsafe declaration/body
   evidence.

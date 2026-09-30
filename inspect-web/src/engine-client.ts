@@ -130,6 +130,7 @@ type CatalogOperations =
   | "inspectVocabulary"
   | "listHomeDemos"
   | "observeRetainedWorkspaceSettlement"
+  | "preparePackageQueryWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
   | "recordRetainedWorkspaceNavigationPosting"

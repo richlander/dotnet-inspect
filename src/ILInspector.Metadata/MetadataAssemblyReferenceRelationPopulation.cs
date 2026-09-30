@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
-using System.Reflection.PortableExecutable;
 
 using ILInspector.MetadataPrimitives;
 
@@ -378,51 +377,13 @@ internal static partial class MetadataRelationInspection
 {
     internal static MetadataAssemblyReferenceRelationPopulationOutcome
         ExecuteAssemblyReferencePopulation(
-            PEReader image,
+            MetadataReader reader,
             MetadataAssemblyReferenceRelationPopulationRequest request,
             CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-
-        MetadataImageFormatResult format =
-            MetadataImageFormatClassifier.Classify(image);
-        if (format is not MetadataImageFormatResult.SupportedEcma335)
-        {
-            return new
-                MetadataAssemblyReferenceRelationPopulationOutcome.Rejected(
-                    format,
-                    format switch
-                    {
-                        MetadataImageFormatResult.NoMetadata =>
-                            "The selected image contains no managed metadata.",
-                        MetadataImageFormatResult
-                                .UnsupportedWindowsMetadata =>
-                            "Windows Metadata is not a supported relation input.",
-                        MetadataImageFormatResult.MalformedRoot =>
-                            "The selected image has a malformed metadata root.",
-                        _ => "The selected image format is unavailable.",
-                    });
-        }
-
-        MetadataReader reader;
-        try
-        {
-            reader = image.GetMetadataReader(
-                MetadataReaderOptions.None);
-        }
-        catch (Exception exception)
-            when (exception is BadImageFormatException
-                or OverflowException)
-        {
-            return new
-                MetadataAssemblyReferenceRelationPopulationOutcome.Rejected(
-                    new MetadataImageFormatResult.MalformedRoot(
-                        MetadataRootMalformedReason
-                            .UnmappableMetadataDirectory),
-                    exception.Message);
-        }
 
         using var operation =
             new MetadataOperationContext(request.Policy);

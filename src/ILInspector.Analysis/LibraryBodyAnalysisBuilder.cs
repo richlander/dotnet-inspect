@@ -271,6 +271,36 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             scope,
             caller);
 
+    IMethodCallResolver
+        ILibraryMethodAnalysisInfrastructure.CreateCallResolver(
+            GenericScope scope,
+            MethodDefinitionHandle caller) =>
+        _primaryMetadataResolver.CreateCallResolver(
+            scope,
+            caller);
+
+    (TypeRef DeclaringType, ImmutableArray<TypeRef> TypeArguments)
+        ILibraryMethodAnalysisInfrastructure.ResolveMethodOwner(
+            int token,
+            GenericScope scope,
+            int maximumMethodSignatureBytes,
+            int unitToken) =>
+        _methodReferenceResolver.ResolveMethodOwner(
+            MetadataTokens.EntityHandle(token),
+            scope,
+            maximumMethodSignatureBytes,
+            unitToken);
+
+    MethodSignatureOutcome ILibraryMethodAnalysisInfrastructure
+        .MethodSignature(
+            BlobHandle signature,
+            int maximumMethodSignatureBytes,
+            int unitToken) =>
+        _methodReferenceResolver.MethodSignature(
+            signature,
+            maximumMethodSignatureBytes,
+            unitToken);
+
     CallerUnsafeMode?
         ILibraryMethodAnalysisInfrastructure
             .ResolveSameImageCallerUnsafeMode(
@@ -330,12 +360,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         CustomAttributeHandleCollection attributes) =>
         _primaryMetadataResolver.HasGeneratedCodeAttribute(
             attributes);
-
-    bool ILibraryMethodAnalysisInfrastructure
-        .IsSourceGeneratedTypeOrEnclosing(
-            TypeDefinitionHandle typeHandle) =>
-        _generatedProvenanceClassifier
-            .IsSourceGeneratedTypeOrEnclosing(typeHandle);
 
     bool ILibraryMethodAnalysisInfrastructure
         .TryResolveLocalTypeDefinition(
@@ -456,26 +480,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             methodDefinition,
             method,
             typeSourceGenerated,
-            out immediateOwner,
-            out ultimateOwner);
-
-    DeclaredOwnerResolution ILibraryMethodAnalysisInfrastructure
-        .ResolveUltimateDeclaredMethod(
-            MethodDefinitionHandle methodHandle,
-            MethodDefinition methodDefinition,
-            MethodIdentity method,
-            bool typeSourceGenerated,
-            int maximumInstructionsPerAttributionBody,
-            CancellationToken cancellationToken,
-            out AuthenticatedSourceOwner? immediateOwner,
-            out AuthenticatedSourceOwner? ultimateOwner)
-        => _declaredSourceResolver.ResolveUltimateDeclaredMethod(
-            methodHandle,
-            methodDefinition,
-            method,
-            typeSourceGenerated,
-            maximumInstructionsPerAttributionBody,
-            cancellationToken,
             out immediateOwner,
             out ultimateOwner);
 

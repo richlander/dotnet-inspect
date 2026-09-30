@@ -158,43 +158,6 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         bool typeSourceGenerated,
         out AuthenticatedSourceOwner? immediateOwner,
         out AuthenticatedSourceOwner? ultimateOwner)
-        => ResolveUltimateDeclaredMethod(
-            methodHandle,
-            methodDefinition,
-            method,
-            typeSourceGenerated,
-            bodyReferenceLimit: null,
-            out immediateOwner,
-            out ultimateOwner);
-
-    internal DeclaredOwnerResolution ResolveUltimateDeclaredMethod(
-        MethodDefinitionHandle methodHandle,
-        MethodDefinition methodDefinition,
-        MethodIdentity method,
-        bool typeSourceGenerated,
-        int maximumInstructionsPerAttributionBody,
-        CancellationToken cancellationToken,
-        out AuthenticatedSourceOwner? immediateOwner,
-        out AuthenticatedSourceOwner? ultimateOwner)
-        => ResolveUltimateDeclaredMethod(
-            methodHandle,
-            methodDefinition,
-            method,
-            typeSourceGenerated,
-            new(
-                maximumInstructionsPerAttributionBody,
-                cancellationToken),
-            out immediateOwner,
-            out ultimateOwner);
-
-    DeclaredOwnerResolution ResolveUltimateDeclaredMethod(
-        MethodDefinitionHandle methodHandle,
-        MethodDefinition methodDefinition,
-        MethodIdentity method,
-        bool typeSourceGenerated,
-        AttributionBodyReferenceLimit? bodyReferenceLimit,
-        out AuthenticatedSourceOwner? immediateOwner,
-        out AuthenticatedSourceOwner? ultimateOwner)
     {
         immediateOwner = null;
         LiftedSourceOwnerResolution liftedResolution =
@@ -205,8 +168,7 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                 out AuthenticatedSourceOwner liftedOwner,
                 ownerMethodScope: null,
                 ownerTypeScope: null,
-                directlySelectedBody: false,
-                bodyReferenceLimit: bodyReferenceLimit);
+                directlySelectedBody: false);
         if (liftedResolution
             == LiftedSourceOwnerResolution.Resolved)
         {
@@ -214,7 +176,6 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
             DeclaredOwnerResolution resolution =
                 ResolveUltimateLiftedOwner(
                 liftedOwner,
-                bodyReferenceLimit,
                 out AuthenticatedSourceOwner resolvedOwner);
             ultimateOwner =
                 resolution == DeclaredOwnerResolution.Resolved
@@ -275,7 +236,6 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
             DeclaredOwnerResolution resolution =
                 ResolveUltimateLiftedOwner(
                     asyncSourceOwner,
-                    bodyReferenceLimit,
                     out AuthenticatedSourceOwner resolvedOwner);
             ultimateOwner =
                 resolution == DeclaredOwnerResolution.Resolved
@@ -421,15 +381,6 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
     DeclaredOwnerResolution ResolveUltimateLiftedOwner(
         AuthenticatedSourceOwner source,
         out AuthenticatedSourceOwner ultimateOwner)
-        => ResolveUltimateLiftedOwner(
-            source,
-            bodyReferenceLimit: null,
-            out ultimateOwner);
-
-    DeclaredOwnerResolution ResolveUltimateLiftedOwner(
-        AuthenticatedSourceOwner source,
-        AttributionBodyReferenceLimit? bodyReferenceLimit,
-        out AuthenticatedSourceOwner ultimateOwner)
     {
         AuthenticatedSourceOwner current = source;
         Span<int> visited =
@@ -476,8 +427,7 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                     out AuthenticatedSourceOwner sourceOwner,
                     ownerMethodScope: null,
                     ownerTypeScope: null,
-                    directlySelectedBody: false,
-                    bodyReferenceLimit: bodyReferenceLimit);
+                    directlySelectedBody: false);
             if (resolution != LiftedSourceOwnerResolution.Resolved)
             {
                 ultimateOwner = default;
