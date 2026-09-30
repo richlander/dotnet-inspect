@@ -278,6 +278,56 @@ public sealed class MemberMetricsInspectionOperationTests
 
     [Fact]
     public async Task
+        HiddenSameNameImplementation_IsOutsideBoundRelationshipFamily()
+    {
+        byte[] image = await Fixture(
+            FixtureCatalog.AnalysisOverloadFamilyLens);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberGroupDocument document =
+            Document(
+                ExecuteDocument(
+                    library,
+                    Subject(
+                        "ILInspector.Analysis.ImplementationProfileFixtures",
+                        "ImplementationProfileHiddenImplementationSample",
+                        "Parse")));
+
+        MemberMetricsInspectionContent content =
+            Available(
+                MemberMetricsInspectionOperation.Execute(
+                    Request(
+                        library,
+                        document,
+                        MemberMetricKind.SiblingRelationships,
+                        MemberMetricKind.SiblingRelationships,
+                        RowQueryIntent.Empty,
+                        QuerySpaceTerminalRequirement.Rows),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+        ImmutableArray<MemberMetricsRow> rows =
+            Assert.IsType<MemberMetricsPopulationOutcome.Rows>(
+                    content.Population)
+                .Items;
+
+        Assert.Equal(2, rows.Length);
+        Assert.All(
+            rows,
+            static row =>
+            {
+                Assert.True(
+                    row.SiblingRelationships!.IsComplete);
+                Assert.Empty(
+                    row.SiblingRelationships.Incoming);
+                Assert.Empty(
+                    row.SiblingRelationships.Outgoing);
+            });
+    }
+
+    [Fact]
+    public async Task
         CallFailure_DoesNotDowngradeCompletedBodySize()
     {
         byte[] image = await Fixture(
@@ -439,6 +489,69 @@ public sealed class MemberMetricsInspectionOperationTests
             MemberMetricKind.BodySize,
             incomplete.RequiredMetrics);
         Assert.Null(incomplete.RowWindowFailure);
+    }
+
+    [Fact]
+    public async Task
+        GeneratedBodyExhaustion_PreventsAuthoritativeTop()
+    {
+        byte[] image = await Fixture(
+            FixtureCatalog.AnalysisOverloadFamilyLens);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberGroupDocument document =
+            Document(
+                ExecuteDocument(
+                    library,
+                    Subject(
+                        "ILInspector.Analysis.ImplementationProfileFixtures",
+                        "ImplementationHeatLambdaSample",
+                        "Scale")));
+        RowQueryIntent rowIntent =
+            RowQueryIntent.Create(
+                [],
+                baselineOrder: null,
+                RowSelectionIntent<RowQueryOrderIntent>.Create(
+                    [
+                        RowSelectionIntentOperation<
+                            RowQueryOrderIntent>.Top(1),
+                    ]));
+        var limits = new MemberMetricsInspectionLimits(
+            maximumAssemblyBytes: image.Length,
+            new ImplementationMetricWorkLimits(
+                maximumPhysicalBodies: 2,
+                maximumEncodedIlBytes: long.MaxValue,
+                maximumAttributionProbeBodies: 100,
+                maximumAttributionProbeIlBytes: long.MaxValue));
+
+        MemberMetricsInspectionContent content =
+            Available(
+                MemberMetricsInspectionOperation.Execute(
+                    Request(
+                        library,
+                        document,
+                        MemberMetricKind.BodySize,
+                        MemberMetricKind.BodySize,
+                        rowIntent,
+                        QuerySpaceTerminalRequirement.Rows,
+                        limits),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+        MemberMetricsPopulationOutcome.Incomplete incomplete =
+            Assert.IsType<
+                MemberMetricsPopulationOutcome.Incomplete>(
+                content.Population);
+
+        Assert.Equal(
+            MemberMetricsPopulationIncompleteReason.RequiredEvidence,
+            incomplete.Reason);
+        Assert.Equal(
+            MemberMetricKind.BodySize,
+            incomplete.RequiredMetrics);
+        Assert.True(content.Coverage.IncompleteCount > 0);
+        Assert.NotEmpty(content.Diagnostics);
     }
 
     [Fact]

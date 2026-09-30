@@ -254,14 +254,7 @@ public static class MemberMetricsInspectionOperation
                 .ToHashSet();
         if (metrics.Bodies.Any(body =>
                 !expectedTokens.Contains(
-                    body.Method.MetadataToken))
-            || metrics.SiblingRelationships?.Relationships.Any(
-                relationship =>
-                    !expectedTokens.Contains(
-                        relationship.Caller.MetadataToken)
-                    || !expectedTokens.Contains(
-                        relationship.Callee.MetadataToken))
-                is true)
+                    body.Method.MetadataToken)))
         {
             return Failed(
                 MemberMetricsInspectionFailure.Analysis,
@@ -282,7 +275,14 @@ public static class MemberMetricsInspectionOperation
                 .Select(static method => method.MetadataToken)
                 .ToHashSet();
         ImmutableArray<OverloadCallRelationship> relationships =
-            metrics.SiblingRelationships?.Relationships ?? [];
+        [
+            .. (metrics.SiblingRelationships?.Relationships ?? [])
+                .Where(relationship =>
+                    expectedTokens.Contains(
+                        relationship.Caller.MetadataToken)
+                    && expectedTokens.Contains(
+                        relationship.Callee.MetadataToken)),
+        ];
         bool relationshipsComplete =
             metrics.SiblingRelationships?.IsComplete
             ?? !plan.RequestedMetrics.HasFlag(
@@ -455,7 +455,14 @@ public static class MemberMetricsInspectionOperation
                 == overload.MetadataToken
             || bodies.Any(body =>
                 body.EvidenceMethod.MetadataToken
-                    == work?.MetricExhaustedMethodToken);
+                    == work?.MetricExhaustedMethodToken)
+            || work?.MetricExhaustedMethodToken
+                is { } exhaustedMethodToken
+                && diagnostics.Any(diagnostic =>
+                    diagnostic.MethodToken
+                        == exhaustedMethodToken
+                    && diagnostic.SourceMethodToken
+                        == overload.MetadataToken);
 
         MemberMetricCellState state;
         if (rowExhausted
