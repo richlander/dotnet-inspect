@@ -426,18 +426,25 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             .ToHashSet(StringComparer.Ordinal);
 
         // Every surviving body is flattened into the same declaration scope. A
-        // declaration can therefore shadow a member reference in a sibling body,
-        // even though each candidate was independently safe against the host and
-        // its own body.
-        var shadowingNames = candidates
+        // declaration can therefore shadow a member reference in a sibling body
+        // or in the host after a sibling environment performs its proven
+        // substitutions, even though each candidate was independently safe.
+        var scopeCandidates = candidates
             .Where(candidate => !collidingNames.Contains(candidate.Name))
-            .Where(candidate => candidates.Any(
-                scopeCandidate => !collidingNames.Contains(scopeCandidate.Name)
+            .ToList();
+        var shadowingNames = scopeCandidates
+            .Where(candidate => scopeCandidates.Any(scopeCandidate =>
+                HasShadowedInstanceMemberReference(
+                    scopeCandidate.Body,
+                    candidate.Method,
+                    candidate.Name,
+                    function)
+                || scopeCandidate.Environment is { } environment
                     && HasShadowedInstanceMemberReference(
-                        scopeCandidate.Body,
+                        function,
                         candidate.Method,
                         candidate.Name,
-                        function)))
+                        plannedEnvironment: environment)))
             .Select(candidate => candidate.Name)
             .ToHashSet(StringComparer.Ordinal);
 

@@ -2511,6 +2511,66 @@ public class CfgSampleClass
         int Result(int current) => self.Result + current + _localFunctionState;
     }
 
+    // Other owns the environment that will rewrite the host's `self.Read` to
+    // exact `this`. The sibling Read declaration must account for that planned
+    // substitution even though Read does not own the environment.
+    public int SiblingInstanceLocalFunctionShadowingHostAliasMember(int value)
+    {
+        int result = Read(value);
+        {
+            var self = this;
+            result += self.Read(value) + Other(value);
+
+            int Other(int current) => self._read + current;
+        }
+        return result;
+
+        int Read(int current) => current + _localFunctionState;
+    }
+
+    public int SiblingInstanceLocalFunctionShadowingHostAliasMemberGroup(int value)
+    {
+        int result = Read(value);
+        {
+            var self = this;
+            Func<int, int> callback = self.Read;
+            result += callback(value) + Other(value);
+
+            int Other(int current) => self._read + current;
+        }
+        return result;
+
+        int Read(int current) => current + _localFunctionState;
+    }
+
+    public int SiblingInstanceLocalFunctionShadowingHostAliasField(int value)
+    {
+        int result = _read(value);
+        {
+            var self = this;
+            result += self._read + Other(value);
+
+            int Other(int current) => self.Result + current;
+        }
+        return result;
+
+        int _read(int current) => current + _localFunctionState;
+    }
+
+    public int SiblingInstanceLocalFunctionShadowingHostAliasProperty(int value)
+    {
+        int result = Result(value);
+        {
+            var self = this;
+            result += self.Result + Other(value);
+
+            int Other(int current) => self._read + current;
+        }
+        return result;
+
+        int Result(int current) => current + _localFunctionState;
+    }
+
     // Method-group spelling drops the exact-this receiver too, so the recovered
     // declaration would otherwise redirect this delegate to the local function.
     public int InstanceLocalFunctionShadowingInstanceMemberGroup(int value)
