@@ -343,6 +343,33 @@ test("exact canonical completion renders and focuses once", async () => {
   assert.equal(harness.workspaceFocuses(), 1);
 });
 
+test("failed initial Package detail preserves the managed Workspace presentation", async () => {
+  const initial = deferred<{ surface: TestPackage }>();
+  const harness = retainedWorkspaceInstallationHarness({
+    activeKind: "package",
+    initial,
+    newer: () => Promise.reject(new Error("unused")),
+  });
+
+  harness.post();
+  const installation = harness.install();
+  initial.reject(new Error("Package details are unavailable."));
+  await installation;
+
+  assert.equal(harness.state.package, null);
+  assert.equal(harness.state.packages.length, 0);
+  assert.equal(harness.state.workspaceSubjectOpen, true);
+  const presentation = harness.context.retainedWorkspacePresentation;
+  assert.ok(presentation);
+  assert.equal(
+    presentation.packages[0]?.detailFailure,
+    "Package details are unavailable.",
+  );
+  assert.equal(harness.state.loading, false);
+  assert.equal(harness.context.activeWorkspaceUrl, "/workspace");
+  assert.deepEqual(harness.historyWrites(), ["/workspace"]);
+});
+
 test("stale initial Package detail cannot replace a newer row selection", async () => {
   const initial = deferred<{ surface: TestPackage }>();
   const newer: TestPackage = {

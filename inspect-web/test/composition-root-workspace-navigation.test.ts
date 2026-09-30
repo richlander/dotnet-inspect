@@ -1520,6 +1520,9 @@ test("browser history reuses available identities and publishes only unavailable
     /const restoreHistoryWorkspace = \(\) => historyWorkspaceAvailable\s*\? restoreRetainedWorkspaceFromHistory\(loc, navigationSeq\)\s*: historyWorkspaceReferenced\s*\|\| retainedWorkspaces\.activeWorkspaceId === null\s*\? restoreFreshWorkspaceFromHistory\(loc, navigationSeq\)\s*: restoreRetainedWorkspaceFromHistory\(loc, navigationSeq\)[\s\S]*!workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)[\s\S]*restoreHistoryWorkspace\(\)/);
   assert.match(
     history,
+    /if \(!state\.package\) \{\s*if \(restoredActiveManagedWorkspace\) \{\s*state\.home = false;\s*render\(\{ synchronizeUrl: false \}\);\s*return;\s*\}\s*observeAsync\(\s*restoreHistoryWorkspace\(\),\s*"Restoring workspace history"\)/);
+  assert.match(
+    history,
     /const activeManagedTarget = restoredActiveManagedWorkspace[\s\S]*loc\.framework === null[\s\S]*state\.package\.version\.toLowerCase\(\) === loc\.version\.toLowerCase\(\)[\s\S]*const target = loc\.package\s*\? activeManagedTarget \?\? state\.packages\.find\(candidate =>\s*packageCoordinateMatchesLocation\(candidate, loc\)\)\s*: null;\s*if \(loc\.tabs\?\.length && !target\) \{[\s\S]*restoreHistoryWorkspace\(\)[\s\S]*\}\s*if \(target\) \{\s*activatePackage\(target, \{ resetAccessibility: true \}\)/);
   assert.match(
     restore,

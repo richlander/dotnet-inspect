@@ -23814,6 +23814,11 @@ window.addEventListener("popstate", () => {
     return;
   }
   if (!state.package) {
+    if (restoredActiveManagedWorkspace) {
+      state.home = false;
+      render({ synchronizeUrl: false });
+      return;
+    }
     observeAsync(
       restoreHistoryWorkspace(),
       "Restoring workspace history");
