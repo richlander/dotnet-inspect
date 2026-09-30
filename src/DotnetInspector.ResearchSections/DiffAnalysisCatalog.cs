@@ -189,9 +189,10 @@ public static class DiffAnalysisCatalog
     static DiffAnalysisProduction ProduceApi(DiffAnalysisProducerContext context)
         => DiffAnalysisProduction.Compared(
             KeyedFindingComparison.Of(
-                ApiComparisonQuery.Execute(
-                    context.Input.FromSurface,
-                    context.Input.ToSurface)));
+                context.Input.PrecomputedApiComparison
+                    ?? ApiComparisonQuery.Execute(
+                        context.Input.FromSurface,
+                        context.Input.ToSurface)));
 
     static DiffAnalysisProduction ProduceApiAttributes(DiffAnalysisProducerContext context)
     {
