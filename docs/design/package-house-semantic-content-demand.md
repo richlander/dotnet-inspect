@@ -415,7 +415,7 @@ All implementation gates run in Release.
 | TFM-wide file list | Every path in the owner-issued target scope appears once; unrelated target paths do not appear. |
 | Ordered root preference | The first applicable family is selected from an arbitrary-length chain; a later family cannot contribute candidates or inventory. |
 | Shared directory evidence | File List, exact-file admission, logical Library inventory, package-symbol evidence, and range spans derive from one validated snapshot plus owner-issued narrowing and correspondence. |
-| Exact files | Every explicitly requested file lies in the base narrowed space and is complete and validated; an outside, missing, or ambiguous path fails visibly. |
+| Exact files | Ranged execution expands only the exact referenced entries; complete fallback may transfer the archive but publishes only those entries. Every reference lies in the base narrowed space and is complete and validated; an outside, missing, or ambiguous reference fails visibly. |
 | `GetLibraryAndInventoryForTarget` without namespace | PackageHouse returns exactly one selected DLL, no PDB content, and one complete logical inventory whose selection receipt identifies that row. |
 | Reference primary plus listed implementation PDB | The selected reference DLL remains the only downloaded entry; its inventory row identifies the owner-issued implementation DLL and adjacent PDB for a later exact Files request. |
 | TFM-wide package-local PDB absence | The applicable inventory row proves the adjacent implementation PDB is absent without downloading package content or consulting a symbol provider. |

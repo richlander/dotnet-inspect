@@ -1648,17 +1648,25 @@ graphs remain later #7423 sequences. This slice does not authorize or specify
 them.
 
 [#8994](https://github.com/richlander/dotnet-inspect/issues/8994) adds a
-six-slice semantic-content-demand stack:
+seven-slice semantic-content-demand stack:
 
 1. lock the focused demand and House-owned planning contract;
-2. move existing manifest, file-list, exact-file, selected-asset, and
-   whole-archive behavior behind it with one production adopter;
-3. add reusable package narrowing plus all-library and Best-Library terminals
-   by composing asset-selection and Metadata evidence;
-4. adopt Package Query;
-5. adopt `find` and shared Workspace/declaration loading; and
-6. migrate remaining callers, then remove `PackagePayloadAccess` and
-   caller-owned fallback.
+2. move existing nuspec, file-list, semantic exact-file, selected-asset,
+   selected-Library PDB companion, and whole-archive behavior behind semantic
+   queries with one production adopter while preserving the current direct
+   companion handoff;
+3. add reusable narrowing, Libraries, and
+   `GetLibraryAndInventoryForTarget` by composing asset-selection,
+   correspondence, and Metadata evidence;
+4. after #9002 locks and implements independent PDB settlement, consume
+   Library-inventory package-symbol evidence, compose later exact Files
+   acquisition, migrate one current PDB consumer, and retire direct companion
+   delivery for that route;
+5. adopt `GetLibraryAndInventoryForTarget` in Inspect Web Package Query;
+6. adopt the same demands in `find` and shared Workspace/declaration loading;
+   and
+7. migrate remaining callers, then remove `PackagePayloadAccess` and
+   caller-owned ranged/complete fallback.
 
 Each arm lands with a production caller. Other owners adopt the pattern in
 focused successor slices rather than broadening the owner document.

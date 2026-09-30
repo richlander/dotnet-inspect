@@ -17,10 +17,10 @@ document owns only entry expansion after the House resolves that narrowing
 against one validated ZIP central-directory snapshot and selects ranged
 execution. The current direct selected-Library PDB companion remains an
 existing request path; the semantic content-query successor instead uses
-`GetLibraryAndInventoryForTarget` evidence followed by an exact Files request.
-Commands and hosts do not select an access mode.
+`GetLibraryAndInventoryForTarget` evidence followed by the semantic exact-entry
+expansion defined below. Commands and hosts do not select an access mode.
 
-The claim has five parts:
+The claim has six parts:
 
 - **Asset demand.** A House request carries an asset demand. `Surface` asks
   for the compile surface only: the reference or compile assets the
@@ -29,11 +29,11 @@ The claim has five parts:
   implementation role and no role correspondence. It is never upgraded in
   place: a consumer that needs the implementation asks for a realization with
   that demand.
-- **The folder is the unit of a ranged read.** A ranged selection is expanded
-  from each selected asset to every direct entry of that asset's folder: the
-  folder's other assemblies and their documentation files, but not its
-  subfolders, such as satellite resource folders. A command that inspects one
-  assembly of a folder usually inspects its neighbors and their
+- **The folder is the unit of an asset realization.** A ranged asset
+  selection is expanded from each selected asset to every direct entry of that
+  asset's folder: the folder's other assemblies and their documentation files,
+  but not its subfolders, such as satellite resource folders. A command that
+  inspects one assembly of a folder usually inspects its neighbors and their
   documentation next, and a whole folder is cached as a whole.
 - **Named implementation reads aligned blocks.** A consumer may name the
   implementation assemblies it needs. Those are read in fixed, entry-aligned
@@ -44,11 +44,18 @@ The claim has five parts:
   returns selected Library handoffs may request the package-local Portable
   PDB beside each selected implementation assembly. A listed companion is
   added as one exact entry; an absent companion does not fail realization.
-- **Files are named directly.** A file demand names exact entries or folders.
-  A ranged `Acquire` may carry it, and ranged content serves the House's pull
-  reads. Hosts that need one exact path call `PackageFileAcquisition`, which
-  owns the demand, House execution, cache-aware acquisition, manifest
-  resolution, and generation-bound read.
+- **Semantic exact entries stay exact.** The semantic Files terminal and
+  selected content of `GetLibraryAndInventoryForTarget` expand only their
+  exact owner-issued entry references under ranged execution. They do not add
+  the package root or sibling entries. A complete-transfer fallback may retain
+  the whole archive, but its semantic result publishes only the requested
+  entries.
+- **Current direct Files remain folder-expanded.** `PackageFileDemand` names
+  entry paths or folder prefixes, but the current compatibility route expands
+  a named entry to its direct folder. `PackageFileAcquisition` owns that
+  demand, House execution, cache-aware acquisition, manifest resolution, and
+  generation-bound read until #8994 adopters migrate to semantic exact-entry
+  expansion.
 
 This document transfers one claim from the
 [package source model](package-source-model.md#ranged-payload-realization):
@@ -139,11 +146,12 @@ role.
 
 ### The folder unit
 
+This unit applies to asset realization and the current folder-expanded
+`PackageFileDemand`; it does not apply to semantic exact-entry expansion.
 After the realization selects its assets, the House adds every entry whose
-parent folder is a selected asset's folder. It adds nothing from other
-folders and nothing from subfolders. The realization receipt is still
-evaluated over the materialized content, so it names only entries that were
-read.
+parent folder is a selected asset's folder. It adds nothing from other folders
+and nothing from subfolders. The realization receipt is still evaluated over
+the materialized content, so it names only entries that were read.
 
 A cached directory tells a later read which entries its demand needs and
 which the entry cache already holds, without a request
@@ -268,9 +276,38 @@ existing ranged plan exactly. An unnamed implementation realization already
 reads the implementation folder whole, so a listed adjacent PDB is already
 retained without an additional exact entry.
 
+### Semantic exact-entry expansion
+
+The semantic Files terminal and selected content of
+`GetLibraryAndInventoryForTarget` carry exact package-entry references issued
+from the query's validated central-directory snapshot. When PackageHouse
+chooses ranged execution, the read demand adds exactly those entries:
+
+- it does not add the package root folder;
+- it does not add sibling entries from a named entry's folder;
+- it does not expand a folder prefix; and
+- a missing, ambiguous, or outside-narrowing reference fails visibly.
+
+Without a namespace, the target composite names only its selected Library
+entry. Namespace selection may name each candidate assembly required to prove
+the first exact match. Detached inventory rows name no content until a later
+Files query presents their exact references.
+
+A complete-transfer or ranged-then-complete plan may download and retain the
+whole archive because PackageHouse owns transfer planning. That execution path
+does not enlarge the semantic result: only the exact selected entries are
+published as materialized content. The transfer receipt discloses complete
+acquisition.
+
+This expansion is a successor arm of the read-demand owner. It does not change
+the current `PackageFileDemand` behavior below. The #8994 implementation slice
+adds it with its first production caller and retires folder-expanded direct
+file acquisition route by route.
+
 ### Exact file demand
 
-A consumer that needs package files rather than assets names them directly:
+A current compatibility consumer that needs package files rather than assets
+names them directly:
 `PackageFileDemand` is a set of exact entry paths and folder prefixes.
 Paths are validated as entry names are: relative, `/`-separated, and without
 an empty, `.`, or `..` segment, a root, `\`, or `:`. They are compared
@@ -429,7 +466,10 @@ All gates run in Release.
    history may read nothing it already holds.
 
 [#8994](https://github.com/richlander/dotnet-inspect/issues/8994) moves access
-planning into PackageHouse after these demand semantics are preserved.
+planning into PackageHouse after these demand semantics are preserved. Its
+semantic Files and `GetLibraryAndInventoryForTarget` adopters add the
+exact-entry arm above, then retire current folder-expanded direct file
+acquisition route by route.
 
 ## Non-claims
 
