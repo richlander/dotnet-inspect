@@ -1,4 +1,7 @@
+using System.Security.Cryptography;
+
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -147,6 +150,388 @@ public class LocalFunctionRaisingPassTests
         Assert.Equal(1, CountOccurrences(output, "int Add(int v)"));
         Assert.DoesNotContain("static int Add", output);         // capturing local function is not static (CS8421)
         Assert.DoesNotContain("DisplayClass", output);           // environment elided
+    }
+
+    [Fact]
+    public void InstanceAndEnvironmentCapturingLocalFunction_RaisesWithImplicitThis()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceAndEnvironmentCapturingLocalFunction),
+            function =>
+            {
+                var declaration = Assert.Single(
+                    function.Descendants.OfType<LocalFunctionStatement>());
+                Assert.False(declaration.IsStatic);
+                Assert.Contains("this", declaration.CapturedBinderNames);
+            });
+
+        Assert.Contains("Restore();", output);
+        Assert.Contains("void Restore()", output);
+        Assert.DoesNotContain("static void Restore()", output);
+        Assert.Contains("int previous = _localFunctionState;", output);
+        Assert.Contains("_localFunctionState = previous;", output);
+        Assert.DoesNotContain("DisplayClass", output);
+        Assert.DoesNotContain("g__Restore", output);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void IsolatedInstanceAndEnvironmentCapturingLocalFunction_CompilesBackExactly()
+    {
+        var type = typeof(InstanceLocalFunctionFidelitySamples);
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            type.Assembly.Location,
+            candidate => candidate == type.FullName,
+            method => method.Method
+                == nameof(InstanceLocalFunctionFidelitySamples.RestoreState)));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status}: {result.Detail}");
+    }
+
+    [Fact]
+    public void PublishedRoslynInstanceLocalFunction_RaisesAndConsumesItsEnvironment()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "PrimitiveJoin",
+            "Microsoft.CodeAnalysis.dll");
+        Assert.Equal(
+            "10F489DB67B8AC7489E58D392166C928302BA5698506DD652311DA5D89F0A0F8",
+            System.Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
+        using var metadata = CorpusMetadata.Create([path]);
+        using var source = MetadataSource.Open(path, context: metadata);
+        var function = IrImporter.Import(
+            source,
+            "Microsoft.CodeAnalysis.FlowAnalysis.ControlFlowGraphBuilder",
+            "VisitConditionalAccess");
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method => IrImporter.Import(source, method));
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.Contains("void resetConditionalAccessTracker()", result.Output);
+        Assert.Contains("resetConditionalAccessTracker();", result.Output);
+        Assert.DoesNotContain(
+            "__VisitConditionalAccess_g__resetConditionalAccessTracker_117_0",
+            result.Output);
+        Assert.DoesNotContain("___c__DisplayClass117_0", result.Output);
+        Assert.Contains(
+            "__VisitConditionalAccess_g__isConditionalAccessInstancePresentInChildren_117_1",
+            result.Output);
+        function!.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionWithMutatedArgumentSnapshot_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionWithMutatedArgumentSnapshot),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("DisplayClass", output);
+        Assert.Contains("g__Read", output);
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionWithMutatedLocalSnapshot_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionWithMutatedLocalSnapshot),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("DisplayClass", output);
+        Assert.Contains("g__Read", output);
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionWithNullCoalescingSnapshot_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionWithNullCoalescingSnapshot),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("DisplayClass", output);
+        Assert.Contains("g__Read", output);
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionShadowingInstanceMember_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionShadowingInstanceMember),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("g__Read", output);
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionShadowingHostInstanceMember_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionShadowingHostInstanceMember),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("g__Read", output);
+    }
+
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingHostAliasMember), "g__Read")]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingHostAliasMemberGroup), "g__Read")]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingHostAliasField), "g___read")]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingHostAliasProperty), "g__Result")]
+    public void InstanceLocalFunctionShadowingHostAliasMember_DeclinesShadowingDeclaration(
+        string methodName,
+        string generatedName)
+    {
+        string output = PrintRaised(
+            methodName,
+            function => Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>(),
+                declaration => declaration.Name == "Other"));
+
+        Assert.Contains("DisplayClass", output);
+        Assert.Contains(generatedName, output);
+        Assert.Contains("static int Other(int current)", output);
+    }
+
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingHostAliasMember), "g__Read")]
+    [InlineData(nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingHostAliasMemberGroup), "g__Read")]
+    [InlineData(nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingHostAliasField), "g___read")]
+    [InlineData(nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingHostAliasProperty), "g__Result")]
+    public void SiblingInstanceLocalFunctionShadowingHostAliasMember_DeclinesShadowingDeclaration(
+        string methodName,
+        string generatedName)
+    {
+        string output = PrintRaised(
+            methodName,
+            function => Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>(),
+                declaration => declaration.Name == "Other"));
+
+        Assert.DoesNotContain("DisplayClass", output);
+        Assert.Contains(generatedName, output);
+        Assert.Contains("int Other(int current)", output);
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionShadowingInstanceMemberGroup_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionShadowingInstanceMemberGroup),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("g__Read", output);
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionShadowingInstanceField_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionShadowingInstanceField),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("g___read", output);
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionShadowingInstanceProperty_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionShadowingInstanceProperty),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("g__Result", output);
+    }
+
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingAliasMember), "g__Read")]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingAliasMemberGroup), "g__Read")]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingAliasField), "g___read")]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingAliasProperty), "g__Result")]
+    public void InstanceLocalFunctionShadowingAliasMember_StaysLowered(
+        string methodName,
+        string generatedName)
+    {
+        string output = PrintRaised(
+            methodName,
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains(generatedName, output);
+    }
+
+    [Fact]
+    public void SiblingInstanceLocalFunctionShadowingMember_DeclinesShadowingDeclaration()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingMember),
+            function => Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>(),
+                declaration => declaration.Name == "Other"));
+
+        Assert.Contains("g__Read", output);
+        Assert.Contains("int Other(int current)", output);
+    }
+
+    [Fact]
+    public void SiblingInstanceLocalFunctionShadowingMemberGroup_DeclinesShadowingDeclaration()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingMemberGroup),
+            function => Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>(),
+                declaration => declaration.Name == "Other"));
+
+        Assert.Contains("g__Read", output);
+        Assert.Contains("int Other(int current)", output);
+    }
+
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingAliasMember), "g__Read")]
+    [InlineData(nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingAliasMemberGroup), "g__Read")]
+    [InlineData(nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingAliasField), "g___read")]
+    [InlineData(nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingAliasProperty), "g__Result")]
+    public void SiblingInstanceLocalFunctionShadowingAliasMember_DeclinesShadowingDeclaration(
+        string methodName,
+        string generatedName)
+    {
+        string output = PrintRaised(
+            methodName,
+            function => Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>(),
+                declaration => declaration.Name == "Other"));
+
+        Assert.Contains(generatedName, output);
+        Assert.Contains("int Other(int current)", output);
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionCalledOnForeignReceiver_StaysLowered()
+    {
+        var (function, context) = InstanceLocalFunctionReceiverFixture(
+            useHostReceiverForFirstCall: false,
+            includeSecondHostCall: false);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.LocalFunctionRaise == LocalFunctionRaiseState.Declined);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionCalledOnDifferentReceivers_StaysLowered()
+    {
+        var (function, context) = InstanceLocalFunctionReceiverFixture(
+            useHostReceiverForFirstCall: false,
+            includeSecondHostCall: true);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Equal(
+            2,
+            function.Descendants.OfType<Call>().Count(
+                call => call.Callee.LocalFunctionRaise
+                    == LocalFunctionRaiseState.Declined));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SynthesizedInstanceLocalFunctionDoesNotRaiseInsideItself()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var method = new MethodRef(
+            owner,
+            "<M>g__Read|0_0",
+            s_int,
+            [],
+            HasThis: true)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+        var block = new Block();
+        block.Add(new Return(new Call(
+            method,
+            isVirtual: false,
+            [new LoadArgument(0, "this", owner)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            method.Name,
+            owner,
+            new MethodSignature(
+                s_int,
+                [],
+                HasThis: true,
+                GenericParameterCount: 0),
+            [],
+            body);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: imported => imported == method
+                ? InstanceLocalFunctionBody(
+                    method,
+                    new FieldRef(owner, "_state", s_int))
+                : null);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Equal(
+            LocalFunctionRaiseState.Declined,
+            Assert.Single(function.Descendants.OfType<Call>())
+                .Callee.LocalFunctionRaise);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SynthesizedLocalFunctionCanRaiseDifferentNestedLocalFunction()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var method = new MethodRef(
+            owner,
+            "<M>g__Inner|0_1",
+            s_int,
+            [s_int],
+            HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+        var function = FunctionReturningCall(
+            method,
+            s_int,
+            "<M>g__Outer|0_0");
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: imported => imported == method
+                ? LocalFunctionBody(method, s_int)
+                : null);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Single(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Single(function.Descendants.OfType<LocalFunctionInvocation>());
+        function.CheckInvariant();
     }
 
     [Fact]
@@ -530,6 +915,98 @@ public class LocalFunctionRaisingPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void CapturingLocalFunctionComputedCapture_StaysLowered()
+    {
+        var (function, context) = CapturingLocalFunctionOrderFixture(
+            storeBeforeCall: true,
+            computedCapture: true);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Single(function.Descendants.OfType<StoreField>());
+        Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => GeneratedCodeIdentity.IsLocalFunctionMethod(call.Callee));
+        function.CheckInvariant();
+    }
+
+    static (IrFunction Function, PassContext Context)
+        InstanceLocalFunctionReceiverFixture(
+            bool useHostReceiverForFirstCall,
+            bool includeSecondHostCall)
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var state = new FieldRef(owner, "_state", s_int);
+        var method = new MethodRef(
+            owner,
+            "<M>g__Read|0_0",
+            s_int,
+            [],
+            HasThis: true)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+        var other = new Parameter("other", owner);
+        IrExpression hostReceiver = new LoadArgument(0, "this", owner);
+        IrExpression foreignReceiver = new LoadArgument(1, other);
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(
+            method,
+            isVirtual: false,
+            [useHostReceiverForFirstCall ? hostReceiver : foreignReceiver])));
+        if (includeSecondHostCall)
+        {
+            block.Add(new ExpressionStatement(new Call(
+                method,
+                isVirtual: false,
+                [new LoadArgument(0, "this", owner)])));
+        }
+        block.Add(new Return(new Constant(0, s_int)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(
+                s_int,
+                [other],
+                HasThis: true,
+                GenericParameterCount: 0),
+            [],
+            body);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: imported => imported == method
+                ? InstanceLocalFunctionBody(method, state)
+                : null);
+        return (function, context);
+    }
+
+    static IrFunction InstanceLocalFunctionBody(
+        MethodRef method,
+        FieldRef state)
+    {
+        var block = new Block();
+        block.Add(new Return(new LoadField(
+            state,
+            new LoadArgument(0, "this", method.DeclaringType))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            method.Name,
+            method.DeclaringType,
+            new MethodSignature(
+                method.ReturnType,
+                [],
+                HasThis: true,
+                GenericParameterCount: 0),
+            [],
+            body);
+    }
+
     static int CountOccurrences(string haystack, string needle)
     {
         int count = 0, index = 0;
@@ -545,7 +1022,8 @@ public class LocalFunctionRaisingPassTests
         bool storeBeforeCall,
         bool hostReadBeforeStore = false,
         bool branchBypassesStore = false,
-        bool bodyHasLocal = false)
+        bool bodyHasLocal = false,
+        bool computedCapture = false)
     {
         var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
         var envType = TypeRef.Definition("Synthetic", "Samples", "<>c__DisplayClass0_0", ValueTypeHint.ValueType);
@@ -561,7 +1039,18 @@ public class LocalFunctionRaisingPassTests
             CompilerGenerated = MetadataFactState.Yes,
         };
 
-        var captureStore = new StoreField(field, new LoadLocalAddress(0, envType), new LoadLocal(1, s_int));
+        IrExpression captureValue = computedCapture
+            ? new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadLocal(1, s_int),
+                new Constant(1, s_int))
+            : new LoadLocal(1, s_int);
+        var captureStore = new StoreField(
+            field,
+            new LoadLocalAddress(0, envType),
+            captureValue);
         var call = new ExpressionStatement(new Call(method, isVirtual: false, [new LoadLocalAddress(0, envType)]));
         call.SetSourceOffset(0x20);
         var block = new Block();
@@ -676,14 +1165,17 @@ public class LocalFunctionRaisingPassTests
         Assert.DoesNotContain("DisplayClass", output);          // environment elided
     }
 
-    static IrFunction FunctionReturningCall(MethodRef method, TypeRef intType)
+    static IrFunction FunctionReturningCall(
+        MethodRef method,
+        TypeRef intType,
+        string functionName = "M")
     {
         var block = new Block();
         block.Add(new Return(new Call(method, isVirtual: false, [new LoadArgument(0, "x", intType)])));
         var body = new BlockContainer();
         body.Add(block);
         return new IrFunction(
-            "M",
+            functionName,
             method.DeclaringType,
             new MethodSignature(method.ReturnType, [new Parameter("x", intType)], HasThis: false, GenericParameterCount: 0),
             [],

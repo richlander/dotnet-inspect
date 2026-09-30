@@ -890,7 +890,7 @@ public static class CSharpDeclarationRepresentability
         return result.MoveToImmutable();
     }
 
-    static bool IsCompilerPreservedIdentifier(string name) =>
+    internal static bool IsCompilerPreservedIdentifier(string name) =>
         CSharpIdentifier.IsIdentifierLike(name)
         && !name.Any(character =>
             char.IsSurrogate(character)
