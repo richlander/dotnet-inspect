@@ -81,7 +81,7 @@ The dependency operation registers `result_kind` `type-dependencies` at
 Content subtree of `--envelope`.
 
 Analysis-selected Diff registers `result_kind` `diff-analysis` at
-`schema_version` `1`. `DiffAnalysisInspectionJsonContext` serializes the same
+`schema_version` `2`. `DiffAnalysisInspectionJsonContext` serializes the same
 host-neutral `DiffAnalysisDocument` for Content-only `--json` and the Content
 subtree of `--envelope`. The Document retains comparison context, ordered
 analysis outcomes, typed API inspection failures, and only the requested
@@ -89,7 +89,11 @@ Changes, Summary, and Transitions payloads. API Changes include
 compatibility-classified rows and producer correspondence that has no
 compatibility classification, such as a changed Type definition. Type and
 Member targets shape that semantic Content; presentation projection is not
-admitted on the complete transport.
+admitted on the complete transport. A selected-Library composition may also
+retain the owner-issued `LibraryApiDiffOutcome` as `libraryApi`. It is omitted
+when that composition did not run. The embedded outcome preserves its existing
+portable schema and is derived from the same API comparison as generic Diff,
+not from host-side reconstruction or a second comparison.
 
 Debug asset-mode `depends` adopts `--evidence-envelope <path>` for
 `DependencyInspectionContent` and `DependencyInspectionEvidenceDocument`.
