@@ -310,12 +310,16 @@ baseline. Provider-backed acquisition remains Stage 8.
 ### LINQ and NLinq scorecard
 
 The performance scorecard asks the producer's current production question:
-the Rows terminal over the complete whole-Library population. Its normalized
-answer contains the Type, body, and typed-operand completion counts plus every
-ordered canonical occurrence. It does not manufacture Exists, Count, Head,
-Tail, or Window acquisition behavior that the producer does not support.
-Later QuerySpace adoption owns a standard multi-closing scorecard when those
-questions reach body-use production.
+the Rows terminal over the complete whole-Library population. Every column
+constructs the same product-owned public projection: disposition, full
+canonical Type inventory, named ordered occurrences, physical-only evidence,
+body and operand coverage, and typed diagnostics. The scorecard excludes only
+the Planner execution receipt: an oracle cannot truthfully manufacture
+Producer Planning participation and work without invoking the Planner itself.
+It does not manufacture Exists, Count, Head, Tail, or Window acquisition
+behavior that the producer does not support. Later QuerySpace adoption owns a
+standard multi-closing scorecard when those questions reach body-use
+production.
 
 The scorecard runs four columns:
 
@@ -332,8 +336,9 @@ decode, logical ownership, operand binding, fidelity, and containment are the
 question being composed, not alternative query machinery. They do not invoke
 Producer Planning or consume Planner output. Every column performs bounded
 Type-inventory admission, uses the same body, occurrence, and
-method-signature limits, and constructs the same normalized answer. The
-scorecard checks exact answers before timing.
+method-signature limits, feeds the product-owned result accumulator, and calls
+the same product-owned public projection. The scorecard checks the complete
+projected arrays and diagnostic fields in order before timing.
 
 NativeAOT is the only accepted timing. The report identifies the exact
 candidate, assets, source locations, pinned NLinq provenance, invocation,

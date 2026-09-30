@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection.Metadata;
-using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 
@@ -27,29 +26,13 @@ public sealed record BodyUseScorecardAsset(
     string SourceName,
     ImmutableArray<byte> Image);
 
-public readonly record struct BodyUseScorecardOccurrence(
-    int SourceToken,
-    int TargetToken,
-    int PhysicalMethodToken,
-    AnalysisLibraryBodyUseOperandKind OperandKind,
-    int OperandToken,
-    int IlOffset,
-    int OccurrenceOrdinal);
-
 public sealed record BodyUseScorecardAnswer(
-    int Types,
     AnalysisLibraryBodyUseDisposition Disposition,
-    int BodiesConsidered,
-    int BodiesExamined,
-    int BodiesPhysicalOnly,
-    int BodiesUnavailable,
-    int BodiesLimited,
-    int OperandsConsidered,
-    int OperandsExamined,
-    int OperandsUnavailable,
-    int OperandsLimited,
-    int Diagnostics,
-    ImmutableArray<BodyUseScorecardOccurrence> Occurrences);
+    ImmutableArray<AnalysisLibraryBodyUseType> Types,
+    ImmutableArray<AnalysisLibraryBodyUseOccurrence> Occurrences,
+    ImmutableArray<AnalysisLibraryBodyUsePhysicalEvidence> PhysicalEvidence,
+    AnalysisLibraryBodyUseCoverage Coverage,
+    ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics);
 
 public sealed record BodyUseScorecardExecution(
     BodyUseScorecardColumn Column,
@@ -380,8 +363,9 @@ public static class BodyUseScorecard
             return "rejected:" + execution.Rejection;
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"types={answer.Types};bodies={answer.BodiesConsidered};"
-                + $"operands={answer.OperandsConsidered};"
+            $"types={answer.Types.Length};"
+                + $"bodies={answer.Coverage.BodiesConsidered};"
+                + $"operands={answer.Coverage.OperandsConsidered};"
                 + $"occurrences={answer.Occurrences.Length};"
                 + $"disposition={answer.Disposition};"
                 + $"hash={AnswerHash(execution)}");
@@ -392,7 +376,9 @@ public static class BodyUseScorecard
         BodyUseScorecardAsset asset,
         AnalysisLibraryBodyUseLimits limits,
         CancellationToken cancellationToken,
-        Func<OracleContext, BodyUseScorecardAnswer> execute)
+        Func<
+            OracleContext,
+            AnalysisLibraryBodyUseProducer.Result> execute)
     {
         try
         {
@@ -440,10 +426,6 @@ public static class BodyUseScorecard
             var inventory =
                 ((AssemblyTypeDeclarationInventoryOutcome.Read)
                     inventoryOutcome).Inventory;
-            int types = inventory.Declarations.Count(
-                static declaration =>
-                    declaration.Kind
-                        == AssemblyTypeDeclarationKind.Definition);
             using var builder = new LibraryBodyAnalysisBuilder(
                 asset.SourceName,
                 reader,
@@ -453,9 +435,13 @@ public static class BodyUseScorecard
                 reader,
                 new LibraryMethodAnalysisRunner(builder),
                 limits,
-                types,
                 cancellationToken);
-            return new(column, execute(context), null);
+            AnalysisLibraryBodyUseProjection projection =
+                AnalysisLibraryBodyUseService.Project(
+                    reader,
+                    inventory,
+                    execute(context));
+            return new(column, Normalize(projection), null);
         }
         catch (Exception exception)
             when (LibraryMethodAnalysisRunner
@@ -499,27 +485,22 @@ public static class BodyUseScorecard
     static BodyUseScorecardAnswer Normalize(
         AnalysisLibraryBodyUseResult result) =>
         new(
-            result.Types.Length,
             result.Disposition,
-            result.Coverage.BodiesConsidered,
-            result.Coverage.BodiesExamined,
-            result.Coverage.BodiesPhysicalOnly,
-            result.Coverage.BodiesUnavailable,
-            result.Coverage.BodiesLimited,
-            result.Coverage.OperandsConsidered,
-            result.Coverage.OperandsExamined,
-            result.Coverage.OperandsUnavailable,
-            result.Coverage.OperandsLimited,
-            result.Diagnostics.Length,
-            [.. result.Occurrences.Select(
-                static occurrence => new BodyUseScorecardOccurrence(
-                    occurrence.Source.Definition.Value,
-                    occurrence.Target.Definition.Value,
-                    occurrence.PhysicalMethodToken,
-                    occurrence.OperandKind,
-                    occurrence.OperandToken,
-                    occurrence.IlOffset,
-                    occurrence.OccurrenceOrdinal))]);
+            result.Types,
+            result.Occurrences,
+            result.PhysicalEvidence,
+            result.Coverage,
+            result.Diagnostics);
+
+    static BodyUseScorecardAnswer Normalize(
+        AnalysisLibraryBodyUseProjection projection) =>
+        new(
+            projection.Disposition,
+            projection.Types,
+            projection.Occurrences,
+            projection.PhysicalEvidence,
+            projection.Coverage,
+            projection.Diagnostics);
 
     static bool Same(
         BodyUseScorecardExecution left,
@@ -532,20 +513,16 @@ public static class BodyUseScorecard
         }
         BodyUseScorecardAnswer first = left.Answer;
         BodyUseScorecardAnswer second = right.Answer;
-        return first.Types == second.Types
-            && first.Disposition == second.Disposition
-            && first.BodiesConsidered == second.BodiesConsidered
-            && first.BodiesExamined == second.BodiesExamined
-            && first.BodiesPhysicalOnly == second.BodiesPhysicalOnly
-            && first.BodiesUnavailable == second.BodiesUnavailable
-            && first.BodiesLimited == second.BodiesLimited
-            && first.OperandsConsidered == second.OperandsConsidered
-            && first.OperandsExamined == second.OperandsExamined
-            && first.OperandsUnavailable == second.OperandsUnavailable
-            && first.OperandsLimited == second.OperandsLimited
-            && first.Diagnostics == second.Diagnostics
+        return first.Disposition == second.Disposition
+            && first.Types.AsSpan().SequenceEqual(
+                second.Types.AsSpan())
             && first.Occurrences.AsSpan().SequenceEqual(
-                second.Occurrences.AsSpan());
+                second.Occurrences.AsSpan())
+            && first.PhysicalEvidence.AsSpan().SequenceEqual(
+                second.PhysicalEvidence.AsSpan())
+            && first.Coverage == second.Coverage
+            && first.Diagnostics.AsSpan().SequenceEqual(
+                second.Diagnostics.AsSpan());
     }
 
     static string AnswerHash(BodyUseScorecardExecution execution)
@@ -554,30 +531,74 @@ public static class BodyUseScorecard
             return "rejected:" + execution.Rejection;
 
         ulong hash = 14695981039346656037;
-        Add(answer.Types);
         Add((int)answer.Disposition);
-        Add(answer.BodiesConsidered);
-        Add(answer.BodiesExamined);
-        Add(answer.BodiesPhysicalOnly);
-        Add(answer.BodiesUnavailable);
-        Add(answer.BodiesLimited);
-        Add(answer.OperandsConsidered);
-        Add(answer.OperandsExamined);
-        Add(answer.OperandsUnavailable);
-        Add(answer.OperandsLimited);
-        Add(answer.Diagnostics);
-        foreach (BodyUseScorecardOccurrence occurrence
+        Add(answer.Coverage.BodiesConsidered);
+        Add(answer.Coverage.BodiesExamined);
+        Add(answer.Coverage.BodiesPhysicalOnly);
+        Add(answer.Coverage.BodiesUnavailable);
+        Add(answer.Coverage.BodiesLimited);
+        Add(answer.Coverage.OperandsConsidered);
+        Add(answer.Coverage.OperandsExamined);
+        Add(answer.Coverage.OperandsUnavailable);
+        Add(answer.Coverage.OperandsLimited);
+        foreach (AnalysisLibraryBodyUseType type in answer.Types)
+        {
+            AddAddress(type.Type);
+            AddName(type.Name);
+            Add((int)type.DefinitionKind);
+        }
+        foreach (AnalysisLibraryBodyUseOccurrence occurrence
             in answer.Occurrences)
         {
-            Add(occurrence.SourceToken);
-            Add(occurrence.TargetToken);
+            AddAddress(occurrence.Source);
+            AddName(occurrence.SourceType);
+            AddAddress(occurrence.Target);
+            AddName(occurrence.TargetType);
             Add(occurrence.PhysicalMethodToken);
             Add((int)occurrence.OperandKind);
             Add(occurrence.OperandToken);
             Add(occurrence.IlOffset);
             Add(occurrence.OccurrenceOrdinal);
         }
+        foreach (AnalysisLibraryBodyUsePhysicalEvidence physical
+            in answer.PhysicalEvidence)
+        {
+            AddAddress(physical.PhysicalSource);
+            AddName(physical.PhysicalSourceType);
+            Add(physical.PhysicalMethodToken);
+            Add((int)physical.Fidelity);
+        }
+        foreach (AnalysisLibraryBodyUseDiagnostic diagnostic
+            in answer.Diagnostics)
+        {
+            Add((int)diagnostic.Kind);
+            Add(diagnostic.MethodToken ?? -1);
+            Add(diagnostic.IlOffset ?? -1);
+            AddText(diagnostic.Detail);
+            Add(diagnostic.Limit ?? -1);
+            Add(diagnostic.AttemptedCharge ?? -1);
+        }
         return hash.ToString("x16", CultureInfo.InvariantCulture);
+
+        void AddAddress(MetadataTypeDefinitionAddress address)
+        {
+            AddText(address.ModuleVersionId.ToString("N"));
+            Add(address.Definition.Value);
+        }
+
+        void AddName(MetadataTypeDefinitionName name)
+        {
+            AddText(name.Namespace);
+            foreach (string segment in name.Segments)
+                AddText(segment);
+        }
+
+        void AddText(string text)
+        {
+            foreach (char character in text)
+                Add(character);
+            Add(-2);
+        }
 
         void Add(long value)
         {
@@ -650,9 +671,9 @@ public static class BodyUseScorecard
         Volatile.Write(
             ref s_sink,
             s_sink
-                + answer.Types
-                + answer.BodiesConsidered
-                + answer.OperandsConsidered
+                + answer.Types.Length
+                + answer.Coverage.BodiesConsidered
+                + answer.Coverage.OperandsConsidered
                 + answer.Occurrences.Length);
 
     static void AppendRatioRow(
@@ -743,21 +764,19 @@ public static class BodyUseScorecard
         MetadataReader reader,
         LibraryMethodAnalysisRunner runner,
         AnalysisLibraryBodyUseLimits limits,
-        int types,
         CancellationToken cancellationToken)
     {
         readonly PEReader _image = image;
         readonly MetadataReader _reader = reader;
         readonly LibraryMethodAnalysisRunner _runner = runner;
         readonly AnalysisLibraryBodyUseLimits _limits = limits;
-        readonly int _types = types;
         readonly CancellationToken _cancellationToken =
             cancellationToken;
 
-        internal BodyUseScorecardAnswer Direct()
+        internal AnalysisLibraryBodyUseProducer.Result Direct()
         {
-            var answer = new AnswerBuilder(
-                _types,
+            var answer =
+                new AnalysisLibraryBodyUseProducer.Accumulator(
                 _limits.MaximumOccurrences);
             foreach (TypeDefinitionHandle typeHandle
                 in _reader.TypeDefinitions)
@@ -777,22 +796,23 @@ public static class BodyUseScorecard
                         _reader.GetMethodDefinition(methodHandle);
                     if (!IsManaged(method))
                         continue;
-                    answer.Add(
+                    answer.Add(new(
                         Analyze(
                             new(
                                 _reader,
                                 typeHandle,
                                 type,
                                 methodHandle,
-                                method)));
+                                method))));
                 }
             }
             return answer.Complete();
         }
 
-        internal BodyUseScorecardAnswer Linq()
+        internal AnalysisLibraryBodyUseProducer.Result Linq()
         {
-            AnswerBuilder answer = _reader.TypeDefinitions
+            AnalysisLibraryBodyUseProducer.Accumulator answer =
+                _reader.TypeDefinitions
                 .Select(handle =>
                     (Handle: handle,
                     Type: _reader.GetTypeDefinition(handle)))
@@ -811,18 +831,17 @@ public static class BodyUseScorecard
                 .Where(static row => IsManaged(row.Method))
                 .Select(Analyze)
                 .Aggregate(
-                    new AnswerBuilder(
-                        _types,
+                    new AnalysisLibraryBodyUseProducer.Accumulator(
                         _limits.MaximumOccurrences),
                     static (current, fact) =>
                     {
-                        current.Add(fact);
+                        current.Add(new(fact));
                         return current;
                     });
             return answer.Complete();
         }
 
-        internal BodyUseScorecardAnswer NLinq()
+        internal AnalysisLibraryBodyUseProducer.Result NLinq()
         {
             var selected =
                 new MethodDefinitionRows(_reader)
@@ -839,7 +858,7 @@ public static class BodyUseScorecard
                     MethodDefinitionRow,
                     BodyTypeUseMethodFact,
                     AnalyzeMethod>(new(this));
-            AnswerBuilder answer =
+            AnalysisLibraryBodyUseProducer.Accumulator answer =
                 projected.Fold<
                     Map<
                         MethodDefinitionRow,
@@ -850,10 +869,9 @@ public static class BodyUseScorecard
                             SelectManaged>,
                         AnalyzeMethod>,
                     BodyTypeUseMethodFact,
-                    AnswerBuilder,
+                    AnalysisLibraryBodyUseProducer.Accumulator,
                     AddFact>(
-                        new(
-                            _types,
+                        new AnalysisLibraryBodyUseProducer.Accumulator(
                             _limits.MaximumOccurrences),
                         default);
             return answer.Complete();
@@ -897,131 +915,17 @@ public static class BodyUseScorecard
 
         readonly struct AddFact
             : IFunc<
-                AnswerBuilder,
+                AnalysisLibraryBodyUseProducer.Accumulator,
                 BodyTypeUseMethodFact,
-                AnswerBuilder>
+                AnalysisLibraryBodyUseProducer.Accumulator>
         {
-            public AnswerBuilder Invoke(
-                AnswerBuilder answer,
+            public AnalysisLibraryBodyUseProducer.Accumulator Invoke(
+                AnalysisLibraryBodyUseProducer.Accumulator answer,
                 BodyTypeUseMethodFact fact)
             {
-                answer.Add(fact);
+                answer.Add(new(fact));
                 return answer;
             }
         }
-    }
-
-    sealed class AnswerBuilder(
-        int types,
-        int maximumOccurrences)
-    {
-        readonly List<BodyUseScorecardOccurrence> _occurrences = [];
-        int _bodiesConsidered;
-        int _bodiesExamined;
-        int _bodiesPhysicalOnly;
-        int _bodiesUnavailable;
-        int _bodiesLimited;
-        int _operandsConsidered;
-        int _operandsExamined;
-        int _operandsUnavailable;
-        int _operandsLimited;
-        int _diagnostics;
-        bool _partial;
-        bool _occurrenceLimitReported;
-
-        internal void Add(BodyTypeUseMethodFact body)
-        {
-            _bodiesConsidered++;
-            _operandsConsidered += body.OperandsConsidered;
-            _operandsExamined += body.OperandsExamined;
-            _operandsUnavailable += body.OperandsUnavailable;
-            _diagnostics += body.Diagnostics.Length;
-            _partial |= body.Diagnostics.Any(
-                static diagnostic =>
-                    diagnostic.Kind
-                        is not AnalysisLibraryBodyUseDiagnosticKind
-                            .UnavailableLogicalOwner);
-
-            if (body.Limited)
-            {
-                _bodiesLimited++;
-                _operandsLimited += Math.Max(
-                    0,
-                    body.OperandsConsidered
-                        - body.OperandsExamined
-                        - body.OperandsUnavailable);
-                return;
-            }
-
-            bool unavailable = body.Diagnostics.Any(
-                static diagnostic =>
-                    diagnostic.Kind
-                        == AnalysisLibraryBodyUseDiagnosticKind
-                            .MalformedBody);
-            if (unavailable)
-            {
-                _bodiesUnavailable++;
-                return;
-            }
-
-            long attempted = checked(
-                (long)_occurrences.Count
-                    + body.Occurrences.Length);
-            if (attempted > maximumOccurrences)
-            {
-                _bodiesLimited++;
-                _partial = true;
-                if (!_occurrenceLimitReported)
-                {
-                    _diagnostics++;
-                    _occurrenceLimitReported = true;
-                }
-                return;
-            }
-
-            if (body.Fidelity
-                == AnalysisLibraryBodyUseFidelity.PhysicalOnly)
-            {
-                _bodiesPhysicalOnly++;
-                return;
-            }
-
-            _bodiesExamined++;
-            foreach (BodyTypeUseOccurrence occurrence
-                in body.Occurrences)
-            {
-                _occurrences.Add(
-                    new(
-                        MetadataTokens.GetToken(
-                            occurrence.Source),
-                        MetadataTokens.GetToken(
-                            occurrence.Target),
-                        occurrence.PhysicalMethodToken,
-                        occurrence.OperandKind,
-                        occurrence.OperandToken,
-                        occurrence.IlOffset,
-                        occurrence.OccurrenceOrdinal));
-            }
-        }
-
-        internal BodyUseScorecardAnswer Complete() =>
-            new(
-                types,
-                _partial
-                    ? AnalysisLibraryBodyUseDisposition.Partial
-                    : _bodiesPhysicalOnly != 0
-                        ? AnalysisLibraryBodyUseDisposition.Qualified
-                        : AnalysisLibraryBodyUseDisposition.Complete,
-                _bodiesConsidered,
-                _bodiesExamined,
-                _bodiesPhysicalOnly,
-                _bodiesUnavailable,
-                _bodiesLimited,
-                _operandsConsidered,
-                _operandsExamined,
-                _operandsUnavailable,
-                _operandsLimited,
-                _diagnostics,
-                [.. _occurrences]);
     }
 }
