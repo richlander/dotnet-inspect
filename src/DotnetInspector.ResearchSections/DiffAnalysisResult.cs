@@ -92,6 +92,9 @@ public abstract class DiffAnalysisProduction
 /// </summary>
 public sealed class DiffAnalysisInput
 {
+    private readonly ApiSurface? _fromSurface;
+    private readonly ApiSurface? _toSurface;
+
     public DiffAnalysisInput(
         ApiSurface fromSurface,
         ApiSurface toSurface,
@@ -100,20 +103,89 @@ public sealed class DiffAnalysisInput
         IReadOnlySet<string> typeFilters,
         IEnumerable<string> typeNames,
         IReadOnlySet<string>? memberTargetIdentities,
-        Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>? prepareBodySignals)
+        Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>? prepareBodySignals,
+        ApiFindingComparison? precomputedApiComparison = null,
+        IEnumerable<DiffAnalysisHostUnavailability>? hostUnavailability = null)
+        : this(
+            fromSurface,
+            toSurface,
+            fromPaths,
+            toPaths,
+            typeFilters,
+            typeNames,
+            memberTargetIdentities,
+            prepareBodySignals,
+            precomputedApiComparison,
+            hostUnavailability,
+            requireApiSurfaces: true)
     {
-        FromSurface = fromSurface ?? throw new ArgumentNullException(nameof(fromSurface));
-        ToSurface = toSurface ?? throw new ArgumentNullException(nameof(toSurface));
+    }
+
+    private DiffAnalysisInput(
+        ApiSurface? fromSurface,
+        ApiSurface? toSurface,
+        IReadOnlyList<string> fromPaths,
+        IReadOnlyList<string> toPaths,
+        IReadOnlySet<string> typeFilters,
+        IEnumerable<string> typeNames,
+        IReadOnlySet<string>? memberTargetIdentities,
+        Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>? prepareBodySignals,
+        ApiFindingComparison? precomputedApiComparison,
+        IEnumerable<DiffAnalysisHostUnavailability>? hostUnavailability,
+        bool requireApiSurfaces)
+    {
+        if (requireApiSurfaces)
+        {
+            ArgumentNullException.ThrowIfNull(fromSurface);
+            ArgumentNullException.ThrowIfNull(toSurface);
+        }
+        _fromSurface = fromSurface;
+        _toSurface = toSurface;
         FromPaths = fromPaths ?? throw new ArgumentNullException(nameof(fromPaths));
         ToPaths = toPaths ?? throw new ArgumentNullException(nameof(toPaths));
         TypeFilters = typeFilters ?? throw new ArgumentNullException(nameof(typeFilters));
         TypeNames = [.. typeNames ?? throw new ArgumentNullException(nameof(typeNames))];
         MemberTargetIdentities = memberTargetIdentities;
         PrepareBodySignals = prepareBodySignals;
+        PrecomputedApiComparison = precomputedApiComparison;
+        HostUnavailability = (
+                hostUnavailability
+                    ?? [])
+            .ToImmutableDictionary(
+                unavailable => unavailable.Analysis,
+                unavailable => unavailable.Reason);
     }
 
-    public ApiSurface FromSurface { get; }
-    public ApiSurface ToSurface { get; }
+    internal static DiffAnalysisInput WithoutApiSurfaces(
+        IReadOnlyList<string> fromPaths,
+        IReadOnlyList<string> toPaths,
+        IReadOnlySet<string> typeFilters,
+        IEnumerable<string> typeNames,
+        IReadOnlySet<string>? memberTargetIdentities,
+        Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>?
+            prepareBodySignals,
+        IEnumerable<DiffAnalysisHostUnavailability> hostUnavailability)
+        => new(
+            fromSurface: null,
+            toSurface: null,
+            fromPaths,
+            toPaths,
+            typeFilters,
+            typeNames,
+            memberTargetIdentities,
+            prepareBodySignals,
+            precomputedApiComparison: null,
+            hostUnavailability,
+            requireApiSurfaces: false);
+
+    public ApiSurface FromSurface => _fromSurface
+        ?? throw new InvalidOperationException(
+            "This Diff request has no available before API surface.");
+
+    public ApiSurface ToSurface => _toSurface
+        ?? throw new InvalidOperationException(
+            "This Diff request has no available after API surface.");
+
     public IReadOnlyList<string> FromPaths { get; }
     public IReadOnlyList<string> ToPaths { get; }
     public IReadOnlySet<string> TypeFilters { get; }
@@ -131,6 +203,32 @@ public sealed class DiffAnalysisInput
     /// </summary>
     public Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>?
         PrepareBodySignals { get; }
+
+    /// <summary>
+    /// The owner-issued API comparison when an enclosing operation already
+    /// projected and compared the same endpoint pair.
+    /// </summary>
+    public ApiFindingComparison? PrecomputedApiComparison { get; }
+
+    internal ImmutableDictionary<AnalysisDeclarationId, string>
+        HostUnavailability { get; }
+}
+
+/// <summary>One analysis the host cannot construct for this request.</summary>
+public sealed record DiffAnalysisHostUnavailability
+{
+    public DiffAnalysisHostUnavailability(
+        AnalysisDeclarationId analysis,
+        string reason)
+    {
+        Analysis = analysis
+            ?? throw new ArgumentNullException(nameof(analysis));
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        Reason = reason;
+    }
+
+    public AnalysisDeclarationId Analysis { get; }
+    public string Reason { get; }
 }
 
 /// <summary>The input one producer receives for one selected analysis.</summary>
@@ -279,6 +377,8 @@ public static class DiffAnalysisOperation
         FindingDescriptor[] bodyDescriptors =
         [
             .. bindings
+                .Where(binding =>
+                    !input.HostUnavailability.ContainsKey(binding.Analysis.Id))
                 .Where(binding => binding.Producer.Participation.ProducerRoute
                     == DiffAnalysisCatalog.BodySignalRoute)
                 .SelectMany(binding => binding.Producer.Participation.Descriptors),
@@ -312,6 +412,16 @@ public static class DiffAnalysisOperation
         {
             AnalysisSurfaceParticipation participation = producer.Participation;
             DiffAnalysisOutcome outcome;
+            if (input.HostUnavailability.TryGetValue(
+                    analysis.Id,
+                    out string? unavailableReason))
+            {
+                outcomes.Add(new DiffAnalysisOutcome.Unavailable(
+                    analysis,
+                    participation,
+                    unavailableReason));
+                continue;
+            }
             if (bodyPreparationFailure is not null
                 && participation.ProducerRoute == DiffAnalysisCatalog.BodySignalRoute)
             {
