@@ -13,39 +13,29 @@ using ILInspector.Analysis;
 using ILInspector.Metadata;
 using Inspector.Graph;
 
-if (args.Length == 0)
+bool measureConstruction =
+    args.Length > 0 && args[0] == "--construction";
+int pathStart = measureConstruction ? 1 : 0;
+if (args.Length == pathStart)
 {
     Console.WriteLine(
-        "Usage: measure-graph-degree <assembly>...");
+        "Usage: measure-graph-degree [--construction] <assembly>...");
     return 2;
 }
 
-Console.WriteLine(
-    "asset\tscenario\tnodes\tedges\tselected_edges\tadjacency_entries"
-        + "\trows\tchecksum\tsamples\tmedian_ms\tp95_ms"
-        + "\tmedian_bytes");
-foreach (string path in args)
+if (measureConstruction)
 {
-    GraphInput input = GraphInput.Load(path);
-    foreach (Scenario scenario in Scenario.All)
+    Console.WriteLine(
+        "asset\tnodes\tedges\tchecksum\tsamples\tmedian_ms\tp95_ms"
+            + "\tmedian_bytes");
+    foreach (string path in args[pathStart..])
     {
-        GraphNeighborPlan<Relationship> plan =
-            new(
-                scenario.Relationships,
-                scenario.Direction,
-                GraphSelfLoopPolicy.Exclude);
-        GraphDistinctNeighborDegreeResult expected =
-            GraphDocumentExecution.DistinctNeighborDegree(
-                input.Document,
-                plan);
-        ulong checksum = Checksum(expected);
+        GraphInput input = GraphInput.Load(path);
+        ulong checksum = ChecksumDocument(input);
         for (var index = 0; index < 5; index++)
         {
-            GraphDistinctNeighborDegreeResult warmup =
-                GraphDocumentExecution.DistinctNeighborDegree(
-                    input.Document,
-                    plan);
-            RequireEquivalent(expected, warmup);
+            var warmup = input.CreateDocument();
+            RequireDocumentEquivalent(input, warmup);
         }
 
         var times = new List<double>();
@@ -56,16 +46,13 @@ foreach (string path in args)
             long allocatedBefore =
                 GC.GetAllocatedBytesForCurrentThread();
             long timestamp = Stopwatch.GetTimestamp();
-            GraphDistinctNeighborDegreeResult result =
-                GraphDocumentExecution.DistinctNeighborDegree(
-                    input.Document,
-                    plan);
+            var result = input.CreateDocument();
             times.Add(
                 Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds);
             allocations.Add(
                 GC.GetAllocatedBytesForCurrentThread()
                     - allocatedBefore);
-            RequireEquivalent(expected, result);
+            RequireDocumentEquivalent(input, result);
             GC.KeepAlive(result);
         }
         while ((times.Count < 20
@@ -79,12 +66,8 @@ foreach (string path in args)
             string.Join(
                 '\t',
                 Path.GetFileName(path),
-                scenario.Name,
                 input.Document.Nodes.Length,
                 input.Document.Edges.Length,
-                expected.Receipt.SelectedEdgesIndexed,
-                expected.Receipt.AdjacencyEntriesExamined,
-                expected.Rows.Length,
                 checksum.ToString("x16", CultureInfo.InvariantCulture),
                 times.Count,
                 Percentile(times, 0.50).ToString(
@@ -96,8 +79,110 @@ foreach (string path in args)
                 Percentile(allocations, 0.50)));
     }
 }
+else
+{
+    Console.WriteLine(
+        "asset\tscenario\tnodes\tedges\tselected_edges"
+            + "\tadjacency_entries\trows\tchecksum\tsamples"
+            + "\tmedian_ms\tp95_ms\tmedian_bytes");
+    foreach (string path in args[pathStart..])
+    {
+        GraphInput input = GraphInput.Load(path);
+        foreach (Scenario scenario in Scenario.All)
+        {
+            GraphNeighborPlan<Relationship> plan =
+                new(
+                    scenario.Relationships,
+                    scenario.Direction,
+                    GraphSelfLoopPolicy.Exclude);
+            GraphDistinctNeighborDegreeResult expected =
+                GraphDocumentExecution.DistinctNeighborDegree(
+                    input.Document,
+                    plan);
+            ulong checksum = Checksum(expected);
+            for (var index = 0; index < 5; index++)
+            {
+                GraphDistinctNeighborDegreeResult warmup =
+                    GraphDocumentExecution.DistinctNeighborDegree(
+                        input.Document,
+                        plan);
+                RequireEquivalent(expected, warmup);
+            }
+
+            var times = new List<double>();
+            var allocations = new List<long>();
+            long started = Stopwatch.GetTimestamp();
+            do
+            {
+                long allocatedBefore =
+                    GC.GetAllocatedBytesForCurrentThread();
+                long timestamp = Stopwatch.GetTimestamp();
+                GraphDistinctNeighborDegreeResult result =
+                    GraphDocumentExecution.DistinctNeighborDegree(
+                        input.Document,
+                        plan);
+                times.Add(
+                    Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds);
+                allocations.Add(
+                    GC.GetAllocatedBytesForCurrentThread()
+                        - allocatedBefore);
+                RequireEquivalent(expected, result);
+                GC.KeepAlive(result);
+            }
+            while ((times.Count < 20
+                        || Stopwatch.GetElapsedTime(started)
+                            < TimeSpan.FromSeconds(2))
+                    && times.Count < 5_000);
+
+            times.Sort();
+            allocations.Sort();
+            Console.WriteLine(
+                string.Join(
+                    '\t',
+                    Path.GetFileName(path),
+                    scenario.Name,
+                    input.Document.Nodes.Length,
+                    input.Document.Edges.Length,
+                    expected.Receipt.SelectedEdgesIndexed,
+                    expected.Receipt.AdjacencyEntriesExamined,
+                    expected.Rows.Length,
+                    checksum.ToString(
+                        "x16",
+                        CultureInfo.InvariantCulture),
+                    times.Count,
+                    Percentile(times, 0.50).ToString(
+                        "F6",
+                        CultureInfo.InvariantCulture),
+                    Percentile(times, 0.95).ToString(
+                        "F6",
+                        CultureInfo.InvariantCulture),
+                    Percentile(allocations, 0.50)));
+        }
+    }
+}
 
 return 0;
+
+static ulong ChecksumDocument(GraphInput input)
+{
+    const ulong offset = 14695981039346656037;
+    const ulong prime = 1099511628211;
+    ulong hash = offset;
+    foreach (GraphNode<MetadataTypeDefinitionAddress> node
+        in input.Document.Nodes)
+    {
+        hash = (hash ^ (uint)node.Id) * prime;
+        hash = (hash ^ (uint)node.Subject.Definition.Value) * prime;
+    }
+    foreach (GraphEdge<Relationship> edge in input.Document.Edges)
+    {
+        hash = (hash ^ (uint)edge.Id) * prime;
+        hash = (hash ^ (uint)edge.FromNodeId) * prime;
+        hash = (hash ^ (uint)edge.ToNodeId) * prime;
+        hash = (hash ^ (uint)edge.Relationship) * prime;
+    }
+    return hash;
+}
 
 static ulong Checksum(GraphDistinctNeighborDegreeResult result)
 {
@@ -118,6 +203,31 @@ static ulong Checksum(GraphDistinctNeighborDegreeResult result)
     hash = (hash ^ (uint)receipt.NodesAdmitted) * prime;
     hash = (hash ^ (receipt.TerminalSettled ? 1u : 0u)) * prime;
     return hash;
+}
+
+static void RequireDocumentEquivalent(
+    GraphInput expected,
+    GraphDocument<
+        MetadataTypeDefinitionAddress,
+        Relationship,
+        OccurrenceEvidence,
+        Characteristic,
+        Limit,
+        Failure> actual)
+{
+    if (expected.Document.Scope != actual.Scope
+        || !expected.Nodes.SequenceEqual(actual.Nodes)
+        || !expected.Edges.SequenceEqual(actual.Edges)
+        || !actual.Groups.IsEmpty
+        || !actual.Occurrences.IsEmpty
+        || !actual.Characteristics.IsEmpty
+        || !actual.Seeds.IsEmpty
+        || !actual.Limits.IsEmpty
+        || !actual.Failures.IsEmpty)
+    {
+        throw new InvalidOperationException(
+            "Graph document construction changed.");
+    }
 }
 
 static void RequireEquivalent(
@@ -201,6 +311,8 @@ sealed record Scenario(
 }
 
 sealed record GraphInput(
+    GraphNode<MetadataTypeDefinitionAddress>[] Nodes,
+    GraphEdge<Relationship>[] Edges,
     GraphDocument<
         MetadataTypeDefinitionAddress,
         Relationship,
@@ -209,6 +321,24 @@ sealed record GraphInput(
         Limit,
         Failure> Document)
 {
+    internal GraphDocument<
+        MetadataTypeDefinitionAddress,
+        Relationship,
+        OccurrenceEvidence,
+        Characteristic,
+        Limit,
+        Failure> CreateDocument() =>
+        new(
+            GraphDocumentScope.Portable,
+            Nodes,
+            [],
+            Edges,
+            [],
+            [],
+            [],
+            [],
+            []);
+
     internal static GraphInput Load(string path)
     {
         using AssemblyInspectionSession session =
@@ -297,6 +427,8 @@ sealed record GraphInput(
                             [])),
         ];
         return new GraphInput(
+            nodes,
+            edges,
             new GraphDocument<
                 MetadataTypeDefinitionAddress,
                 Relationship,
