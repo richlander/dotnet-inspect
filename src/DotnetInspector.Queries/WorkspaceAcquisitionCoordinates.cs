@@ -886,6 +886,80 @@ public sealed record WorkspaceContextMember(
     RealizedMemberCoordinate Realized,
     AssemblyContextParticipant Participant);
 
+/// <summary>
+/// One source-realized Platform assembly ready for Workspace group admission.
+/// </summary>
+public sealed class WorkspacePlatformAssemblyAdmission
+{
+    public WorkspacePlatformAssemblyAdmission(
+        RealizedMemberCoordinate.Platform coordinate,
+        ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(assembly);
+        if (coordinate.Assembly is null
+            || !string.Equals(
+                coordinate.Assembly,
+                assembly.Identity.Name,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "The realized Platform coordinate must name the admitted assembly.",
+                nameof(coordinate));
+        }
+
+        Coordinate = coordinate;
+        Assembly = assembly;
+    }
+
+    public RealizedMemberCoordinate.Platform Coordinate { get; }
+
+    public ResolvedAssemblyReference Assembly { get; }
+
+    public static WorkspacePlatformAssemblyAdmission FromImage(
+        RealizedMemberCoordinate.Platform coordinate,
+        AssemblyReferenceIdentity identity,
+        Func<Stream> openRead,
+        string resolverSource)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(openRead);
+        ArgumentException.ThrowIfNullOrWhiteSpace(resolverSource);
+        return new(
+            coordinate,
+            ResolvedAssemblyReference.Create(
+                identity,
+                path: null,
+                openRead,
+                AssemblyResolutionProvenance.Platform(
+                    coordinate.Family,
+                    coordinate.Version,
+                    resolverSource)));
+    }
+}
+
+/// <summary>
+/// The typed result of discovering one exact Platform implementation-pack
+/// version without acquiring its payload.
+/// </summary>
+public abstract record WorkspacePlatformVersionDiscoveryOutcome
+{
+    private protected WorkspacePlatformVersionDiscoveryOutcome()
+    {
+    }
+
+    /// <summary>The latest listed version in the target framework's release line.</summary>
+    public sealed record Resolved(string Version)
+        : WorkspacePlatformVersionDiscoveryOutcome;
+
+    /// <summary>Version discovery did not identify an eligible exact version.</summary>
+    public sealed record Failed(
+        WorkspaceContextLoadFailureKind Kind,
+        string Message)
+        : WorkspacePlatformVersionDiscoveryOutcome;
+}
+
 /// <summary>The typed result of realizing one workspace context.</summary>
 public abstract record WorkspaceContextLoadOutcome
 {
@@ -963,7 +1037,8 @@ public abstract record WorkspaceContextLoadOutcome
         /// gates metadata identity and selected-universe ownership.
         /// </remarks>
         public ImmutableArray<RealizedMemberCoordinate.Platform>
-            AvailablePlatformAssemblies { get; }
+            AvailablePlatformAssemblies
+        { get; }
 
         /// <summary>The effective acquisition framework, when the context needed one.</summary>
         public string? Framework { get; }
