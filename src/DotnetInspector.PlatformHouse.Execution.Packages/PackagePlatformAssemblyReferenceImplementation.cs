@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms.Packages;
 using ILInspector.Metadata;
@@ -178,7 +177,29 @@ public static class PackagePlatformAssemblyReferenceImplementation
             Func<
                 PlatformHouseRequest,
                 PlatformHouseWorkBudget,
-                PackageSourceOperationLease> issueOperation)
+                PackageSourceOperationLease> issueOperation) =>
+        await ContinueAsync(
+                bindingRequest,
+                binding,
+                implementationRequestIdentity,
+                adapter,
+                runtimeIdentifier,
+                issueOperation,
+                TimeProvider.System)
+            .ConfigureAwait(false);
+
+    internal static async ValueTask<
+        PackagePlatformAssemblyReferenceImplementationResult> ContinueAsync(
+            PlatformHouseRequest bindingRequest,
+            PlatformHouseOutcome<AssemblyBindingDecision> binding,
+            PlatformHouseRequestIdentity implementationRequestIdentity,
+            PackagePlatformHouseAdapter adapter,
+            string runtimeIdentifier,
+            Func<
+                PlatformHouseRequest,
+                PlatformHouseWorkBudget,
+                PackageSourceOperationLease> issueOperation,
+            TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(bindingRequest);
         ArgumentNullException.ThrowIfNull(binding);
@@ -187,6 +208,7 @@ public static class PackagePlatformAssemblyReferenceImplementation
         ArgumentNullException.ThrowIfNull(adapter);
         ArgumentException.ThrowIfNullOrWhiteSpace(runtimeIdentifier);
         ArgumentNullException.ThrowIfNull(issueOperation);
+        ArgumentNullException.ThrowIfNull(timeProvider);
 
         if (!ReferenceEquals(
                 binding.Receipt.Request,
@@ -232,7 +254,7 @@ public static class PackagePlatformAssemblyReferenceImplementation
                     implementationRequest);
         }
 
-        long started = Stopwatch.GetTimestamp();
+        long started = timeProvider.GetTimestamp();
         PackagePlatformHouseResult<PackageImplementationRealization>
             implementation =
                 await adapter.RealizeImplementationAsync(
@@ -251,20 +273,23 @@ public static class PackagePlatformAssemblyReferenceImplementation
                     completed,
                     implementationRequest,
                     terminal,
-                    Stopwatch.GetElapsedTime(started));
+                    timeProvider.GetElapsedTime(started));
         }
 
         var source = (PackagePlatformHouseResult<
             PackageImplementationRealization>.Succeeded)implementation;
         PlatformHouseConsumedWork implementationWork = Work(
             source.Value,
-            Stopwatch.GetElapsedTime(started));
+            timeProvider.GetElapsedTime(started));
         PackagePlatformLibraryMaterializationResult materialization =
             await PackagePlatformLibraryMaterializer
                 .MaterializeImplementationAsync(
                     implementationRequest,
                     source,
-                    implementationWork)
+                    implementationWork,
+                    () => Work(
+                        source.Value,
+                        timeProvider.GetElapsedTime(started)))
                 .ConfigureAwait(false);
         return materialization switch
         {

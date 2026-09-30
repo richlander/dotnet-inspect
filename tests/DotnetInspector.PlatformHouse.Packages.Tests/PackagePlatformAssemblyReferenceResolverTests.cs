@@ -544,6 +544,84 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
 
     [Fact]
     public async Task
+        MaterializationDurationExhaustionTransfersNoAuthority()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            ContinuationEnvironment(image);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request =
+            ContinuationRequest(
+                adapter,
+                PackagePlatformTestData.Identity(image) with
+                {
+                    Version = new Version(8, 0, 0, 0),
+                },
+                cancellationToken);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        TimeSpan remaining = TimeSpan.FromSeconds(1);
+        TimeSpan bindingElapsed =
+            request.Work.MaxDuration - remaining;
+        var binding = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PackagePlatformAssemblyReferenceResolver
+                    .ResolveAsync(
+                        request,
+                        reference,
+                        Consumed(
+                            reference.Value,
+                            bindingElapsed)));
+        var timeProvider = new SequenceTimeProvider(
+            TimeSpan.Zero,
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromMilliseconds(1_500));
+
+        var terminal = Assert.IsType<
+            PackagePlatformAssemblyReferenceImplementationResult
+                .MaterializationTerminal>(
+                    await ContinueWithTimeProviderAsync(
+                        request,
+                        binding,
+                        PlatformHouseRequestIdentity.Create(
+                            "package-binding-materialization-timeout"),
+                        adapter,
+                        "linux-x64",
+                        (implementationRequest, remainingWork) =>
+                            environment.IssueOperation(
+                                implementationRequest.CancellationToken,
+                                operationTimeout:
+                                    remainingWork.MaxDuration),
+                        timeProvider));
+
+        var incomplete = Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformLibraryReference>.Incomplete>(
+                    terminal.Materialization.TerminalRealization.Outcome);
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(1_500),
+            incomplete.Receipt.ConsumedWork.Elapsed);
+        Assert.Equal(
+            bindingElapsed + TimeSpan.FromMilliseconds(1_500),
+            terminal.ConsumedWork!.Elapsed);
+        Assert.Null(
+            terminal.Materialization.TerminalRealization
+                .Receipt.RealizedLibrary);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
         CancellationBetweenBindingAndImplementationTransfersNoAuthority()
     {
         using var cancellation =
@@ -1444,6 +1522,46 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
             targetComparisons: 0,
             elapsed: TimeSpan.Zero);
 
+    static ValueTask<
+        PackagePlatformAssemblyReferenceImplementationResult>
+        ContinueWithTimeProviderAsync(
+            PlatformHouseRequest bindingRequest,
+            PlatformHouseOutcome<AssemblyBindingDecision> binding,
+            PlatformHouseRequestIdentity implementationRequestIdentity,
+            PackagePlatformHouseAdapter adapter,
+            string runtimeIdentifier,
+            Func<
+                PlatformHouseRequest,
+                PlatformHouseWorkBudget,
+                PackageSourceOperationLease> issueOperation,
+            TimeProvider timeProvider)
+    {
+        // Keep the production clock seam internal while exercising its
+        // deterministic deadline boundary.
+        System.Reflection.MethodInfo method =
+            typeof(PackagePlatformAssemblyReferenceImplementation)
+                .GetMethods(
+                    System.Reflection.BindingFlags.Static
+                    | System.Reflection.BindingFlags.NonPublic)
+                .Single(
+                    static method =>
+                        method.Name == "ContinueAsync"
+                        && method.GetParameters().Length == 7);
+        return (ValueTask<
+            PackagePlatformAssemblyReferenceImplementationResult>)
+                method.Invoke(
+                    null,
+                    [
+                        bindingRequest,
+                        binding,
+                        implementationRequestIdentity,
+                        adapter,
+                        runtimeIdentifier,
+                        issueOperation,
+                        timeProvider,
+                    ])!;
+    }
+
     static PackagePlatformSourceDiagnosticKind ExpectedDiagnostic(
         PackageSourceTerminalCase terminalCase) =>
         terminalCase switch
@@ -1482,5 +1600,21 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
         Rejected,
         Incomplete,
         Failed,
+    }
+
+    sealed class SequenceTimeProvider(
+        params TimeSpan[] timestamps) : TimeProvider
+    {
+        private int _index = -1;
+
+        public override long TimestampFrequency =>
+            TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp()
+        {
+            int index = Interlocked.Increment(ref _index);
+            return timestamps[Math.Min(index, timestamps.Length - 1)]
+                .Ticks;
+        }
     }
 }
