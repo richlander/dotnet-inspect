@@ -66,16 +66,18 @@ The result terminals are:
 - **Files.** Return the complete validated content of one or more exact package
   entries within the base narrowed space.
 - **Libraries.** Return every compatible library in the base narrowed space.
-- **Best Library.** Return one compatible library selected by the rule in
-  [Best Library](#best-library).
+- **Library and inventory for target.**
+  `GetLibraryAndInventoryForTarget` requires TFM-wide narrowing and returns one
+  policy-selected Library plus the complete logical Library inventory for that
+  target.
 - **Whole archive.** Return the complete package payload when the product
   question genuinely requires package-wide content. This terminal requires
   package-wide narrowing.
 
-A query may request several compatible terminals. In particular, Best Library
-and File List may run together. The selected assembly and file list then
-describe the same base narrowed TFM/root space. Neither terminal repeats or
-independently interprets the narrowing.
+A query may request several compatible terminals. In particular,
+`GetLibraryAndInventoryForTarget` may run with File List when a caller also
+needs the raw package-entry inventory. Both observe the same TFM-wide
+narrowing; neither repeats or independently interprets it.
 
 One implementation slice adds a narrowing form or terminal only with a
 production caller. Until one lands, its place in this vocabulary is an
@@ -100,7 +102,8 @@ The snapshot is the singular basis for:
 - TFM-wide and ordered-root narrowing;
 - exact-file existence and ambiguity checks;
 - library candidate paths, namesake evidence, and alphabetical ordering;
-- selected-Library implementation and adjacent-PDB candidate evidence;
+- logical TFM Library inventory, implementation correspondence, and
+  adjacent-PDB entry evidence;
 - the detached File List terminal;
 - entry offsets, compressed and expanded lengths, and compression facts used
   by ranged-entry planning; and
@@ -108,11 +111,11 @@ The snapshot is the singular basis for:
   holds.
 
 PackageHouse resolves the base narrowing once against that snapshot. Library
-selection consumes that candidate space. When File List accompanies a
-library-returning terminal, PackageHouse derives any selected-Library
-package-symbol evidence from owner-issued implementation correspondence and the
-same snapshot. A terminal cannot rescan the archive, construct a second path
-inventory, or resolve root preference independently.
+inventory and selection consume that candidate space. PackageHouse joins
+owner-issued compile/implementation correspondence with the same snapshot to
+issue exact later file references and adjacent-PDB entry evidence. A terminal
+cannot rescan the archive, construct a second path inventory, or resolve root
+preference independently.
 
 Namesake evidence and alphabetical ordering require only directory paths.
 Namespace selection visits candidate assemblies from the narrowed space in
@@ -142,35 +145,24 @@ The file list:
   narrowing; and
 - does not imply that any listed entry content was materialized.
 
-When File List accompanies Libraries or Best Library, it also carries typed
-package-symbol evidence for each selected Library. That evidence binds the
-owner-issued selected Library and implementation correspondence to the same
-directory snapshot and reports one of:
-
-- **Listed.** The narrowed inventory contains the exact applicable
-  implementation assembly and its same-directory, same-file-name-stem `.pdb`.
-- **Absent.** The narrowed inventory completely covers the applicable
-  implementation location and contains no such PDB.
-- **Not covered.** The narrowing does not cover the applicable implementation
-  location, so the file list cannot claim package-local PDB absence.
-- **Not applicable.** The selected Library has no implementation
-  correspondence for which package-local symbols can be requested.
-
-Listed proves that the package directory contains the named entry. It does not
-prove Portable PDB format, identity, readability, or applicability to the
-assembly.
-
-A TFM-wide File List is the ordinary complete package-symbol discovery view
-for one target. A runtime target also carries its RID. Package-wide inventory
-is complete but broader than needed. A TFM-plus-root File List proves only its
-winning root; for example, `ref` inventory cannot claim that an implementation
-PDB is absent from `lib` or `runtimes`.
-
 PackageHouse may already need the archive directory to plan a ranged
 acquisition. It publishes that directory as file-list evidence only when the
 query asks for it, and projects it through the exact narrowing receipt before
 publication. An internal planning read does not silently enlarge the product
-result or become package-symbol evidence.
+result.
+
+A path or file name may nominate one package entry for downstream assembly
+binding. It cannot establish a canonical assembly identity, prove package
+ownership, or turn a missing file-name match into an assembly-identity result.
+Those decisions require decoded Metadata and remain with the external-supplier
+composition owner.
+
+A consumer evaluating several assembly references against one PackageHouse
+generation reuses the owner-issued directory and narrowing evidence. It does
+not rescan the archive or construct a competing package-entry inventory.
+PackageHouse may provide an efficient lookup over its existing snapshot as an
+implementation of this contract; that does not create an AssemblyRef-specific
+terminal.
 
 A selected file or library entry is always complete. PackageHouse returns the
 whole validated ZIP entry or a typed non-success; it never returns a partial
@@ -178,89 +170,55 @@ assembly and labels it acquired. The file list explains what else the package
 contains and can be requested next. The settlement and transfer receipt, not
 the file list, establish that the returned entry completed validation.
 
-## Package-local PDB evidence
+## Library and inventory for target
 
-Best Library without a namespace plus File List uses directory evidence to
-select one Library and materializes only that selected entry. Namespace
-selection may materialize the candidate assemblies required to prove the first
-exact match, as described above. In either form, PackageHouse does not download
-a Portable PDB or an implementation assembly merely because the file list
-reports a package-local symbol candidate.
+`GetLibraryAndInventoryForTarget` is one composite terminal over TFM-wide
+narrowing. It does not accept package-wide or TFM-plus-root narrowing. A
+runtime identifier, when present in the target context, remains part of the
+owner-issued target.
 
-The base narrowing selects the primary Library. The package
-asset-selection and correspondence owners may associate that Library with an
-implementation assembly outside the winning primary root. PackageHouse
-preserves that correspondence in the package-symbol evidence. If the selected
-Library is a reference assembly, Listed evidence may therefore identify an
-implementation DLL and adjacent PDB that are both still directory-only. If the
-selected Library is already the implementation assembly, a later request needs
-only the listed PDB entry.
+The terminal returns:
 
-PackageHouse does not open the PDB, validate Portable PDB format or identity,
-inspect embedded PDB content, or consult `.snupkg` or symbol-server sources.
-The [PDB acquisition owner](../pdb-acquisition.md#pdb-location-strategy)
-may perform those later operations only when a separate downstream source or
-PDB query requests them.
+- one selected Library whose required assembly content is complete and
+  validated;
+- one complete logical Library inventory for the TFM; and
+- one selection receipt linking the selected Library to its exact inventory
+  row.
 
-That downstream PDB operation receives the authoritative selected-assembly
-reference and optional package-symbol evidence. It may request the exact listed
-implementation DLL and PDB through a PackageHouse Files query or skip directly
-to an applicable external provider. Exact package files are complete and
-validated as ZIP entries; the PDB owner then validates Portable PDB format and
-assembly identity before publishing bytes to the verified PDB store.
+The inventory is the same product concept the website presents for an active
+package framework: one logical row per owner-issued compile Library, including
+Libraries with no public Types. It is not a list of every physical DLL entry
+or every package TFM.
 
-If the original request omitted File List, the downstream operation has no
-package-local presence or absence claim. The caller may issue a later File List
-query or permit the PDB operation to skip to external providers. PackageHouse
-does not perform hidden inventory or PDB acquisition merely because another
-component asks for symbols.
+Each detached inventory row preserves:
 
-The separately focused PDB-settlement owner, tracked by
-[#9002](https://github.com/richlander/dotnet-inspect/issues/9002), defines
-verified-store reuse, external-provider ordering, and negative acquisition
-observations. That contract must keep definitive provider absence distinct
-from operational or policy failure. This document does not define when Listed
-package evidence wins over an external provider, or the observation key,
-expiry, or provider retry algorithm.
+- the Library identity and compile role;
+- its exact compile package-entry reference;
+- its root, TFM, optional RID, and asset-selection receipts;
+- its owner-issued implementation correspondence and exact implementation
+  package-entry reference when distinct;
+- adjacent implementation-PDB entry evidence: **Listed**, **Absent**, or
+  **Not applicable**; and
+- the exact PDB package-entry reference when Listed.
 
-This boundary has distinct authorities:
+Listed proves only that the validated package directory contains the named
+entry. It does not prove Portable PDB format, identity, readability, or
+applicability to the implementation assembly. Absent means the TFM-wide
+inventory contains the applicable implementation assembly but no
+same-directory, same-file-name-stem `.pdb`. Not applicable means the logical
+Library has no implementation correspondence for package-local symbols.
 
-- PackageHouse owns complete narrowed File List evidence, selected-Library
-  package-symbol evidence, and later exact-file delivery.
-- The selected Library's owner-issued assembly reference is authoritative for
-  which assembly needs symbols; Metadata identity checks admit any PDB before
-  use.
-- The host-neutral PDB settlement service owns embedded, verified-store,
-  package-companion, and external-provider composition. Existing
-  `PdbAcquisitionService` is its external-acquisition substrate.
-- Hosts own capability construction, network permission, stores, limits,
-  cancellation, and offline/cache-only policy.
-- Product source composition owns whether a source request invokes that
-  capability and how authored and decompiled candidates are ordered.
+Inventory rows carry resource-free package-entry references, not streams,
+content generations, or cache handles. A later Files query may present one or
+more of those exact references to acquire additional compile, implementation,
+or PDB content without reconstructing paths from display text.
 
-The current [SourceHouse](source-house.md) contract, tracked by
-[#6512](https://github.com/richlander/dotnet-inspect/issues/6512), still
-defines supplied companion or embedded PDB input and a separately authorized
-external-acquisition capability. `AssemblyContextSourceQuery` and legacy CLI
-wrappers still orchestrate parts of that sequence. #9002 must explicitly
-reconcile and transfer that PDB-input contract before SourceHouse consumes the
-new settlement. Existing direct PackageHouse companion delivery therefore
-remains transitional until the independent PDB settlement and one production
-consumer adopt File List package-symbol evidence. Non-source consumers,
-including PDB Source Provenance and decompilation or analysis, may then consume
-the same PDB settlement without routing through SourceHouse.
-
-## Best Library
-
-`GetBestLibrary` is the only single-library selection demand. There is no
-separate namesake-library request.
-
-The terminal carries an optional namespace. Its target context and ordered
-root-family preference come only from the shared narrowing query. It consumes
-compatible library candidates from that narrowed space and namespace facts
-from the Metadata owner. PackageHouse composes those owner-issued facts; it
-does not parse target frameworks, rank asset compatibility, resolve the root
-preference from paths, or decode Metadata itself.
+The selection policy is part of this operation, not its name. The initial
+closed policy is **Namespace then alphabetical**. It carries an optional
+namespace and consumes namespace facts from the Metadata owner only when the
+caller supplies one. PackageHouse composes those owner-issued facts; it does
+not parse target frameworks, rank asset compatibility, or decode Metadata
+itself.
 
 Selection is deterministic:
 
@@ -286,6 +244,29 @@ Missing compatible libraries is a typed no-match. Namespace absence is not a
 failure because the alphabetical fallback is part of the request. Metadata
 decode failure is visible and cannot be treated as namespace absence; the
 House cannot select a fallback on incomplete namespace evidence.
+
+Without a namespace, directory evidence selects the alphabetical first
+Library and PackageHouse materializes only that assembly. Namespace selection
+may materialize the candidate assemblies required to prove the first exact
+match. In either form, inventory construction does not materialize the other
+Libraries, implementation assemblies, or PDB entries.
+
+PackageHouse does not open a PDB, validate Portable PDB format or identity,
+inspect embedded PDB content, or consult `.snupkg` or symbol-server sources.
+The host-neutral PDB settlement tracked by
+[#9002](https://github.com/richlander/dotnet-inspect/issues/9002) may consume an
+inventory row, request its exact implementation/PDB references through Files,
+or skip to an external provider. It owns verified-store reuse, provider
+ordering, negative acquisition observations, and PDB admission.
+
+The current [SourceHouse](source-house.md) contract, tracked by
+[#6512](https://github.com/richlander/dotnet-inspect/issues/6512), still
+defines supplied companion or embedded PDB input and a separately authorized
+external-acquisition capability. `AssemblyContextSourceQuery` and legacy CLI
+wrappers still orchestrate parts of that sequence. #9002 must explicitly
+reconcile that PDB-input contract before SourceHouse consumes Library inventory
+evidence. Existing direct PackageHouse companion delivery remains transitional
+until one production consumer adopts the new path.
 
 ## House-owned acquisition planning
 
@@ -339,9 +320,9 @@ One settlement preserves:
   applicable root family when present;
 - owner-issued asset and namespace evidence;
 - selected files or libraries and their actual package paths;
-- optional complete detached file-list evidence for the base narrowed space,
-  including selected-Library package-symbol evidence when a library terminal
-  accompanies it;
+- optional complete detached file-list evidence for the base narrowed space;
+- optional complete logical TFM Library inventory, exact later file
+  references, and package-local PDB entry evidence;
 - the acquisition and transfer receipts;
 - typed fallback, no-match, unavailability, and failure evidence; and
 - any live acquired content generation owned by the settlement.
@@ -383,15 +364,16 @@ The counted PackageHouse stack has seven slices:
    selected-Library PDB companion, and whole-archive behavior behind semantic
    queries while preserving the current direct PDB-companion handoff. Migrate
    one current production route.
-3. Add reusable narrowing, Libraries, and Best Library by composing the
-   existing asset-selection and Metadata owners. Preserve real multi-library
-   package evidence.
+3. Add reusable narrowing, Libraries, and
+   `GetLibraryAndInventoryForTarget` by composing the existing asset-selection,
+   correspondence, and Metadata owners. Preserve real multi-library package
+   evidence.
 4. After #9002 locks and implements the independent PDB settlement, add
-   selected-Library package-symbol evidence to Best Library plus TFM-wide File
-   List, compose later exact Files acquisition, and migrate one current PDB
-   consumer. Retire direct companion delivery only for that adopted route.
-5. Adopt Best Library and composable file-list evidence in Inspect Web Package
-   Query, beginning with assembly-semantic evaluation.
+   Library-inventory package-symbol consumption, compose later exact Files
+   acquisition, and migrate one current PDB consumer. Retire direct companion
+   delivery only for that adopted route.
+5. Adopt `GetLibraryAndInventoryForTarget` in Inspect Web Package Query,
+   beginning with assembly-semantic evaluation and the website Library list.
 6. Adopt the same demands in `find` and shared Workspace/declaration loading,
    removing their split acquisition behavior.
 7. Migrate remaining commands and hosts, then delete
@@ -403,15 +385,24 @@ lock with one adopter under the bounded first-adopter exception in
 [design scope](../design-scope.md#stage-implementation-after-locking-the-design);
 later adopters remain focused owner-specific slices.
 
-The production demo is a Package Query over `System.Text.Json`: Best Library
-without a namespace plus a TFM-wide File List returns one complete
-`System.Text.Json.dll` and the complete detached target inventory without
-downloading a PDB. The file list records whether a package-local
-implementation/PDB candidate is Listed, Absent, Not covered, or Not
-applicable. A later PDB operation may request the exact listed files or skip to
-an external provider. The neighboring multi-library case uses `Avalonia`, an
-arbitrary ordered root chain, exact namespace selection, and deterministic
-alphabetical fallback for an absent namespace.
+The Package-first external `AssemblyRef` supplier composition tracked by
+[#8466](https://github.com/richlander/dotnet-inspect/issues/8466) is another
+focused consumer. It may reuse TFM-narrowed directory evidence to nominate
+exact package entries and Files to acquire them. #8466 retains ownership of
+cross-package reachability, Package-tier ordering, Metadata identity binding,
+Package-first precedence, Platform fallback, and its closed external binding
+result. It neither adds an AssemblyRef terminal here nor constructs a second
+file-name index.
+
+The production demo is a Package Query over `System.Text.Json`:
+`GetLibraryAndInventoryForTarget` without a namespace returns one complete
+`System.Text.Json.dll` and the complete logical Library inventory for the TFM
+without downloading a PDB. Each Library row records whether its applicable
+implementation PDB is Listed, Absent, or Not applicable and supplies exact
+references for later Files requests. A later PDB operation may request the
+listed implementation/PDB files or skip to an external provider. The
+neighboring multi-library case uses `Avalonia`, exact namespace selection, and
+deterministic alphabetical fallback for an absent namespace.
 
 ## Pathological cases and gates
 
@@ -423,15 +414,17 @@ All implementation gates run in Release.
 | Package-wide file list | Every admitted path appears once; no expanded entry content is opened. |
 | TFM-wide file list | Every path in the owner-issued target scope appears once; unrelated target paths do not appear. |
 | Ordered root preference | The first applicable family is selected from an arbitrary-length chain; a later family cannot contribute candidates or inventory. |
-| Shared directory evidence | File List, exact-file admission, library candidates, package-symbol evidence, and range spans derive from one validated snapshot plus owner-issued narrowing and correspondence. |
+| Shared directory evidence | File List, exact-file admission, logical Library inventory, package-symbol evidence, and range spans derive from one validated snapshot plus owner-issued narrowing and correspondence. |
 | Exact files | Every explicitly requested file lies in the base narrowed space and is complete and validated; an outside, missing, or ambiguous path fails visibly. |
-| Best Library without namespace plus TFM-wide File List | PackageHouse returns exactly one selected DLL, no PDB content, complete target inventory, and typed package-symbol evidence for the selected Library. |
-| Reference primary plus listed implementation PDB | The selected reference DLL remains the only downloaded entry; File List evidence identifies the owner-issued implementation DLL and adjacent PDB for a later exact Files request. |
-| TFM-wide package-local PDB absence | Complete target inventory proves the applicable adjacent PDB is absent without downloading package content or consulting a symbol provider. |
-| Root-narrowed File List | Inventory outside the winning root is Not covered; PackageHouse cannot report package-local PDB absence there. |
-| No File List | The Library remains usable, no PDB is downloaded, and the result carries no package-local PDB presence or absence claim. |
+| `GetLibraryAndInventoryForTarget` without namespace | PackageHouse returns exactly one selected DLL, no PDB content, and one complete logical inventory whose selection receipt identifies that row. |
+| Reference primary plus listed implementation PDB | The selected reference DLL remains the only downloaded entry; its inventory row identifies the owner-issued implementation DLL and adjacent PDB for a later exact Files request. |
+| TFM-wide package-local PDB absence | The applicable inventory row proves the adjacent implementation PDB is absent without downloading package content or consulting a symbol provider. |
+| Library without implementation correspondence | Its inventory row reports Not applicable and invents neither an implementation DLL nor a PDB reference. |
+| Root-narrowed composite request | `GetLibraryAndInventoryForTarget` rejects TFM-plus-root narrowing rather than publishing an incomplete logical inventory. |
+| Raw File List | The result remains a physical entry inventory and does not acquire Library or PDB semantics merely because matching paths are present. |
+| Several AssemblyRefs against one package generation | The consumer reuses owner-issued directory/narrowing evidence and exact Files references; Metadata validates each candidate without another archive scan or package-entry inventory. |
 | Later package-symbol acquisition | The PDB operation may request the exact listed implementation/PDB entries through Files, then validates identity outside PackageHouse. |
-| Later remote symbol acquisition | The PDB operation may skip the package candidate or use an external provider when package evidence is absent, not covered, or disfavored by its separately owned policy. |
+| Later remote symbol acquisition | The PDB operation may skip the package candidate or use an external provider when package evidence is absent or disfavored by its separately owned policy. |
 | Namespace in several libraries | The first exact namespace match in file-name-stem and package-path order wins. |
 | Namespace absent | The alphabetically first compatible library wins. |
 | Namesake evidence | Package-ID/file-name equality is reported without opening the assembly and does not alter selection order. |
@@ -456,14 +449,17 @@ This design does not:
   transfer receipt issuance;
 - make PackageHouse a Metadata decoder or infer namespace facts from file
   names;
+- make PackageHouse issue canonical assembly identity, `PackageOwned`,
+  `NameOwnedNoMatch`, or another external-supplier binding result from package
+  paths, namesake evidence, File List, or Library inventory;
 - make PackageHouse a ZIP parser or permit terminal-specific archive scans;
 - make PackageHouse a Portable PDB decoder, identity validator, `.snupkg`
   client, or symbol-server client;
 - make PackageHouse own source-candidate ordering or PDB-use policy;
-- download or retain a PDB merely because Best Library or File List was
-  requested;
-- infer package-local PDB absence from a File List whose narrowing does not
-  cover the applicable implementation location;
+- download or retain a PDB merely because
+  `GetLibraryAndInventoryForTarget` or File List was requested;
+- infer logical Library correspondence or package-local PDB absence from raw
+  File List paths;
 - require every demand to use ranged acquisition;
 - promise that a file list means every listed entry is materialized;
 - permit different terminals in one query to resolve different base

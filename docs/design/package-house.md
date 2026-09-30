@@ -27,13 +27,15 @@ and typed-fallback planning. Archive-backed planning derives every narrowing
 and terminal from one validated ZIP central-directory snapshot. The
 content-demand owner composes existing source, archive, asset-selection,
 Metadata, cache, and transfer owners without absorbing their algorithms.
-Best Library plus TFM-wide File List returns one selected DLL and no PDB
-content. The complete target inventory carries typed evidence for whether
-owner-issued implementation correspondence has a listed adjacent PDB. A later
-host-neutral PDB operation may request the exact implementation/PDB files or
-skip to an external provider. Root-narrowed inventory cannot claim absence
-outside its winning root. The current direct companion handoff remains
-transitional until the focused PDB-settlement owner tracked by
+`GetLibraryAndInventoryForTarget` accepts a TFM-wide target context and returns
+one policy-selected DLL plus the complete logical Library inventory for that
+target, without acquiring PDB content. Every row preserves owner-issued
+implementation correspondence and typed evidence for a listed adjacent PDB. A
+later host-neutral PDB operation may request the exact implementation/PDB
+files or skip to an external provider. Raw File List remains a physical entry
+inventory rather than the owner of Library or PDB semantics. The current
+direct companion handoff remains transitional until the focused
+PDB-settlement owner tracked by
 [#9002](https://github.com/richlander/dotnet-inspect/issues/9002).
 
 [#7423](https://github.com/richlander/dotnet-inspect/issues/7423) extends that
