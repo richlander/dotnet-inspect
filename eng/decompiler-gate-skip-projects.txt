@@ -3,6 +3,7 @@ fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures
 fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures
 fixtures/analysis/ILInspector.Analysis.AsyncSiblingRepositoryFixture
 fixtures/analysis/ILInspector.Analysis.BodyUseFixtures
+fixtures/analysis/ILInspector.Analysis.BodyUseVbFixtures
 fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures
 fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures
 fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures
@@ -83,6 +84,9 @@ fixtures/metadata/ILInspector.Metadata.MethodImplContracts
 fixtures/metadata/ILInspector.Metadata.MethodImplFixtures
 fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures
 fixtures/metadata/ILInspector.Metadata.SignatureUseFixtures
+fixtures/metadata/ILInspector.Metadata.SourceProvenanceFixtures
+fixtures/metadata/ILInspector.Metadata.SourceProvenanceLookalike
+fixtures/metadata/ILInspector.Metadata.SourceProvenanceNetStandard
 fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer
 fixtures/metadata/ILInspector.Metadata.SpellabilityReference
 fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer
@@ -176,6 +180,7 @@ tests/DotnetInspector.Platforms.Tests
 tests/DotnetInspector.PortableQueries.Tests
 tests/DotnetInspector.Presentation.Tests
 tests/DotnetInspector.Queries.Consumer
+tests/DotnetInspector.Queries.PerformanceOracles
 tests/DotnetInspector.Queries.Tests
 tests/DotnetInspector.RowSelection.Tests
 tests/DotnetInspector.RuntimeFlavorProbe
@@ -224,15 +229,20 @@ tests/nuget/PackageAssetSelection.BuildOracle/Package
 tests/runfaster.Tests
 tools/AnalysisHarness
 tools/AotProbe
+tools/BodyUseScorecard
 tools/CSharpDiffHarness
 tools/CSharpPrinter.Benchmarks
 tools/DiffHarnessCommon
 tools/HarnessReportDiff
 tools/IlDiffHarness
+tools/ImplementationMetricPerformance
 tools/InspectWebFixtureResolver
+tools/MemberBodySizeScorecard
 tools/MemberGroupScorecard
 tools/MethodClassificationScorecard
+tools/OwnershipIncidenceScorecard
 tools/PackageHouse.CliBenchmarks
 tools/QuerySpaceScorecard
 tools/SectionRegistrySpike
 tools/SourceCorpusCensus
+tools/TypeFindPopulationScorecard

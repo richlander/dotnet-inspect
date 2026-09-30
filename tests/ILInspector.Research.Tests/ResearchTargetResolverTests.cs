@@ -352,7 +352,7 @@ public class ResearchTargetResolverTests
             beforeOnly.Scope,
             beforeOnly.DomainId,
             beforeOnly.Before.CorrespondenceKey.Role,
-            new ResearchTargetBodyIdentity(
+            MethodBodyIdentityFactory.Create(
                 beforeOnly.Before.CorrespondenceKey.BodyIdentity!.DeclaringType,
                 beforeOnly.Before.CorrespondenceKey.BodyIdentity.Name + "-stale",
                 beforeOnly.Before.CorrespondenceKey.BodyIdentity.GenericArity,
@@ -1053,7 +1053,7 @@ public class ResearchTargetResolverTests
             paired.Before.CorrespondenceKey.BodyIdentity,
             paired.After.CorrespondenceKey.BodyIdentity);
         Assert.Equal(
-            ResearchTargetTypeIdentityKind.GenericInstance,
+            MethodBodyTypeIdentityKind.GenericInstance,
             Assert.Single(
                 paired.Before.CorrespondenceKey.BodyIdentity!.ParameterTypes)
                 .Kind);
@@ -1079,11 +1079,11 @@ public class ResearchTargetResolverTests
             namedType.Before.CorrespondenceKey.BodyIdentity,
             namedType.After.CorrespondenceKey.BodyIdentity);
         Assert.Equal(
-            ResearchTargetTypeIdentityKind.MethodGenericParameter,
+            MethodBodyTypeIdentityKind.MethodGenericParameter,
             namedType.Before.CorrespondenceKey.BodyIdentity!
                 .ParameterTypes[0].Kind);
         Assert.Equal(
-            ResearchTargetTypeIdentityKind.Definition,
+            MethodBodyTypeIdentityKind.Definition,
             namedType.Before.CorrespondenceKey.BodyIdentity
                 .ParameterTypes[1].Kind);
         Assert.Equal(
@@ -1102,7 +1102,7 @@ public class ResearchTargetResolverTests
             primitiveName.Before.CorrespondenceKey.BodyIdentity,
             primitiveName.After.CorrespondenceKey.BodyIdentity);
         Assert.Equal(
-            ResearchTargetTypeIdentityKind.MethodGenericParameter,
+            MethodBodyTypeIdentityKind.MethodGenericParameter,
             Assert.Single(
                 primitiveName.Before.CorrespondenceKey.BodyIdentity!
                     .ParameterTypes).Kind);
@@ -1898,8 +1898,9 @@ public class ResearchTargetResolverTests
                 typeof(ResearchTargetOutcome.Failed),
                 typeof(ResearchTargetDiagnostic),
                 typeof(ResearchTargetCorrespondenceKey),
-                typeof(ResearchTargetBodyIdentity),
-                typeof(ResearchTargetTypeIdentity),
+                typeof(MethodBodyIdentity),
+                typeof(MethodBodyTypeIdentity),
+                typeof(MethodBodyTypeIdentityKind),
             ])
         {
             Assert.Contains(reached, closure);
@@ -1909,15 +1910,23 @@ public class ResearchTargetResolverTests
 
         Assert.Equal(
             [
-                nameof(ResearchTargetTypeIdentity.AssemblyName),
-                nameof(ResearchTargetTypeIdentity.DefinitionName),
-                nameof(ResearchTargetTypeIdentity.ElementType),
-                nameof(ResearchTargetTypeIdentity.GenericParameterIndex),
-                nameof(ResearchTargetTypeIdentity.Kind),
-                nameof(ResearchTargetTypeIdentity.Rank),
-                nameof(ResearchTargetTypeIdentity.TypeArguments),
+                nameof(MethodBodyTypeIdentity.AssemblyName),
+                nameof(MethodBodyTypeIdentity.DefinitionName),
+                nameof(MethodBodyTypeIdentity.ElementType),
+                nameof(MethodBodyTypeIdentity.FunctionPointerGenericArity),
+                nameof(MethodBodyTypeIdentity.FunctionPointerHeader),
+                nameof(MethodBodyTypeIdentity.FunctionPointerParameterTypes),
+                nameof(MethodBodyTypeIdentity
+                    .FunctionPointerRequiredParameterCount),
+                nameof(MethodBodyTypeIdentity.FunctionPointerReturnType),
+                nameof(MethodBodyTypeIdentity.GenericParameterIndex),
+                nameof(MethodBodyTypeIdentity.IsRequiredModifier),
+                nameof(MethodBodyTypeIdentity.Kind),
+                nameof(MethodBodyTypeIdentity.ModifierType),
+                nameof(MethodBodyTypeIdentity.Rank),
+                nameof(MethodBodyTypeIdentity.TypeArguments),
             ],
-            typeof(ResearchTargetTypeIdentity)
+            typeof(MethodBodyTypeIdentity)
                 .GetProperties(BindingFlags.Instance | BindingFlags.Public)
                 .Select(property => property.Name)
                 .Order(StringComparer.Ordinal));
@@ -2827,7 +2836,7 @@ public class ResearchTargetResolverTests
             {
                 foreach (Type exposed in SignatureTypes(member))
                 {
-                    if (IsResearchOwned(exposed))
+                    if (IsRetainedEvidenceType(exposed))
                         pending.Enqueue(exposed);
                 }
             }
@@ -2888,8 +2897,11 @@ public class ResearchTargetResolverTests
         }
     }
 
-    static bool IsResearchOwned(Type type)
-        => type.Assembly == typeof(ResearchTargetResolution).Assembly;
+    static bool IsRetainedEvidenceType(Type type)
+        => type.Assembly == typeof(ResearchTargetResolution).Assembly
+            || type == typeof(MethodBodyIdentity)
+            || type == typeof(MethodBodyTypeIdentity)
+            || type == typeof(MethodBodyTypeIdentityKind);
 
     // ------------------------------------------------------ occurrence builders
 

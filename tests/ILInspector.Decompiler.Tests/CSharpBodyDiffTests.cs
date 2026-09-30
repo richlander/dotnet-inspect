@@ -5,6 +5,20 @@ namespace ILInspector.Decompiler.Tests;
 
 public class CSharpBodyDiffTests
 {
+    static readonly string SystemTextJson9 = Path.Combine(
+        AppContext.BaseDirectory,
+        "RealAssets",
+        "BodyIdentity",
+        "9.0.0",
+        "System.Text.Json.dll");
+
+    static readonly string SystemTextJson10 = Path.Combine(
+        AppContext.BaseDirectory,
+        "RealAssets",
+        "BodyIdentity",
+        "10.0.0",
+        "System.Text.Json.dll");
+
     [Fact]
     public void CompareAssemblies_SelfDiffHasNoRows()
     {
@@ -14,6 +28,24 @@ public class CSharpBodyDiffTests
 
         Assert.True(diff.IsExact);
         Assert.Empty(diff.Rows);
+    }
+
+    [Fact]
+    public void BuildMethodIndex_RetainsFunctionPointerSignatures()
+    {
+        string path = FixtureCatalog
+            .Get(FixtureIds.AnalysisCallFunctionPointerScope)
+            .AssemblyPath();
+
+        Dictionary<string, CSharpBodyDiff.CSharpMethodEntry> methods =
+            CSharpBodyDiff.BuildMethodIndex(
+                [path],
+                includeNonPublic: true,
+                typeFilters: null);
+
+        Assert.Contains(methods.Values, entry =>
+            entry.TypeFullName == "Samples.Target`1"
+            && entry.MethodName == "Invoke");
     }
 
     [Fact]
@@ -44,6 +76,13 @@ public class CSharpBodyDiffTests
             Assert.Contains("DiffFixtureSample|neutral|", row.AssemblyIdentity, StringComparison.Ordinal);
             Assert.StartsWith(row.AssemblyIdentity + "|", row.StableMemberKey, StringComparison.Ordinal);
             Assert.Contains(row.Anchor.CanonicalSignature + "#", row.StableMemberKey, StringComparison.Ordinal);
+            string bodyFingerprint = row.StableMemberKey[
+                (row.StableMemberKey.LastIndexOf('#') + 1)..];
+            Assert.Equal(64, bodyFingerprint.Length);
+            Assert.DoesNotContain(
+                "method-body-v1",
+                bodyFingerprint,
+                StringComparison.Ordinal);
             Assert.Equal(10, row.Anchor.Fingerprint.Length);
             Assert.StartsWith("csharp.line.", row.ChangeId, StringComparison.Ordinal);
             Assert.NotEmpty(row.Message);
@@ -61,6 +100,33 @@ public class CSharpBodyDiffTests
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" });
 
         Assert.DoesNotContain(diff.Rows, row => row.Member.Contains("GenericIdentity", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CompareAssemblies_SystemTextJsonMethodsPairAcrossMetadataRowChurn()
+    {
+        var diff = CSharpBodyDiff.CompareAssemblies(
+            SystemTextJson9,
+            SystemTextJson10,
+            typeFilters: new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                "System.Text.Json.JsonSerializer",
+            });
+
+        var methodPresence = diff.Rows
+            .Where(row => row.ChangeId is
+                "csharp.method.added" or "csharp.method.removed")
+            .GroupBy(
+                row => row.Anchor.CanonicalSignature,
+                StringComparer.Ordinal)
+            .Where(group =>
+                group.Any(row => row.ChangeId == "csharp.method.added")
+                && group.Any(row =>
+                    row.ChangeId == "csharp.method.removed"))
+            .ToArray();
+
+        Assert.Empty(methodPresence);
     }
 
     [Fact]

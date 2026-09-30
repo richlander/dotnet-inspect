@@ -83,6 +83,35 @@ legacy comparison APIs or their native C#/IL producers.
 
 ### Structural body comparison
 
+Analysis owns `MethodBodyIdentity`, the version-stable structural identity for
+one physical method body. It is built from the open declaring type, physical
+method name, generic arity, open parameter types, conversion return type when
+applicable, and extension-method role. Parameter structure includes custom
+modifier kind and type plus function-pointer header, generic arity, required
+parameter count, return type, and parameter types. Named types retain defining
+assembly, namespace, and exact nested metadata segments; generic parameters
+retain only their type- or method-parameter position. Module version, metadata
+token, table-row numbers, signature-blob bytes, generic-parameter names, and
+tuple names never participate.
+
+Research consumes that owner-issued identity when it forms target
+correspondence keys. Decompiler consumes the same identity when
+`CSharpBodyDiff` must distinguish methods that share its API-facing raw key.
+The method index groups and pairs on the structural value itself, not on a hash
+of a metadata signature blob. Its stable textual key carries only a full
+SHA-256 fingerprint of the owner-issued canonical identity, not the canonical
+text itself. Callers do not parse that fingerprint to recover semantics. This
+lets unchanged methods survive ordinary TypeDef, TypeRef, and TypeSpec row
+renumbering between builds without collapsing structurally distinct overloads.
+
+`MethodBodyIdentityTests` gates the identity projection, its deliberate
+erasures, and parity between structured Analysis evidence and guarded metadata
+issuance. `CompareAssemblies_SystemTextJsonMethodsPairAcrossMetadataRowChurn`
+uses System.Text.Json 9.0.0 and 10.0.0 to gate the pathological cross-build
+case. Existing generic-arity, nested-generic, conversion-operator, explicit
+implementation, extension-method, custom-modifier, function-pointer, and
+identity-failure tests remain the nearest-neighbor gates.
+
 `CSharpBodyDiff.IssueCorrespondence` is the product correspondence owner for
 two exact `AnnotatedSourceDocument` values describing the same physical method
 body. Each product document carries assembly name, MVID, MethodDef token, body
@@ -586,7 +615,7 @@ Both profiles supply the same Metadata-owned target evidence: an admitted
 descriptor and resolver that Research opens, validates against the Analysis
 module identity, and resolves through Metadata's `MemberTargetResolver`. They
 also supply the Analysis method population from which Research issues the
-`ResearchTargetBodyIdentity`. A body-signal occurrence additionally carries
+Analysis-owned `MethodBodyIdentity`. A body-signal occurrence additionally carries
 the focused Analysis results its producer compares. Research does not
 reimplement Metadata selection over Analysis identity, and it does not derive
 body-signal member identity from display or canonical-signature text.
@@ -849,32 +878,32 @@ owner-issued target evidence:
   method. A non-method-like target instead retains its exact `MemberAnchor`
   with role `None`; and
 - the correspondence key retains scope, domain, relationship role, and a
-  Research-owned body identity projected from the exact Analysis-issued
+  `MethodBodyIdentity` projected from the exact Analysis-issued
   `MethodIdentity` for the resolved MethodDef. It erases side, admitted-input
   identity, assembly version, MVID, MethodDef token, and generic-parameter
   names. For role `None`, it retains the exact API `MemberAnchor` canonical
   identity because no body identity exists.
 
-The Research body identity projects the structured physical declaring and
-signature `TypeRef` shapes into Research-owned inert type identity. The
+The Analysis body identity projects the structured physical declaring and
+signature `TypeRef` shapes into Analysis-owned inert type identity. The
 projection retains only the simple assembly name, exact metadata definition
 name, structural element and argument shapes, generic kind and position, and
 array rank; it does not retain Analysis resolution provenance or generic
 parameter display names. The body identity also preserves the selected
-declaration name and open parameter shape normalized for its accessor role,
-generic arity, conversion return shape, and the Analysis-issued extension
-projection. Analysis generic parameters participate by kind and position, and
-exact metadata definition names preserve namespace
-and nested-type segments separately. Distinct assembly domains, overload
-shapes, relationship roles, extension bodies, and nested types therefore
-remain distinct even when
-a display name matches.
+declaration name and open parameter shape that Research supplies after
+normalizing the accessor relationship, plus generic arity, conversion return
+shape, and the Analysis-issued extension projection. Analysis generic
+parameters participate by kind and position, and exact metadata definition
+names preserve namespace and nested-type segments separately. Distinct
+assembly domains, overload shapes, relationship roles, extension bodies, and
+nested types therefore remain distinct even when a display name matches.
 
-The key grammar and constructors are Research-owned. Metadata does not group
-targets into Research correspondence domains, and callers do not author or
-parse either key. Rendered assembly identities, list position, normalized
-display text, selector strings, and `ResearchSubjectKey.Id` are not
-correspondence keys.
+The strict and correspondence key grammar and constructors remain
+Research-owned. The nested body-identity grammar and constructors are
+Analysis-owned. Metadata does not group targets into Research correspondence
+domains, and callers do not author or parse either key. Rendered assembly
+identities, list position, normalized display text, selector strings, and
+`ResearchSubjectKey.Id` are not correspondence keys.
 
 If Metadata selection succeeds but the admitted Analysis index has no complete
 structured `MethodIdentity` for that MethodDef, the attempt remains `Resolved`.
