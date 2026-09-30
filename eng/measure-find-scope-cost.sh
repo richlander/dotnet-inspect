@@ -18,6 +18,8 @@
 #   package-sets        --platform --extensions --aspnetcore: the platform
 #                       frameworks plus both shipped package sets
 #   package-named       --package Avalonia@12.1.3 --tfm net10.0
+#   package-compat      --package System.Text.Json@10.0.0 without --tfm,
+#                       exercising the compatibility inventory
 #   package-prefix      --package-prefix Avalonia --tfm net10.0
 #
 # Every scenario runs cold, then warm. Cold samples use a fresh HOME and
@@ -152,5 +154,7 @@ scenario package-sets "$installed_root" JsonSerializer JsonSerialiser .Parse \
   --platform --extensions --aspnetcore
 scenario package-named "$installed_root" Button Buton .Measure \
   --package "$avalonia" --tfm net10.0
+scenario package-compat "$installed_root" JsonSerializer JsonSerialiser .Parse \
+  --package System.Text.Json@10.0.0
 scenario package-prefix "$installed_root" Button Buton .Measure \
   --package-prefix Avalonia --tfm net10.0
