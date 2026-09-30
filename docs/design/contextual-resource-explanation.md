@@ -134,6 +134,29 @@ does not realize or enumerate the gesture registry, resolve affordances,
 evaluate recommendation-specific result facts, construct command arguments,
 rank gestures, or render a related-gesture block.
 
+### Why `-T` composes with ordinary output
+
+`-D` and `-Q` are terminal metadata operations. Their requested Content is the
+structural or query-capability description itself, so they replace ordinary
+inspection output without first producing the inspected resource.
+
+`-T` asks a different question: which host gestures are useful after this
+successful interaction with this exact command resource, resolved subject, and
+available typed result facts? Replacing ordinary output would either hide the
+resource that gives those gestures context or execute its producers while
+discarding the result. `-T` therefore composes the ordinary resource and its
+applicable next gestures in one invocation. The ordinary Content remains on
+`stdout`; the CLI host projection remains on `stderr`.
+
+This is intentionally HATEOAS-like: the current resource and applicable
+transitions are available together rather than requiring a second discovery
+invocation. It is not a claim of REST or hypermedia-protocol conformance.
+The stderr gesture block is not host-neutral Content, a portable link relation,
+or part of `InspectionEnvelope<TContent>`. Contextual explanation retains the
+typed semantic affordances; each host independently binds and presents them.
+Here *one-shot* means one invocation and one exact resolved context, not one
+combined output stream or universal representation.
+
 ## Basis and deliberate difference
 
 `kubectl` provides nearby but incomplete precedents:
@@ -154,6 +177,7 @@ Two other systems inform the related-gesture boundary:
 
 | Precedent | Adopted idea | Deliberate difference |
 | --- | --- | --- |
+| [REST hypermedia](https://ics.uci.edu/~fielding/pubs/dissertation/rest_arch_style.htm#sec_5_1_5) | A representation exposes relations or transitions applicable to the current resource, allowing the interaction to continue from that state. | `-T` is an explicit CLI host projection on `stderr`; it does not place CLI commands in host-neutral Content, define a universal link-relation vocabulary, or claim REST conformance. |
 | [Language Server Protocol](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) code actions, code lenses, and symbol hierarchies | Providers associate typed relationships or applicable actions with exact context; clients choose how to present and invoke them, and may resolve expensive detail lazily. | A dotnet-inspect subject owner issues operation affordances rather than CLI command identifiers. Each host binds those affordances independently. |
 | [PowerShell `Get-Command -ParameterType`](https://learn.microsoft.com/powershell/module/microsoft.powershell.core/get-command) and typed pipelines | Commands can be discovered from the subject type they accept instead of a hand-maintained help list. | Contextual explanation preserves the exact command resource or resolved subject and may use already-computed success facts; CLR type compatibility alone does not create a relationship. |
 
@@ -747,5 +771,7 @@ This design does not:
   enrich `-T`;
 - retain `--tips` or valued `-T` spellings solely for compatibility;
 - require equal CLI and Browser gesture presentation or ordering;
+- claim REST or HATEOAS conformance, make the stderr gesture block part of
+  host-neutral Content, or define a portable hypermedia relation protocol;
 - require every command to support contextual explanation or references; or
 - adopt every command family in one implementation change.
