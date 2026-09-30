@@ -18,6 +18,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
         MethodDefinitionHandle methodHandle,
         MethodDefinition methodDefinition,
         MethodBodyBlock body,
+        ProducerTerminal terminal,
         int maximumInstructions,
         int maximumOccurrences,
         int maximumMethodSignatureBytes,
@@ -65,7 +66,9 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     ? owner.Source
                     : null;
 
-            var rows = ImmutableArray.CreateBuilder<BodyTypeUseOccurrence>();
+            var rows = terminal == ProducerTerminal.Rows
+                ? ImmutableArray.CreateBuilder<BodyTypeUseOccurrence>()
+                : null;
             var diagnostics =
                 ImmutableArray.CreateBuilder<AnalysisLibraryBodyUseDiagnostic>();
             IMethodCallResolver resolver =
@@ -75,6 +78,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
             int operandsConsidered = 0;
             int operandsExamined = 0;
             int operandsUnavailable = 0;
+            int occurrenceCount = 0;
             foreach (DecodedInstruction instruction
                 in instructions)
             {
@@ -83,7 +87,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     continue;
 
                 operandsConsidered++;
-                int committed = rows.Count;
+                int committed = occurrenceCount;
                 try
                 {
                     if (!TryClassify(
@@ -128,14 +132,28 @@ internal sealed partial class LibraryMethodAnalysisRunner
                         continue;
                     }
 
-                    // The operand's rows commit atomically: they are appended
-                    // in place and truncated away on any rejection.
                     if (source is { } logicalSource)
                     {
+                        long attempted = checked(
+                            (long)occurrenceCount
+                                + binding.Targets.Length);
+                        if (attempted > maximumOccurrences)
+                        {
+                            return BodyTypeUseMethodFact.CreateLimited(
+                                typeHandle,
+                                methodToken,
+                                attempted,
+                                maximumOccurrences,
+                                operandsConsidered,
+                                operandsExamined,
+                                operandsUnavailable);
+                        }
+
+                        occurrenceCount = checked((int)attempted);
                         foreach (BodyTypeUseOperandTarget target
                             in binding.Targets)
                         {
-                            rows.Add(
+                            rows?.Add(
                                 new(
                                     logicalSource,
                                     target.Target,
@@ -146,24 +164,32 @@ internal sealed partial class LibraryMethodAnalysisRunner
                                     target.Ordinal));
                         }
                     }
-                    long attempted = rows.Count;
-                    if (attempted > maximumOccurrences)
+                    operandsExamined++;
+                    if (terminal == ProducerTerminal.Exists
+                        && occurrenceCount != 0)
                     {
-                        return BodyTypeUseMethodFact.CreateLimited(
-                            typeHandle,
+                        return new(
+                            methodDefinition.GetDeclaringType(),
                             methodToken,
-                            attempted,
-                            maximumOccurrences,
+                            AnalysisLibraryBodyUseFidelity.LogicalOwner,
+                            occurrenceCount,
+                            default,
+                            diagnostics.ToImmutable(),
                             operandsConsidered,
                             operandsExamined,
-                            operandsUnavailable);
+                            operandsUnavailable,
+                            Settled: true,
+                            Limited: false,
+                            AttemptedCharge: null,
+                            Limit: null);
                     }
-                    operandsExamined++;
                 }
                 catch (Exception exception)
                     when (IsRecoverableMethodFailure(exception))
                 {
-                    rows.Count = committed;
+                    occurrenceCount = committed;
+                    if (rows is not null)
+                        rows.Count = committed;
                     operandsUnavailable++;
                     diagnostics.Add(
                         new(
@@ -196,11 +222,13 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 owner.Status == BodyUseOwnerStatus.Logical
                     ? AnalysisLibraryBodyUseFidelity.LogicalOwner
                     : AnalysisLibraryBodyUseFidelity.PhysicalOnly,
-                rows.ToImmutable(),
+                occurrenceCount,
+                rows?.ToImmutable() ?? default,
                 diagnostics.ToImmutable(),
                 operandsConsidered,
                 operandsExamined,
                 operandsUnavailable,
+                Settled: false,
                 Limited: false,
                 AttemptedCharge: null,
                 Limit: null);
@@ -598,11 +626,13 @@ internal sealed record BodyTypeUseMethodFact(
     TypeDefinitionHandle PhysicalType,
     int PhysicalMethodToken,
     AnalysisLibraryBodyUseFidelity Fidelity,
+    int OccurrenceCount,
     ImmutableArray<BodyTypeUseOccurrence> Occurrences,
     ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics,
     int OperandsConsidered,
     int OperandsExamined,
     int OperandsUnavailable,
+    bool Settled,
     bool Limited,
     long? AttemptedCharge,
     long? Limit)
@@ -615,7 +645,8 @@ internal sealed record BodyTypeUseMethodFact(
             type,
             methodToken,
             AnalysisLibraryBodyUseFidelity.PhysicalOnly,
-            [],
+            0,
+            default,
             [new(
                 AnalysisLibraryBodyUseDiagnosticKind.MalformedBody,
                 methodToken,
@@ -624,6 +655,7 @@ internal sealed record BodyTypeUseMethodFact(
             0,
             0,
             0,
+            Settled: false,
             Limited: false,
             AttemptedCharge: null,
             Limit: null);
@@ -641,7 +673,8 @@ internal sealed record BodyTypeUseMethodFact(
             type,
             methodToken,
             AnalysisLibraryBodyUseFidelity.PhysicalOnly,
-            [],
+            0,
+            default,
             [new(
                 AnalysisLibraryBodyUseDiagnosticKind.Limit,
                 methodToken,
@@ -653,6 +686,7 @@ internal sealed record BodyTypeUseMethodFact(
             operandsConsidered,
             operandsExamined,
             operandsUnavailable,
+            Settled: false,
             Limited: true,
             AttemptedCharge: attempted,
             Limit: limit);

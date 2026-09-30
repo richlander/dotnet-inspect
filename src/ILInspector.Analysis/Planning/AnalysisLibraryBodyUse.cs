@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
@@ -14,13 +15,15 @@ internal sealed class AnalysisLibraryBodyUseProducer
 {
     readonly AnalysisLibraryBodyUseLimits _limits;
     readonly CancellationToken _cancellationToken;
+    readonly AnalysisLibraryBodyUseStageTiming? _stageTiming;
 
     internal AnalysisLibraryBodyUseProducer(
         AnalysisLibraryBodyUseLimits limits,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AnalysisLibraryBodyUseStageTiming? stageTiming = null)
         : base(
             "AnalysisLibraryBodyUse",
-            version: 4,
+            version: 5,
             tier: 0,
             MethodDefinitionLayers.Body
                 | MethodDefinitionLayers.ModuleLookup,
@@ -32,6 +35,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
     {
         _limits = limits;
         _cancellationToken = cancellationToken;
+        _stageTiming = stageTiming;
     }
 
     internal override bool HasTypeScope => true;
@@ -57,17 +61,30 @@ internal sealed class AnalysisLibraryBodyUseProducer
 
         try
         {
-            BodyTypeUseMethodFact fact =
-                view.Lookup.AnalyzeBodyTypeUses(
-                    view.TypeHandle,
-                    view.TypeDefinition,
-                    view.MethodHandle,
-                    view.MethodDefinition,
-                    view.GetBody(),
-                    _limits.MaximumInstructionsPerBody,
-                    _limits.MaximumOccurrences,
-                    _limits.MaximumMethodSignatureBytes,
-                    _cancellationToken);
+            long started = _stageTiming is null
+                ? 0
+                : Stopwatch.GetTimestamp();
+            BodyTypeUseMethodFact fact;
+            try
+            {
+                fact =
+                    view.Lookup.AnalyzeBodyTypeUses(
+                        view.TypeHandle,
+                        view.TypeDefinition,
+                        view.MethodHandle,
+                        view.MethodDefinition,
+                        view.GetBody(),
+                        view.Terminal,
+                        _limits.MaximumInstructionsPerBody,
+                        _limits.MaximumOccurrences,
+                        _limits.MaximumMethodSignatureBytes,
+                        _cancellationToken);
+            }
+            finally
+            {
+                _stageTiming?.RecordBodyAnalysis(
+                    Stopwatch.GetTimestamp() - started);
+            }
             return new(fact, view.Terminal);
         }
         catch (Exception exception)
@@ -101,7 +118,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
             completion.Terminal == ProducerTerminal.Rows);
 
     internal override bool Settles(VisitFact fact) =>
-        IsSettling(fact, _limits.MaximumOccurrences);
+        IsSettling(fact);
 
     internal sealed record VisitFact(
         BodyTypeUseMethodFact? Body,
@@ -124,7 +141,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
         int _operandsLimited;
         bool _occurrenceLimitReported;
 
-        internal ImmutableArray<BodyTypeUseOccurrence> Add(
+        internal BodyTypeUseAdmission Add(
             VisitFact visit) =>
             Add(
                 visit,
@@ -133,13 +150,13 @@ internal sealed class AnalysisLibraryBodyUseProducer
                 retainBodies:
                     visit.Terminal == ProducerTerminal.Rows);
 
-        internal ImmutableArray<BodyTypeUseOccurrence> Add(
+        internal BodyTypeUseAdmission Add(
             VisitFact visit,
             bool retainOccurrences,
             bool retainBodies)
         {
             if (visit.Body is not { } body)
-                return [];
+                return default;
 
             if (retainOccurrences)
                 _occurrences ??= [];
@@ -167,7 +184,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
                     body.OperandsConsidered
                         - body.OperandsExamined
                         - body.OperandsUnavailable);
-                return [];
+                return default;
             }
 
             bool unavailable = body.Diagnostics.Any(
@@ -178,12 +195,12 @@ internal sealed class AnalysisLibraryBodyUseProducer
             if (unavailable)
             {
                 _bodiesUnavailable++;
-                return [];
+                return default;
             }
 
             long attempted = checked(
                 (long)_occurrenceCount
-                    + body.Occurrences.Length);
+                    + body.OccurrenceCount);
             if (attempted > maximumOccurrences)
             {
                 _bodiesLimited++;
@@ -199,7 +216,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
                             attempted));
                     _occurrenceLimitReported = true;
                 }
-                return [];
+                return default;
             }
 
             if (body.Fidelity
@@ -210,13 +227,24 @@ internal sealed class AnalysisLibraryBodyUseProducer
             else
             {
                 _bodiesExamined++;
-                _occurrenceCount += body.Occurrences.Length;
+                _occurrenceCount += body.OccurrenceCount;
                 if (retainOccurrences)
+                {
+                    if (body.Occurrences.IsDefault
+                        || body.Occurrences.Length
+                            != body.OccurrenceCount)
+                    {
+                        throw new InvalidOperationException(
+                            "Rows production did not retain its occurrence rows.");
+                    }
                     _occurrences!.AddRange(body.Occurrences);
-                return body.Occurrences;
+                }
+                return new(
+                    body.OccurrenceCount,
+                    body.Occurrences);
             }
 
-            return [];
+            return default;
         }
 
         internal Result Complete(bool retainRows) =>
@@ -275,19 +303,9 @@ internal sealed class AnalysisLibraryBodyUseProducer
     }
 
     internal static bool IsSettling(
-        VisitFact visit,
-        int maximumOccurrences) =>
+        VisitFact visit) =>
         visit.Body is { } body
-        && !body.Limited
-        && body.Fidelity
-            == AnalysisLibraryBodyUseFidelity.LogicalOwner
-        && !body.Diagnostics.Any(
-            static diagnostic =>
-                diagnostic.Kind
-                    == AnalysisLibraryBodyUseDiagnosticKind
-                        .MalformedBody)
-        && body.Occurrences.Length > 0
-        && body.Occurrences.Length <= maximumOccurrences;
+        && body.Settled;
 
     internal sealed record Result(
         int OccurrenceCount,
@@ -301,3 +319,7 @@ internal readonly record struct BodyTypeUsePhysicalFact(
     TypeDefinitionHandle PhysicalType,
     int PhysicalMethodToken,
     AnalysisLibraryBodyUseFidelity Fidelity);
+
+internal readonly record struct BodyTypeUseAdmission(
+    int OccurrenceCount,
+    ImmutableArray<BodyTypeUseOccurrence> Occurrences);

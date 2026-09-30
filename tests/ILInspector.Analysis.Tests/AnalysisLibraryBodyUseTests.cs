@@ -189,7 +189,7 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
-    public void ExecuteTerminalImage_ExistsDoesNotSettleOnRejectedOccurrenceBatch()
+    public void ExecuteTerminalImage_ExistsSettlesBeforeTrailingLimit()
     {
         ImmutableArray<byte> image =
             BuildIndependentImage(
@@ -224,18 +224,165 @@ public sealed class AnalysisLibraryBodyUseTests
                         TestContext.Current.CancellationToken)).Answer);
 
         Assert.Equal(0, count.Value);
-        Assert.False(exists.Value);
+        Assert.True(exists.Value);
         Assert.Equal(
             AnalysisLibraryBodyUseTerminalDisposition.Partial,
             count.Evidence.Disposition);
         Assert.Equal(
-            AnalysisLibraryBodyUseTerminalDisposition.Partial,
+            AnalysisLibraryBodyUseTerminalDisposition.Settled,
             exists.Evidence.Disposition);
+        Assert.Equal(2, count.Evidence.Coverage.OperandsConsidered);
+        Assert.Equal(1, exists.Evidence.Coverage.OperandsConsidered);
+        Assert.Equal(
+            ProducerOutcome.Complete,
+            count.Evidence.Receipt.Work.Producers.Single().Outcome);
+        Assert.Equal(
+            ProducerOutcome.Stopped,
+            exists.Evidence.Receipt.Work.Producers.Single().Outcome);
+    }
+
+    [Fact]
+    public void ExecuteTerminalImage_ExistsPreservesOperandAtomicity()
+    {
+        ImmutableArray<byte> image =
+            BuildMultiTargetOperandImage();
+        var limits = new AnalysisLibraryBodyUseLimits(
+            MaximumOccurrences: 1);
+
+        AnalysisLibraryBodyUseAnswer.Count count = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Count>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
+                        "MultiTarget.dll",
+                        image,
+                        ProducerTerminal.Complete,
+                        limits,
+                        TestContext.Current.CancellationToken)).Answer);
+        AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Exists>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
+                        "MultiTarget.dll",
+                        image,
+                        ProducerTerminal.Exists,
+                        limits,
+                        TestContext.Current.CancellationToken)).Answer);
+
+        Assert.Equal(0, count.Value);
+        Assert.False(exists.Value);
         Assert.All(
             new[] { count.Evidence, exists.Evidence },
-            static evidence => Assert.Equal(
-                ProducerOutcome.Complete,
-                evidence.Receipt.Work.Producers.Single().Outcome));
+            static evidence =>
+            {
+                Assert.Equal(
+                    AnalysisLibraryBodyUseTerminalDisposition.Partial,
+                    evidence.Disposition);
+                Assert.Equal(1, evidence.Coverage.BodiesLimited);
+                Assert.Equal(1, evidence.Coverage.OperandsConsidered);
+                Assert.Equal(1, evidence.Coverage.OperandsLimited);
+            });
+    }
+
+    [Fact]
+    public void ExecuteTerminalImage_ExistsSkipsTrailingBodyWork()
+    {
+        const int operands = 128;
+        var il = new List<byte>(operands * 6 + 1);
+        for (int index = 0; index < operands; index++)
+        {
+            il.Add((byte)ILOpCode.Ldtoken);
+            il.AddRange([0x02, 0x00, 0x00, 0x02]);
+            il.Add((byte)ILOpCode.Pop);
+        }
+        il.Add((byte)ILOpCode.Ret);
+        ImmutableArray<byte> image =
+            BuildIndependentImage([.. il]);
+
+        AnalysisLibraryBodyUseAnswer.Count count = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Count>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
+                        "TrailingWork.dll",
+                        image,
+                        ProducerTerminal.Complete,
+                        new(),
+                        TestContext.Current.CancellationToken)).Answer);
+        AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Exists>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
+                        "TrailingWork.dll",
+                        image,
+                        ProducerTerminal.Exists,
+                        new(),
+                        TestContext.Current.CancellationToken)).Answer);
+
+        Assert.Equal(operands, count.Value);
+        Assert.True(exists.Value);
+        Assert.Equal(
+            operands,
+            count.Evidence.Coverage.OperandsConsidered);
+        Assert.Equal(
+            1,
+            exists.Evidence.Coverage.OperandsConsidered);
+    }
+
+    [Fact]
+    public void AnalyzeBodyTypeUses_CountDoesNotMaterializeOccurrences()
+    {
+        ImmutableArray<byte> bytes =
+            BuildIndependentImage(
+                [
+                    (byte)ILOpCode.Ldtoken,
+                    0x02, 0x00, 0x00, 0x02,
+                    (byte)ILOpCode.Pop,
+                    (byte)ILOpCode.Ret,
+                ]);
+        using var image = new PEReader(bytes);
+        MetadataReader reader = image.GetMetadataReader();
+        TypeDefinitionHandle typeHandle =
+            MetadataTokens.TypeDefinitionHandle(2);
+        TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+        MethodDefinitionHandle methodHandle =
+            Assert.Single(type.GetMethods());
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+        using var builder =
+            new LibraryBodyAnalysisBuilder(
+                "CountDoesNotMaterialize.dll",
+                reader,
+                image);
+        var runner = new LibraryMethodAnalysisRunner(builder);
+
+        BodyTypeUseMethodFact count =
+            runner.AnalyzeBodyTypeUses(
+                typeHandle,
+                type,
+                methodHandle,
+                method,
+                image.GetMethodBody(method.RelativeVirtualAddress),
+                ProducerTerminal.Complete,
+                int.MaxValue,
+                int.MaxValue,
+                int.MaxValue,
+                TestContext.Current.CancellationToken);
+        BodyTypeUseMethodFact rows =
+            runner.AnalyzeBodyTypeUses(
+                typeHandle,
+                type,
+                methodHandle,
+                method,
+                image.GetMethodBody(method.RelativeVirtualAddress),
+                ProducerTerminal.Rows,
+                int.MaxValue,
+                int.MaxValue,
+                int.MaxValue,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, count.OccurrenceCount);
+        Assert.True(count.Occurrences.IsDefault);
+        Assert.Equal(count.OccurrenceCount, rows.OccurrenceCount);
+        Assert.Single(rows.Occurrences);
     }
 
     [Fact]
@@ -785,6 +932,53 @@ public sealed class AnalysisLibraryBodyUseTests
         Assert.Equal(
             Enum.GetValues<BodyUseScorecardClosing>(),
             check.AnswerHashes.Select(static answer => answer.Closing));
+    }
+
+    [Fact]
+    public void Scorecard_ReportsDiagnosticStageAttribution()
+    {
+        IReadOnlyList<BodyUseScorecardCell> cells =
+            BodyUseScorecard.Measure(
+                [
+                    new(
+                        "one-use",
+                        "OneUse.dll",
+                        BuildIndependentImage(
+                            [
+                                (byte)ILOpCode.Ldtoken,
+                                0x02, 0x00, 0x00, 0x02,
+                                (byte)ILOpCode.Pop,
+                                (byte)ILOpCode.Ret,
+                            ])),
+                ],
+                new DotnetInspector.PerformanceOracles.ScorecardTiming(
+                    Rounds: 1,
+                    Warmup: 0,
+                    BudgetMilliseconds: 0,
+                    MinSamples: 1,
+                    MaxSamples: 1),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(12, cells.Count);
+        Assert.All(
+            cells,
+            static cell =>
+            {
+                Assert.True(
+                    cell.StageAttribution.InventoryMicroseconds > 0);
+                Assert.True(
+                    cell.StageAttribution.BodyAnalysisMicroseconds > 0);
+                Assert.True(
+                    cell.StageAttribution.TerminalFoldMicroseconds >= 0);
+                Assert.Equal(
+                    cell.Closing == BodyUseScorecardClosing.Rows,
+                    cell.StageAttribution.RowsProjectionMicroseconds > 0);
+            });
+        Assert.Contains(
+            "Diagnostic stage attribution",
+            BodyUseScorecard.Report(cells),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1621,6 +1815,7 @@ public sealed class AnalysisLibraryBodyUseTests
                 MetadataTokens.TypeDefinitionHandle(2),
                 methodToken,
                 AnalysisLibraryBodyUseFidelity.LogicalOwner,
+                1,
                 [new(
                     MetadataTokens.TypeDefinitionHandle(2),
                     MetadataTokens.TypeDefinitionHandle(2),
@@ -1634,6 +1829,7 @@ public sealed class AnalysisLibraryBodyUseTests
                 OperandsConsidered: 1,
                 OperandsExamined: 1,
                 OperandsUnavailable: 0,
+                Settled: false,
                 Limited: false,
                 AttemptedCharge: null,
                 Limit: null);
@@ -1921,6 +2117,110 @@ public sealed class AnalysisLibraryBodyUseTests
                 bodyOffset: 0,
                 MetadataTokens.ParameterHandle(1));
         }
+    }
+
+    static ImmutableArray<byte> BuildMultiTargetOperandImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("MultiTarget.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("79ed7401-e4f0-4018-af98-518560d9e35f")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MultiTarget"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Owner"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle generic =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Pair`1"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddGenericParameter(
+            generic,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            0);
+        TypeDefinitionHandle argument =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Argument"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        var typeSpec = new BlobBuilder();
+        new BlobEncoder(typeSpec)
+            .TypeSpecificationSignature()
+            .GenericInstantiation(
+                generic,
+                1,
+                isValueType: false)
+            .AddArgument()
+            .Type(argument, isValueType: false);
+        TypeSpecificationHandle pair =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(typeSpec));
+
+        var code = new BlobBuilder();
+        var instructions = new InstructionEncoder(code);
+        instructions.OpCode(ILOpCode.Ldtoken);
+        instructions.Token(pair);
+        instructions.OpCode(ILOpCode.Pop);
+        instructions.OpCode(ILOpCode.Ret);
+        var bodies = new BlobBuilder();
+        int bodyOffset =
+            new MethodBodyStreamEncoder(bodies).AddMethodBody(
+                instructions,
+                maxStack: 1);
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature()
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Use"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return ImmutableArray.Create(image.ToArray());
     }
 
     static ImmutableArray<byte> BuildIndependentTypeSpecImage(

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -21,6 +22,31 @@ internal sealed record AnalysisLibraryBodyUseTerminalEvidence(
     AnalysisLibraryBodyUseTerminalDisposition Disposition,
     AnalysisLibraryBodyUseCoverage Coverage,
     ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics);
+
+internal sealed class AnalysisLibraryBodyUseStageTiming
+{
+    internal long InventoryTicks { get; private set; }
+
+    internal long BodyAnalysisTicks { get; private set; }
+
+    internal long TerminalFoldTicks { get; private set; }
+
+    internal long RowsProjectionTicks { get; private set; }
+
+    internal void RecordInventory(long ticks) =>
+        InventoryTicks = checked(InventoryTicks + ticks);
+
+    internal void RecordBodyAnalysis(long ticks) =>
+        BodyAnalysisTicks = checked(BodyAnalysisTicks + ticks);
+
+    internal void RecordTerminalFold(long ticks) =>
+        TerminalFoldTicks = checked(
+            TerminalFoldTicks + Math.Max(0, ticks));
+
+    internal void RecordRowsProjection(long ticks) =>
+        RowsProjectionTicks = checked(
+            RowsProjectionTicks + ticks);
+}
 
 internal abstract record AnalysisLibraryBodyUseAnswer
 {
@@ -111,7 +137,8 @@ public static class AnalysisLibraryBodyUseService
         ImmutableArray<byte> image,
         ProducerTerminal terminal,
         AnalysisLibraryBodyUseLimits limits,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        AnalysisLibraryBodyUseStageTiming? stageTiming = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
         if (image.IsDefaultOrEmpty)
@@ -128,7 +155,8 @@ public static class AnalysisLibraryBodyUseService
             reader,
             terminal,
             limits,
-            cancellationToken);
+            cancellationToken,
+            stageTiming);
     }
 
     static AnalysisLibraryBodyUseQueryOutcome Query(
@@ -136,14 +164,27 @@ public static class AnalysisLibraryBodyUseService
         PEReader image,
         ProducerTerminal terminal,
         AnalysisLibraryBodyUseLimits limits,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AnalysisLibraryBodyUseStageTiming? stageTiming = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        AssemblyTypeDeclarationInventoryOutcome inventoryOutcome =
-            AssemblyTypeDeclarationInventoryReader.Read(
-                image,
-                limits.MaximumTypeDefinitions,
-                limits.MaximumRetainedTextCharacters);
+        long inventoryStarted = stageTiming is null
+            ? 0
+            : Stopwatch.GetTimestamp();
+        AssemblyTypeDeclarationInventoryOutcome inventoryOutcome;
+        try
+        {
+            inventoryOutcome =
+                AssemblyTypeDeclarationInventoryReader.Read(
+                    image,
+                    limits.MaximumTypeDefinitions,
+                    limits.MaximumRetainedTextCharacters);
+        }
+        finally
+        {
+            stageTiming?.RecordInventory(
+                Stopwatch.GetTimestamp() - inventoryStarted);
+        }
         if (inventoryOutcome
             is AssemblyTypeDeclarationInventoryOutcome.Incomplete incomplete)
         {
@@ -184,7 +225,8 @@ public static class AnalysisLibraryBodyUseService
             var producer =
                 new AnalysisLibraryBodyUseProducer(
                     limits,
-                    cancellationToken);
+                    cancellationToken,
+                    stageTiming);
             ProducerPlanResult plan =
                 ProducerPlanner.Plan(
                     [new ProducerRequest(
@@ -197,11 +239,34 @@ public static class AnalysisLibraryBodyUseService
                     "The Analysis body-use producer could not be planned.");
             }
 
-            MethodDefinitionExecution execution =
-                MethodDefinitionExecution.Execute(
-                    accepted.Description,
-                    sourceName,
-                    image);
+            long productionBefore =
+                stageTiming?.BodyAnalysisTicks ?? 0;
+            long terminalStarted = stageTiming is null
+                ? 0
+                : Stopwatch.GetTimestamp();
+            MethodDefinitionExecution execution;
+            try
+            {
+                execution =
+                    MethodDefinitionExecution.Execute(
+                        accepted.Description,
+                        sourceName,
+                        image);
+            }
+            finally
+            {
+                if (stageTiming is not null)
+                {
+                    long elapsed =
+                        Stopwatch.GetTimestamp()
+                            - terminalStarted;
+                    long production =
+                        stageTiming.BodyAnalysisTicks
+                            - productionBefore;
+                    stageTiming.RecordTerminalFold(
+                        elapsed - production);
+                }
+            }
             ProducerResult<AnalysisLibraryBodyUseProducer.Result> result =
                 execution.ResultOf(producer);
             if (!result.HasValue || result.Value is not { } value)
@@ -232,7 +297,8 @@ public static class AnalysisLibraryBodyUseService
                     inventory,
                     receipt,
                     result,
-                    value));
+                    value,
+                    stageTiming));
         }
         catch (Exception exception)
             when (LibraryMethodAnalysisRunner
@@ -250,14 +316,28 @@ public static class AnalysisLibraryBodyUseService
         AssemblyTypeDeclarationInventory inventory,
         AnalysisLibraryBodyUseReceipt receipt,
         ProducerResult<AnalysisLibraryBodyUseProducer.Result> result,
-        AnalysisLibraryBodyUseProducer.Result value)
+        AnalysisLibraryBodyUseProducer.Result value,
+        AnalysisLibraryBodyUseStageTiming? stageTiming)
     {
         if (terminal == ProducerTerminal.Rows)
         {
-            AnalysisLibraryBodyUseProjection projection = Project(
-                metadata,
-                inventory,
-                value);
+            long projectionStarted = stageTiming is null
+                ? 0
+                : Stopwatch.GetTimestamp();
+            AnalysisLibraryBodyUseProjection projection;
+            try
+            {
+                projection = Project(
+                    metadata,
+                    inventory,
+                    value);
+            }
+            finally
+            {
+                stageTiming?.RecordRowsProjection(
+                    Stopwatch.GetTimestamp()
+                        - projectionStarted);
+            }
             return new AnalysisLibraryBodyUseAnswer.Rows(
                 new(
                     receipt,
