@@ -250,8 +250,7 @@ public static partial class MetadataExports
                     (InspectionGraphTypeIdentity.AcquiredDefinition)
                         row.Candidate
                             .Identity)
-                .Select(identity => identity.Type.ToMetadataFullName())
-                .Order(StringComparer.Ordinal),
+                .Select(identity => identity.Type.ToMetadataFullName()),
         ];
         string[] failures =
             available.Relations.Relations.Evidence.IsComplete

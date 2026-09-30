@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Queries;
 
@@ -23,13 +24,15 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
         int startOrdinal,
         int maximumRows,
         int? stopAfterCandidateCount,
-        bool canonicalOrder)
+        bool canonicalOrder,
+        RowSelectionPlan<string>? candidateSelection)
     {
         MaterializeRows = materializeRows;
         StartOrdinal = startOrdinal;
         MaximumRows = maximumRows;
         StopAfterCandidateCount = stopAfterCandidateCount;
         CanonicalOrder = canonicalOrder;
+        CandidateSelection = candidateSelection;
     }
 
     public bool MaterializeRows { get; }
@@ -41,6 +44,8 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
     public int? StopAfterCandidateCount { get; }
 
     public bool CanonicalOrder { get; }
+
+    public RowSelectionPlan<string>? CandidateSelection { get; }
 
     public static WorkspaceTypeHierarchyRelationExecutionPlan Exhaustive(
         bool materializeRows = true,
@@ -54,7 +59,8 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
             startOrdinal,
             maximumRows,
             stopAfterCandidateCount: null,
-            canonicalOrder: false);
+            canonicalOrder: false,
+            candidateSelection: null);
     }
 
     public static WorkspaceTypeHierarchyRelationExecutionPlan ForwardRows(
@@ -72,7 +78,8 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
             startOrdinal,
             maximumRows,
             stopAfterCandidateCount,
-            canonicalOrder: false);
+            canonicalOrder: false,
+            candidateSelection: null);
     }
 
     public static WorkspaceTypeHierarchyRelationExecutionPlan CanonicalRows(
@@ -86,7 +93,32 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
             startOrdinal,
             maximumRows,
             stopAfterCandidateCount: null,
-            canonicalOrder: true);
+            canonicalOrder: true,
+            candidateSelection: null);
+    }
+
+    public static WorkspaceTypeHierarchyRelationExecutionPlan CanonicalRows(
+        RowSelectionPlan<string> candidateSelection,
+        int maximumRows)
+    {
+        ArgumentNullException.ThrowIfNull(candidateSelection);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumRows, 1);
+        if (candidateSelection.Stages.Any(
+                static stage =>
+                    stage.Kind is RowSelectionStageKind.Top))
+        {
+            throw new ArgumentException(
+                "Canonical candidate selection cannot introduce another "
+                    + "ranking order.",
+                nameof(candidateSelection));
+        }
+        return new(
+            materializeRows: true,
+            startOrdinal: 0,
+            maximumRows,
+            stopAfterCandidateCount: null,
+            canonicalOrder: true,
+            candidateSelection);
     }
 }
 
@@ -96,7 +128,9 @@ public sealed record WorkspaceTypeHierarchyRelationsResult(
     SubjectRelationPopulationEvidence Evidence,
     WorkspaceTypeHierarchyRelationExecutionPlan ExecutionPlan,
     int CandidateCount,
+    int SelectedCandidateCount,
     bool CandidateCountIsComplete,
+    RowWindowFailure? CandidateSelectionFailure,
     ImmutableArray<SubjectRelationRow> Rows,
     ImmutableArray<WorkspaceTypeHierarchyRelationSource> Sources);
 
@@ -269,6 +303,32 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                             match.Occurrence.SourceSubject))
                     .Distinct()
                     .Count();
+        IReadOnlyList<
+            IGrouping<CandidateIdentity, ResolvedMatch>>
+            plannedCandidateGroups =
+                !executionPlan.MaterializeRows
+                    ? []
+                    :
+                    [
+                        .. CandidateSequence(
+                            candidateGroups,
+                            executionPlan.CanonicalOrder),
+                    ];
+        RowWindowFailure? candidateSelectionFailure = null;
+        if (executionPlan.CandidateSelection is { } candidateSelection)
+        {
+            RowSelectionResult<
+                IGrouping<CandidateIdentity, ResolvedMatch>> selected =
+                    RowSelectionExecutor.Apply(
+                        plannedCandidateGroups,
+                        candidateSelection);
+            candidateSelectionFailure = selected.Failure;
+            plannedCandidateGroups = selected.Values;
+        }
+        int selectedCandidateCount =
+            executionPlan.MaterializeRows
+                ? plannedCandidateGroups.Count
+                : candidateCount;
         IGrouping<
             CandidateIdentity,
             ResolvedMatch>[] selectedCandidateGroups =
@@ -276,9 +336,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 ? []
                 :
                 [
-                    .. CandidateSequence(
-                            candidateGroups,
-                            executionPlan.CanonicalOrder)
+                    .. plannedCandidateGroups
                         .Skip(executionPlan.StartOrdinal)
                         .Take(executionPlan.MaximumRows),
                 ];
@@ -325,7 +383,9 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             evidence,
             executionPlan,
             candidateCount,
+            selectedCandidateCount,
             CandidateCountIsComplete: !stopped,
+            candidateSelectionFailure,
             rows,
             [
                 .. population.ReadAccesses()

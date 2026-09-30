@@ -123,15 +123,27 @@ public static class WorkspaceTypeRelationsInspectionOperation
             && continuationAuthority is not null
                 ? continuationAuthority.NextOrdinal
                 : 0;
+        RowSelectionPlan<string>? producerSelection =
+            appliesRowSelection
+            && producerCandidatePopulation
+            && plan.Selection.Form is not null
+                ? RowsCohortExecutor.ResolveUnorderedSelection(
+                    rowSelection!)
+                : null;
         bool producerShapesRows =
             rows is not null
-            && producerCandidatePopulation
-            && !appliesRowSelection;
+            && producerCandidatePopulation;
         WorkspaceTypeHierarchyRelationExecutionPlan executionPlan =
             producerShapesRows
-                ? WorkspaceTypeHierarchyRelationExecutionPlan.CanonicalRows(
-                    producerStart,
-                    rows!.MaximumRows)
+                ? producerSelection is null
+                    ? WorkspaceTypeHierarchyRelationExecutionPlan
+                        .CanonicalRows(
+                            producerStart,
+                            rows!.MaximumRows)
+                    : WorkspaceTypeHierarchyRelationExecutionPlan
+                        .CanonicalRows(
+                            producerSelection,
+                            rows!.MaximumRows)
                 : WorkspaceTypeHierarchyRelationExecutionPlan.Exhaustive(
                     materializeRows:
                         rows is not null || countNeedsRows,
@@ -152,6 +164,12 @@ public static class WorkspaceTypeRelationsInspectionOperation
                 plan.Selection.Form,
                 executionPlan,
                 cancellationToken: cancellationToken);
+        if (relations.CandidateSelectionFailure is { } selectionFailure)
+        {
+            throw SelectionFailure(
+                plan.Selection.Form!.Value,
+                selectionFailure);
+        }
         var inspectionRequest = new SubjectRelationsInspectionRequest(
             SubjectRelationsRouteKind.Type,
             relations.Focus,
@@ -190,27 +208,34 @@ public static class WorkspaceTypeRelationsInspectionOperation
         }
         else if (appliesRowSelection)
         {
-            RowsCohortResult<
-                SubjectRelationForm,
-                WorkspaceTypeRelationCandidateRow> selection =
-                    RowsCohortExecutor.ApplyUnordered(
-                        CandidateSequences(
-                            candidates,
-                            plan.Selection.Form),
-                        rowSelection!);
-            if (!selection.IsSuccess)
+            if (producerSelection is null)
             {
-                throw new WorkspaceTypeRelationRowSelectionException(
-                    selection.Failure
-                        ?? throw new InvalidOperationException(
-                            "Failed row selection requires a semantic "
-                                + "failure."));
+                RowsCohortResult<
+                    SubjectRelationForm,
+                    WorkspaceTypeRelationCandidateRow> selection =
+                        RowsCohortExecutor.ApplyUnordered(
+                            CandidateSequences(
+                                candidates,
+                                plan.Selection.Form),
+                            rowSelection!);
+                if (!selection.IsSuccess)
+                {
+                    throw new WorkspaceTypeRelationRowSelectionException(
+                        selection.Failure
+                            ?? throw new InvalidOperationException(
+                                "Failed row selection requires a semantic "
+                                    + "failure."));
+                }
+                candidates =
+                [
+                    .. selection.RowSets.SelectMany(
+                        static set => set.Values),
+                ];
             }
-            candidates =
-            [
-                .. selection.RowSets.SelectMany(
-                    static set => set.Values),
-            ];
+            selectedCount =
+                producerSelection is null
+                    ? candidates.Length
+                    : relations.SelectedCandidateCount;
         }
 
         SubjectRelationPopulationCountOutcome? countOutcome =
@@ -261,7 +286,7 @@ public static class WorkspaceTypeRelationsInspectionOperation
             {
                 int populationCount =
                     producerShapesRows
-                        ? relations.CandidateCount
+                        ? relations.SelectedCandidateCount
                         : candidates.Length;
                 if (relations.CandidateCountIsComplete
                     && start > populationCount)
