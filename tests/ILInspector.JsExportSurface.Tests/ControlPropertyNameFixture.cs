@@ -15,7 +15,17 @@ public sealed class SetsRequiredMembersInputFixture
     public required string Name { get; set; }
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<StringEnumInputState>))]
+public enum StringEnumInputState
+{
+    Ready = 1,
+    Finished = 2,
+}
+
+public sealed record StringEnumInputFixture(StringEnumInputState State);
+
 [JsonSerializable(typeof(SetsRequiredMembersInputFixture))]
+[JsonSerializable(typeof(StringEnumInputFixture))]
 internal sealed partial class SetsRequiredMembersJsonContext
     : JsonSerializerContext;
 
@@ -29,6 +39,21 @@ public static partial class SetsRequiredMembersFixtureExports
             SetsRequiredMembersJsonContext.Default
                 .SetsRequiredMembersInputFixture)!
         .Name;
+
+    [JSExport]
+    public static string ReadStringEnum(string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            SetsRequiredMembersJsonContext.Default
+                .StringEnumInputFixture)!
+        .State.ToString();
+
+    [JSExport]
+    public static string WriteStringEnum() =>
+        JsonSerializer.Serialize(
+            new StringEnumInputFixture(StringEnumInputState.Ready),
+            SetsRequiredMembersJsonContext.Default
+                .StringEnumInputFixture);
 }
 
 internal sealed record ControlPropertyNameFixture

@@ -50,6 +50,13 @@ public static class JsonWireContractRules
         type.HasJsonStringEnumConverter
         || type.JsonUseStringEnumConverter;
 
+    public static bool RequiresStringEnumReadSemantics(
+        ApiType type,
+        JsonWireDirection direction) =>
+        UsesStringEnumConverter(type)
+        && (direction & JsonWireDirection.Deserialize)
+            != JsonWireDirection.None;
+
     public static bool HasUnsupportedJsonConverter(ApiType type) =>
         type.JsonConverterAttributeCount > 0
         && (type.Kind != "enum"

@@ -842,6 +842,14 @@ public static class JsonSchemaVocabularyDescriptorBuilder
             }
             if (!JsonWireContractRules.UsesStringEnumConverter(type))
                 return new JsonObject { ["type"] = "integer" };
+            if (JsonWireContractRules.RequiresStringEnumReadSemantics(
+                    type,
+                    _direction))
+            {
+                throw Unsupported(
+                    type,
+                    "string-enum deserialization semantics are not modeled");
+            }
             if (type.HasMalformedFlagsAttribute
                 || type.FlagsAttributeCount > 1)
             {

@@ -948,6 +948,85 @@ public sealed class TypeScriptFacadeEmitterTests
 
     [Fact]
     [System.Runtime.Versioning.SupportedOSPlatform("browser")]
+    public void JsonSchema_RejectsUnmodeledStringEnumReadSemantics()
+    {
+        foreach (string json in new[]
+        {
+            """{"State":"Ready"}""",
+            """{"State":"ready"}""",
+            """{"State":" Ready "}""",
+            """{"State":"1"}""",
+        })
+        {
+            Assert.Equal(
+                "Ready",
+                SetsRequiredMembersFixtureExports
+                    .ReadStringEnum(json));
+        }
+        Assert.Equal(
+            """{"State":"Ready"}""",
+            SetsRequiredMembersFixtureExports.WriteStringEnum());
+
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(typeof(SetsRequiredMembersFixtureExports)
+                .Assembly.Location);
+        ApiType type = Assert.Single(
+            surface.Enums,
+            candidate =>
+                candidate.FullName
+                    == typeof(StringEnumInputState).FullName);
+        JsonWireDeclarationPlan plan =
+            JsonWireDeclarationPlan.Create(surface);
+
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+        JsonSchemaVocabularyException exception = Assert.Throws<
+            JsonSchemaVocabularyException>(
+            () => JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                plan,
+                new(
+                    new("fixture.string-enum-input"),
+                    JsonWireDirection.Deserialize,
+                    new JsonSchemaContractRoot.Object(type)),
+                snapshot,
+                snapshot.Identity));
+        Assert.Contains(
+            "string-enum deserialization semantics are not modeled",
+            exception.Message,
+            StringComparison.Ordinal);
+
+        JsonSchemaVocabularyDescriptor descriptor =
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                plan,
+                new(
+                    new("fixture.string-enum-output"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Object(type)),
+                snapshot,
+                snapshot.Identity);
+        string definitionName = descriptor.Schema.GetProperty("$ref")
+            .GetString()!["#/$defs/".Length..];
+        JsonElement alternatives = descriptor.Schema
+            .GetProperty("$defs")
+            .GetProperty(definitionName)
+            .GetProperty("anyOf");
+        Assert.Equal(
+            ["Ready", "Finished"],
+            alternatives[0].GetProperty("enum")
+                .EnumerateArray()
+                .Select(item => item.GetString())
+                .ToArray());
+        Assert.Equal(
+            "integer",
+            alternatives[1].GetProperty("type").GetString());
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("browser")]
     public void JsonSchema_SubstitutesBeforeGenericContainerSpecialization()
     {
         string path = typeof(TypeScriptFixtureExports).Assembly.Location;
