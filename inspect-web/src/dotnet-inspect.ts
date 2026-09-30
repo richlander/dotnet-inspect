@@ -844,6 +844,8 @@ let inspectPlatformMetadata:
   EngineClient["metadata"]["queryPlatformMetadata"];
 let inspectPlatformMetadataTable:
   EngineClient["metadata"]["queryPlatformMetadataTable"];
+let inspectPlatformTypeProjection:
+  EngineClient["metadata"]["queryPlatformTypeProjection"];
 let inspectTypeProjection: EngineClient["metadata"]["queryTypeProjection"];
 let cancelLibraryApiDiff:
   EngineClient["metadata"]["cancelLibraryApiDiff"];
@@ -1026,6 +1028,7 @@ async function loadEngineModule() {
       queryPlatformHeapEntries: inspectPlatformHeapEntries,
       queryPlatformMetadata: inspectPlatformMetadata,
       queryPlatformMetadataTable: inspectPlatformMetadataTable,
+      queryPlatformTypeProjection: inspectPlatformTypeProjection,
       queryTypeProjection: inspectTypeProjection,
     } = engineClient.metadata);
     ({
@@ -3451,14 +3454,23 @@ const packageQueryLiveAnnouncer = createPackageQueryLiveAnnouncer(
 
 const metadataInspection = createMetadataInspectionCoordinator({
   state,
-  queryTypeMetadata: request => inspectTypeProjection(
-    request.packageId,
-    request.version,
-    request.framework,
-    request.assembly,
-    request.type,
-    request.typeIdentity,
-    request.workspaceJson),
+  queryTypeMetadata: request => request.kind === "platform"
+    ? inspectPlatformTypeProjection(
+      request.framework,
+      request.version,
+      request.assembly,
+      request.pack,
+      request.type,
+      request.typeIdentity,
+      request.contextId)
+    : inspectTypeProjection(
+      request.packageId,
+      request.version,
+      request.framework,
+      request.assembly,
+      request.type,
+      request.typeIdentity,
+      request.workspaceJson),
   queryPackageTable: (explorer, index, startRowId, maxRows) =>
     inspectPackageMetadataTable(
       explorer.packageId,
@@ -5235,9 +5247,11 @@ function selectedLibraryShareKey() {
 }
 
 function selectedTypeMetadataLibraryIdentity() {
-  return state.rootKind === "platform"
-    ? selectedLibraryShareKey()
-    : "";
+  if (state.rootKind !== "platform") return "";
+  return JSON.stringify([
+    selectedLibraryShareKey(),
+    platformDemoContextIdFor(state.package),
+  ]);
 }
 
 function selectDefaultPackageSubject(pkg: AppPackage) {
@@ -18337,15 +18351,10 @@ async function loadSelectedTypeMetadata() {
     pkg,
     metadataLibraryIdentity,
     workspaceJson);
-  return metadataInspection.loadTypeMetadata({
+  const selection = {
     signature,
-    packageId: pkg.id,
-    version: pkg.version,
-    framework: pkg.activeFramework,
-    assembly: type.assembly,
     type: type.queryId ?? type.id,
     typeIdentity: type.definitionId ?? type.id,
-    workspaceJson,
     isVisible: () => {
       const currentType = selectedType();
       return !state.home
@@ -18364,6 +18373,27 @@ async function loadSelectedTypeMetadata() {
         pkg,
         selectedTypeMetadataLibraryIdentity()) === signature;
     },
+  };
+  if (pkg.isRuntimePack) {
+    const row = platformLibraryForRequest(pkg, type.assemblyId);
+    return metadataInspection.loadTypeMetadata({
+      ...selection,
+      kind: "platform",
+      framework: pkg.activeFramework,
+      version: pkg.version,
+      assembly: platformAssemblyRequest(row),
+      pack: row.pack,
+      contextId: platformDemoContextIdFor(pkg),
+    });
+  }
+  return metadataInspection.loadTypeMetadata({
+    ...selection,
+    kind: "package",
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    workspaceJson,
   });
 }
 

@@ -71,6 +71,7 @@ type MetadataOperations =
   | "queryPlatformHeapEntries"
   | "queryPlatformMetadata"
   | "queryPlatformMetadataTable"
+  | "queryPlatformTypeProjection"
   | "queryTypeProjection";
 
 type AnalysisOperations =

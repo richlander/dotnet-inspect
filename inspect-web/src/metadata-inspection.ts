@@ -18,17 +18,36 @@ export interface AppExplorerState extends ExplorerState {
   pendingScroll: boolean;
 }
 
-export interface TypeMetadataLoadRequest {
+interface TypeMetadataSelection {
   signature: string;
+  type: string;
+  typeIdentity: string;
+  isVisible(): boolean;
+}
+
+export interface PackageTypeMetadataLoadRequest
+  extends TypeMetadataSelection {
+  kind?: "package";
   packageId: string;
   version: string;
   framework: string;
   assembly: string;
-  type: string;
-  typeIdentity: string;
   workspaceJson: string;
-  isVisible(): boolean;
 }
+
+export interface PlatformTypeMetadataLoadRequest
+  extends TypeMetadataSelection {
+  kind: "platform";
+  framework: string;
+  version: string;
+  assembly: string;
+  pack: string;
+  contextId: string | null;
+}
+
+export type TypeMetadataLoadRequest =
+  | PackageTypeMetadataLoadRequest
+  | PlatformTypeMetadataLoadRequest;
 
 export interface MetadataInspectionState {
   typeMetadata: BrowserTypeMetadata | null;

@@ -73,6 +73,7 @@ type MetadataOperationName =
   | "cancelLibraryApiDiff"
   | "findTypes"
   | "queryLibraryApiDiff"
+  | "queryPlatformTypeProjection"
   | "queryTypeProjection"
   | "queryMemberDeclaration"
   | "queryMemberGroupDocument"
@@ -1282,6 +1283,16 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["queryTypeProjection"]>
       ) => facades.metadata.queryTypeProjection(...args),
     ),
+    queryPlatformTypeProjection: valueOperation(
+      "ordinary-metadata-query-platform-type-projection",
+      7,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryPlatformTypeProjection"]
+        >
+      ) => facades.metadata.queryPlatformTypeProjection(...args),
+    ),
     queryPackageMetadataTable: valueOperation(
       "ordinary-metadata-query-package-table",
       8,
@@ -2018,6 +2029,10 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryTypeProjection: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeProjection,
+      ),
+      queryPlatformTypeProjection: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryPlatformTypeProjection,
       ),
       queryPackageMetadataTable: bind(
         engineWorkerOrdinaryOperations.metadata

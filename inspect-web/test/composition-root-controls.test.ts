@@ -81,7 +81,7 @@ test("shared HTML escaping covers text and attribute delimiters", () => {
 test("platform type and member navigation hides package-only operations", () => {
   assert.deepEqual(
     typeLensesFor({ isRuntimePack: true }).map(([id]) => id),
-    ["api", "source"]);
+    ["api", "metadata", "source"]);
   assert.deepEqual(
     typeLensesFor({ source: { kind: "file" } }).map(([id]) => id),
     ["api"]);
@@ -106,7 +106,19 @@ test("platform type and member navigation hides package-only operations", () => 
     ]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "property" }, false, true),
-    ["overview", "call-graph", "facts", "annotated", "compare"]);
+    ["overview", "call-graph", "facts", "annotated", "compare"    ]);
+});
+
+test("platform type metadata carries exact pack and retained context", () => {
+  const loader = sourceText(functionDeclaration("loadSelectedTypeMetadata"));
+  assert.match(
+    loader,
+    /if \(pkg\.isRuntimePack\) \{\s*const row = platformLibraryForRequest\(pkg, type\.assemblyId\);\s*return metadataInspection\.loadTypeMetadata\(\{\s*\.\.\.selection,\s*kind: "platform",\s*framework: pkg\.activeFramework,\s*version: pkg\.version,\s*assembly: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*contextId: platformDemoContextIdFor\(pkg\),/);
+  const identity = sourceText(
+    functionDeclaration("selectedTypeMetadataLibraryIdentity"));
+  assert.match(
+    identity,
+    /selectedLibraryShareKey\(\),\s*platformDemoContextIdFor\(state\.package\),/);
 });
 
 test("implementation evidence remains subtle member-list heat", () => {

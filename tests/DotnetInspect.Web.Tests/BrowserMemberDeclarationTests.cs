@@ -687,7 +687,82 @@ public sealed class BrowserMemberDeclarationTests
     }
 
     [Fact]
-    public async Task SelectedPlatformTypeSourceUsesRetainedPlatformWorkspace()
+    public async Task PlatformTypeMetadataProjectsSystemTextJsonJsonArray()
+    {
+        const string framework = "net11.0";
+        const string version = "11.0.977";
+        const string assemblyFileName = "System.Text.Json.dll";
+        const string typeName = "System.Text.Json.Nodes.JsonArray";
+        byte[] image = File.ReadAllBytes(
+            typeof(System.Text.Json.Nodes.JsonArray).Assembly.Location);
+        using var archiveBytes = new MemoryStream();
+        using (var archive = new ZipArchive(
+            archiveBytes,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using Stream entry = archive.CreateEntry(
+                $"runtimes/linux-x64/lib/net11.0/{assemblyFileName}").Open();
+            entry.Write(image);
+        }
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                "microsoft.netcore.app.runtime.linux-x64",
+                version,
+                archiveBytes.ToArray(),
+                fromCache: false));
+
+        BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                framework,
+                version,
+                assemblyFileName,
+                "netcore.app",
+                TestContext.Current.CancellationToken);
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(
+                await MetadataExports.QueryPlatformTypeProjection(
+                    framework,
+                    version,
+                    assemblyFileName,
+                    "netcore.app",
+                    typeName,
+                    typeName));
+            JsonElement result = document.RootElement;
+            JsonElement exact = result
+                .GetProperty("exactTypeInspection")
+                .GetProperty("content");
+            Assert.True(exact.GetProperty("isAvailable").GetBoolean());
+            Assert.Equal(
+                typeName,
+                exact.GetProperty("type").GetProperty("fullName").GetString());
+            Assert.Equal(
+                "System.Text.Json",
+                exact.GetProperty("supplierAssembly")
+                    .GetProperty("identity")
+                    .GetProperty("name")
+                    .GetString());
+            Assert.Contains(
+                result.GetProperty("graphNodes").EnumerateArray(),
+                node => node.GetProperty("id").GetString() == typeName
+                    && node.GetProperty("role").GetString() == "self");
+            Assert.True(
+                result.GetProperty("typeDependencyInspection")
+                    .GetProperty("content")
+                    .GetProperty("queryResult")
+                    .GetProperty("hasSurvivingParticipant")
+                    .GetBoolean());
+        }
+        finally
+        {
+            await resolution.DisposeAsync();
+            await BrowserPackageWorkspace.RemoveScopeAsync(resolution.Scope);
+        }
+    }
+
+    [Fact]
+    public async Task SelectedPlatformTypeInspectorsUseRetainedPlatformWorkspace()
     {
         const string framework = "net11.0";
         const string version = "11.0.975";
@@ -811,6 +886,23 @@ public sealed class BrowserMemberDeclarationTests
                 Assert.IsType<string>(
                     declarationView.Inspection.Content.Text),
                 StringComparison.Ordinal);
+
+            using JsonDocument metadata = JsonDocument.Parse(
+                await MetadataExports.QueryPlatformTypeProjection(
+                    framework,
+                    version,
+                    AssemblyFileName,
+                    "netcore.app",
+                    type.FullName,
+                    type.DefinitionName.ToEscapedFullName(),
+                    contextId));
+            JsonElement exact = metadata.RootElement
+                .GetProperty("exactTypeInspection")
+                .GetProperty("content");
+            Assert.True(exact.GetProperty("isAvailable").GetBoolean());
+            Assert.Equal(
+                type.FullName,
+                exact.GetProperty("type").GetProperty("fullName").GetString());
             Assert.Equal(requests, handler.Requests);
         }
         finally

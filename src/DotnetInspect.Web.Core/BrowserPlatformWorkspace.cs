@@ -78,6 +78,18 @@ internal sealed class BrowserPlatformScope(
         return query(Context.Group, member.Participant);
     }
 
+    internal InspectionEnvelope<ExactTypeInspectionResult> InspectExactType(
+        WorkspaceContextMember participant,
+        string typeDefinitionId) =>
+        ExactTypeInspectionOperation.ExecuteLoadedContext(
+            _workspace,
+            Context,
+            participant.Participant,
+            new SelectedContextExactTypeInspectionRequest(
+                typeDefinitionId,
+                ExactTypeSelectionKind.DefinitionIdentity),
+            BrowserApiSurfacePolicy.Limits);
+
     internal WorkspaceContextMember Participant(
         string family,
         string assembly)

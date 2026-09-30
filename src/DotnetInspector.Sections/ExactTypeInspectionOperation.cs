@@ -140,6 +140,40 @@ public static class ExactTypeInspectionOperation
         return ExecuteCore(authority, loaded, request, projectionLimits);
     }
 
+    /// <summary>
+    /// Executes one exact Type selection across an already loaded Workspace
+    /// context without requiring a package coordinate.
+    /// </summary>
+    public static InspectionEnvelope<ExactTypeInspectionResult>
+        ExecuteLoadedContext(
+            InspectionWorkspace workspace,
+            WorkspaceContextLoadOutcome.Loaded loaded,
+            AssemblyContextParticipant participant,
+            SelectedContextExactTypeInspectionRequest request,
+            ApiSurfaceProjectionLimits projectionLimits)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(loaded);
+        ArgumentNullException.ThrowIfNull(participant);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(projectionLimits);
+        ExactTypeInspectionResult result =
+            ExactTypeInspectionQuery.ExecuteLoadedContext(
+                workspace,
+                loaded,
+                participant,
+                request,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                projectionLimits);
+        return new(
+            result,
+            new InspectionShare.NonProjectable(
+                "loaded-context-exact-type/share",
+                "A complete portable Workspace scenario is required to "
+                    + "project loaded-context exact Type Share."),
+            Diagnostics(result));
+    }
+
     static InspectionEnvelope<ExactTypeInspectionResult> ExecuteCore(
         WorkspaceRealizationOperationLease authority,
         WorkspaceContextLoadOutcome.Loaded loaded,

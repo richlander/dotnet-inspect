@@ -6,6 +6,7 @@ import {
   type AppExplorerState,
   type MetadataInspectionDependencies,
   type MetadataInspectionState,
+  type PackageTypeMetadataLoadRequest,
   type TypeMetadataLoadRequest,
 } from "../src/metadata-inspection.ts";
 import type {
@@ -176,8 +177,8 @@ function heapResult(heapName = "String"): HeapListingData {
 }
 
 function typeRequest(
-  overrides: Partial<TypeMetadataLoadRequest> = {},
-): TypeMetadataLoadRequest {
+  overrides: Partial<PackageTypeMetadataLoadRequest> = {},
+): PackageTypeMetadataLoadRequest {
   return {
     signature: "Example.Widget",
     packageId: "Example.Package",
@@ -245,6 +246,9 @@ test("type metadata publishes the current result and restores visible focus", as
   const coordinator = createMetadataInspectionCoordinator(
     inspectionDependencies(state, {
       queryTypeMetadata: async value => {
+        assert.notEqual(value.kind, "platform");
+        if (value.kind === "platform")
+          throw new Error("Unexpected Platform Type Metadata request.");
         assert.deepEqual(
           [
             value.packageId,
@@ -282,6 +286,37 @@ test("type metadata publishes the current result and restores visible focus", as
   assert.equal(state.typeMetadata, result);
   assert.equal(state.typeMetadataLoading, false);
   assert.deepEqual(focusCalls, [undefined, preservedFocus]);
+});
+
+test("type metadata preserves exact platform coordinates", async () => {
+  const state = inspectionState();
+  let observed: TypeMetadataLoadRequest | null = null;
+  const coordinator = createMetadataInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryTypeMetadata: async request => {
+        observed = request;
+        return metadataResult("System.Text.Json.Nodes.JsonArray");
+      },
+    }));
+  const request: TypeMetadataLoadRequest = {
+    signature: "platform-json-array",
+    kind: "platform",
+    framework: "net11.0",
+    version: "11.0.100-rc.1.26425.128",
+    assembly: "System.Text.Json.dll",
+    pack: "netcore.app",
+    type: "System.Text.Json.Nodes.JsonArray",
+    typeIdentity: "System.Text.Json.Nodes.JsonArray",
+    contextId: "retained-platform-context",
+    isVisible: () => true,
+  };
+
+  await coordinator.loadTypeMetadata(request);
+
+  assert.deepEqual(observed, request);
+  assert.equal(
+    state.typeMetadata?.exactTypeInspection.content.type?.fullName,
+    "System.Text.Json.Nodes.JsonArray");
 });
 
 test("hidden type metadata completion caches without repainting", async () => {

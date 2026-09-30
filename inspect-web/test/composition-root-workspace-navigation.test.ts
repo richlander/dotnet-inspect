@@ -1720,7 +1720,7 @@ test("type projection completions render only while current and preserve navigat
     ?? "";
   assert.match(
     typeMetadata,
-    /return metadataInspection\.loadTypeMetadata\(\{[\s\S]*packageId: pkg\.id,[\s\S]*assembly: type\.assembly,[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*isVisible: \(\) => \{[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*selectedTypeMetadataLibraryIdentity\(\)\) === signature/);
+    /const selection = \{[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*isVisible: \(\) => \{[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*selectedTypeMetadataLibraryIdentity\(\)\) === signature[\s\S]*if \(pkg\.isRuntimePack\)[\s\S]*kind: "platform"[\s\S]*return metadataInspection\.loadTypeMetadata\(\{[\s\S]*kind: "package",[\s\S]*packageId: pkg\.id,[\s\S]*assembly: type\.assembly/);
   assert.doesNotMatch(typeMetadata, /typeMetadataGeneration|inspectTypeProjection/);
   const typeMetadataCoordinator =
     metadataInspectionSource.match(/async loadTypeMetadata\(request\)[\s\S]*?\n    },/)?.[0]
