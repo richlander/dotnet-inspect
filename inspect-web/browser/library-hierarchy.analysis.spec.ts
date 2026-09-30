@@ -267,7 +267,7 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
   await expect(page.locator("#inspector-panel")).toContainText("Runs the widget.");
 
   await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
-  const familyOverload = page.locator('[data-overload="0"]');
+  const familyOverload = page.locator('[data-overload="1"]');
   await expect(familyOverload).toBeVisible();
   await expect(page.locator(".member-surface-head p"))
     .toContainText("1 overload");
