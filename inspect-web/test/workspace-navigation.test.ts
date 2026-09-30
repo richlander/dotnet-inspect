@@ -1144,6 +1144,20 @@ test("history signatures distinguish exact graph member identity", () => {
   }
 });
 
+test("history signatures distinguish exact Member document identity", () => {
+  const original = workspaceView({
+    selectedMemberKey: "method:Build",
+    memberDocumentFingerprint: "abc123",
+  });
+
+  assert.notEqual(
+    workspaceViewSignature(original),
+    workspaceViewSignature({
+      ...original,
+      memberDocumentFingerprint: "def456",
+    }));
+});
+
 test("history signatures distinguish captured library scope", () => {
   const original = workspaceView({
     libraryScope: ["System.Collections", "System.Runtime"],

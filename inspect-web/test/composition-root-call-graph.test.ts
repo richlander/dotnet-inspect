@@ -977,7 +977,7 @@ test("restored ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     drillIn,
-    /ordinaryMethodGroup\(member\)[\s\S]*state\.selectedOverloadIndex == null[\s\S]*openOverload\(0\)/);
+    /ordinaryMethodGroup\(member\)[\s\S]*state\.selectedOverloadIndex == null[\s\S]*memberDocumentOrdinalForOverload\(member, 0\)[\s\S]*openMemberDocument\(baselineOrdinal\)/);
   assert.doesNotMatch(drillIn, /member\.overloads\.length > 1/);
 
   const stepHorizontal =
@@ -1074,7 +1074,40 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /memberGroupDocumentError[\s\S]*Overload query failed/);
   assert.match(
     renderMember,
-    /document\.rows\.map\(row =>[\s\S]*row\.metadataToken[\s\S]*detail unavailable/);
+    /document\.rows\.map\(row =>[\s\S]*data-overload="\$\{row\.baselineOrdinal}"/);
+  assert.doesNotMatch(
+    renderMember,
+    /document\.rows\.map\(row =>[\s\S]*findIndex/);
+  assert.match(
+    renderMember,
+    /memberDocumentLoading[\s\S]*Resolving the shared Member document/);
+  assert.match(
+    renderMember,
+    /state\.memberDocument\?\.outcome === "Available"[\s\S]*Exact Member document/);
+  assert.match(
+    appSource,
+    /function memberDocumentOrdinalForOverload\([\s\S]*row => row\.metadataToken === metadataToken\)\?\.baselineOrdinal/);
+  assert.match(
+    appSource,
+    /function selectMemberNavEntry\([\s\S]*memberDocumentOrdinalForOverload\(entry\.group, entry\.index\)[\s\S]*openMemberDocument\(baselineOrdinal\)[\s\S]*!ordinaryMethodGroup\(entry\.group\)[\s\S]*openOverload\(entry\.index\)/);
+  assert.match(
+    appSource,
+    /function drillIn\(\)[\s\S]*memberDocumentOrdinalForOverload\(member, 0\)[\s\S]*openMemberDocument\(baselineOrdinal\)/);
+  const loadMemberDocument =
+    appSource.match(/async function loadSelectedMemberDocument\([\s\S]*?\n}\n\nasync function loadSelectedMemberGroupDocument/)?.[0]
+    ?? "";
+  assert.match(
+    loadMemberDocument,
+    /inspectUploadedLibraryMemberDocument\([\s\S]*baselineOrdinal,[\s\S]*fingerprintPrefix\)/);
+  assert.match(
+    loadMemberDocument,
+    /inspectPlatformMemberDocument\([\s\S]*baselineOrdinal,[\s\S]*fingerprintPrefix\)/);
+  assert.match(
+    loadMemberDocument,
+    /inspectMemberDocument\([\s\S]*baselineOrdinal,[\s\S]*fingerprintPrefix\)/);
+  assert.match(
+    loadMemberDocument,
+    /state\.memberDocumentFingerprint = document\.fingerprint;[\s\S]*findIndex\(overload =>/);
   assert.doesNotMatch(
     renderMember,
     /member\.overloads\.map\(\(overload, index\) =>/);

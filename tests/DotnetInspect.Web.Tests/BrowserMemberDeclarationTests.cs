@@ -189,6 +189,69 @@ public sealed class BrowserMemberDeclarationTests
             singletonRow.DisplaySignature,
             StringComparison.Ordinal);
 
+        BrowserMemberDocumentInspection ordinalMember =
+            MemberDocument(
+                await MetadataExports.QueryMemberDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "PointerFreeUnsafeMethod",
+                    singletonRow.BaselineOrdinal,
+                    ""));
+        BrowserMemberDocumentInspection fingerprintMember =
+            MemberDocument(
+                await MetadataExports.QueryMemberDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "PointerFreeUnsafeMethod",
+                    0,
+                    singletonRow.Fingerprint));
+        Assert.Equal(
+            BrowserMemberDocumentOutcome.Available,
+            ordinalMember.Outcome);
+        BrowserMemberDocument exactDocument =
+            Assert.IsType<BrowserMemberDocument>(
+                ordinalMember.Document);
+        Assert.Equal(SpellingType, exactDocument.TypeIdentity);
+        Assert.Equal(
+            "PointerFreeUnsafeMethod",
+            exactDocument.MemberName);
+        Assert.Equal(
+            singletonRow.MetadataToken,
+            exactDocument.MetadataToken);
+        Assert.Equal(
+            singletonRow.BaselineOrdinal,
+            exactDocument.BaselineOrdinal);
+        Assert.Equal(
+            singletonRow.CanonicalSignature,
+            exactDocument.CanonicalSignature);
+        Assert.Equal(
+            exactDocument,
+            Assert.IsType<BrowserMemberDocument>(
+                fingerprintMember.Document));
+
+        BrowserMemberDocumentInspection missingMember =
+            MemberDocument(
+                await MetadataExports.QueryMemberDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "PointerFreeUnsafeMethod",
+                    2,
+                    ""));
+        Assert.Equal(
+            BrowserMemberDocumentOutcome.Rejected,
+            missingMember.Outcome);
+        Assert.Null(missingMember.Document);
+        Assert.NotNull(missingMember.Detail);
+
         BrowserMemberGroupDocumentInspection uploadedGroup =
             MemberGroupDocument(
                 await MetadataExports.QueryUploadedLibraryMemberGroupDocument(
@@ -869,6 +932,15 @@ public sealed class BrowserMemberDeclarationTests
                 .BrowserMemberGroupDocumentInspection)
         ?? throw new InvalidOperationException(
             "The browser member-group export returned null.");
+
+    static BrowserMemberDocumentInspection MemberDocument(
+        string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            BrowserMetadataJsonContext.Default
+                .BrowserMemberDocumentInspection)
+        ?? throw new InvalidOperationException(
+            "The browser Member export returned null.");
 
     static byte[] PackagePair(byte[] image)
     {

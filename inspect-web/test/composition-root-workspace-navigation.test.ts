@@ -1827,7 +1827,7 @@ test("history validates saved type and member identity before restoring Member s
     /state\.selectedTypeId = type\?\.id \?\? defaultVisibleTypeId\(pkg\);[\s\S]*state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*state\.memberAccessibilityFilter = memberHistory\.memberAccessibilityFilter;[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
   assert.match(
     applyView,
-    /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
+    /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*clearMemberDocumentCache\(\);[\s\S]*state\.memberDocumentFingerprint =[\s\S]*view\.memberDocumentFingerprint[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
   assert.match(
     applyView,
     /navigationHistory\.normalizeCurrent\(\);[\s\S]*loadMemberSectionContent\(state\.memberSection\)[\s\S]*else \{\s*render\(\)/);
@@ -1836,10 +1836,10 @@ test("history validates saved type and member identity before restoring Member s
     /const navigationHistory = createNavigationHistory\(\{\s*capture: captureView,\s*signature: workspaceViewSignature,\s*apply: applyView/);
   assert.match(
     workspaceNavigationSource,
-    /function workspaceViewSignature\([\s\S]*b: graphTarget \? null : encodeBodyTarget\(view\.bodyTarget\),[\s\S]*g: graphTarget/);
+    /function workspaceViewSignature\([\s\S]*mf: view\.memberDocumentFingerprint \?\? "",[\s\S]*b: graphTarget \? null : encodeBodyTarget\(view\.bodyTarget\),[\s\S]*g: graphTarget/);
   assert.match(
     appSource,
-    /function captureView\(\): WorkspaceView \| null \{[\s\S]*bodyTarget: state\.selectedBodyTarget/);
+    /function captureView\(\): WorkspaceView \| null \{[\s\S]*memberDocumentFingerprint: state\.memberDocumentFingerprint,[\s\S]*bodyTarget: state\.selectedBodyTarget/);
   assert.match(
     appSource,
     /else if \(state\.selectedTypeId !== current\.id\) \{\s*state\.selectedTypeId = current\.id;\s*state\.selectedMemberKey = "";\s*state\.memberBrowseTypeId = "";\s*state\.selectedOverloadIndex = null;\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\)/);

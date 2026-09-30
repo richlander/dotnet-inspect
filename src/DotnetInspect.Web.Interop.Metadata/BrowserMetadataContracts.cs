@@ -286,6 +286,32 @@ public sealed record BrowserMemberGroupDocumentDiagnostic(
     string Summary,
     string? Correspondence);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserMemberDocumentOutcome>))]
+public enum BrowserMemberDocumentOutcome
+{
+    Available,
+    Rejected,
+    Incomplete,
+    Failed,
+}
+
+public sealed record BrowserMemberDocumentInspection(
+    BrowserMemberDocumentOutcome Outcome,
+    string? Detail,
+    BrowserMemberDocument? Document,
+    BrowserMemberGroupDocumentDiagnostic[] Diagnostics);
+
+public sealed record BrowserMemberDocument(
+    string TypeIdentity,
+    string MemberName,
+    int MetadataToken,
+    int BaselineOrdinal,
+    string DisplaySignature,
+    string CanonicalSignature,
+    string Fingerprint,
+    string Accessibility,
+    string Receiver);
+
 /// <summary>
 /// One type row projected for a graph target. See the package facade's declaration for the
 /// identity rules these fields carry; this facade owns its own copy of the transport.
@@ -369,6 +395,7 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserGraphMemberSurface))]
 [JsonSerializable(typeof(BrowserMemberDeclaration))]
 [JsonSerializable(typeof(BrowserMemberGroupDocumentInspection))]
+[JsonSerializable(typeof(BrowserMemberDocumentInspection))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(
     typeof(InspectionEnvelope<JsonElement>),
