@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.ComponentModel;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -137,6 +138,214 @@ public sealed class AssemblyContextApiSurfaceQueryTests
         Assert.Contains(
             probe.Members,
             member => member.Name == nameof(ApiSurfacePublicProbe.HiddenSecret));
+    }
+
+    [Fact]
+    public async Task TypeMemberPopulation_UsesCompositionAndCompleteGroupCounts()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = SelfGroup(workspace);
+        MetadataTypeDefinitionName type = Assert.IsType<
+                MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    typeof(TypeMemberPopulationProbe).Namespace ?? "",
+                    [nameof(TypeMemberPopulationProbe)]))
+            .Name;
+
+        MetadataTypeMemberPopulation population = Assert.IsType<
+                MetadataTypeMemberPopulationOutcome.Available>(
+                Assert.IsType<
+                    AssemblyContextEntry<
+                        MetadataTypeMemberPopulationOutcome>.Available>(
+                    AssemblyContextTypeMemberPopulationQuery
+                        .ExecuteParticipant(
+                            group,
+                            group.Participants[0],
+                            new(
+                                type,
+                                MetadataMemberSpelling.CSharp,
+                                includeHidden: false,
+                                MetadataMethodAccessibilityFilter.Public),
+                            PopulationBounds))
+                .Value)
+            .Population;
+
+        MetadataTypeMemberPopulationGroup parse = Assert.Single(
+            population.Groups,
+            candidate => candidate.Name == nameof(
+                TypeMemberPopulationProbe.Parse));
+        Assert.Single(parse.Members);
+        Assert.Equal(2, parse.CompleteCount);
+        Assert.Equal(
+            population.Groups.Sum(group => group.Members.Length),
+            population.Composition.Public);
+    }
+
+    [Fact]
+    public async Task MetadataSpelling_KeepsAccessorHiddennessRecordLocal()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = SelfGroup(workspace);
+        MetadataTypeDefinitionName type = Assert.IsType<
+                MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    typeof(TypeMemberPopulationProbe).Namespace ?? "",
+                    [nameof(TypeMemberPopulationProbe)]))
+            .Name;
+
+        MetadataTypeMemberPopulation population = Assert.IsType<
+                MetadataTypeMemberPopulationOutcome.Available>(
+                Assert.IsType<
+                    AssemblyContextEntry<
+                        MetadataTypeMemberPopulationOutcome>.Available>(
+                    AssemblyContextTypeMemberPopulationQuery
+                        .ExecuteParticipant(
+                            group,
+                            group.Participants[0],
+                            new(
+                                type,
+                                MetadataMemberSpelling.Metadata,
+                                includeHidden: false,
+                                MetadataMethodAccessibilityFilter.Public),
+                            PopulationBounds))
+                .Value)
+            .Population;
+
+        Assert.DoesNotContain(
+            population.Groups,
+            group => group.Name == nameof(
+                TypeMemberPopulationProbe.Hidden));
+        Assert.Contains(
+            population.Groups,
+            group => group.Name == $"get_{nameof(
+                TypeMemberPopulationProbe.Hidden)}"
+                && group.Kind == "method");
+        Assert.Equal(
+            population.Groups.Sum(group => group.Members.Length),
+            population.Composition.Public);
+    }
+
+    [Fact]
+    public async Task SystemTextJson_ReportsTruthfulAccessibilityAndFamilyCounts()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(
+            workspace,
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "DocumentationQuery",
+                "System.Text.Json.dll"));
+        MetadataTypeDefinitionName type = Assert.IsType<
+                MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.ParseSerialized(
+                    "System.Text.Json.JsonDocument"))
+            .Name;
+
+        MetadataTypeMemberPopulation publicPopulation =
+            AvailablePopulation(
+                group,
+                type,
+                MetadataMemberSpelling.CSharp,
+                MetadataMethodAccessibilityFilter.Public);
+        MetadataTypeMemberPopulation privatePopulation =
+            AvailablePopulation(
+                group,
+                type,
+                MetadataMemberSpelling.CSharp,
+                MetadataMethodAccessibilityFilter.Private);
+
+        Assert.Equal(16, publicPopulation.Composition.Public);
+        Assert.Equal(27, publicPopulation.Composition.Private);
+        Assert.Equal(
+            (
+                publicPopulation.Composition.Public,
+                publicPopulation.Composition.Protected,
+                publicPopulation.Composition.Internal,
+                publicPopulation.Composition.Private),
+            (
+                privatePopulation.Composition.Public,
+                privatePopulation.Composition.Protected,
+                privatePopulation.Composition.Internal,
+                privatePopulation.Composition.Private));
+        MetadataTypeMemberPopulationGroup parse = Assert.Single(
+            publicPopulation.Groups,
+            group => group.Name == "Parse");
+        Assert.Equal(5, parse.Members.Length);
+        Assert.Equal(7, parse.CompleteCount);
+        Assert.Equal(
+            27,
+            privatePopulation.Groups.Sum(group => group.Members.Length));
+
+        MetadataTypeDefinitionName enumeratorType = Assert.IsType<
+                MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.ParseSerialized(
+                    "System.Text.Json.JsonElement+ArrayEnumerator"))
+            .Name;
+        MetadataTypeMemberPopulation csharpEnumerator =
+            AvailablePopulation(
+                group,
+                enumeratorType,
+                MetadataMemberSpelling.CSharp,
+                MetadataMethodAccessibilityFilter.Public);
+        MetadataTypeMemberPopulation metadataEnumerator =
+            AvailablePopulation(
+                group,
+                enumeratorType,
+                MetadataMemberSpelling.Metadata,
+                MetadataMethodAccessibilityFilter.Public);
+        MetadataTypeMemberPopulation privateMetadataEnumerator =
+            AvailablePopulation(
+                group,
+                enumeratorType,
+                MetadataMemberSpelling.Metadata,
+                MetadataMethodAccessibilityFilter.Private);
+        Assert.Contains(
+            csharpEnumerator.Groups,
+            candidate => candidate.Name == "Current"
+                && candidate.Kind == "property");
+        Assert.DoesNotContain(
+            csharpEnumerator.Groups,
+            candidate => candidate.Name == "get_Current");
+        Assert.Contains(
+            metadataEnumerator.Groups,
+            candidate => candidate.Name == "Current"
+                && candidate.Kind == "property");
+        Assert.Contains(
+            metadataEnumerator.Groups,
+            candidate => candidate.Name == "get_Current"
+                && candidate.Kind == "method");
+        Assert.Contains(
+            csharpEnumerator.Groups,
+            candidate => candidate.Name
+                    == "System.Collections.IEnumerable.GetEnumerator"
+                && candidate.Kind
+                    == "explicit-interface-implementation");
+        Assert.Contains(
+            privateMetadataEnumerator.Groups,
+            candidate => candidate.Name
+                    == "System.Collections.IEnumerable.GetEnumerator"
+                && candidate.Kind == "method");
+        Assert.True(
+            metadataEnumerator.Composition.Private
+                > csharpEnumerator.Composition.Private);
+        Assert.True(
+            Total(metadataEnumerator.Composition)
+                > Total(csharpEnumerator.Composition));
+        Assert.Equal(
+            metadataEnumerator.Composition.Public,
+            metadataEnumerator.Groups.Sum(
+                candidate => candidate.Members.Length));
+        Assert.Equal(
+            privateMetadataEnumerator.Composition.Private,
+            privateMetadataEnumerator.Groups.Sum(
+                candidate => candidate.Members.Length));
+
+        static int Total(MetadataTypeMemberComposition composition) =>
+            composition.Public
+                + composition.Protected
+                + composition.Internal
+                + composition.Private;
     }
 
     [Fact]
@@ -999,14 +1208,54 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     static AssemblyContextGroup SelfGroup(InspectionWorkspace workspace)
-        => workspace.CreateAssemblyContextGroup(
+        => Group(workspace, SelfPath);
+
+    static AssemblyContextGroup Group(
+        InspectionWorkspace workspace,
+        string path) =>
+        workspace.CreateAssemblyContextGroup(
             [
                 new AssemblyContextParticipant(
                     ResolvedAssemblyReference.CreateFromPath(
-                        SelfPath,
+                        path,
                         AssemblyResolutionProvenance.Local("api surface tests")),
                     new TestBindingPolicy()),
             ]);
+
+    static MetadataTypeMemberPopulation AvailablePopulation(
+        AssemblyContextGroup group,
+        MetadataTypeDefinitionName type,
+        MetadataMemberSpelling spelling,
+        MetadataMethodAccessibilityFilter accessibility)
+    {
+        MetadataTypeMemberPopulationOutcome outcome = Assert.IsType<
+                AssemblyContextEntry<
+                    MetadataTypeMemberPopulationOutcome>.Available>(
+                AssemblyContextTypeMemberPopulationQuery.ExecuteParticipant(
+                    group,
+                    group.Participants[0],
+                    new(
+                        type,
+                        spelling,
+                        includeHidden: false,
+                        accessibility),
+                    PopulationBounds))
+            .Value;
+        if (outcome is MetadataTypeMemberPopulationOutcome.Failed failed)
+            Assert.Fail(failed.Detail);
+        return Assert.IsType<
+                MetadataTypeMemberPopulationOutcome.Available>(outcome)
+            .Population;
+    }
+
+    static ApiSurfaceExtractionBounds PopulationBounds { get; } =
+        new(
+            maxTypes: 10_000,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_024,
+            maxTypeForwarders: 10_000,
+            maxMetadataRows: 250_000,
+            maxRetainedTextCharacters: 32_000_000);
 
     static AssemblyReferenceIdentity IdentityOf(byte[] bytes)
     {
@@ -1261,6 +1510,23 @@ public sealed class ApiSurfacePublicProbe
     public int Visible => 1;
 
     internal int HiddenSecret => 2;
+}
+
+public sealed class TypeMemberPopulationProbe
+{
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public int Hidden => 1;
+
+    public int Value { get; private set; }
+
+    public void Parse()
+    {
+    }
+
+    private void Parse(int value)
+    {
+        Value = value;
+    }
 }
 
 /// <summary>A non-public probe type reached only by an include-all surface.</summary>
