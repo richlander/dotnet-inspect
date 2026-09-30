@@ -11717,6 +11717,7 @@ function bindTypePanelEvents() {
       resetMemberFilters();
       if (state.typeLeverageEnabled) loadTypeLeverage();
       else renderPreservingMemberFocus();
+      loadCurrentSelectionData("Loading the selected Type");
     },
     onTypeLeverageActivate: () => {
       const current = currentTypeLeveragePresentation();

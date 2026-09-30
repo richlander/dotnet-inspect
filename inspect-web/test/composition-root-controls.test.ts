@@ -1234,6 +1234,13 @@ test("typed type panel owns its rendered control bindings", () => {
     binding.match(
       new RegExp(`    ${name}: [\\s\\S]*?(?=\\n    on[A-Z])`))?.[0]
       ?? "";
+  const kindSelect = callbackSource("onKindSelect");
+  assert.match(
+    kindSelect,
+    /if \(state\.typeLeverageEnabled\) loadTypeLeverage\(\);\s*else renderPreservingMemberFocus\(\)/);
+  assert.match(
+    kindSelect,
+    /loadCurrentSelectionData\("Loading the selected Type"\)/);
   for (const [name, stateField] of [
     ["onMemberCompositionKindSelect", "memberKindFilter"],
     ["onMemberCompositionTraitSelect", "memberTraitFilter"],
