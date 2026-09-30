@@ -56,6 +56,21 @@ public enum AnalysisLibraryBodyUseRejectionKind
     Execution,
 }
 
+public enum AnalysisLibraryBodyUseClosing
+{
+    Exists,
+    Count,
+    Rows,
+}
+
+public enum AnalysisLibraryBodyUseTerminalDisposition
+{
+    Settled,
+    Complete,
+    Qualified,
+    Partial,
+}
+
 public sealed record AnalysisLibraryBodyUseLimits(
     int MaximumTypeDefinitions = 1_000_000,
     int MaximumRetainedTextCharacters = 16_000_000,
@@ -86,6 +101,22 @@ public sealed record AnalysisLibraryBodyUseRequest
         Limits = limits ?? new AnalysisLibraryBodyUseLimits();
         Limits.Validate();
     }
+
+    public AnalysisLibraryBodyUseLimits Limits { get; }
+}
+
+public sealed record AnalysisLibraryBodyUseQuestion
+{
+    public AnalysisLibraryBodyUseQuestion(
+        AnalysisLibraryBodyUseClosing closing,
+        AnalysisLibraryBodyUseLimits? limits = null)
+    {
+        Closing = closing;
+        Limits = limits ?? new AnalysisLibraryBodyUseLimits();
+        Limits.Validate();
+    }
+
+    public AnalysisLibraryBodyUseClosing Closing { get; }
 
     public AnalysisLibraryBodyUseLimits Limits { get; }
 }
@@ -191,6 +222,47 @@ public sealed record AnalysisLibraryBodyUseResult(
     ImmutableArray<AnalysisLibraryBodyUsePhysicalEvidence> PhysicalEvidence,
     AnalysisLibraryBodyUseCoverage Coverage,
     ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics);
+
+public sealed record AnalysisLibraryBodyUseTerminalEvidence(
+    AnalysisLibraryBodyUseReceipt Receipt,
+    AnalysisLibraryBodyUseTerminalDisposition Disposition,
+    AnalysisLibraryBodyUseCoverage Coverage,
+    ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics);
+
+public abstract record AnalysisLibraryBodyUseAnswer
+{
+    private protected AnalysisLibraryBodyUseAnswer()
+    {
+    }
+
+    public sealed record Exists(
+        bool Value,
+        AnalysisLibraryBodyUseTerminalEvidence Evidence)
+        : AnalysisLibraryBodyUseAnswer;
+
+    public sealed record Count(
+        int Value,
+        AnalysisLibraryBodyUseTerminalEvidence Evidence)
+        : AnalysisLibraryBodyUseAnswer;
+
+    public sealed record Rows(AnalysisLibraryBodyUseResult Result)
+        : AnalysisLibraryBodyUseAnswer;
+}
+
+public abstract record AnalysisLibraryBodyUseQueryOutcome
+{
+    private protected AnalysisLibraryBodyUseQueryOutcome()
+    {
+    }
+
+    public sealed record Available(AnalysisLibraryBodyUseAnswer Answer)
+        : AnalysisLibraryBodyUseQueryOutcome;
+
+    public sealed record Rejected(
+        AnalysisLibraryBodyUseRejectionKind Kind,
+        string Detail)
+        : AnalysisLibraryBodyUseQueryOutcome;
+}
 
 public abstract record AnalysisLibraryBodyUseOutcome
 {

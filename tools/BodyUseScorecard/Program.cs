@@ -16,12 +16,13 @@ BodyUseScorecardCheck check = BodyUseScorecard.Check(assets);
 foreach (BodyUseScorecardAnswerHash answer in check.AnswerHashes)
 {
     Console.WriteLine(
-        $"# answer: {answer.Asset} / Rows = {answer.Hash}");
+        $"# answer: {answer.Asset} / {answer.Closing} = {answer.Hash}");
 }
 foreach (BodyUseScorecardMismatch mismatch in check.Mismatches)
 {
     Console.WriteLine(
-        $"mismatch\t{mismatch.Asset}\tRows\t{mismatch.Column}"
+        $"mismatch\t{mismatch.Asset}\t{mismatch.Closing}"
+            + $"\t{mismatch.Column}"
             + $"\t{mismatch.Answer}\toracle={mismatch.OracleAnswer}");
 }
 Console.WriteLine(

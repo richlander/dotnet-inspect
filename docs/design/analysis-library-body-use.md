@@ -309,17 +309,33 @@ baseline. Provider-backed acquisition remains Stage 8.
 
 ### LINQ and NLinq scorecard
 
-The performance scorecard asks the producer's current production question:
-the Rows terminal over the complete whole-Library population. Every column
-constructs the same product-owned public projection: disposition, full
-canonical Type inventory, named ordered occurrences, physical-only evidence,
-body and operand coverage, and typed diagnostics. The scorecard excludes only
-the Planner execution receipt: an oracle cannot truthfully manufacture
-Producer Planning participation and work without invoking the Planner itself.
-It does not manufacture Exists, Count, Head, Tail, or Window acquisition
-behavior that the producer does not support. Later QuerySpace adoption owns a
-standard multi-closing scorecard when those questions reach body-use
-production.
+The producer's semantic row unit is one retained logical body-use occurrence:
+one declared source Type, one local target Type, and one typed operand
+occurrence with its physical coordinates. It supports three production
+closings over that exact row population:
+
+- **Exists** stops after the first retained logical occurrence. A settled true
+  answer carries prefix coverage and diagnostics with `Settled` disposition.
+  A false answer completes the population and retains its complete,
+  qualified, or partial disposition.
+- **Count** completes the population and returns the exact retained logical
+  occurrence count with disposition, coverage, and diagnostics, without
+  materializing occurrence, canonical-Type, or physical-evidence rows.
+- **Rows** preserves the complete product result: disposition, full canonical
+  Type inventory, named ordered occurrences, physical-only evidence, body and
+  operand coverage, and typed diagnostics.
+
+Every closing performs the same bounded root Type-inventory admission and the
+same per-body fidelity and containment work it reaches. Count and false Exists
+therefore cannot turn unavailable, qualified, limited, or malformed evidence
+into a success-shaped scalar. Head, Tail, and Window remain unsupported; later
+QuerySpace adoption owns those selection closings and provider-backed demand.
+
+The performance scorecard asks all three production questions. Every column
+constructs the same product-owned answer for the selected closing. The
+scorecard excludes only the Planner execution receipt: an oracle cannot
+truthfully manufacture Producer Planning participation and work without
+invoking the Planner itself.
 
 The scorecard runs four columns:
 
@@ -328,7 +344,7 @@ The scorecard runs four columns:
 - **NLinq** uses the pinned NLinq MethodDef source, selection, projection, and
   fold.
 - **Planner** is the shipping
-  `AnalysisLibraryBodyUseService.ExecuteImage` operation.
+  `AnalysisLibraryBodyUseService.QueryImage` operation.
 
 Direct, LINQ, and NLinq independently traverse the MethodDef population. They
 share the Analysis-owned per-method body-use kernel because its instruction
@@ -336,9 +352,11 @@ decode, logical ownership, operand binding, fidelity, and containment are the
 question being composed, not alternative query machinery. They do not invoke
 Producer Planning or consume Planner output. Every column performs bounded
 Type-inventory admission, uses the same body, occurrence, and
-method-signature limits, feeds the product-owned result accumulator, and calls
-the same product-owned public projection. The scorecard checks the complete
-projected arrays and diagnostic fields in order before timing.
+method-signature limits, and feeds the product-owned terminal-aware
+accumulator. Exists stops at the first settling fact, Count retains no
+occurrence rows, and Rows calls the product-owned public projection. The
+scorecard checks every public scalar, disposition, coverage field, diagnostic,
+and, for Rows, projected array in order before timing.
 Comparator traversal also preserves the production completion boundary:
 cancellation is observed before and during population traversal, recoverable
 body-acquisition failure becomes per-method unavailable evidence, and a
@@ -348,10 +366,10 @@ exact detail, including bounded or unsupported Type-inventory admission.
 
 NativeAOT is the only accepted timing. The report identifies the exact
 candidate, assets, source locations, pinned NLinq provenance, invocation,
-answer hashes, absolute medians, allocation, and ratios to NLinq. It runs the
-Roslyn fidelity assets and the body-use ECMA safety fixtures. A faster fair
-oracle is evidence for Planner improvement; the oracle is not burdened with
-unconsumed Planner work.
+per-closing answer hashes, absolute medians, allocation, and ratios to NLinq.
+It runs the Roslyn fidelity assets and the body-use ECMA safety fixtures. A
+faster fair oracle is evidence for Planner improvement; the oracle is not
+burdened with unconsumed Planner work.
 
 The four implementations and report live in
 [`BodyUseScorecard.cs`](../../tools/AnalysisHarness/BodyUseScorecard.cs).

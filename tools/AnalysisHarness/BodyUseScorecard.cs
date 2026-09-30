@@ -27,13 +27,36 @@ public sealed record BodyUseScorecardAsset(
     string SourceName,
     ImmutableArray<byte> Image);
 
-public sealed record BodyUseScorecardAnswer(
-    AnalysisLibraryBodyUseDisposition Disposition,
-    ImmutableArray<AnalysisLibraryBodyUseType> Types,
-    ImmutableArray<AnalysisLibraryBodyUseOccurrence> Occurrences,
-    ImmutableArray<AnalysisLibraryBodyUsePhysicalEvidence> PhysicalEvidence,
+public sealed record BodyUseScorecardTerminalEvidence(
+    AnalysisLibraryBodyUseTerminalDisposition Disposition,
     AnalysisLibraryBodyUseCoverage Coverage,
     ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics);
+
+public abstract record BodyUseScorecardAnswer
+{
+    private protected BodyUseScorecardAnswer()
+    {
+    }
+
+    public sealed record Exists(
+        bool Value,
+        BodyUseScorecardTerminalEvidence Evidence)
+        : BodyUseScorecardAnswer;
+
+    public sealed record Count(
+        int Value,
+        BodyUseScorecardTerminalEvidence Evidence)
+        : BodyUseScorecardAnswer;
+
+    public sealed record Rows(
+        AnalysisLibraryBodyUseDisposition Disposition,
+        ImmutableArray<AnalysisLibraryBodyUseType> Types,
+        ImmutableArray<AnalysisLibraryBodyUseOccurrence> Occurrences,
+        ImmutableArray<AnalysisLibraryBodyUsePhysicalEvidence> PhysicalEvidence,
+        AnalysisLibraryBodyUseCoverage Coverage,
+        ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics)
+        : BodyUseScorecardAnswer;
+}
 
 public sealed record BodyUseScorecardRejection(
     AnalysisLibraryBodyUseRejectionKind Kind,
@@ -44,6 +67,7 @@ public sealed record BodyUseScorecardRejection(
 
 public sealed record BodyUseScorecardExecution(
     BodyUseScorecardColumn Column,
+    AnalysisLibraryBodyUseClosing Closing,
     BodyUseScorecardAnswer? Answer,
     BodyUseScorecardRejection? Rejection)
 {
@@ -52,12 +76,14 @@ public sealed record BodyUseScorecardExecution(
 
 public sealed record BodyUseScorecardMismatch(
     string Asset,
+    AnalysisLibraryBodyUseClosing Closing,
     BodyUseScorecardColumn Column,
     string Answer,
     string OracleAnswer);
 
 public sealed record BodyUseScorecardAnswerHash(
     string Asset,
+    AnalysisLibraryBodyUseClosing Closing,
     string Hash);
 
 public sealed record BodyUseScorecardCheck(
@@ -71,6 +97,7 @@ public sealed record BodyUseScorecardCheck(
 public sealed record BodyUseScorecardCell(
     int AssetIndex,
     string Asset,
+    AnalysisLibraryBodyUseClosing Closing,
     BodyUseScorecardColumn Column,
     IReadOnlyList<double> RoundMediansMicroseconds,
     IReadOnlyList<long> RoundMediansAllocatedBytes)
@@ -112,6 +139,13 @@ public static class BodyUseScorecard
         BodyUseScorecardColumn.Planner,
     ];
 
+    static readonly AnalysisLibraryBodyUseClosing[] Closings =
+    [
+        AnalysisLibraryBodyUseClosing.Exists,
+        AnalysisLibraryBodyUseClosing.Count,
+        AnalysisLibraryBodyUseClosing.Rows,
+    ];
+
     static long s_sink;
 
     public static IReadOnlyList<BodyUseScorecardAsset> LoadAssets(
@@ -142,30 +176,40 @@ public static class BodyUseScorecard
         int compared = 0;
         foreach (BodyUseScorecardAsset asset in assets)
         {
-            BodyUseScorecardExecution oracle = Execute(
-                BodyUseScorecardColumn.NLinq,
-                asset,
-                limits,
-                cancellationToken);
-            hashes.Add(new(asset.Name, AnswerHash(oracle)));
-            foreach (BodyUseScorecardColumn column in Columns)
+            foreach (AnalysisLibraryBodyUseClosing closing in Closings)
             {
-                if (column == BodyUseScorecardColumn.NLinq)
-                    continue;
-                BodyUseScorecardExecution actual = Execute(
-                    column,
+                BodyUseScorecardExecution oracle = Execute(
+                    BodyUseScorecardColumn.NLinq,
+                    closing,
                     asset,
                     limits,
                     cancellationToken);
-                compared++;
-                if (!Same(actual, oracle))
+                hashes.Add(
+                    new(
+                        asset.Name,
+                        closing,
+                        AnswerHash(oracle)));
+                foreach (BodyUseScorecardColumn column in Columns)
                 {
-                    mismatches.Add(
-                        new(
-                            asset.Name,
-                            column,
-                            Describe(actual),
-                            Describe(oracle)));
+                    if (column == BodyUseScorecardColumn.NLinq)
+                        continue;
+                    BodyUseScorecardExecution actual = Execute(
+                        column,
+                        closing,
+                        asset,
+                        limits,
+                        cancellationToken);
+                    compared++;
+                    if (!Same(actual, oracle))
+                    {
+                        mismatches.Add(
+                            new(
+                                asset.Name,
+                                closing,
+                                column,
+                                Describe(actual),
+                                Describe(oracle)));
+                    }
                 }
             }
         }
@@ -174,6 +218,19 @@ public static class BodyUseScorecard
 
     public static BodyUseScorecardExecution Execute(
         BodyUseScorecardColumn column,
+        BodyUseScorecardAsset asset,
+        AnalysisLibraryBodyUseLimits? limits = null,
+        CancellationToken cancellationToken = default) =>
+        Execute(
+            column,
+            AnalysisLibraryBodyUseClosing.Rows,
+            asset,
+            limits,
+            cancellationToken);
+
+    public static BodyUseScorecardExecution Execute(
+        BodyUseScorecardColumn column,
+        AnalysisLibraryBodyUseClosing closing,
         BodyUseScorecardAsset asset,
         AnalysisLibraryBodyUseLimits? limits = null,
         CancellationToken cancellationToken = default)
@@ -186,26 +243,33 @@ public static class BodyUseScorecard
             BodyUseScorecardColumn.Direct =>
                 ExecuteOracle(
                     column,
+                    closing,
                     asset,
                     validated,
                     cancellationToken,
-                    static context => context.Direct()),
+                    static (context, terminal) =>
+                        context.Direct(terminal)),
             BodyUseScorecardColumn.Linq =>
                 ExecuteOracle(
                     column,
+                    closing,
                     asset,
                     validated,
                     cancellationToken,
-                    static context => context.Linq()),
+                    static (context, terminal) =>
+                        context.Linq(terminal)),
             BodyUseScorecardColumn.NLinq =>
                 ExecuteOracle(
                     column,
+                    closing,
                     asset,
                     validated,
                     cancellationToken,
-                    static context => context.NLinq()),
+                    static (context, terminal) =>
+                        context.NLinq(terminal)),
             BodyUseScorecardColumn.Planner =>
                 ExecutePlanner(
+                    closing,
                     asset,
                     validated,
                     cancellationToken),
@@ -221,10 +285,18 @@ public static class BodyUseScorecard
         CancellationToken cancellationToken = default)
     {
         var times =
-            new Dictionary<(int Asset, BodyUseScorecardColumn Column),
+            new Dictionary<
+                (
+                    int Asset,
+                    AnalysisLibraryBodyUseClosing Closing,
+                    BodyUseScorecardColumn Column),
                 List<double>>();
         var allocations =
-            new Dictionary<(int Asset, BodyUseScorecardColumn Column),
+            new Dictionary<
+                (
+                    int Asset,
+                    AnalysisLibraryBodyUseClosing Closing,
+                    BodyUseScorecardColumn Column),
                 List<long>>();
         for (int round = 0; round < timing.Rounds; round++)
         {
@@ -233,31 +305,39 @@ public static class BodyUseScorecard
                 assetIndex++)
             {
                 BodyUseScorecardAsset asset = assets[assetIndex];
-                for (int offset = 0; offset < Columns.Length; offset++)
+                foreach (AnalysisLibraryBodyUseClosing closing in Closings)
                 {
-                    BodyUseScorecardColumn column =
-                        Columns[(round + offset) % Columns.Length];
-                    Measurement measurement = MeasureCell(
-                        column,
-                        asset,
-                        timing,
-                        limits,
-                        cancellationToken);
-                    var key = (assetIndex, column);
-                    if (!times.TryGetValue(
-                            key,
-                            out List<double>? roundTimes))
+                    for (int offset = 0;
+                        offset < Columns.Length;
+                        offset++)
                     {
-                        times.Add(key, roundTimes = []);
-                        allocations.Add(key, []);
+                        BodyUseScorecardColumn column =
+                            Columns[(round + offset) % Columns.Length];
+                        Measurement measurement = MeasureCell(
+                            column,
+                            closing,
+                            asset,
+                            timing,
+                            limits,
+                            cancellationToken);
+                        var key = (assetIndex, closing, column);
+                        if (!times.TryGetValue(
+                                key,
+                                out List<double>? roundTimes))
+                        {
+                            times.Add(key, roundTimes = []);
+                            allocations.Add(key, []);
+                        }
+                        roundTimes.Add(measurement.Microseconds);
+                        allocations[key].Add(
+                            measurement.AllocatedBytes);
                     }
-                    roundTimes.Add(measurement.Microseconds);
-                    allocations[key].Add(measurement.AllocatedBytes);
+                    progress?.Invoke(
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"round {round + 1}/{timing.Rounds}: "
+                                + $"{asset.Name} / {closing}"));
                 }
-                progress?.Invoke(
-                    string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"round {round + 1}/{timing.Rounds}: {asset.Name}"));
             }
         }
 
@@ -266,16 +346,20 @@ public static class BodyUseScorecard
             assetIndex < assets.Count;
             assetIndex++)
         {
-            foreach (BodyUseScorecardColumn column in Columns)
+            foreach (AnalysisLibraryBodyUseClosing closing in Closings)
             {
-                var key = (assetIndex, column);
-                cells.Add(
-                    new(
-                        assetIndex,
-                        assets[assetIndex].Name,
-                        column,
-                        times[key],
-                        allocations[key]));
+                foreach (BodyUseScorecardColumn column in Columns)
+                {
+                    var key = (assetIndex, closing, column);
+                    cells.Add(
+                        new(
+                            assetIndex,
+                            assets[assetIndex].Name,
+                            closing,
+                            column,
+                            times[key],
+                            allocations[key]));
+                }
             }
         }
         return cells;
@@ -286,32 +370,40 @@ public static class BodyUseScorecard
     {
         var text = new StringBuilder();
         text.AppendLine(
-            "Rows-terminal ratios to NLinq: geometric mean across assets "
+            "Terminal ratios to NLinq: geometric mean across assets "
                 + "(min-max); lower is faster.");
         text.AppendLine();
         text.AppendLine(
-            "| Metric | Assets | Direct | LINQ | NLinq | Planner |");
-        text.AppendLine("| --- | ---: | ---: | ---: | ---: | ---: |");
-        AppendRatioRow(
-            text,
-            cells,
-            "Time",
-            static cell => cell.MedianMicroseconds);
-        AppendRatioRow(
-            text,
-            cells,
-            "Allocation",
-            static cell => cell.MedianAllocatedBytes);
+            "| Terminal | Metric | Assets | Direct | LINQ | NLinq | Planner |");
+        text.AppendLine(
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: |");
+        foreach (AnalysisLibraryBodyUseClosing closing in Closings)
+        {
+            AppendRatioRow(
+                text,
+                cells,
+                closing,
+                "Time",
+                static cell => cell.MedianMicroseconds);
+            AppendRatioRow(
+                text,
+                cells,
+                closing,
+                "Allocation",
+                static cell => cell.MedianAllocatedBytes);
+        }
         text.AppendLine();
         text.AppendLine("Absolute medians.");
         text.AppendLine();
         text.AppendLine(
-            "| Asset | Column | Time (us) | Allocated bytes |");
-        text.AppendLine("| --- | --- | ---: | ---: |");
+            "| Asset | Terminal | Column | Time (us) | Allocated bytes |");
+        text.AppendLine("| --- | --- | --- | ---: | ---: |");
         foreach (BodyUseScorecardCell cell in cells)
         {
             text.Append("| ")
                 .Append(cell.Asset)
+                .Append(" | ")
+                .Append(cell.Closing)
                 .Append(" | ")
                 .Append(Name(cell.Column))
                 .Append(" | ")
@@ -334,11 +426,13 @@ public static class BodyUseScorecard
         TextWriter writer)
     {
         writer.WriteLine(
-            "asset\tcolumn\tmedian_us\tallocated_bytes"
+            "asset\tterminal\tcolumn\tmedian_us\tallocated_bytes"
                 + "\tround_medians_us\tround_allocated_bytes");
         foreach (BodyUseScorecardCell cell in cells)
         {
             writer.Write(cell.Asset);
+            writer.Write('\t');
+            writer.Write(cell.Closing);
             writer.Write('\t');
             writer.Write(Name(cell.Column));
             writer.Write('\t');
@@ -369,23 +463,45 @@ public static class BodyUseScorecard
     {
         if (execution.Answer is not { } answer)
             return "rejected:" + execution.Rejection;
-        return string.Create(
-            CultureInfo.InvariantCulture,
-            $"types={answer.Types.Length};"
-                + $"bodies={answer.Coverage.BodiesConsidered};"
-                + $"operands={answer.Coverage.OperandsConsidered};"
-                + $"occurrences={answer.Occurrences.Length};"
-                + $"disposition={answer.Disposition};"
-                + $"hash={AnswerHash(execution)}");
+        return answer switch
+        {
+            BodyUseScorecardAnswer.Exists exists =>
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"exists={exists.Value};"
+                        + $"disposition="
+                        + $"{exists.Evidence.Disposition};"
+                        + $"hash={AnswerHash(execution)}"),
+            BodyUseScorecardAnswer.Count count =>
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"count={count.Value};"
+                        + $"disposition="
+                        + $"{count.Evidence.Disposition};"
+                        + $"hash={AnswerHash(execution)}"),
+            BodyUseScorecardAnswer.Rows rows =>
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"types={rows.Types.Length};"
+                        + $"bodies={rows.Coverage.BodiesConsidered};"
+                        + $"operands={rows.Coverage.OperandsConsidered};"
+                        + $"occurrences={rows.Occurrences.Length};"
+                        + $"disposition={rows.Disposition};"
+                        + $"hash={AnswerHash(execution)}"),
+            _ => throw new InvalidOperationException(
+                "The scorecard returned an unknown answer."),
+        };
     }
 
     static BodyUseScorecardExecution ExecuteOracle(
         BodyUseScorecardColumn column,
+        AnalysisLibraryBodyUseClosing closing,
         BodyUseScorecardAsset asset,
         AnalysisLibraryBodyUseLimits limits,
         CancellationToken cancellationToken,
         Func<
             OracleContext,
+            ProducerTerminal,
             AnalysisLibraryBodyUseProducer.Result> execute)
     {
         try
@@ -403,6 +519,7 @@ public static class BodyUseScorecard
             {
                 return new(
                     column,
+                    closing,
                     null,
                     new(
                         AnalysisLibraryBodyUseRejectionKind.Limit,
@@ -414,6 +531,7 @@ public static class BodyUseScorecard
             {
                 return new(
                     column,
+                    closing,
                     null,
                     new(
                         AnalysisLibraryBodyUseRejectionKind.UnsupportedImage,
@@ -425,6 +543,7 @@ public static class BodyUseScorecard
             {
                 return new(
                     column,
+                    closing,
                     null,
                     new(
                         AnalysisLibraryBodyUseRejectionKind
@@ -437,6 +556,7 @@ public static class BodyUseScorecard
             {
                 return new(
                     column,
+                    closing,
                     null,
                     new(
                         AnalysisLibraryBodyUseRejectionKind
@@ -458,17 +578,23 @@ public static class BodyUseScorecard
                 new LibraryMethodAnalysisRunner(builder),
                 limits,
                 cancellationToken);
-            AnalysisLibraryBodyUseProjection projection =
-                AnalysisLibraryBodyUseService.Project(
+            AnalysisLibraryBodyUseProducer.Result result =
+                execute(
+                    context,
+                    Terminal(closing));
+            BodyUseScorecardAnswer answer =
+                Normalize(
+                    closing,
                     reader,
                     inventory,
-                    execute(context));
-            return new(column, Normalize(projection), null);
+                    result);
+            return new(column, closing, answer, null);
         }
         catch (ProducerAbortException abort)
         {
             return new(
                 column,
+                closing,
                 null,
                 new(
                     AnalysisLibraryBodyUseRejectionKind.Limit,
@@ -480,6 +606,7 @@ public static class BodyUseScorecard
         {
             return new(
                 column,
+                closing,
                 null,
                 new(
                     AnalysisLibraryBodyUseRejectionKind.MalformedImage,
@@ -488,26 +615,29 @@ public static class BodyUseScorecard
     }
 
     static BodyUseScorecardExecution ExecutePlanner(
+        AnalysisLibraryBodyUseClosing closing,
         BodyUseScorecardAsset asset,
         AnalysisLibraryBodyUseLimits limits,
         CancellationToken cancellationToken)
     {
-        AnalysisLibraryBodyUseOutcome outcome =
-            AnalysisLibraryBodyUseService.ExecuteImage(
+        AnalysisLibraryBodyUseQueryOutcome outcome =
+            AnalysisLibraryBodyUseService.QueryImage(
                 asset.SourceName,
                 asset.Image,
-                new(limits),
+                new(closing, limits),
                 cancellationToken);
         return outcome switch
         {
-            AnalysisLibraryBodyUseOutcome.Available available =>
+            AnalysisLibraryBodyUseQueryOutcome.Available available =>
                 new(
                     BodyUseScorecardColumn.Planner,
-                    Normalize(available.Result),
+                    closing,
+                    Normalize(available.Answer),
                     null),
-            AnalysisLibraryBodyUseOutcome.Rejected rejected =>
+            AnalysisLibraryBodyUseQueryOutcome.Rejected rejected =>
                 new(
                     BodyUseScorecardColumn.Planner,
+                    closing,
                     null,
                     new(rejected.Kind, rejected.Detail)),
             _ => throw new InvalidOperationException(
@@ -516,8 +646,64 @@ public static class BodyUseScorecard
     }
 
     static BodyUseScorecardAnswer Normalize(
+        AnalysisLibraryBodyUseAnswer answer) =>
+        answer switch
+        {
+            AnalysisLibraryBodyUseAnswer.Exists exists =>
+                new BodyUseScorecardAnswer.Exists(
+                    exists.Value,
+                    Normalize(exists.Evidence)),
+            AnalysisLibraryBodyUseAnswer.Count count =>
+                new BodyUseScorecardAnswer.Count(
+                    count.Value,
+                    Normalize(count.Evidence)),
+            AnalysisLibraryBodyUseAnswer.Rows rows =>
+                Normalize(rows.Result),
+            _ => throw new InvalidOperationException(
+                "The body-use query returned an unknown answer."),
+        };
+
+    static BodyUseScorecardAnswer Normalize(
+        AnalysisLibraryBodyUseClosing closing,
+        MetadataReader reader,
+        AssemblyTypeDeclarationInventory inventory,
+        AnalysisLibraryBodyUseProducer.Result result)
+    {
+        if (closing == AnalysisLibraryBodyUseClosing.Rows)
+        {
+            AnalysisLibraryBodyUseProjection projection =
+                AnalysisLibraryBodyUseService.Project(
+                    reader,
+                    inventory,
+                    result);
+            return new BodyUseScorecardAnswer.Rows(
+                projection.Disposition,
+                projection.Types,
+                projection.Occurrences,
+                projection.PhysicalEvidence,
+                projection.Coverage,
+                projection.Diagnostics);
+        }
+
+        var evidence = new BodyUseScorecardTerminalEvidence(
+            AnalysisLibraryBodyUseService.TerminalDisposition(
+                result,
+                closing == AnalysisLibraryBodyUseClosing.Exists
+                    && result.OccurrenceCount != 0),
+            result.Coverage,
+            result.Diagnostics);
+        return closing == AnalysisLibraryBodyUseClosing.Count
+            ? new BodyUseScorecardAnswer.Count(
+                result.OccurrenceCount,
+                evidence)
+            : new BodyUseScorecardAnswer.Exists(
+                result.OccurrenceCount != 0,
+                evidence);
+    }
+
+    static BodyUseScorecardAnswer Normalize(
         AnalysisLibraryBodyUseResult result) =>
-        new(
+        new BodyUseScorecardAnswer.Rows(
             result.Disposition,
             result.Types,
             result.Occurrences,
@@ -525,15 +711,12 @@ public static class BodyUseScorecard
             result.Coverage,
             result.Diagnostics);
 
-    static BodyUseScorecardAnswer Normalize(
-        AnalysisLibraryBodyUseProjection projection) =>
+    static BodyUseScorecardTerminalEvidence Normalize(
+        AnalysisLibraryBodyUseTerminalEvidence evidence) =>
         new(
-            projection.Disposition,
-            projection.Types,
-            projection.Occurrences,
-            projection.PhysicalEvidence,
-            projection.Coverage,
-            projection.Diagnostics);
+            evidence.Disposition,
+            evidence.Coverage,
+            evidence.Diagnostics);
 
     static bool Same(
         BodyUseScorecardExecution left,
@@ -547,19 +730,42 @@ public static class BodyUseScorecard
                     left.Rejection,
                     right.Rejection);
         }
-        BodyUseScorecardAnswer first = left.Answer;
-        BodyUseScorecardAnswer second = right.Answer;
-        return first.Disposition == second.Disposition
-            && first.Types.AsSpan().SequenceEqual(
-                second.Types.AsSpan())
-            && first.Occurrences.AsSpan().SequenceEqual(
-                second.Occurrences.AsSpan())
-            && first.PhysicalEvidence.AsSpan().SequenceEqual(
-                second.PhysicalEvidence.AsSpan())
-            && first.Coverage == second.Coverage
-            && first.Diagnostics.AsSpan().SequenceEqual(
-                second.Diagnostics.AsSpan());
+        return (left.Answer, right.Answer) switch
+        {
+            (
+                BodyUseScorecardAnswer.Exists first,
+                BodyUseScorecardAnswer.Exists second) =>
+                first.Value == second.Value
+                && Same(first.Evidence, second.Evidence),
+            (
+                BodyUseScorecardAnswer.Count first,
+                BodyUseScorecardAnswer.Count second) =>
+                first.Value == second.Value
+                && Same(first.Evidence, second.Evidence),
+            (
+                BodyUseScorecardAnswer.Rows first,
+                BodyUseScorecardAnswer.Rows second) =>
+                first.Disposition == second.Disposition
+                && first.Types.AsSpan().SequenceEqual(
+                    second.Types.AsSpan())
+                && first.Occurrences.AsSpan().SequenceEqual(
+                    second.Occurrences.AsSpan())
+                && first.PhysicalEvidence.AsSpan().SequenceEqual(
+                    second.PhysicalEvidence.AsSpan())
+                && first.Coverage == second.Coverage
+                && first.Diagnostics.AsSpan().SequenceEqual(
+                    second.Diagnostics.AsSpan()),
+            _ => false,
+        };
     }
+
+    static bool Same(
+        BodyUseScorecardTerminalEvidence first,
+        BodyUseScorecardTerminalEvidence second) =>
+        first.Disposition == second.Disposition
+        && first.Coverage == second.Coverage
+        && first.Diagnostics.AsSpan().SequenceEqual(
+            second.Diagnostics.AsSpan());
 
     static string AnswerHash(BodyUseScorecardExecution execution)
     {
@@ -567,54 +773,89 @@ public static class BodyUseScorecard
             return "rejected:" + execution.Rejection;
 
         ulong hash = 14695981039346656037;
-        Add((int)answer.Disposition);
-        Add(answer.Coverage.BodiesConsidered);
-        Add(answer.Coverage.BodiesExamined);
-        Add(answer.Coverage.BodiesPhysicalOnly);
-        Add(answer.Coverage.BodiesUnavailable);
-        Add(answer.Coverage.BodiesLimited);
-        Add(answer.Coverage.OperandsConsidered);
-        Add(answer.Coverage.OperandsExamined);
-        Add(answer.Coverage.OperandsUnavailable);
-        Add(answer.Coverage.OperandsLimited);
-        foreach (AnalysisLibraryBodyUseType type in answer.Types)
+        Add((int)execution.Closing);
+        switch (answer)
         {
-            AddAddress(type.Type);
-            AddName(type.Name);
-            Add((int)type.DefinitionKind);
-        }
-        foreach (AnalysisLibraryBodyUseOccurrence occurrence
-            in answer.Occurrences)
-        {
-            AddAddress(occurrence.Source);
-            AddName(occurrence.SourceType);
-            AddAddress(occurrence.Target);
-            AddName(occurrence.TargetType);
-            Add(occurrence.PhysicalMethodToken);
-            Add((int)occurrence.OperandKind);
-            Add(occurrence.OperandToken);
-            Add(occurrence.IlOffset);
-            Add(occurrence.OccurrenceOrdinal);
-        }
-        foreach (AnalysisLibraryBodyUsePhysicalEvidence physical
-            in answer.PhysicalEvidence)
-        {
-            AddAddress(physical.PhysicalSource);
-            AddName(physical.PhysicalSourceType);
-            Add(physical.PhysicalMethodToken);
-            Add((int)physical.Fidelity);
-        }
-        foreach (AnalysisLibraryBodyUseDiagnostic diagnostic
-            in answer.Diagnostics)
-        {
-            Add((int)diagnostic.Kind);
-            Add(diagnostic.MethodToken ?? -1);
-            Add(diagnostic.IlOffset ?? -1);
-            AddText(diagnostic.Detail);
-            Add(diagnostic.Limit ?? -1);
-            Add(diagnostic.AttemptedCharge ?? -1);
+            case BodyUseScorecardAnswer.Exists exists:
+                Add(exists.Value ? 1 : 0);
+                AddEvidence(exists.Evidence);
+                break;
+            case BodyUseScorecardAnswer.Count count:
+                Add(count.Value);
+                AddEvidence(count.Evidence);
+                break;
+            case BodyUseScorecardAnswer.Rows rows:
+                Add((int)rows.Disposition);
+                AddCoverage(rows.Coverage);
+                foreach (AnalysisLibraryBodyUseType type in rows.Types)
+                {
+                    AddAddress(type.Type);
+                    AddName(type.Name);
+                    Add((int)type.DefinitionKind);
+                }
+                foreach (AnalysisLibraryBodyUseOccurrence occurrence
+                    in rows.Occurrences)
+                {
+                    AddAddress(occurrence.Source);
+                    AddName(occurrence.SourceType);
+                    AddAddress(occurrence.Target);
+                    AddName(occurrence.TargetType);
+                    Add(occurrence.PhysicalMethodToken);
+                    Add((int)occurrence.OperandKind);
+                    Add(occurrence.OperandToken);
+                    Add(occurrence.IlOffset);
+                    Add(occurrence.OccurrenceOrdinal);
+                }
+                foreach (AnalysisLibraryBodyUsePhysicalEvidence physical
+                    in rows.PhysicalEvidence)
+                {
+                    AddAddress(physical.PhysicalSource);
+                    AddName(physical.PhysicalSourceType);
+                    Add(physical.PhysicalMethodToken);
+                    Add((int)physical.Fidelity);
+                }
+                AddDiagnostics(rows.Diagnostics);
+                break;
+            default:
+                throw new InvalidOperationException(
+                    "The scorecard returned an unknown answer.");
         }
         return hash.ToString("x16", CultureInfo.InvariantCulture);
+
+        void AddEvidence(BodyUseScorecardTerminalEvidence evidence)
+        {
+            Add((int)evidence.Disposition);
+            AddCoverage(evidence.Coverage);
+            AddDiagnostics(evidence.Diagnostics);
+        }
+
+        void AddCoverage(AnalysisLibraryBodyUseCoverage coverage)
+        {
+            Add(coverage.BodiesConsidered);
+            Add(coverage.BodiesExamined);
+            Add(coverage.BodiesPhysicalOnly);
+            Add(coverage.BodiesUnavailable);
+            Add(coverage.BodiesLimited);
+            Add(coverage.OperandsConsidered);
+            Add(coverage.OperandsExamined);
+            Add(coverage.OperandsUnavailable);
+            Add(coverage.OperandsLimited);
+        }
+
+        void AddDiagnostics(
+            ImmutableArray<AnalysisLibraryBodyUseDiagnostic> diagnostics)
+        {
+            foreach (AnalysisLibraryBodyUseDiagnostic diagnostic
+                in diagnostics)
+            {
+                Add((int)diagnostic.Kind);
+                Add(diagnostic.MethodToken ?? -1);
+                Add(diagnostic.IlOffset ?? -1);
+                AddText(diagnostic.Detail);
+                Add(diagnostic.Limit ?? -1);
+                Add(diagnostic.AttemptedCharge ?? -1);
+            }
+        }
 
         void AddAddress(MetadataTypeDefinitionAddress address)
         {
@@ -651,6 +892,7 @@ public static class BodyUseScorecard
 
     static Measurement MeasureCell(
         BodyUseScorecardColumn column,
+        AnalysisLibraryBodyUseClosing closing,
         BodyUseScorecardAsset asset,
         ScorecardTiming timing,
         AnalysisLibraryBodyUseLimits? limits,
@@ -662,6 +904,7 @@ public static class BodyUseScorecard
                 RequireAvailable(
                     Execute(
                         column,
+                        closing,
                         asset,
                         limits,
                         cancellationToken)));
@@ -683,6 +926,7 @@ public static class BodyUseScorecard
             BodyUseScorecardAnswer answer = RequireAvailable(
                 Execute(
                     column,
+                    closing,
                     asset,
                     limits,
                     cancellationToken));
@@ -703,25 +947,47 @@ public static class BodyUseScorecard
             $"{Name(execution.Column)} rejected the scorecard asset: "
                 + execution.Rejection);
 
-    static void Keep(BodyUseScorecardAnswer answer) =>
-        Volatile.Write(
-            ref s_sink,
-            s_sink
-                + answer.Types.Length
-                + answer.Coverage.BodiesConsidered
-                + answer.Coverage.OperandsConsidered
-                + answer.Occurrences.Length);
+    static void Keep(BodyUseScorecardAnswer answer)
+    {
+        long value = answer switch
+        {
+            BodyUseScorecardAnswer.Exists exists =>
+                (exists.Value ? 1 : 0)
+                + exists.Evidence.Coverage.BodiesConsidered
+                + exists.Evidence.Coverage.OperandsConsidered,
+            BodyUseScorecardAnswer.Count count =>
+                count.Value
+                + count.Evidence.Coverage.BodiesConsidered
+                + count.Evidence.Coverage.OperandsConsidered,
+            BodyUseScorecardAnswer.Rows rows =>
+                rows.Types.Length
+                + rows.Coverage.BodiesConsidered
+                + rows.Coverage.OperandsConsidered
+                + rows.Occurrences.Length,
+            _ => throw new InvalidOperationException(
+                "The scorecard returned an unknown answer."),
+        };
+        Volatile.Write(ref s_sink, s_sink + value);
+    }
 
     static void AppendRatioRow(
         StringBuilder text,
         IReadOnlyList<BodyUseScorecardCell> cells,
+        AnalysisLibraryBodyUseClosing closing,
         string metric,
         Func<BodyUseScorecardCell, double> value)
     {
-        int assets = cells.Select(static cell => cell.AssetIndex)
+        BodyUseScorecardCell[] terminalCells =
+        [
+            .. cells.Where(cell => cell.Closing == closing),
+        ];
+        int assets = terminalCells
+            .Select(static cell => cell.AssetIndex)
             .Distinct()
             .Count();
         text.Append("| ")
+            .Append(closing)
+            .Append(" | ")
             .Append(metric)
             .Append(" | ")
             .Append(assets.ToString(CultureInfo.InvariantCulture))
@@ -735,12 +1001,12 @@ public static class BodyUseScorecard
             }
             double[] ratios =
             [
-                .. cells
+                .. terminalCells
                     .Where(cell => cell.Column == column)
                     .Select(cell =>
                     {
                         BodyUseScorecardCell oracle =
-                            cells.Single(candidate =>
+                            terminalCells.Single(candidate =>
                                 candidate.AssetIndex
                                     == cell.AssetIndex
                                 && candidate.Column
@@ -767,6 +1033,19 @@ public static class BodyUseScorecard
         }
         text.AppendLine();
     }
+
+    static ProducerTerminal Terminal(
+        AnalysisLibraryBodyUseClosing closing) =>
+        closing switch
+        {
+            AnalysisLibraryBodyUseClosing.Exists =>
+                ProducerTerminal.Exists,
+            AnalysisLibraryBodyUseClosing.Count =>
+                ProducerTerminal.Complete,
+            AnalysisLibraryBodyUseClosing.Rows =>
+                ProducerTerminal.Rows,
+            _ => throw new ArgumentOutOfRangeException(nameof(closing)),
+        };
 
     static double Median(List<double> values)
     {
@@ -809,7 +1088,8 @@ public static class BodyUseScorecard
         readonly CancellationToken _cancellationToken =
             cancellationToken;
 
-        internal AnalysisLibraryBodyUseProducer.Result Direct()
+        internal AnalysisLibraryBodyUseProducer.Result Direct(
+            ProducerTerminal terminal)
         {
             var answer =
                 new AnalysisLibraryBodyUseProducer.Accumulator(
@@ -833,49 +1113,100 @@ public static class BodyUseScorecard
                         _reader.GetMethodDefinition(methodHandle);
                     if (!IsManaged(method))
                         continue;
-                    answer.Add(new(
-                        Analyze(
-                            new(
-                                _reader,
-                                typeHandle,
-                                type,
-                                methodHandle,
-                                method))));
+                    var visit =
+                        new AnalysisLibraryBodyUseProducer.VisitFact(
+                            Analyze(
+                                new(
+                                    _reader,
+                                    typeHandle,
+                                    type,
+                                    methodHandle,
+                                    method)),
+                            terminal);
+                    answer.Add(visit);
+                    if (terminal == ProducerTerminal.Exists
+                        && AnalysisLibraryBodyUseProducer.IsSettling(
+                            visit,
+                            _limits.MaximumOccurrences))
+                    {
+                        return answer.Complete(retainRows: false);
+                    }
                 }
             }
-            return answer.Complete();
+            return answer.Complete(
+                terminal == ProducerTerminal.Rows);
         }
 
-        internal AnalysisLibraryBodyUseProducer.Result Linq()
+        internal AnalysisLibraryBodyUseProducer.Result Linq(
+            ProducerTerminal terminal)
         {
-            AnalysisLibraryBodyUseProducer.Accumulator answer =
+            IEnumerable<MethodDefinitionRow> rows =
                 _reader.TypeDefinitions
-                .Select(ReadType)
-                .Where(item =>
-                    AnalysisLibraryBodyUseProducer.IsTypeInPopulation(
-                        _reader,
-                        item.Type))
-                .SelectMany(item =>
-                    item.Type.GetMethods().Select(methodHandle =>
-                        ReadMethod(
-                            item.Handle,
-                            item.Type,
-                            methodHandle)))
-                .Where(IsManagedRow)
-                .Select(Analyze)
+                    .Select(ReadType)
+                    .Where(item =>
+                        AnalysisLibraryBodyUseProducer
+                            .IsTypeInPopulation(
+                                _reader,
+                                item.Type))
+                    .SelectMany(item =>
+                        item.Type.GetMethods().Select(methodHandle =>
+                            ReadMethod(
+                                item.Handle,
+                                item.Type,
+                                methodHandle)))
+                    .Where(IsManagedRow);
+            var answer =
+                new AnalysisLibraryBodyUseProducer.Accumulator(
+                    _limits.MaximumOccurrences);
+            if (terminal == ProducerTerminal.Exists)
+            {
+                _ = rows.Any(row =>
+                {
+                    var visit =
+                        new AnalysisLibraryBodyUseProducer.VisitFact(
+                            Analyze(row),
+                            terminal);
+                    answer.Add(visit);
+                    return AnalysisLibraryBodyUseProducer
+                        .IsSettling(
+                            visit,
+                            _limits.MaximumOccurrences);
+                });
+                return answer.Complete(retainRows: false);
+            }
+
+            answer = rows
+                .Select(row =>
+                    new AnalysisLibraryBodyUseProducer.VisitFact(
+                        Analyze(row),
+                        terminal))
                 .Aggregate(
-                    new AnalysisLibraryBodyUseProducer.Accumulator(
-                        _limits.MaximumOccurrences),
-                    static (current, fact) =>
+                    answer,
+                    static (current, visit) =>
                     {
-                        current.Add(new(fact));
+                        current.Add(visit);
                         return current;
                     });
-            return answer.Complete();
+            return answer.Complete(
+                terminal == ProducerTerminal.Rows);
         }
 
-        internal AnalysisLibraryBodyUseProducer.Result NLinq()
+        internal AnalysisLibraryBodyUseProducer.Result NLinq(
+            ProducerTerminal terminal)
         {
+            if (terminal == ProducerTerminal.Exists)
+            {
+                var existsAnswer =
+                    new AnalysisLibraryBodyUseProducer.Accumulator(
+                        _limits.MaximumOccurrences);
+                _ = new MethodDefinitionRows(_reader)
+                    .Any<
+                        MethodDefinitionRows,
+                        MethodDefinitionRow,
+                        HasOccurrence>(new(this, existsAnswer));
+                return existsAnswer.Complete(retainRows: false);
+            }
+
             var selected =
                 new MethodDefinitionRows(_reader)
                     .Where<
@@ -889,25 +1220,26 @@ public static class BodyUseScorecard
                         MethodDefinitionRows,
                         SelectManaged>,
                     MethodDefinitionRow,
-                    BodyTypeUseMethodFact,
-                    AnalyzeMethod>(new(this));
+                    AnalysisLibraryBodyUseProducer.VisitFact,
+                    AnalyzeMethod>(new(this, terminal));
             AnalysisLibraryBodyUseProducer.Accumulator answer =
                 projected.Fold<
                     Map<
                         MethodDefinitionRow,
-                        BodyTypeUseMethodFact,
+                        AnalysisLibraryBodyUseProducer.VisitFact,
                         Filter<
                             MethodDefinitionRow,
                             MethodDefinitionRows,
                             SelectManaged>,
                         AnalyzeMethod>,
-                    BodyTypeUseMethodFact,
+                    AnalysisLibraryBodyUseProducer.VisitFact,
                     AnalysisLibraryBodyUseProducer.Accumulator,
                     AddFact>(
                         new AnalysisLibraryBodyUseProducer.Accumulator(
                             _limits.MaximumOccurrences),
                         default);
-            return answer.Complete();
+            return answer.Complete(
+                terminal == ProducerTerminal.Rows);
         }
 
         BodyTypeUseMethodFact Analyze(MethodDefinitionRow row)
@@ -985,26 +1317,53 @@ public static class BodyUseScorecard
             }
         }
 
-        readonly struct AnalyzeMethod(OracleContext context)
-            : IFunc<MethodDefinitionRow, BodyTypeUseMethodFact>
+        readonly struct AnalyzeMethod(
+            OracleContext context,
+            ProducerTerminal terminal)
+            : IFunc<
+                MethodDefinitionRow,
+                AnalysisLibraryBodyUseProducer.VisitFact>
         {
-            public BodyTypeUseMethodFact Invoke(
+            public AnalysisLibraryBodyUseProducer.VisitFact Invoke(
                 MethodDefinitionRow row) =>
-                context.Analyze(row);
+                new(context.Analyze(row), terminal);
         }
 
         readonly struct AddFact
             : IFunc<
                 AnalysisLibraryBodyUseProducer.Accumulator,
-                BodyTypeUseMethodFact,
+                AnalysisLibraryBodyUseProducer.VisitFact,
                 AnalysisLibraryBodyUseProducer.Accumulator>
         {
             public AnalysisLibraryBodyUseProducer.Accumulator Invoke(
                 AnalysisLibraryBodyUseProducer.Accumulator answer,
-                BodyTypeUseMethodFact fact)
+                AnalysisLibraryBodyUseProducer.VisitFact visit)
             {
-                answer.Add(new(fact));
+                answer.Add(visit);
                 return answer;
+            }
+        }
+
+        readonly struct HasOccurrence(
+            OracleContext context,
+            AnalysisLibraryBodyUseProducer.Accumulator answer)
+            : IFunc<MethodDefinitionRow, bool>
+        {
+            public bool Invoke(MethodDefinitionRow row)
+            {
+                var selected = new SelectManaged(
+                    context._cancellationToken);
+                if (!selected.Invoke(row))
+                    return false;
+                var visit =
+                    new AnalysisLibraryBodyUseProducer.VisitFact(
+                        context.Analyze(row),
+                        ProducerTerminal.Exists);
+                answer.Add(visit);
+                return AnalysisLibraryBodyUseProducer
+                    .IsSettling(
+                        visit,
+                        context._limits.MaximumOccurrences);
             }
         }
     }

@@ -94,6 +94,139 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void QueryPath_ClosesLogicalOccurrenceRows()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        AnalysisLibraryBodyUseAnswer.Rows rows = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Rows>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.QueryPath(
+                        FixturePath,
+                        new(AnalysisLibraryBodyUseClosing.Rows),
+                        cancellationToken)).Answer);
+        AnalysisLibraryBodyUseAnswer.Count count = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Count>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.QueryPath(
+                        FixturePath,
+                        new(AnalysisLibraryBodyUseClosing.Count),
+                        cancellationToken)).Answer);
+        AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Exists>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.QueryPath(
+                        FixturePath,
+                        new(AnalysisLibraryBodyUseClosing.Exists),
+                        cancellationToken)).Answer);
+
+        Assert.Equal(rows.Result.Occurrences.Length, count.Value);
+        Assert.True(exists.Value);
+        Assert.Equal(
+            AnalysisLibraryBodyUseTerminalDisposition.Qualified,
+            count.Evidence.Disposition);
+        Assert.Equal(
+            AnalysisLibraryBodyUseTerminalDisposition.Settled,
+            exists.Evidence.Disposition);
+        Assert.Equal(
+            ProducerOutcome.Complete,
+            count.Evidence.Receipt.Work.Producers.Single().Outcome);
+        Assert.Equal(
+            ProducerOutcome.Stopped,
+            exists.Evidence.Receipt.Work.Producers.Single().Outcome);
+        Assert.True(
+            exists.Evidence.Receipt.Work.UnitsVisited
+                < count.Evidence.Receipt.Work.UnitsVisited);
+    }
+
+    [Fact]
+    public void QueryImage_EmptyLogicalOccurrencePopulationCompletes()
+    {
+        ImmutableArray<byte> image =
+            BuildIndependentImage([(byte)ILOpCode.Ret]);
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        AnalysisLibraryBodyUseAnswer.Count count = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Count>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.QueryImage(
+                        "Empty.dll",
+                        image,
+                        new(AnalysisLibraryBodyUseClosing.Count),
+                        cancellationToken)).Answer);
+        AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Exists>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.QueryImage(
+                        "Empty.dll",
+                        image,
+                        new(AnalysisLibraryBodyUseClosing.Exists),
+                        cancellationToken)).Answer);
+
+        Assert.Equal(0, count.Value);
+        Assert.False(exists.Value);
+        Assert.Equal(
+            AnalysisLibraryBodyUseTerminalDisposition.Complete,
+            count.Evidence.Disposition);
+        Assert.Equal(
+            AnalysisLibraryBodyUseTerminalDisposition.Complete,
+            exists.Evidence.Disposition);
+        Assert.All(
+            new[] { count.Evidence, exists.Evidence },
+            static evidence => Assert.Equal(
+                ProducerOutcome.Complete,
+                evidence.Receipt.Work.Producers.Single().Outcome));
+    }
+
+    [Fact]
+    public void QueryImage_ExistsDoesNotSettleOnRejectedOccurrenceBatch()
+    {
+        ImmutableArray<byte> image =
+            BuildIndependentImage(
+                [
+                    (byte)ILOpCode.Ldtoken,
+                    0x02, 0x00, 0x00, 0x02,
+                    (byte)ILOpCode.Pop,
+                    (byte)ILOpCode.Ldtoken,
+                    0x02, 0x00, 0x00, 0x02,
+                    (byte)ILOpCode.Pop,
+                    (byte)ILOpCode.Ret,
+                ]);
+        var limits = new AnalysisLibraryBodyUseLimits(
+            MaximumOccurrences: 1);
+        AnalysisLibraryBodyUseAnswer.Count count = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Count>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.QueryImage(
+                        "OccurrenceLimit.dll",
+                        image,
+                        new(AnalysisLibraryBodyUseClosing.Count, limits),
+                        TestContext.Current.CancellationToken)).Answer);
+        AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Exists>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.QueryImage(
+                        "OccurrenceLimit.dll",
+                        image,
+                        new(AnalysisLibraryBodyUseClosing.Exists, limits),
+                        TestContext.Current.CancellationToken)).Answer);
+
+        Assert.Equal(0, count.Value);
+        Assert.False(exists.Value);
+        Assert.Equal(
+            AnalysisLibraryBodyUseTerminalDisposition.Partial,
+            count.Evidence.Disposition);
+        Assert.Equal(
+            AnalysisLibraryBodyUseTerminalDisposition.Partial,
+            exists.Evidence.Disposition);
+        Assert.All(
+            new[] { count.Evidence, exists.Evidence },
+            static evidence => Assert.Equal(
+                ProducerOutcome.Complete,
+                evidence.Receipt.Work.Producers.Single().Outcome));
+    }
+
+    [Fact]
     public void ExecutePath_AttributesAsyncBodyToDeclaredType()
     {
         AnalysisLibraryBodyUseResult result =
@@ -606,15 +739,40 @@ public sealed class AnalysisLibraryBodyUseTests
             BuildIndependentImage(
                 [0x2A],
                 bodylessOnly: true));
-        foreach (BodyUseScorecardColumn column
-            in Enum.GetValues<BodyUseScorecardColumn>())
+        foreach (AnalysisLibraryBodyUseClosing closing
+            in Enum.GetValues<AnalysisLibraryBodyUseClosing>())
         {
-            Assert.Throws<OperationCanceledException>(
-                () => BodyUseScorecard.Execute(
-                    column,
-                    asset,
-                    cancellationToken: cancellation.Token));
+            foreach (BodyUseScorecardColumn column
+                in Enum.GetValues<BodyUseScorecardColumn>())
+            {
+                Assert.Throws<OperationCanceledException>(
+                    () => BodyUseScorecard.Execute(
+                        column,
+                        closing,
+                        asset,
+                        cancellationToken: cancellation.Token));
+            }
         }
+    }
+
+    [Fact]
+    public void Scorecard_ChecksEveryProductionClosing()
+    {
+        BodyUseScorecardCheck check = BodyUseScorecard.Check(
+            [
+                new(
+                    "empty",
+                    "Empty.dll",
+                    BuildIndependentImage([(byte)ILOpCode.Ret])),
+            ],
+            cancellationToken:
+                TestContext.Current.CancellationToken);
+
+        Assert.True(check.Agrees);
+        Assert.Equal(9, check.Compared);
+        Assert.Equal(
+            Enum.GetValues<AnalysisLibraryBodyUseClosing>(),
+            check.AnswerHashes.Select(static answer => answer.Closing));
     }
 
     [Fact]
@@ -1406,15 +1564,17 @@ public sealed class AnalysisLibraryBodyUseTests
             new(
                 Body(
                     methodToken: 0x06000001,
-                    ilOffset: 0)));
+                    ilOffset: 0),
+                ProducerTerminal.Rows));
         accumulator.Add(
             new(
                 Body(
                     methodToken: 0x06000002,
-                    ilOffset: 1)));
+                    ilOffset: 1),
+                ProducerTerminal.Rows));
 
         AnalysisLibraryBodyUseProducer.Result result =
-            accumulator.Complete();
+            accumulator.Complete(retainRows: true);
 
         Assert.Single(result.Occurrences);
         Assert.Equal(2, result.Bodies.Length);
@@ -1466,6 +1626,16 @@ public sealed class AnalysisLibraryBodyUseTests
                     ? $"{rejected.Kind}: {rejected.Detail}"
                     : $"Unexpected outcome {outcome.GetType().Name}.");
 
+    static AnalysisLibraryBodyUseQueryOutcome.Available QueryAvailable(
+        AnalysisLibraryBodyUseQueryOutcome outcome) =>
+        outcome is AnalysisLibraryBodyUseQueryOutcome.Available available
+            ? available
+            : throw new Xunit.Sdk.XunitException(
+                outcome
+                    is AnalysisLibraryBodyUseQueryOutcome.Rejected rejected
+                    ? $"{rejected.Kind}: {rejected.Detail}"
+                    : $"Unexpected outcome {outcome.GetType().Name}.");
+
     static void AssertScorecardRejection(
         BodyUseScorecardAsset asset,
         AnalysisLibraryBodyUseLimits limits,
@@ -1490,16 +1660,21 @@ public sealed class AnalysisLibraryBodyUseTests
             TestContext.Current.CancellationToken);
         Assert.NotNull(planner.Rejection);
         Assert.Equal(expectedKind, planner.Rejection.Kind);
-        foreach (BodyUseScorecardColumn column
-            in Enum.GetValues<BodyUseScorecardColumn>())
+        foreach (AnalysisLibraryBodyUseClosing closing
+            in Enum.GetValues<AnalysisLibraryBodyUseClosing>())
         {
-            BodyUseScorecardExecution execution =
-                BodyUseScorecard.Execute(
-                    column,
-                    asset,
-                    limits,
-                    TestContext.Current.CancellationToken);
-            Assert.Equal(planner.Rejection, execution.Rejection);
+            foreach (BodyUseScorecardColumn column
+                in Enum.GetValues<BodyUseScorecardColumn>())
+            {
+                BodyUseScorecardExecution execution =
+                    BodyUseScorecard.Execute(
+                        column,
+                        closing,
+                        asset,
+                        limits,
+                        TestContext.Current.CancellationToken);
+                Assert.Equal(planner.Rejection, execution.Rejection);
+            }
         }
     }
 
