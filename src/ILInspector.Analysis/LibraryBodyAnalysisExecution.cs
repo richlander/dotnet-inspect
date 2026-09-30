@@ -338,6 +338,7 @@ public sealed class LibraryBodyAnalysisExecution
                 analysis.Methods.Methods,
                 [],
                 siblingRelationships: null,
+                attributionClosure: null,
                 metricDiagnostics);
         }
 
@@ -394,6 +395,7 @@ public sealed class LibraryBodyAnalysisExecution
             analysis.Methods.Methods,
             bodies,
             siblingRelationships,
+            analysis.ImplementationMetricAttributionClosure,
             metricDiagnostics);
     }
 

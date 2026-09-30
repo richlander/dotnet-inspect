@@ -563,7 +563,9 @@ the predicate over the required candidate population.
 One failed evidence kind does not erase independently completed kinds. Aggregate
 completion reports whether the terminal result is authoritative for its exact
 request. A top result is incomplete when missing candidate evidence could
-change membership or order.
+change membership or order. Analysis-issued attribution-closure state marks
+only the affected logical rows incomplete; a generated-body decode failure
+cannot leave a retained declared stub authoritative.
 
 Diagnostics remain ordered and attributable to subject resolution, population
 validation, Analysis, row planning, selection, projection, or transport. Hosts
@@ -800,11 +802,11 @@ QuerySpace, and Analysis planning rather than constructing a repaired metrics
 aggregate.
 
 The compact v1 gates verify no-evidence rejection, exact-row preservation,
-body-size minimal work, relationship prerequisite separation, bodyless and
-bounded-incomplete states, default largest-body ranking, Rows/Count agreement,
-stale binding rejection, and the explicit separate-image boundary. The
-remaining broader-vocabulary, host-adoption, and performance properties above
-remain **unverified**.
+body-size minimal work, relationship prerequisite separation, bodyless,
+bounded-incomplete, and failed generated-body attribution states, default
+largest-body ranking, Rows/Count agreement, stale binding rejection, and the
+explicit separate-image boundary. The remaining broader-vocabulary,
+host-adoption, and performance properties above remain **unverified**.
 
 ## Non-claims
 

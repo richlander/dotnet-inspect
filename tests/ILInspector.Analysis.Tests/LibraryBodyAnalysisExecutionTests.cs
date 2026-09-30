@@ -2749,6 +2749,71 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void
+        GeneratedBodyDecodeFailure_PublishesIncompleteAttributionSource()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ImplementationHeatLambdaSample)
+                .Assembly.Location);
+        int ownerToken = typeof(ImplementationHeatLambdaSample)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Single(method =>
+                method.Name
+                    == nameof(ImplementationHeatLambdaSample.Scale)
+                && method.GetParameters()[0].ParameterType
+                    == typeof(int))
+            .MetadataToken;
+        LibraryBodyAnalysisRequest request =
+            LibraryBodyAnalysisRequest
+                .CreateImplementationMetrics(
+                    ImplementationMetricKind.BodySize,
+                    RelationshipMetricLimits(),
+                    new HashSet<int> { ownerToken });
+        LibraryBodyAnalysisExecution baseline =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "GeneratedBodyDecodeFailure.dll",
+                ImmutableArray.Create(image),
+                request);
+        MethodImplementationMetricEvidence generated =
+            Assert.Single(
+                baseline.ImplementationMetrics.Bodies,
+                body =>
+                    body.Method.MetadataToken == ownerToken
+                    && body.EvidenceMethod.MetadataToken
+                        != ownerToken);
+
+        CorruptMethodBodyHeader(
+            image,
+            generated.EvidenceMethod.MetadataToken);
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "GeneratedBodyDecodeFailure.dll",
+                ImmutableArray.Create(image),
+                request);
+
+        ImplementationMetricAttributionClosure closure =
+            Assert.IsType<ImplementationMetricAttributionClosure>(
+                execution.ImplementationMetrics
+                    .AttributionClosure);
+        Assert.False(closure.IsComplete);
+        Assert.Contains(
+            closure.IncompleteSourceMethods,
+            source => source.MetadataToken == ownerToken);
+        Assert.Contains(
+            execution.ImplementationMetrics.Bodies,
+            body =>
+                body.Method.MetadataToken == ownerToken
+                && body.EvidenceMethod.MetadataToken
+                    == ownerToken
+                && body.ILBytes is not null);
+        Assert.Contains(
+            execution.ImplementationMetrics.Diagnostics,
+            diagnostic =>
+                diagnostic.MethodToken
+                    == generated.EvidenceMethod.MetadataToken);
+    }
+
+    [Fact]
     public void ExecuteImage_ProfileCoverageRetainsTokenOnlyIdentityFailures()
     {
         byte[] image = File.ReadAllBytes(
@@ -2930,6 +2995,26 @@ public sealed class LibraryBodyAnalysisExecutionTests
             image.AsSpan(methodOffset + 4, 4),
             0x7F000000);
         return MetadataTokens.GetToken(methodHandle);
+    }
+
+    static void CorruptMethodBodyHeader(
+        byte[] image,
+        int methodToken)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        EntityHandle handle =
+            MetadataTokens.EntityHandle(methodToken);
+        Assert.Equal(HandleKind.MethodDefinition, handle.Kind);
+        MethodDefinition method =
+            reader.GetMethodDefinition(
+                (MethodDefinitionHandle)handle);
+        int methodOffset = RvaToFileOffset(
+            peReader.PEHeaders,
+            method.RelativeVirtualAddress);
+
+        image[methodOffset] = 0;
     }
 
     static int ReplaceMethodSignatureWithInvalidValue(

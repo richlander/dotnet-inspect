@@ -26,6 +26,10 @@ internal sealed record LibraryBodyAnalysisResult(
     internal ImplementationMetricStageParticipationSnapshot?
         ImplementationMetricParticipation
     { get; init; }
+
+    internal ImplementationMetricAttributionClosure
+        ImplementationMetricAttributionClosure
+    { get; init; } = new([]);
 }
 
 internal sealed record MethodBodyAnalysisResult(

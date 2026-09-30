@@ -84,6 +84,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         LiftedOwnerGroupKey,
         Lazy<LiftedOwnerGroupEvidence>>
         _scopeExpansionLiftedOwnerGroups = new();
+    readonly ConcurrentDictionary<int, MethodIdentity>
+        _incompleteAttributionSources = new();
     readonly Lazy<IReadOnlyDictionary<
         LiftedOwnerGroupKey,
         ImmutableArray<MethodDefinitionHandle>>>
@@ -277,6 +279,53 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 (MethodDefinitionHandle)handle,
                 out _);
     }
+
+    internal void RecordIncompleteAttributionSources(
+        MethodDefinition liftedMethod,
+        IReadOnlySet<int>? ownerMethodScope)
+    {
+        if (!TryGetLiftedOwnerGroup(
+                liftedMethod,
+                out LiftedOwnerGroupKey group)
+            || !MethodsByName(group.OwnerType).TryGetValue(
+                group.OwnerName,
+                out ImmutableArray<MethodDefinitionHandle> owners))
+        {
+            return;
+        }
+
+        TypeDefinition ownerType =
+            _reader.GetTypeDefinition(group.OwnerType);
+        foreach (MethodDefinitionHandle ownerHandle in owners)
+        {
+            int ownerToken =
+                MetadataTokens.GetToken(ownerHandle);
+            if (ownerMethodScope is not null
+                && !ownerMethodScope.Contains(ownerToken))
+            {
+                continue;
+            }
+            MethodDefinition owner =
+                _reader.GetMethodDefinition(ownerHandle);
+            _incompleteAttributionSources.TryAdd(
+                ownerToken,
+                _primaryMetadataResolver.CreateMethodIdentity(
+                    group.OwnerType,
+                    ownerHandle,
+                    owner,
+                    _primaryMetadataResolver.CreateScope(
+                        ownerType,
+                        owner)));
+        }
+    }
+
+    internal ImplementationMetricAttributionClosure
+        AttributionClosure() =>
+        new(
+        [
+            .. _incompleteAttributionSources.Values
+                .OrderBy(static method => method.MetadataToken),
+        ]);
 
     internal bool HasMalformedPotentialOwnerChain(
         MethodIdentity source)

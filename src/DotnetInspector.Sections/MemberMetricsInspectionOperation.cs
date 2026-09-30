@@ -260,6 +260,20 @@ public static class MemberMetricsInspectionOperation
                 MemberMetricsInspectionFailure.Analysis,
                 "Focused Analysis returned evidence outside the exact Member population.");
         }
+        ImmutableArray<MethodIdentity> incompleteAttributionSources =
+            metrics.AttributionClosure?.IncompleteSourceMethods
+            ?? [];
+        if (incompleteAttributionSources.Any(source =>
+                !expectedTokens.Contains(source.MetadataToken)))
+        {
+            return Failed(
+                MemberMetricsInspectionFailure.Analysis,
+                "Focused Analysis returned attribution state outside the exact Member population.");
+        }
+        HashSet<int> incompleteAttributionTokens =
+            incompleteAttributionSources
+                .Select(static source => source.MetadataToken)
+                .ToHashSet();
 
         IReadOnlyDictionary<int,
             ImmutableArray<MethodImplementationMetricEvidence>>
@@ -317,7 +331,9 @@ public static class MemberMetricsInspectionOperation
                         bodies,
                         diagnostics,
                         managedTokens,
-                        participation.Work);
+                        participation.Work,
+                        incompleteAttributionTokens.Contains(
+                            overload.MetadataToken));
             MemberSiblingRelationshipMetric? siblingRelationships =
                 !plan.RequestedMetrics.HasFlag(
                     MemberMetricKind.SiblingRelationships)
@@ -435,7 +451,8 @@ public static class MemberMetricsInspectionOperation
         ImmutableArray<MethodImplementationMetricEvidence> bodies,
         ImmutableArray<AnalysisDiagnostic> diagnostics,
         IReadOnlySet<int> managedTokens,
-        ImplementationMetricWorkBudgetSnapshot? work)
+        ImplementationMetricWorkBudgetSnapshot? work,
+        bool attributionIncomplete)
     {
         ImmutableArray<MemberPhysicalBodySize> physical =
         [
@@ -465,7 +482,8 @@ public static class MemberMetricsInspectionOperation
                         == overload.MetadataToken);
 
         MemberMetricCellState state;
-        if (rowExhausted
+        if (attributionIncomplete
+            || rowExhausted
             || exhausted && physical.IsEmpty)
         {
             state = MemberMetricCellState.Incomplete;

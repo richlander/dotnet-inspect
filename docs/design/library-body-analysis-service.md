@@ -325,6 +325,7 @@ LibraryBodyAnalysisRequest
      LibraryImplementationMetricAnalysisResult
        typed per-body metric outcomes
        relationship metric result
+       attribution-closure result
        metric, fact, and scope receipt
        actual work-participation receipt
 ```
@@ -500,10 +501,11 @@ and owner-issued reason.
 
 If attribution probing exhausts its bound or fails before the owner can prove
 scope closure, the result retains every authenticated edge found so far and
-marks physical scope incomplete. It does not claim that omitted generated
-bodies do not exist. `MemberMetricsInspect` may use the retained values for
-non-authoritative decoration but cannot issue an authoritative Count, Top, or
-complete-family relationship result from that scope.
+publishes `ImplementationMetricAttributionClosure` with the affected logical
+source methods. It does not claim that omitted generated bodies do not exist.
+`MemberMetricsInspect` may use the retained values for non-authoritative
+decoration but cannot issue an authoritative Count, Top, or complete-family
+relationship result from that scope.
 
 The execution receipt proves exact Analysis scope; it does not prove that a
 caller supplied a complete overload family. `MemberMetricsInspect` establishes
@@ -1158,6 +1160,8 @@ The selective implementation-metric migration additionally gates:
   `MethodEvidence` feature is absent;
 - attribution probes respect their separate body and byte bounds, and
   exhaustion marks physical scope incomplete without claiming closure;
+- recoverable generated-body decode failure publishes the affected logical
+  source through typed attribution-closure state;
 - actual stage participation is recorded from execution and can differ from a
   selected-but-not-started stage;
 - co-running feature work records its separate cause rather than appearing as

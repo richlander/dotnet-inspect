@@ -555,6 +555,84 @@ public sealed class MemberMetricsInspectionOperationTests
     }
 
     [Fact]
+    public async Task
+        GeneratedBodyDecodeFailure_PreventsAuthoritativeTop()
+    {
+        byte[] image = await Fixture(
+            FixtureCatalog.AnalysisOverloadFamilyLens);
+        ImmutableArray<int> ownerTokens =
+            MethodTokens(
+                image,
+                "ILInspector.Analysis.ImplementationProfileFixtures",
+                "ImplementationHeatLambdaSample",
+                "Scale");
+        LibraryBodyAnalysisExecution baseline =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "MemberMetricsInspectBaseline",
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricKind.BodySize,
+                        DefaultLimits().Analysis,
+                        ownerTokens.ToHashSet()));
+        MethodImplementationMetricEvidence generated =
+            baseline.ImplementationMetrics.Bodies.First(body =>
+                ownerTokens.Contains(
+                    body.Method.MetadataToken)
+                && body.EvidenceMethod.MetadataToken
+                    != body.Method.MetadataToken);
+        CorruptMethodBodyHeader(
+            image,
+            generated.EvidenceMethod.MetadataToken);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberGroupDocument document =
+            Document(
+                ExecuteDocument(
+                    library,
+                    Subject(
+                        "ILInspector.Analysis.ImplementationProfileFixtures",
+                        "ImplementationHeatLambdaSample",
+                        "Scale")));
+        RowQueryIntent rowIntent =
+            RowQueryIntent.Create(
+                [],
+                baselineOrder: null,
+                RowSelectionIntent<RowQueryOrderIntent>.Create(
+                    [
+                        RowSelectionIntentOperation<
+                            RowQueryOrderIntent>.Top(1),
+                    ]));
+
+        MemberMetricsInspectionContent content =
+            Available(
+                MemberMetricsInspectionOperation.Execute(
+                    Request(
+                        library,
+                        document,
+                        MemberMetricKind.BodySize,
+                        MemberMetricKind.BodySize,
+                        rowIntent,
+                        QuerySpaceTerminalRequirement.Rows),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+        MemberMetricsPopulationOutcome.Incomplete incomplete =
+            Assert.IsType<
+                MemberMetricsPopulationOutcome.Incomplete>(
+                content.Population);
+
+        Assert.Equal(
+            MemberMetricsPopulationIncompleteReason.RequiredEvidence,
+            incomplete.Reason);
+        Assert.Equal(
+            MemberMetricKind.BodySize,
+            incomplete.RequiredMetrics);
+        Assert.True(content.Coverage.IncompleteCount > 0);
+    }
+
+    [Fact]
     public async Task BodylessDeclaration_RemainsAnExactMetricRow()
     {
         byte[] image = await Fixture(
@@ -947,6 +1025,56 @@ public sealed class MemberMetricsInspectionOperationTests
                     + 1,
                 sizeof(int)),
             0x0AFFFFFF);
+    }
+
+    private static ImmutableArray<int> MethodTokens(
+        byte[] image,
+        string @namespace,
+        string typeName,
+        string methodName)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.TypeDefinitions
+            .Select(reader.GetTypeDefinition)
+            .Single(definition =>
+                reader.StringComparer.Equals(
+                    definition.Namespace,
+                    @namespace)
+                && reader.StringComparer.Equals(
+                    definition.Name,
+                    typeName));
+        return
+        [
+            .. type.GetMethods()
+                .Where(handle =>
+                    reader.StringComparer.Equals(
+                        reader.GetMethodDefinition(handle).Name,
+                        methodName))
+                .Select(static handle =>
+                    MetadataTokens.GetToken(handle)),
+        ];
+    }
+
+    private static void CorruptMethodBodyHeader(
+        byte[] image,
+        int methodToken)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        EntityHandle handle =
+            MetadataTokens.EntityHandle(methodToken);
+        Assert.Equal(HandleKind.MethodDefinition, handle.Kind);
+        MethodDefinition method =
+            reader.GetMethodDefinition(
+                (MethodDefinitionHandle)handle);
+        int methodOffset = RvaToFileOffset(
+            peReader.PEHeaders,
+            method.RelativeVirtualAddress);
+
+        image[methodOffset] = 0;
     }
 
     private static int RvaToFileOffset(

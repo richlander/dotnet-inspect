@@ -46,6 +46,12 @@ public sealed record ImplementationMetricSiblingRelationships(
     public bool IsComplete => Diagnostics.IsEmpty;
 }
 
+public sealed record ImplementationMetricAttributionClosure(
+    ImmutableArray<MethodIdentity> IncompleteSourceMethods)
+{
+    public bool IsComplete => IncompleteSourceMethods.IsEmpty;
+}
+
 public sealed record MethodImplementationMetricEvidence(
     MethodIdentity Method,
     MethodIdentity EvidenceMethod,
@@ -88,6 +94,7 @@ public sealed class LibraryImplementationMetricAnalysisResult
         ImmutableArray<MethodIdentity> managedMethodBodies,
         ImmutableArray<MethodImplementationMetricEvidence> bodies,
         ImplementationMetricSiblingRelationships? siblingRelationships,
+        ImplementationMetricAttributionClosure? attributionClosure,
         ImmutableArray<AnalysisDiagnostic> diagnostics)
     {
         Receipt = receipt;
@@ -97,6 +104,7 @@ public sealed class LibraryImplementationMetricAnalysisResult
         ManagedMethodBodies = managedMethodBodies;
         Bodies = bodies;
         SiblingRelationships = siblingRelationships;
+        AttributionClosure = attributionClosure;
         Diagnostics = diagnostics;
     }
 
@@ -116,6 +124,9 @@ public sealed class LibraryImplementationMetricAnalysisResult
 
     public ImplementationMetricSiblingRelationships?
         SiblingRelationships
+    { get; }
+
+    public ImplementationMetricAttributionClosure? AttributionClosure
     { get; }
 
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }

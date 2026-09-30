@@ -269,15 +269,18 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         LibraryBodyAnalysisResult analysis,
         LibraryBodyAnalysisPlan plan)
     {
-        if (plan.ScopeExpansionDiagnostics.IsDefaultOrEmpty)
-            return analysis;
-
         return analysis with
         {
-            Diagnostics = AnalysisDiagnosticAggregation
-                .MergeInMetadataOrder(
-                    analysis.Diagnostics,
-                    plan.ScopeExpansionDiagnostics),
+            Diagnostics =
+                plan.ScopeExpansionDiagnostics.IsDefaultOrEmpty
+                    ? analysis.Diagnostics
+                    : AnalysisDiagnosticAggregation
+                        .MergeInMetadataOrder(
+                            analysis.Diagnostics,
+                            plan.ScopeExpansionDiagnostics),
+            ImplementationMetricAttributionClosure =
+                _liftedSourceOwnerResolver
+                    .AttributionClosure(),
         };
     }
 
@@ -568,6 +571,11 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                     when (LibraryMethodAnalysisRunner
                         .IsRecoverableMethodFailure(ex))
                 {
+                    _liftedSourceOwnerResolver
+                        .RecordIncompleteAttributionSources(
+                            _reader.GetMethodDefinition(
+                                methodHandle),
+                            plan.MethodScope);
                     diagnostics.Add(new AnalysisDiagnostic(
                         method.MetadataToken,
                         LibraryMethodAnalysisRunner
