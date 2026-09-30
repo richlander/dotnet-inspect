@@ -68,6 +68,12 @@ public sealed record GenericRecord<TValue>(
     IReadOnlyDictionary<string, TValue> Lookup,
     Boxed<TValue> Choice);
 
+public sealed record ArrayBox<TValue>(TValue[] Values);
+
+public sealed record KeyBox<TKey>(
+    Dictionary<TKey, int> Values)
+    where TKey : notnull;
+
 public sealed record BlobDto(
     byte[] Blob,
     byte[]? MaybeBlob,
@@ -173,6 +179,8 @@ internal sealed partial class BlobFixtureJsonContext : JsonSerializerContext;
 
 [JsonSerializable(typeof(GenericRecord<int>))]
 [JsonSerializable(typeof(GenericRecord<WidgetDto>))]
+[JsonSerializable(typeof(ArrayBox<byte>))]
+[JsonSerializable(typeof(KeyBox<string>))]
 [JsonSerializable(
     typeof(GenericNested<string>),
     TypeInfoPropertyName = "NullableGenericNested")]
@@ -445,6 +453,20 @@ public static partial class TypeScriptFixtureExports
                 new Boxed<WidgetDto>(new WidgetDto(name, 13))),
             GenericRecordJsonContext.Default.GenericRecordWidgetDto);
     }
+
+    public static string GetByteArrayBox() =>
+        JsonSerializer.Serialize(
+            new ArrayBox<byte>([1, 2]),
+            GenericRecordJsonContext.Default.ArrayBoxByte);
+
+    public static string GetStringKeyBox() =>
+        JsonSerializer.Serialize(
+            new KeyBox<string>(
+                new Dictionary<string, int>
+                {
+                    ["one"] = 1,
+                }),
+            GenericRecordJsonContext.Default.KeyBoxString);
 
     [JSExport]
     public static string GetNullableGenericNested() =>

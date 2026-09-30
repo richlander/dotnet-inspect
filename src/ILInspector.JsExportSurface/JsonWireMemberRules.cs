@@ -413,6 +413,21 @@ public static class JsonWireMemberRules
                 member);
 
     /// <summary>
+    /// True when a required member may be satisfied by a constructor marked
+    /// <c>[SetsRequiredMembers]</c>. Constructor selection is not yet retained,
+    /// so projections cannot claim that the JSON property is unconditionally
+    /// required.
+    /// </summary>
+    public static bool RequiresRequiredMemberConstructorEvidence(
+        ApiType declaringType) =>
+        declaringType.Members.Any(
+            member => member.SignatureModel?.IsRequired == true)
+        && declaringType.Members.Any(
+            member => member.Kind == "constructor"
+                && (member.SetsRequiredMembersAttributeCount > 0
+                    || member.HasMalformedSetsRequiredMembersAttribute));
+
+    /// <summary>
     /// True when a <c>[JsonInclude]</c> member references a same-assembly value
     /// type that ordinary top-level source generation cannot access, but a
     /// nested serializer context rooted inside the same declaring type could.

@@ -160,6 +160,7 @@
     <Project Path="src/DotnetInspector.DocumentationHouse.Source/DotnetInspector.DocumentationHouse.Source.csproj" />
     <Project Path="src/DotnetInspector.EcosystemLoading/DotnetInspector.EcosystemLoading.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
+    <Project Path="src/DotnetInspector.JsonSchema/DotnetInspector.JsonSchema.csproj" />
     <Project Path="src/DotnetInspector.LibraryMetadata/DotnetInspector.LibraryMetadata.csproj" />
     <Project Path="src/DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
@@ -302,6 +303,7 @@
     <Project Path="tools/AnalysisHarness/AnalysisHarness.csproj" />
     <Project Path="tools/AotProbe/AotProbe.csproj" />
     <Project Path="tools/CSharpPrinter.Benchmarks/CSharpPrinter.Benchmarks.csproj" />
+    <Project Path="tools/MemberBodySizeScorecard/MemberBodySizeScorecard.csproj" />
     <Project Path="tools/MemberGroupScorecard/MemberGroupScorecard.csproj" />
     <Project Path="tools/BodyUseScorecard/BodyUseScorecard.csproj" />
     <Project Path="tools/PackageHouse.CliBenchmarks/PackageHouse.CliBenchmarks.csproj" />
