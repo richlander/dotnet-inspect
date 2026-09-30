@@ -446,27 +446,44 @@ public static class LibraryAddressInspectionOperation
                     allRows.All(
                         static row =>
                             row is LibraryAddressPopulationRow.Resolved);
-                RowSelectionResult<LibraryAddressPopulationRow> selection =
-                    RowQueryExecutor.Apply(
-                        allRows,
-                        query.Plan.Rows);
-                if (!selection.IsSuccess)
-                {
-                    envelope = PopulationQueryRejected(
-                        selection.Failure!);
-                }
-                else
+                if (query.Plan.Rows.SelectionPlan.Stages.Count == 0)
                 {
                     var document =
                         new LibraryAddressDocument.Population(
                             LibraryAddressPopulationResult.ForRows(
-                                [.. selection.Values],
+                                allRows,
                                 isComplete));
                     envelope = isComplete
                         ? Completed(document)
                         : Partial(
                             document,
                             diagnostics.ToImmutable());
+                }
+                else
+                {
+                    RowSelectionResult<
+                        LibraryAddressPopulationRow> selection =
+                            RowQueryExecutor.Apply(
+                                allRows,
+                                query.Plan.Rows);
+                    if (!selection.IsSuccess)
+                    {
+                        envelope = PopulationQueryRejected(
+                            selection.Failure!);
+                    }
+                    else
+                    {
+                        var document =
+                            new LibraryAddressDocument.Population(
+                                LibraryAddressPopulationResult.ForRows(
+                                    [.. selection.Values],
+                                    isComplete));
+                        envelope = isComplete
+                            ? Completed(document)
+                            : Partial(
+                                document,
+                                diagnostics.ToImmutable());
+                    }
                 }
             }
         }

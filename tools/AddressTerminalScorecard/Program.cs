@@ -674,9 +674,17 @@ static class AddressColumns
                     count.Count != 0);
         }
 
+        IReadOnlyList<LibraryAddressPopulationRow> rows =
+            createRows();
+        if (resolved.Plan.Rows.SelectionPlan.Stages.Count == 0)
+        {
+            return ScorecardAnswer<AddressRow>.OfRows(
+                [.. rows.Select(AddressRow.From)]);
+        }
+
         RowSelectionResult<LibraryAddressPopulationRow> selection =
             RowQueryExecutor.Apply(
-                createRows(),
+                rows,
                 resolved.Plan.Rows);
         return selection.IsSuccess
             ? ScorecardAnswer<AddressRow>.OfRows(
