@@ -397,7 +397,10 @@ qualifies the property, indexer, or event with the accepted interface spelling.
 
 Multiple complete MethodImpl or InterfaceImpl relationships are
 `Unrepresentable`, as is a complete sibling set that resolves to different
-interface owners or aggregates. Rejected, absent, unresolved, mismatched, or
+interface owners or aggregates. A complete declaration aggregate with
+nonordinary callable evidence, role-correspondence mismatch, nonconventional
+property multiplicity, or event staticness mismatch is also
+`Unrepresentable`. Rejected, absent, unresolved, coordinate-mismatched, or
 unposted MethodImpl, InterfaceImpl, declaration-owner, reverse-association, or
 declaration-aggregate evidence is `Unavailable`. Static explicit-interface
 accessors and declaration-owner shapes outside the locally resolved instance

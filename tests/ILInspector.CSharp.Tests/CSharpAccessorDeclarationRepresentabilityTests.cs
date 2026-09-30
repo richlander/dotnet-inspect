@@ -675,6 +675,59 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
     }
 
     [Fact]
+    public void CDR016_DeclarationPropertyRoleMismatchIsUnrepresentable()
+    {
+        using AuthoredExplicitAccessorFixture fixture =
+            AuthoredExplicitAccessorFixture.Create(
+                mismatchedDeclarationPropertySignature: true);
+        CSharpAccessorDeclarationPost post = fixture.Capture();
+        var declaration = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                Assert.Single(post.Implementations[0].Declarations)
+                    .Declaration);
+        Assert.Contains(
+            declaration.Evidence.Accessors,
+            accessor => accessor.Correspondence.Role.Status
+                == MetadataAccessorRoleCorrespondenceStatus.Mismatch);
+
+        var refused = Assert.IsType<
+            CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable>(
+                CSharpAccessorDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp14)));
+        Assert.Equal(
+            CSharpAccessorDeclarationRefusalReason
+                .UnsupportedAccessorCorrespondence,
+            refused.Reason);
+    }
+
+    [Fact]
+    public void CDR016_DeclarationPropertyMultiplicityIsUnrepresentable()
+    {
+        using AuthoredExplicitAccessorFixture fixture =
+            AuthoredExplicitAccessorFixture.Create(
+                duplicateDeclarationGetter: true);
+        CSharpAccessorDeclarationPost post = fixture.Capture();
+        var declaration = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                Assert.Single(post.Implementations[0].Declarations)
+                    .Declaration);
+        Assert.Equal(
+            MetadataPropertyAccessorMultiplicityStatus.NonConventional,
+            declaration.Evidence.Correspondence.PropertyMultiplicity);
+
+        var refused = Assert.IsType<
+            CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable>(
+                CSharpAccessorDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp14)));
+        Assert.Equal(
+            CSharpAccessorDeclarationRefusalReason
+                .UnsupportedAccessorMultiplicity,
+            refused.Reason);
+    }
+
+    [Fact]
     public void CDR011_FailureTextContainsNoArtifactName()
     {
         const string Hostile = "\u001b[31mhostile\u001b[0m";
@@ -1556,7 +1609,9 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
 
         internal static AuthoredExplicitAccessorFixture Create(
             bool splitInterfaceOwners = false,
-            bool duplicateGetterImplementation = false)
+            bool duplicateGetterImplementation = false,
+            bool mismatchedDeclarationPropertySignature = false,
+            bool duplicateDeclarationGetter = false)
         {
             var metadata = new MetadataBuilder();
             metadata.AddModule(
@@ -1587,6 +1642,13 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
                     metadata,
                     "set_Value",
                     setterSignature);
+            MethodDefinitionHandle secondDeclarationGetter =
+                duplicateDeclarationGetter
+                    ? AddDeclarationMethod(
+                        metadata,
+                        "get_Value_2",
+                        getterSignature)
+                    : default;
 
             var methodBodies = new BlobBuilder();
             var bodyEncoder = new MethodBodyStreamEncoder(methodBodies);
@@ -1658,12 +1720,22 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
             PropertyDefinitionHandle firstProperty = metadata.AddProperty(
                 PropertyAttributes.None,
                 metadata.GetOrAddString("Value"),
-                metadata.GetOrAddBlob(CreatePropertySignature()));
+                metadata.GetOrAddBlob(
+                    CreatePropertySignature(
+                        returnsString:
+                            mismatchedDeclarationPropertySignature)));
             metadata.AddPropertyMap(firstInterface, firstProperty);
             metadata.AddMethodSemantics(
                 firstProperty,
                 MethodSemanticsAttributes.Getter,
                 declarationGetter);
+            if (duplicateDeclarationGetter)
+            {
+                metadata.AddMethodSemantics(
+                    firstProperty,
+                    MethodSemanticsAttributes.Getter,
+                    secondDeclarationGetter);
+            }
             if (!splitInterfaceOwners)
             {
                 metadata.AddMethodSemantics(
@@ -1821,14 +1893,22 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
             return signature;
         }
 
-        static BlobBuilder CreatePropertySignature()
+        static BlobBuilder CreatePropertySignature(
+            bool returnsString = false)
         {
             var signature = new BlobBuilder();
             new BlobEncoder(signature)
                 .PropertySignature(isInstanceProperty: true)
                 .Parameters(
                     0,
-                    returnType => returnType.Type().Int32(),
+                    returnType =>
+                    {
+                        SignatureTypeEncoder type = returnType.Type();
+                        if (returnsString)
+                            type.String();
+                        else
+                            type.Int32();
+                    },
                     _ => { });
             return signature;
         }

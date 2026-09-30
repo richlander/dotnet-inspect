@@ -536,48 +536,14 @@ public static class CSharpAccessorDeclarationRepresentability
                     .RequestMismatch);
         }
 
-        foreach (MetadataAccessorSemanticsOccurrence accessor
-            in aggregate.Accessors)
-        {
-            if (!IsConventionalAccessorRole(
-                    aggregate.Root,
-                    accessor.Role))
-            {
-                continue;
-            }
-            if (accessor.Correspondence.OrdinaryCallable
-                != MetadataAccessorOrdinaryCallableStatus.Ordinary)
-            {
-                return Refuse(
-                    CSharpAccessorDeclarationRefusalReason
-                        .UnsupportedAccessorSignature);
-            }
-            if (accessor.Correspondence.Role.Status
-                != MetadataAccessorRoleCorrespondenceStatus.Exact)
-            {
-                return Refuse(
-                    CSharpAccessorDeclarationRefusalReason
-                        .UnsupportedAccessorCorrespondence);
-            }
-        }
-        if (aggregate.Root
-                is MetadataAccessorRootDeclarationEvidence.Property
-            && aggregate.Correspondence.PropertyMultiplicity
-                != MetadataPropertyAccessorMultiplicityStatus.Conventional)
-        {
-            return Refuse(
-                CSharpAccessorDeclarationRefusalReason
-                    .UnsupportedAccessorMultiplicity);
-        }
-        if (aggregate.Root
-                is MetadataAccessorRootDeclarationEvidence.Event
-            && aggregate.Correspondence.EventAddRemoveStaticnessMatches
-                != true)
-        {
-            return Refuse(
-                CSharpAccessorDeclarationRefusalReason
-                    .UnsupportedAccessorCorrespondence);
-        }
+        CSharpAccessorDeclarationRepresentabilityResult?
+            correspondenceFailure =
+                ValidateAggregateCorrespondence(
+                    post,
+                    profile,
+                    aggregate);
+        if (correspondenceFailure is not null)
+            return correspondenceFailure;
 
         if (aggregate.Accessors.Any(accessor =>
                 accessor.Role is
@@ -693,6 +659,62 @@ public static class CSharpAccessorDeclarationRepresentability
                     or MetadataAccessorSemanticsRole.RemoveOn,
             _ => false,
         };
+
+    static CSharpAccessorDeclarationRepresentabilityResult?
+        ValidateAggregateCorrespondence(
+            CSharpAccessorDeclarationPost post,
+            CSharpLanguageProfile profile,
+            MetadataAccessorDeclarationEvidence aggregate)
+    {
+        CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable Refuse(
+            CSharpAccessorDeclarationRefusalReason reason) =>
+            new(post.Request, profile, reason);
+
+        foreach (MetadataAccessorSemanticsOccurrence accessor
+            in aggregate.Accessors)
+        {
+            if (!IsConventionalAccessorRole(
+                    aggregate.Root,
+                    accessor.Role))
+            {
+                continue;
+            }
+            if (accessor.Correspondence.OrdinaryCallable
+                != MetadataAccessorOrdinaryCallableStatus.Ordinary)
+            {
+                return Refuse(
+                    CSharpAccessorDeclarationRefusalReason
+                        .UnsupportedAccessorSignature);
+            }
+            if (accessor.Correspondence.Role.Status
+                != MetadataAccessorRoleCorrespondenceStatus.Exact)
+            {
+                return Refuse(
+                    CSharpAccessorDeclarationRefusalReason
+                        .UnsupportedAccessorCorrespondence);
+            }
+        }
+        if (aggregate.Root
+                is MetadataAccessorRootDeclarationEvidence.Property
+            && aggregate.Correspondence.PropertyMultiplicity
+                != MetadataPropertyAccessorMultiplicityStatus.Conventional)
+        {
+            return Refuse(
+                CSharpAccessorDeclarationRefusalReason
+                    .UnsupportedAccessorMultiplicity);
+        }
+        if (aggregate.Root
+                is MetadataAccessorRootDeclarationEvidence.Event
+            && aggregate.Correspondence.EventAddRemoveStaticnessMatches
+                != true)
+        {
+            return Refuse(
+                CSharpAccessorDeclarationRefusalReason
+                    .UnsupportedAccessorCorrespondence);
+        }
+
+        return null;
+    }
 
     static CSharpAccessorDeclarationRepresentabilityResult?
         TryComposeExplicitInterface(
@@ -932,6 +954,15 @@ public static class CSharpAccessorDeclarationRepresentability
 
             if (sharedOwner is null)
             {
+                CSharpAccessorDeclarationRepresentabilityResult?
+                    declarationCorrespondenceFailure =
+                        ValidateAggregateCorrespondence(
+                            post,
+                            profile,
+                            declaration.Evidence);
+                if (declarationCorrespondenceFailure is not null)
+                    return declarationCorrespondenceFailure;
+
                 sharedOwner = local.Owner;
                 sharedIdentity = relationship.DeclarationOwner;
                 sharedDeclaration = association.Declaration;
