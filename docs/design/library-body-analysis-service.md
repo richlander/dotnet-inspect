@@ -81,6 +81,12 @@ the selected physical MethodDef tokens, and reuses the input across coordinate
 file rows. The Research producer validates source-module correspondence and
 result participation without reopening Analysis.
 
+The assembly-context member projection consumes
+`LibraryCallGraphAnalysisResult` directly for call relationships, invocation
+destinations, cycle findings, and bounded local graph traversal. Explicit
+Local Throw Paths remain its only compatibility-index path until Analysis
+publishes local-throw evidence as a focused result.
+
 The CLI session adoption moves both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
 command-selected feature and body-scope policy, resolver binding policy, source
