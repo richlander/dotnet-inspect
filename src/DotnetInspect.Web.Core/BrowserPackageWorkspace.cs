@@ -2610,18 +2610,27 @@ internal static class BrowserPackageWorkspace
         };
     }
 
-    static bool MatchesGalleryProducer(string requiredProducer) =>
-        Gallery.Source.Producer.PortableKey.Equals(
+    internal static bool MatchesConfiguredProducer(
+        IPackageSourceClient source,
+        string configuredSourceUrl,
+        string requiredProducer) =>
+        source.Source.Producer.PortableKey.Equals(
             requiredProducer,
             StringComparison.Ordinal)
-        || Gallery.Source.Producer.Key.Equals(
+        || source.Source.Producer.Key.Equals(
             requiredProducer,
             StringComparison.Ordinal)
         || NuGetCache.GetSourceKey(
-                PackageSource.NuGetOrg.Url)
+                configuredSourceUrl)
             .Equals(
                 requiredProducer,
                 StringComparison.Ordinal);
+
+    static bool MatchesGalleryProducer(string requiredProducer) =>
+        MatchesConfiguredProducer(
+            Gallery,
+            PackageSource.NuGetOrg.Url,
+            requiredProducer);
 
     static void ObserveAndRemovePendingAcquisition(
         PendingAcquisitionKey key,

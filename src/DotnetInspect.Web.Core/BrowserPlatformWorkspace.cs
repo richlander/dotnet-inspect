@@ -448,7 +448,9 @@ internal static class BrowserPlatformWorkspace
                     assemblyFileName,
                     pack,
                     workspaceClient,
+                    packageClient,
                     sourceAuthorization,
+                    acquireCompletePopulation: false,
                     operationTimeout,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -629,6 +631,7 @@ internal static class BrowserPlatformWorkspace
         HttpClient client,
         IPackageSourceClient packageClient,
         IPackageSourceAuthorization sourceAuthorization,
+        bool acquireCompletePopulation,
         TimeSpan operationTimeout,
         CancellationToken cancellationToken = default)
     {
@@ -636,7 +639,8 @@ internal static class BrowserPlatformWorkspace
         var host = new Host(
             client,
             sourceAuthorization,
-            packageClient);
+            packageClient,
+            acquireCompletePopulation);
         return string.IsNullOrWhiteSpace(pack)
             ? OpenUnattributedAsync(
                 targetFramework,
@@ -1263,7 +1267,8 @@ internal static class BrowserPlatformWorkspace
                 .Where(static selection => selection.Identity is null)
                 .All(selection =>
                     IsKnownExactSelection(state, selection));
-        if (host.PackageClient is { } packageClient
+        if (host.AcquireCompletePopulation
+            && host.PackageClient is { } packageClient
             && platformVersion is not null
             && selections.Any(
                 static selection => selection.Identity is null)
@@ -2697,12 +2702,14 @@ internal static class BrowserPlatformWorkspace
         new(
             BrowserPackageWorkspace.NetworkClient,
             BrowserPackageWorkspace.PackageSourceAuthorization,
-            BrowserPackageWorkspace.Gallery);
+            BrowserPackageWorkspace.Gallery,
+            AcquireCompletePopulation: true);
 
     sealed record Host(
         HttpClient Client,
         IPackageSourceAuthorization SourceAuthorization,
-        IPackageSourceClient? PackageClient = null);
+        IPackageSourceClient? PackageClient = null,
+        bool AcquireCompletePopulation = false);
 
     readonly record struct PlatformSelection(
         string Family,

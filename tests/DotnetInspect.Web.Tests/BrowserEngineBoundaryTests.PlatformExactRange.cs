@@ -7,6 +7,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -375,6 +376,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 exactClient,
                 packageClient,
                 sourceAuthorization,
+                acquireCompletePopulation: true,
                 TimeSpan.FromSeconds(30),
                 TestContext.Current.CancellationToken))
         {
@@ -394,6 +396,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 exactClient,
                 packageClient,
                 sourceAuthorization,
+                acquireCompletePopulation: true,
                 TimeSpan.FromSeconds(30),
                 TestContext.Current.CancellationToken);
 
@@ -409,6 +412,154 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             "netcore.app",
             ordinary.Scope.PlatformPackForAssembly("System.Linq"));
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_EvictedExactScopeReentersDocumentation()
+    {
+        const string version = "11.0.7386";
+        const string assembly =
+            "InspectWeb.DocumentationFixtures.dll";
+        byte[] assemblyBytes = File.ReadAllBytes(
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath());
+        byte[] runtimePackage =
+            PlatformPackage((assembly, assemblyBytes));
+        byte[] referencePackage =
+            PackageEntries(
+            [
+                ($"ref/net11.0/{assembly}", assemblyBytes),
+                (
+                    "ref/net11.0/InspectWeb.DocumentationFixtures.xml",
+                    File.ReadAllBytes(
+                        FixtureCatalog.InspectWebDocumentation.AssetPath(
+                            "documentation"))),
+            ]);
+        var handler = new ExactPlatformRangeHandler(
+            version,
+            new Dictionary<string, byte[]>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ["microsoft.netcore.app.runtime.linux-x64"] =
+                    runtimePackage,
+                ["microsoft.netcore.app.ref"] = referencePackage,
+            });
+        using IPackageSourceClient packageClient =
+            BrowserPackageWorkspace.CreateGallerySource(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromSeconds(30),
+                    OperationTimeout = TimeSpan.FromSeconds(30),
+                });
+        using var client =
+            new HttpClient(handler, disposeHandler: false);
+        IPackageSourceAuthorization authorization =
+            BrowserPackageWorkspace.SourceAuthorizationFor(packageClient);
+        BrowserPlatformScope scope;
+        {
+            await using BrowserPlatformScopeResolution exact =
+                await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    "net11.0",
+                    version,
+                    Identity(assemblyBytes),
+                    "netcore.app",
+                    client,
+                    packageClient,
+                    authorization,
+                    TimeSpan.FromSeconds(30),
+                    TestContext.Current.CancellationToken);
+            scope = exact.Scope;
+        }
+        await BrowserPackageWorkspace.RemoveScopeAsync(scope);
+
+        CompiledDocumentationOutcome outcome =
+            await BrowserPlatformWorkspace.QueryMemberDocumentationAsync(
+                "net11.0",
+                version,
+                assembly,
+                "netcore.app",
+                "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
+                client,
+                packageClient,
+                authorization,
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                outcome);
+        Assert.Equal(
+            "Reads documentation from a non-public type.",
+            available.Documentation.Summary);
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_ExactScopeActivatesForwardedType()
+    {
+        const string version = "11.0.7387";
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        byte[] archive = await File.ReadAllBytesAsync(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "PlatformForwarderActivation",
+                "runtime.nupkg"),
+            TestContext.Current.CancellationToken);
+        var handler = new ExactPlatformRangeHandler(
+            packageId,
+            version,
+            archive);
+        using IPackageSourceClient packageClient =
+            BrowserPackageWorkspace.CreateGallerySource(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromSeconds(30),
+                    OperationTimeout = TimeSpan.FromSeconds(30),
+                });
+        using var client =
+            new HttpClient(handler, disposeHandler: false);
+        IPackageSourceAuthorization authorization =
+            BrowserPackageWorkspace.SourceAuthorizationFor(packageClient);
+        foreach (string assembly in
+            new[] { "System.Xml.dll", "System.Xml.ReaderWriter.dll" })
+        {
+            await using BrowserPlatformScopeResolution exact =
+                await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    "net11.0",
+                    version,
+                    Identity(ReadRuntimeAssembly(archive, assembly)),
+                    "netcore.app",
+                    client,
+                    packageClient,
+                    authorization,
+                    TimeSpan.FromSeconds(30),
+                    TestContext.Current.CancellationToken);
+        }
+
+        using var navigation = new BrowserPlatformForwarderNavigation(
+            client,
+            packageClient,
+            authorization,
+            TimeSpan.FromSeconds(30));
+        BrowserPlatformForwarderNavigationResult.Opened initial =
+            RequireForwarderView(
+                await navigation.OpenAsync(
+                    "net11.0",
+                    version,
+                    "System.Xml.dll",
+                    "netcore.app",
+                    TestContext.Current.CancellationToken));
+        BrowserPlatformForwarderNavigationResult.Opened destination =
+            RequireForwarderView(
+                await navigation.ActivateAsync(
+                    XmlReaderForwarder(initial.View).Action,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            "System.Xml.ReaderWriter:System.Xml.XmlReader",
+            destination.View.SelectedTypeId);
     }
 
     [Fact]
