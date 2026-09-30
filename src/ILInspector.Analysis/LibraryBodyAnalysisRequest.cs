@@ -94,7 +94,7 @@ public sealed class LibraryBodyAnalysisRequest
 
     internal static LibraryBodyAnalysisRequest
         CreateImplementationMetrics(
-            ImplementationMetricEvidenceKind evidence,
+            ImplementationMetricKind metrics,
             ImplementationMetricWorkLimits limits,
             IReadOnlySet<int> bodyScope,
             LibraryBodyAnalysisFeatures features =
@@ -115,7 +115,7 @@ public sealed class LibraryBodyAnalysisRequest
             resourceEffects: null,
             includeResourceLifecycle: false,
             new ImplementationMetricAnalysisRequest(
-                evidence,
+                metrics,
                 limits,
                 ImplementationMetricRequestOrigin.Explicit));
     }

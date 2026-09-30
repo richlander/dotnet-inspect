@@ -3,21 +3,22 @@ using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
 using InertText;
+using NuGetFetch;
 
 namespace DotnetInspector.Sections;
 
-[JsonConverter(typeof(JsonStringEnumConverter<PackageDocumentContentStatus>))]
-public enum PackageDocumentContentStatus
+[JsonConverter(typeof(JsonStringEnumConverter<PackageFileContentStatus>))]
+public enum PackageFileContentStatus
 {
     Completed,
     Unavailable,
     Failed,
 }
 
-public sealed record PackageDocumentContentDocument
+public sealed record PackageFileContentDocument
 {
-    private PackageDocumentContentDocument(
-        PackageDocumentContentStatus status,
+    private PackageFileContentDocument(
+        PackageFileContentStatus status,
         string? packageId,
         string? version,
         string? path,
@@ -34,7 +35,7 @@ public sealed record PackageDocumentContentDocument
         Detail = detail;
     }
 
-    public PackageDocumentContentStatus Status { get; }
+    public PackageFileContentStatus Status { get; }
 
     public string? PackageId { get; }
 
@@ -49,7 +50,7 @@ public sealed record PackageDocumentContentDocument
     [JsonConverter(typeof(InertStringJsonConverter))]
     public InertString? Detail { get; }
 
-    public static PackageDocumentContentDocument Completed(
+    public static PackageFileContentDocument Completed(
         string packageId,
         string version,
         string path,
@@ -60,11 +61,11 @@ public sealed record PackageDocumentContentDocument
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         if (content.IsDefault)
             throw new ArgumentException(
-                "Completed package document content must be initialized.",
+                "Completed package file content must be initialized.",
                 nameof(content));
 
         return new(
-            PackageDocumentContentStatus.Completed,
+            PackageFileContentStatus.Completed,
             packageId,
             version,
             path,
@@ -73,14 +74,14 @@ public sealed record PackageDocumentContentDocument
             detail: null);
     }
 
-    public static PackageDocumentContentDocument Failed(
-        PackageDocumentContentStatus status,
+    public static PackageFileContentDocument Failed(
+        PackageFileContentStatus status,
         string detail)
     {
-        if (status == PackageDocumentContentStatus.Completed)
+        if (status == PackageFileContentStatus.Completed)
         {
             throw new ArgumentException(
-                "A failed package document cannot have completed status.",
+                "A failed package file cannot have completed status.",
                 nameof(status));
         }
         ArgumentException.ThrowIfNullOrWhiteSpace(detail);
@@ -96,82 +97,54 @@ public sealed record PackageDocumentContentDocument
     }
 }
 
-public sealed record PackageDocumentContentInspectionRequest
+public sealed record PackageFileContentInspectionRequest
 {
-    public PackageDocumentContentInspectionRequest(
-        PackageHouseSettlement.Acquired settlement,
-        string path)
+    public PackageFileContentInspectionRequest(
+        PackageFileAcquisitionResult.Acquired file,
+        long maxBytes)
     {
-        Settlement = settlement
-            ?? throw new ArgumentNullException(nameof(settlement));
-        Path = PackageDocumentDemand.Create([path]).Entries.Single();
+        File = file
+            ?? throw new ArgumentNullException(nameof(file));
+        ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            maxBytes,
+            int.MaxValue);
+        MaxBytes = maxBytes;
     }
 
-    public PackageHouseSettlement.Acquired Settlement { get; }
+    public PackageFileAcquisitionResult.Acquired File { get; }
 
-    public string Path { get; }
+    public long MaxBytes { get; }
 }
 
-public static class PackageDocumentContentInspection
+public static class PackageFileContentInspection
 {
-    private const string SharePath = "package-document-content/share";
+    private const string SharePath = "package-file-content/share";
 
     public static async ValueTask<
-        InspectionEnvelope<PackageDocumentContentDocument>>
+        InspectionEnvelope<PackageFileContentDocument>>
         ExecuteAsync(
-            PackageDocumentContentInspectionRequest request,
+            PackageFileContentInspectionRequest request,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        PackageDocumentEntryResolution resolution =
-            PackageDocumentEntryResolver.Resolve(
-                request.Settlement,
-                request.Path);
-        if (resolution.Status
-            == PackageDocumentEntryResolutionStatus.ManifestUnavailable)
-        {
-            return Failed(
-                PackageDocumentContentStatus.Unavailable,
-                "package-document-content.manifest-unavailable",
-                "The acquired package content does not expose declared entry lengths.");
-        }
-        if (resolution.Status == PackageDocumentEntryResolutionStatus.Missing)
-        {
-            return Failed(
-                PackageDocumentContentStatus.Unavailable,
-                "package-document-content.entry-missing",
-                $"The package does not contain '{request.Path}'.");
-        }
-        if (resolution.Status
-            == PackageDocumentEntryResolutionStatus.Ambiguous)
-        {
-            return Failed(
-                PackageDocumentContentStatus.Unavailable,
-                "package-document-content.entry-ambiguous",
-                $"The package contains more than one entry matching '{request.Path}'.");
-        }
-
-        PackageContentEntry entry = resolution.Entry
-            ?? throw new InvalidOperationException(
-                "A resolved package document entry is required.");
+        PackageContentEntry entry = request.File.Entry;
         if (entry.Length < 0
-            || entry.Length > PackageDocumentContentLimits.MaxDecodedBytes)
+            || entry.Length > request.MaxBytes)
         {
             return Failed(
-                PackageDocumentContentStatus.Unavailable,
-                "package-document-content.length-unavailable",
+                PackageFileContentStatus.Unavailable,
+                "package-file-content.length-unavailable",
                 $"Package entry '{entry.Path}' exceeds the detached content "
-                    + $"limit of {PackageDocumentContentLimits.MaxDecodedBytes} bytes.");
+                    + $"limit of {request.MaxBytes} bytes.");
         }
 
         try
         {
             await using PackageHousePayloadRead input =
-                request.Settlement.OpenPayloadRead(
-                    entry.Path,
-                    entry.Length);
+                request.File.OpenRead();
             byte[] content = GC.AllocateUninitializedArray<byte>(
                 checked((int)entry.Length));
             int offset = 0;
@@ -195,17 +168,18 @@ public static class PackageDocumentContentInspection
                     $"Package entry '{entry.Path}' exceeded its declared length.");
             }
 
-            var coordinate = request.Settlement.Payload.Coordinate;
-            var document = PackageDocumentContentDocument.Completed(
+            PackageSourceCoordinate coordinate =
+                request.File.Settlement.Payload.Coordinate;
+            var file = PackageFileContentDocument.Completed(
                 coordinate.PackageId,
                 coordinate.Version,
                 entry.Path,
                 ImmutableCollectionsMarshal.AsImmutableArray(content));
             return new(
-                document,
+                file,
                 new InspectionShare.NonProjectable(
                     SharePath,
-                    "Package document content sharing is not yet available."));
+                    "Package file content sharing is not yet available."));
         }
         catch (Exception exception) when (
             exception is IOException
@@ -213,21 +187,21 @@ public static class PackageDocumentContentInspection
                 or PackageEntryNotMaterializedException)
         {
             return Failed(
-                PackageDocumentContentStatus.Failed,
-                "package-document-content.read-failed",
+                PackageFileContentStatus.Failed,
+                "package-file-content.read-failed",
                 exception.Message);
         }
     }
 
-    private static InspectionEnvelope<PackageDocumentContentDocument> Failed(
-        PackageDocumentContentStatus status,
+    private static InspectionEnvelope<PackageFileContentDocument> Failed(
+        PackageFileContentStatus status,
         string code,
         string detail) =>
         new(
-            PackageDocumentContentDocument.Failed(status, detail),
+            PackageFileContentDocument.Failed(status, detail),
             new InspectionShare.NonProjectable(
                 SharePath,
-                "Package document content sharing is not yet available."),
+                "Package file content sharing is not yet available."),
             [
                 new InspectionDiagnostic(
                     code,

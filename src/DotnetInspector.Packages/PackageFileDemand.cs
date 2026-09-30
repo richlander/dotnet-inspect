@@ -1,23 +1,23 @@
 namespace DotnetInspector.Packages;
 
 /// <summary>
-/// The package documents a consumer reads, named directly rather than through
-/// an asset realization: exact entry paths, such as the root
+/// The package files a consumer reads, named directly rather than through an
+/// asset realization: exact entry paths, such as the root
 /// <c>README.md</c>, and folder prefixes, such as a skill folder
 /// <c>skills/&lt;name&gt;/</c>. Paths use <c>/</c> and are compared without
 /// regard to case. Owned by
-/// <c>docs/design/package-read-demand.md#document-demand</c>.
+/// <c>docs/design/package-read-demand.md#exact-file-demand</c>.
 /// </summary>
 /// <remarks>
-/// A ranged read of a document demand fetches the package's root folder, the
+/// A ranged read of a file demand fetches the package's root folder, the
 /// folder of each named entry (its direct entries, as the folder unit reads
 /// an asset folder), and each named folder with every entry beneath it,
-/// subfolders included, because a skill's references and assets live in
-/// subfolders of the skill folder.
+/// subfolders included. Exact-file consumers name only the entry; broader
+/// folder retention must be requested explicitly.
 /// </remarks>
-public sealed class PackageDocumentDemand
+public sealed class PackageFileDemand
 {
-    private PackageDocumentDemand(
+    private PackageFileDemand(
         IReadOnlyList<string> entries,
         IReadOnlyList<string> folders)
     {
@@ -40,7 +40,7 @@ public sealed class PackageDocumentDemand
     /// <c>.</c>, or <c>..</c> segment, and no <c>\</c>, <c>:</c>, or NUL.
     /// A folder may end with <c>/</c>; an entry may not.
     /// </summary>
-    public static PackageDocumentDemand Create(
+    public static PackageFileDemand Create(
         IEnumerable<string> entries,
         IEnumerable<string>? folders = null)
     {
@@ -54,11 +54,11 @@ public sealed class PackageDocumentDemand
         if (entryPaths.Count == 0 && folderPaths.Count == 0)
         {
             throw new ArgumentException(
-                "A document demand names at least one entry or folder.",
+                "A file demand names at least one entry or folder.",
                 nameof(entries));
         }
 
-        return new PackageDocumentDemand(
+        return new PackageFileDemand(
             entryPaths.AsReadOnly(),
             folderPaths.AsReadOnly());
     }
@@ -148,7 +148,7 @@ public sealed class PackageDocumentDemand
         if (path is null || !HasSafeSegments(path))
         {
             throw new ArgumentException(
-                "A document entry is a relative package path of safe segments, without '..' or a root.",
+                "A package file is a relative package path of safe segments, without '..' or a root.",
                 parameterName);
         }
         return path;
@@ -160,7 +160,7 @@ public sealed class PackageDocumentDemand
         if (folder is null || !HasSafeSegments(folder))
         {
             throw new ArgumentException(
-                "A document folder is a relative package path of safe segments, without '..' or a root.",
+                "A package folder is a relative package path of safe segments, without '..' or a root.",
                 parameterName);
         }
         return folder + "/";
