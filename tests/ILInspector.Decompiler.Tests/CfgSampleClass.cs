@@ -2806,13 +2806,23 @@ public class CfgSampleClass
         int Mul(int v) => v * n;
     }
 
-    // Adversarial negative: a recursive local function (its body calls itself), which
-    // keeps the import non-recursive — must stay lowered.
+    // Self recursion is a one-member dependency component.
     public static int RecursiveLocalFunction(int n)
     {
         return Fact(n);
 
         int Fact(int v) => v <= 1 ? 1 : v * Fact(v - 1);
+    }
+
+    public static int MutuallyRecursiveStaticLocalFunctions(int value)
+    {
+        return IsEven(value) ? 1 : 0;
+
+        static bool IsEven(int current)
+            => current == 0 || IsOdd(current - 1);
+
+        static bool IsOdd(int current)
+            => current != 0 && IsEven(current - 1);
     }
 
     // Adversarial negative: the captured variable `n` is reassigned AFTER the only

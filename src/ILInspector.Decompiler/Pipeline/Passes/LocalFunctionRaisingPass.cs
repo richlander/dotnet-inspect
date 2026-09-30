@@ -198,7 +198,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
     /// <summary>
     /// Every reference the body makes to itself, of any node kind — not just the calls
-    /// <see cref="RewriteSelfCalls"/> rewrites.
+    /// <see cref="RewriteAcceptedCalls"/> rewrites.
     /// </summary>
     static List<MethodRef> SelfReferences(IrFunction body, (TypeRef Type, string Name) identity)
         => body.Descendants
@@ -219,7 +219,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         Environment? Environment,
         IrFunction Body,
         ImmutableArray<string> CapturedBinderNames,
-        string Name);
+        string Name,
+        int ComponentId);
 
     /// <summary>Raises what it can, and reports the identities it actually declared.</summary>
     static HashSet<(TypeRef Type, string Name)> RaiseCalls(IrFunction function, PassContext context)
@@ -247,10 +248,18 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             // as raised can never disagree.
             .GroupBy(c => Identity(c.Callee))
             .ToList();
+        var callsByIdentity = groups.ToDictionary(
+            static group => group.Key,
+            static group => group.ToList());
 
         var candidates = new List<Candidate>();
+        var componentIdentities = new HashSet<(TypeRef Type, string Name)>();
+        int nextComponentId = 0;
         foreach (var group in groups)
         {
+            if (componentIdentities.Contains(group.Key))
+                continue;
+
             var calls = group.ToList();
             var method = calls[0].Callee;
             if (method.Name == function.Name
@@ -294,6 +303,30 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     continue;
                 if (body.Signature.HasThis != method.HasThis)
                     continue;
+                if (HasOtherLocalFunctionCall(body, method))
+                {
+                    if (TryPrepareStaticDependencyComponent(
+                        function,
+                        context,
+                        importScope,
+                        method,
+                        body,
+                        callsByIdentity,
+                        referencesByIdentity,
+                        nextComponentId,
+                        out var identities,
+                        out var componentCandidates))
+                    {
+                        componentIdentities.UnionWith(identities);
+                        candidates.AddRange(componentCandidates);
+                        nextComponentId++;
+                    }
+                    else if (identities.Count > 1)
+                    {
+                        componentIdentities.UnionWith(identities);
+                    }
+                    continue;
+                }
 
                 // LocalFunctionStatement has no type-parameter list, so a type parameter
                 // the raised body declares itself cannot be written down: the declaration
@@ -318,7 +351,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 // `static int Own(T x)` and called it as `Own(1)`/`Own("x")` (CS1503), or
                 // as `Own(u)` for a `U` in `M<T, U>` (CS1503). Matching NAMES POSITIONALLY
                 // against each call site's arguments is what rejects both.
-                // The body's own self-references vote too. RewriteSelfCalls drops their
+                // The body's own self-references vote too. RewriteAcceptedCalls drops their
                 // type arguments exactly as the host call sites' are dropped, so a
                 // recursive `Own<int>(1, false)` inside `Own<T>(T x)` raised to
                 // `static int Own(T x)` calling itself as `Own(1, false)` — CS1503, at
@@ -329,12 +362,9 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 {
                     continue;
                 }
-                // Mutual or nested local-function calls are still out of this slice.
                 // A self-call is recoverable: rewrite it to the same local-function
                 // invocation used by the host call sites after the nested pipeline
                 // has run without re-entering this method's import.
-                if (HasOtherLocalFunctionCall(body, method))
-                    continue;
                 if (SelfCalls(body, method).Any(call => !CanRewriteSelfCall(call)))
                     continue;
                 if (consumesHostReceiver
@@ -370,7 +400,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 // foreign check above runs twice: IrPasses.Run can ADD reference nodes.
                 // LambdaRaisingPass imports a lambda's body and attaches it here, so a
                 // self-reference written inside a lambda is not a node at all when the
-                // vote above happens — and RewriteSelfCalls, which runs after this point,
+                // vote above happens — and RewriteAcceptedCalls, which runs after this point,
                 // rewrites calls anywhere in the body, dropping their type arguments.
                 // A non-identity `Own<int>(1)` inside a lambda in `Own<T>(T x)` would
                 // become `Own(1)` against `static string Own(T x)`: CS1503, at Full.
@@ -410,7 +440,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     environment,
                     body,
                     capturedBinderNames,
-                    sourceName));
+                    sourceName,
+                    nextComponentId++));
             }
         }
 
@@ -424,15 +455,19 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             .Where(group => group.Skip(1).Any())
             .Select(group => group.Key)
             .ToHashSet(StringComparer.Ordinal);
+        var rejectedComponents = candidates
+            .Where(candidate => collidingNames.Contains(candidate.Name))
+            .Select(candidate => candidate.ComponentId)
+            .ToHashSet();
 
         // Every surviving body is flattened into the same declaration scope. A
         // declaration can therefore shadow a member reference in a sibling body
         // or in the host after a sibling environment performs its proven
         // substitutions, even though each candidate was independently safe.
         var scopeCandidates = candidates
-            .Where(candidate => !collidingNames.Contains(candidate.Name))
+            .Where(candidate => !rejectedComponents.Contains(candidate.ComponentId))
             .ToList();
-        var shadowingNames = scopeCandidates
+        foreach (var componentId in scopeCandidates
             .Where(candidate => scopeCandidates.Any(scopeCandidate =>
                 HasShadowedInstanceMemberReference(
                     scopeCandidate.Body,
@@ -445,16 +480,22 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                         candidate.Method,
                         candidate.Name,
                         plannedEnvironment: environment)))
-            .Select(candidate => candidate.Name)
-            .ToHashSet(StringComparer.Ordinal);
+            .Select(candidate => candidate.ComponentId))
+        {
+            rejectedComponents.Add(componentId);
+        }
+
+        var acceptedCandidates = candidates
+            .Where(candidate => !rejectedComponents.Contains(candidate.ComponentId))
+            .ToList();
+        var acceptedByIdentity = acceptedCandidates.ToDictionary(
+            candidate => Identity(candidate.Method));
+        foreach (var candidate in acceptedCandidates)
+            RewriteAcceptedCalls(candidate.Body, acceptedByIdentity);
 
         var declarations = new List<LocalFunctionStatement>();
-        foreach (var candidate in candidates)
+        foreach (var candidate in acceptedCandidates)
         {
-            if (collidingNames.Contains(candidate.Name)
-                || shadowingNames.Contains(candidate.Name))
-                continue;
-
             var method = candidate.Method;
             var calls = candidate.Calls;
             bool consumesHostReceiver = candidate.ConsumesHostReceiver;
@@ -463,12 +504,6 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             string name = candidate.Name;
 
             environment?.MaterializeCaptures(function, body);
-            RewriteSelfCalls(
-                body,
-                method,
-                name,
-                consumesHostReceiver,
-                environment is not null);
             if (body.Body.Blocks is [{ Children: [Return { Value: null } trailingReturn] }]
                 && IsVoid(body.Signature.ReturnType))
             {
@@ -855,9 +890,223 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             ? ReferenceEquals(binding, environmentParameter)
             : argument.Index == environmentArgumentIndex + (bodyHasThis ? 1 : 0);
 
+    sealed record ComponentEntry(
+        MethodRef Method,
+        IrFunction Body,
+        PassContext.CrossMethodPipelineScope Scope);
+
+    static bool TryPrepareStaticDependencyComponent(
+        IrFunction host,
+        PassContext context,
+        PassContext.CrossMethodPipelineScope rootScope,
+        MethodRef rootMethod,
+        IrFunction rootBody,
+        Dictionary<(TypeRef Type, string Name), List<Call>> callsByIdentity,
+        Dictionary<(TypeRef Type, string Name), List<MethodRef>> hostReferences,
+        int componentId,
+        out HashSet<(TypeRef Type, string Name)> componentIdentities,
+        out List<Candidate> candidates)
+    {
+        componentIdentities = [];
+        candidates = [];
+        var rootIdentity = Identity(rootMethod);
+        var entries = new Dictionary<(TypeRef Type, string Name), ComponentEntry>
+        {
+            [rootIdentity] = new(rootMethod, rootBody, rootScope),
+        };
+        var edges = new Dictionary<(TypeRef Type, string Name), HashSet<(TypeRef Type, string Name)>>();
+        var pending = new Queue<(TypeRef Type, string Name)>();
+        var openedScopes = new List<PassContext.CrossMethodPipelineScope>();
+        var discoveryOrder = new List<(TypeRef Type, string Name)> { rootIdentity };
+        pending.Enqueue(rootIdentity);
+
+        try
+        {
+            while (pending.TryDequeue(out var identity))
+            {
+                var entry = entries[identity];
+                var dependencies = new HashSet<(TypeRef Type, string Name)>();
+                foreach (var reference in entry.Body.Descendants
+                    .Select(LocalFunctionReference)
+                    .Where(static method => method is not null)
+                    .Select(static method => method!))
+                {
+                    var dependencyIdentity = Identity(reference);
+                    dependencies.Add(dependencyIdentity);
+                    if (entries.ContainsKey(dependencyIdentity))
+                        continue;
+                    if (!GeneratedCodeIdentity.IsLocalFunctionMethod(reference)
+                        || !context.TryEnterCrossMethodPipeline(reference, out var scope))
+                    {
+                        return false;
+                    }
+                    var body = scope.Import();
+                    if (body is null)
+                    {
+                        scope.Dispose();
+                        return false;
+                    }
+                    openedScopes.Add(scope);
+                    entries.Add(dependencyIdentity, new(reference, body, scope));
+                    discoveryOrder.Add(dependencyIdentity);
+                    pending.Enqueue(dependencyIdentity);
+                }
+                edges.Add(identity, dependencies);
+            }
+
+            var stronglyConnectedIdentities = entries.Keys
+                .Where(identity => CanReach(identity, rootIdentity, edges))
+                .ToHashSet();
+            if (stronglyConnectedIdentities.Count <= 1)
+            {
+                componentIdentities = [];
+                return false;
+            }
+            componentIdentities = stronglyConnectedIdentities;
+            var componentOrder = discoveryOrder
+                .Where(stronglyConnectedIdentities.Contains)
+                .ToList();
+            if (stronglyConnectedIdentities.Contains((host.DeclaringType, host.Name)))
+            {
+                return false;
+            }
+            if (stronglyConnectedIdentities.Any(identity =>
+                    edges[identity].Any(dependency => !stronglyConnectedIdentities.Contains(dependency))))
+            {
+                return false;
+            }
+
+            foreach (var identity in componentOrder)
+            {
+                var entry = entries[identity];
+                if (entry.Method.HasThis
+                    || entry.Method.ParameterTypes.Any(IsDisplayClassParameter)
+                    || entry.Body.Signature.HasThis
+                    || entry.Body.Signature.ReturnType.Kind == TypeRefKind.Unsupported
+                    || !HasOnlyRewritableComponentReferences(entry.Body, componentIdentities))
+                {
+                    return false;
+                }
+            }
+
+            foreach (var identity in componentOrder)
+                entries[identity].Scope.Run(entries[identity].Body, IrPasses.Default);
+
+            var componentReferences = componentOrder.ToDictionary(
+                static identity => identity,
+                identity => hostReferences.TryGetValue(identity, out var references)
+                    ? references.ToList()
+                    : []);
+            foreach (var identity in componentOrder)
+            {
+                foreach (var reference in entries[identity].Body.Descendants
+                    .Select(LocalFunctionReference)
+                    .Where(static method => method is not null)
+                    .Select(static method => method!))
+                {
+                    var referenceIdentity = Identity(reference);
+                    if (!componentIdentities.Contains(referenceIdentity))
+                        return false;
+                    componentReferences[referenceIdentity].Add(reference);
+                }
+            }
+
+            foreach (var identity in componentOrder)
+            {
+                var entry = entries[identity];
+                if (!HasOnlyRewritableComponentReferences(entry.Body, componentIdentities))
+                    return false;
+                if (entry.Body.Descendants.OfType<UnsupportedNode>().Any())
+                    return false;
+                if (!IsPrintableBody(
+                        entry.Body,
+                        allowLocalStatements: true,
+                        allowLoops: true))
+                    return false;
+                if (!TypeParametersAreTheHostsOwn(
+                        entry.Body.Signature,
+                        componentReferences[identity]))
+                    return false;
+
+                string sourceName = CSharpNaming.MethodName(entry.Method.Name);
+                if (HasShadowedInstanceMemberReference(
+                        host,
+                        entry.Method,
+                        sourceName,
+                        plannedEnvironment: null)
+                    || HasShadowedInstanceMemberReference(
+                        entry.Body,
+                        entry.Method,
+                        sourceName,
+                        host))
+                {
+                    return false;
+                }
+
+                candidates.Add(new Candidate(
+                    entry.Method,
+                    callsByIdentity.TryGetValue(identity, out var calls) ? calls : [],
+                    ConsumesHostReceiver: false,
+                    Environment: null,
+                    entry.Body,
+                    CapturedBinderNames: [],
+                    sourceName,
+                    componentId));
+            }
+            return true;
+        }
+        finally
+        {
+            for (int i = openedScopes.Count - 1; i >= 0; i--)
+                openedScopes[i].Dispose();
+        }
+    }
+
+    static bool CanReach(
+        (TypeRef Type, string Name) source,
+        (TypeRef Type, string Name) target,
+        Dictionary<(TypeRef Type, string Name), HashSet<(TypeRef Type, string Name)>> edges)
+    {
+        var seen = new HashSet<(TypeRef Type, string Name)>();
+        var pending = new Stack<(TypeRef Type, string Name)>();
+        pending.Push(source);
+        while (pending.TryPop(out var current))
+        {
+            if (!seen.Add(current))
+                continue;
+            if (current.Equals(target))
+                return true;
+            if (edges.TryGetValue(current, out var dependencies))
+            {
+                foreach (var dependency in dependencies)
+                    pending.Push(dependency);
+            }
+        }
+        return false;
+    }
+
+    static bool HasOnlyRewritableComponentReferences(
+        IrFunction body,
+        HashSet<(TypeRef Type, string Name)> componentIdentities)
+    {
+        foreach (var node in body.Descendants)
+        {
+            var method = LocalFunctionReference(node);
+            if (method is null)
+                continue;
+            if (!componentIdentities.Contains(Identity(method))
+                || node is not Call call
+                || !CanRewriteSelfCall(call))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /// <summary>
-    /// Whether the body reaches a DIFFERENT local function. Mutual and nested local
-    /// functions are out of this slice, and a body that touches one is declined.
+    /// Whether the body reaches a different local function. The caller may try to
+    /// recover a complete static dependency component before declining the body.
     /// </summary>
     /// <remarks>
     /// Every reference kind, not just calls. A sibling body holding <c>&amp;A&lt;int&gt;</c>
@@ -873,21 +1122,20 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             .Select(LocalFunctionReference)
             .Any(m => m is not null && !SameLocalFunctionMethod(m, method));
 
-    static void RewriteSelfCalls(
+    static void RewriteAcceptedCalls(
         IrFunction body,
-        MethodRef method,
-        string name,
-        bool consumesReceiver,
-        bool consumesEnvironment)
+        Dictionary<(TypeRef Type, string Name), Candidate> candidates)
     {
-        foreach (var call in SelfCalls(body, method).ToList())
+        foreach (var call in body.Descendants.OfType<Call>().ToList())
         {
+            if (!candidates.TryGetValue(Identity(call.Callee), out var candidate))
+                continue;
             var arguments = call.DetachChildren().Cast<IrExpression>().ToList();
-            if (consumesReceiver)
+            if (candidate.ConsumesHostReceiver)
                 arguments.RemoveAt(0);
-            if (consumesEnvironment)
+            if (candidate.Environment is not null)
                 arguments.RemoveAt(arguments.Count - 1);
-            call.ReplaceWith(LocalInvocation(name, method, arguments));
+            call.ReplaceWith(LocalInvocation(candidate.Name, candidate.Method, arguments));
         }
     }
 
@@ -1214,7 +1462,10 @@ public sealed class LocalFunctionRaisingPass : IIrPass
     static bool IsDisplayClassParameter(TypeRef type)
         => GeneratedCodeIdentity.IsDisplayClassName(type.Kind == TypeRefKind.ByRef ? type.ElementType! : type);
 
-    static bool IsPrintableBody(IrFunction body, bool allowLocalStatements = false)
+    static bool IsPrintableBody(
+        IrFunction body,
+        bool allowLocalStatements = false,
+        bool allowLoops = false)
     {
         if (body.Body.Blocks is not [{ Children: var statements }])
             return false;
@@ -1234,6 +1485,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             if (allowLocalStatements && statement is StoreStackSlot)
                 continue;
             if (allowLocalStatements && statement is StoreField)
+                continue;
+            if (allowLoops && statement is WhileLoop)
                 continue;
             if (statement is IfStatement)
                 continue;
