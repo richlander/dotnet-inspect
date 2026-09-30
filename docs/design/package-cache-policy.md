@@ -375,9 +375,11 @@ All gates run in Release.
    settle "latest" through the
    [Package Version Service](package-version-service.md) as other packages
    do. Both changes are claims of those owners, adopted under their designs.
-5. Inspect Web adopts ranged access, size first, and a browser entry cache in
-   the range-access design's Inspect Web slice, with preflight-free ranged
-   requests.
+5. The Inspect Web document viewer adopts ranged access, size first, and a
+   Cache Storage-backed browser entry cache for root README and Skill Markdown
+   requests, with preflight-free ranged requests. Other Inspect Web package
+   operations retain their existing acquisition paths until their owning
+   designs adopt ranged access.
 
 ## Non-claims
 

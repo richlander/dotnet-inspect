@@ -59,18 +59,21 @@ public sealed partial class PackageHouseExecutionTests
                     PackageDependencyTraversalRootRecurrenceAuthority
                         .ExactCoordinate));
         Assert.Equal(
-            "net12.0",
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
             traversal.TraversalTargetPolicy.TargetFramework);
         var platformTarget = new PlatformFamilyTarget(
             PlatformFamily.DotNetRuntime,
-            PlatformTargetFramework.Parse("net12.0"),
-            PlatformVersion.Parse("12.0.0"));
+            PlatformTargetFramework.Parse(
+                TraversalTargetFrameworkPolicy
+                    .ProductDefaultTargetFramework),
+            PlatformVersion.Parse("11.0.0"));
         PlatformPruneInventory inventory =
             PlatformPruneInventory.FromExactFamily(
                 new PlatformPruneTarget(
                     "Microsoft.NETCore.App",
-                    "net12.0",
-                    NuGetVersion.Parse("12.0.0")),
+                    TraversalTargetFrameworkPolicy
+                        .ProductDefaultTargetFramework,
+                    NuGetVersion.Parse("11.0.0")),
                 [$"{RoutePlatformPackage}|{RouteVersion}"]);
         PackageHouse house = environment.CreateHouse(
             (_, _) => new InMemoryPackageStore());
@@ -97,7 +100,8 @@ public sealed partial class PackageHouseExecutionTests
                         PackageHouseOperation.Create(
                             PackageHouseOperationProfile.Realize),
                         PackageHouseTargetContext.Exact(
-                            "net12.0",
+                            TraversalTargetFrameworkPolicy
+                                .ProductDefaultTargetFramework,
                             platformTarget: platformTarget),
                         inventory));
             realizations.Add(
@@ -160,7 +164,8 @@ public sealed partial class PackageHouseExecutionTests
                     route.Source);
                 Assert.NotNull(route.Realization);
                 Assert.Equal(
-                    "net12.0",
+                    TraversalTargetFrameworkPolicy
+                        .ProductDefaultTargetFramework,
                     route.Occurrence.Occurrence.Package
                         .RequestedTargetFramework);
                 Assert.Equal(
@@ -260,7 +265,8 @@ public sealed partial class PackageHouseExecutionTests
                             PackageHouseOperation.Create(
                                 PackageHouseOperationProfile.Realize),
                             PackageHouseTargetContext.Exact(
-                                "net12.0")));
+                                TraversalTargetFrameworkPolicy
+                                    .ProductDefaultTargetFramework)));
                 realizations.Add(
                     await execution.ExecuteAsync(
                         house,
@@ -352,7 +358,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
         PackageDependencyEdgeRealizationEvidence realization =
             await execution.ExecuteAsync(
                 environment.CreateHouse(
