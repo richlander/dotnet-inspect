@@ -12,16 +12,33 @@ import type {
 
 export const MAX_RETAINED_WORKSPACE_DEFINITIONS = 4;
 
-interface RetainedWorkspaceDefinitionInput {
+interface RetainedWorkspaceDefinitionIdentity {
   readonly label: string;
   readonly canonicalLocation: string;
-  readonly canonicalPacket: string;
 }
 
-interface RetainedWorkspaceDefinition
-  extends RetainedWorkspaceDefinitionInput {
-  readonly id: string;
+interface PacketRetainedWorkspaceDefinitionInput
+  extends RetainedWorkspaceDefinitionIdentity {
+  readonly canonicalPacket: string;
+  readonly packageQuery?: never;
 }
+
+interface PackageQueryRetainedWorkspaceDefinitionInput
+  extends RetainedWorkspaceDefinitionIdentity {
+  readonly canonicalPacket?: never;
+  readonly packageQuery: {
+    readonly packageId: string;
+    readonly version: string;
+  };
+}
+
+type RetainedWorkspaceDefinitionInput =
+  | PacketRetainedWorkspaceDefinitionInput
+  | PackageQueryRetainedWorkspaceDefinitionInput;
+
+type RetainedWorkspaceDefinition = RetainedWorkspaceDefinitionInput & {
+  readonly id: string;
+};
 
 interface RetainedWorkspaceActivationState {
   readonly definitions: readonly RetainedWorkspaceDefinition[];
@@ -56,6 +73,13 @@ export interface RetainedWorkspaceActivationClient {
     packageSourceCredentials: Readonly<
       Record<string, BrowserRetainedWorkspacePackageSourceCredential>
     >,
+  ): Promise<BrowserRetainedWorkspacePreparationResult>;
+  preparePackageQueryWorkspaceDefinition?(
+    retainedDefinitionId: string,
+    label: string,
+    canonicalLocation: string,
+    packageId: string,
+    version: string,
   ): Promise<BrowserRetainedWorkspacePreparationResult>;
   commitRetainedWorkspaceActivation(
     receipt: string,
@@ -244,6 +268,11 @@ export function createRetainedWorkspaceActivationController(
     if (client.describeWorkspacePackageSources === undefined) {
       throw new Error(
         "This engine does not support Workspace package-source descriptions.",
+      );
+    }
+    if (definition.packageQuery !== undefined) {
+      throw new Error(
+        "Package-query Workspace definitions do not require package-source descriptions.",
       );
     }
 
@@ -486,17 +515,18 @@ export function createRetainedWorkspaceActivationController(
     }
     if (input.label.trim().length === 0
       || input.canonicalLocation.trim().length === 0
-      || input.canonicalPacket.trim().length === 0) {
+      || (input.packageQuery === undefined
+        ? input.canonicalPacket.trim().length === 0
+        : input.packageQuery.packageId.trim().length === 0
+          || input.packageQuery.version.trim().length === 0)) {
       throw new Error(
-        "A retained Workspace definition requires a label, canonical location, and canonical packet.",
+        "A retained Workspace definition requires a label, canonical location, and restoration input.",
       );
     }
 
     const definition: RetainedWorkspaceDefinition = {
       id: `workspace-definition-${++nextIdentity}`,
-      label: input.label,
-      canonicalLocation: input.canonicalLocation,
-      canonicalPacket: input.canonicalPacket,
+      ...input,
     };
     definitions = [...definitions, definition];
     return definition;
@@ -552,7 +582,25 @@ export function createRetainedWorkspaceActivationController(
       try {
         const credentialEndpoints = Object.keys(packageSourceCredentials);
         let preparation: BrowserRetainedWorkspacePreparationResult;
-        if (credentialEndpoints.length === 0) {
+        if (definition.packageQuery !== undefined) {
+          if (credentialEndpoints.length !== 0) {
+            throw new Error(
+              "Package-query Workspace definitions do not accept credential bindings.",
+            );
+          }
+          if (client.preparePackageQueryWorkspaceDefinition === undefined) {
+            throw new Error(
+              "This engine does not support package-query Workspace definitions.",
+            );
+          }
+          preparation = await client.preparePackageQueryWorkspaceDefinition(
+            definition.id,
+            definition.label,
+            definition.canonicalLocation,
+            definition.packageQuery.packageId,
+            definition.packageQuery.version,
+          );
+        } else if (credentialEndpoints.length === 0) {
           preparation = await client.prepareRetainedWorkspaceDefinition(
             definition.id,
             definition.label,
