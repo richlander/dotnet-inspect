@@ -2,9 +2,9 @@
 
   <!--
     NativeAOT scorecard for the Analysis-owned physical-method-to-direct-call
-    incidence kernel. Acquisition uses public product APIs outside timing;
-    timed columns compare LINQ and the current compatibility-index path (Old)
-    with the pinned NLinq oracle. See
+    incidence kernel. Acquisition uses the focused call-graph result outside
+    timing; timed columns compare LINQ and that focused product path with the
+    pinned NLinq oracle. See
     docs/evidence-and-validation.md#nlinq-oracle-for-finite-incidence.
   -->
 

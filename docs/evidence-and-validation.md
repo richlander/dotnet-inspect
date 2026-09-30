@@ -284,20 +284,21 @@ The ownership direct-call scorecard follows that contract. Analysis produces
 the detached method and `DirectCall` populations from each real assembly before
 timing. Those shared product facts are the incidence input; the comparison does
 not claim to measure call discovery, metadata resolution, or ECMA decoding.
-LINQ, NLinq, and Old — the shipping compatibility-index route to
-`DirectCallIncidence` — independently build physical-method-token incidence,
-and the answer check compares every complete ordered call slice. Roslyn
-fidelity is exact ordered agreement on the acquired population. Safety for
-admitted ECMA input remains owned by the shared Analysis acquisition; the
-incidence operation itself is bounded by the finite detached arrays it
-receives.
+LINQ, NLinq, and Focused — the shipping
+`LibraryCallGraphAnalysisResult.DirectCallsByEvidenceMethod` route —
+independently build physical-method-token incidence, and the answer check
+compares every complete ordered call slice. Roslyn fidelity is exact ordered
+agreement on the acquired population. Safety for admitted ECMA input remains
+owned by the shared Analysis acquisition; the incidence operation itself is
+bounded by the finite detached arrays it receives.
 
-The Old route is a pre-migration baseline, not the target architecture. A
-successor adds the focused method-targeted population as Planner, moves
-production consumers onto it, and retires the direct-call compatibility-index
-surface. The quadratic legacy scan is already retired and therefore remains in
-its preserved fixed-input before/after evidence rather than making every
-multi-round oracle run repeat that cost.
+The Focused route removes the scorecard's `LibraryBodyIndex` dependency but
+remains the pre-Planner baseline. A successor adds the method-targeted
+population as Planner, moves the remaining production consumers onto it, and
+retires the direct-call compatibility-index surface. The quadratic legacy scan
+is already retired and therefore remains in its preserved fixed-input
+before/after evidence rather than making every multi-round oracle run repeat
+that cost.
 
 Run the answer check against one or more product binaries:
 
@@ -317,7 +318,7 @@ ownership-incidence-scorecard time \
   [--rounds N] [--budget-ms N] [--tsv <path>] <assembly>...
 ```
 
-Report Old/NLinq ratios and absolute medians alongside the end-to-end
+Report Focused/NLinq ratios and absolute medians alongside the end-to-end
 service measurement. The kernel oracle tracks incidence regressions; it does
 not replace profiling or allocation evidence for reaching definitions or other
 Analysis dataflow.

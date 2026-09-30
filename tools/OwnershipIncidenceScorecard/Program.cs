@@ -36,7 +36,7 @@ internal static class OwnershipIncidenceScorecardRunner
         [
             new("LINQ", LinqAnswer),
             oracle,
-            new("Old", OldAnswer),
+            new("Focused", FocusedAnswer),
         ];
         foreach (ScorecardAsset<IncidenceAsset> asset in assets)
         {
@@ -120,16 +120,20 @@ internal static class OwnershipIncidenceScorecardRunner
                 paths.Count);
         for (int i = 0; i < paths.Count; i++)
         {
-            LibraryBodyIndex index = LibraryBodyIndex.Open(
-                paths[i],
-                LibraryBodyAnalysisFeatures.MethodEvidence);
+            LibraryCallGraphAnalysisResult callGraph =
+                LibraryBodyAnalysisService.ExecutePath(
+                    paths[i],
+                    LibraryBodyAnalysisRequest.Create(
+                        LibraryBodyAnalysisFeatures
+                            .MethodEvidence))
+                .CallGraph;
             assets.Add(
                 new(
                     names[i],
                     new(
-                        index,
-                        index.Methods,
-                        index.DirectCalls)));
+                        callGraph,
+                        callGraph.Methods,
+                        callGraph.DirectCalls)));
         }
         return assets;
     }
@@ -161,15 +165,15 @@ internal static class OwnershipIncidenceScorecardRunner
                     static group => group.Key,
                     static group => group.ToImmutableArray()));
 
-    static ScorecardAnswer<IncidenceAnswer> OldAnswer(
+    static ScorecardAnswer<IncidenceAnswer> FocusedAnswer(
         ScorecardClosing closing,
         IncidenceAsset asset)
     {
-        asset.Index.ReleaseCallGraphCaches();
+        asset.CallGraph.ReleaseCaches();
         return Answer(
             closing,
             asset,
-            asset.Index.GetDirectCallsByEvidenceMethod());
+            asset.CallGraph.DirectCallsByEvidenceMethod);
     }
 
     static ScorecardAnswer<IncidenceAnswer> Answer(
@@ -232,7 +236,7 @@ internal static class OwnershipIncidenceScorecardRunner
     }
 
     sealed record IncidenceAsset(
-        LibraryBodyIndex Index,
+        LibraryCallGraphAnalysisResult CallGraph,
         ImmutableArray<MethodIdentity> Methods,
         ImmutableArray<DirectCall> DirectCalls);
 
