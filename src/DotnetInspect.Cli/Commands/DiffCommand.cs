@@ -53,15 +53,6 @@ public partial class DiffCommand
                 "The 'Finding Transitions' section was renamed; use -S Transitions.");
             return 1;
         }
-        if (options.Analysis is not null
-            && (options.EnvelopeOutput || options.JsonOutput))
-        {
-            CommandError.Write(
-                "--envelope and --json are not yet supported with --analysis; "
-                + "the analysis-set result's JSON transport lands with its "
-                + "Browser/Wasm adoption.");
-            return 1;
-        }
         if (options.At.Length > 0
             || options.MaxProbes is not null
             || options.SamplePercent is not null
@@ -78,47 +69,16 @@ public partial class DiffCommand
                 "--count requires --history; pairwise Diff does not declare a countable cohort.");
             return 1;
         }
-        string? transportOption = options.EnvelopeOutput ? "--envelope"
-            : options.CompactJson ? "--compact" : null;
         bool implementationTransport =
             RequestsCompleteImplementationDiff(options);
-        if (implementationTransport
-            && HasIncompatibleImplementationTransportProjection(options))
-        {
-            CommandError.Write(
-                "Complete Implementation Diff transport cannot be combined "
-                    + "with presentation projection or another diff operation.");
-            return 1;
-        }
-        if (transportOption is not null
-            && ((!implementationTransport
-                    && options.HasContentProjection)
-                || implementationTransport
-                    && HasIncompatibleImplementationTransportProjection(options)
-                || options.EnvelopeOutput && options.JsonOutput
-                || options.Discover is not null
-                || !implementationTransport
-                    && options.MemberFilter.Count > 0
-                || options.IncludePdbSource
-                || options.SourceRepositories.Length > 0
-                || options.ChangedOnly
-                || options.AllocRegressionsOnly
-                || options.Legend))
-        {
-            CommandError.Write(
-                $"{transportOption} requires an unprojected Library API diff; "
-                + "filters, selected sections, discovery, and other diff operations are not supported.");
-            return 1;
-        }
-        if (options.EnvelopeOutput && options.HasRenderedLineWindow)
-        {
-            CommandError.Write(
-                "--envelope cannot be combined with rendered-line clipping.");
-            return 1;
-        }
         if (options.CompactJson && !options.JsonOutput && !options.EnvelopeOutput)
         {
             CommandError.Write("--compact requires --json or --envelope.");
+            return 1;
+        }
+        if (options.CompactJson && options.Discover is not null)
+        {
+            CommandError.Write("--compact cannot be combined with discovery.");
             return 1;
         }
         if (options.Schema && options.Discover is null)
@@ -161,14 +121,6 @@ public partial class DiffCommand
         }
         implementationTransport =
             RequestsCompleteImplementationDiff(options);
-        if (implementationTransport
-            && HasIncompatibleImplementationTransportProjection(options))
-        {
-            CommandError.Write(
-                "Complete Implementation Diff transport cannot be combined "
-                    + "with presentation projection or another diff operation.");
-            return 1;
-        }
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
         var hasLibrary = !string.IsNullOrEmpty(options.LibraryVersionRange);
@@ -226,6 +178,54 @@ public partial class DiffCommand
                         StringComparer.OrdinalIgnoreCase),
                 };
             }
+        }
+
+        string? transportOption = options.EnvelopeOutput ? "--envelope"
+            : options.CompactJson ? "--compact" : null;
+        bool analysisTransport = analysisPlan is not null
+            && (options.EnvelopeOutput || options.JsonOutput);
+        if (analysisTransport
+            && HasIncompatibleAnalysisTransportProjection(options))
+        {
+            CommandError.Write(
+                "Complete analysis Diff transport cannot be combined with "
+                + "presentation projection or another diff operation.");
+            return 1;
+        }
+        if (implementationTransport
+            && HasIncompatibleImplementationTransportProjection(options))
+        {
+            CommandError.Write(
+                "Complete Implementation Diff transport cannot be combined "
+                    + "with presentation projection or another diff operation.");
+            return 1;
+        }
+        if (transportOption is not null
+            && !analysisTransport
+            && ((!implementationTransport
+                    && options.HasContentProjection)
+                || implementationTransport
+                    && HasIncompatibleImplementationTransportProjection(options)
+                || options.EnvelopeOutput && options.JsonOutput
+                || options.Discover is not null
+                || !implementationTransport
+                    && options.MemberFilter.Count > 0
+                || options.IncludePdbSource
+                || options.SourceRepositories.Length > 0
+                || options.ChangedOnly
+                || options.AllocRegressionsOnly
+                || options.Legend))
+        {
+            CommandError.Write(
+                $"{transportOption} requires an unprojected Library API diff; "
+                + "filters, selected sections, discovery, and other diff operations are not supported.");
+            return 1;
+        }
+        if (options.EnvelopeOutput && options.HasRenderedLineWindow)
+        {
+            CommandError.Write(
+                "--envelope cannot be combined with rendered-line clipping.");
+            return 1;
         }
 
         if (!OutputFormatResolver.ValidateSingleSectionForTabular(
@@ -1023,6 +1023,30 @@ public partial class DiffCommand
             || options.Discover is not null
             || options.Schema
             || options.Analysis is not null
+            || options.IncludePdbSource
+            || options.SourceRepositories.Length > 0
+            || options.ChangedOnly
+            || options.AllocRegressionsOnly
+            || options.Legend
+            || options.EnvelopeOutput && options.JsonOutput;
+
+    private static bool HasIncompatibleAnalysisTransportProjection(
+        DiffOptions options)
+        => options.Breaking
+            || options.Additive
+            || options.SelectDefault
+            || options.Columns is not null
+            || options.Fields is not null
+            || options.Rows is not null
+            || options.Tabular
+            || options.Tsv
+            || options.Jsonl
+            || options.NoHeader
+            || options.NameOnly
+            || options.Tree
+            || options.VerbosityExplicitlySet
+            || options.Discover is not null
+            || options.Schema
             || options.IncludePdbSource
             || options.SourceRepositories.Length > 0
             || options.ChangedOnly
@@ -2613,28 +2637,7 @@ public partial class DiffCommand
             : typeDiffs.Where(td => MatchesAnyDiffTypeFilter(td.TypeFullName, typeFilters)).ToList();
 
     internal static bool MatchesAnyDiffTypeFilter(string typeFullName, IEnumerable<string> filters)
-    {
-        foreach (var filter in filters)
-        {
-            if (MatchesDiffTypeFilter(typeFullName, filter))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static bool MatchesDiffTypeFilter(string typeFullName, string filter)
-    {
-        if (TypeMatcher.MatchesTypeFilter(typeFullName, filter))
-            return true;
-
-        if (filter.Contains('*') || filter.Contains('?'))
-            return false;
-
-        var normalizedFilter = FqnParser.NormalizeTypeName(filter);
-        return typeFullName.StartsWith(normalizedFilter + ".", StringComparison.OrdinalIgnoreCase)
-               || typeFullName.Contains("." + normalizedFilter + ".", StringComparison.OrdinalIgnoreCase);
-    }
+        => DiffAnalysisTypeFilter.MatchesAny(typeFullName, filters);
 
     internal static string RenderDiff(string name, ApiDiff diff, string fromVersion, string toVersion, DiffOptions options)
     {
@@ -2688,314 +2691,6 @@ public partial class DiffCommand
         return filtered;
     }
 
-    internal static IEnumerable<FindingTransitionRow> RetainedComparisonRows<T>(
-        RetainedFindingComparison<T> retained,
-        string fromVersion,
-        string toVersion,
-        bool emitEmptyComparison,
-        Func<ResearchSubjectKey, PairFinding<T>, string, string, FindingTransitionRow>
-            toTransitionRow)
-        where T : notnull
-        => ComparisonRows(
-            retained.Comparison,
-            retained.Descriptor,
-            retained.Subject.Display,
-            fromVersion,
-            toVersion,
-            emitEmptyComparison,
-            pair => toTransitionRow(
-                retained.Subject,
-                pair,
-                fromVersion,
-                toVersion));
-
-    internal static IEnumerable<FindingTransitionRow> ComparisonRows<T>(
-        FindingComparison<T> comparison,
-        FindingDescriptor descriptor,
-        string target,
-        string fromVersion,
-        string toVersion,
-        bool emitEmptyComparison,
-        Func<PairFinding<T>, FindingTransitionRow> toTransitionRow,
-        Func<PairFinding<T>, bool>? includePair = null)
-        where T : notnull
-    {
-        if (comparison.Value is FindingComparison<T>.Failed failed)
-        {
-            yield return new FindingTransitionRow(
-                "FindingComparison.Failed",
-                descriptor.Id,
-                target,
-                fromVersion,
-                toVersion,
-                InspectionState(failed.OldInspection),
-                InspectionState(failed.NewInspection),
-                failed.Failure)
-                .WithInspectionStates(
-                    InspectionState(failed.OldInspection),
-                    InspectionState(failed.NewInspection));
-            yield break;
-        }
-
-        var complete = (FindingComparison<T>.Complete)comparison.Value;
-        PairFinding<T>[] pairs = includePair is null
-            ? [.. complete.Pairs]
-            : [.. complete.Pairs.Where(includePair)];
-        if (pairs.Length == 0)
-        {
-            if (!emitEmptyComparison
-                && complete.Transition.IsSameTopology)
-            {
-                yield break;
-            }
-
-            yield return new FindingTransitionRow(
-                "FindingComparison.Complete",
-                descriptor.Id,
-                target,
-                fromVersion,
-                toVersion,
-                InspectionState(complete.OldInspection),
-                InspectionState(complete.NewInspection),
-                null)
-                .WithInspectionStates(
-                    InspectionState(complete.OldInspection),
-                    InspectionState(complete.NewInspection));
-            yield break;
-        }
-
-        foreach (PairFinding<T> pair in pairs)
-        {
-            yield return toTransitionRow(pair)
-                .WithInspectionStates(
-                    InspectionState(complete.OldInspection),
-                    InspectionState(complete.NewInspection));
-        }
-    }
-
-    static string InspectionState<T>(FindingInspection<T> inspection)
-        where T : notnull
-        => inspection.Value switch
-        {
-            FindingInspection<T>.Complete => "complete",
-            FindingInspection<T>.Absent
-                {
-                    Kind: FindingInspectionAbsenceKind.SubjectAbsent,
-                } => "subject-absent",
-            FindingInspection<T>.Absent
-                {
-                    Kind: FindingInspectionAbsenceKind.NoApplicableInput,
-                } => "no-applicable-input",
-            FindingInspection<T>.Absent absent => throw new InvalidOperationException(
-                $"Unsupported Finding inspection absence kind '{absent.Kind}'."),
-            FindingInspection<T>.Failed => "failed",
-            _ => throw new InvalidOperationException(
-                "Finding inspection returned an unknown outcome."),
-        };
-
-    static bool MatchesMemberPair(
-        PairFinding<ApiMemberHandle> pair,
-        ResolvedDiffMemberTargets targets)
-    {
-        var oldHandle = OldSide(pair)?.Payload;
-        var newHandle = NewSide(pair)?.Payload;
-        var typeName = newHandle?.TypeFullName ?? oldHandle?.TypeFullName;
-        return typeName is not null
-            && targets.TypeNames.Contains(typeName)
-            && (MatchesHandle(oldHandle, targets.MemberIdentities)
-                || MatchesHandle(newHandle, targets.MemberIdentities));
-    }
-
-    static FindingTransitionRow ToTypeTransitionRow(
-        PairFinding<ApiTypeHandle> pair,
-        string fromVersion,
-        string toVersion)
-        => new(
-            $"PairFinding.{pair.Kind}",
-            pair.Descriptor.Id,
-            TypeTarget(pair),
-            fromVersion,
-            toVersion,
-            OldSide(pair) is null ? "absent" : "present",
-            NewSide(pair) is null ? "absent" : "present",
-            pair.Detail);
-
-    static FindingTransitionRow ToMemberTransitionRow(
-        PairFinding<ApiMemberHandle> pair,
-        string fromVersion,
-        string toVersion)
-        => new(
-            $"PairFinding.{pair.Kind}",
-            pair.Descriptor.Id,
-            MemberTarget(pair),
-            fromVersion,
-            toVersion,
-            OldSide(pair) is null ? "absent" : "present",
-            NewSide(pair) is null ? "absent" : "present",
-            pair.Detail);
-
-    static FindingTransitionRow ToAttributeTransitionRow(
-        PairFinding<ApiAttributeHandle> pair,
-        string fromVersion,
-        string toVersion)
-        => new(
-            $"PairFinding.{pair.Kind}",
-            pair.Descriptor.Id,
-            AttributeTarget(pair),
-            fromVersion,
-            toVersion,
-            OldSide(pair) is null ? "absent" : "present",
-            NewSide(pair) is null ? "absent" : "present",
-            pair.Detail);
-
-    static FindingTransitionRow ToAllocationTransitionRow(
-        ResearchSubjectKey subject,
-        PairFinding<AllocationOccurrence> pair,
-        string fromVersion,
-        string toVersion)
-    {
-        var oldFinding = OldSide(pair);
-        var newFinding = NewSide(pair);
-        return new FindingTransitionRow(
-            $"PairFinding.{pair.Kind}",
-            pair.Descriptor.Id,
-            FindingTargetFormatter.Format(subject.Display, newFinding ?? oldFinding!),
-            fromVersion,
-            toVersion,
-            oldFinding is null ? "absent" : "present",
-            newFinding is null ? "absent" : "present",
-            pair.Detail ?? newFinding?.Detail ?? oldFinding?.Detail);
-    }
-
-    static FindingTransitionRow ToCallSiteTransitionRow(
-        ResearchSubjectKey subject,
-        PairFinding<DirectCall> pair,
-        string fromVersion,
-        string toVersion)
-    {
-        var oldFinding = OldSide(pair);
-        var newFinding = NewSide(pair);
-        return new FindingTransitionRow(
-            $"PairFinding.{pair.Kind}",
-            pair.Descriptor.Id,
-            FindingTargetFormatter.Format(subject.Display, newFinding ?? oldFinding!),
-            fromVersion,
-            toVersion,
-            oldFinding is null ? "absent" : "present",
-            newFinding is null ? "absent" : "present",
-            pair.Detail);
-    }
-
-    static FindingTransitionRow ToUnsafetyTransitionRow(
-        ResearchSubjectKey subject,
-        PairFinding<UnsafetyOccurrence> pair,
-        string fromVersion,
-        string toVersion)
-    {
-        var oldFinding = OldSide(pair);
-        var newFinding = NewSide(pair);
-        return new FindingTransitionRow(
-            $"PairFinding.{pair.Kind}",
-            pair.Descriptor.Id,
-            FindingTargetFormatter.Format(subject.Display, newFinding ?? oldFinding!),
-            fromVersion,
-            toVersion,
-            oldFinding is null ? "absent" : "present",
-            newFinding is null ? "absent" : "present",
-            pair.Detail ?? newFinding?.Detail ?? oldFinding?.Detail);
-    }
-
-    static FindingTransitionRow ToCSharpTransitionRow(
-        ResearchSubjectKey subject,
-        PairFinding<CSharpCanonicalLine> pair,
-        string fromVersion,
-        string toVersion)
-    {
-        var oldFinding = OldSide(pair);
-        var newFinding = NewSide(pair);
-        return new FindingTransitionRow(
-            $"PairFinding.{pair.Kind}",
-            pair.Descriptor.Id,
-            CSharpLineTarget(subject, newFinding ?? oldFinding!),
-            fromVersion,
-            toVersion,
-            oldFinding?.Payload.Text ?? "absent",
-            newFinding?.Payload.Text ?? "absent",
-            pair.Detail);
-    }
-
-    static string CSharpLineTarget(
-        ResearchSubjectKey subject,
-        Finding<CSharpCanonicalLine> finding)
-        => $"{subject.Display} :: line {finding.Payload.Line}";
-
-    static FindingTransitionRow ToIlTransitionRow(
-        ResearchSubjectKey subject,
-        PairFinding<CanonicalIlOperation> pair,
-        string fromVersion,
-        string toVersion)
-    {
-        var oldFinding = OldSide(pair);
-        var newFinding = NewSide(pair);
-        return new FindingTransitionRow(
-            $"PairFinding.{pair.Kind}",
-            pair.Descriptor.Id,
-            IlOperationTarget(subject, newFinding ?? oldFinding!),
-            fromVersion,
-            toVersion,
-            FormatIlFinding(oldFinding),
-            FormatIlFinding(newFinding),
-            pair.Detail);
-    }
-
-    static string IlOperationTarget(
-        ResearchSubjectKey subject,
-        Finding<CanonicalIlOperation> finding)
-        => $"{subject.Display} :: IL_{finding.Payload.Offset:X4}";
-
-    static string FormatIlFinding(Finding<CanonicalIlOperation>? finding)
-        => finding is null
-            ? "absent"
-            : $"IL_{finding.Payload.Offset:X4} {finding.Payload.Display}";
-
-    static string TypeTarget(PairFinding<ApiTypeHandle> pair)
-        => (NewSide(pair) ?? OldSide(pair))!.Payload.TypeFullName;
-
-    static string MemberTarget(PairFinding<ApiMemberHandle> pair)
-    {
-        var handle = (NewSide(pair) ?? OldSide(pair))!.Payload;
-        return $"{handle.TypeFullName}.{handle.StableSelector ?? handle.Identity}";
-    }
-
-    static string MemberTypeTarget(PairFinding<ApiMemberHandle> pair)
-        => (NewSide(pair) ?? OldSide(pair))!.Payload.TypeFullName;
-
-    static string AttributeTarget(PairFinding<ApiAttributeHandle> pair)
-    {
-        var handle = (NewSide(pair) ?? OldSide(pair))!.Payload;
-        return $"{handle.TypeFullName} [{handle.Attribute}]";
-    }
-
-    static Finding<T>? OldSide<T>(PairFinding<T> pair)
-        where T : notnull
-        => pair switch
-        {
-            PairFinding<T>.Added => null,
-            PairFinding<T>.Removed => ((PairFinding<T>.Removed)pair.Value!).Old,
-            PairFinding<T>.Present => ((PairFinding<T>.Present)pair.Value!).Old,
-            PairFinding<T>.Changed => ((PairFinding<T>.Changed)pair.Value!).Old,
-        };
-
-    static Finding<T>? NewSide<T>(PairFinding<T> pair)
-        where T : notnull
-        => pair switch
-        {
-            PairFinding<T>.Added => ((PairFinding<T>.Added)pair.Value!).New,
-            PairFinding<T>.Removed => null,
-            PairFinding<T>.Present => ((PairFinding<T>.Present)pair.Value!).New,
-            PairFinding<T>.Changed => ((PairFinding<T>.Changed)pair.Value!).New,
-        };
-
     internal static ApiDiff FilterApiDiffByMemberTargets(ApiDiff diff, ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
     {
         if (options.MemberFilter.Count == 0)
@@ -3042,7 +2737,7 @@ public partial class DiffCommand
         HashSet<int> NewBodyMetadataTokens);
 
     static bool MatchesMemberTarget(string typeFullName, ApiChange change, ResolvedDiffMemberTargets targets)
-        => IsMemberChange(change.Kind)
+        => change.Subject?.Kind == ApiChangeSubjectKind.Member
             ? MatchesHandle(change.Subject?.OldMember, targets.MemberIdentities)
               || MatchesHandle(change.Subject?.NewMember, targets.MemberIdentities)
             : IsWholeTypeChange(change.Kind) && targets.TypeNames.Contains(typeFullName);
@@ -3564,7 +3259,7 @@ public partial class DiffCommand
         ApiSurface surface,
         string filter)
     {
-        string[] matches = FindingTypeNames.EnumerateResolvable(surface)
+        string[] matches = DiffAnalysisTypeFilter.EnumerateResolvable(surface)
             .Where(typeName =>
                 TypeMatcher.MatchesTypeFilter(typeName, filter))
             .Distinct(StringComparer.Ordinal)
@@ -3610,11 +3305,6 @@ public partial class DiffCommand
         error = null;
         return matches.SingleOrDefault();
     }
-
-    static bool IsMemberChange(ChangeKind kind)
-        => kind is ChangeKind.MemberAdded or ChangeKind.MemberRemoved or ChangeKind.MemberSignatureChanged
-            or ChangeKind.VirtualRemoved or ChangeKind.AbstractMemberAdded or ChangeKind.EnumValueChanged
-            or ChangeKind.MemberAttributeAdded or ChangeKind.MemberAttributeRemoved;
 
     static bool IsWholeTypeChange(ChangeKind kind)
         => kind is ChangeKind.TypeAdded or ChangeKind.TypeRemoved;
