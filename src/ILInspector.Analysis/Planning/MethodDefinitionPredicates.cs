@@ -122,7 +122,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
                 {
                     unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                     visited++;
-                state.Execution.PassUnitsVisited = visited;
+                    state.Execution.PassUnitsVisited = visited;
                     if (sourceGate is not null)
                     {
                         bool? accepted = MethodDefinitionExecution.GateAccepts(ref unit, state, sourceGate);
@@ -382,7 +382,7 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
                 {
                     unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                     visited++;
-                state.Execution.PassUnitsVisited = visited;
+                    state.Execution.PassUnitsVisited = visited;
                     if (gateTests.Gated)
                     {
                         bool? accepted = gateTests.Accepts(ref unit, state, sourceGate);
@@ -396,12 +396,15 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
                     try
                     {
                         var view = new MethodDefinitionView(ref unit, state);
-                        if (predicate.Test(view))
+                        if (!predicate.Test(view))
                         {
-                            accumulator.Count++;
-                            if (rows)
-                                (accumulator.Rows ??= []).Add(projection.Project(view));
+                            completed++;
+                            continue;
                         }
+
+                        accumulator.Count++;
+                        if (rows)
+                            (accumulator.Rows ??= []).Add(projection.Project(view));
                     }
                     catch (Exception ex)
                         when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
@@ -415,7 +418,7 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
 
                     // Stop before advancing either enumerator once the
                     // requested closing is settled.
-                    if ((exists && accumulator.Count > 0)
+                    if (exists
                         || rowLimit is int limit
                             && accumulator.Count >= limit)
                     {
