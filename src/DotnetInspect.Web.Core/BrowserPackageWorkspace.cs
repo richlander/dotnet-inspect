@@ -221,6 +221,12 @@ internal static class BrowserPackageWorkspace
         MaxEntryCount = 4_096,
         MaxUniqueDirectories = 16_384,
     };
+    static readonly PackagePayloadLimits DocumentPayloadLimits =
+        PayloadLimits with
+        {
+            MaxArchiveBytes = PackagePayloadLimits.Default.MaxArchiveBytes,
+            MaxExpandedBytes = MaxCachedPackageBytes,
+        };
     // Browser/Wasm reaches this state serially. The CLR test host can resume independent
     // asynchronous operations on different workers, so the same gate also protects the scope
     // registry and every entry lifecycle transition.
@@ -427,7 +433,8 @@ internal static class BrowserPackageWorkspace
         string path,
         IPackageSourceClient source,
         TimeSpan operationTimeout,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        BrowserSessionPackageStore? packageStore = null) =>
         RunPackageOperationAsync(
             async deadline =>
             {
@@ -438,19 +445,23 @@ internal static class BrowserPackageWorkspace
 
                 IPackageSourceAuthorization authorization =
                     SourceAuthorizationFor(source);
-                BrowserSessionPackageStore store = StoreFor(source);
+                BrowserSessionPackageStore store =
+                    packageStore ?? StoreFor(source);
                 TimeSpan remaining =
                     SourceSettlementOperationTimeout(deadline.Remaining);
                 var operation = PackageHouseOperation.Create(
                     PackageHouseOperationProfile.Acquire,
                     requestTimeout: remaining,
                     operationTimeout: remaining);
+                PackageDocumentDemand? documentDemand =
+                    CreateRangedDocumentDemand(path);
                 var request = new PackageHouseRequest(
                     new PackageHouseDemand.Exact(
                         PackageSourceCoordinate.Create(
                             packageId,
                             version)),
-                    operation);
+                    operation,
+                    documentDemand: documentDemand);
                 await using PackageSourceSettlementLease sourceLease =
                     PackageSourceSettlementService.IssueLease(
                         authority =>
@@ -475,10 +486,15 @@ internal static class BrowserPackageWorkspace
                                 ? store
                                 : throw new InvalidOperationException(
                                     "The package payload requested another configured source."),
-                        PackageLimits,
+                        documentDemand is null
+                            ? PackageLimits
+                            : DocumentPayloadLimits,
                         new BrowserPackageOperationTransferPolicy(
                             store,
-                            deadline)));
+                            deadline),
+                        access: documentDemand is null
+                            ? PackagePayloadAccess.Complete
+                            : PackagePayloadAccess.Ranged));
                 PackageHouseSettlement settlement =
                     await house.ExecuteAsync(
                             request,
@@ -487,6 +503,13 @@ internal static class BrowserPackageWorkspace
                 if (settlement is not PackageHouseSettlement.Acquired acquired
                     || settlement.Result is not PackageHouseResult.Settled)
                 {
+                    if (documentDemand is not null
+                        && settlement.Result is PackageHouseResult.NoMatch)
+                    {
+                        throw new InvalidOperationException(
+                            $"'{path}' is not a browsable document in "
+                                + $"{packageId} {version}.");
+                    }
                     throw new InvalidOperationException(
                         $"PackageHouse could not acquire {packageId} {version}: "
                             + DescribePackageHouseResult(settlement.Result));
@@ -500,6 +523,11 @@ internal static class BrowserPackageWorkspace
             },
             operationTimeout,
             cancellationToken);
+
+    static PackageDocumentDemand? CreateRangedDocumentDemand(string path) =>
+        BrowserPackage.UsesRangedDocumentAcquisition(path)
+            ? PackageDocumentDemand.Create([path])
+            : null;
 
     internal static Task<BrowserPackageRealizationResult> RealizeWithSettlementAsync(
         string packageId,
@@ -4607,8 +4635,7 @@ internal sealed class BrowserPackage
             string? kind =
                 isRoot && fileName.Equals("README.md", StringComparison.OrdinalIgnoreCase) ? "readme"
                 : isRoot && fileName.Equals("PACKAGE.md", StringComparison.OrdinalIgnoreCase) ? "package"
-                : fileName.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
-                    && IsUnderSkillsDirectory(segments) ? "skill"
+                : UsesRangedDocumentAcquisition(entry.Path) ? "skill"
                 : null;
             if (kind is null)
                 continue;
@@ -4811,6 +4838,20 @@ internal sealed class BrowserPackage
             if (segments[index].Equals("skills", StringComparison.OrdinalIgnoreCase))
                 return true;
         return false;
+    }
+
+    internal static bool UsesRangedDocumentAcquisition(string path)
+    {
+        string[] segments = path.Split('/');
+        string fileName = segments[^1];
+        return segments.Length == 1
+                && fileName.Equals(
+                    "README.md",
+                    StringComparison.OrdinalIgnoreCase)
+            || fileName.EndsWith(
+                ".md",
+                StringComparison.OrdinalIgnoreCase)
+                && IsUnderSkillsDirectory(segments);
     }
 
     static string SkillDisplayName(string[] segments)
