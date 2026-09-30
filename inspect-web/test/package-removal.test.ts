@@ -8,6 +8,8 @@ import {
   assemblyDescriptorForType,
   memberRequestKey,
   packageIdentityKey,
+  partitionGraphMembers,
+  searchableMemberGroups,
   workspacePackageRemovalKey,
 } from "../src/data.ts";
 import {
@@ -357,6 +359,8 @@ const graphHostNames = new Set([
   "loadSelectedMemberCallGraph", "memberRequestSignature",
   "platformDemoContextIdFor",
   "currentPackage", "selectedType", "selectedMember",
+  "groupMembers", "typeMemberPopulationKey",
+  "currentTypeMemberPopulation", "declaredMemberGroups",
   "memberGroups", "scope",
 ]);
 const graphHostDeclarations = app.program.body
@@ -387,6 +391,8 @@ function graphRemovalHarness() {
     home: false, workspaceSubjectOpen: false, atPackageRoot: false,
     lens: "api", selectedTypeId: type.id, selectedMemberKey: "Method:Run",
     memberBrowseTypeId: type.id, selectedOverloadIndex: 1, memberSection: "call-graph",
+    memberSpelling: "csharp", memberAccessibilityFilter: "public",
+    typeMemberPopulationKey: "", typeMemberPopulation: null,
     selectedBodyTarget: { metadataToken: 0x06000002, selectorKey: "Run|System.Int32" },
     workspaceShareBasis: null,
     graphMemberNavigationSeq: 0, graphMemberNavigationTitle: "",
@@ -456,6 +462,7 @@ function graphRemovalHarness() {
       state, callGraphInspection: coordinator,
       selectedForwarder: () => null,
       createPackageRemoval, packageIdentityKey, memberRequestKey,
+      partitionGraphMembers, searchableMemberGroups,
       assemblyDescriptorForType, selectedConcreteOverload, memberScopeIsActive,
       memberRequestIsCurrent: () => true,
       invalidateMemberCallGraphWork,
