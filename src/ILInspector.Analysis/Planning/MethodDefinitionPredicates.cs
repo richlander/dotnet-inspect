@@ -16,9 +16,10 @@ public interface IMethodDefinitionPredicate
 
 /// <summary>
 /// A producer for an open query. The request's terminal closes it: Exists
-/// stops at the first unit that satisfies the predicate; otherwise the result
-/// is the number of units that do. A pass that visits only this producer runs
-/// as a closed-query kernel specialized to the predicate and the terminal.
+/// stops at the first unit that satisfies the predicate; a Rows row limit
+/// stops at its Nth match; otherwise the result is the number of units that
+/// satisfy it. A pass that visits only this producer runs as a closed-query
+/// kernel specialized to the predicate and the terminal.
 /// </summary>
 public abstract class MethodDefinitionPredicateProducer<TPredicate>
     : MethodDefinitionProducer<bool, int, int>
@@ -64,6 +65,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
             return false;
 
         bool exists = state.Terminal == ProducerTerminal.Exists;
+        int? rowLimit = state.RowLimit;
         bool typeScoped = HasTypeScope;
         SourceGateGuard? sourceGate = SourceGate;
         TPredicate predicate = default;
@@ -149,9 +151,11 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
                         continue;
                     count++;
 
-                    // Stop before advancing either enumerator, as the reference
-                    // executor does, once the Exists terminal is settled.
-                    if (exists)
+                    // Stop before advancing either enumerator once the
+                    // requested closing is settled.
+                    if (exists
+                        || rowLimit is int limit
+                            && count >= limit)
                     {
                         state.Outcome = ProducerOutcome.Stopped;
                         state.IsActive = false;
@@ -190,8 +194,8 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
 
 /// <summary>
 /// A projection of one unit that satisfies an open query, read only under the
-/// <see cref="ProducerTerminal.Rows"/> closing. A struct, so a kernel
-/// specialized to it calls it directly.
+/// <see cref="ProducerTerminal.Rows"/> closing, including Head(N). A struct,
+/// so a kernel specialized to it calls it directly.
 /// </summary>
 public interface IMethodDefinitionProjection<TRow>
 {
@@ -200,8 +204,9 @@ public interface IMethodDefinitionProjection<TRow>
 
 /// <summary>
 /// A closed open query's result: how many units satisfy it, and, under the
-/// Rows closing, their projected rows in unit order. Count and Exists derived
-/// from Rows are the same count.
+/// Rows closing, their projected rows in unit order. A limited Rows closing
+/// contains at most its requested Head(N). Count and Exists derived from these
+/// rows are the selected-row count and presence.
 /// </summary>
 public sealed record ClosedQueryResult<TRow>(int Count, ImmutableArray<TRow> Rows)
 {
@@ -222,11 +227,12 @@ public sealed class QueryAccumulator<TRow>
 
 /// <summary>
 /// An open query whose request chooses its closing: Exists stops at the first
-/// unit that satisfies the predicate, Complete counts them, and Rows also projects
-/// each one. The projection's fields, such as identity text, are declared
-/// only for the Rows closing, so Count and Exists never read them. A pass that
-/// visits only this producer runs as a closed-query kernel specialized to the
-/// predicate, the projection, and the closing.
+/// unit that satisfies the predicate, Complete counts them, Rows projects each
+/// match, and a limited Rows request stops at its Nth projected match. The
+/// projection's fields, such as identity text, are declared only for the Rows
+/// closing, so Count and Exists never read them. A pass that visits only this
+/// producer runs as a closed-query kernel specialized to the predicate, the
+/// projection, and the closing.
 /// </summary>
 public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRow>
     : MethodDefinitionProducer<QueryFact<TRow>, QueryAccumulator<TRow>, ClosedQueryResult<TRow>>
@@ -335,6 +341,7 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         where TGate : struct, IKernelGate
     {
         bool exists = state.Terminal == ProducerTerminal.Exists;
+        int? rowLimit = state.RowLimit;
         bool rows = state.Terminal == ProducerTerminal.Rows;
         bool typeScoped = HasTypeScope;
         TPredicate predicate = default;
@@ -406,9 +413,11 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
 
                     completed++;
 
-                    // Stop before advancing either enumerator, as the reference
-                    // executor does, once the Exists terminal is settled.
-                    if (exists && accumulator.Count > 0)
+                    // Stop before advancing either enumerator once the
+                    // requested closing is settled.
+                    if ((exists && accumulator.Count > 0)
+                        || rowLimit is int limit
+                            && accumulator.Count >= limit)
                     {
                         state.Outcome = ProducerOutcome.Stopped;
                         state.IsActive = false;

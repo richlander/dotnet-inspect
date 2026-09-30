@@ -45,6 +45,12 @@ public enum ClassificationClosing
 
     /// <summary>Whether any row exists; reads no identity text and stops at the first.</summary>
     Exists,
+
+    /// <summary>
+    /// The first N rows in metadata order; projects matching rows and stops
+    /// when N have been produced or the source is exhausted.
+    /// </summary>
+    Head,
 }
 
 /// <summary>
@@ -70,10 +76,88 @@ public enum ClassifiedRowOrder
 }
 
 /// <summary>One consumer's question of one analyzer.</summary>
-public sealed record ClassificationQuestion(
-    MethodClassificationAnalyzer Analyzer,
-    ClassificationClosing Closing,
-    ClassifiedRowOrder Order = ClassifiedRowOrder.Metadata);
+public sealed record ClassificationQuestion
+{
+    public ClassificationQuestion(
+        MethodClassificationAnalyzer analyzer,
+        ClassificationClosing closing,
+        ClassifiedRowOrder order = ClassifiedRowOrder.Metadata,
+        int? headCount = null)
+    {
+        if (closing == ClassificationClosing.Head)
+        {
+            if (headCount is not > 0)
+                throw new ArgumentOutOfRangeException(nameof(headCount));
+            if (order != ClassifiedRowOrder.Metadata)
+            {
+                throw new ArgumentException(
+                    "Head supports metadata order only.",
+                    nameof(order));
+            }
+        }
+        else if (headCount is not null)
+        {
+            throw new ArgumentException(
+                "A Head count is valid only for the Head closing.",
+                nameof(headCount));
+        }
+
+        Analyzer = analyzer;
+        Closing = closing;
+        Order = order;
+        HeadCount = headCount;
+    }
+
+    public MethodClassificationAnalyzer Analyzer { get; }
+
+    public ClassificationClosing Closing { get; }
+
+    public ClassifiedRowOrder Order { get; }
+
+    public int? HeadCount { get; }
+
+    public static ClassificationQuestion Head(
+        MethodClassificationAnalyzer analyzer,
+        int count) =>
+        new(analyzer, ClassificationClosing.Head, headCount: count);
+
+    internal ClassificationExecution Execution =>
+        new(Closing, HeadCount);
+}
+
+/// <summary>
+/// One independently executed closing, including the operand that gives
+/// Head(N) its identity.
+/// </summary>
+public readonly record struct ClassificationExecution
+{
+    public ClassificationExecution(
+        ClassificationClosing closing,
+        int? headCount = null)
+    {
+        if (closing == ClassificationClosing.Head)
+        {
+            if (headCount is not > 0)
+                throw new ArgumentOutOfRangeException(nameof(headCount));
+        }
+        else if (headCount is not null)
+        {
+            throw new ArgumentException(
+                "A Head count is valid only for the Head closing.",
+                nameof(headCount));
+        }
+
+        Closing = closing;
+        HeadCount = headCount;
+    }
+
+    public ClassificationClosing Closing { get; }
+
+    public int? HeadCount { get; }
+
+    public override string ToString() =>
+        HeadCount is int count ? $"Head({count})" : Closing.ToString();
+}
 
 /// <summary>An analyzer's answer to one question.</summary>
 public abstract record ClassificationAnswer
@@ -102,7 +186,8 @@ public abstract record ClassificationAnswer
 /// <see cref="Finding"/> is null only when the Finding was not requested. When
 /// an analyzer failed or the execution aborted, it is a failed inspection that
 /// names the analyzer and the unit, and <see cref="MergedRows"/> is default.
-/// <see cref="Receipts"/> holds one work receipt per closing that ran, and
+/// <see cref="Receipts"/> holds one work receipt per closing and operand that
+/// ran, and
 /// <see cref="Critical"/> the first execution's critical failure, if any.
 /// </summary>
 public sealed record MethodClassificationResult(
@@ -110,7 +195,7 @@ public sealed record MethodClassificationResult(
     ImmutableArray<ClassifiedMethodRow> MergedRows,
     FindingInspection<ClassifiedMethodObservation>? Finding,
     CriticalFailure? Critical,
-    ImmutableDictionary<ClassificationClosing, WorkReceipt> Receipts)
+    ImmutableDictionary<ClassificationExecution, WorkReceipt> Receipts)
 {
     public ClassificationAnswer AnswerTo(ClassificationQuestion question)
     {
@@ -127,8 +212,8 @@ public sealed record MethodClassificationResult(
 /// <summary>
 /// Host-neutral method classification: per-analyzer questions and one
 /// combined request. Each closing runs as its own request in its own Producer
-/// Planning execution, so Count and Exists never derive from Rows and never
-/// read identity text; composing requests belongs to QuerySpace (#8574).
+/// Planning execution, so no closing derives from another. Count and Exists
+/// never read identity text; composing requests belongs to QuerySpace (#8574).
 /// Hosts bind questions and map answers; they never sort, merge, or count rows.
 /// </summary>
 /// <remarks>
@@ -179,20 +264,52 @@ public static class MethodClassificationQuery
         if (!MetadataFormatAdmission.AdmitImage(peReader))
             return Empty(questions, findingSubject);
 
-        // Each closing is its own request and its own execution: planning
+        // Each closing and operand is its own request and execution: planning
         // never derives Count or Exists from Rows. The Finding asks for Rows
         // of every analyzer, so it shares the Rows execution.
-        var executions = new Dictionary<ClassificationClosing, MethodDefinitionExecution>();
+        var requestedExecutions = new List<ClassificationExecution>();
+        if (finding)
+        {
+            requestedExecutions.Add(
+                new ClassificationExecution(ClassificationClosing.Rows));
+        }
+
         foreach (ClassificationClosing closing in Enum.GetValues<ClassificationClosing>())
+        {
+            foreach (ClassificationQuestion question in questions)
+            {
+                if (question.Closing == closing
+                    && !requestedExecutions.Contains(question.Execution))
+                {
+                    requestedExecutions.Add(question.Execution);
+                }
+            }
+        }
+
+        var executions =
+            new Dictionary<ClassificationExecution, MethodDefinitionExecution>();
+        foreach (ClassificationExecution execution in requestedExecutions)
         {
             var requests = new List<ProducerRequest>();
             foreach (MethodClassificationAnalyzer analyzer in Enum.GetValues<MethodClassificationAnalyzer>())
             {
-                bool requested = finding && closing == ClassificationClosing.Rows && MergedAnalyzers.Contains(analyzer);
+                bool requested = finding
+                    && execution.Closing == ClassificationClosing.Rows
+                    && MergedAnalyzers.Contains(analyzer);
                 foreach (ClassificationQuestion question in questions)
-                    requested |= question.Analyzer == analyzer && question.Closing == closing;
+                {
+                    requested |= question.Analyzer == analyzer
+                        && question.Execution == execution;
+                }
                 if (requested)
-                    requests.Add(new ProducerRequest(ProducerFor(analyzer), TerminalFor(closing)));
+                {
+                    Analyzer producer = ProducerFor(analyzer);
+                    requests.Add(execution.HeadCount is int count
+                        ? ProducerRequest.Head(producer, count)
+                        : new ProducerRequest(
+                            producer,
+                            TerminalFor(execution.Closing)));
+                }
             }
 
             if (requests.Count == 0)
@@ -203,7 +320,7 @@ public static class MethodClassificationQuery
                     ? accepted.Description
                     : throw new InvalidOperationException(
                         "The method classification request must plan.");
-            executions[closing] = MethodDefinitionExecution.Execute(
+            executions[execution] = MethodDefinitionExecution.Execute(
                 description,
                 "MethodClassification",
                 peReader);
@@ -213,7 +330,7 @@ public static class MethodClassificationQuery
         foreach (ClassificationQuestion question in questions)
         {
             answers.Add((question, Answer(
-                executions[question.Closing].ResultOf(ProducerFor(question.Analyzer)),
+                executions[question.Execution].ResultOf(ProducerFor(question.Analyzer)),
                 question)));
         }
 
@@ -221,7 +338,10 @@ public static class MethodClassificationQuery
         FindingInspection<ClassifiedMethodObservation>? inspection = null;
         if (finding)
         {
-            merged = Merge(executions[ClassificationClosing.Rows], out string? failure);
+            merged = Merge(
+                executions[new ClassificationExecution(
+                    ClassificationClosing.Rows)],
+                out string? failure);
             inspection = merged.IsDefault
                 ? new FindingInspection<ClassifiedMethodObservation>(
                     new FindingInspection<ClassifiedMethodObservation>.Failed(
@@ -234,14 +354,14 @@ public static class MethodClassificationQuery
                     findingSubject!);
         }
 
-        var receipts = ImmutableDictionary.CreateBuilder<ClassificationClosing, WorkReceipt>();
+        var receipts =
+            ImmutableDictionary.CreateBuilder<ClassificationExecution, WorkReceipt>();
         CriticalFailure? critical = null;
-        foreach (ClassificationClosing closing in Enum.GetValues<ClassificationClosing>())
+        foreach (ClassificationExecution execution in requestedExecutions)
         {
-            if (!executions.TryGetValue(closing, out MethodDefinitionExecution? execution))
-                continue;
-            receipts[closing] = execution.Receipt;
-            critical ??= execution.Receipt.Critical;
+            MethodDefinitionExecution completed = executions[execution];
+            receipts[execution] = completed.Receipt;
+            critical ??= completed.Receipt.Critical;
         }
 
         return new MethodClassificationResult(
@@ -261,7 +381,8 @@ public static class MethodClassificationQuery
         {
             answers.Add((question, question.Closing switch
             {
-                ClassificationClosing.Rows => new ClassificationAnswer.Rows([]),
+                ClassificationClosing.Rows or ClassificationClosing.Head =>
+                    new ClassificationAnswer.Rows([]),
                 ClassificationClosing.Count => new ClassificationAnswer.Count(0),
                 _ => new ClassificationAnswer.Exists(false),
             }));
@@ -274,7 +395,7 @@ public static class MethodClassificationQuery
                 ? null
                 : MetadataFindings.InspectClassifiedMethods([], findingSubject),
             null,
-            ImmutableDictionary<ClassificationClosing, WorkReceipt>.Empty);
+            ImmutableDictionary<ClassificationExecution, WorkReceipt>.Empty);
     }
 
     /// <summary>
@@ -303,6 +424,7 @@ public static class MethodClassificationQuery
         closing switch
         {
             ClassificationClosing.Rows => ProducerTerminal.Rows,
+            ClassificationClosing.Head => ProducerTerminal.Rows,
             ClassificationClosing.Count => ProducerTerminal.Complete,
             _ => ProducerTerminal.Exists,
         };
@@ -317,11 +439,13 @@ public static class MethodClassificationQuery
         ClosedQueryResult<ClassifiedMethodRow> value = result.Value!;
         return question.Closing switch
         {
-            ClassificationClosing.Rows => new ClassificationAnswer.Rows(
-                Order(
+            ClassificationClosing.Rows or ClassificationClosing.Head =>
+                new ClassificationAnswer.Rows(
+                    Order(
                     value.HasRows
                         ? value.Rows
-                        : throw new InvalidOperationException("The Rows closing must publish rows."),
+                        : throw new InvalidOperationException(
+                            "A row closing must publish rows."),
                     question.Analyzer,
                     question.Order)),
             ClassificationClosing.Count => new ClassificationAnswer.Count(value.Count),

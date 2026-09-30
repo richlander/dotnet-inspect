@@ -235,12 +235,29 @@ public sealed class MethodClassificationQueryTests
 
         // One execution per closing; Count and Exists read no identity text.
         Assert.Equal(
-            [ClassificationClosing.Rows, ClassificationClosing.Count, ClassificationClosing.Exists],
-            result.Receipts.Keys.Order());
-        Assert.True(result.Receipts[ClassificationClosing.Rows].IdentityBudgetArmed);
-        Assert.False(result.Receipts[ClassificationClosing.Count].IdentityBudgetArmed);
-        Assert.False(result.Receipts[ClassificationClosing.Exists].IdentityBudgetArmed);
-        Assert.Equal(0, result.Receipts[ClassificationClosing.Count].IdentityWorkCharged);
+            [
+                new ClassificationExecution(ClassificationClosing.Rows),
+                new ClassificationExecution(ClassificationClosing.Count),
+                new ClassificationExecution(ClassificationClosing.Exists),
+            ],
+            result.Receipts.Keys.OrderBy(static key => key.Closing));
+        Assert.True(
+            result.Receipts[
+                new ClassificationExecution(
+                    ClassificationClosing.Rows)].IdentityBudgetArmed);
+        Assert.False(
+            result.Receipts[
+                new ClassificationExecution(
+                    ClassificationClosing.Count)].IdentityBudgetArmed);
+        Assert.False(
+            result.Receipts[
+                new ClassificationExecution(
+                    ClassificationClosing.Exists)].IdentityBudgetArmed);
+        Assert.Equal(
+            0,
+            result.Receipts[
+                new ClassificationExecution(
+                    ClassificationClosing.Count)].IdentityWorkCharged);
     }
 
     [Fact]
@@ -258,8 +275,9 @@ public sealed class MethodClassificationQueryTests
 
             Assert.Equal(new ClassificationAnswer.Exists(true), result.AnswerTo(exists));
             Assert.Null(result.Critical);
-            (ClassificationClosing closing, WorkReceipt receipt) = Assert.Single(result.Receipts);
-            Assert.Equal(ClassificationClosing.Exists, closing);
+            (ClassificationExecution execution, WorkReceipt receipt) =
+                Assert.Single(result.Receipts);
+            Assert.Equal(ClassificationClosing.Exists, execution.Closing);
             Assert.Equal(
                 [AsyncAnalyzer.Instance.Identity],
                 receipt.Producers.Select(static participation => participation.Producer));
@@ -272,6 +290,67 @@ public sealed class MethodClassificationQueryTests
             Assert.IsType<ClassificationAnswer.Aborted>(result.AnswerTo(count));
             Assert.NotNull(result.Critical);
         }
+    }
+
+    [Fact]
+    public void Async_HeadVisitsUntilTheNthMatchAndStopsBeforeLaterFailure()
+    {
+        // One plain method, two async matches, then an attribute whose type
+        // exceeds the relationship bound. Head(2) must visit three raw methods,
+        // return two rows, and stop before the hostile fourth method.
+        byte[] image = AsyncImage(
+            runtimeAsync: true,
+            hostileAttribute: true,
+            compilerAsync: true);
+        ClassificationQuestion head =
+            ClassificationQuestion.Head(MethodClassificationAnalyzer.Async, 2);
+
+        using (var peReader = new PEReader(ImmutableArray.Create(image)))
+        {
+            MethodClassificationResult result =
+                MethodClassificationQuery.Execute(peReader, [head]);
+
+            ClassificationAnswer.Rows rows =
+                Assert.IsType<ClassificationAnswer.Rows>(
+                    result.AnswerTo(head));
+            Assert.Equal(
+                ["Compiler", "Runtime"],
+                rows.Methods.Select(static row => row.MethodName.ToString()));
+            Assert.Null(result.Critical);
+
+            WorkReceipt receipt = result.Receipts[
+                new ClassificationExecution(
+                    ClassificationClosing.Head,
+                    2)];
+            Assert.Equal(3, receipt.UnitsVisited);
+            Assert.Equal(
+                ProducerOutcome.Stopped,
+                Assert.Single(receipt.Producers).Outcome);
+        }
+
+        ClassificationQuestion rowsQuestion = new(
+            MethodClassificationAnalyzer.Async,
+            ClassificationClosing.Rows);
+        using var rowsReader = new PEReader(ImmutableArray.Create(image));
+        MethodClassificationResult rowsResult =
+            MethodClassificationQuery.Execute(rowsReader, [rowsQuestion]);
+        Assert.IsType<ClassificationAnswer.Aborted>(
+            rowsResult.AnswerTo(rowsQuestion));
+        Assert.NotNull(rowsResult.Critical);
+    }
+
+    [Fact]
+    public void Head_RequiresAPositiveCountAndMetadataOrder()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ClassificationQuestion.Head(
+                MethodClassificationAnalyzer.Async,
+                0));
+        Assert.Throws<ArgumentException>(() => new ClassificationQuestion(
+            MethodClassificationAnalyzer.Async,
+            ClassificationClosing.Head,
+            ClassifiedRowOrder.Model,
+            headCount: 1));
     }
 
     [Theory]
@@ -374,7 +453,7 @@ public sealed class MethodClassificationQueryTests
     }
 
     /// <summary>
-    /// One public type: a compiler-async method first (when asked), then a
+    /// One public type: a plain method, a compiler-async method (when asked), a
     /// runtime-async method (when asked), then a method whose attribute type
     /// nests beyond the chain bound (when asked).
     /// </summary>
@@ -429,6 +508,7 @@ public sealed class MethodClassificationQueryTests
                 metadata.AddCustomAttribute(method, constructor, default);
         }
 
+        Method("PlainBefore", System.Reflection.MethodImplAttributes.IL, null);
         if (compilerAsync)
             Method("Compiler", System.Reflection.MethodImplAttributes.IL, asyncConstructor);
         if (runtimeAsync)

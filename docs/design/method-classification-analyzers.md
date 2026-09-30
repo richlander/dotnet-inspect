@@ -48,8 +48,9 @@ together in the same case.
 > publishes legacy's `RuntimeAsync` rows and compiler async its
 > `StateMachineAsync` rows. Rows from two or more analyzers, merged by
 > metadata order and then by the legacy order P/Invoke, async, pointer, equal
-> the legacy list. Count and Exists over these analyzers read no identity
-> text.
+> the legacy list. Head(N) returns at most the first N matching rows in
+> metadata order and stops at the Nth match. Count and Exists over these
+> analyzers read no identity text.
 
 This owner defines:
 
@@ -102,7 +103,7 @@ classifies P/Invoke first and stops.
 Row projection (declaring type, name, namespace, signature text, anchor,
 return type, module name) goes through the gate's Tier 2 identity accessor.
 That accessor uses Metadata's existing projection functions, so the text
-equals legacy's. Only Rows declares `IdentityText`; Count and Exists do not.
+equals legacy's. Rows and Head declare `IdentityText`; Count and Exists do not.
 
 ## Tier 1 faithfulness
 
@@ -188,8 +189,9 @@ of other tools:
   custom trimmer that strips the attribute makes it undercount. Every read
   stays bounded, memoized, and inert, so neither case costs more than the
   image's rows or allocates metadata names.
-- **One fidelity for every closing.** Rows, Count, and Exists apply the same
-  test, so Count equals the number of rows whenever Rows succeeds.
+- **One fidelity for every closing.** Rows, Head, Count, and Exists apply the
+  same test. Count equals the number of rows whenever Rows succeeds, and
+  Head(N) equals the first N of those metadata-ordered rows.
 - **Authentication stays with its owner.** `StateMachineRelationshipIndex`
   serves work whose job is authentication: decompiler reconstruction and
   explicitly requested relationship facts. The classification analyzers do
@@ -221,6 +223,11 @@ exhausts the budget, and aborts. Count equals the number of rows whenever
 Rows succeeds. This is a consequence of the performance design, not a goal,
 and hostile images are not promised an answer.
 
+Head decodes the identity text of each row it publishes. Reaching N matching
+rows settles Head(N) before the next raw method is read. A later hostile method
+therefore cannot fail that already settled request, just as a later hostile
+method cannot fail Exists after its first match.
+
 Below the budget, the analyzers handle recoverable failures as follows:
 
 - **Identity projection fails** for a row that is classified. This happens
@@ -246,14 +253,15 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
 `UnsafeEvidencePresenceQuery`:
 
 - **One query per analyzer:** P/Invoke, runtime async, compiler async, and
-  pointer signature. Each is parameterized by its closing (Rows, Count, or
-  Exists) and returns a typed result for that closing, or the typed critical
-  failure.
+  pointer signature. Each is parameterized by its closing (Rows, Head(N),
+  Count, or Exists) and returns a typed result for that closing, or the typed
+  critical failure.
 - **Async is one producer,** not a composition of the two. Its test is the
   runtime-async test, else the compiler-async test, reusing both analyzers'
   code, and it declares the union of their fields. Exists stops at the first
-  async method, and Count and Rows are one walk; the answers equal the union
-  of runtime async and compiler async, which stay askable on their own.
+  async method, Head(N) stops at the Nth matching method, and Count and Rows
+  are one walk; the answers equal the union of runtime async and compiler
+  async, which stay askable on their own.
   Composing disjunctions across producers belongs to QuerySpace
   ([#8574](https://github.com/richlander/dotnet-inspect/issues/8574)).
   The operator chose this on 2026-09-28 over a query-layer composite that
@@ -269,9 +277,10 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
   declarations. Requests are not merged at this level. Per
   [Requests are QuerySpace requests, never merged here](producer-planning.md#requests-are-queryspace-requests-never-merged-here),
   each consumer's request runs its own closing:
-  - Rows, Count, and Exists for the same analyzer are separate requests. Count
-    and Exists never declare `IdentityText`, even when Rows is also requested.
-  - Nothing derives Count or Exists from Rows, and no ranking of closings
+  - Rows, each distinct Head(N), Count, and Exists for the same analyzer are
+    separate requests. Count and Exists never declare `IdentityText`, even
+    when a row closing is also requested.
+  - Nothing derives one closing from another, and no ranking of closings
     exists in the queries or the planner.
   - Collapsing several requests for one resource into one pass belongs to
     QuerySpace, [#8574](https://github.com/richlander/dotnet-inspect/issues/8574).
@@ -292,6 +301,12 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
 
   A host names the order it shows, and the query returns rows in that order.
   No host sorts or projects rows itself.
+- **Head is metadata-ordered in this adoption.** A positive N is part of the
+  closing identity. The source visits as many raw method definitions as needed
+  to produce N matches, projects only those matches, and stops before the next
+  method. Source exhaustion returns the fewer matching rows. Model- and
+  display-ordered Head are not admitted because those orders require the
+  complete population before selection.
 - **One combined request** runs every requested analyzer and closing in one
   execution, with each consumer's own closing and no merging between
   them. Rows are requested only by the Finding and the row
@@ -375,6 +390,10 @@ work, tracked in #8733, and not part of this change.
   run as separate requests with equal answers, and the Count declares no
   `IdentityText`. Nothing in the queries or the planner ranks or merges
   closings.
+- **Head stop.** An async Head(2) fixture places one nonmatching raw method
+  before two matches and a hostile method after them. It visits three raw
+  methods, returns the two matches, reports a stopped producer, and does not
+  read the hostile fourth method; Rows over the same image aborts visibly.
 - **Malformed pointer signature under Count.** It fails the pointer analyzer
   with a typed `Failed` outcome naming the method, and never publishes a
   silently reduced count.
@@ -410,11 +429,11 @@ work, tracked in #8733, and not part of this change.
   scorecard assemblies, and every built repository fixture, runtime-async
   rows equal legacy's `RuntimeAsync` rows, compiler-async rows its
   `StateMachineAsync` rows, the two are disjoint, and async's Rows, Count,
-  and Exists agree with legacy's async rows.
-- **One pass.** Async's rows, Count, and Exists equal the union of runtime
-  async and compiler async. Exists stops at the first async method, before a
-  later method whose attribute match would abort; a runtime-async method's
-  attributes are never matched.
+  Head, and Exists agree with legacy's async rows.
+- **One pass.** Async's Rows, Head, Count, and Exists equal the union of
+  runtime async and compiler async. Exists stops at the first async method,
+  and Head stops at its requested match, before a later method whose attribute
+  match would abort; a runtime-async method's attributes are never matched.
 - **Count reads no identity text.** On the existing hostile classification
   fixtures, Count, Exists, and classification charge zero identity budget and
   complete. Rows on the same fixtures abort with `CriticalFailure`.

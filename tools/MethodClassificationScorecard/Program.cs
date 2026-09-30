@@ -353,22 +353,24 @@ static class Columns
     }
 
     /// <summary>
-    /// The enablement: Exists and Count are closings; Head, Tail, and the
-    /// window read the Rows closing, which the query does not push down.
+    /// The enablement: Exists, Count, and Head are source closings. Tail and
+    /// the strict window still read the Rows closing.
     /// </summary>
     static ScorecardAnswer<string> Planner(Population population, ScorecardClosing closing, PEReader pe, ScorecardShape shape)
     {
         MethodClassificationAnalyzer analyzer = population == Population.Async
             ? MethodClassificationAnalyzer.Async
             : MethodClassificationAnalyzer.PInvoke;
-        ClassificationQuestion question = new(
-            analyzer,
-            closing switch
-            {
-                ScorecardClosing.Exists => ClassificationClosing.Exists,
-                ScorecardClosing.Count => ClassificationClosing.Count,
-                _ => ClassificationClosing.Rows,
-            });
+        ClassificationQuestion question = closing == ScorecardClosing.Head
+            ? ClassificationQuestion.Head(analyzer, shape.N)
+            : new(
+                analyzer,
+                closing switch
+                {
+                    ScorecardClosing.Exists => ClassificationClosing.Exists,
+                    ScorecardClosing.Count => ClassificationClosing.Count,
+                    _ => ClassificationClosing.Rows,
+                });
         return MethodClassificationQuery.Execute(pe, [question]).AnswerTo(question) switch
         {
             ClassificationAnswer.Exists exists => ScorecardAnswer<string>.OfExists(exists.Value),
