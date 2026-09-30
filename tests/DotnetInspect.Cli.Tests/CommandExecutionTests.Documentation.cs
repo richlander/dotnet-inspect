@@ -43,9 +43,7 @@ public partial class CommandExecutionTests
             "Measure",
             "--library",
             FixtureCatalog.InspectWebDocumentation.AssemblyPath(),
-            "-v:d",
-            "--tips",
-            "q");
+            "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -71,9 +69,7 @@ public partial class CommandExecutionTests
             "Extension Methods",
             "--columns",
             "Signature;Description",
-            "--tsv",
-            "--tips",
-            "q");
+            "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -93,9 +89,7 @@ public partial class CommandExecutionTests
             "--library",
             FixtureCatalog.InspectWebDocumentation.AssemblyPath(),
             "--all",
-            "-v:d",
-            "--tips",
-            "q");
+            "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -130,9 +124,7 @@ public partial class CommandExecutionTests
                 "InspectWeb.DocumentationFixtures.Widget",
                 "--library",
                 assemblyPath,
-                "-v:d",
-                "--tips",
-                "q");
+                "-v:d");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -146,9 +138,7 @@ public partial class CommandExecutionTests
                 "--library",
                 assemblyPath,
                 "-v:d",
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -192,9 +182,7 @@ public partial class CommandExecutionTests
                 "InspectWeb.DocumentationFixtures.Widget",
                 "--library",
                 assemblyPath,
-                "-v:d",
-                "--tips",
-                "q");
+                "-v:d");
 
             Assert.Equal(0, exit);
             Assert.Contains(

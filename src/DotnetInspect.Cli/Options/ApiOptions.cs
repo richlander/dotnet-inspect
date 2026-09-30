@@ -249,6 +249,9 @@ public partial record ApiOptions : IProjectionOptions
     public BodyKindQueryOptions BodyKindQuery { get; init; } = BodyKindQueryOptions.Default;
     public CloneCandidateQueryOptions CloneCandidateQuery { get; init; } =
         CloneCandidateQueryOptions.Default;
+    /// <summary>
+    /// Whether the explicit tip projection was requested.
+    /// </summary>
     public TipLevel TipLevel { get; init; } = TipLevel.Quiet;
 
     /// <summary>

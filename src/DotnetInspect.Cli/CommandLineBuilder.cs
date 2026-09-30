@@ -1232,8 +1232,11 @@ public static class CommandLineBuilder
             StringComparer.OrdinalIgnoreCase,
             OptionParsers.ValidVerbosityValues);
         rootCommand.Options.Add(rootVerbosityOption);
-        var rootTipsOption = new Option<string?>("--tips") { Description = "Show tips: m(inimal, default), d(etailed), q(uiet)", Arity = ArgumentArity.ZeroOrOne };
-        rootTipsOption.Aliases.Add("-T");
+        var rootTipsOption = new Option<bool>("-T")
+        {
+            Description = "Show contextual tips after successful output",
+            Arity = ArgumentArity.Zero
+        };
         rootCommand.Options.Add(rootTipsOption);
         var offlineOption = new Option<bool>("--offline") { Description = "Disable all network access (use cached data only)" };
         rootCommand.Options.Add(offlineOption);
@@ -1335,9 +1338,10 @@ public static class CommandLineBuilder
         {
             var hasVerbosity = parseResult.GetResult(rootVerbosityOption) != null;
             var verbosity = ParseVerbosity(parseResult.GetValue(rootVerbosityOption));
-            var tipLevel = ParseTipLevel(
-                parseResult.GetValue(rootTipsOption),
-                parseResult.GetResult(rootTipsOption) != null);
+            var tipLevel = parseResult.GetResult(rootTipsOption)
+                is { Implicit: false }
+                    ? TipLevel.Minimal
+                    : TipLevel.Quiet;
 
             // -v flag present: show CLI tree view (like former `cli` command)
             if (hasVerbosity)
@@ -1366,7 +1370,6 @@ public static class CommandLineBuilder
             tipLevel,
             new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
             new Tip("package query", "<ID-or-prefix*>", "discover NuGet package IDs"),
-            new Tip("-T:d", "", "show more tips per command"),
             new Tip(TypeCommand.Name, "--package <package>", "discover types in package"),
             new Tip(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
             new Tip(FindCommand.Name, "<pattern> --package <package>", "search API symbols in a known package"),
@@ -1376,7 +1379,6 @@ public static class CommandLineBuilder
 
     // Parse helpers delegated to OptionParsers (for backward compatibility)
     public static Verbosity ParseVerbosity(string? value) => OptionParsers.ParseVerbosity(value);
-    public static TipLevel ParseTipLevel(string? value, bool optionPresent) => OptionParsers.ParseTipLevel(value, optionPresent);
     public static HashSet<string>? ParseSectionList(string? value) => OptionParsers.ParseSectionList(value);
     public static NuGetSourceOptions ParseNuGetSourceOptions(
         ParseResult parseResult, Option<string[]> sourceOption,

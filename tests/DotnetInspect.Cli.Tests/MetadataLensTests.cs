@@ -59,9 +59,7 @@ public partial class CommandExecutionTests
         var (exit, output, _) = await RunAppAsync(
             "library",
             typeof(object).Assembly.Location,
-            verbosity,
-            "--tips",
-            "q");
+            verbosity);
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain(
@@ -78,9 +76,7 @@ public partial class CommandExecutionTests
             typeof(object).Assembly.Location,
             "-S",
             SectionCategoryNames.ReadyToRun,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -97,9 +93,7 @@ public partial class CommandExecutionTests
             "-D",
             SectionCategoryNames.ReadyToRun,
             "--effective",
-            "--tsv",
-            "--tips",
-            "q");
+            "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -115,9 +109,7 @@ public partial class CommandExecutionTests
             "library",
             typeof(object).Assembly.Location,
             "-S",
-            ReadyToRunSectionNames.Image,
-            "--tips",
-            "q");
+            ReadyToRunSectionNames.Image);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -154,9 +146,7 @@ public partial class CommandExecutionTests
                 "library",
                 path,
                 "-S",
-                section,
-                "--tips",
-                "q");
+                section);
 
             Assert.Equal(1, exit);
             Assert.Contains("ReadyToRun image", error, StringComparison.Ordinal);
@@ -176,9 +166,7 @@ public partial class CommandExecutionTests
             "--metadata-root",
             "r2r-manifest",
             "-S",
-            MetadataSectionNames.Image,
-            "--tips",
-            "q");
+            MetadataSectionNames.Image);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -205,8 +193,6 @@ public partial class CommandExecutionTests
             "-S",
             MetadataSectionNames.Image,
             "--count",
-            "--tips",
-            "q",
         ];
 
         var leading = await RunAppAsync(
@@ -247,9 +233,7 @@ public partial class CommandExecutionTests
             "r2r-manifest",
             "-S",
             MetadataSectionNames.ForTable(selected),
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -281,9 +265,7 @@ public partial class CommandExecutionTests
             "address",
             $"#Strings:{entry.Offset}",
             "--library",
-            path,
-            "--tips",
-            "q");
+            path);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -302,9 +284,7 @@ public partial class CommandExecutionTests
             "--metadata-root",
             "r2r-manifest",
             "-S",
-            MetadataSectionNames.Image,
-            "--tips",
-            "q");
+            MetadataSectionNames.Image);
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain(
@@ -337,9 +317,7 @@ public partial class CommandExecutionTests
                 "--metadata-root",
                 "r2r-manifest",
                 "-S",
-                MetadataSectionNames.Image,
-                "--tips",
-                "q");
+                MetadataSectionNames.Image);
 
             Assert.Equal(1, exit);
             Assert.Contains("Metadata image", error, StringComparison.Ordinal);
@@ -386,9 +364,7 @@ public partial class CommandExecutionTests
                 "address",
                 $"#Strings:{cliEntry.Offset}",
                 "--library",
-                path,
-                "--tips",
-                "q");
+                path);
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -448,9 +424,7 @@ public partial class CommandExecutionTests
                 assemblyPath,
                 "-D",
                 "--effective",
-                "--tree",
-                "--tips",
-                "q");
+                "--tree");
 
             Assert.Contains(
                 SectionCategoryNames.ReadyToRun,
@@ -486,9 +460,7 @@ public partial class CommandExecutionTests
             "library",
             typeof(object).Assembly.Location,
             "--metadata-root",
-            "r2r-manifest",
-            "--tips",
-            "q");
+            "r2r-manifest");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -508,9 +480,7 @@ public partial class CommandExecutionTests
             "r2r-manifest",
             "-D",
             SectionCategoryNames.Metadata,
-            "--tsv",
-            "--tips",
-            "q");
+            "--tsv");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -531,9 +501,7 @@ public partial class CommandExecutionTests
             "-D",
             SectionCategoryNames.Metadata,
             "--effective",
-            "--tsv",
-            "--tips",
-            "q");
+            "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -551,9 +519,7 @@ public partial class CommandExecutionTests
             "-D",
             SectionCategoryNames.Metadata,
             "--effective",
-            "--tsv",
-            "--tips",
-            "q");
+            "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(output);
@@ -575,9 +541,7 @@ public partial class CommandExecutionTests
             "-D",
             category,
             "--effective",
-            "--tsv",
-            "--tips",
-            "q");
+            "--tsv");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -596,9 +560,7 @@ public partial class CommandExecutionTests
             "--metadata-root",
             "manifest",
             "-S",
-            MetadataSectionNames.Image,
-            "--tips",
-            "q");
+            MetadataSectionNames.Image);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -665,7 +627,7 @@ public partial class CommandExecutionTests
     [InlineData("-v:d")]
     public async Task MetadataLens_NoVerbosity_RendersAnyMetadataSection(string verbosity)
     {
-        var (exit, output, _) = await RunAppAsync("library", TestAssemblyPath, verbosity, "--tips", "q");
+        var (exit, output, _) = await RunAppAsync("library", TestAssemblyPath, verbosity);
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain(MetadataHeadingPrefix, output, StringComparison.Ordinal);
@@ -673,7 +635,7 @@ public partial class CommandExecutionTests
         foreach (var category in new[] { SectionCategoryNames.Library, SectionCategoryNames.Surface })
         {
             var (categoryExit, categoryOutput, _) = await RunAppAsync(
-                "library", TestAssemblyPath, verbosity, "-S", category, "--tips", "q");
+                "library", TestAssemblyPath, verbosity, "-S", category);
 
             Assert.Equal(0, categoryExit);
             Assert.DoesNotContain(MetadataHeadingPrefix, categoryOutput, StringComparison.Ordinal);
@@ -690,7 +652,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_ExactName_RendersOnlyThatTable()
     {
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Metadata: TypeRef", "--rows", "5", "--tips", "q");
+            "library", TestAssemblyPath, "-S", "Metadata: TypeRef", "--rows", "5");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Metadata: TypeRef", output, StringComparison.Ordinal);
@@ -711,7 +673,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_Trace_ExecutesTypedQueryOnce()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--trace", "--tips", "q");
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--trace");
 
         Assert.Equal(0, exit);
         Assert.Contains("| Metadata version |", output, StringComparison.Ordinal);
@@ -751,9 +713,7 @@ public partial class CommandExecutionTests
                 native,
                 "-S",
                 MetadataSectionNames.Image,
-                "--trace",
-                "--tips",
-                "q");
+                "--trace");
 
             Assert.Equal(1, exit);
             Assert.DoesNotContain("| Metadata version |", output, StringComparison.Ordinal);
@@ -853,7 +813,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_CategoryDoor_SelectsTheWholeFamily()
     {
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", SectionCategoryNames.Metadata, "--count", "--tips", "q");
+            "library", TestAssemblyPath, "-S", SectionCategoryNames.Metadata, "--count");
 
         Assert.Equal(0, exit);
         Assert.Contains("Metadata: TypeDef", output, StringComparison.Ordinal);
@@ -871,7 +831,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_BareDiscovery_ListsDoorWithoutMembers()
     {
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", "--tsv", "--tips", "q");
+            "library", TestAssemblyPath, "-D", "--tsv");
 
         Assert.Equal(0, exit);
         var names = DiscoveryNames(output);
@@ -890,7 +850,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, _) = await RunAppAsync(
             "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
-            "--effective", "--tsv", "--tips", "q");
+            "--effective", "--tsv");
 
         Assert.Equal(0, exit);
         var names = DiscoveryNames(output);
@@ -915,8 +875,8 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task MetadataLens_DiscoveryCatalog_SurvivesCacheRoundTrip()
     {
-        var (coldExit, cold, _) = await RunAppAsync("library", TestAssemblyPath, "-D", "--tsv", "--tips", "q");
-        var (warmExit, warm, _) = await RunAppAsync("library", TestAssemblyPath, "-D", "--tsv", "--tips", "q");
+        var (coldExit, cold, _) = await RunAppAsync("library", TestAssemblyPath, "-D", "--tsv");
+        var (warmExit, warm, _) = await RunAppAsync("library", TestAssemblyPath, "-D", "--tsv");
 
         Assert.Equal(0, coldExit);
         Assert.Equal(0, warmExit);
@@ -934,7 +894,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_EmptyTable_IsExcludedNotRenderedEmpty()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Metadata: ExportedType", "--tips", "q");
+            "library", TestAssemblyPath, "-S", "Metadata: ExportedType");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -952,7 +912,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_Tabular_RowsAreSelfIdentifying()
     {
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Metadata: TypeRef", "--tsv", "--rows", "3", "--tips", "q");
+            "library", TestAssemblyPath, "-S", "Metadata: TypeRef", "--tsv", "--rows", "3");
 
         Assert.Equal(0, exit);
         var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -973,7 +933,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_Rows_WindowsTheTable()
     {
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Metadata: TypeRef", "--tsv", "--rows", "2..4", "--tips", "q");
+            "library", TestAssemblyPath, "-S", "Metadata: TypeRef", "--tsv", "--rows", "2..4");
 
         Assert.Equal(0, exit);
         var dataRows = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -992,7 +952,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath, "-S", "Metadata: TypeRef",
-            "--count", "--rows", "2..4", "--tips", "q");
+            "--count", "--rows", "2..4");
 
         Assert.Equal(0, exit);
         Assert.Equal("3", output.Trim());
@@ -1024,7 +984,7 @@ public partial class CommandExecutionTests
 
             var (exit, output, error) = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", SectionCategoryNames.Metadata, "--tips", "q");
+                "-S", SectionCategoryNames.Metadata);
 
             Assert.Equal(1, exit);
             Assert.Contains("single assembly", error, StringComparison.OrdinalIgnoreCase);
@@ -1033,7 +993,7 @@ public partial class CommandExecutionTests
 
             var (countExit, countOutput, countError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Metadata: TypeDef", "--count", "--tips", "q");
+                "-S", "Metadata: TypeDef", "--count");
 
             Assert.Equal(0, countExit);
             Assert.True(int.Parse(countOutput) > 0);
@@ -1058,7 +1018,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_Columns_NarrowsTableAndMatchesDiscovery()
     {
         var (discoverExit, discoverOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", "Metadata: TypeRef", "--tsv", "--tips", "q");
+            "library", TestAssemblyPath, "-D", "Metadata: TypeRef", "--tsv");
 
         Assert.Equal(0, discoverExit);
         var columns = DiscoveryNames(discoverOutput);
@@ -1068,7 +1028,7 @@ public partial class CommandExecutionTests
 
         var (exit, output, _) = await RunAppAsync(
             "library", TestAssemblyPath, "-S", "Metadata: TypeRef",
-            "--columns", "Name", "--rows", "2", "--tsv", "--tips", "q");
+            "--columns", "Name", "--rows", "2", "--tsv");
 
         Assert.Equal(0, exit);
         var rows = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -1086,7 +1046,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath, "-S", "Metadata: AssemblyRef",
-            "--plaintext", "--rows", "1..2", "--tips", "q");
+            "--plaintext", "--rows", "1..2");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1104,7 +1064,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_UnknownColumn_IsRejected()
     {
         var (exit, _, error) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Metadata: TypeRef", "--columns", "Bogus", "--tips", "q");
+            "library", TestAssemblyPath, "-S", "Metadata: TypeRef", "--columns", "Bogus");
 
         Assert.Equal(1, exit);
         Assert.Contains("No columns matched projection: Bogus", error, StringComparison.Ordinal);
@@ -1123,11 +1083,11 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_ImageSection_HasSameRowsInEveryFormat()
     {
         var (markdownExit, markdownOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--tips", "q");
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image);
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--tsv", "--tips", "q");
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--tsv");
         var (countExit, countOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--count", "--tips", "q");
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--count");
 
         Assert.Equal(0, markdownExit);
         Assert.Equal(0, tsvExit);
@@ -1180,17 +1140,17 @@ public partial class CommandExecutionTests
 
             var probe = Path.Combine(dir, "Probe.dll");
             File.WriteAllBytes(probe, largeBytes);
-            var (firstExit, firstOutput, _) = await RunAppAsync("library", probe, "-D", "--tsv", "--tips", "q");
+            var (firstExit, firstOutput, _) = await RunAppAsync("library", probe, "-D", "--tsv");
 
             var padded = new byte[largeBytes.Length];
             smallBytes.CopyTo(padded, 0);
             File.WriteAllBytes(probe, padded);
-            var (secondExit, secondOutput, _) = await RunAppAsync("library", probe, "-D", "--tsv", "--tips", "q");
+            var (secondExit, secondOutput, _) = await RunAppAsync("library", probe, "-D", "--tsv");
 
             // Ground truth: the same bytes at a path the cache has never seen.
             var fresh = Path.Combine(dir, "Fresh.dll");
             File.WriteAllBytes(fresh, padded);
-            var (truthExit, truthOutput, _) = await RunAppAsync("library", fresh, "-D", "--tsv", "--tips", "q");
+            var (truthExit, truthOutput, _) = await RunAppAsync("library", fresh, "-D", "--tsv");
 
             Assert.Equal(0, firstExit);
             Assert.Equal(0, secondExit);
@@ -1241,7 +1201,7 @@ public partial class CommandExecutionTests
             var probe = Path.Combine(dir, "Probe.dll");
             File.WriteAllBytes(probe, largeBytes);
             var stamp = File.GetLastWriteTimeUtc(probe);
-            var (firstExit, firstOutput, _) = await RunAppAsync("library", probe, "-D", "--tsv", "--tips", "q");
+            var (firstExit, firstOutput, _) = await RunAppAsync("library", probe, "-D", "--tsv");
 
             // Same path, same length, and the write time restored to the warmed entry's value:
             // every non-content component of the key is now identical.
@@ -1249,12 +1209,12 @@ public partial class CommandExecutionTests
             smallBytes.CopyTo(padded, 0);
             File.WriteAllBytes(probe, padded);
             File.SetLastWriteTimeUtc(probe, stamp);
-            var (secondExit, secondOutput, _) = await RunAppAsync("library", probe, "-D", "--tsv", "--tips", "q");
+            var (secondExit, secondOutput, _) = await RunAppAsync("library", probe, "-D", "--tsv");
 
             // Ground truth: the same bytes at a path the cache has never seen.
             var fresh = Path.Combine(dir, "Fresh.dll");
             File.WriteAllBytes(fresh, padded);
-            var (truthExit, truthOutput, _) = await RunAppAsync("library", fresh, "-D", "--tsv", "--tips", "q");
+            var (truthExit, truthOutput, _) = await RunAppAsync("library", fresh, "-D", "--tsv");
 
             Assert.Equal(0, firstExit);
             Assert.Equal(0, secondExit);
@@ -1292,7 +1252,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "#Strings:1",
-            "--library", TestAssemblyPath, "--tips", "q");
+            "--library", TestAssemblyPath);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1307,7 +1267,7 @@ public partial class CommandExecutionTests
 
         var childCount = await RunAppAsync(
             "library", "address", "#Strings:1",
-            "--library", TestAssemblyPath, "--count", "--tips", "q");
+            "--library", TestAssemblyPath, "--count");
         Assert.Equal(0, childCount.Exit);
         Assert.Equal("1", childCount.Output.Trim());
         Assert.Empty(childCount.Error);
@@ -1322,9 +1282,7 @@ public partial class CommandExecutionTests
             "#Strings:1",
             "-D",
             "--schema",
-            "--tree",
-            "--tips",
-            "q");
+            "--tree");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1346,7 +1304,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", coordinate,
-            "--library", TestAssemblyPath, "--tsv", "--tips", "q");
+            "--library", TestAssemblyPath, "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1366,7 +1324,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_HeapSection_StructuralAndEffectiveDiscoveryDiffer()
     {
         var (structuralExit, structuralOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata, "--tsv", "--tips", "q");
+            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata, "--tsv");
 
         Assert.Equal(0, structuralExit);
         Assert.DoesNotContain(
@@ -1375,7 +1333,7 @@ public partial class CommandExecutionTests
 
         var (withoutExit, withoutOutput, _) = await RunAppAsync(
             "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
-            "--effective", "--tsv", "--tips", "q");
+            "--effective", "--tsv");
 
         Assert.Equal(0, withoutExit);
         Assert.DoesNotContain(MetadataSectionNames.Heap, DiscoveryNames(withoutOutput));
@@ -1384,7 +1342,7 @@ public partial class CommandExecutionTests
             "library", "address", "#Strings:1",
             "--library", TestAssemblyPath,
             "-D", SectionCategoryNames.Metadata,
-            "--effective", "--tsv", "--tips", "q");
+            "--effective", "--tsv");
 
         Assert.Equal(0, withExit);
         Assert.Contains(MetadataSectionNames.Heap, DiscoveryNames(withOutput));
@@ -1399,7 +1357,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_HeapSection_WithoutCoordinate_IsRejected()
     {
         var (exit, _, error) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", MetadataSectionNames.Heap, "--tips", "q");
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.Heap);
 
         Assert.Equal(1, exit);
         Assert.Contains(
@@ -1418,7 +1376,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_CategoryDoor_WithoutHeapCoordinate_StillRenders()
     {
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", SectionCategoryNames.Metadata, "--count", "--tips", "q");
+            "library", TestAssemblyPath, "-S", SectionCategoryNames.Metadata, "--count");
 
         Assert.Equal(0, exit);
         Assert.Contains("Metadata: Image", output, StringComparison.Ordinal);
@@ -1443,7 +1401,7 @@ public partial class CommandExecutionTests
     {
         var (childExit, childOutput, childError) = await RunAppAsync(
             "library", "address", coordinate,
-            "--library", TestAssemblyPath, "--tips", "q");
+            "--library", TestAssemblyPath);
 
         Assert.Equal(1, childExit);
         Assert.Empty(childOutput);
@@ -1460,7 +1418,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, _) = await RunAppAsync(
             "library", TestAssemblyPath, "-S", MetadataSectionNames.ForHeap(HeapKind.String),
-            "--rows", "5", "--tips", "q");
+            "--rows", "5");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Metadata: #Strings", output, StringComparison.Ordinal);
@@ -1491,7 +1449,7 @@ public partial class CommandExecutionTests
 
         var (exit, output, _) = await RunAppAsync(
             "library", TestAssemblyPath, "-S", MetadataSectionNames.ForHeap(HeapKind.Guid),
-            "--count", "--tips", "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal(expected.ToString(), output.Trim());
@@ -1506,7 +1464,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_UserStringHeapListing_ExplainsWhyItIsEmpty()
     {
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", MetadataSectionNames.ForHeap(HeapKind.UserString), "--tips", "q");
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.ForHeap(HeapKind.UserString));
 
         Assert.Equal(0, exit);
         Assert.Contains("## Metadata: #US", output, StringComparison.Ordinal);
@@ -1529,9 +1487,9 @@ public partial class CommandExecutionTests
     {
         foreach (var args in new[]
                  {
-                     new[] { "library", TestAssemblyPath, verbosity, "--tips", "q" },
-                     new[] { "library", TestAssemblyPath, verbosity, "-S", SectionCategoryNames.Library, "--tips", "q" },
-                     new[] { "library", TestAssemblyPath, verbosity, "-S", SectionCategoryNames.Surface, "--tips", "q" },
+                     new[] { "library", TestAssemblyPath, verbosity },
+                     new[] { "library", TestAssemblyPath, verbosity, "-S", SectionCategoryNames.Library },
+                     new[] { "library", TestAssemblyPath, verbosity, "-S", SectionCategoryNames.Surface },
                  })
         {
             var (exit, output, _) = await RunAppAsync(args);
@@ -1556,7 +1514,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "#Strings:999999999",
-            "--library", TestAssemblyPath, "--tips", "q");
+            "--library", TestAssemblyPath);
 
         Assert.Equal(1, exit);
         Assert.Contains("#Strings", error, StringComparison.Ordinal);
@@ -1569,7 +1527,7 @@ public partial class CommandExecutionTests
             "library", "address", "#Strings:999999999",
             "--library", TestAssemblyPath,
             "-D", SectionCategoryNames.Metadata,
-            "--effective", "--tsv", "--tips", "q");
+            "--effective", "--tsv");
 
         Assert.Equal(1, discovery.Exit);
         Assert.DoesNotContain(
@@ -1590,14 +1548,14 @@ public partial class CommandExecutionTests
         for (int i = 0; i < 2; i++)
         {
             var (primeExit, _, _) = await RunAppAsync(
-                "library", TestAssemblyPath, "-D", "--tsv", "--tips", "q");
+                "library", TestAssemblyPath, "-D", "--tsv");
             Assert.Equal(0, primeExit);
         }
 
         var result = await RunAppAsync(
             "library", "address", "#Strings:999999999",
             "--library", TestAssemblyPath,
-            "-D", "--tsv", "--tips", "q");
+            "-D", "--tsv");
 
         Assert.Equal(1, result.Exit);
         Assert.Contains("999999999", result.Error, StringComparison.Ordinal);
@@ -1617,7 +1575,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_HexTableSelection_RendersTheCanonicalSection()
     {
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Metadata: 0x02", "--rows", "3", "--tips", "q");
+            "library", TestAssemblyPath, "-S", "Metadata: 0x02", "--rows", "3");
 
         Assert.Equal(0, exit);
         Assert.Contains("## " + MetadataSectionNames.ForTable(System.Reflection.Metadata.Ecma335.TableIndex.TypeDef), output, StringComparison.Ordinal);
@@ -1643,18 +1601,18 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_HexTableSpellings_AreTheNameSelector(string hex)
     {
         var (hexExit, hexOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", hex, "--rows", "5", "--tips", "q");
+            "library", TestAssemblyPath, "-S", hex, "--rows", "5");
         var (nameExit, nameOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Metadata: TypeDef", "--rows", "5", "--tips", "q");
+            "library", TestAssemblyPath, "-S", "Metadata: TypeDef", "--rows", "5");
 
         Assert.Equal(0, hexExit);
         Assert.Equal(nameExit, hexExit);
         Assert.Equal(nameOutput, hexOutput);
 
         var (hexCount, hexCountOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", hex, "--count", "--tips", "q");
+            "library", TestAssemblyPath, "-S", hex, "--count");
         var (nameCount, nameCountOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Metadata: TypeDef", "--count", "--tips", "q");
+            "library", TestAssemblyPath, "-S", "Metadata: TypeDef", "--count");
 
         Assert.Equal(0, hexCount);
         Assert.Equal(nameCount, hexCount);
@@ -1673,12 +1631,12 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_BothTableSpellings_SelectOneSection()
     {
         var (aloneExit, aloneOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Metadata: 0x02", "--rows", "3", "--tips", "q");
+            "library", TestAssemblyPath, "-S", "Metadata: 0x02", "--rows", "3");
         Assert.Equal(0, aloneExit);
 
         var (exit, output, _) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "Metadata: 0x02", "-S", "Metadata: TypeDef", "--rows", "3", "--tips", "q");
+            "-S", "Metadata: 0x02", "-S", "Metadata: TypeDef", "--rows", "3");
 
         Assert.Equal(0, exit);
         Assert.Equal(1, output.Split('\n').Count(l => l.StartsWith("## ", StringComparison.Ordinal)));
@@ -1700,7 +1658,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "Metadata: 0x99", "-S", "Metadata: TypeDef", "--tips", "q");
+            "-S", "Metadata: 0x99", "-S", "Metadata: TypeDef");
 
         Assert.Equal(1, exit);
         Assert.Contains("Metadata: 0x99", error, StringComparison.Ordinal);
@@ -1716,15 +1674,15 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_Discovery_AnswersInCanonicalNamesOnly()
     {
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata, "--tsv", "--tips", "q");
+            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata, "--tsv");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain(DiscoveryNames(output), n => n.Contains("0x", StringComparison.OrdinalIgnoreCase));
 
         var (hexExit, hexOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", "Metadata: 0x02", "--tsv", "--tips", "q");
+            "library", TestAssemblyPath, "-D", "Metadata: 0x02", "--tsv");
         var (nameExit, nameOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", "Metadata: TypeDef", "--tsv", "--tips", "q");
+            "library", TestAssemblyPath, "-D", "Metadata: TypeDef", "--tsv");
 
         Assert.Equal(0, hexExit);
         Assert.Equal(nameExit, hexExit);
@@ -1763,7 +1721,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_UnprojectedHexTable_IsRejected(string selector)
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", selector, "--tips", "q");
+            "library", TestAssemblyPath, "-S", selector);
 
         Assert.Equal(1, exit);
         Assert.Contains(selector, error, StringComparison.Ordinal);
@@ -1780,7 +1738,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_BareDigits_AreNotATableIndex()
     {
         var (exit, _, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Metadata: 02", "--tips", "q");
+            "library", TestAssemblyPath, "-S", "Metadata: 02");
 
         Assert.NotEqual(0, exit);
     }
@@ -1798,9 +1756,9 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_StaticSchemaDiscovery_ResolvesHexTables()
     {
         var (hexExit, hexOutput, hexError) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", "Metadata: 0x02", "--schema", "--tsv", "--tips", "q");
+            "library", TestAssemblyPath, "-D", "Metadata: 0x02", "--schema", "--tsv");
         var (nameExit, nameOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", "Metadata: TypeDef", "--schema", "--tsv", "--tips", "q");
+            "library", TestAssemblyPath, "-D", "Metadata: TypeDef", "--schema", "--tsv");
 
         Assert.True(hexExit == 0, $"expected success, got {hexExit}: {hexError}");
         Assert.Equal(nameExit, hexExit);
@@ -1815,9 +1773,9 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_DiscoveryWithoutAnAssembly_ResolvesHexTables()
     {
         var (hexExit, hexOutput, hexError) = await RunAppAsync(
-            "library", "-D", "Metadata: 0x02", "--tsv", "--tips", "q");
+            "library", "-D", "Metadata: 0x02", "--tsv");
         var (nameExit, nameOutput, _) = await RunAppAsync(
-            "library", "-D", "Metadata: TypeDef", "--tsv", "--tips", "q");
+            "library", "-D", "Metadata: TypeDef", "--tsv");
 
         Assert.True(hexExit == 0, $"expected success, got {hexExit}: {hexError}");
         Assert.Equal(nameExit, hexExit);

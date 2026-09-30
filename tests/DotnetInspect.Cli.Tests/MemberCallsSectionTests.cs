@@ -38,8 +38,6 @@ public class MemberCallsSectionTests
             "-n",
             "1",
             "--tail",
-            "--tips",
-            "q",
         ];
 
         var markdown = await RunCliAsync(args);
@@ -114,9 +112,7 @@ public class MemberCallsSectionTests
             SectionNames.Calls,
             "--rows",
             "9..9",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -150,9 +146,7 @@ public class MemberCallsSectionTests
             SectionNames.Calls,
             "-n",
             "1",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -176,9 +170,7 @@ public class MemberCallsSectionTests
             SectionNames.Calls,
             "--rows",
             "3..3",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -206,9 +198,7 @@ public class MemberCallsSectionTests
             "-n",
             "1",
             "--lines",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -242,9 +232,7 @@ public class MemberCallsSectionTests
             selection,
             "-n",
             "1",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -272,9 +260,7 @@ public class MemberCallsSectionTests
             SectionNames.Calls,
             "-n",
             "1",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);

@@ -19,10 +19,10 @@ The model combines five mechanisms:
 is less likely to collide with command-specific lowercase options.
 
 Contextual post-success tips are separate from output scope and are opt-in.
-Bare `-T` or `--tips` requests up to three suggestions on `stderr`; `-T:d`
-requests up to six. The request is independent of output verbosity, format,
-section selection, and row or line limits. A successful command with no
-applicable suggestions emits no tip block.
+Bare short-only `-T` requests up to three suggestions on `stderr`. It accepts
+no value and is independent of output verbosity, format, section selection,
+and row or line limits. A successful command with no applicable suggestions
+emits no tip block.
 
 ## API visibility and implementation populations
 

@@ -201,9 +201,7 @@ public partial class CommandExecutionTests
             SectionNames.TypeInfo,
             "--fields",
             "Type Parameters",
-            format,
-            "--tips",
-            "q");
+            format);
 
         Assert.Equal(0, exit);
         Assert.Empty(output.Trim());
@@ -231,9 +229,7 @@ public partial class CommandExecutionTests
             "Signature",
             "--rows",
             "1",
-            format,
-            "--tips",
-            "q");
+            format);
 
         Assert.Equal(0, exit);
         Assert.Contains("Methods", output);
@@ -256,9 +252,7 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "--fields",
             "NoSuchField",
-            format,
-            "--tips",
-            "q");
+            format);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -273,7 +267,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Type_ExplicitSelect_StillReachesGrowingSections()
     {
-        var (exit, output, _) = await RunAppAsync("type", "System.String", "-S", "Fields", "--tips", "q");
+        var (exit, output, _) = await RunAppAsync("type", "System.String", "-S", "Fields");
 
         Assert.Equal(0, exit);
         Assert.Equal(["Fields"], SectionHeadings(output));
@@ -292,7 +286,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_ListingSectionName_IsSelectable(string section)
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", section, "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", section);
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort prefix matches", error, StringComparison.Ordinal);
@@ -312,7 +306,7 @@ public partial class CommandExecutionTests
     {
         var (exit, _, error) = await RunAppAsync(
             "type", "DotnetInspect.Cli.Tests.CommandExecutionTests", "--library", TestAssemblyPath,
-            "-S", "Classes", "--tips", "q");
+            "-S", "Classes");
 
         Assert.Equal(1, exit);
         Assert.Contains("Select value 'Classes' not found", error, StringComparison.Ordinal);
@@ -331,7 +325,7 @@ public partial class CommandExecutionTests
     public async Task Type_UnresolvedTypeWithoutPrefixMatches_StillReportsTheDeferredSelect()
     {
         var (exit, _, error) = await RunAppAsync(
-            "type", "Zqqxnomatch", "--library", TestAssemblyPath, "-S", "Classes", "--tips", "q");
+            "type", "Zqqxnomatch", "--library", TestAssemblyPath, "-S", "Classes");
 
         Assert.Equal(1, exit);
         Assert.Contains("Select value 'Classes' not found", error, StringComparison.Ordinal);
@@ -356,7 +350,7 @@ public partial class CommandExecutionTests
     public async Task Type_SelectValidForNeitherPipeline_FailsRegardlessOfWhatTheNameResolvesTo(string target)
     {
         var (exit, _, error) = await RunAppAsync(
-            "type", target, "--library", TestAssemblyPath, "-S", "Zzznosuchsection", "--tips", "q");
+            "type", target, "--library", TestAssemblyPath, "-S", "Zzznosuchsection");
 
         Assert.Equal(1, exit);
         Assert.Contains("Select value 'Zzznosuchsection' not found", error, StringComparison.Ordinal);
@@ -374,20 +368,20 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_ListingSectionName_ReachesCountAndDiscovery()
     {
         var (countExit, countOutput, _) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--count");
 
         Assert.Equal(0, countExit);
 
         // Agrees with the rows the same selection renders, so this cannot pass by counting a
         // different section or an unfiltered surface.
         var (rowsExit, rowsOutput, _) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--tsv", "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--tsv");
         Assert.Equal(0, rowsExit);
         var rowCount = rowsOutput.Split('\n').Count(l => l.Trim().Length > 0) - 1;
         Assert.Equal(rowCount, int.Parse(countOutput.Trim()));
 
         var (discoverExit, discoverOutput, _) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "-D", "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "-D");
 
         Assert.Equal(0, discoverExit);
         Assert.Contains("Classes", discoverOutput, StringComparison.Ordinal);
@@ -399,10 +393,10 @@ public partial class CommandExecutionTests
     {
         var (countExit, countOutput, countError) = await RunAppAsync(
             "type", "Command", "--library", TestAssemblyPath,
-            "--count", "--tips", "q");
+            "--count");
         var (rowsExit, rowsOutput, rowsError) = await RunAppAsync(
             "type", "Command", "--library", TestAssemblyPath,
-            "--tsv", "--tips", "q");
+            "--tsv");
 
         Assert.Equal(0, countExit);
         Assert.Equal(0, rowsExit);
@@ -436,9 +430,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-D",
             "Classes",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Kind", output, StringComparison.Ordinal);
@@ -459,9 +451,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-D",
             "Classes",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, exit);
         Assert.Contains(
@@ -484,9 +474,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-D",
             "Classes",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, exit);
         Assert.Contains(
@@ -505,9 +493,7 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-D",
             "Classes",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -527,9 +513,7 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-D",
             "Interfaces",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -548,7 +532,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "Command", "--library", TestAssemblyPath, "-S", "Classes,Enums",
-            "--count", "--json", "--tips", "q");
+            "--count", "--json");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
@@ -563,7 +547,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "DotnetInspect.Cli.Tests.CommandExecutionTests", "--library", TestAssemblyPath,
-            "-S", "Type Info,Methods", "--count", "--json", "--tips", "q");
+            "-S", "Type Info,Methods", "--count", "--json");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
@@ -588,7 +572,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_MultiSectionSelect_FailsTabularArityLikeTheDirectListing(string format)
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes,API Info", format, "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes,API Info", format);
 
         Assert.Equal(1, exit);
         Assert.Contains("Selection matches 2 sections", error, StringComparison.Ordinal);
@@ -603,7 +587,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_SingleSectionSelect_StillRendersTabular()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--tsv", "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Contains("kind\ttype", output, StringComparison.Ordinal);
@@ -623,7 +607,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_PayloadProjection_ReportsTheListingReasonNotArity(string flag)
     {
         var (exit, _, error) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", flag, "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", flag);
 
         Assert.Equal(1, exit);
         Assert.Contains("is not supported when listing types", error, StringComparison.Ordinal);
@@ -641,7 +625,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_DeferredSelect_NarrowsAMultiKindListing(string flag)
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "Json", "--platform", "System.Text.Json", "-S", "Classes", flag, "--tips", "q");
+            "type", "Json", "--platform", "System.Text.Json", "-S", "Classes", flag);
 
         Assert.Equal(0, exit);
 
@@ -659,7 +643,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_ListingSectionName_IsSelectable()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Collections.Immutabl", "-S", "Classes", "--tips", "q");
+            "type", "System.Collections.Immutabl", "-S", "Classes");
 
         Assert.Equal(0, exit);
 
@@ -670,7 +654,7 @@ public partial class CommandExecutionTests
 
         // A name valid for neither pipeline still fails on this route.
         var (bogusExit, _, bogusError) = await RunAppAsync(
-            "type", "System.Collections.Immutabl", "-S", "Zzznosuchsection", "--tips", "q");
+            "type", "System.Collections.Immutabl", "-S", "Zzznosuchsection");
         Assert.Equal(1, bogusExit);
         Assert.Contains("Select value 'Zzznosuchsection' not found", bogusError, StringComparison.Ordinal);
     }

@@ -83,8 +83,6 @@ public partial class CommandExecutionTests
                         "N.Good",
                         "--library",
                         path,
-                        "--tips",
-                        "q",
                         .. typeOutputOptions[i],
                     ]);
                 var selectedMember = await RunAppAsync(
@@ -93,8 +91,6 @@ public partial class CommandExecutionTests
                         "N.Good",
                         "--library",
                         path,
-                        "--tips",
-                        "q",
                         .. memberOutputOptions[i],
                     ]);
 
@@ -134,9 +130,7 @@ public partial class CommandExecutionTests
                 "--library",
                 path,
                 "-t",
-                "N.*",
-                "--tips",
-                "q");
+                "N.*");
 
             Assert.True(
                 result.Exit == 1,
@@ -178,16 +172,12 @@ public partial class CommandExecutionTests
                 "type",
                 "N.Healthy",
                 "--library",
-                path,
-                "--tips",
-                "q");
+                path);
             var selectedMember = await RunAppAsync(
                 "member",
                 "N.Healthy",
                 "--library",
-                path,
-                "--tips",
-                "q");
+                path);
 
             Assert.Equal(1, selectedType.Exit);
             Assert.Contains("N.Healthy", selectedType.Output);
@@ -224,9 +214,7 @@ public partial class CommandExecutionTests
                 "type",
                 "--library",
                 path,
-                "-v:d",
-                "--tips",
-                "q");
+                "-v:d");
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Error);
@@ -264,9 +252,7 @@ public partial class CommandExecutionTests
                 "type",
                 "--library",
                 path,
-                $"-v:{verbosity}",
-                "--tips",
-                "q");
+                $"-v:{verbosity}");
 
             Assert.Equal(0, result.Exit);
             Assert.DoesNotContain(
@@ -297,9 +283,7 @@ public partial class CommandExecutionTests
                 "--library",
                 path,
                 "-S",
-                "Inspection Failures",
-                "--tips",
-                "q");
+                "Inspection Failures");
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Error);
@@ -339,9 +323,7 @@ public partial class CommandExecutionTests
                 path,
                 "-S",
                 "Inspection Failures",
-                format,
-                "--tips",
-                "q");
+                format);
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Error);
@@ -376,9 +358,7 @@ public partial class CommandExecutionTests
                 path,
                 "-S",
                 "Inspection Failures",
-                "--jsonl",
-                "--tips",
-                "q");
+                "--jsonl");
 
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Error);

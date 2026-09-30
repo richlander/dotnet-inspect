@@ -23,19 +23,19 @@ public partial class CommandExecutionTests
         {
             var (libraryExit, libraryOutput, libraryError) = await RunAppAsync(
                 "library", "System.Text.Json",
-                "-S", "Reference Hierarchy", "--count", "--depth", "2",
-                "--tips", "q");
+                "-S", "Reference Hierarchy", "--count", "--depth", "2"
+                );
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
                 "package", packagePath,
-                "-S", "Target Frameworks", "--count", "--tips", "q");
+                "-S", "Target Frameworks", "--count");
             var (multiPackageExit, multiPackageOutput, multiPackageError) =
                 await RunAppAsync(
                     "package", packagePath, packagePath,
-                    "-S", "Target Frameworks", "--count", "--tips", "q");
+                    "-S", "Target Frameworks", "--count");
             var (mapExit, mapOutput, mapError) = await RunAppAsync(
                 "package", packagePath, packagePath,
                 "-S", "Package Info,Target Frameworks",
-                "--count", "--tips", "q");
+                "--count");
 
             Assert.Equal(0, libraryExit);
             Assert.True(
@@ -81,9 +81,9 @@ public partial class CommandExecutionTests
         // A real command must wire ParseRows and honor the tail branch: the last-N
         // window selects a different endpoint than the first-N window.
         var head = await RunAppAsync(
-            "type", "System.String", "-S", "Member Index", "--rows", "2", "--tsv", "--tips", "q");
+            "type", "System.String", "-S", "Member Index", "--rows", "2", "--tsv");
         var tail = await RunAppAsync(
-            "type", "System.String", "-S", "Member Index", "--rows", "2", "--tail", "--tsv", "--tips", "q");
+            "type", "System.String", "-S", "Member Index", "--rows", "2", "--tail", "--tsv");
 
         Assert.Equal(0, head.Exit);
         Assert.Equal(0, tail.Exit);
@@ -114,8 +114,6 @@ public partial class CommandExecutionTests
             "--rows",
             rows,
             "--tsv",
-            "--tips",
-            "q",
             "-n",
             "1000",
         ];
@@ -139,7 +137,7 @@ public partial class CommandExecutionTests
         // token, and the arg-preprocessor token scan does not see it. Reading the
         // parse result rather than the raw tokens is what keeps the two equivalent.
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.String", "-S", "Member Index", "--rows=2", "--tail", "--tsv", "--tips", "q");
+            "type", "System.String", "-S", "Member Index", "--rows=2", "--tail", "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -152,7 +150,7 @@ public partial class CommandExecutionTests
         // --head and --tail name opposite ends, so asking for both is a contradiction
         // rather than a narrower window. The =-syntax spelling must be caught too.
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.String", "-S", "Member Index", "--rows=3", "--head", "--tail", "--tsv", "--tips", "q");
+            "type", "System.String", "-S", "Member Index", "--rows=3", "--head", "--tail", "--tsv");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -171,7 +169,7 @@ public partial class CommandExecutionTests
         // arrives as "--tsv". The error must name the missing selection rather than
         // sending a reader off to fix the spelling of --tsv.
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.String", "-S", "Member Index", "--rows", "--tsv", "--tips", "q");
+            "type", "System.String", "-S", "Member Index", "--rows", "--tsv");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -203,9 +201,9 @@ public partial class CommandExecutionTests
         // first four rows and `2..4` takes three rows starting at the second, so the
         // two must not resolve to the same window.
         var count = await RunAppAsync(
-            "type", "System.String", "-S", "Member Index", "--rows", "4", "--tsv", "--tips", "q");
+            "type", "System.String", "-S", "Member Index", "--rows", "4", "--tsv");
         var range = await RunAppAsync(
-            "type", "System.String", "-S", "Member Index", "--rows", "2..4", "--tsv", "--tips", "q");
+            "type", "System.String", "-S", "Member Index", "--rows", "2..4", "--tsv");
 
         Assert.Equal(0, count.Exit);
         Assert.Equal(0, range.Exit);
@@ -223,9 +221,9 @@ public partial class CommandExecutionTests
     {
         // 2..4 is three rows and 2+4 is four; identical digits, different extents.
         var range = await RunAppAsync(
-            "type", "System.String", "-S", "Member Index", "--rows", "2..4", "--tsv", "--tips", "q");
+            "type", "System.String", "-S", "Member Index", "--rows", "2..4", "--tsv");
         var plus = await RunAppAsync(
-            "type", "System.String", "-S", "Member Index", "--rows", "2+4", "--tsv", "--tips", "q");
+            "type", "System.String", "-S", "Member Index", "--rows", "2+4", "--tsv");
 
         Assert.Equal(0, range.Exit);
         Assert.Equal(0, plus.Exit);
@@ -239,7 +237,7 @@ public partial class CommandExecutionTests
         // A range already says which rows to keep, so a direction is not a narrower
         // request but a second, conflicting answer to the same question.
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.String", "-S", "Member Index", "--rows", "2..4", "--tail", "--tsv", "--tips", "q");
+            "type", "System.String", "-S", "Member Index", "--rows", "2..4", "--tail", "--tsv");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -254,7 +252,7 @@ public partial class CommandExecutionTests
         // differ from 2..10 by a row at each edge, so a generic parse error would
         // leave a reader thinking the digits were wrong rather than the operator.
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.String", "-S", "Member Index", "--rows", "2:10", "--tsv", "--tips", "q");
+            "type", "System.String", "-S", "Member Index", "--rows", "2:10", "--tsv");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -269,7 +267,7 @@ public partial class CommandExecutionTests
         // otherwise leave "20" to bind as a positional and send the command looking
         // for a package by that name -- a confusing failure at an unrelated task.
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.String", "-S", "Member Index", "--tail", "20", "--tips", "q");
+            "type", "System.String", "-S", "Member Index", "--tail", "20");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -284,7 +282,7 @@ public partial class CommandExecutionTests
         // not a direction flag at all. The migration guard scans raw tokens, so it
         // would otherwise claim a stale spelling for something that was never a flag.
         var (exit, output, error) = await RunAppAsync(
-            "library", "--", "--tail", "5", "--tips", "q");
+            "library", "--", "--tail", "5");
 
         Assert.DoesNotContain("is no longer valid", error, StringComparison.Ordinal);
         Assert.DoesNotContain("is no longer valid", output, StringComparison.Ordinal);
@@ -464,7 +462,7 @@ public partial class CommandExecutionTests
         // #3386 boundary: a scalar payload projection composes with --json (--fields picks which
         // column feeds --value), so this must remain honored rather than swept into the rejection.
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Library Info", "--fields", "Assembly Version", "--value", "--json", "--tips", "q");
+            "library", "System.Text.Json", "-S", "Library Info", "--fields", "Assembly Version", "--value", "--json");
 
         Assert.Equal(0, exit);
         Assert.Contains("\"value\"", output);
@@ -550,11 +548,11 @@ public partial class CommandExecutionTests
         string[] args = command switch
         {
             "library" =>
-                [command, TestAssemblyPath, "-S", "Library Info", "--fields", "Assembly Version", "--json", "--tips", "q"],
+                [command, TestAssemblyPath, "-S", "Library Info", "--fields", "Assembly Version", "--json"],
             "implements" =>
-                [command, "IDisposable", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--tips", "q"],
+                [command, "IDisposable", "--library", TestAssemblyPath, "--columns", "Type", "--json"],
             "extensions" =>
-                [command, "String", "--library", TestAssemblyPath, "--columns", "Method", "--json", "--tips", "q"],
+                [command, "String", "--library", TestAssemblyPath, "--columns", "Method", "--json"],
             _ => throw new ArgumentOutOfRangeException(nameof(command)),
         };
 
@@ -637,13 +635,13 @@ public partial class CommandExecutionTests
         {
             var versions = await RunAppAsync(
                 "package", "ThisQueryMustNotReachTheNetwork",
-                "--versions", "-n", "1", "--json", "--columns", "Version", "--tips", "q");
+                "--versions", "-n", "1", "--json", "--columns", "Version");
             var tfms = await RunAppAsync(
                 "package", packagePath,
-                "--tfms", "--json", "--columns", "TFM", "--tips", "q");
+                "--tfms", "--json", "--columns", "TFM");
             var layout = await RunAppAsync(
                 "package", packagePath,
-                "--layout", "--json", "--columns", "Path", "--tips", "q");
+                "--layout", "--json", "--columns", "Path");
 
             foreach (var (lens, result) in new[]
             {
@@ -686,9 +684,7 @@ public partial class CommandExecutionTests
                 "System.Text.Json",
                 "--json",
                 "--columns",
-                "Member",
-                "--tips",
-                "q");
+                "Member");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -705,20 +701,20 @@ public partial class CommandExecutionTests
     {
         var projected = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-D", "Library Info", "--json", "--columns", "Name", "--tips", "q");
+            "-D", "Library Info", "--json", "--columns", "Name");
         var wildcard = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-D", "Library Info", "--json", "--columns", "Nam*", "--rows", "1", "--tips", "q");
+            "-D", "Library Info", "--json", "--columns", "Nam*", "--rows", "1");
         var allColumns = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-D", "Library Info", "--json", "--columns", "*", "--rows", "1", "--tips", "q");
+            "-D", "Library Info", "--json", "--columns", "*", "--rows", "1");
         var overlapping = await RunAppAsync(
             "library", TestAssemblyPath,
             "-D", "Library Info", "--json",
-            "--fields", "Nam*", "--columns", "N*", "--rows", "1", "--tips", "q");
+            "--fields", "Nam*", "--columns", "N*", "--rows", "1");
         var invalid = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-D", "Library Info", "--json", "--columns", "NoSuchColumn", "--tips", "q");
+            "-D", "Library Info", "--json", "--columns", "NoSuchColumn");
 
         AssertProjectedProperties(projected, ["name"]);
         AssertProjectedProperties(wildcard, ["name"]);
@@ -750,10 +746,10 @@ public partial class CommandExecutionTests
     {
         var invalid = await RunAppAsync(
             "type", "SampleClassForTesting", "--library", TestAssemblyPath,
-            "-D", "Custom Attributes", "--json", "--columns", "NoSuchColumn", "--tips", "q");
+            "-D", "Custom Attributes", "--json", "--columns", "NoSuchColumn");
         var valid = await RunAppAsync(
             "type", "SampleClassForTesting", "--library", TestAssemblyPath,
-            "-D", "Custom Attributes", "--json", "--columns", "Name", "--tips", "q");
+            "-D", "Custom Attributes", "--json", "--columns", "Name");
 
         Assert.Equal(1, invalid.Exit);
         Assert.Empty(invalid.Output);
@@ -772,16 +768,16 @@ public partial class CommandExecutionTests
     {
         var count = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-D", "--json", "--count", "--tips", "q");
+            "-D", "--json", "--count");
         var typed = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-D", "--json", "--tips", "q");
+            "-D", "--json");
         var projected = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-D", "--json", "--columns", "Name", "--tips", "q");
+            "-D", "--json", "--columns", "Name");
         var structural = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-D", "--schema", "--json", "--tips", "q");
+            "-D", "--schema", "--json");
 
         foreach (var result in new[] { count, typed, projected, structural })
         {
@@ -817,7 +813,7 @@ public partial class CommandExecutionTests
         var library = await RunAppAsync(
             "library", TestAssemblyPath,
             "-D", "Library Info", "--effective",
-            "--json", "--columns", "Kind", "--tips", "q");
+            "--json", "--columns", "Kind");
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Package.NarrowedDiscovery",
             "README.md",
@@ -827,7 +823,7 @@ public partial class CommandExecutionTests
             var package = await RunAppAsync(
                 "package", packagePath,
                 "-D", "-S", "Package Info",
-                "--json", "--columns", "Kind", "--tips", "q");
+                "--json", "--columns", "Kind");
 
             foreach (var result in new[] { library, package })
             {
@@ -1022,7 +1018,7 @@ public partial class CommandExecutionTests
     public async Task Discover_Count_CountsDiscoveredRowsForLibrary()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", "", "--count", "-S", "Library Info", "--tips", "q");
+            "library", TestAssemblyPath, "-D", "", "--count", "-S", "Library Info");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1037,8 +1033,7 @@ public partial class CommandExecutionTests
             "-D", SectionNames.TopLeverage,
             "--count",
             "-S", SectionNames.TopLeverage,
-            "--trace",
-            "--tips", "q");
+            "--trace");
 
         Assert.Equal(0, exit);
         Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
@@ -1055,8 +1050,7 @@ public partial class CommandExecutionTests
         var (renderExit, renderOutput, renderError) = await RunAppAsync(
             "library", assemblyPath,
             "-S", SectionNames.UnsafeMembers,
-            "--count",
-            "--tips", "q");
+            "--count");
 
         Assert.Equal(0, renderExit);
         Assert.Empty(renderError);
@@ -1069,8 +1063,7 @@ public partial class CommandExecutionTests
             "-D", SectionNames.UnsafeMembers,
             "--count",
             "-S", SectionNames.UnsafeMembers,
-            "--trace",
-            "--tips", "q");
+            "--trace");
 
         Assert.Equal(0, exit);
         Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
@@ -1081,8 +1074,7 @@ public partial class CommandExecutionTests
         var (bareExit, rawOutput, bareError) = await RunAppAsync(
             "library", assemblyPath,
             "-D",
-            "--trace",
-            "--tips", "q");
+            "--trace");
 
         Assert.Equal(0, bareExit);
         Assert.Contains(
@@ -1103,8 +1095,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library", assemblyPath,
-                "-D",
-                "--tips", "q");
+                "-D");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1128,8 +1119,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "library",
                 assemblyPath,
-                "-D",
-                "--tips", "q");
+                "-D");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1164,8 +1154,7 @@ public partial class CommandExecutionTests
 
         var (exit, output, error) = await RunAppAsync(
             "library", assemblyPath,
-            "-D",
-            "--tips", "q");
+            "-D");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1182,20 +1171,17 @@ public partial class CommandExecutionTests
             var (markdownExit, markdown, markdownError) =
                 await RunAppAsync(
                     "library", assemblyPath,
-                    "-D",
-                    "--tips", "q");
+                    "-D");
             var (jsonExit, json, jsonError) =
                 await RunAppAsync(
                     "library", assemblyPath,
                     "-D",
-                    "--json",
-                    "--tips", "q");
+                    "--json");
             var (treeExit, tree, treeError) =
                 await RunAppAsync(
                     "library", assemblyPath,
                     "-D",
-                    "--tree",
-                    "--tips", "q");
+                    "--tree");
 
             Assert.Equal(0, markdownExit);
             Assert.Empty(markdownError);
@@ -1261,8 +1247,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "library", assemblyPath,
                 "-D", "--effective",
-                "--tree",
-                "--tips", "q");
+                "--tree");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1293,14 +1278,14 @@ public partial class CommandExecutionTests
         // ahead of the discovery branch and counted the inspection document instead — exiting 0
         // with a plausible number for a different payload. Pin the count to the payload.
         var (listExit, listOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", "", "--tips", "q");
+            "library", TestAssemblyPath, "-D", "");
         Assert.Equal(0, listExit);
 
         var rows = listOutput.Split('\n').Count(l => l.StartsWith("| ", StringComparison.Ordinal)) - 2;
         Assert.True(rows > 0, "Discovery must list rows for this test to prove anything.");
 
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", "", "--count", "--tips", "q");
+            "library", TestAssemblyPath, "-D", "", "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal(rows, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
@@ -1310,7 +1295,7 @@ public partial class CommandExecutionTests
     public async Task Discover_ShapeProjection_IsRefusedRatherThanAnsweredFromTheDocument()
     {
         var (exit, _, error) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", "", "--value", "--tips", "q");
+            "library", TestAssemblyPath, "-D", "", "--value");
 
         Assert.Equal(1, exit);
         Assert.Contains("--value is not available with -D/--discover", error, StringComparison.Ordinal);
@@ -1360,13 +1345,13 @@ public partial class CommandExecutionTests
         // Static -D --schema returns before the library is resolved, a separate early return from
         // the effective-discovery one below it.
         var (countExit, countOutput, countError) = await RunAppAsync(
-            "library", TestAssemblyPath, "--schema", "-D", "--count", "--tips", "q");
+            "library", TestAssemblyPath, "--schema", "-D", "--count");
 
         Assert.Equal(0, countExit);
         Assert.Empty(countError);
 
         var (listExit, listOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "--schema", "-D", "--tips", "q");
+            "library", TestAssemblyPath, "--schema", "-D");
         Assert.Equal(0, listExit);
 
         // The count must match the payload it stands in for: rendered rows less header and separator.
@@ -1464,7 +1449,7 @@ public partial class CommandExecutionTests
         // The ordinary shape gate ran first and reported a missing -S, which is not the actual
         // problem: discovery renders its own payload and cannot answer a column projection.
         var (exit, _, error) = await RunAppAsync(
-            "type", "--library", TestAssemblyPath, "-D", "--value", "--tips", "q");
+            "type", "--library", TestAssemblyPath, "-D", "--value");
 
         Assert.Equal(1, exit);
         Assert.Contains("--value is not available with -D/--discover", error, StringComparison.Ordinal);
@@ -1587,27 +1572,27 @@ public partial class CommandExecutionTests
         {
             var tfms = await RunAppAsync(
                 "package", packagePath, "--tfms",
-                "--count", "--rows", "1..1", "--tips", "q");
+                "--count", "--rows", "1..1");
             var projectedTfms = await RunAppAsync(
                 "package", packagePath, "--tfms",
                 "--columns", "TFM",
-                "--count", "--rows", "1..1", "--tips", "q");
+                "--count", "--rows", "1..1");
             var layout = await RunAppAsync(
                 "package", packagePath, "--layout",
-                "--count", "--rows", "1..1", "--tips", "q");
+                "--count", "--rows", "1..1");
             var discovery = await RunAppAsync(
                 "library", TestAssemblyPath, "-D", "",
-                "--count", "--rows", "1", "--tips", "q");
+                "--count", "--rows", "1");
             var renderedTfms = await RunAppAsync(
                 "package", packagePath, "--tfms",
-                "--jsonl", "--rows", "1..1", "--tips", "q");
+                "--jsonl", "--rows", "1..1");
             var renderedDiscovery = await RunAppAsync(
                 "library", TestAssemblyPath, "-D", "",
-                "--jsonl", "--rows", "1", "--tips", "q");
+                "--jsonl", "--rows", "1");
             var invalid = await RunAppAsync(
                 "package", packagePath, "--tfms",
                 "--columns", "NoSuchColumn",
-                "--count", "--tips", "q");
+                "--count");
 
             foreach (var result in new[] { tfms, projectedTfms, layout, discovery })
             {
@@ -1698,10 +1683,10 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--json", "--columns", "Package", "--tips", "q");
+                "package", packagePath, "--json", "--columns", "Package");
             var (multiExit, multiOutput, multiError) = await RunAppAsync(
                 "package", packagePath, packagePath,
-                "--json", "--columns", "Package", "--tips", "q");
+                "--json", "--columns", "Package");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1724,8 +1709,8 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "--library",
-                "-S", "Library Info", "--json", "--fields", "Assembly Version",
-                "--tips", "q");
+                "-S", "Library Info", "--json", "--fields", "Assembly Version"
+                );
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1750,7 +1735,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath,
-                "-D", "--json", "--columns", "Name", "--tips", "q");
+                "-D", "--json", "--columns", "Name");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1784,7 +1769,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, packagePath,
                 "-S", "Package Info",
-                "--json", "--fields", "Version", projection, "--tips", "q");
+                "--json", "--fields", "Version", projection);
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1811,7 +1796,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, packagePath,
                 "-S", "Package files",
-                "--roots", "--json", "--tips", "q");
+                "--roots", "--json");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1832,7 +1817,7 @@ public partial class CommandExecutionTests
             "--offline",
             "package", "Package.That.Must.Not.Resolve",
             "-D", "-S", "Package files",
-            "--roots", "--tips", "q");
+            "--roots");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1850,7 +1835,7 @@ public partial class CommandExecutionTests
             "package", "Package.That.Must.Not.Resolve",
             "--library",
             "-S", "Library Info",
-            "--roots", "--tips", "q");
+            "--roots");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

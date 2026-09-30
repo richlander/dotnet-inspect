@@ -16,9 +16,7 @@ public partial class CommandExecutionTests
             "1",
             "-S",
             "Custom Attributes",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -94,9 +92,7 @@ public partial class CommandExecutionTests
             assembly,
             "-S",
             section,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -115,9 +111,7 @@ public partial class CommandExecutionTests
             "System.Runtime.Intrinsics",
             "-S",
             "Methods",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -145,9 +139,7 @@ public partial class CommandExecutionTests
             "System.Runtime",
             "-S",
             section,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -168,9 +160,7 @@ public partial class CommandExecutionTests
             "System.Runtime.Intrinsics",
             "-S",
             "Member Metrics",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -191,9 +181,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Linq",
             "-S",
-            "Annotated Source",
-            "--tips",
-            "q");
+            "Annotated Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -215,9 +203,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Linq",
             "-S",
-            "IL",
-            "--tips",
-            "q");
+            "IL");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -245,9 +231,7 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-S",
             section,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -265,25 +249,19 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Private.CoreLib",
             "-v:m",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
         var (normalExit, normal, normalError) = await RunAppAsync(
             "type",
             "--platform",
             "System.Private.CoreLib",
             "-v:n",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
         var (detailedExit, detailed, detailedError) = await RunAppAsync(
             "type",
             "--platform",
             "System.Private.CoreLib",
             "-v:d",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, minimalExit);
         Assert.Equal(0, normalExit);

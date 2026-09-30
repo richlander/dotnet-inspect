@@ -20,10 +20,9 @@ Verbosity levels:
 | Normal | `-v:n` | Multiple base sections | With `-T` |
 | Detailed | `-v:d` | All applicable base sections | With `-T` |
 
-Post-success contextual tips are opt-in, and their level is independent of
-output verbosity. Use bare `-T` (or `--tips`) for up to three suggestions on
-`stderr`, and `-T:d` for up to six. `-T:q` is accepted as an explicit quiet
-setting.
+Post-success contextual tips are opt-in and independent of output verbosity.
+Use bare short-only `-T` for up to three suggestions on `stderr`. It accepts no
+value; omit it when tips are not wanted.
 
 The `member` command follows the same scale for member lists. A selected overload defaults to `Signature`; normal verbosity adds bounded local implementation sections: `Decompiled Source` (raised C# without IL comments) and `IL` (raw IL). `Source Locations` is an explicit SourceLink file/line URL table that does not fetch source bodies. `Annotated Source` is the mixed C#+IL view with hidden-fact comments; `PDB Source` is Portable-PDB-selected, checksum-verified source acquired locally or through SourceLink. `-S @Source` selects the authored-first `Source`, forced PDB and decompiled provider views, and `Source Diff`; `-S @Decompiler` selects decompiler and analysis views such as `Annotated Source` and `IL`. The `Facts` section — the structured member/offset/line-keyed table of the same Research overlay facts — is opt-in via `-S "Facts"` / `--tsv`.
 

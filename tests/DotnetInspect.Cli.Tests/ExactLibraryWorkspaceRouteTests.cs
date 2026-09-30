@@ -79,7 +79,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             Tfm = Framework,
             EnvelopeOutput = true,
             CompactJson = true,
-            TipLevel = TipLevel.Detailed,
+            TipLevel = TipLevel.Minimal,
         };
 
         (int exitCode, string output, string error) =
@@ -242,8 +242,6 @@ public sealed class ExactLibraryWorkspaceRouteTests
             "--json",
             "--compact",
             $"-v:{verbosity}",
-            "-T",
-            "q",
         ];
         var root = CommandLineBuilder.CreateRootCommand();
         string[] processed =
@@ -280,8 +278,6 @@ public sealed class ExactLibraryWorkspaceRouteTests
             "--compact",
             "-n",
             "1",
-            "-T",
-            "q",
         ];
         var root = CommandLineBuilder.CreateRootCommand();
         string[] processed =

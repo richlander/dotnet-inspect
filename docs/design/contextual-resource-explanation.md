@@ -8,8 +8,11 @@ the reusable `--references` projection proposed by
 [#8148](https://github.com/richlander/dotnet-inspect/issues/8148), and the
 compact related-gesture `-T` projection.
 
-The composition is designed but not implemented. Product-resource explanation
-for the complete Library structural domain is already implemented by
+The composition substrate is designed but not implemented. The short-only,
+zero-arity `-T` option contract is implemented; current commands retain their
+imperative tip construction until the lazy affordance and host-binding seam is
+adopted. Product-resource explanation for the complete Library structural
+domain is already implemented by
 [Resource Explanation](resource-explanation.md). Reusable inspection-reference
 identity remains owned and staged by
 [#7916](https://github.com/richlander/dotnet-inspect/issues/7916).
@@ -17,10 +20,6 @@ identity remains owned and staged by
 This document does not complete either adjacent adoption. It fixes the
 operation boundary and handoffs so each owner can land independently without
 inventing a second contextual-explanation path.
-
-The existing `--tips` alias and valued tip levels remain current product
-behavior until one implementation slice atomically adopts the replacement
-contract and updates Progressive Disclosure, CLI reference, and tests.
 
 ## Owner and exact claim
 

@@ -334,7 +334,7 @@ public class SearchSourceAdapterTests
                 archive.CreateEntryFromFile(assembly, "lib/net11.0/SourceIntentFixture.dll");
 
             var (exit, output, error) = await Invoke(
-                command, target, "--package", package, "--count", "--tips", "q");
+                command, target, "--package", package, "--count");
 
             Assert.True(exit == 0, error);
             Assert.True(int.TryParse(output.Trim(), out int count) && count > 0,

@@ -165,13 +165,8 @@ public class TypeOptionsParserTests
         }
     }
 
-    [Theory]
-    [InlineData("q", TipLevel.Quiet)]
-    [InlineData("m", TipLevel.Minimal)]
-    [InlineData("d", TipLevel.Detailed)]
-    public async Task Envelope_PreservesExplicitTipLevel(
-        string value,
-        TipLevel expected)
+    [Fact]
+    public async Task Envelope_PreservesExplicitTipsRequest()
     {
         var options = await ParseSuccessAsync(
             "type",
@@ -181,10 +176,9 @@ public class TypeOptionsParserTests
             "--tfm",
             "net10.0",
             "--envelope",
-            "--tips",
-            value);
+            "-T");
 
-        Assert.Equal(expected, options.TipLevel);
+        Assert.Equal(TipLevel.Minimal, options.TipLevel);
     }
 
     [Fact]

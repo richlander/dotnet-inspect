@@ -128,7 +128,7 @@ Show me just 3 types from System.Text.Json.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json -t 3 --tips q
+dotnet-inspect type System.Text.Json -t 3
 ```
 
 ```expect
@@ -154,7 +154,7 @@ grep -c '^| `'
 ### 4a. Using `type -t pattern`
 
 ```bash
-dotnet-inspect type System.Text.Json -t "Json*" --tips q
+dotnet-inspect type System.Text.Json -t "Json*"
 ```
 
 ```expect
@@ -202,7 +202,7 @@ grep '^|' | tail -n +3 | wc -l | tr -d ' '
 
 ```bash
 dotnet-inspect member System.Text.Json JsonSerializer \
-  --table --no-headers -n 3 --tips q
+  --table --no-headers -n 3
 ```
 
 ```expect
@@ -222,7 +222,7 @@ Tips:
 ### 7a. Using positional member name
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer Deserialize --tips q
+dotnet-inspect member System.Text.Json JsonSerializer Deserialize
 ```
 
 ```expect

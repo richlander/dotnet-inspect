@@ -274,7 +274,7 @@ public partial class CommandExecutionTests
     public async Task TypeDiscovery_NoMemberType_DoesNotListMethodBodySections()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", typeof(EmptyDiscoveryFixture).FullName!, "--library", TestAssemblyPath, "-D", "--tips", "q");
+            "type", typeof(EmptyDiscoveryFixture).FullName!, "--library", TestAssemblyPath, "-D");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Tip:", error);
@@ -297,7 +297,7 @@ public partial class CommandExecutionTests
     public async Task Type_UnknownSelectValue_ListsAvailableSections()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.String", "-S", "ZzzNoSuchSection", "--tips", "q");
+            "type", "System.String", "-S", "ZzzNoSuchSection");
 
         Assert.Equal(1, exit);
         Assert.Contains("not found", error);
@@ -309,7 +309,7 @@ public partial class CommandExecutionTests
     public async Task Type_MemberIndexSection_OmitsEmptyDecodeColumn()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.StringBuilder", "-S", "Member Index", "--tips", "q");
+            "type", "System.Text.StringBuilder", "-S", "Member Index");
 
         Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
         Assert.Empty(error);

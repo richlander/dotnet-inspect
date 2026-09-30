@@ -307,7 +307,7 @@ public record InspectionOptions : IProjectionOptions
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
 
     /// <summary>
-    /// Tip verbosity level.
+    /// Whether the explicit tip projection was requested.
     /// </summary>
     public TipLevel TipLevel { get; init; } = TipLevel.Quiet;
 

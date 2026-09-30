@@ -41,7 +41,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "--at", "all",
             "--tfm", "net8.0",
             "--source", FirstFeed,
-            "--tips", "q",
         ];
 
         string complete = await RunCompleteHistoryAsync(packages, history);
@@ -89,7 +88,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "--at", "all",
             "--tfm", "net8.0",
             "--source", FirstFeed,
-            "--tips", "q",
         ];
 
         string complete = await RunCompleteHistoryAsync(packages, history);
@@ -131,7 +129,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "--at", "all",
             "--tfm", "net8.0",
             "--source", FirstFeed,
-            "--tips", "q",
         ];
 
         var first = await RunCommandAsync([.. history, "--evidence-envelope", cold]);

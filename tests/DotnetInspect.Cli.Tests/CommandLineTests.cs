@@ -35,20 +35,97 @@ public class CommandLineTests
         Assert.Empty(result.Errors);
     }
 
-    [Theory]
-    [InlineData(null, false, TipLevel.Quiet)]
-    [InlineData(null, true, TipLevel.Minimal)]
-    [InlineData("q", true, TipLevel.Quiet)]
-    [InlineData("m", true, TipLevel.Minimal)]
-    [InlineData("d", true, TipLevel.Detailed)]
-    public void ParseTipLevel_RequiresExplicitOption(
-        string? value,
-        bool optionPresent,
-        TipLevel expected)
+    [Fact]
+    public void TipsOptions_AreShortOnlyAndZeroArity()
     {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var member = Assert.Single(
+            root.Subcommands,
+            command => command.Name == "member");
+
+        foreach (var option in new[]
+        {
+            Assert.Single(root.Options, option => option.Name == "-T"),
+            Assert.Single(member.Options, option => option.Name == "-T"),
+        })
+        {
+            Assert.Equal(0, option.Arity.MinimumNumberOfValues);
+            Assert.Equal(0, option.Arity.MaximumNumberOfValues);
+            Assert.DoesNotContain("--tips", option.Aliases);
+        }
+    }
+
+    [Theory]
+    [InlineData("--tips")]
+    [InlineData("-T:q")]
+    [InlineData("-T:m")]
+    [InlineData("-T:d")]
+    public void LegacyOrValuedTipsOption_IsRejected(string option)
+    {
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            ["member", "JsonSerializer", "--package", "System.Text.Json", option],
+            out string? error);
+
+        Assert.True(rejected);
+        Assert.Contains("Use bare '-T'", error);
+    }
+
+    [Fact]
+    public void LongTipsOptionWithValue_IsRejected()
+    {
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            ["member", "JsonSerializer", "--package", "System.Text.Json", "--tips", "q"],
+            out string? error);
+
+        Assert.True(rejected);
+        Assert.Contains("Use bare '-T'", error);
+    }
+
+    [Fact]
+    public void LegacyTipsSpellingAfterTerminator_RemainsPositional()
+    {
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            ["cache", "--", "--tips"],
+            out string? error);
+
+        Assert.False(rejected);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void BareTipsOption_DoesNotConsumeFollowingPositional()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["member", "JsonSerializer", "--package", "System.Text.Json", "-T", "Serialize:1"],
+            root);
+        var result = root.Parse(tokens);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("-T", tokens[^1]);
+        var arguments = Assert.IsType<Argument<string[]>>(
+            Assert.Single(result.CommandResult.Command.Arguments));
+        var values = Assert.IsType<string[]>(result.GetValue(arguments));
         Assert.Equal(
-            expected,
-            OptionParsers.ParseTipLevel(value, optionPresent));
+            ["JsonSerializer", "Serialize:1"],
+            values);
+    }
+
+    [Fact]
+    public async Task BareTipsOption_LeavesRejectedPositionalToCommandGrammar()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["cache", "-T", "q"],
+            root);
+        var result = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(tokens),
+                tokens));
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("q", result.Error);
+        Assert.DoesNotContain("Use bare '-T'", result.Error);
     }
 
     [Fact]
@@ -400,12 +477,21 @@ public class CommandLineTests
     }
 
     [Fact]
-    public async Task WriteTips_WithMinimalLevel_WritesTips()
+    public async Task WriteTips_WithExplicitRequest_WritesAtMostThreeTips()
     {
         var (_, error) = await ConsoleCapture.RunAsync(
-            () => Hints.WriteTips(TipLevel.Minimal, new Tip("package", "Foo", "inspect")));
+            () => Hints.WriteTips(
+                TipLevel.Minimal,
+                new Tip("package", "First", "first"),
+                new Tip("package", "Second", "second"),
+                new Tip("package", "Third", "third"),
+                new Tip("package", "Fourth", "fourth")));
 
         Assert.Contains("Tips:", error);
+        Assert.Contains("First", error);
+        Assert.Contains("Second", error);
+        Assert.Contains("Third", error);
+        Assert.DoesNotContain("Fourth", error);
     }
 
     [Fact]
@@ -554,10 +640,43 @@ public class CommandLineTests
     [Fact]
     public void TypeCommand_WithTypeFilter_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "-t", "*Serializer*", "--package", "System.Text.Json"]);
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["type", "-t", "*Serializer*", "--package", "System.Text.Json"],
+            root);
+        var result = root.Parse(tokens);
 
         Assert.Empty(result.Errors);
         Assert.Equal("type", result.CommandResult.Command.Name);
+        Assert.Contains("--type", tokens);
+    }
+
+    [Theory]
+    [InlineData("-t", "--type")]
+    [InlineData("-t=JsonSerializer", "--type=JsonSerializer")]
+    [InlineData("-t:JsonSerializer", "--type:JsonSerializer")]
+    public void LowercaseTypeAlias_IsCanonicalizedBeforeTipsParsing(
+        string argument,
+        string expected)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["type", argument, "JsonSerializer"],
+            root);
+
+        Assert.Contains(expected, tokens);
+        Assert.DoesNotContain(argument, tokens);
+    }
+
+    [Fact]
+    public void LowercaseTypeAliasAfterTerminator_RemainsPositional()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["type", "--", "-t"],
+            root);
+
+        Assert.Equal(["type", "--", "-t"], tokens);
     }
 
     [Theory]
@@ -938,7 +1057,10 @@ public class CommandLineTests
 
         string[] result = PreprocessAndApplyLineWindow(args);
 
-        Assert.Same(args, result);
+        string expectedOption = option == "-t" ? "--type" : option;
+        Assert.Equal(
+            ["find", "--package-prefix", "Azure", expectedOption, "-5"],
+            result);
         Assert.Equal(
             option == "-n" ? -5 : (int?)null,
             CommandLineBuilder.HeadLines);
@@ -1008,7 +1130,6 @@ public class CommandLineTests
     [Theory]
     [InlineData("-v")]
     [InlineData("-T")]
-    [InlineData("--tips")]
     public void PreprocessArgs_OptionalDisplayValueDoesNotHideLineLimit(
         string option)
     {
@@ -1023,7 +1144,6 @@ public class CommandLineTests
     [Theory]
     [InlineData("-v")]
     [InlineData("-T")]
-    [InlineData("--tips")]
     public void PreprocessArgs_OptionalDisplayValueDoesNotHideHeadShorthand(
         string option)
     {
@@ -1031,7 +1151,10 @@ public class CommandLineTests
 
         string[] result = PreprocessAndApplyLineWindow(args);
 
-        Assert.Equal(["package", "Foo", option, "-n", "5"], result);
+        string[] expected = option == "-T"
+            ? ["package", "Foo", "-n", "5", "-T"]
+            : ["package", "Foo", option, "-n", "5"];
+        Assert.Equal(expected, result);
         Assert.Equal(5, CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
     }
@@ -1491,7 +1614,7 @@ public class CommandLineTests
         Assert.Equal(
             [
                 "library",
-                option[..^1],
+                option == "-t:" ? "--type" : option[..^1],
                 "",
                 "address",
                 "0x06000001+0x0",
@@ -2231,14 +2354,14 @@ public class CommandLineTests
                 ScopeLib = scopeLib,
                 ScopeTools = scopeTools,
                 Tfm = tfm,
-                TipLevel = TipLevel.Detailed,
+                TipLevel = TipLevel.Minimal,
             };
             var tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
             Directory.CreateDirectory(Path.Combine(tempDir, "lib"));
             Directory.CreateDirectory(Path.Combine(tempDir, "tools"));
             try
             {
-                PackageCommand.WriteFileLayoutTips(tempDir, options, "TestPackage", TipLevel.Detailed, isLayout);
+                PackageCommand.WriteFileLayoutTips(tempDir, options, "TestPackage", TipLevel.Minimal, isLayout);
             }
             finally
             {
