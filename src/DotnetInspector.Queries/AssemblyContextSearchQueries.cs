@@ -270,7 +270,11 @@ public static class AssemblyContextTypeInventoryQuery
             AssemblyContextGroup group,
             bool includeAll,
             Action<AssemblyContextEntry<AssemblyTypeInventory>> consume,
-            Func<bool>? stop = null)
+            Func<bool>? stop = null,
+            Func<
+                AssemblyContextSubject,
+                AssemblyTypeInventoryEntry,
+                bool>? stopAfterType = null)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(consume);
@@ -279,33 +283,59 @@ public static class AssemblyContextTypeInventoryQuery
         {
             if (stop?.Invoke() == true)
                 return false;
+            bool participantStopped = false;
+            var subject =
+                new AssemblyContextSubject(participant.Assembly);
+            Func<AssemblyTypeInventoryEntry, bool>? participantStop =
+                stopAfterType is null
+                    ? null
+                    : row =>
+                    {
+                        participantStopped =
+                            stopAfterType(
+                                subject,
+                                row);
+                        return participantStopped;
+                    };
             consume(
                 AssemblyContextQueryExecutor.ExecuteParticipant(
                     group,
                     participant,
-                    session => Inspect(session, includeAll)));
+                    session => Inspect(
+                        session,
+                        includeAll,
+                        participantStop)));
+            if (participantStopped)
+                return false;
         }
         return true;
     }
 
     private static AssemblyTypeInventory Inspect(
         AssemblyInspectionSession session,
-        bool includeAll)
+        bool includeAll,
+        Func<AssemblyTypeInventoryEntry, bool>? stopAfterType = null)
     {
-        ApiSurface surface =
-            session.ApiSurface(includeAll, typesOnly: true);
+        ApiSurface surface = stopAfterType is null
+            ? session.ApiSurface(includeAll, typesOnly: true)
+            : session.ApiSurfaceUntil(
+                includeAll,
+                typesOnly: true,
+                type => stopAfterType(ToInventoryEntry(type)));
         return new AssemblyTypeInventory(
             surface.Types
-                .Select(
-                    static type =>
-                        new AssemblyTypeInventoryEntry(
-                            type.Name,
-                            type.Namespace,
-                            type.FullName,
-                            type.Kind))
+                .Select(ToInventoryEntry)
                 .ToImmutableArray(),
             surface.InspectionFailures.ToImmutableArray());
     }
+
+    private static AssemblyTypeInventoryEntry ToInventoryEntry(
+        ApiType type) =>
+        new(
+            type.Name,
+            type.Namespace,
+            type.FullName,
+            type.Kind);
 }
 
 /// <summary>Searches member names in every participant.</summary>

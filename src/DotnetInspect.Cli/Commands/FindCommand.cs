@@ -240,10 +240,10 @@ public class FindCommand
     }
 
     /// <summary>
-    /// The broadened tier's member source (find-search-service.md#tier-ladder):
-    /// an undotted, non-wildcard pattern whose Type answer has no Direct,
-    /// Glob, Namespace, or Prefix row also runs Member Find's Direct grammar
-    /// over the same authorized sources.
+    /// The separately composed member source: an undotted, non-wildcard
+    /// pattern whose Type answer has no Exact, Direct, Glob, Namespace, or
+    /// Prefix row also runs Member Find's Direct grammar over the same
+    /// authorized sources.
     /// </summary>
     private static async Task<FindSearchResult<MemberFindResult>?>
         FindBroadenedMembersAsync(
@@ -256,20 +256,16 @@ public class FindCommand
             PlatformFindSearchWorkspace? platformWorkspace,
             ExplicitFindSearchWorkspace? explicitWorkspace)
     {
-        int settledRowCount = typeRows.Count(static row =>
-            row.Match is TypeFindMatchKind.Direct
-                or TypeFindMatchKind.Glob
-                or TypeFindMatchKind.Namespace
-                or TypeFindMatchKind.Prefix);
         if (options.Limit is int limit
-            && settledRowCount >= limit)
+            && typeRows.Count >= limit)
         {
             return null;
         }
 
         HashSet<string> settled = new(
             typeRows
-                .Where(static row => row.Match is TypeFindMatchKind.Direct
+                .Where(static row => row.Match is TypeFindMatchKind.Exact
+                    or TypeFindMatchKind.Direct
                     or TypeFindMatchKind.Glob
                     or TypeFindMatchKind.Namespace
                     or TypeFindMatchKind.Prefix)
@@ -351,8 +347,8 @@ public class FindCommand
     }
 
     /// <summary>
-    /// A pattern answered by member rows no longer reaches the similarity
-    /// tier, and is no longer a miss.
+    /// A pattern answered by member rows omits its weak Type rows and is no
+    /// longer a miss.
     /// </summary>
     private static List<TypeFindResult> WithoutSupersededWeakRows(
         List<TypeFindResult> typeRows,
@@ -682,4 +678,20 @@ public record class TypeSearchResult
 
     [JsonIgnore]
     public TypeDeclarationLocatorSectionCandidate? Location { get; set; }
+
+    [JsonIgnore]
+    public AssemblyAcquisitionRegistration? AcquisitionRegistration
+    {
+        get;
+        set;
+    }
+
+    [JsonIgnore]
+    internal string? ClassifiedPattern { get; set; }
+
+    [JsonIgnore]
+    internal FindTypeMatchIntent ClassifiedIntent { get; set; }
+
+    [JsonIgnore]
+    internal TypeFindResult? Classification { get; set; }
 }

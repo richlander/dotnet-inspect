@@ -402,6 +402,23 @@ public sealed class AssemblyInspectionSession :
     public ApiSurface ApiSurface(bool includeAll = false, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(_image.PEReader, includeAll, typesOnly);
 
+    /// <summary>
+    /// Reads API Types in metadata order and stops before the Type after
+    /// <paramref name="stopAfterType"/> first returns <see langword="true"/>.
+    /// </summary>
+    public ApiSurface ApiSurfaceUntil(
+        bool includeAll,
+        bool typesOnly,
+        Func<ApiType, bool> stopAfterType)
+    {
+        ArgumentNullException.ThrowIfNull(stopAfterType);
+        return ApiSurfaceExtractor.ExtractUntil(
+            _image.PEReader,
+            includeAll,
+            typesOnly,
+            stopAfterType);
+    }
+
     internal ApiSurface ApiSurface(
         ResolvedAssemblyReference source,
         TypeResolutionCatalog catalog,

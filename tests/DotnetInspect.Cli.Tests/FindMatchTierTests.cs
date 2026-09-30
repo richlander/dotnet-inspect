@@ -10,8 +10,8 @@ using QuerySpace.Rows;
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
-/// Find's tier ladder (find-search-service.md#classification) over the real
-/// System.Text.Json assembly and .NET Platform, whose names motivated it.
+/// Find's discovery-order classification over the real System.Text.Json
+/// assembly and .NET Platform, whose names motivated it.
 /// </summary>
 [Collection("Console")]
 public class FindMatchTierTests
@@ -22,29 +22,32 @@ public class FindMatchTierTests
     public FindMatchTierTests()
         => PersistentCache.Initialize("dotnet-inspect-test");
 
-    [Theory]
-    [InlineData("JsonSer")]
-    [InlineData("JsonSer,NoSuchTypeName")]
-    public async Task FindTypesAsync_PrefixRanksShortestCompletionFirst(
-        string patternList)
+    [Fact]
+    public async Task
+        FindTypesAsync_PreservesDiscoveryOrderAcrossMatchClasses()
     {
-        List<TypeFindResult> rows = await FindAsync(patternList);
+        List<TypeFindResult> rows =
+            await FindAsync("JsonSerializer");
 
-        List<TypeFindResult> prefix =
-            [.. rows.Where(static row => row.Pattern == "JsonSer")];
-        Assert.NotEmpty(prefix);
-        Assert.All(
-            prefix,
-            static row => Assert.Equal(TypeFindMatchKind.Prefix, row.Match));
-        Assert.Equal("System.Text.Json.JsonSerializer", prefix[0].FullName);
         Assert.Equal(
-            prefix.Count,
-            prefix.Select(static row => row.FullName).Distinct().Count());
+            [
+                "System.Text.Json.JsonSerializerDefaults",
+                "System.Text.Json.JsonSerializer",
+                "System.Text.Json.JsonSerializerOptions",
+            ],
+            rows.Take(3).Select(static row => row.FullName));
+        Assert.Equal(
+            [
+                TypeFindMatchKind.Prefix,
+                TypeFindMatchKind.Exact,
+                TypeFindMatchKind.Prefix,
+            ],
+            rows.Take(3).Select(static row => row.Match));
     }
 
     [Fact]
     public async Task
-        FindTypesAsync_LimitOrdersOnlyThePopulationFoundBeforeTheLimit()
+        FindTypesAsync_LimitKeepsFirstDiscoveredCandidate()
     {
         using var httpClient = new HttpClient();
         const string pattern = "FindFoundPopulationOrder";
@@ -71,6 +74,109 @@ public class FindMatchTierTests
             typeof(FindFoundPopulationOrderMuchLonger).FullName,
             row.FullName);
         Assert.Equal(TypeFindMatchKind.Prefix, row.Match);
+        Assert.Equal(
+            FindSearchCompletion.ResultLimitReached,
+            search.Completion);
+    }
+
+    [Fact]
+    public async Task
+        FindTypesAsync_ExactOnlyRejectsEarlierBroaderCandidates()
+    {
+        using var httpClient = new HttpClient();
+        const string pattern = "JsonSerializer";
+        FindSearchResult<TypeFindResult> search =
+            await TypeSearchService.FindTypesAsync(
+                new FindOptions
+                {
+                    Pattern = pattern,
+                    Assemblies =
+                    [
+                        typeof(JsonSerializer).Assembly.Location,
+                    ],
+                    Limit = 1,
+                    TypeMatchIntent = FindTypeMatchIntent.ExactOnly,
+                },
+                [pattern],
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        TypeFindResult row = Assert.Single(search.Rows);
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            row.FullName);
+        Assert.Equal(TypeFindMatchKind.Exact, row.Match);
+        Assert.Equal(
+            FindSearchCompletion.ResultLimitReached,
+            search.Completion);
+    }
+
+    [Fact]
+    public async Task
+        FindTypesAsync_ExactOnlyRecordsSourceExhaustionBelowHead()
+    {
+        using var httpClient = new HttpClient();
+        const string pattern = "JsonSerialiser";
+        FindSearchResult<TypeFindResult> search =
+            await TypeSearchService.FindTypesAsync(
+                new FindOptions
+                {
+                    Pattern = pattern,
+                    Assemblies =
+                    [
+                        typeof(JsonSerializer).Assembly.Location,
+                    ],
+                    Limit = 1,
+                    TypeMatchIntent = FindTypeMatchIntent.ExactOnly,
+                },
+                [pattern],
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        Assert.Empty(search.Rows);
+        Assert.Equal(
+            FindSearchCompletion.Exhausted,
+            search.Completion);
+    }
+
+    [Fact]
+    public async Task
+        FindTypesAsync_ExactOnlyMultiPatternClassifiesSharedInventory()
+    {
+        using var httpClient = new HttpClient();
+        string[] patterns =
+        [
+            "JsonSerializerOptions",
+            "JsonSerializer",
+        ];
+        FindSearchResult<TypeFindResult> search =
+            await TypeSearchService.FindTypesAsync(
+                new FindOptions
+                {
+                    Pattern = string.Join(',', patterns),
+                    Assemblies = [SystemTextJson],
+                    TypeMatchIntent = FindTypeMatchIntent.ExactOnly,
+                },
+                patterns,
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                "System.Text.Json.JsonSerializerOptions",
+                "System.Text.Json.JsonSerializer",
+            ],
+            search.Rows.Select(static row => row.FullName));
+        Assert.Equal(
+            patterns,
+            search.Rows.Select(static row => row.Pattern));
+        Assert.All(
+            search.Rows,
+            static row =>
+                Assert.Equal(TypeFindMatchKind.Exact, row.Match));
     }
 
     [Fact]
@@ -80,49 +186,68 @@ public class FindMatchTierTests
             await FindAsync("System.Text.Json.JsonSer");
 
         Assert.NotEmpty(rows);
-        Assert.All(rows, static row =>
-        {
-            Assert.Equal("System.Text.Json.JsonSer*", row.Pattern);
-            Assert.Equal(TypeFindMatchKind.Prefix, row.Match);
-        });
-        Assert.Equal("System.Text.Json.JsonSerializer", rows[0].FullName);
+        Assert.All(
+            rows.Where(
+                static row =>
+                    row.Match == TypeFindMatchKind.Prefix),
+            static row =>
+                Assert.Equal(
+                    "System.Text.Json.JsonSer*",
+                    row.Pattern));
+        Assert.All(
+            rows.Where(
+                static row =>
+                    row.Match == TypeFindMatchKind.Partial),
+            static row =>
+                Assert.Equal(
+                    "System.Text.Json.JsonSer",
+                    row.Pattern));
     }
 
     [Fact]
-    public async Task FindTypesAsync_SubstringFollowsEmptyPrefix()
+    public async Task FindTypesAsync_SubstringDoesNotExcludeSimilarRows()
     {
         List<TypeFindResult> rows = await FindAsync("Serializer");
 
         Assert.NotEmpty(rows);
-        Assert.All(
+        Assert.Contains(
             rows,
-            static row => Assert.Equal(TypeFindMatchKind.Substring, row.Match));
-        Assert.Equal("System.Text.Json.JsonSerializer", rows[0].FullName);
+            static row => row.Match == TypeFindMatchKind.Substring);
+        Assert.Contains(
+            rows,
+            static row => row.Match == TypeFindMatchKind.Partial);
     }
 
     [Fact]
-    public async Task FindTypesAsync_DirectTierStillSettlesBeforePrefix()
+    public async Task FindTypesAsync_ExactDoesNotSettleBeforePrefix()
     {
         List<TypeFindResult> rows = await FindAsync("JsonSerializer");
 
-        TypeFindResult row = Assert.Single(rows);
-        Assert.Equal(TypeFindMatchKind.Direct, row.Match);
+        Assert.Contains(
+            rows,
+            static row => row.Match == TypeFindMatchKind.Exact);
+        Assert.Contains(
+            rows,
+            static row => row.Match == TypeFindMatchKind.Prefix);
     }
 
     [Fact]
-    public async Task FindTypesAsync_PartialSuggestionsOrderBySimilarity()
+    public async Task FindTypesAsync_SimilarRowsPreserveDiscoveryOrder()
     {
         List<TypeFindResult> rows = await FindAsync("JsonSerialiser");
 
-        Assert.NotEmpty(rows);
+        Assert.True(rows.Count >= 3);
         Assert.All(
             rows,
             static row => Assert.Equal(TypeFindMatchKind.Partial, row.Match));
-        Assert.Equal("System.Text.Json.JsonSerializer", rows[0].FullName);
         Assert.Equal(
-            rows.Select(static row => row.Similarity)
-                .OrderByDescending(static similarity => similarity),
-            rows.Select(static row => row.Similarity));
+            [
+                "System.Text.Json.JsonSerializerDefaults",
+                "System.Text.Json.JsonSerializer",
+                "System.Text.Json.JsonSerializerOptions",
+            ],
+            rows.Take(3).Select(static row => row.FullName));
+        Assert.True(rows[0].Similarity < rows[1].Similarity);
     }
 
     [Fact]
@@ -142,6 +267,25 @@ public class FindMatchTierTests
         Assert.True(members >= 0, output);
         Assert.Contains("System.Text.StringBuilder", output);
         Assert.DoesNotContain("DateFormat", output);
+    }
+
+    [Fact]
+    public async Task Find_TypeHeadSettlesBeforeBroadenedMemberFallback()
+    {
+        var options = new FindOptions
+        {
+            Pattern = "AppendFormat",
+            PlatformFrameworks = ["runtime"],
+            Limit = 1,
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("## Members", output);
+        Assert.DoesNotContain("System.Text.StringBuilder", output);
+        Assert.Contains("DateFormat", output);
     }
 
     [Fact]
@@ -260,7 +404,7 @@ public class FindMatchTierTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task FindTypesAsync_LocatorPathUsesSameTiers()
+    public async Task FindTypesAsync_LocatorPathUsesSameClassification()
     {
         using var httpClient = new HttpClient();
         var options = new FindOptions
@@ -280,12 +424,15 @@ public class FindMatchTierTests
 
         Assert.False(result.HasFailures);
         Assert.NotEmpty(result.LocatorSections);
-        Assert.All(
-            result.Rows,
-            static row => Assert.Equal(TypeFindMatchKind.Prefix, row.Match));
         Assert.Equal(
-            "System.Text.Json.JsonSerializer",
+            "System.Text.Json.JsonSerializerDefaults",
             result.Rows[0].FullName);
+        Assert.Contains(
+            result.Rows,
+            static row => row.Match == TypeFindMatchKind.Prefix);
+        Assert.Contains(
+            result.Rows,
+            static row => row.Match == TypeFindMatchKind.Partial);
     }
 
     private static async Task<List<TypeFindResult>> FindAsync(

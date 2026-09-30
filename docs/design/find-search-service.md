@@ -43,6 +43,10 @@ patterns, and locator Sections. It is not a CLI output Document.
 `FindResultView` and `FindRow` remain presentation projections. A locator-backed
 row may carry a JSON-ignored candidate association for exact Type/Member
 handoff, but that execution context is not part of the result contract.
+The owner-neutral per-unit routing and Head-settlement basis is
+[PR #8985](https://github.com/richlander/dotnet-inspect/pull/8985);
+[issue #8984](https://github.com/richlander/dotnet-inspect/issues/8984) owns
+this Find adoption.
 
 Locator adoption is presentation-compatible under
 [CLI change classification](cli-change-classification.md). Default Markdown,
@@ -152,27 +156,17 @@ eliminating repeated Type identities within one logical source. Repeated
 versions of one package ID therefore retain the caller-first observation,
 while package and Platform observations remain distinct.
 
-For a direct miss, namespace-prefix and similarity work remains CLI-owned.
-Prefix fallback is issued as a separate `<pattern>*` locator request. A
-successful prefix answer settles that pattern without issuing or retaining a
-wildcard census. A similarity census is issued as a separate `*` locator
-request only when at least one non-wildcard pattern remains unresolved after
-its applicable prefix answer. The original answer and every issued fallback
-answer keep their own coverage. An incomplete direct answer is never described
-as a scoped miss merely because a later fallback produced no row.
-Before duplicate elimination, locator-backed prefix and similarity candidates
-are ranked by their attached context/member observation order so Find's caller
-source priority remains distinct from the locator's deterministic output
-ordering.
-Direct candidates are likewise restored to context, member, and declaration
-inventory order before the per-pattern limit is applied.
+The locator route requests one complete `*` declaration census. Find restores
+its owner-issued context, member, and declaration inventory order, then applies
+the same per-candidate classifier as compatibility collection. It does not
+issue separate direct, prefix, or similarity fallback requests.
 
 `FindOptions.Limit` is applied only to classified locator candidate rows. It
 is not passed to `WorkspaceDeclarationLocatorOptions` and cannot reduce
 locator inventory reads or retained inventories. A pure semantic Head plan
-also carries its maximum result count as `FindQueryPlan.ResultLimit`; the CLI
-may use that count at an execution boundary that preserves the same result
-order, but it does not claim reduced locator coverage.
+also carries its maximum result count as `FindQueryPlan.ResultLimit`; the
+compatibility and Platform collectors lower that count into their metadata
+Type traversal, while the locator remains an explicit non-pushdown boundary.
 
 The selected-candidate handoff is an owner-issued
 `TypeFindInspectionTarget`, not a command-display parser. It derives exact
@@ -231,23 +225,22 @@ generic-name fallback and must either identify one terminal definition or
 surface ambiguity or unavailability. See [Exact single-Type
 operation](assembly-inspection-query.md#exact-single-type-operation).
 
-`TypeFindMatchKind.Direct` means a **direct non-glob grammar match**. It does
-not claim exact Metadata identity, exact full name, explicit generic arity,
-uniqueness, or successful terminal selection. `Glob` means the direct or
-namespace-prefix wildcard grammar matched, while `Partial` remains similarity
-fallback.
+`TypeFindMatchKind.Exact` means the candidate's Type name or full name equals
+the non-glob pattern ordinally. `Direct` means the broader non-glob
+`TypeMatcher` grammar matched after Exact did not; it does not claim exact
+Metadata identity, explicit generic arity, uniqueness, or successful terminal
+selection. `Glob` means the explicit wildcard grammar matched. `Partial`
+means the candidate passed Find's per-candidate similarity threshold.
 
 Type and member discovery use separate match-kind types because each owner
 defines its own grammar. The Member route also uses `Direct` and `Glob`, but
 its direct grammar is case-insensitive member-name matching plus the `this[]`
 indexer alias rather than Type-name matching.
 
-`Direct` is a discovery-grammar classification, not a global replacement for
-exactness. It does not rename separately owned uses of exactness for terminal
-selection or relational equality, or `Matched`/`NoMatch` outcomes that report
-whether an explicit predicate was satisfied. In particular, Package Query
-exact-ID input selects one package identity, while assembly-semantic Find
-classifies candidate evaluation rather than coordinate-grammar quality.
+`Exact` is still a discovery classification, not terminal Type selection.
+Several source-backed candidates may classify Exact, and one Exact candidate
+does not suppress broader matches from other candidates in ordinary Find.
+Package Query exact-ID input separately selects one package identity.
 
 The real platform `System.Action` family demonstrates the boundary:
 
@@ -294,8 +287,8 @@ For exact-version Packages with one explicit target framework other than
 admits declaration contexts through `WorkspaceContextLoader` and executes the
 Workspace-resident locator only when the selected implementation universe
 covers every DLL candidate in the Package's selected target framework.
-Direct, namespace-prefix, and similarity-census requests reuse the same
-resident inventories. A Package with another reference, library, runtime, or
+All match classes reuse the same resident inventories. A Package with another
+reference, library, runtime, or
 other target-framework assembly candidate stays on compatibility collection,
 which preserves the established multi-layout row population. Explicit Platform
 Libraries also remain on compatibility collection because that owner may
@@ -305,16 +298,13 @@ other unsupported source shapes remain on the legacy route so this adoption
 does not redefine their selection semantics.
 
 Unsupported source shapes retain one invocation-owned empty Workspace and
-acquire each ordered source at most once. Direct, namespace, broadened, and
-similarity passes reuse those resolved assembly sets; a result limit still
-acquires sources lazily in established order and stops before later sources.
-The command owns that lifetime across both Type classification and the
-broadened Member tier.
-A pure CLI semantic Head plan supplies one operational limit across its
-patterns. Direct Type or Member matching stops after that many discovered
-hits, including before a later pattern group or source. A miss still reaches
-the classification evidence required by its tier. Tail and Window do not
-supply an operational limit.
+acquire each ordered source at most once. A pure CLI semantic Head plan
+supplies one operational limit across its Type patterns. Compatibility and
+Platform collection classify each retained Type in metadata order and stop
+before the next Type, query participant, pattern group, or source after the
+Nth accepted unique candidate. Tail and Window do not supply an operational
+limit. The command owns the retained source lifetime across Type classification
+and the separately composed Member search.
 Each admitted assembly executes the same inventory query, and the service
 projects its type name, namespace, full name, kind, library file base name,
 source, and source version into the internal `TypeSearchResult` currency. The
@@ -325,12 +315,12 @@ the attached observation keeps metadata assembly identity separate. Neither
 route reopens assemblies, infers metadata facts from display text, or replaces
 a typed query failure with a candidate.
 
-A non-null collection pattern may be pushed into each inventory scan. With a
-single pattern and an active result limit, `FindTypesAsync` selects the
-filtered path in every output format: sources stream in the order above and
-collection stops before resolving later sources once the limit is met.
-Without the filtered early-exit shape, the service collects the full
-authorized inventory before classifying patterns.
+A non-null collection pattern and pure Head bound are pushed into each
+compatibility or Platform Type scan. The scan classifies each candidate once,
+applies duplicate identity before Head, retains the Nth accepted candidate,
+and does not read the next metadata Type. Without pure Head, the service
+collects the authorized inventory before classifying it. The locator route
+always classifies one complete retained declaration census.
 
 `CollectTypesAsync` is also a compatibility seam for `TypeCommand`,
 `TypeLookupService`, and `TypeFindIfMissResolver`. Those consumers own their
@@ -338,170 +328,89 @@ resolution or routing decisions. The raw candidate currency is not the
 normative result of the `find` operation and is not a general rule that
 services return command view models.
 
-## Classification
+## Classification and order
 
-Find ranks one pattern's candidates into ordered match tiers. The tier
-ladder is the product's single Type-name ranking:
-`ILInspector.Metadata.TypeNameMatchRanking`, beside `TypeMatcher`, owns the
-per-candidate Prefix, Substring, and namespace-Path predicates and the
-within-tier order, and every Type-name search host consumes it.
-This service owns which tiers a Find pattern evaluates, when a tier settles
-the pattern, and how rows reach `TypeFindResult`.
+Find applies one exclusive classifier to each Type candidate in owner-issued
+discovery order. The first matching class wins for that candidate:
 
-### Motivation
+1. **Exact.** The non-glob pattern equals the candidate's Type name or full
+   name ordinally.
+2. **Direct or Glob.** `TypeMatcher.MatchesTypeFilter` applies the
+   Metadata-owned simple-name, namespace-qualified, generic-arity, nested-Type,
+   and wildcard grammar. Explicit wildcards produce `Glob`; other matches
+   produce `Direct`.
+3. **Namespace.** An eligible dotted namesake-Library pattern equals the
+   candidate namespace ordinally.
+4. **Prefix.** `TypeNameMatchRanking.Classify` reports Prefix. A dotted
+   namespace-prefix result retains its effective `<pattern>*` spelling.
+5. **Substring.** The same per-candidate classifier reports Substring.
+6. **Partial.** A non-wildcard candidate whose Metadata-owned name similarity
+   is at least `0.5`.
+7. **None.** The candidate does not publish.
 
-The installed .NET 11 Platform supplies the boundary cases. With the previous
-first-non-empty-rung cascade, each of these patterns fell through to five
-similarity suggestions:
+The precedence is per candidate; it is not a whole-source tier ladder. An
+Exact candidate therefore does not suppress Prefix, Substring, or Partial
+candidates discovered before or after it. Ordinary Find accepts all six
+published classes. Typed exact-only intent accepts only Exact; CLI spelling
+for that intent is separately owned and is not added by this slice.
 
-| Pattern | Previous result | `pattern*` Types | `*pattern*` Types | Direct Members |
-| --- | --- | --- | --- | --- |
-| `JsonSer` | 5 Partial, `JsonSerializer` tied with `JsonNode` at 0.50 | 5 | 10 | 0 |
-| `StringBuild` | 5 Partial, `StringBuilder` fourth | 5 | 7 | 0 |
-| `Serializer` | 5 Partial | 0 | 49 | 0 |
-| `Parse` | 5 Partial (`SseParser`, `UriParser`, `Page`) | 0 | 44 | 442 |
-| `AppendFormat` | 5 Partial (`DateFormat`, `ActivityIdFormat`) | 0 | 0 | 29 |
+Find does not apply an alphabetical, shortest-name, or similarity-score sort.
+Rows remain in source, assembly, and declaration inventory order. Multiple
+patterns remain pattern groups in caller order and share one Head budget.
+Consumers interpret quality from `Pattern`, `Match`, and `Similarity`, not row
+position.
 
-A person typing `JsonSer` means a prefix, and a person typing `Parse` or
-`AppendFormat` usually means the member. Neither intent needs wildcard or
-leading-dot syntax.
-
-### Tier ladder
-
-A pattern evaluates these tiers in order:
-
-1. **Direct.** Unchanged: `TypeMatcher.MatchesTypeFilter` applies the
-   Metadata-owned case-insensitive grammar, including simple-name,
-   namespace-qualified, generic-arity, nested-type, and wildcard matching. A
-   wildcard pattern produces `Glob`; another direct pattern produces `Direct`.
-2. **Exact namespace.** Unchanged: a non-wildcard dotted pattern with at least
-   one proper dotted namesake-Library candidate selects public definitions
-   whose namespace equals the pattern ordinally, with `Namespace` match kind.
-3. **Prefix.** A non-wildcard pattern without explicit generic notation
-   matches `<pattern>*`. A dotted pattern keeps the established
-   namespace-prefix meaning, including its visible stderr note and effective
-   `Pattern`; an undotted pattern matches simple Type names. Rows carry the
-   `Prefix` match kind.
-4. **Broadened.** Reached only when tiers 1-3 are empty and the pattern
-   contains no raw `*`, `?`, `<`, or `` ` ``. The band composes two evidence
-   sources:
-   - **Member.** An undotted identifier also runs the
-     [Member Find](find-member-search-service.md) `Direct` grammar over the
-     same authorized source request. Member rows remain `MemberFindResult`
-     rows; this service does not convert a member into a Type row.
-   - **Substring.** Simple Type names containing the pattern, with the
-     `Substring` match kind. A dotted pattern matches full
-     names containing it. Find does not evaluate the ranker's undotted Path
-     tier, which would admit every Type in a namespace that contains the
-     text; incremental Spotlight ranking may.
-5. **Partial.** Unchanged similarity fallback, reached only when tiers 1-4 are
-   all empty: up to five `Partial` suggestions with similarity at least `0.5`.
-6. **Miss.** Unchanged `NotFound` outcome.
-
-Tiers 1-3 keep the established settlement rule: the first non-empty tier is
-the pattern's answer, so `Dictionary` still returns its two direct Types and
-not its 128 substring neighbors. Tier 4 is one band because its two sources
-answer different questions with comparable strength; a direct member name
-outranks a substring Type name, so the band presents Member rows before
-Substring rows.
-
-### Order within a tier
-
-Like similarity suggestions, undotted Prefix and Substring answers are
-successful results, not diagnostics, so they add no stderr note; the `Match`
-classification carries the tier. Only the established dotted
-namespace-prefix note remains.
-
-Find uses three ordering modes:
-
-1. **No forced order.** Direct, Namespace, and Member rows retain source,
-   assembly, and inventory discovery order.
-2. **Whole-population order.** Partial similarity must observe the complete
-   eligible population before ranking by descending similarity and then the
-   shared within-tier comparer.
-3. **Found-population order.** Prefix and Substring apply the semantic hit
-   budget to discovery order first, then order only that found population by
-   simple-name length and ordinal-ignore-case name. Without a budget, the found
-   population is the whole tier.
-
-Multiple Type patterns classify in input order. A Head budget is shared across
-those groups, so a completed earlier group may prevent later patterns from
-running. Duplicate full names within Prefix, Substring, and Partial collapse
-to the first source-ranked candidate. Consumers still use `Pattern`, `Match`,
-and `Similarity` rather than list position to interpret quality.
+Duplicate identity is `(full Type name, declaration population)`. Locator rows
+use module identity; compatibility rows use the acquisition registration that
+issued the assembly participant. Deduplication precedes Head, preserving equal
+projected names from distinct package assets or source populations while
+preventing repeated observations of one declaration from spending capacity.
 
 ### Result and presentation boundary
 
-`TypeFindMatchKind` gains `Prefix` and `Substring`. Undotted Prefix rows were
-previously unreachable, and dotted namespace-prefix rows previously carried
-`Glob`; emitting `Prefix` for them is a corrective, breaking typed-JSON change
-under [CLI change classification](cli-change-classification.md), with no
-compatibility alias. Prefix and Substring rows carry similarity `1.0`.
+`TypeFindMatchKind` gains `Exact`, `Prefix`, and `Substring`. Exact candidate
+rows that previously used `Direct` now expose the more precise class. Prefix
+and Substring rows carry similarity `1.0`; Partial retains its measured score.
+These are corrective typed-JSON changes under
+[CLI change classification](cli-change-classification.md).
 
 The command composes the Type search result with the broadened band's member
 rows as a separate `FindSearchResult<MemberFindResult>` component, retaining
 its own failures and completion. Default Markdown renders them as a `Members`
 section before `Results`, using the Member Find view. This section enters the
 default `-v:m` view only because it is the command's single high-value section
-when it appears: it is present only when no Direct, Namespace, or Prefix Type
-exists. Plain `--json` keeps its root `TypeFindResult` array, so a
-member-only broadened answer appears there as an empty array; machine
-consumers that want members keep using `--members` or the leading-dot
-shorthand. `--count` counts Type rows and rejects a broadened answer that
-contains member rows, or whose member source failed or was incomplete,
-rather than silently counting only one kind.
+when it appears: it is present only when no Exact, Direct, Namespace, or
+Prefix Type exists. A pure semantic Head that fills its budget with Type rows
+settles before this implicit Member fallback; proving that no Member outranks a
+weak Type would require the complete fallback census that Head exists to avoid.
+Use `--members` or the leading-dot shorthand when Member rows are the requested
+bounded answer. Plain `--json` keeps its root `TypeFindResult` array, so a
+member-only broadened answer appears there as an empty array. `--count` counts
+Type rows and rejects a broadened answer that contains member rows, or whose
+member source failed or was incomplete, rather than silently counting only one
+kind.
 
 Semantic row selection (`-n`, `--tail`, `--rows`) selects from the whole
-answer in presented order: member rows first, then Type rows. `find Parse -n 2`
-therefore shows the first two `Parse` members and no Type rows, and a window
-that crosses the boundary keeps the tail of `Members` and the head of
-`Results`. Formats that omit member rows (plain `--json` and table formats)
-select over the Type rows they present. The reported row count is the number
-of selected rows presented.
-
-### Cost
-
-Prefix and Substring evaluate over the census the miss path already
-collects, so they add no assembly reads. The Member source adds one member
-scan of the authorized sources, only when tiers 1-3 are empty; on the
-installed Platform that scan measured about 1.4 seconds warm against about
-0.6 seconds for Type Find. That cost is the reason Member is a late tier
-rather than a default section, and it is the first candidate for the
-progressive phase design that follows this slice.
-
-### Shared ranker adoption
-
-`PackageExports.SearchTypes` already ranks exact, prefix, substring,
-namespace-path, and similarity tiers inside the Browser interop host. That
-logic moves into the host-neutral ranker; the Browser export becomes a thin
-binding over it. A wildcard query is a glob fragment to the ranker: Prefix
-tests `<query>*` and Substring `*<query>*` against the simple name, and Path
-tests `*<query>*` against the full name, so a Spotlight user typing `Json*Opt`
-still reaches `JsonSerializerOptions`. Find itself never broadens a wildcard
-pattern, because an explicit glob already states its breadth. Locator-backed Spotlight Type Find (#6851) consumes the same
-ladder by issuing the Prefix and Substring tiers as separately identified
-locator Pattern requests, which the
-[locator contract](reverse-type-declaration-locator.md) admits as Find-owned
-fallbacks. Browser Member discovery beyond loaded Types is outside this slice.
+answer in presented order when implicit Member fallback runs: member rows
+first, then Type rows. A window that crosses the boundary keeps the tail of
+`Members` and the head of `Results`. A pure `-n N` that already settled on N
+Type rows has no Member component to reorder. Formats that omit member rows
+(plain `--json` and table formats) select over the Type rows they present. The
+reported row count is the number of selected rows presented.
 
 ## Limits and work
 
-`Limit` is one shared hit budget across pattern groups. On the locator path it
-is applied after complete locator evaluation and cannot bound inventory reads
-or retained inventories. On compatibility and platform direct paths it is
-also an acquisition or participant bound: once enough hits have been
-collected, later patterns and sources are neither entered nor diagnosed.
+`Limit` is one shared accepted-candidate budget across pattern groups. On
+compatibility and Platform paths it stops the current metadata Type traversal
+after the Nth accepted unique candidate, then avoids later participants,
+patterns, sources, and implicit broadened Member fallback. On the locator path
+it selects Head after the complete resident locator census and therefore makes
+no inventory-read reduction claim.
 
-Prefix and Substring order only the population admitted by the budget.
-Similarity fallback has its own fixed census-derived ranking of up to five
-candidate names; it therefore completes the eligible population before the
-command applies the remaining Head selection.
-
-The non-tabular single-pattern compatibility path first performs filtered
-collection. If it finds no direct result, it performs a full census to evaluate
-exact-namespace, namespace-prefix, and similarity fallback. This is intended as
-an execution optimization, but typed-result equivalence with the census path is
-not yet established.
+`FindSearchCompletion` records `ResultLimitReached` when Head settled,
+`Exhausted` when the source ended below N, and `Incomplete` when failure or
+incomplete source selection prevents either claim. These are internal
+operation facts, not new output fields.
 
 ## Failure and lifetime
 
@@ -532,6 +441,8 @@ rendering after receiving `TypeFindResult` rows.
 
 The Release tests in
 `tests/DotnetInspect.Cli.Tests/TypeSearchServiceTests.cs`,
+`tests/DotnetInspect.Cli.Tests/FindMatchTierTests.cs`,
+`tests/DotnetInspector.Queries.Tests/AssemblyContextSearchQueryTests.cs`,
 `ConfiguredPayloadAcquisitionTests.SearchWorkspace.cs`, and
 `CommandExecutionTests.cs` verify candidate collection, source behavior, and
 the command compatibility boundary:
@@ -547,7 +458,7 @@ the command compatibility boundary:
 - typed Package Type and exact Member consumption through the selected
   package-relative implementation asset;
 - selected-compatible-TFM replay when the request targets a newer framework;
-- staged namespace-prefix fallback without an unrelated wildcard census;
+- one locator census followed by discovery-order classification;
 - exact namespace selection before namespace-prefix fallback;
 - exact namespace exclusion of descendants and near-prefix names;
 - distinct unscoped PackageHouse and PlatformHouse observations for
@@ -563,7 +474,7 @@ the command compatibility boundary:
 - compatibility fallback when a Package has no implementation-view surface;
 - visible locator inventory/access rejection without duplicate diagnostics
   across fallback requests;
-- caller-ranked Package selection for prefix and similarity duplicates;
+- declaration-population duplicate identity before Head;
 - compatibility routing for Platform families without an implementation-view
   locator adapter;
 - visible Platform implementation-view handoff and command decline;
@@ -571,50 +482,28 @@ the command compatibility boundary:
 - definitions-only publication when a Package contains both a forwarding
   facade and its implementation.
 
-`FindMatchTierTests` gates the tier ladder over the real System.Text.Json
-assembly and .NET Platform: whole-tier Prefix order when unbounded,
-found-population Prefix order when limited, dotted Prefix with its effective
-wildcard, Substring after an empty Prefix, Direct settlement before Prefix,
-similarity-ordered Partial rows, the Member tier's Markdown section, its
-visible `--json` omission and `--count` rejection, a Prefix Type answer that
-does not search members, and (Slow) the same tiers on the exact-Package
-locator path.
-`TypeNameMatchRankingTests` gates the shared predicates and within-tier
-order, and `BrowserTypeSearchRankingTests` gates the Browser binding.
-`Find_LocatorSimilarityOrdersByScoreThenShortestName` pins Partial order on
-the locator path.
+`FindMatchTierTests` gates the classifier over the real System.Text.Json
+assembly and .NET Platform: mixed Prefix/Exact/Prefix discovery order,
+Substring and Partial coexistence, similarity rows that remain in discovery
+order despite different scores, typed exact-only filtering before Head,
+`ResultLimitReached` versus `Exhausted`, dotted Prefix spelling, Member
+composition, Type Head settlement before implicit Member fallback, and the
+exact-Package locator path.
+`AssemblyContextSearchQueryTests.TypeInventory_StopAvoidsLaterTypesInParticipant`
+gates the metadata boundary: after the stop predicate accepts a Type, the next
+Type is neither visited nor retained.
 
-`FindTypesAsync_NullableGenericPatternIsClassifiedAsDirect` is the first
-focused service-level classification gate. It verifies that result
+`FindTypesAsync_NullableGenericPatternIsClassifiedAsDirect` verifies that result
 classification uses the matcher-owned normalized glob predicate, so nullable
 generic syntax remains a `Direct` match rather than becoming `Glob` merely
 because its raw spelling contains `?`.
 `Find_NullableGenericPatternPreservesCompatibilityAcrossLocatorRoutes` applies
 the same predicate and `Direct` wire contract to both an exact-version Package
-admitted through the reverse locator and the compatibility route. Broader
-cascade equivalence remains ungated. In particular, the following properties
-are unverified or known gaps:
+admitted through the reverse locator and the compatibility route.
 
-- the optimized single-pattern path returns an empty list for an all-miss
-  pattern, while the census path constructs a `NotFound` row;
-- single-pattern and census paths are not gated for typed-result equivalence;
-- equivalent directory paths with and without a trailing separator produce
-  different `Source` provenance, with the trailing form currently projecting
-  an empty value;
-- partial suggestions are not additionally capped by `Limit`.
-
-The Type match-vocabulary correction is intentionally limited to this
-operation. It is a corrective but breaking output change under [CLI change
-classification](cli-change-classification.md): typed JSON now emits `Direct`
-instead of `Exact`, and rendered projections emit `direct` instead of `exact`.
-The classification and one-to-many matching behavior are unchanged.
-
-The minimum pathological fixture for future adoption is one non-wildcard
-pattern with no direct, namespace-prefix, or similarity match, exercised
-through both execution paths and compared as typed results. Classification,
-limit, source-order, and failure fixtures should then cover a mixed request
-containing a direct match, a glob, a prefix fallback, a partial suggestion, and
-a miss.
+The locator's complete census is the remaining deliberate early-settlement
+boundary. Exact-only intent is typed and gated in the service but has no CLI
+spelling in this slice.
 
 `TypeSearchResult` remains declared beside `FindCommand` even though it is an
 internal collection currency shared by type-search consumers. That placement
@@ -624,13 +513,13 @@ is implementation debt, not command ownership.
 
 This design does not:
 
-- own member-name matching or package-prefix profile search; the broadened
-  tier consumes Member Find unchanged;
+- own member-name matching or package-prefix profile search; Find composes the
+  existing Member search separately;
 - define Metadata type identity, spelling normalization, or similarity
   algorithms;
 - define `type` command lookup, ambiguity, or `--find-if-miss` routing;
-- select one terminal Type, treat multiple direct matches as ambiguity, or give
-  a full-name direct match precedence over other direct matches;
+- select one terminal Type, treat multiple discovery matches as ambiguity, or
+  let one candidate's Exact class suppress another accepted candidate;
 - make source order a general assembly-resolution precedence outside this
   operation;
 - define duplicate input-pattern normalization;

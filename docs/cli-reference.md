@@ -161,30 +161,35 @@ The literal dot is significant: `System.Text.Json.Nodes.*` excludes
 `System.Text.Json.NodesExtra`, while `System.Text.Json.Nodes*` remains the
 broader lexical Type glob with `Glob` classification.
 
-When neither a direct Type nor an exact namespace matches, `find` broadens in
-ranked tiers without wildcard syntax:
+`find` classifies each Type independently without requiring wildcard syntax:
 
 ```bash
-dotnet-inspect find JsonSer       # Prefix: JsonSerializer first
+dotnet-inspect find JsonSer       # Prefix and similar Types in discovery order
 dotnet-inspect find Serializer    # Substring: XmlSerializer, JsonSerializer, ...
 dotnet-inspect find AppendFormat  # Members: StringBuilder.AppendFormat overloads
 ```
 
-A name prefix settles the answer with `Prefix` rows, shortest name first. An
-undotted identifier with no Prefix Type also searches member names; Markdown
-shows those rows in a `Members` section before any `Substring` Type rows.
-Similarity suggestions (`Partial`) remain the last resort and are ordered by
-score. The `Match` value names each broadened tier. Plain `--json` and table
-formats keep Type rows only and note omitted member matches; `--count` rejects
-an answer that includes them. Use `find .AppendFormat` for member rows in
-every format.
+Each candidate receives one `Exact`, `Direct`, `Glob`, `Namespace`, `Prefix`,
+`Substring`, or `Partial` classification. Exact and broader classes can mix;
+the rows retain source and declaration discovery order rather than sorting by
+name or similarity score. An undotted identifier without an Exact, Direct,
+Glob, Namespace, or Prefix Type may also search member names; Markdown shows
+those rows in a separate `Members` section. Plain `--json` and table formats
+keep Type rows only and note omitted member matches; `--count` rejects an
+answer that includes them. Use `find .AppendFormat` for member rows in every
+format.
 
 `-n N` is also Find's maximum hit budget across its Type or Member patterns.
-Find stops after `N` discovered matches and does not run later pattern groups
-or acquire later sources. Direct, namespace, and member rows retain discovery
-order. Prefix and substring tiers order only the population found before the
-limit; similarity still observes and ranks its whole eligible population.
-`--tail` and row windows remain exhaustive before selection.
+For Type search, duplicate identity and per-candidate classification occur
+before the budget. Find keeps the Nth accepted candidate, then stops before
+the next Type, query participant, pattern group, source, or implicit broadened
+Member fallback. Use a leading dot or `--members` when Member rows are the
+requested bounded answer. If Type rows do not fill the budget, implicit Member
+fallback may still contribute and its rows precede weak Type rows in the
+presented answer. The current reverse-locator package route applies Head after
+its complete resident census; other compatibility and Platform routes stop
+metadata traversal directly. `--tail` and row windows remain exhaustive before
+selection.
 
 ### Library namespace Type listings
 

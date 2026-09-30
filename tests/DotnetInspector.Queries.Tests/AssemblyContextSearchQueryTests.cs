@@ -177,6 +177,32 @@ public sealed class AssemblyContextSearchQueryTests
     }
 
     [Fact]
+    public async Task TypeInventory_StopAvoidsLaterTypesInParticipant()
+    {
+        string first =
+            typeof(WorkspaceQueryImplementation).Assembly.Location;
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            CreateGroup(workspace, first);
+        var entries =
+            new List<AssemblyContextEntry<AssemblyTypeInventory>>();
+        int observedTypes = 0;
+
+        bool complete = AssemblyContextTypeInventoryQuery.ExecuteEach(
+            group,
+            includeAll: true,
+            entry => entries.Add(entry),
+            stopAfterType: (_, _) => ++observedTypes == 1);
+
+        Assert.False(complete);
+        Assert.Equal(1, observedTypes);
+        var available = Assert.IsType<
+            AssemblyContextEntry<AssemblyTypeInventory>.Available>(
+                Assert.Single(entries));
+        Assert.Single(available.Value.Types);
+    }
+
+    [Fact]
     public async Task MemberMatches_LimitIsSharedAcrossParticipants()
     {
         string first =

@@ -623,10 +623,12 @@ happens to handle the result.
 
 Find delegates a pure semantic `Head(N)` plan as one maximum-result budget
 across its Type or Member patterns. The Find execution owner may stop after
-`N` hits and avoid later pattern groups, query participants, or source
-acquisition; every renderer and Count observes the same selected identities.
-A miss still performs any whole-population classification required by its
-tier. Tail and Window remain post-classification operations.
+`N` accepted unique hits and avoid later metadata rows, pattern groups, query
+participants, or source acquisition; every renderer and Count observes the
+same selected identities. Type candidates are classified independently in
+discovery order without whole-population ranking. The reverse-locator package
+route remains a declared complete-census boundary. Tail and Window remain
+post-classification operations.
 
 The package adoption consumes the online metadata-query evidence policy from
 [Package Source Model](package-source-model.md#metadata-only-version-queries).
