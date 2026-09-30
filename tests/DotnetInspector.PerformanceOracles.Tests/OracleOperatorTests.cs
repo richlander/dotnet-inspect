@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using NLinq;
 
 namespace DotnetInspector.PerformanceOracles.Tests;
@@ -11,6 +13,49 @@ public sealed class OracleOperatorTests
 {
     static readonly int[][] Inputs = [[], [1], [1, 2, 3], [5, 4, 3, 2, 1, 0, 9, 8]];
     static readonly int[] Counts = [0, 1, 3, 8, 11];
+
+    [Fact]
+    public void ToImmutableLookup_MatchesSystemLinqInSourceOrder()
+    {
+        ImmutableArray<int> input = [5, 2, 3, 4, 1, 6];
+        IReadOnlyDictionary<int, ImmutableArray<int>> actual =
+            input.AsNLinq()
+                .ToImmutableLookup<
+                    ImmutableArrayEnumerator<int>,
+                    int,
+                    int,
+                    Parity>(default);
+        ILookup<int, int> expected =
+            input.ToLookup(static value => value % 2);
+
+        Assert.Equal(
+            expected.Select(static group => group.Key),
+            actual.Keys);
+        foreach (IGrouping<int, int> group in expected)
+        {
+            Assert.Equal(
+                group,
+                actual[group.Key]);
+        }
+    }
+
+    [Fact]
+    public void ToImmutableLookup_UsesOnlyRemainingElements()
+    {
+        ImmutableArray<int> input = [1, 2, 3, 4, 5];
+        ImmutableArrayEnumerator<int> source = input.AsNLinq();
+        source.TryGetNext(out _);
+
+        IReadOnlyDictionary<int, ImmutableArray<int>> actual =
+            source.ToImmutableLookup<
+                ImmutableArrayEnumerator<int>,
+                int,
+                int,
+                Parity>(default);
+
+        Assert.Equal([2, 4], actual[0]);
+        Assert.Equal([3, 5], actual[1]);
+    }
 
     [Fact]
     public void Take_MatchesSystemLinq()
@@ -173,5 +218,11 @@ public sealed class OracleOperatorTests
             hasMore = _next < length;
             return hasMore ? _next++ : default;
         }
+    }
+
+    readonly struct Parity : IFunc<int, int>
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Invoke(int value) => value % 2;
     }
 }

@@ -2684,7 +2684,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       library.id,
     );
     expect(index.outcome).toBe("available");
-    expect(index.methodologyVersion).toBe("structural-salience.v1");
+    expect(index.methodologyVersion).toBe("structural-salience.v2");
     expect(index.evidenceMode).toBe("signature");
     expect(index.failure).toBeNull();
     expect(index.namespaces.length).toBeGreaterThan(0);
@@ -3800,17 +3800,19 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(measuredIndex.outcome).toBe("available");
     expect(measuredShard.outcome).toBe("available");
     expect(measuredShard.namespace).toBe(topNamespace.namespace);
-    expect(measuredShard.types.some(row => row.seaLevel)).toBe(true);
-    expect(measuredShard.types.some(row => row.mountainPeak)).toBe(true);
+    expect(measuredShard.types.some(row => row.pole === "SeaLevel")).toBe(true);
+    expect(
+      measuredShard.types.some(row => row.pole === "MountainPeak"),
+    ).toBe(true);
     console.log("STRUCTURAL_SALIENCE_BROWSER_WASM", JSON.stringify({
       asset: "System.Text.Json@10.0.0/net10.0",
       namespaceCount: measuredIndex.namespaces.length,
       topNamespace: topNamespace.namespace,
       topShardTypeRows: measuredShard.types.length,
       seaLevelDesignations:
-        measuredShard.types.filter(row => row.seaLevel).length,
+        measuredShard.types.filter(row => row.pole === "SeaLevel").length,
       mountainPeakDesignations:
-        measuredShard.types.filter(row => row.mountainPeak).length,
+        measuredShard.types.filter(row => row.pole === "MountainPeak").length,
       indexMedianMilliseconds: median(
         indexMeasurements.map(measurement => measurement.milliseconds),
       ),
@@ -3875,17 +3877,19 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(measuredIndex.namespaces.length).toBeGreaterThan(50);
     expect(measuredShard.outcome).toBe("available");
     expect(measuredShard.namespace).toBe(topNamespace.namespace);
-    expect(measuredShard.types.some(row => row.seaLevel)).toBe(true);
-    expect(measuredShard.types.some(row => row.mountainPeak)).toBe(true);
+    expect(measuredShard.types.some(row => row.pole === "SeaLevel")).toBe(true);
+    expect(
+      measuredShard.types.some(row => row.pole === "MountainPeak"),
+    ).toBe(true);
     console.log("STRUCTURAL_SALIENCE_BROWSER_WASM", JSON.stringify({
       asset: "System.Private.CoreLib/.NET 11 RC1",
       namespaceCount: measuredIndex.namespaces.length,
       topNamespace: topNamespace.namespace,
       topShardTypeRows: measuredShard.types.length,
       seaLevelDesignations:
-        measuredShard.types.filter(row => row.seaLevel).length,
+        measuredShard.types.filter(row => row.pole === "SeaLevel").length,
       mountainPeakDesignations:
-        measuredShard.types.filter(row => row.mountainPeak).length,
+        measuredShard.types.filter(row => row.pole === "MountainPeak").length,
       indexMedianMilliseconds: median(
         indexMeasurements.map(measurement => measurement.milliseconds),
       ),

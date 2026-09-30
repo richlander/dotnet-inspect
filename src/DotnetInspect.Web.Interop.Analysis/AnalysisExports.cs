@@ -25,6 +25,8 @@ namespace DotnetInspect.Web.Interop.Analysis;
 [SupportedOSPlatform("browser")]
 public static partial class AnalysisExports
 {
+    private const int BrowserLibraryTypeLeverageSchemaVersion = 2;
+
     /// <summary>
     /// Exact method-body Analysis and metadata evidence for one implementation participant. The
     /// product query owns the retained snapshot and Analysis index; this adapter only resolves
@@ -1068,7 +1070,7 @@ public static partial class AnalysisExports
                     static row => row.Type,
                     static row => row.Name.ToEscapedFullName());
         return new(
-            1,
+            BrowserLibraryTypeLeverageSchemaVersion,
             "available",
             document.MethodologyVersion,
             document.EvidenceMode.ToString().ToLowerInvariant(),
@@ -1088,8 +1090,16 @@ public static partial class AnalysisExports
                         row.SignatureIncomingDegree,
                         row.SignatureOutgoingDegree,
                         row.Role.ToString().ToLowerInvariant(),
-                        row.SeaLevel,
-                        row.MountainPeak)),
+                        row.Pole switch
+                        {
+                            LibraryStructuralTypePole.SeaLevel =>
+                                BrowserLibraryStructuralTypePole.SeaLevel,
+                            LibraryStructuralTypePole.MountainPeak =>
+                                BrowserLibraryStructuralTypePole.MountainPeak,
+                            null => null,
+                            _ => throw new InvalidOperationException(
+                                "Unknown structural Type pole."),
+                        })),
             ],
             [
                 .. document.SeaLevel.Types.Select(type => ids[type]),
@@ -1128,7 +1138,7 @@ public static partial class AnalysisExports
             string failure,
             BrowserCompileLibraryAvailability compileLibrary) =>
         new(
-            1,
+            BrowserLibraryTypeLeverageSchemaVersion,
             outcome,
             null,
             null,

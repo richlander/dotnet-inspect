@@ -3074,6 +3074,7 @@ public sealed class DtsEmitterTests
     [InlineData(nameof(NumberHandlingWireFixture))]
     [InlineData(nameof(TypeNumberHandlingWireFixture))]
     [InlineData(nameof(ExtensionDataWireFixture))]
+    [InlineData(nameof(JsonRequiredWireFixture))]
     public void Emit_BlocksUnsupportedWireShapingContracts(
         string typeName)
     {

@@ -812,6 +812,41 @@ public sealed partial class PackageRangedRealizationTests
                     request.Operation.OperationTimeout));
         }
 
+        public Task<PackageLibraryRealizationResult> RealizeLibraryAsync(
+            IPackageStore store,
+            string framework,
+            PackageLibrarySelector selector,
+            PackageLibraryRealizationDepth depth,
+            long sizeCut = 0,
+            string packageId = PclStorage,
+            string version = PclStorageVersion,
+            PackageHouseLibraryCompanionDemand companionDemand =
+                PackageHouseLibraryCompanionDemand.None)
+        {
+            var request = new PackageLibraryRealizationRequest(
+                new PackageHouseDemand.Exact(
+                    PackageSourceCoordinate.Create(
+                        packageId,
+                        version)),
+                framework,
+                selector,
+                depth,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                companionDemand);
+            return PackageLibraryRealization.ExecuteAsync(
+                request,
+                Authorization,
+                new PackageLibraryRealizationPlan(
+                    (_, _) => store,
+                    log: Log.Enqueue,
+                    rangedSizeCut: sizeCut),
+                Root.IssueOperationLease(
+                    TestContext.Current.CancellationToken,
+                    request.Operation.RequestTimeout,
+                    request.Operation.OperationTimeout));
+        }
+
         public async ValueTask DisposeAsync()
         {
             await Root.DisposeAsync();

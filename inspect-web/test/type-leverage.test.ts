@@ -22,7 +22,7 @@ const compileLibrary: BrowserCompileLibraryAvailability = {
 const index: BrowserLibraryNamespaceLeverage = {
   schemaVersion: 1,
   outcome: "available",
-  methodologyVersion: "structural-salience.v1",
+  methodologyVersion: "structural-salience.v2",
   evidenceMode: "signature",
   disposition: "complete",
   coverage: {
@@ -51,9 +51,9 @@ const index: BrowserLibraryNamespaceLeverage = {
 };
 
 const shard: BrowserLibraryTypeLeverageShard = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   outcome: "available",
-  methodologyVersion: "structural-salience.v1",
+  methodologyVersion: "structural-salience.v2",
   evidenceMode: "signature",
   namespace: "Example.Core",
   disposition: "complete",
@@ -71,38 +71,35 @@ const shard: BrowserLibraryTypeLeverageShard = {
       signatureIncomingDegree: 8,
       signatureOutgoingDegree: 1,
       role: "foundation",
-      seaLevel: true,
-      mountainPeak: false,
+      pole: "SeaLevel",
     },
     {
-      typeDefinitionId: "Example.Core.Both",
-      typeDisplay: "Example.Core.Both",
+      typeDefinitionId: "Example.Core.Peak",
+      typeDisplay: "Example.Core.Peak",
       designationEligible: true,
       signatureIncomingDegree: 8,
       signatureOutgoingDegree: 10,
       role: "hub",
-      seaLevel: true,
-      mountainPeak: true,
+      pole: "MountainPeak",
     },
     {
-      typeDefinitionId: "Example.Core.Noise",
-      typeDisplay: "Example.Core.Noise",
+      typeDefinitionId: "Example.Core.Tie",
+      typeDisplay: "Example.Core.Tie",
       designationEligible: true,
-      signatureIncomingDegree: 7,
-      signatureOutgoingDegree: 9,
+      signatureIncomingDegree: 8,
+      signatureOutgoingDegree: 8,
       role: "hub",
-      seaLevel: false,
-      mountainPeak: false,
+      pole: null,
     },
   ],
   seaLevelOrder: [
     "Example.Core.Sea",
-    "Example.Core.Both",
-    "Example.Core.Noise",
+    "Example.Core.Peak",
+    "Example.Core.Tie",
   ],
   mountainPeakOrder: [
-    "Example.Core.Both",
-    "Example.Core.Noise",
+    "Example.Core.Peak",
+    "Example.Core.Tie",
     "Example.Core.Sea",
   ],
   diagnostics: [],
@@ -113,7 +110,7 @@ const shard: BrowserLibraryTypeLeverageShard = {
 test("owner-issued namespace and Type designations drive presentation", () => {
   const projection = projectTypeLeverage(index, [shard]);
   const sea = projection.byType.get("Example.Core.Sea");
-  const both = projection.byType.get("Example.Core.Both");
+  const peak = projection.byType.get("Example.Core.Peak");
 
   assert.equal(projection.byNamespace.get("Example.Core")?.topLeverage, true);
   assert.equal(projection.byNamespace.get("Example.Tools")?.topLeverage, false);
@@ -131,14 +128,13 @@ test("owner-issued namespace and Type designations drive presentation", () => {
       ?.mountainPeakOrder.map(row => row.typeDefinitionId),
     shard.mountainPeakOrder,
   );
-  assert.equal(projection.seaLevelCount, 2);
+  assert.equal(projection.seaLevelCount, 1);
   assert.equal(projection.mountainPeakCount, 1);
-  assert.equal(sea?.seaLevel, true);
-  assert.equal(sea?.mountainPeak, false);
-  assert.equal(both?.seaLevel, true);
-  assert.equal(both?.mountainPeak, true);
-  assert.equal(projection.byType.has("Example.Core.Noise"), false);
-  assert.equal(typeLeverageMatchesFilter(both, "sea-level"), true);
+  assert.equal(sea?.pole, "sea-level");
+  assert.equal(peak?.pole, "mountain-peak");
+  assert.equal(projection.byType.has("Example.Core.Tie"), false);
+  assert.equal(typeLeverageMatchesFilter(peak, "sea-level"), false);
+  assert.equal(typeLeverageMatchesFilter(peak, "mountain-peak"), true);
   assert.equal(typeLeverageMatchesFilter(sea, "mountain-peak"), false);
 });
 
@@ -147,8 +143,7 @@ test("the Browser does not derive relative categories from scores", () => {
     ...shard,
     types: shard.types.map(row => ({
       ...row,
-      seaLevel: false,
-      mountainPeak: false,
+      pole: null,
     })),
   }]);
 
@@ -164,6 +159,16 @@ test("malformed exact-identity orders fail visibly", () => {
       seaLevelOrder: ["Example.Core.Missing"],
     }]),
     /ineligible Type 'Example\.Core\.Missing'/,
+  );
+});
+
+test("the exclusive-pole wire shape requires shard schema version two", () => {
+  assert.throws(
+    () => projectTypeLeverage(index, [{
+      ...shard,
+      schemaVersion: 1,
+    }]),
+    /Unsupported Type-leverage shard schema version/,
   );
 });
 

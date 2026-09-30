@@ -11,7 +11,7 @@ test.use({ viewport: { width: 900, height: 900 } });
 
 test("Clear filters preserves the active structural-salience view", async ({
   page,
-}) => {
+}, testInfo) => {
   await installFacades(page);
   await page.goto(root);
   await selectLibrary(page, core.id);
@@ -26,7 +26,12 @@ test("Clear filters preserves the active structural-salience view", async ({
     "button",
     { name: "Hide salience", exact: true },
   )).toBeVisible();
-  await expect(page.locator(".type-leverage-cues")).toHaveCount(1);
+  await expect(page.locator(".type-leverage-icon")).toHaveCount(1);
+  await expect(page.locator(".type-row.sea-level")).toHaveCount(1);
+  await expect(page.locator(".type-row.sea-level.mountain-peak"))
+    .toHaveCount(0);
+  await expect(page.locator(".type-leverage-icon.sea-level"))
+    .toHaveText("▁");
 
   await page.locator('[data-namespace="Example"]').click();
   await page.locator(
@@ -38,7 +43,7 @@ test("Clear filters preserves the active structural-salience view", async ({
     "button",
     { name: "Hide salience", exact: true },
   )).toBeVisible();
-  await expect(page.locator(".type-leverage-cues")).toHaveCount(1);
+  await expect(page.locator(".type-leverage-icon")).toHaveCount(1);
   await expect(page.locator(
     '[data-type-leverage-filter=""]',
   )).toHaveClass(/\bactive\b/);
@@ -50,4 +55,7 @@ test("Clear filters preserves the active structural-salience view", async ({
     "data-structural-salience-shard-request-count",
     "1",
   );
+  await page.locator(".type-browser").screenshot({
+    path: testInfo.outputPath("type-browser-salience.png"),
+  });
 });

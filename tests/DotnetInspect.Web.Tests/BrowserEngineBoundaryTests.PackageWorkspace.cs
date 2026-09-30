@@ -1038,7 +1038,7 @@ public sealed partial class BrowserEngineBoundaryTests
                         .BrowserLibraryNamespaceLeverage));
         Assert.Equal("available", leverage.Outcome);
         Assert.Equal(
-            "structural-salience.v1",
+            "structural-salience.v2",
             leverage.MethodologyVersion);
         Assert.NotEmpty(leverage.Namespaces);
         BrowserLibraryTypeLeverageShard shard =
@@ -1054,6 +1054,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     BrowserAnalysisJsonContext.Default
                         .BrowserLibraryTypeLeverageShard));
         Assert.Equal("available", shard.Outcome);
+        Assert.Equal(2, shard.SchemaVersion);
         Assert.NotEmpty(shard.Types);
         Assert.Null(leverage.Failure);
         Assert.Equal(

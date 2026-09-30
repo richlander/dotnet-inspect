@@ -493,10 +493,10 @@ public static class LibraryMetricsInspectionJson
                 "signatureOutgoingDegree",
                 row.SignatureOutgoingDegree);
             writer.WriteString("role", row.Role.ToString());
-            writer.WriteBoolean("seaLevel", row.SeaLevel);
-            writer.WriteBoolean(
-                "mountainPeak",
-                row.MountainPeak);
+            if (row.Pole is { } pole)
+                writer.WriteString("pole", pole.ToString());
+            else
+                writer.WriteNull("pole");
             writer.WriteEndObject();
         }
         writer.WriteEndArray();

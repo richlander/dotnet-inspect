@@ -15,12 +15,10 @@ import type {
 } from "./operation-authority.ts";
 
 export type TypeLeverageFilter = "" | "sea-level" | "mountain-peak";
+export type TypeLeveragePole = Exclude<TypeLeverageFilter, "">;
 
 export interface TypeLeverageCue {
-  readonly seaLevel: boolean;
-  readonly mountainPeak: boolean;
-  readonly seaLevelStrength: number | null;
-  readonly mountainPeakStrength: number | null;
+  readonly pole: TypeLeveragePole;
   readonly description: string;
 }
 
@@ -107,7 +105,7 @@ function availableIndex(result: BrowserLibraryNamespaceLeverage): void {
 }
 
 function availableShard(result: BrowserLibraryTypeLeverageShard): void {
-  if (result.schemaVersion !== 1)
+  if (result.schemaVersion !== 2)
     throw new Error("Unsupported Type-leverage shard schema version.");
   if (result.outcome !== "available"
     || result.methodologyVersion === null
@@ -143,6 +141,21 @@ function validateOrder(
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+export function typeLeveragePole(
+  value: BrowserLibraryTypeLeverageRow["pole"],
+): TypeLeveragePole | null {
+  switch (value) {
+    case null:
+      return null;
+    case "SeaLevel":
+      return "sea-level";
+    case "MountainPeak":
+      return "mountain-peak";
+    default:
+      throw new Error(`Unknown structural Type pole '${value}'.`);
+  }
 }
 
 function sumCoverage(
@@ -222,13 +235,13 @@ export function projectTypeLeverage(
     validateOrder(
       rows,
       shard.seaLevelOrder,
-      row => row.seaLevel,
+      row => row.pole === "SeaLevel",
       "Sea-level",
     );
     validateOrder(
       rows,
       shard.mountainPeakOrder,
-      row => row.mountainPeak,
+      row => row.pole === "MountainPeak",
       "Mountain-peak",
     );
     shardsByNamespace.set(shard.namespace!, {
@@ -237,24 +250,19 @@ export function projectTypeLeverage(
       mountainPeakOrder: shard.mountainPeakOrder.map(id => rows.get(id)!),
     });
     for (const [id, row] of rows) {
-      if (!row.seaLevel && !row.mountainPeak) continue;
+      const pole = typeLeveragePole(row.pole);
+      if (pole === null) continue;
       const parts = [
         plural(row.signatureIncomingDegree, "incoming Type peer"),
         plural(row.signatureOutgoingDegree, "outgoing Type peer"),
+        pole === "sea-level" ? "sea-level Type" : "mountain-peak Type",
       ];
-      if (row.seaLevel) {
-        parts.push("sea-level Type");
+      if (pole === "sea-level")
         seaLevelCount++;
-      }
-      if (row.mountainPeak) {
-        parts.push("mountain-peak Type");
+      else
         mountainPeakCount++;
-      }
       byType.set(id, {
-        seaLevel: row.seaLevel,
-        mountainPeak: row.mountainPeak,
-        seaLevelStrength: row.seaLevel ? 1 : null,
-        mountainPeakStrength: row.mountainPeak ? 1 : null,
+        pole,
         description: parts.join("; "),
       });
     }
@@ -284,9 +292,9 @@ export function typeLeverageMatchesFilter(
     case "":
       return true;
     case "sea-level":
-      return cue?.seaLevel === true;
+      return cue?.pole === "sea-level";
     case "mountain-peak":
-      return cue?.mountainPeak === true;
+      return cue?.pole === "mountain-peak";
   }
   return false;
 }

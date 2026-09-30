@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Deterministic JSON Schema descriptors for authenticated dotnet-inspect wire contracts and product vocabularies.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
+    <ProjectReference Include="..\ILInspector.JsExportSurface\ILInspector.JsExportSurface.csproj" />
+    <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Vocabulary\DotnetInspector.Vocabulary.csproj" />
+  </ItemGroup>
+
+</Project>

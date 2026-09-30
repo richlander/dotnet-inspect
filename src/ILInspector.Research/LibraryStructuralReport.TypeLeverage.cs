@@ -345,8 +345,7 @@ public static partial class LibraryStructuralReport
                         Role(
                             item.SignatureIncoming,
                             item.SignatureOutgoing),
-                        SeaLevel: false,
-                        MountainPeak: false)),
+                        Pole: null)),
         ];
         int seaLevelMaximum =
             EligibleMaximum(
@@ -360,19 +359,10 @@ public static partial class LibraryStructuralReport
         [
             .. rows.Select(row => row with
             {
-                SeaLevel =
-                    seaLevelMaximum
-                        >= LibraryStructuralSalience
-                            .MinimumDesignationDegree
-                    && row.DesignationEligible
-                    && row.SignatureIncomingDegree == seaLevelMaximum,
-                MountainPeak =
-                    mountainPeakMaximum
-                        >= LibraryStructuralSalience
-                            .MinimumDesignationDegree
-                    && row.DesignationEligible
-                    && row.SignatureOutgoingDegree
-                        == mountainPeakMaximum,
+                Pole = Pole(
+                    row,
+                    seaLevelMaximum,
+                    mountainPeakMaximum),
             }),
         ];
 
@@ -424,6 +414,40 @@ public static partial class LibraryStructuralReport
             .Select(degree)
             .DefaultIfEmpty()
             .Max();
+
+    private static LibraryStructuralTypePole? Pole(
+        LibraryStructuralTypeLeverageRow row,
+        int seaLevelMaximum,
+        int mountainPeakMaximum)
+    {
+        bool seaLevel =
+            seaLevelMaximum
+                >= LibraryStructuralSalience.MinimumDesignationDegree
+            && row.DesignationEligible
+            && row.SignatureIncomingDegree == seaLevelMaximum;
+        bool mountainPeak =
+            mountainPeakMaximum
+                >= LibraryStructuralSalience.MinimumDesignationDegree
+            && row.DesignationEligible
+            && row.SignatureOutgoingDegree == mountainPeakMaximum;
+        if (seaLevel && mountainPeak)
+        {
+            if (row.SignatureIncomingDegree
+                == row.SignatureOutgoingDegree)
+            {
+                return null;
+            }
+            return row.SignatureIncomingDegree
+                    > row.SignatureOutgoingDegree
+                ? LibraryStructuralTypePole.SeaLevel
+                : LibraryStructuralTypePole.MountainPeak;
+        }
+        if (seaLevel)
+            return LibraryStructuralTypePole.SeaLevel;
+        if (mountainPeak)
+            return LibraryStructuralTypePole.MountainPeak;
+        return null;
+    }
 
     private static void AddSignatureOccurrences(
         ImmutableArray<MetadataLibrarySignatureUseOccurrence> source,

@@ -93,8 +93,7 @@ public sealed class LibraryStructuralTypeLeverageTests
         Assert.Equal(4, sea.SignatureIncomingDegree);
         Assert.Equal(0, sea.SignatureOutgoingDegree);
         Assert.Equal(LibraryStructuralTypeRole.Foundation, sea.Role);
-        Assert.True(sea.SeaLevel);
-        Assert.False(sea.MountainPeak);
+        Assert.Equal(LibraryStructuralTypePole.SeaLevel, sea.Pole);
 
         LibraryStructuralTypeLeverageRow peak = Row(shard, 1);
         Assert.Equal(0, peak.SignatureIncomingDegree);
@@ -102,13 +101,13 @@ public sealed class LibraryStructuralTypeLeverageTests
         Assert.Equal(
             LibraryStructuralTypeRole.Orchestrator,
             peak.Role);
-        Assert.False(peak.SeaLevel);
-        Assert.True(peak.MountainPeak);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            peak.Pole);
 
         LibraryStructuralTypeLeverageRow excluded = Row(shard, 5);
         Assert.False(excluded.DesignationEligible);
-        Assert.False(excluded.SeaLevel);
-        Assert.False(excluded.MountainPeak);
+        Assert.Null(excluded.Pole);
         Assert.DoesNotContain(excluded.Type, shard.SeaLevel.Types);
         Assert.DoesNotContain(
             excluded.Type,
@@ -137,10 +136,7 @@ public sealed class LibraryStructuralTypeLeverageTests
                 ("C", MetadataLibraryTypeClassification.None),
             ],
             [(0, 1), (0, 2)]);
-        Assert.DoesNotContain(weak.Rows, static row => row.SeaLevel);
-        Assert.DoesNotContain(
-            weak.Rows,
-            static row => row.MountainPeak);
+        Assert.All(weak.Rows, static row => Assert.Null(row.Pole));
 
         LibraryStructuralTypeLeverageShard tied = Shard(
             "Tied",
@@ -159,12 +155,87 @@ public sealed class LibraryStructuralTypeLeverageTests
                 (3, 1),
                 (4, 1),
             ]);
-        Assert.Equal(2, tied.Rows.Count(static row => row.SeaLevel));
+        Assert.Equal(
+            2,
+            tied.Rows.Count(static row =>
+                row.Pole == LibraryStructuralTypePole.SeaLevel));
         Assert.All(
-            tied.Rows.Where(static row => row.SeaLevel),
+            tied.Rows.Where(static row =>
+                row.Pole == LibraryStructuralTypePole.SeaLevel),
             static row => Assert.Equal(
                 LibraryStructuralSalience.MinimumDesignationDegree,
                 row.SignatureIncomingDegree));
+    }
+
+    [Fact]
+    public void TypeShardIssuesOneDominantPoleOrNoneForExactTie()
+    {
+        LibraryStructuralTypeLeverageShard seaDominant = Shard(
+            "SeaDominant",
+            [
+                ("Target", MetadataLibraryTypeClassification.None),
+                ("Peer1", MetadataLibraryTypeClassification.None),
+                ("Peer2", MetadataLibraryTypeClassification.None),
+                ("Peer3", MetadataLibraryTypeClassification.None),
+                ("Peer4", MetadataLibraryTypeClassification.None),
+            ],
+            [
+                (1, 0),
+                (2, 0),
+                (3, 0),
+                (4, 0),
+                (0, 1),
+                (0, 2),
+                (0, 3),
+            ]);
+        Assert.Equal(
+            LibraryStructuralTypePole.SeaLevel,
+            Row(seaDominant, 0).Pole);
+
+        LibraryStructuralTypeLeverageShard peakDominant = Shard(
+            "PeakDominant",
+            [
+                ("Target", MetadataLibraryTypeClassification.None),
+                ("Peer1", MetadataLibraryTypeClassification.None),
+                ("Peer2", MetadataLibraryTypeClassification.None),
+                ("Peer3", MetadataLibraryTypeClassification.None),
+                ("Peer4", MetadataLibraryTypeClassification.None),
+            ],
+            [
+                (1, 0),
+                (2, 0),
+                (3, 0),
+                (0, 1),
+                (0, 2),
+                (0, 3),
+                (0, 4),
+            ]);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            Row(peakDominant, 0).Pole);
+
+        LibraryStructuralTypeLeverageShard exactTie = Shard(
+            "ExactTie",
+            [
+                ("Target", MetadataLibraryTypeClassification.None),
+                ("Peer1", MetadataLibraryTypeClassification.None),
+                ("Peer2", MetadataLibraryTypeClassification.None),
+                ("Peer3", MetadataLibraryTypeClassification.None),
+            ],
+            [
+                (1, 0),
+                (2, 0),
+                (3, 0),
+                (0, 1),
+                (0, 2),
+                (0, 3),
+            ]);
+        LibraryStructuralTypeLeverageRow tied = Row(exactTie, 0);
+        Assert.Equal(3, tied.SignatureIncomingDegree);
+        Assert.Equal(3, tied.SignatureOutgoingDegree);
+        Assert.Null(tied.Pole);
+        Assert.Contains(tied.Type, exactTie.SeaLevel.Types);
+        Assert.Contains(tied.Type, exactTie.MountainPeak.Types);
     }
 
     [Theory]

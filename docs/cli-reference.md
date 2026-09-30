@@ -1279,7 +1279,12 @@ Tree rooted at one compact identity line and containing every public,
 non-hidden exact overload; explicit `--tree` renders the same population.
 This remains a MemberGroup when the selected version has one overload.
 Select an exact Member with an ordinal or digest when the intended subject is
-one declaration rather than its overload family.
+one declaration rather than its overload family. Its native default is one
+singular Signature view containing the display signature, digest, and canonical
+signature, with no sibling Rows or Count. The one-based ordinal selects from
+the current MemberGroup's stable baseline order; after resolution, the
+owner-issued exact identity and population binding replace that ordinal as the
+durable subject.
 
 `--all` is an API visibility option. API-level commands use their ordinary
 public-facing declaration population by default; add `--all` when the
@@ -1305,8 +1310,11 @@ numeric distributions and maximum-body identities, async disposition, typed
 type summaries, cross-type relationships, Analysis diagnostics, and the
 methodology-v2 Type-leverage document. Type leverage preserves exact metadata
 type identities, the separately ordered sea-level and mountain-peak rankings,
-role and evidence qualifications, Metadata signature-use and Analysis body-use
-receipts, and Graph work receipts.
+raw directional degrees, one nullable dominant pole per Type, role and evidence
+qualifications, Metadata signature-use and Analysis body-use receipts, and
+Graph work receipts. A Type that qualifies at both directional maxima receives
+the larger-degree pole; an exact degree tie receives no pole while remaining
+in both rankings.
 `--envelope` emits identical `content` plus Share and operation diagnostics:
 
 ```bash
