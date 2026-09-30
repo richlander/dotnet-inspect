@@ -109,7 +109,6 @@ internal sealed class AnalysisLibraryBodyUseProducer
         int _bodiesConsidered;
         int _bodiesExamined;
         int _bodiesPhysicalOnly;
-        int _bodiesUnavailable;
         int _bodiesLimited;
         int _operandsConsidered;
         int _operandsExamined;
@@ -186,7 +185,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
                     _bodiesConsidered,
                     _bodiesExamined,
                     _bodiesPhysicalOnly,
-                    _bodiesUnavailable,
+                    0,
                     _bodiesLimited,
                     _operandsConsidered,
                     _operandsExamined,
