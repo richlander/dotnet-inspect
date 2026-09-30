@@ -7374,6 +7374,7 @@ function drillIn() {
     else if (!enterTypeSubject(selectedType())) return;
     showContentDetailAfterRender();
     render();
+    loadCurrentSelectionData("Loading the selected Type");
     return;
   }
   const type = selectedType();
@@ -9919,29 +9920,48 @@ function drillToPerfMember(
     stableSelector,
   });
   if (!target) return;
-  const { type: targetType, member } = target;
-  const group = memberGroups(targetType)
-    .find(candidate => candidate.overloads.includes(member));
-  if (!group) {
-    showToast("That ranked Member is no longer loaded in the selected Type.");
-    return;
-  }
+  const { type: targetType } = target;
 
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
   state.libraryScope = new Set([libraryKey(targetType)]);
   state.selectedTypeId = targetType.id;
-  state.memberBrowseTypeId = targetType.id;
+  state.memberBrowseTypeId = "";
   state.namespaceFilter = "";
   resetMemberFilters();
+  setTypeMemberPopulationIntent("public", "csharp");
   state.lens = "api";
-  state.selectedMemberKey = group.key;
-  state.selectedOverloadIndex = group.overloads.indexOf(member);
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
   resetMemberSectionState();
   state.typeCursor = filteredTypeRows().findIndex(candidate => candidate.id === targetType.id);
+  render();
+  const expectedView = viewSignature();
   observeAsync(
-    loadSelectedMemberDocumentation(),
-    "Loading member documentation");
+    selectPerformanceMember(stableSelector, expectedView),
+    "Loading the ranked Member");
+}
+
+async function selectPerformanceMember(
+  stableSelector: string,
+  expectedView: string,
+) {
+  await loadSelectedTypeMemberPopulation();
+  if (viewSignature() !== expectedView) return;
+  const type = selectedType();
+  if (!type) return;
+  for (const group of memberGroups(type)) {
+    const overloadIndex = group.overloads.findIndex(overload =>
+      overload.stableSelector === stableSelector);
+    if (overloadIndex < 0) continue;
+    state.memberBrowseTypeId = type.id;
+    state.selectedMemberKey = group.key;
+    state.selectedOverloadIndex = overloadIndex;
+    render();
+    await loadSelectedMemberDocumentation();
+    return;
+  }
+  showToast("That ranked Member is no longer loaded in the selected Type.");
 }
 
 function libraryApiSignature(
@@ -11589,6 +11609,9 @@ function bindScopeBarEvents() {
         assertNever(target, "workspace scope");
       }
       render();
+      if (target === "type") {
+        loadCurrentSelectionData("Loading the selected Type");
+      }
     },
     onTypeLensSelect: lens => {
       contentFramePane = "detail";

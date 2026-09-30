@@ -1185,7 +1185,7 @@ public static partial class ApiSurfaceExtractor
         _ => null // Public
     };
 
-    private static string? GetPopulationAccessibility(MethodAttributes access)
+    internal static string? GetPopulationAccessibility(MethodAttributes access)
         => access == MethodAttributes.PrivateScope
             ? "private"
             : GetAccessibility(access);

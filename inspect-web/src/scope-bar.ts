@@ -387,12 +387,12 @@ export function restoreScopeBarFocus(
 
 function bindRovingTabs(tabs: readonly HTMLButtonElement[]): void {
   tabs.forEach((tab, index) => {
-    tab.addEventListener("focus", () => {
+    tab.onfocus = () => {
       tabs.forEach(candidate => {
         candidate.tabIndex = candidate === tab ? 0 : -1;
       });
-    });
-    tab.addEventListener("keydown", event => {
+    };
+    tab.onkeydown = event => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         const id = groupItemId(tab);
@@ -420,7 +420,7 @@ function bindRovingTabs(tabs: readonly HTMLButtonElement[]): void {
       if (!target) return;
       event.preventDefault();
       target.focus();
-    });
+    };
   });
 }
 
@@ -435,51 +435,51 @@ function bindItemActions(
 ): void {
   root.querySelectorAll<HTMLButtonElement>("[data-scope]").forEach(button =>
     button.onclick = () => {
-      if (button.dataset.navigationCurrent === "true"
-        || navigationItemIsDisabled(button)) return;
+      if (navigationItemIsDisabled(button)) return;
+      controller?.prepareItemActivation(button);
+      if (button.dataset.navigationCurrent === "true") return;
       const scope = button.dataset.scope;
       if (isWorkspaceScope(scope)) {
-        controller?.prepareItemActivation(button);
         actions.onScopeSelect(scope);
       }
     });
   root.querySelectorAll<HTMLButtonElement>("[data-package-lens]").forEach(
     button => button.onclick = () => {
-      if (button.dataset.navigationCurrent === "true"
-        || navigationItemIsDisabled(button)) return;
+      if (navigationItemIsDisabled(button)) return;
+      controller?.prepareItemActivation(button);
+      if (button.dataset.navigationCurrent === "true") return;
       const lens = button.dataset.packageLens;
       if (isPackageLens(lens)) {
-        controller?.prepareItemActivation(button);
         actions.onPackageLensSelect(lens);
       }
     });
   root.querySelectorAll<HTMLButtonElement>("[data-library-lens]").forEach(
     button => button.onclick = () => {
-      if (button.dataset.navigationCurrent === "true"
-        || navigationItemIsDisabled(button)) return;
+      if (navigationItemIsDisabled(button)) return;
+      controller?.prepareItemActivation(button);
+      if (button.dataset.navigationCurrent === "true") return;
       const lens = button.dataset.libraryLens;
       if (isLibraryLens(lens)) {
-        controller?.prepareItemActivation(button);
         actions.onLibraryLensSelect(lens);
       }
     });
   root.querySelectorAll<HTMLButtonElement>("[data-lens]").forEach(button =>
     button.onclick = () => {
-      if (button.dataset.navigationCurrent === "true"
-        || navigationItemIsDisabled(button)) return;
+      if (navigationItemIsDisabled(button)) return;
+      controller?.prepareItemActivation(button);
+      if (button.dataset.navigationCurrent === "true") return;
       const lens = button.dataset.lens;
       if (isTypeLens(lens)) {
-        controller?.prepareItemActivation(button);
         actions.onTypeLensSelect(lens);
       }
     });
   root.querySelectorAll<HTMLButtonElement>("[data-member-section]").forEach(
     button => button.onclick = () => {
-      if (button.dataset.navigationCurrent === "true"
-        || navigationItemIsDisabled(button)) return;
+      if (navigationItemIsDisabled(button)) return;
+      controller?.prepareItemActivation(button);
+      if (button.dataset.navigationCurrent === "true") return;
       const section = button.dataset.memberSection;
       if (isMemberSection(section)) {
-        controller?.prepareItemActivation(button);
         actions.onMemberSectionSelect(section);
       }
     });
@@ -1335,42 +1335,25 @@ class ScopeBarController implements ScopeBarBinding {
 
   private bindGroup(group: AdaptiveNavigationGroup | null): void {
     if (!group) return;
-    group.trigger.addEventListener("click", () => {
+    group.trigger.onclick = () => {
       if (group.state.open) {
         this.closeMenu(group, true);
       } else {
         this.openMenu(group, true);
       }
-    });
-    group.trigger.addEventListener("keydown", event => {
+    };
+    group.trigger.onkeydown = event => {
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
       event.preventDefault();
       this.openMenu(group, true, event.key === "ArrowUp");
-    });
+    };
     group.menuItems.forEach(item => {
-      item.addEventListener("focus", () => {
+      item.onfocus = () => {
         group.state.focusedId = groupItemId(item);
-      });
-      item.addEventListener("click", () => {
-        if (navigationItemIsDisabled(item)) return;
-        const activates = item.dataset.navigationCurrent !== "true";
-        const localAction =
-          item.dataset.localNavigationAction !== undefined;
-        this.closeMenu(group, !activates);
-        if (!activates || localAction) return;
-        const id = groupItemId(item);
-        const target = id
-          ? group.tabItems.find(tab => groupItemId(tab) === id)
-          : null;
-        if (group.form === "tabs" && target) {
-          target.focus({ preventScroll: true });
-        } else {
-          group.trigger.focus({ preventScroll: true });
-        }
-      });
-      item.addEventListener("keydown", event => {
+      };
+      item.onkeydown = event => {
         this.handleMenuKey(group, item, event);
-      });
+      };
     });
   }
 

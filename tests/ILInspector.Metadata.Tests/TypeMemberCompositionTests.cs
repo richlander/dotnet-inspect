@@ -177,6 +177,28 @@ public sealed class TypeMemberCompositionTests
                 .Single(candidate => candidate.DefinitionName == type)
                 .Members);
         Assert.Equal("private", allRow.Accessibility);
+
+        using var session = AssemblyInspectionSession.OpenPrefetched(
+            new MemoryStream(image, writable: false));
+        MetadataTypeMemberPopulation population = Assert.IsType<
+                MetadataTypeMemberPopulationOutcome.Available>(
+                MetadataTypeMemberPopulationInspection.Inspect(
+                    session,
+                    new(
+                        type,
+                        MetadataMemberSpelling.Metadata,
+                        includeHidden: true,
+                        MetadataMethodAccessibilityFilter.Private),
+                    new(
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue)))
+            .Population;
+        ApiMember physicalRow =
+            Assert.Single(Assert.Single(population.Groups).Members);
+        Assert.Equal("private", physicalRow.Accessibility);
     }
 
     [Fact]

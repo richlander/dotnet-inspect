@@ -32,7 +32,8 @@ public static class ApiTypeMemberPopulationProjection
                 if (member.PhysicalMethodAccess is { } physicalAccess)
                 {
                     member.Accessibility =
-                        ApiSurfaceExtractor.GetAccessibility(physicalAccess);
+                        ApiSurfaceExtractor.GetPopulationAccessibility(
+                            physicalAccess);
                     member.Kind = "method";
                 }
                 Add(member);

@@ -1011,6 +1011,110 @@ async function installFacades(
       }`,
     metadata: `
       ${surfaceLookup}
+      function typeMemberPopulation(
+        surface, typeIdentity, spelling, accessibility) {
+        function accessibilityBucket(member) {
+          const value = member.accessibility || "public";
+          if (value === "public") return "public";
+          if (value.includes("protected")) return "protected";
+          if (value.includes("internal")) return "internal";
+          return "private";
+        }
+        const type = surface.types.find(item =>
+          item.definitionId === typeIdentity || item.queryId === typeIdentity);
+        if (!type) {
+          return {
+            outcome: "Rejected",
+            detail: "The exact Type was not found.",
+            population: null,
+            diagnostics: [],
+          };
+        }
+        const members = type.api.filter(member => !member.graphOnly);
+        const composition = {
+          public: 0,
+          protected: 0,
+          internal: 0,
+          private: 0,
+          static: 0,
+          this: 0,
+          extension: 0,
+        };
+        const completeCounts = new Map();
+        for (const member of members) {
+          composition[accessibilityBucket(member)]++;
+          if (member.isExtension) composition.extension++;
+          else if (member.isStatic) composition.static++;
+          else composition.this++;
+          const key = member.kind + ":" + member.name;
+          completeCounts.set(key, (completeCounts.get(key) ?? 0) + 1);
+        }
+        const groups = new Map();
+        for (const member of members) {
+          if (accessibilityBucket(member) !== accessibility) continue;
+          const key = member.kind + ":" + member.name;
+          const group = groups.get(key) ?? {
+            key,
+            name: member.name,
+            kind: member.kind,
+            completeCount: completeCounts.get(key) ?? 0,
+            members: [],
+          };
+          group.members.push(member);
+          groups.set(key, group);
+        }
+        return {
+          outcome: "Available",
+          detail: null,
+          population: {
+            typeIdentity: type.queryId,
+            spelling,
+            accessibility,
+            composition,
+            groups: [...groups.values()],
+          },
+          diagnostics: [],
+        };
+      }
+      export async function queryTypeMemberPopulation(
+        id, version, framework, assembly, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset.typeMemberPopulationRequest =
+          JSON.stringify([
+            id, version, framework, assembly, typeIdentity, spelling,
+            accessibility,
+          ]);
+        return typeMemberPopulation(
+          surfaceFor(id, version, framework),
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
+      export async function queryPlatformTypeMemberPopulation(
+        framework, version, assembly, pack, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset.platformTypeMemberPopulationRequest =
+          JSON.stringify([
+            framework, version, assembly, pack, typeIdentity, spelling,
+            accessibility,
+          ]);
+        return typeMemberPopulation(
+          surfaceFor("Microsoft.NETCore.App", version, framework),
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
+      export async function queryUploadedLibraryTypeMemberPopulation(
+        declaredName, content, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset.uploadedTypeMemberPopulationRequest =
+          JSON.stringify([
+            declaredName, content.length, typeIdentity, spelling,
+            accessibility,
+          ]);
+        return typeMemberPopulation(
+          surfaces[0],
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
       function memberGroupDocument(surface, typeIdentity, memberName) {
         const type = surface.types.find(item =>
           item.definitionId === typeIdentity || item.queryId === typeIdentity);

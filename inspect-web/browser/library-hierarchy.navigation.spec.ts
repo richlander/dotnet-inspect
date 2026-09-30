@@ -592,8 +592,9 @@ test("aggregate Library remains active through Spotlight Type and Member results
   await expect(page.locator("#member-surface-title")).toHaveText("Run");
   await expect(page.locator(".member-surface-list .overload-row"))
     .toHaveCount(1);
-  await expect(page.locator("html"))
-    .toHaveAttribute("data-member-group-document-request", /Run/);
+  expect(await page.locator("html").getAttribute(
+    "data-member-group-document-request",
+  )).toBeNull();
 
   await page.keyboard.press("1");
   await expect(page.locator(".member-surface-list .overload-row"))
@@ -805,6 +806,24 @@ test("Package Enter restores the retained exact Library subject", async ({ page 
     `.library-subject-list [data-library-subject="${other.id}"]`))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel h1")).toHaveText(other.name);
+});
+
+test("Library Enter loads the selected Type member population", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "library", "Library");
+
+  await page.locator("#inspector-panel h1").click();
+  await page.keyboard.press("Enter");
+
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await page.locator("#member-filter-summary").click();
+  await expect(page.locator('[data-member-access-filter="public"]'))
+    .toContainText("| 1");
 });
 
 for (const width of [900, 390]) {

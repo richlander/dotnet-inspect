@@ -271,8 +271,39 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
   await expect(familyOverload).toBeVisible();
   await expect(page.locator(".member-surface-head p"))
     .toContainText("1 overload");
-  await expect(page.locator("html"))
-    .toHaveAttribute("data-member-group-document-request", /Run/);
+  expect(await page.locator("html").getAttribute(
+    "data-member-group-document-request",
+  )).toBeNull();
+});
+
+test("ranked Analysis members replace sticky private Type population intent", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]',
+  ).click();
+  await page.locator("#member-filter-summary").click();
+  await expect(page.locator('[data-member-access-filter="public"]'))
+    .toContainText("|");
+  await page.locator('[data-member-access-filter="private"]').click();
+  await expect(page.locator('[data-member-access-filter="private"]'))
+    .toHaveAttribute("aria-pressed", "true");
+
+  await chooseSubject(page, "library", "Library");
+  await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-member-access-filter="public"]'))
+    .toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Runs the widget.",
+  );
 });
 
 test("different family navigation leaves exact Facts for the shared document", async ({
@@ -363,8 +394,9 @@ test("different family navigation leaves exact Facts for the shared document", a
     .toContainText("2 overloads");
   await expect(page.locator(".member-surface-list .overload-row"))
     .toHaveCount(2);
-  await expect(page.locator("html"))
-    .toHaveAttribute("data-member-group-document-request", /Stop/);
+  expect(await page.locator("html").getAttribute(
+    "data-member-group-document-request",
+  )).toBeNull();
 
   await page.locator(".member-surface-list .overload-row").first().click();
   await page.keyboard.press("Backspace");

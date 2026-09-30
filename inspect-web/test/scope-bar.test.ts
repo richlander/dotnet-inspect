@@ -21,6 +21,8 @@ class FakeElement {
   rendered = true;
   tabIndex = 0;
   onclick: (() => void) | null = null;
+  onfocus: ((event: Event) => void) | null = null;
+  onkeydown: ((event: KeyboardEvent) => void) | null = null;
   private readonly listeners = new Map<string, EventListener[]>();
 
   constructor(dataset: Record<string, string | undefined> = {}) {
@@ -53,12 +55,17 @@ class FakeElement {
 
   dispatch(type: string, values: Record<string, unknown> = {}) {
     let prevented = false;
+    const eventValues = {
+      ...values,
+      preventDefault: () => prevented = true,
+    };
     if (type === "click") this.onclick?.();
+    if (type === "focus") this.onfocus?.(fakeDom.event(eventValues));
+    if (type === "keydown") {
+      this.onkeydown?.(fakeDom.keyboardEvent(eventValues));
+    }
     for (const listener of this.listeners.get(type) ?? []) {
-      listener(fakeDom.event({
-        ...values,
-        preventDefault: () => prevented = true,
-      }));
+      listener(fakeDom.event(eventValues));
     }
     return prevented;
   }
@@ -428,7 +435,7 @@ test("preserved navigation controls keep one action binding", () => {
 
   bindScopeBar(fakeDom.parentNode(root), recordingActions(calls));
   bindScopeBar(fakeDom.parentNode(root), recordingActions(calls));
-  source.dispatch("click");
+  source.dispatch("keydown", { key: "Enter" });
 
   assert.deepEqual(calls, ["type:source"]);
 });

@@ -649,7 +649,7 @@ test("typed package view owns package navigation bindings", () => {
     /function enterRetainedLibrarySubject\([\s\S]*state\.libraryScope === null[\s\S]*selectAggregateLibrarySubject\(options\)[\s\S]*selectLibrarySubject\(selectedLibrary\(\)\?\.id \?\? "", options\)/);
   assert.match(
     appSource,
-    /function drillIn\(\)[\s\S]*if \(state\.atPackageRoot\) \{\s*if \(!enterRetainedLibrarySubject\(\)\) return;/);
+    /function drillIn\(\)[\s\S]*if \(state\.atPackageRoot\) \{\s*if \(!enterRetainedLibrarySubject\(\)\) return;[\s\S]*if \(state\.atLibraryRoot\) \{[\s\S]*render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\);/);
   assert.match(
     appSource,
     /async function pickSpotlightMember[\s\S]*navigationPreservesAggregateLibraryScope\(pkg\)[\s\S]*enterTypeSubject\(type, \{ preserveAggregate \}\)[\s\S]*enterMemberScope\(\{ preserveAggregate \}\)/);
@@ -679,15 +679,18 @@ test("typed package view owns package navigation bindings", () => {
     /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId\)/);
   assert.match(
     appSource,
-    /function drillToPerfMember\([\s\S]*resetMemberSectionState\(\);[\s\S]*loadSelectedMemberDocumentation\(\)/);
+    /function drillToPerfMember\([\s\S]*setTypeMemberPopulationIntent\("public", "csharp"\);[\s\S]*render\(\);[\s\S]*selectPerformanceMember\(stableSelector, expectedView\)/);
   const drillToPerfMember =
     appSource.match(/function drillToPerfMember\([\s\S]*?\n}/)?.[0] ?? "";
+  const selectPerformanceMember =
+    appSource.match(/async function selectPerformanceMember\([\s\S]*?\n}/)?.[0]
+    ?? "";
   assert.match(
-    drillToPerfMember,
-    /const group = memberGroups\(targetType\)\s*\.find\(candidate => candidate\.overloads\.includes\(member\)\)/);
+    selectPerformanceMember,
+    /await loadSelectedTypeMemberPopulation\(\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*await loadSelectedMemberDocumentation\(\)/);
   assert.doesNotMatch(
     drillToPerfMember,
-    /group\.overloads\.length > 1|selectedOverloadIndex = null/);
+    /group\.overloads\.length > 1/);
   assert.doesNotMatch(
     drillToPerfMember,
     /memberSection = "facts"|loadSelectedMemberFacts\(\)/);
@@ -1408,6 +1411,13 @@ test("typed scope bar owns its rendered control bindings", () => {
         ],
       },
       "call:render()",
+      {
+        if: 'target === "type"',
+        whenTrue: [
+          'call:loadCurrentSelectionData("Loading the selected Type")',
+        ],
+        whenFalse: [],
+      },
     ]);
 
   const typeLens = callbackProperty(actions, "onTypeLensSelect");
@@ -1423,7 +1433,13 @@ test("typed scope bar owns its rendered control bindings", () => {
     ]);
   assert.match(
     scopeBarSource,
-    /function bindItemActions\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-library-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\][\s\S]*export function bindScopeBar\([\s\S]*bindItemActions\(root, actions, controller\)/);
+    /function bindRovingTabs\([\s\S]*tab\.onfocus =[\s\S]*tab\.onkeydown =[\s\S]*function bindItemActions\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-library-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\][\s\S]*export function bindScopeBar\([\s\S]*bindItemActions\(root, actions, controller\)/);
+  assert.match(
+    scopeBarSource,
+    /private bindGroup\([\s\S]*group\.trigger\.onclick =[\s\S]*group\.trigger\.onkeydown =[\s\S]*item\.onfocus =[\s\S]*item\.onkeydown =/);
+  assert.doesNotMatch(
+    scopeBarSource,
+    /(?:tab|group\.trigger|item)\.addEventListener\("(?:focus|keydown|click)"/);
   for (const selector of [
     "[data-scope]",
     "[data-package-lens]",
