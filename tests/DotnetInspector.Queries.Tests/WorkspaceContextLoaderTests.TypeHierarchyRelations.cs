@@ -309,6 +309,73 @@ public sealed partial class WorkspaceContextLoaderTests
 
     [Fact]
     public async Task
+        ExactTypeFocus_SimpleNameIncludesForwardersInAmbiguity()
+    {
+        const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
+        const string TerminalAssembly = "Forwarded.Terminal";
+        const string FacadeAssembly = "Forwarded.Facade";
+        byte[] terminal = LocatorImage(
+            TerminalAssembly,
+            metadata => LocatorDefinition(
+                metadata,
+                "Remote",
+                "IContract",
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract));
+        byte[] facade = LocatorImage(
+            FacadeAssembly,
+            metadata =>
+            {
+                LocatorDefinition(
+                    metadata,
+                    "Local",
+                    "IContract",
+                    TypeAttributes.Public
+                        | TypeAttributes.Interface
+                        | TypeAttributes.Abstract);
+                AssemblyReferenceHandle terminalReference =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString(TerminalAssembly),
+                        new Version(1, 0, 0, 0),
+                        culture: default,
+                        publicKeyOrToken: default,
+                        flags: default,
+                        hashValue: default);
+                metadata.AddExportedType(
+                    Forwarder,
+                    metadata.GetOrAddString("Remote"),
+                    metadata.GetOrAddString("IContract"),
+                    terminalReference,
+                    typeDefinitionId: 0);
+            });
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationPopulation population =
+            CaptureDeclarations(
+                workspace,
+                await LocatorContext(
+                    workspace,
+                    terminal,
+                    facade));
+
+        WorkspaceExactTypeFocusOutcome result =
+            WorkspaceExactTypeFocusQuery.Execute(
+                population,
+                "IContract",
+                assemblyName: FacadeAssembly,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var unavailable = Assert.IsType<
+            WorkspaceExactTypeFocusOutcome.Unavailable>(result);
+        Assert.Contains(
+            "ambiguous",
+            unavailable.Detail,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task
         TypeHierarchyRelations_PreserveFailedContextCoverageWithUsefulRows()
     {
         const string AssemblyName = "PartialRelations";

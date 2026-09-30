@@ -192,28 +192,30 @@ public static class WorkspaceTypeRelationsInspectionOperation
             OrderCandidates(
                 ProjectCandidates(selected));
         int? selectedCount = null;
-        if (countSelectionNeedsNoRows
-            && relations.Evidence.IsComplete)
+        if (countSelectionNeedsNoRows)
         {
-            RowSelectionPlan<string> selectionPlan =
-                RowsCohortExecutor.ResolveUnorderedSelection(
-                    rowSelection!);
-            if (!RowSelectionCountExecutor.TryApply(
-                    relations.CandidateCount,
-                    selectionPlan,
-                    out RowSelectionCountResult countSelection))
+            if (relations.Evidence.IsComplete)
             {
-                throw new InvalidOperationException(
-                    "An unordered Subject Relations Count selection "
-                        + "could not execute as a cardinality plan.");
+                RowSelectionPlan<string> selectionPlan =
+                    RowsCohortExecutor.ResolveUnorderedSelection(
+                        rowSelection!);
+                if (!RowSelectionCountExecutor.TryApply(
+                        relations.CandidateCount,
+                        selectionPlan,
+                        out RowSelectionCountResult countSelection))
+                {
+                    throw new InvalidOperationException(
+                        "An unordered Subject Relations Count selection "
+                            + "could not execute as a cardinality plan.");
+                }
+                if (!countSelection.IsSuccess)
+                {
+                    throw SelectionFailure(
+                        plan.Selection.Form!.Value,
+                        countSelection.Failure);
+                }
+                selectedCount = countSelection.Count;
             }
-            if (!countSelection.IsSuccess)
-            {
-                throw SelectionFailure(
-                    plan.Selection.Form!.Value,
-                    countSelection.Failure);
-            }
-            selectedCount = countSelection.Count;
         }
         else if (appliesRowSelection)
         {

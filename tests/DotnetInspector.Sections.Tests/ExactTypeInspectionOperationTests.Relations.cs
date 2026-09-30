@@ -343,6 +343,30 @@ public sealed partial class ExactTypeInspectionOperationTests
             diagnostic => ReferenceEquals(
                 diagnostic.Evidence,
                 failed.Receipt));
+
+        WorkspaceTypeRelationsInspectionResult selectedCount =
+            WorkspaceTypeRelationsInspectionOperation.Execute(
+                workspace,
+                population,
+                new(
+                    member.AssemblyIdentity,
+                    member.Occurrence,
+                    focusType),
+                plan,
+                count: new SubjectRelationPopulationCountRequest(),
+                rowSelection:
+                    RowSelectionIntent<string>.Create(
+                        [
+                            RowSelectionIntentOperation<string>.Head(1),
+                        ]),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<SubjectRelationPopulationCountOutcome.Incomplete>(
+            selectedCount.Population.Count);
+        Assert.Null(selectedCount.Population.Rows);
+        Assert.Empty(selectedCount.Candidates);
+        Assert.False(selectedCount.Population.Evidence.IsComplete);
     }
 
     [Fact]

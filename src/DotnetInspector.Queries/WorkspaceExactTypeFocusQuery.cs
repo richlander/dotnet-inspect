@@ -66,6 +66,7 @@ public static class WorkspaceExactTypeFocusQuery
                 selectionKind,
                 assemblyName,
                 library,
+                includeAll,
                 cancellationToken)
                 is { } simpleSelection)
         {
@@ -213,6 +214,7 @@ public static class WorkspaceExactTypeFocusQuery
             ExactTypeSelectionKind selectionKind,
             string? assemblyName,
             ExactLibrarySourceCoordinate? library,
+            bool includeAll,
             CancellationToken cancellationToken)
     {
         var matches = new List<DefinitionFocusCandidate>();
@@ -232,35 +234,15 @@ public static class WorkspaceExactTypeFocusQuery
             }
             if (library is not null && member.Coordinate != library)
                 continue;
-            if (!population.TryGetAccess(
+            WorkspaceDeclarationInventoryOutcome outcome =
+                population.ReadDeclarations(
                     member.Occurrence,
-                    out _,
-                    out AssemblyContextGroup? group,
-                    out ResolvedAssemblyReference? assembly)
-                || group is null
-                || assembly is null)
-            {
-                outcomes.Add(new(member, IsComplete: false));
-                continue;
-            }
-
-            AssemblyContextParticipant participant =
-                group.Participants.Single(candidate =>
-                    ReferenceEquals(
-                        candidate.Assembly.Registration,
-                        assembly.Registration));
-            AssemblyContextEntry<MetadataTypeDefinitionNameSearchResult>
-                entry =
-                    AssemblyContextQueryExecutor.ExecuteParticipant(
-                        group,
-                        participant,
-                        session =>
-                            session.FindTypeDefinitionsBySimpleName(type));
-            if (entry is not AssemblyContextEntry<
-                    MetadataTypeDefinitionNameSearchResult>.Available
+                    cancellationToken);
+            if (outcome
+                is not WorkspaceDeclarationInventoryOutcome.Inspected
                 {
-                    Value:
-                        MetadataTypeDefinitionNameSearchResult.Found found,
+                    Outcome:
+                        AssemblyTypeDeclarationInventoryOutcome.Read read,
                 })
             {
                 outcomes.Add(new(member, IsComplete: false));
@@ -268,13 +250,23 @@ public static class WorkspaceExactTypeFocusQuery
             }
 
             outcomes.Add(new(member, IsComplete: true));
-            matches.AddRange(
-                found.Names.Select(name =>
-                    new DefinitionFocusCandidate(
+            foreach (AssemblyTypeDeclaration declaration
+                in read.Inventory.GetDeclarations(includeAll))
+            {
+                if (declaration.Kind is (
+                        AssemblyTypeDeclarationKind.Definition
+                        or AssemblyTypeDeclarationKind.Forwarder)
+                    && declaration.Name.Segments[^1].Equals(
+                        type,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    matches.Add(new(
                         member.Occurrence,
-                        name,
-                        name.ToEscapedFullName(),
-                        AssemblyTypeDeclarationKind.Definition)));
+                        declaration.Name,
+                        declaration.Name.ToEscapedFullName(),
+                        declaration.Kind));
+                }
+            }
         }
 
         if ((library is null
@@ -291,26 +283,25 @@ public static class WorkspaceExactTypeFocusQuery
 
         List<DefinitionFocusCandidate> selected =
             Select(matches, type, selectionKind);
-        if (selected.Count == 1)
+        if (selected is
+            [
+                {
+                    Kind: AssemblyTypeDeclarationKind.Definition,
+                } directMatch,
+            ])
         {
-            DefinitionFocusCandidate match = selected[0];
             WorkspaceDeclarationMember member =
                 population.Receipt.Members.Single(candidate =>
                     ReferenceEquals(
                         candidate.Occurrence,
-                        match.Occurrence));
+                        directMatch.Occurrence));
             return new WorkspaceExactTypeFocusOutcome.Found(
                 member.AssemblyIdentity,
-                match.Occurrence,
-                match.Type);
+                directMatch.Occurrence,
+                directMatch.Type);
         }
-        if (selected.Count > 1)
-        {
-            return new WorkspaceExactTypeFocusOutcome.Unavailable(
-                "The exact Type focus is ambiguous in the candidate "
-                    + "context.",
-                outcomes.ToImmutable());
-        }
+        if (selected.Count > 0)
+            return ResolveSelected(population, selected, outcomes);
 
         return null;
     }
