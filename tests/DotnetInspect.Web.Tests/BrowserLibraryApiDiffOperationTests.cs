@@ -398,6 +398,59 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Null(result.Inspection);
     }
 
+    [Theory]
+    [InlineData(
+        BrowserDiffAnalysisSurface.Type,
+        "api-attribute",
+        BrowserDiffAnalysisViews.Changes,
+        "Changes",
+        true)]
+    [InlineData(
+        BrowserDiffAnalysisSurface.Library,
+        "api",
+        BrowserDiffAnalysisViews.Transitions,
+        "Transitions",
+        false)]
+    public async Task UnsupportedAnalysisViewCombinationIsRejectedBeforeAcquisition(
+        BrowserDiffAnalysisSurface surface,
+        string analysis,
+        BrowserDiffAnalysisViews views,
+        string rejectedView,
+        bool includeType)
+    {
+        BrowserLibraryApiDiffRequest request =
+            Request("Unregistered.View.Package") with
+            {
+                Surface = surface,
+                Analyses = [analysis],
+                Views = views,
+                TypeNames = includeType ? ["Example.Type"] : [],
+            };
+        string requestJson = JsonSerializer.Serialize(
+            request,
+            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffRequest);
+
+        string resultJson = await MetadataExports.QueryLibraryApiDiff(
+            Guid.NewGuid().ToString(),
+            requestJson);
+        BrowserLibraryApiDiffResult result =
+            JsonSerializer.Deserialize(
+                resultJson,
+                BrowserMetadataJsonContext.Default
+                    .BrowserLibraryApiDiffResult)!;
+
+        Assert.Equal(BrowserLibraryApiDiffResultKind.Failed, result.Kind);
+        Assert.Equal(
+            BrowserLibraryApiDiffFailureKind.Expected,
+            result.FailureKind);
+        Assert.Contains(
+            "view selection was rejected",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(rejectedView, result.Error, StringComparison.Ordinal);
+        Assert.Null(result.Inspection);
+    }
+
     [Fact]
     public async Task ExportPlacesCompatibilityChangesOnTheirTypeAndMember()
     {

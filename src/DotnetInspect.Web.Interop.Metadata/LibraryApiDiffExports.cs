@@ -371,7 +371,26 @@ public static partial class MetadataExports
                 targetCount,
                 request.Analyses);
         if (validation is AnalysisSetValidationResult.Accepted accepted)
-            return accepted;
+        {
+            DiffAnalysisViewRejectionReason? viewRejection =
+                DiffAnalysisViewAdmission.Validate(accepted, views);
+            if (viewRejection is null)
+                return accepted;
+
+            throw new BrowserLibraryApiDiffRequestException(
+                viewRejection switch
+                {
+                    DiffAnalysisViewRejectionReason.ChangesRequireApi =>
+                        "The Diff analysis view selection was rejected: "
+                            + "Changes requires the 'api' analysis.",
+                    DiffAnalysisViewRejectionReason
+                        .TransitionsRequireTypeOrMember =>
+                            "The Diff analysis view selection was rejected: "
+                                + "Transitions requires the Type or Member surface.",
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(viewRejection)),
+                });
+        }
 
         var rejected = (AnalysisSetValidationResult.Rejected)validation;
         throw new BrowserLibraryApiDiffRequestException(

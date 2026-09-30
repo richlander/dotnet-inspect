@@ -139,15 +139,16 @@ arms.
 The Metadata facade owns the operation because the result is API/metadata
 projection. No eighth facade is introduced.
 
-For each endpoint, managed code:
+Managed code first validates the analysis set, surface, target cardinality,
+and semantic view combination through the shared generic Diff catalog and view
+admission. Only an admitted request proceeds. For each endpoint, it then:
 
 1. opens the requested Gallery package and framework through
    `BrowserPackageWorkspace`;
 2. resolves the exact compile asset;
 3. projects `ApiSurfaceScope.Public` with the fixed
    `BrowserApiSurfacePolicy.Limits`; and
-4. validates the requested set through `DiffAnalysisCatalog`; and
-5. passes both participants to `DiffAnalysisLibraryInspection.Execute`, the
+4. passes both participants to `DiffAnalysisLibraryInspection.Execute`, the
    shared generic-Diff and Library-presentation terminal.
 
 Before is the target version and After is the current version. Each scope is
