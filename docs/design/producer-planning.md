@@ -321,13 +321,15 @@ passes: they "communicate through the tree, never side-channel state".
 **Rule.** A producer is given units. No producer loops over the subject
 itself.
 
-*Lets the lower levels:* cancel and bound work at unit boundaries, yield on
+*Lets the lower levels:* bound and settle work at unit boundaries, yield on
 single-threaded Browser/Wasm, report progress, attribute time per producer,
-and schedule in parallel, all without producer changes.
+and schedule in parallel, all without producer changes. Cancellation, when an
+operation exposes it, remains a coarser orchestrator decision and does not
+enter producer visits or per-unit callbacks.
 
 *Lesson:* Roslyn's operation callbacks and Go's shared `inspect` traversal give
 N analyzers one walk. Analyses that walk the program themselves cannot be
-interrupted, parallelized, or fused.
+bounded, parallelized, or fused.
 
 ### Scope is declared on the edge, not tested inside the visit
 

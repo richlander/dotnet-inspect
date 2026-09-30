@@ -241,11 +241,12 @@ land only with a production consumer that can preserve its distinctions
 end-to-end; this design does not add an unused result algebra ahead of that
 consumer.
 
-Cancellation also remains with the current consumer contracts. Workspace
-queries check caller cancellation around synchronous execution, and an
-owner-issued resolver may preserve its own cancellation behavior. Adding
-cooperative cancellation inside CPU producers requires a focused Analysis
-execution change with producer-owned evidence.
+Cancellation remains with the operation orchestrator. Workspace queries check
+caller cancellation around synchronous execution; the target
+`AssemblyAnalysisService` may preserve that policy at coarse operation
+boundaries. CPU producers do not accept or poll cancellation per Method,
+body, instruction, or evidence item. Existing producer-local cancellation is
+migration debt, not a compatibility contract for the target service.
 
 ## Selective implementation metric Analysis
 

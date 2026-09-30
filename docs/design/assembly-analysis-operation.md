@@ -20,11 +20,11 @@ named Release gates land.
 
 > Given one resource-free `AssemblyAnalysisOperation`, one exact owner-issued
 > operation access to an assembly, and the owner-issued source operations that
-> access makes available, `AssemblyAnalysisService` binds the operation's
-> closed Producer Planning description to those sources exactly once and
-> publishes a detached `AssemblyAnalysisExecution`, preserving source and
-> producer outcomes without retaining subject authority or behavior-bearing
-> state.
+> access makes available after their owning admission has settled,
+> `AssemblyAnalysisService` binds the operation's closed Producer Planning
+> description to those sources exactly once and publishes either a detached
+> `AssemblyAnalysisExecution` or an operation-level non-success, without
+> retaining subject authority or behavior-bearing state.
 
 This owner defines:
 
@@ -34,6 +34,7 @@ This owner defines:
   assembly access and owner-issued sources;
 - the preservation of operation, subject, source-work, and producer-result
   associations across that invocation;
+- the coarse operation boundary at which optional cancellation is observed;
 - the sequential reference composition required on single-threaded
   Browser/Wasm; and
 - the temporary legacy-remainder rule used while the current producer hub is
@@ -42,6 +43,7 @@ This owner defines:
 This owner does not define:
 
 - assembly acquisition, identity, admission, borrowing, or release;
+- image-format classification or `MetadataReader` construction;
 - Type, Member, or Method population, depth, traversal, batching, expansion,
   collapse, pushdown, or continuation;
 - producer identity, dependencies, algorithms, evidence, results, or
@@ -61,6 +63,7 @@ new planner or resource owner:
 | [Stateless Core Services](stateless-core-services.md) | Explicit operation input, stateless service execution, detached output, and no hidden semantic state port. |
 | [Analysis Universe Realization](analysis-universe-realization.md) | Exact plan-to-provider correspondence, operation-scoped capability access, owner-issued lifetimes, and failure-preserving release. |
 | [Assembly image lifetime](assembly-image-lifetime.md) and [Resource ownership and borrowing](resource-ownership-and-borrowing.md) | Assembly ownership, synchronous borrowing, owned asynchronous work, and settlement obligations. |
+| [Session-owned format admission](assembly-inspection-query.md#session-owned-format-admission) | One-time session-backed format classification, retained `MetadataReader` construction, and visible no-metadata, unsupported-format, and malformed-reader outcomes. |
 | [Producer Planning](producer-planning.md) | Closed producer descriptions, dependencies, typed outcomes, declaration-keyed results, and participation receipts. |
 | QuerySpace owners, including [Query Space Composition](query-space-composition.md) and [Source Delegation](source-delegation.md) | Source requests, collapse, traversal, terminals, delegated execution, completion, and reference equivalence. |
 | [Evidence and Metric Coordination](evidence-metric-coordination.md) | Selective metric requirements, shared evidence, roll-up, and actual-work accounting. |
@@ -87,7 +90,8 @@ consumer-owned Analysis demand
        exact producer work description
        exact owner-issued source requests
        exact work bounds and terminal requirements
-  + owner-issued operation access to one assembly
+  + session or universe owner settles admission
+  + owner-issued operation access to that exact assembly
   -> AssemblyAnalysisService.Execute(...)
        bind each request to the access's AssemblyAnalysisSource role
        execute the QuerySpace reference plan
@@ -135,6 +139,8 @@ The service:
 
 - does not reopen an assembly by path or reconstruct access from display
   identity;
+- does not classify the image format or construct a `MetadataReader` for
+  session-backed execution;
 - does not select producers, infer prerequisites, or expand compatibility
   profiles;
 - does not enumerate the assembly outside an owner-issued source plan;
@@ -155,7 +161,7 @@ semantic result. It preserves:
 - every owner-issued source-work and completion receipt;
 - declaration-keyed producer outcomes and focused result values;
 - shared diagnostics whose owner permits common publication; and
-- typed cancellation, incompleteness, and failure evidence.
+- typed incompleteness and failure evidence.
 
 Consumers request a result through its producer declaration and then pass the
 focused result value to the owning query or section. The execution is not a
@@ -170,6 +176,13 @@ reader, stream, resolver, source callback, or mutable producer state.
 `AssemblyAnalysisSource` names the internal composition role through which one
 exact assembly access exposes owner-issued Analysis sources. It is a source
 family, not one universal row space.
+
+For a session-backed source, Assembly Inspection has already classified the
+image and published its retained `MetadataReader` before the service receives
+access. The source consumes that admitted reader; it does not repeat general
+format admission or reader construction. A no-metadata outcome, unsupported
+Windows Metadata, or malformed reader construction settles under the
+session-owned admission contract before an Analysis producer runs.
 
 The method-definition member of that family is owned by
 [#8577](https://github.com/richlander/dotnet-inspect/issues/8577). That effort
@@ -186,9 +199,10 @@ description. Failure to form the description is a planning rejection, not an
 empty execution.
 
 Operation access is acquired separately. A denied, unavailable, foreign, or
-mismatched access rejects execution before a producer runs. The service does
-not widen the universe, reacquire by path, or substitute equal-looking
-content.
+mismatched access rejects execution before a producer runs. Session-backed
+format admission likewise settles before source or producer execution. The
+service does not widen the universe, reacquire by path, reconstruct a reader,
+or substitute equal-looking content.
 
 After execution starts, QuerySpace owns source progress and completion while
 Producer Planning owns producer progress and outcomes. A source-delegation
@@ -246,20 +260,45 @@ Public API extraction in the implementation-profile family query is separate
 whole-assembly work. Its cost and completion are measured independently; body
 source proportionality does not claim to remove it.
 
-## Failure, cancellation, and work evidence
+## Cancellation boundary
 
-The execution keeps three failure stages distinct:
+Cancellation is optional operation policy. When an adopting operation exposes
+it, `AssemblyAnalysisService` observes it only at coarse orchestration
+boundaries such as before access binding, between major source-plan phases,
+and before terminal publication.
+
+A cancellation token does not enter a producer declaration, `Visit`,
+`Complete`, per-unit source callback, decoder, resolver, or producer-local
+loop. A visit already in progress completes under its ordinary work bounds;
+the orchestrator declines to schedule later phases after observing
+cancellation.
+
+Cancellation is one top-level operation non-success. It does not fail each
+producer independently, mint a successful `AssemblyAnalysisExecution`, or
+reinterpret already bounded source work. QuerySpace terminals, early
+satisfaction, and explicit work limits remain their owners' completion
+semantics rather than cancellation mechanisms.
+
+An operation need not expose cancellation merely because the service can
+compose it. Diff, Graph, Depends, or another outer operation may own the
+coarser cancellation gesture and choose the boundaries at which it stops
+starting more Analysis work.
+
+## Failure and work evidence
+
+The operation keeps four non-success stages distinct:
 
 | Stage | Required outcome |
 | --- | --- |
 | Operation formation | One typed planning rejection; no access acquisition or producer work. |
-| Access and source binding | One typed access or binding rejection; no producer work. |
+| Admission, access, and source binding | The owner-issued admission, access, or binding non-success; no producer work. |
+| Orchestrator cancellation | One top-level cancellation outcome observed at a coarse operation boundary; no producer-local cancellation outcome. |
 | Source and producer execution | Owner-issued per-source and per-producer outcomes associated with the exact operation. |
 
 Malformed bodies, unavailable evidence, work bounds, early terminal
-satisfaction, and cancellation remain visible in the owning outcome and
-receipt. Missing work cannot become an empty successful result, a zero count,
-a negative Finding, or an absence proof.
+satisfaction, and operation cancellation remain visible in the owning outcome
+and receipt. Missing work cannot become an empty successful result, a zero
+count, a negative Finding, or an absence proof.
 
 The exact source-work receipt is owned by #8577. Aggregate producer
 participation remains owned by Producer Planning. This composition preserves
@@ -299,6 +338,15 @@ The first implementation adoption supplies these Release gates:
 The slice that introduces the legacy-remainder declaration supplies
 `AssemblyAnalysisService_MixedLegacyAndMigratedProducersUseOneSourcePlan`.
 
+The positive session path inherits the Release gates owned by
+[session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).
+This adoption does not add an automated composition-absence gate for repeated
+admission and must not describe positive session-path tests as that proof.
+
+An implementation slice that exposes cancellation supplies
+`AssemblyAnalysisService_CancellationStopsAtOrchestratorBoundary`. A slice
+that does not expose cancellation has no cancellation gate.
+
 The first production slice also keeps the existing CLI and Browser/Wasm
 consumer canaries green. A test harness alone is not adoption.
 
@@ -318,6 +366,8 @@ method-source work so one cost cannot hide the other.
 - No broad producer result, metric bundle, or type-keyed result bag.
 - No `CompleteProfileV1` producer.
 - No direct-call identity or scanner outside #8945.
+- No producer-local, per-unit, or per-instruction cancellation.
+- No requirement that every Analysis operation expose cancellation.
 - No replacement for Query Operation Infrastructure or Inspection Operation
   Composition.
 - No parallel-execution requirement.
