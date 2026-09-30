@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 
@@ -382,6 +383,7 @@ public static class BodyUseScorecard
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using var image = new PEReader(asset.Image);
             AssemblyTypeDeclarationInventoryOutcome inventoryOutcome =
                 AssemblyTypeDeclarationInventoryReader.Read(
@@ -442,6 +444,14 @@ public static class BodyUseScorecard
                     inventory,
                     execute(context));
             return new(column, Normalize(projection), null);
+        }
+        catch (ProducerAbortException abort)
+        {
+            return new(
+                column,
+                null,
+                $"{AnalysisLibraryBodyUseRejectionKind.Limit}: "
+                    + abort.Failure.Message);
         }
         catch (Exception exception)
             when (LibraryMethodAnalysisRunner
@@ -509,7 +519,10 @@ public static class BodyUseScorecard
         if (left.Answer is null || right.Answer is null)
         {
             return left.Answer is null
-                && right.Answer is null;
+                && right.Answer is null
+                && StringComparer.Ordinal.Equals(
+                    left.Rejection,
+                    right.Rejection);
         }
         BodyUseScorecardAnswer first = left.Answer;
         BodyUseScorecardAnswer second = right.Answer;
@@ -792,6 +805,7 @@ public static class BodyUseScorecard
                 foreach (MethodDefinitionHandle methodHandle
                     in type.GetMethods())
                 {
+                    _cancellationToken.ThrowIfCancellationRequested();
                     MethodDefinition method =
                         _reader.GetMethodDefinition(methodHandle);
                     if (!IsManaged(method))
@@ -813,22 +827,18 @@ public static class BodyUseScorecard
         {
             AnalysisLibraryBodyUseProducer.Accumulator answer =
                 _reader.TypeDefinitions
-                .Select(handle =>
-                    (Handle: handle,
-                    Type: _reader.GetTypeDefinition(handle)))
+                .Select(ReadType)
                 .Where(item =>
                     AnalysisLibraryBodyUseProducer.IsTypeInPopulation(
                         _reader,
                         item.Type))
                 .SelectMany(item =>
                     item.Type.GetMethods().Select(methodHandle =>
-                        new MethodDefinitionRow(
-                            _reader,
+                        ReadMethod(
                             item.Handle,
                             item.Type,
-                            methodHandle,
-                            _reader.GetMethodDefinition(methodHandle))))
-                .Where(static row => IsManaged(row.Method))
+                            methodHandle)))
+                .Where(IsManagedRow)
                 .Select(Analyze)
                 .Aggregate(
                     new AnalysisLibraryBodyUseProducer.Accumulator(
@@ -848,7 +858,7 @@ public static class BodyUseScorecard
                     .Where<
                         MethodDefinitionRows,
                         MethodDefinitionRow,
-                        SelectManaged>(default);
+                        SelectManaged>(new(_cancellationToken));
             var projected =
                 selected.Select<
                     Filter<
@@ -877,32 +887,79 @@ public static class BodyUseScorecard
             return answer.Complete();
         }
 
-        BodyTypeUseMethodFact Analyze(MethodDefinitionRow row) =>
-            _runner.AnalyzeBodyTypeUses(
-                row.TypeHandle,
-                row.Type,
-                row.MethodHandle,
-                row.Method,
-                _image.GetMethodBody(
-                    row.Method.RelativeVirtualAddress),
-                _limits.MaximumInstructionsPerBody,
-                _limits.MaximumOccurrences,
-                _limits.MaximumMethodSignatureBytes,
-                _cancellationToken);
+        BodyTypeUseMethodFact Analyze(MethodDefinitionRow row)
+        {
+            try
+            {
+                return _runner.AnalyzeBodyTypeUses(
+                    row.TypeHandle,
+                    row.Type,
+                    row.MethodHandle,
+                    row.Method,
+                    _image.GetMethodBody(
+                        row.Method.RelativeVirtualAddress),
+                    _limits.MaximumInstructionsPerBody,
+                    _limits.MaximumOccurrences,
+                    _limits.MaximumMethodSignatureBytes,
+                    _cancellationToken);
+            }
+            catch (Exception exception)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(exception))
+            {
+                return BodyTypeUseMethodFact.Unavailable(
+                    row.TypeHandle,
+                    MetadataTokens.GetToken(row.MethodHandle),
+                    ProducerFailure.Describe(exception));
+            }
+        }
+
+        (TypeDefinitionHandle Handle, TypeDefinition Type) ReadType(
+            TypeDefinitionHandle handle)
+        {
+            _cancellationToken.ThrowIfCancellationRequested();
+            return (handle, _reader.GetTypeDefinition(handle));
+        }
+
+        MethodDefinitionRow ReadMethod(
+            TypeDefinitionHandle typeHandle,
+            TypeDefinition type,
+            MethodDefinitionHandle methodHandle)
+        {
+            _cancellationToken.ThrowIfCancellationRequested();
+            return new(
+                _reader,
+                typeHandle,
+                type,
+                methodHandle,
+                _reader.GetMethodDefinition(methodHandle));
+        }
+
+        bool IsManagedRow(MethodDefinitionRow row)
+        {
+            _cancellationToken.ThrowIfCancellationRequested();
+            return IsManaged(row.Method);
+        }
 
         static bool IsManaged(MethodDefinition method) =>
             method.RelativeVirtualAddress != 0
             && LibraryMethodAnalysisRunner.HasManagedIlBody(
                 method.ImplAttributes);
 
-        readonly struct SelectManaged
+        readonly struct SelectManaged(CancellationToken cancellationToken)
             : IFunc<MethodDefinitionRow, bool>
         {
-            public bool Invoke(MethodDefinitionRow row) =>
-                AnalysisLibraryBodyUseProducer.IsTypeInPopulation(
-                    row.Reader,
-                    row.Type)
-                && IsManaged(row.Method);
+            readonly CancellationToken _cancellationToken =
+                cancellationToken;
+
+            public bool Invoke(MethodDefinitionRow row)
+            {
+                _cancellationToken.ThrowIfCancellationRequested();
+                return AnalysisLibraryBodyUseProducer.IsTypeInPopulation(
+                        row.Reader,
+                        row.Type)
+                    && IsManaged(row.Method);
+            }
         }
 
         readonly struct AnalyzeMethod(OracleContext context)

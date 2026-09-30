@@ -599,18 +599,36 @@ public sealed class AnalysisLibraryBodyUseTests
                 [.. File.ReadAllBytes(FixturePath)],
                 new(),
                 cancellation.Token));
+
+        var asset = new BodyUseScorecardAsset(
+            "bodyless",
+            "Bodyless.dll",
+            BuildIndependentImage(
+                [0x2A],
+                bodylessOnly: true));
+        foreach (BodyUseScorecardColumn column
+            in Enum.GetValues<BodyUseScorecardColumn>())
+        {
+            Assert.Throws<OperationCanceledException>(
+                () => BodyUseScorecard.Execute(
+                    column,
+                    asset,
+                    cancellationToken: cancellation.Token));
+        }
     }
 
     [Fact]
     public void ExecuteImage_ContainsMalformedBodyAndRetainsHealthyBody()
     {
+        ImmutableArray<byte> image =
+            BuildIndependentImage(
+                [0x2A],
+                unreadableSecondBody: true);
         AnalysisLibraryBodyUseResult result =
             Available(
                 AnalysisLibraryBodyUseService.ExecuteImage(
                     "IndependentEcma335.dll",
-                    BuildIndependentImage(
-                        [0x2A],
-                        unreadableSecondBody: true),
+                    image,
                     new(),
                     TestContext.Current.CancellationToken)).Result;
 
@@ -626,6 +644,23 @@ public sealed class AnalysisLibraryBodyUseTests
                 diagnostic.Kind
                     == AnalysisLibraryBodyUseDiagnosticKind
                         .MalformedBody);
+
+        BodyUseScorecardCheck scorecard = BodyUseScorecard.Check(
+            [
+                new(
+                    "malformed-body",
+                    "IndependentEcma335.dll",
+                    image),
+            ],
+            cancellationToken:
+                TestContext.Current.CancellationToken);
+        Assert.True(
+            scorecard.Agrees,
+            string.Join(
+                Environment.NewLine,
+                scorecard.Mismatches.Select(static mismatch =>
+                    $"{mismatch.Column}: {mismatch.Answer}; "
+                        + $"oracle {mismatch.OracleAnswer}")));
     }
 
     [Fact]
@@ -1073,19 +1108,21 @@ public sealed class AnalysisLibraryBodyUseTests
     [Fact]
     public void ExecuteImage_RejectsMethodSignatureBudgetExhaustion()
     {
+        ImmutableArray<byte> image =
+            BuildIndependentImage(
+                [
+                    (byte)ILOpCode.Call,
+                    0x01, 0x00, 0x00, 0x0A,
+                    (byte)ILOpCode.Ret,
+                ],
+                largeTruncatedParameters: 4096);
+        var limits = new AnalysisLibraryBodyUseLimits(
+            MaximumMethodSignatureBytes: 1024);
         AnalysisLibraryBodyUseOutcome outcome =
             AnalysisLibraryBodyUseService.ExecuteImage(
                 "IndependentEcma335.dll",
-                BuildIndependentImage(
-                    [
-                        (byte)ILOpCode.Call,
-                        0x01, 0x00, 0x00, 0x0A,
-                        (byte)ILOpCode.Ret,
-                    ],
-                    largeTruncatedParameters: 4096),
-                new(
-                    new(
-                        MaximumMethodSignatureBytes: 1024)),
+                image,
+                new(limits),
                 TestContext.Current.CancellationToken);
 
         AnalysisLibraryBodyUseOutcome.Rejected rejected =
@@ -1097,6 +1134,23 @@ public sealed class AnalysisLibraryBodyUseTests
             "method-signature byte budget",
             rejected.Detail,
             StringComparison.Ordinal);
+
+        BodyUseScorecardCheck scorecard = BodyUseScorecard.Check(
+            [
+                new(
+                    "signature-budget",
+                    "IndependentEcma335.dll",
+                    image),
+            ],
+            limits,
+            TestContext.Current.CancellationToken);
+        Assert.True(
+            scorecard.Agrees,
+            string.Join(
+                Environment.NewLine,
+                scorecard.Mismatches.Select(static mismatch =>
+                    $"{mismatch.Column}: {mismatch.Answer}; "
+                        + $"oracle {mismatch.OracleAnswer}")));
     }
 
     [Fact]
@@ -1393,7 +1447,8 @@ public sealed class AnalysisLibraryBodyUseTests
         bool truncatedMethodMemberReference = false,
         bool truncatedOwnSignature = false,
         int largeTruncatedParameters = 0,
-        bool unreadableMemberName = false)
+        bool unreadableMemberName = false,
+        bool bodylessOnly = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1421,7 +1476,9 @@ public sealed class AnalysisLibraryBodyUseTests
             metadata.AddTypeDefinition(
                 TypeAttributes.Public
                     | TypeAttributes.Abstract
-                    | TypeAttributes.Sealed,
+                    | (bodylessOnly
+                        ? 0
+                        : TypeAttributes.Sealed),
                 metadata.GetOrAddString("N"),
                 metadata.GetOrAddString("Independent"),
                 default,
@@ -1492,7 +1549,10 @@ public sealed class AnalysisLibraryBodyUseTests
 
         var bodies = new BlobBuilder();
         var encoder = new MethodBodyStreamEncoder(bodies);
-        AddMethod("Healthy", firstBody, readable: true);
+        if (bodylessOnly)
+            AddBodylessMethod("Bodyless");
+        else
+            AddMethod("Healthy", firstBody, readable: true);
         if (unreadableSecondBody)
             AddMethod("Malformed", [0x2A], readable: false);
 
@@ -1538,6 +1598,27 @@ public sealed class AnalysisLibraryBodyUseTests
                     ? metadata.GetOrAddBlob(new byte[] { 0x00 })
                     : metadata.GetOrAddBlob(signature),
                 offset,
+                MetadataTokens.ParameterHandle(1));
+        }
+
+        void AddBodylessMethod(string name)
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(isInstanceMethod: true)
+                .Parameters(
+                    0,
+                    static returnType => returnType.Void(),
+                    static _ => { });
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.NewSlot,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(name),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset: 0,
                 MetadataTokens.ParameterHandle(1));
         }
     }
