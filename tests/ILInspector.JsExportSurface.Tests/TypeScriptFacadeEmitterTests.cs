@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
@@ -812,6 +813,137 @@ public sealed class TypeScriptFacadeEmitterTests
                         out JsonElement type)
                     || type.GetString() != "null");
         }
+    }
+
+    [Fact]
+    public void JsonSchema_GenericIdentityIsCultureInvariant()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(TypeScriptFixtureExports).Assembly.Location);
+        ApiTypeShape shape = Assert.IsType<ApiTypeShape>(
+            Assert.Single(
+                surface.Functions,
+                function =>
+                    function.Name == "GetGenericRecordIntAsync")
+            .ReturnWireTypeShape);
+        var row = new JsonPositionalRowContract(
+            [new("value", shape, allowsNull: false)]);
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+        CultureInfo originalCulture = CultureInfo.CurrentCulture;
+        CultureInfo originalUiCulture = CultureInfo.CurrentUICulture;
+
+        try
+        {
+            JsonSchemaVocabularyDescriptor english = Build("en-US");
+            JsonSchemaVocabularyDescriptor arabic = Build("ar-SA");
+            JsonSchemaVocabularyDescriptor englishAgain = Build("en-US");
+
+            Assert.Equal(
+                english.SchemaIdentity,
+                arabic.SchemaIdentity);
+            Assert.Equal(
+                english.DescriptorIdentity,
+                arabic.DescriptorIdentity);
+            Assert.Equal(
+                english.Schema.GetRawText(),
+                arabic.Schema.GetRawText());
+            Assert.Equal(
+                english.SchemaIdentity,
+                englishAgain.SchemaIdentity);
+            Assert.Equal(
+                english.DescriptorIdentity,
+                englishAgain.DescriptorIdentity);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
+
+        JsonSchemaVocabularyDescriptor Build(string cultureName)
+        {
+            var culture = CultureInfo.GetCultureInfo(cultureName);
+            CultureInfo.CurrentCulture = culture;
+            CultureInfo.CurrentUICulture = culture;
+            return JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new("fixture.culture-invariant-generic"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Positional(row)),
+                snapshot,
+                snapshot.Identity);
+        }
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("browser")]
+    public void
+        JsonSchema_RejectsUnmodeledRequiredMemberConstructorSelection()
+    {
+        Assert.Equal(
+            "default",
+            SetsRequiredMembersFixtureExports
+                .ReadSetsRequiredMembers("{}"));
+
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(typeof(SetsRequiredMembersFixtureExports)
+                .Assembly.Location);
+        ApiType type = Assert.Single(
+            surface.Records,
+            candidate =>
+                candidate.FullName
+                    == typeof(SetsRequiredMembersInputFixture).FullName);
+
+        ApiMember constructor = Assert.Single(
+            type.Members,
+            member => member.Kind == "constructor");
+        Assert.Equal(
+            1,
+            constructor.SetsRequiredMembersAttributeCount);
+        Assert.False(
+            constructor.HasMalformedSetsRequiredMembersAttribute);
+        Assert.True(
+            JsonWireMemberRules
+                .RequiresRequiredMemberConstructorEvidence(type));
+
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        string declaration = DtsEmitter.Emit(surface, diagnostics);
+        Assert.Contains(
+            "export type SetsRequiredMembersInputFixture = unknown;",
+            declaration,
+            StringComparison.Ordinal);
+        TypeScriptGenerationDiagnostic diagnostic =
+            Assert.Single(diagnostics.UnmappedTypes);
+        Assert.Equal(
+            "required-member deserialization requires unmodeled constructor-selection evidence",
+            diagnostic.CSharpType);
+
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+        JsonSchemaVocabularyException exception = Assert.Throws<
+            JsonSchemaVocabularyException>(
+            () => JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new("fixture.sets-required-members"),
+                    JsonWireDirection.Deserialize,
+                    new JsonSchemaContractRoot.Object(type)),
+                snapshot,
+                snapshot.Identity));
+
+        Assert.Contains(
+            "constructor-binding evidence is incomplete",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]

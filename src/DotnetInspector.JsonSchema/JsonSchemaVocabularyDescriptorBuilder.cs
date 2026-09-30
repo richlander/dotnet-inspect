@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -567,12 +568,17 @@ public static class JsonSchemaVocabularyDescriptorBuilder
             }
 
             if (_direction == JsonWireDirection.Deserialize
-                && members.Any(item =>
-                    JsonWireMemberRules.RequiresConstructorBindingEvidence(
-                        caseType,
-                        item.Member,
-                        _surface.AssemblyIdentity,
-                        _plan.DeclaredTypesByScopedIdentity)))
+                && (JsonWireMemberRules
+                        .RequiresRequiredMemberConstructorEvidence(
+                            union.Definition)
+                    || JsonWireMemberRules
+                        .RequiresRequiredMemberConstructorEvidence(caseType)
+                    || members.Any(item =>
+                        JsonWireMemberRules.RequiresConstructorBindingEvidence(
+                            caseType,
+                            item.Member,
+                            _surface.AssemblyIdentity,
+                            _plan.DeclaredTypesByScopedIdentity))))
             {
                 throw Unsupported(
                     caseType,
@@ -709,13 +715,15 @@ public static class JsonSchemaVocabularyDescriptorBuilder
                     "wire-shaping attributes or inheritance are unsupported");
             }
             if (_direction == JsonWireDirection.Deserialize
-                && type.Members.Any(member =>
-                    JsonWireMemberRules
-                        .RequiresConstructorBindingEvidence(
-                            type,
-                            member,
-                            _surface.AssemblyIdentity,
-                            _plan.DeclaredTypesByScopedIdentity)))
+                && (JsonWireMemberRules
+                        .RequiresRequiredMemberConstructorEvidence(type)
+                    || type.Members.Any(member =>
+                        JsonWireMemberRules
+                            .RequiresConstructorBindingEvidence(
+                                type,
+                                member,
+                                _surface.AssemblyIdentity,
+                                _plan.DeclaredTypesByScopedIdentity))))
             {
                 throw Unsupported(
                     type,
@@ -1214,7 +1222,13 @@ public static class JsonSchemaVocabularyDescriptorBuilder
             string candidate = name.ToString();
             int suffix = 2;
             while (_definitions.ContainsKey(candidate))
-                candidate = $"{name}_{suffix++}";
+            {
+                candidate = string.Concat(
+                    name,
+                    "_",
+                    suffix.ToString(CultureInfo.InvariantCulture));
+                suffix++;
+            }
             return candidate;
         }
 
@@ -1226,24 +1240,84 @@ public static class JsonSchemaVocabularyDescriptorBuilder
 
             void Write(ApiTypeShape current)
             {
-                value.Append((int)current.Kind).Append(':')
-                    .Append(current.Primitive).Append(':')
-                    .Append(current.Definition?.Assembly.Name).Append(':')
-                    .Append(current.Definition?.Assembly.Version).Append(':')
-                    .Append(current.Definition?.Assembly.Culture).Append(':')
-                    .Append(current.Definition?.Assembly.PublicKeyToken)
-                    .Append(':')
-                    .Append(current.Definition?.FullName).Append(':')
-                    .Append(current.GenericParameterIndex).Append('[');
+                AppendInt((int)current.Kind);
+                AppendNullableInt(
+                    current.Primitive is { } primitive
+                        ? (int)primitive
+                        : null);
+                AppendString(current.Definition?.Assembly.Name);
+                AppendString(current.Definition?.Assembly.Version?.ToString());
+                AppendString(current.Definition?.Assembly.Culture);
+                AppendString(current.Definition?.Assembly.PublicKeyToken);
+                AppendString(current.Definition?.FullName);
+                AppendString(current.Definition?.DefinitionName?.Namespace);
+                ImmutableArray<string> definitionSegments =
+                    current.Definition?.DefinitionName?.Segments
+                    ?? ImmutableArray<string>.Empty;
+                AppendInt(definitionSegments.Length);
+                foreach (string segment in definitionSegments)
+                    AppendString(segment);
+                AppendInt(current.GenericParameterIndex);
+                AppendBool(current.IsMethodGenericParameter);
+                AppendNullableBool(current.IsValueType);
+                AppendNullableBool(
+                    current.DefinitionArityMatchesTypeArguments);
+                AppendInt(current.ArrayRank);
+                AppendInt(current.ArraySizes.Length);
+                foreach (int size in current.ArraySizes)
+                    AppendInt(size);
+                AppendInt(current.ArrayLowerBounds.Length);
+                foreach (int lowerBound in current.ArrayLowerBounds)
+                    AppendInt(lowerBound);
                 if (current.ElementType is { } element)
                     Write(element);
+                else
+                    value.Append('N');
+                AppendInt(current.TypeArguments.Length);
                 foreach (ApiTypeShape argument
                     in current.TypeArguments)
                 {
-                    value.Append(',');
                     Write(argument);
                 }
-                value.Append(']');
+            }
+
+            void AppendBool(bool item) => value.Append(item ? 'T' : 'F');
+
+            void AppendNullableBool(bool? item) =>
+                value.Append(item switch
+                {
+                    true => 'T',
+                    false => 'F',
+                    null => 'N',
+                });
+
+            void AppendNullableInt(int? item)
+            {
+                if (item is null)
+                {
+                    value.Append("N;");
+                    return;
+                }
+
+                AppendInt(item.Value);
+            }
+
+            void AppendInt(int item)
+            {
+                value.Append(item.ToString(CultureInfo.InvariantCulture));
+                value.Append(';');
+            }
+
+            void AppendString(string? item)
+            {
+                if (item is null)
+                {
+                    value.Append("N;");
+                    return;
+                }
+
+                AppendInt(item.Length);
+                value.Append(item);
             }
         }
 

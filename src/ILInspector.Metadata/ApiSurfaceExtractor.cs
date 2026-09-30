@@ -1625,6 +1625,19 @@ public static partial class ApiSurfaceExtractor
                         observeAttributeMaterialize)
                 };
 
+                if (member.Kind == "constructor")
+                {
+                    SetsRequiredMembersAttributeEvidence evidence =
+                        AttributeReader.ReadSetsRequiredMembersAttributes(
+                            reader,
+                            methodCustomAttributes,
+                            observeAttributeMaterialize);
+                    member.SetsRequiredMembersAttributeCount =
+                        evidence.Count;
+                    member.HasMalformedSetsRequiredMembersAttribute =
+                        evidence.HasMalformedRow;
+                }
+
                 // Check for extension method
                 if (isExtensionMethod)
                 {

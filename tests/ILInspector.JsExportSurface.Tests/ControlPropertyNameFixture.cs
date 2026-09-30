@@ -1,8 +1,35 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices.JavaScript;
+using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
 namespace ILInspector.JsExportSurface.Tests;
+
+public sealed class SetsRequiredMembersInputFixture
+{
+    [SetsRequiredMembers]
+    public SetsRequiredMembersInputFixture() => Name = "default";
+
+    public required string Name { get; set; }
+}
+
+[JsonSerializable(typeof(SetsRequiredMembersInputFixture))]
+internal sealed partial class SetsRequiredMembersJsonContext
+    : JsonSerializerContext;
+
+[SupportedOSPlatform("browser")]
+public static partial class SetsRequiredMembersFixtureExports
+{
+    [JSExport]
+    public static string ReadSetsRequiredMembers(string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            SetsRequiredMembersJsonContext.Default
+                .SetsRequiredMembersInputFixture)!
+        .Name;
+}
 
 internal sealed record ControlPropertyNameFixture
 {

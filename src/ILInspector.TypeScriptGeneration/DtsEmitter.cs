@@ -1331,18 +1331,32 @@ static class DtsEmitter
             || (declarationDirection == JsonWireDirection.Both
                 && (wireDirections & JsonWireDirection.Deserialize)
                     != JsonWireDirection.None);
-        if (requiresDeserializeSupport
-            && record.Members.Any(
-                member => JsonWireMemberRules
-                    .RequiresConstructorBindingEvidence(
-                        record,
-                        member,
-                        assemblyIdentity,
-                        declaredTypesByScopedIdentity)))
+        bool requiresRequiredMemberConstructorEvidence =
+            requiresDeserializeSupport
+            && JsonWireMemberRules
+                .RequiresRequiredMemberConstructorEvidence(record);
+        if (requiresRequiredMemberConstructorEvidence
+            || (requiresDeserializeSupport
+                && record.Members.Any(
+                    member => JsonWireMemberRules
+                        .RequiresConstructorBindingEvidence(
+                            record,
+                            member,
+                            assemblyIdentity,
+                            declaredTypesByScopedIdentity))))
         {
-            ReportUnsupportedConstructorBinding(
-                record.Name,
-                diagnostics);
+            if (requiresRequiredMemberConstructorEvidence)
+            {
+                ReportUnsupportedRequiredMemberConstructorBinding(
+                    record.Name,
+                    diagnostics);
+            }
+            else
+            {
+                ReportUnsupportedConstructorBinding(
+                    record.Name,
+                    diagnostics);
+            }
             EmitBlockedType(sb, declarationName);
             return;
         }
@@ -2174,13 +2188,15 @@ static class DtsEmitter
                     declaredTypesByScopedIdentity)
                 || ((directions & JsonWireDirection.Deserialize)
                         != JsonWireDirection.None
-                    && type.Members.Any(member =>
-                        JsonWireMemberRules
-                            .RequiresConstructorBindingEvidence(
-                                type,
-                                member,
-                                surface.AssemblyIdentity,
-                                declaredTypesByScopedIdentity))))
+                    && (JsonWireMemberRules
+                            .RequiresRequiredMemberConstructorEvidence(type)
+                        || type.Members.Any(member =>
+                            JsonWireMemberRules
+                                .RequiresConstructorBindingEvidence(
+                                    type,
+                                    member,
+                                    surface.AssemblyIdentity,
+                                    declaredTypesByScopedIdentity)))))
             {
                 return false;
             }
@@ -2289,6 +2305,13 @@ static class DtsEmitter
         diagnostics?.ReportUnmappedType(
             $"{location} JSON wire shape",
             "deserialization without a participating setter requires unmodeled constructor-binding evidence");
+
+    static void ReportUnsupportedRequiredMemberConstructorBinding(
+        string location,
+        TypeScriptGenerationDiagnostics? diagnostics) =>
+        diagnostics?.ReportUnmappedType(
+            $"{location} JSON wire shape",
+            "required-member deserialization requires unmodeled constructor-selection evidence");
 
     static void ReportUnsupportedJsonConverter(
         string location,

@@ -170,6 +170,8 @@ internal static class NavigationWorkspaceSnapshotEquality
         && a.HasRuntimeJsExport == b.HasRuntimeJsExport
         && a.RuntimeJsExportAttributeCount == b.RuntimeJsExportAttributeCount
         && a.HasMalformedRuntimeJsExportAttribute == b.HasMalformedRuntimeJsExportAttribute
+        && a.SetsRequiredMembersAttributeCount == b.SetsRequiredMembersAttributeCount
+        && a.HasMalformedSetsRequiredMembersAttribute == b.HasMalformedSetsRequiredMembersAttribute
         && Sequence(a.JsonStringEnumMemberNameAttributeValues, b.JsonStringEnumMemberNameAttributeValues)
         && a.IsObsolete == b.IsObsolete && a.ObsoleteMessage == b.ObsoleteMessage
         && a.ObsoleteIsError == b.ObsoleteIsError

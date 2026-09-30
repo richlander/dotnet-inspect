@@ -1485,6 +1485,20 @@ public class ApiMember
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasMalformedRuntimeJsExportAttribute { get; set; }
 
+    /// <summary>
+    /// Number of authentic platform <c>[SetsRequiredMembers]</c> rows retained
+    /// on this constructor.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int SetsRequiredMembersAttributeCount { get; set; }
+
+    /// <summary>
+    /// True when an authentic platform <c>[SetsRequiredMembers]</c> row did not
+    /// have the expected marker attribute shape.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HasMalformedSetsRequiredMembersAttribute { get; set; }
+
     [JsonIgnore]
     public List<string?> JsonStringEnumMemberNameAttributeValues { get; set; } = [];
 

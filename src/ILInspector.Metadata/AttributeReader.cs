@@ -20,6 +20,10 @@ public readonly record struct RuntimeJsExportAttributeEvidence(
     public bool HasValidRow => ValidRowCount > 0;
 }
 
+public readonly record struct SetsRequiredMembersAttributeEvidence(
+    int Count,
+    bool HasMalformedRow);
+
 internal enum AttributeTypeIdentityDisposition
 {
     Match,
@@ -375,6 +379,22 @@ public static partial class AttributeReader
             attributes,
             KnownAttributeNames.RequiredMemberAttribute,
             beforeMaterialize);
+
+    public static SetsRequiredMembersAttributeEvidence
+        ReadSetsRequiredMembersAttributes(
+            MetadataReader reader,
+            CustomAttributeHandleCollection attributes,
+            Action<int>? beforeMaterialize = null)
+    {
+        (int count, bool hasMalformedRow) =
+            ReadAuthenticMarkerAttributeRows(
+                reader,
+                attributes,
+                KnownAttributeNames.SetsRequiredMembersAttribute,
+                assemblyName: null,
+                beforeMaterialize);
+        return new(count, hasMalformedRow);
+    }
 
     /// <summary>
     /// Checks whether the member carries <c>RequiresUnsafeAttribute</c> — the
