@@ -19,6 +19,25 @@ House facade, request, settlement, result, receipts, and typed handoffs.
 Adjacent owners retain their identities, algorithms, failures, and lifetimes.
 Their adoption remains separately reviewed.
 
+[#8994](https://github.com/richlander/dotnet-inspect/issues/8994) adds the
+focused [semantic content-demand contract](package-house-semantic-content-demand.md).
+Callers declare one reusable package narrowing plus evidence terminals;
+PackageHouse owns cache, manifest, directory, ranged-entry, complete-transfer,
+and typed-fallback planning. Archive-backed planning derives every narrowing
+and terminal from one validated ZIP central-directory snapshot. The
+content-demand owner composes existing source, archive, asset-selection,
+Metadata, cache, and transfer owners without absorbing their algorithms.
+`GetLibraryAndInventoryForTarget` accepts a TFM-wide target context and returns
+one policy-selected DLL plus the complete logical Library inventory for that
+target, without acquiring PDB content. Every row preserves owner-issued
+implementation correspondence and typed evidence for a listed adjacent PDB. A
+later host-neutral PDB operation may request the exact implementation/PDB
+files or skip to an external provider. Raw File List remains a physical entry
+inventory rather than the owner of Library or PDB semantics. The current
+direct companion handoff remains transitional until the focused
+PDB-settlement owner tracked by
+[#9002](https://github.com/richlander/dotnet-inspect/issues/9002).
+
 [#7423](https://github.com/richlander/dotnet-inspect/issues/7423) extends that
 composition with package-slice policy. Its first focused slice defines only the
 package-local compile inventory and selected projection that PackageHouse
@@ -111,6 +130,7 @@ The owner defines:
 
 - the product-facing `PackageHouse` facade;
 - the package-demand envelope;
+- the semantic content-demand envelope and House-owned acquisition plan;
 - the package operation profile and common operation context;
 - the distinction between settlement, acquisition, and realization;
 - composition of owner-issued package source, version, pruning, payload,
@@ -1461,6 +1481,11 @@ No compatibility facade or obsolete CLI path is retained solely to preserve
 the old architecture. A direct path remains only while it is the shipping path
 for a supported scenario.
 
+The semantic-content-demand migration additionally removes
+`PackagePayloadAccess` and caller-owned range/complete fallback only after the
+last production caller adopts the House-owned plan. No new caller may add
+another transfer-mode choice during that migration.
+
 ## Composition evidence
 
 The Package Source Model's TLA+ model continues to own concurrent authority,
@@ -1631,6 +1656,30 @@ separate package-slice sequence:
 Package Dependency Query scope, size measurements, traversal targets, and call
 graphs remain later #7423 sequences. This slice does not authorize or specify
 them.
+
+[#8994](https://github.com/richlander/dotnet-inspect/issues/8994) adds a
+seven-slice semantic-content-demand stack:
+
+1. lock the focused demand and House-owned planning contract;
+2. move existing nuspec, file-list, semantic exact-file, selected-asset,
+   selected-Library PDB companion, and whole-archive behavior behind semantic
+   queries with one production adopter while preserving the current direct
+   companion handoff;
+3. add reusable narrowing, Libraries, and
+   `GetLibraryAndInventoryForTarget` by composing asset-selection,
+   correspondence, and Metadata evidence;
+4. after #9002 locks and implements independent PDB settlement, consume
+   Library-inventory package-symbol evidence, compose later exact Files
+   acquisition, migrate one current PDB consumer, and retire direct companion
+   delivery for that route;
+5. adopt `GetLibraryAndInventoryForTarget` in Inspect Web Package Query;
+6. adopt the same demands in `find` and shared Workspace/declaration loading;
+   and
+7. migrate remaining callers, then remove `PackagePayloadAccess` and
+   caller-owned ranged/complete fallback.
+
+Each arm lands with a production caller. Other owners adopt the pattern in
+focused successor slices rather than broadening the owner document.
 
 ## Required gates
 
