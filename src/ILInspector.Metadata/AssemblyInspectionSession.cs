@@ -7,6 +7,58 @@ using ILInspector.MetadataPrimitives;
 namespace ILInspector.Metadata;
 
 /// <summary>
+/// Opaque identity for the exact image behind one assembly inspection session.
+/// It carries no access to the image.
+/// </summary>
+public sealed class AssemblyInspectionSubjectIdentity
+{
+    internal AssemblyInspectionSubjectIdentity()
+    {
+    }
+}
+
+/// <summary>
+/// Stack-only access to one exact operation over one exact assembly subject.
+/// </summary>
+public readonly ref struct AssemblyInspectionOperationAccess<TOperation>
+    where TOperation : class
+{
+    readonly ReadOnlyResourceSnapshotView<AssemblyInspectionSession> _snapshot;
+
+    internal AssemblyInspectionOperationAccess(
+        TOperation operation,
+        AssemblyInspectionSubjectIdentity subject,
+        ReadOnlyResourceSnapshotView<AssemblyInspectionSession> snapshot)
+    {
+        Operation = operation;
+        Subject = subject;
+        _snapshot = snapshot;
+    }
+
+    /// <summary>The exact operation for which the owner issued this access.</summary>
+    public TOperation Operation { get; }
+
+    /// <summary>The exact subject behind this access.</summary>
+    public AssemblyInspectionSubjectIdentity Subject { get; }
+
+    /// <summary>Whether session-owned admission found managed metadata.</summary>
+    public bool HasMetadata => _snapshot.Value.HasMetadata;
+
+    /// <summary>Lends the exact subject's reader for this synchronous operation.</summary>
+    public TResult InspectImage<TResult>(Func<PEReader, TResult> inspect) =>
+        _snapshot.Value.InspectImage(inspect);
+}
+
+/// <summary>
+/// Executes one operation while its exact assembly access remains live.
+/// </summary>
+public delegate TResult AssemblyInspectionOperationCallback<
+    TOperation,
+    TResult>(
+    scoped AssemblyInspectionOperationAccess<TOperation> access)
+    where TOperation : class;
+
+/// <summary>
 /// The assembly-level inspection hub. Opens a PE image once (via <see cref="AssemblyImage"/>) and
 /// produces assembly <em>facets</em> by delegating to the metadata scanners over the single shared
 /// reader. Callers never touch a <c>PEReader</c>; each facet is produced on request.
@@ -28,6 +80,7 @@ public sealed class AssemblyInspectionSession :
     IResourceSnapshotSource<AssemblyInspectionSession>
 {
     readonly AssemblyImage _image;
+    readonly AssemblyInspectionSubjectIdentity _subject = new();
     readonly Lazy<MetadataTypeDeclarationProbe.Index>
         _declarationIndex;
     MethodBodySource? _methodBodies;
@@ -149,6 +202,26 @@ public sealed class AssemblyInspectionSession :
         return callback(
             new ReadOnlyResourceSnapshotView<AssemblyInspectionSession>(this),
             state);
+    }
+
+    /// <summary>
+    /// Issues stack-only access binding one exact operation to this session's
+    /// exact subject for the duration of <paramref name="callback"/>.
+    /// </summary>
+    public TResult SnapshotOperation<TOperation, TResult>(
+        TOperation operation,
+        AssemblyInspectionOperationCallback<TOperation, TResult> callback)
+        where TOperation : class
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(callback);
+        _image.EnsureAlive();
+        return callback(
+            new AssemblyInspectionOperationAccess<TOperation>(
+                operation,
+                _subject,
+                new ReadOnlyResourceSnapshotView<AssemblyInspectionSession>(
+                    this)));
     }
 
     /// <summary>
