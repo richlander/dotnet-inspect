@@ -102,6 +102,7 @@ public sealed class ApiMemberBucketTests
     [InlineData("ProtectedImplementsLocalPublic", "protected")]
     [InlineData("FriendImplementsReferenced", "internal")]
     [InlineData("PrivateImplementsLocalInternal", "internal")]
+    [InlineData("PrivateImplementsLocalInternalProperty", "internal")]
     [InlineData("PrivateImplementsLocalPublic", null)]
     public void VisualBasicImplementation_BucketFollowsOwnAccessUnlessPrivate(
         string name,
