@@ -8,6 +8,7 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using ILInspector.MetadataPrimitives;
+using Inspector.Artifacts;
 
 namespace ILInspector.Metadata;
 
@@ -612,6 +613,9 @@ public partial class PdbContext : IDisposable
             return _peReader;
         }
     }
+
+    internal ArtifactAcquisitionRegistration? ArtifactRegistration =>
+        _assemblyRegistration?.ArtifactRegistration;
 
     /// <summary>
     /// This context's liveness check, lent to a borrowing session so the borrow fails loudly

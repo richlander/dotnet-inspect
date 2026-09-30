@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using Inspector.Resources;
+using Inspector.Artifacts;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -95,7 +96,17 @@ public sealed class AssemblyInspectionSession :
     /// <c>BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed</c>.
     /// </summary>
     public static AssemblyInspectionSession Borrow(PdbContext context)
-        => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
+        => new(
+            AssemblyImage.Borrow(
+                context.BorrowedPEReader,
+                context.EnsureAliveForBorrower,
+                context.ArtifactRegistration));
+
+    /// <summary>
+    /// Exact acquisition-issued artifact identity retained by this image, when
+    /// the session was opened or borrowed from an artifact-backed descriptor.
+    /// </summary>
+    public ArtifactIdentity? ArtifactIdentity => _image.ArtifactIdentity;
 
     public MetadataDeclarationSession CreateDeclarationSession(
         MetadataOperationContext operationContext)

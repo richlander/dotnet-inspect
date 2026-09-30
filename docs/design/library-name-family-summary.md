@@ -2,7 +2,7 @@
 
 ## Status, owner, and claim
 
-Status: **design contract** for
+Status: **implemented Research producer and design contract** for
 [#8698](https://github.com/richlander/dotnet-inspect/issues/8698), a focused
 evidence producer for the architecture narrative in
 [#8634](https://github.com/richlander/dotnet-inspect/issues/8634) and the
@@ -21,14 +21,16 @@ Metadata continues to own Type-definition identity, names, accessibility,
 kind, image identity, and inventory completion.
 [CSharpText identifier word breaking](https://github.com/richlander/dotnet-inspect/issues/8897)
 owns model-free segmentation and its rule evidence.
-[Typed authored/generated source provenance](https://github.com/richlander/dotnet-inspect/issues/8643)
+[PDB source provenance](pdb-source-provenance.md)
 owns source classification.
 Research owns only the Library population, family aggregation, qualification,
 and portable summary defined here. Queries and hosts retain selection,
 acquisition, execution, and presentation.
 
-The contract is **unverified** until the Release gates under
-[Required evidence](#required-evidence) land.
+`LibraryNameFamilySummary` implements the complete resource-free Research
+document and exact optional provenance binding. The Release gates under
+[Required evidence](#required-evidence) cover the producer contract; bounded
+QuerySpace projection and both production hosts remain later adoption slices.
 
 ## User question
 
@@ -60,9 +62,10 @@ FluentValidation 12.1.1 is the positive control: `Validator` occurs in 55 of
 111 public Types and makes the Library's purpose visible from names alone.
 The repository is the pathological provenance case. A naive CLI count found
 226 `*Info` Types, but 214 were generated `*MarkoutTypeInfo` Types. The same
-name population must therefore support an all-Type view and a separately
-qualified authored-Type view; it may not guess authorship from a suffix,
-namespace, or generated-looking spelling.
+name population must therefore support an all-Type view and separate
+ordinary-evidence-only, generated-evidence-only, mixed-evidence, and unknown
+views; it may not guess provenance from a suffix, namespace, or
+generated-looking spelling.
 
 This design deliberately makes fewer claims than the survey prototype.
 It issues measured populations and imported rule evidence, not a semantic
@@ -184,22 +187,23 @@ Typed source provenance is optional for constructing the all-Type population.
 When supplied, it must come through the same `ArtifactIdentity` and open-image
 binding and classify each Type address as:
 
-- authored;
-- generated, retaining the owner-issued generator identity; or
-- unknown, retaining the reason.
+- ordinary evidence only;
+- generated evidence only;
+- mixed ordinary and generated evidence; or
+- unknown.
 
-Research carries this classification unchanged. It does not parse PDB paths,
-inspect attributes, infer from angle brackets, or treat missing source as
-authored.
+Research carries the complete owner-issued Type evidence and classification
+unchanged, including document associations, generation-marker declarations,
+and unknown contributions. It does not parse PDB paths, inspect attributes,
+infer from angle brackets, or treat missing source as ordinary.
 
 Complete provenance means that every exact Type address has exactly one of the
-three classifications, including `unknown`; it does not mean that every Type
-is known to be authored or generated. Positive authored and generated
-populations are available under a complete classification. An authored
-population with a non-zero unknown count is visibly qualified: it is the known
-authored population, not proof of the complete authored vocabulary. Generated
-and unknown partitions remain independently selectable evidence rather than
-disappearing from the document.
+four dispositions, including `unknown`; it does not mean that every Type has a
+known physical source origin. Ordinary-evidence-only, generated-evidence-only,
+mixed-evidence, and unknown populations are available only under a complete,
+exactly bound provenance result. A rejected, unavailable, incomplete, or
+failed optional provenance result remains visible while the complete all-Type
+population stays available.
 
 ## Family model
 
@@ -302,20 +306,20 @@ The document always defines the complete **All Types** population.
 When complete typed source classification is available, it additionally
 defines:
 
-- **Authored Types**;
-- **Generated Types**; and
-- **Unknown Provenance Types**.
+- **Ordinary Evidence Only Types**;
+- **Generated Evidence Only Types**;
+- **Mixed Evidence Types**; and
+- **Unknown Types**.
 
 Each view has its own Type denominator, family rows, per-partition receipts,
-and qualification. A family count never silently mixes denominators. A host
-that shows an authored view labels it as known-authored, reports the exact
-unknown count, and retains access to the all-Type view.
+and qualification. A family count never silently mixes denominators, and every
+host retains access to the all-Type view.
 
 Generated code can be architecturally meaningful, especially for serializer
 contexts and generated clients. The separate generated population is not a
-discard pile or a quality classification. It exists so generated volume does
-not masquerade as authored vocabulary and so a consumer can inspect generator
-effects explicitly.
+discard pile or a quality classification. The four dispositions exist so
+generated volume does not masquerade as ordinary vocabulary, mixed Types are
+not flattened, and a consumer can inspect unknown evidence explicitly.
 
 An available summary may contain unresolved word runs. Word-breaking
 uncertainty qualifies the affected Type rows but does not make the complete
@@ -376,7 +380,8 @@ The summary can state:
 - how many Types share an exact suffix family;
 - how broadly the family occurs across namespaces and Type kinds;
 - which exact Types support the count; and
-- whether rows are authored, generated, unknown, or unclassified.
+- whether rows carry ordinary-only, generated-only, mixed, or unknown source
+  evidence.
 
 It cannot state:
 
@@ -408,54 +413,52 @@ Release gates belong in `ILInspector.Research.Tests` and exercise
 product-owned Metadata inventory and CSharpText word results:
 
 - `LibraryNameFamilies_PartitionsCompleteTypeInventory`: every exact Type row
-  occurs once; one-word and two-word memberships agree with the issued words;
-  empty and one-word names follow the declared partition rules.
+  occurs once; family and residual counts close both partition receipts; empty
+  and one-word names follow the declared partition rules.
 - `LibraryNameFamilies_PreservesExactMetadataIdentity`: nested Types, generic
-  definitions, and same-display names retain distinct exact identities;
-  canonical lexical arity is excluded without stripping noncanonical backtick
-  text.
-- `LibraryNameFamilies_UsesCanonicalNameArityGrammar`: a canonical numeric
-  suffix follows `MetadataNameArity` even when GenericParam rows disagree,
-  while zero, leading-zero, literal, trailing, and out-of-range backtick forms
-  remain in the name stem.
+  definitions, and same-display names retain distinct exact identities.
 - `LibraryNameFamilies_PreservesWordRuleEvidence`: every owner-issued word,
   ordinal, separator, unresolved-run disposition, and detailed rule value
   survives Research aggregation unchanged.
-- `LibraryNameFamilies_UsesTrailingNumberedFamilyOrdinals`:
-  `DelegateInvoker1..10` and `LookupType3/4/5/8` retain exact ordinal spans
-  while grouping under `Invoker` and `Type` suffix families; `Adler32`,
-  internal digits, and digits across separators remain governed by their
-  distinct CSharpText evidence.
-- `LibraryNameFamilies_DoesNotBypassUnresolvedNumberedSuffixes`: a numbered
-  `CFURL1..3`-style population retains each unresolved uppercase prefix and
-  trailing ordinal with their rule evidence; every Type remains residual in
-  both partitions and joins no suffix family.
 - `LibraryNameFamilies_SeparatesExactSpellings`: acronym, casing, and plural
   variants remain separate ordinal families.
-- `LibraryNameFamilies_RejectsIncompleteOrMismatchedInventory`: scoped,
-  incomplete, failed, wrong-artifact, and wrong-module inputs fail visibly
-  rather than issuing success-shaped partial rows.
-- `LibraryNameFamilies_SeparatesSourcePopulations`: all, known-authored,
-  generated, and unknown denominators and family counts remain distinct;
-  unknown rows qualify rather than suppress the positive authored population.
-- `LibraryNameFamilies_BoundsDisplayWithoutChangingCounts`: a bounded
-  projection retains exact omitted counts and references the complete
-  document.
+- `LibraryNameFamilies_RejectMismatchedArtifactSession` and
+  `LibraryNameFamilies_RequireArtifactBackedAssembly`: the producer requires
+  acquisition-issued exact artifact identity rather than joining by display
+  identity or MVID alone.
+- `LibraryNameFamilies_RejectIncompleteOrMismatchedInventory`: a bounded
+  incomplete Metadata inventory fails visibly rather than issuing
+  success-shaped partial rows.
+- `LibraryNameFamilies_SeparatesSourcePopulations`: all, ordinary-only,
+  generated-only, mixed, and unknown denominators and family counts remain
+  distinct; a rejected optional provenance binding remains visible without
+  suppressing the all-Type population.
+- `LibraryNameFamilies_PreserveUnavailableProvenanceQualification`: an
+  unavailable optional PDB result remains visible without suppressing the
+  all-Type population.
 - `LibraryNameFamilies_IsDeterministic`: input enumeration and hash order do
   not change rows, counts, identities, or tie-breaking.
 
-The PR-fast fixture lives under `fixtures/research/` following
+The canonical arity grammar remains gated by Metadata's
+`MetadataNameArityTests`. CSharpText's identifier-word contract gates own
+numbered-family qualification, digit compounds, separators, unresolved runs,
+and oracle/version behavior; the Research gates above verify that the composed
+document preserves those results. The later QuerySpace adoption owns
+`LibraryNameFamilies_BoundsDisplayWithoutChangingCounts`, because this
+resource-free producer does not select or truncate display rows.
+
+The PR-fast `ILInspector.Research.NameFamilyFixtures` fixture lives under
+`fixtures/research/` following
 [Fixture governance](../fixture-governance.md). It contains scenario-adjacent
 families such as `Validator`,
 `ValidatorOptions`, `ValidationContext`, and generated
-`ValidatorJsonContext`, plus nested, generic, acronym, digit, unknown-run, and
-hostile metadata names. Its digit and unknown-run cases include the combined
-unresolved-prefix-plus-numbered-ordinal boundary above.
+`ValidatorJsonContext`, plus nested, generic, acronym, separator, numbered,
+and unresolved-run names.
 
 Real-asset evidence records:
 
 - FluentValidation 12.1.1, including the `Validator` family;
-- `dotnet-inspect.dll`, including the authored/generated `Info` distortion;
+- `dotnet-inspect.dll`, including the ordinary/generated `Info` distortion;
   and
 - one runtime Library containing acronym and digit compounds.
 
@@ -471,8 +474,9 @@ gates.
    `TypeDeclarations()` inventory under the acquisition-issued
    `ArtifactIdentity`; no signature-use scan or new Metadata population is
    required.
-3. **Source provenance:** #8643 issues typed authored/generated/unknown
-   classifications from the Metadata/PDB source owner.
+3. **Source provenance:** #8643 issues typed ordinary-evidence-only,
+   generated-evidence-only, mixed-evidence, and unknown classifications from
+   the Metadata/PDB source owner.
 4. **Research:** this owner consumes the complete Metadata Type inventory and
    identifier words, issuing the resource-free summary and optional provenance
    populations.
