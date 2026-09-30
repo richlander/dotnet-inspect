@@ -1,5 +1,12 @@
+using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+
 using DotnetInspector.Queries;
 using ILInspector.Analysis.Planning;
+using ILInspector.Metadata;
 using QuerySpace.Composition;
 
 namespace DotnetInspector.Queries.Tests;
@@ -62,5 +69,137 @@ public sealed class UnsafeEvidencePresenceQueryTests
         Assert.DoesNotContain(
             QuerySpaceTerminalRequirement.Count,
             descriptor.Terminals);
+    }
+
+    [Fact]
+    public void FailedExecutionPreservesOutcomeAndReceipt()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"unsafe-evidence-incomplete-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, IncompleteBeforeEvidenceImage());
+        try
+        {
+            using PdbContext context = PdbContext.OpenMetadataOnly(path);
+
+            var incomplete =
+                Assert.IsType<UnsafeEvidencePresenceResult.ExecutionIncomplete>(
+                    UnsafeEvidencePresenceQuery.Execute(path, context));
+
+            Assert.Equal(ProducerOutcome.Failed, incomplete.Outcome);
+            Assert.Contains(
+                "N.Sample::Broken",
+                incomplete.Error.Message,
+                StringComparison.Ordinal);
+            ProducerParticipation participation =
+                incomplete.Receipt.For(
+                    UnsafeEvidencePresenceProducer.Instance);
+            Assert.Equal(ProducerOutcome.Failed, participation.Outcome);
+            Assert.Equal(1, participation.UnitsAttempted);
+            Assert.Equal(1, participation.UnitsFailed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void FailureBeforeExecutionUsesReceiptFreeArm()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"unsafe-evidence-pre-execution-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, IncompleteBeforeEvidenceImage());
+        try
+        {
+            using PdbContext context = PdbContext.OpenMetadataOnly(path);
+
+            var failed = Assert.IsType<UnsafeEvidencePresenceResult.Failed>(
+                UnsafeEvidencePresenceQuery.Execute("", context));
+
+            Assert.IsType<ArgumentException>(failed.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    static byte[] IncompleteBeforeEvidenceImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("UnsafeEvidenceIncomplete.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("18167dca-3c97-42ee-ad2b-2a8cb5d6f442")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("UnsafeEvidenceIncomplete"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Sample"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature()
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        BlobHandle signatureHandle = metadata.GetOrAddBlob(signature);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Broken"),
+            signatureHandle,
+            bodyOffset: 0x00FF_FFF0,
+            MetadataTokens.ParameterHandle(1));
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var unsafeCode = new BlobBuilder();
+        unsafeCode.WriteByte((byte)ILOpCode.Calli);
+        unsafeCode.WriteInt32(0);
+        unsafeCode.WriteByte((byte)ILOpCode.Ret);
+        int unsafeBodyOffset = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(unsafeCode),
+            maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("UnsafeLater"),
+            signatureHandle,
+            unsafeBodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 }

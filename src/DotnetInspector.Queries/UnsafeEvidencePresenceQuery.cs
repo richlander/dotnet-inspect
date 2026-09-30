@@ -121,6 +121,13 @@ public abstract record UnsafeEvidencePresenceResult
         WorkReceipt Receipt)
         : UnsafeEvidencePresenceResult;
 
+    /// <summary>The producer did not complete after execution began.</summary>
+    public sealed record ExecutionIncomplete(
+        InvalidDataException Error,
+        ProducerOutcome Outcome,
+        WorkReceipt Receipt)
+        : UnsafeEvidencePresenceResult;
+
     /// <summary>The probe failed while reading the retained assembly context.</summary>
     public sealed record Failed(Exception Error) : UnsafeEvidencePresenceResult;
 }
@@ -323,9 +330,20 @@ public static class UnsafeEvidencePresenceQuery
                     context,
                     OwnerPlan.Work);
 
-            return new UnsafeEvidencePresenceResult.Available(
-                inspection.HasEvidence,
-                inspection.Receipt);
+            return inspection switch
+            {
+                UnsafeEvidencePresenceInspection.Available available =>
+                    new UnsafeEvidencePresenceResult.Available(
+                        available.HasEvidence,
+                        available.Receipt),
+                UnsafeEvidencePresenceInspection.Incomplete incomplete =>
+                    new UnsafeEvidencePresenceResult.ExecutionIncomplete(
+                        incomplete.Error,
+                        incomplete.Outcome,
+                        incomplete.Receipt),
+                _ => throw new InvalidOperationException(
+                    "Unknown unsafe-evidence inspection outcome."),
+            };
         }
         catch (Exception ex)
         {
