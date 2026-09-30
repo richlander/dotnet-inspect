@@ -32,7 +32,8 @@ internal static class TypeSearchService
         HttpClient httpClient,
         CancellationToken cancellationToken = default,
         CommandContext? commandContext = null,
-        PlatformFindSearchWorkspace? platformWorkspace = null)
+        PlatformFindSearchWorkspace? platformWorkspace = null,
+        ExplicitFindSearchWorkspace? explicitWorkspace = null)
     {
         if (platformWorkspace is not null)
         {
@@ -203,7 +204,8 @@ internal static class TypeSearchService
                     logger,
                     httpClient,
                     inspectImplicitNamespace,
-                    cancellationToken);
+                    cancellationToken,
+                    explicitWorkspace);
             return platformCatalogFailed
                 ? legacy with { HasFailures = true }
                 : legacy;
@@ -234,7 +236,8 @@ internal static class TypeSearchService
                         patterns,
                         logger,
                         httpClient,
-                        cancellationToken: cancellationToken);
+                        cancellationToken: cancellationToken,
+                        explicitWorkspace: explicitWorkspace);
                 }
 
                 located =
@@ -1166,16 +1169,44 @@ internal static class TypeSearchService
             HttpClient httpClient,
             Func<string, Task<List<TypeFindResult>>>?
                     inspectNamespace = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            ExplicitFindSearchWorkspace? explicitWorkspace = null)
     {
-        bool hasFailures = false;
-        void MarkFailure() => hasFailures = true;
-        await using var workspace =
+        if (explicitWorkspace is not null)
+        {
+            return await FindWithLegacyCoreAsync(
+                options,
+                patterns,
+                logger,
+                explicitWorkspace,
+                inspectNamespace);
+        }
+
+        await using var ownedWorkspace =
             new ExplicitFindSearchWorkspace(
                 options,
                 httpClient,
                 logger.Log,
                 cancellationToken);
+        return await FindWithLegacyCoreAsync(
+            options,
+            patterns,
+            logger,
+            ownedWorkspace,
+            inspectNamespace);
+    }
+
+    private static async Task<FindSearchResult<TypeFindResult>>
+        FindWithLegacyCoreAsync(
+            FindOptions options,
+            string[] patterns,
+            VerboseLogger logger,
+            ExplicitFindSearchWorkspace workspace,
+            Func<string, Task<List<TypeFindResult>>>?
+                inspectNamespace)
+    {
+        bool hasFailures = false;
+        void MarkFailure() => hasFailures = true;
         Task<List<TypeSearchResult>> Collect(string? pattern) =>
             CollectTypesAsync(
                 options,

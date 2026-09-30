@@ -307,6 +307,8 @@ Unsupported source shapes retain one invocation-owned empty Workspace and
 acquire each ordered source at most once. Direct, namespace, broadened, and
 similarity passes reuse those resolved assembly sets; a result limit still
 acquires sources lazily in established order and stops before later sources.
+The command owns that lifetime across both Type classification and the
+broadened Member tier.
 Each admitted assembly executes the same inventory query, and the service
 projects its type name, namespace, full name, kind, library file base name,
 source, and source version into the internal `TypeSearchResult` currency. The

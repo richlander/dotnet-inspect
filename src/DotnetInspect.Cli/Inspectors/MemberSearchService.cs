@@ -29,7 +29,8 @@ internal static class MemberSearchService
         VerboseLogger logger,
         HttpClient httpClient,
         CancellationToken cancellationToken = default,
-        PlatformFindSearchWorkspace? platformWorkspace = null)
+        PlatformFindSearchWorkspace? platformWorkspace = null,
+        ExplicitFindSearchWorkspace? explicitWorkspace = null)
     {
         bool hasFailures = false;
         void MarkFailure() => hasFailures = true;
@@ -109,7 +110,23 @@ internal static class MemberSearchService
             };
         }
 
-        await using var workspace =
+        if (explicitWorkspace is not null)
+        {
+            return new(
+                await CollectMembersAsync(
+                    options,
+                    patterns,
+                    logger,
+                    explicitWorkspace,
+                    MarkFailure),
+                hasFailures)
+            {
+                SourceSelectionIncomplete =
+                    options.PackagePrefixLimitReached,
+            };
+        }
+
+        await using var ownedWorkspace =
             new ExplicitFindSearchWorkspace(
                 options,
                 httpClient,
@@ -120,7 +137,7 @@ internal static class MemberSearchService
                 options,
                 patterns,
                 logger,
-                workspace,
+                ownedWorkspace,
                 MarkFailure),
             hasFailures)
         {
