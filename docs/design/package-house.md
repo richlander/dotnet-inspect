@@ -27,6 +27,10 @@ and typed-fallback planning. Archive-backed planning derives every narrowing
 and terminal from one validated ZIP central-directory snapshot. The
 content-demand owner composes existing source, archive, asset-selection,
 Metadata, cache, and transfer owners without absorbing their algorithms.
+Library-returning terminals may reuse the existing selected-Library
+implementation-PDB companion demand: owner-issued implementation
+correspondence adds only exact companion entries, and File List projects those
+entries without widening to the companion's complete root.
 
 [#7423](https://github.com/richlander/dotnet-inspect/issues/7423) extends that
 composition with package-slice policy. Its first focused slice defines only the

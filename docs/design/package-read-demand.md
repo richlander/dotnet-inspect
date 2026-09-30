@@ -15,7 +15,9 @@ package/TFM/root-family narrowing and whether cache, manifest,
 archive-directory, ranged, or complete acquisition satisfies a query. This
 document owns only entry expansion after the House resolves that narrowing
 against one validated ZIP central-directory snapshot and selects ranged
-execution. Commands and hosts do not select an access mode.
+execution, including the exact selected-Library PDB companion closure reused by
+library-returning semantic terminals. Commands and hosts do not select an
+access mode.
 
 The claim has five parts:
 

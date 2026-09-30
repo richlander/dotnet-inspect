@@ -25,15 +25,17 @@ version demand. One request therefore retains both:
 
 - which package is requested; and
 - one reusable narrowing over that package; and
-- which evidence terminals run over the narrowed space.
+- which evidence terminals and companion modifiers run over the base narrowing.
 
 None of these values is reconstructed from another or from display text.
 
 ## Content query
 
 One `PackageHouseContentQuery` carries one narrowing and one or more result
-terminals. Every terminal in the query observes the exact same narrowed package
-space and retains the same owner-issued narrowing receipt.
+terminals. Every terminal in the query observes the exact same base narrowed
+package space and retains the same owner-issued narrowing receipt. A
+library-returning terminal may additionally request the selected-Library
+companion closure defined below.
 
 The narrowing forms are:
 
@@ -52,16 +54,21 @@ applicable for the target context. PackageHouse preserves that owner-issued
 decision and does not infer applicability from folder existence or rendered
 paths. A `runtimes` choice requires the target's RID.
 
+The first applicable family wins as the primary root. A later family
+contributes no candidates merely because it appears later in the preference
+chain. Exact entries reached through owner-issued selected-Library
+correspondence are companion closure, not another selected root.
+
 The result terminals are:
 
 - **Nuspec.** Return the exact package manifest without acquiring archive
   payload when the authorized source supplies it directly. This terminal
   requires package-wide narrowing.
 - **File list.** Return the complete validated archive entry inventory without
-  expanding entry content, projected to the narrowed space.
+  expanding entry content, projected to the effective content space.
 - **Files.** Return the complete validated content of one or more exact package
-  entries within the narrowed space.
-- **Libraries.** Return every compatible library in the narrowed space.
+  entries within the base narrowed space.
+- **Libraries.** Return every compatible library in the base narrowed space.
 - **Best Library.** Return one compatible library selected by the rule in
   [Best Library](#best-library).
 - **Whole archive.** Return the complete package payload when the product
@@ -70,12 +77,13 @@ The result terminals are:
 
 A query may request several compatible terminals. In particular, Best Library
 and File List may run together. The selected assembly and file list then
-describe the same narrowed TFM/root space; neither terminal repeats or
-independently interprets the narrowing.
+describe the same effective content space: the base narrowed TFM/root space
+plus any exact selected-Library companion closure. Neither terminal repeats or
+independently interprets the narrowing or closure.
 
-One implementation slice adds a narrowing form or terminal only with a
-production caller. Until one lands, its place in this vocabulary is an
-adoption commitment, not a supported API.
+One implementation slice adds a narrowing form, terminal, or companion
+modifier only with a production caller. Until one lands, its place in this
+vocabulary is an adoption commitment, not a supported API.
 
 The content query does not contain an access mode, range selector, cache
 instruction, source URL, or fallback preference. Network permission, source
@@ -96,16 +104,19 @@ The snapshot is the singular basis for:
 - TFM-wide and ordered-root narrowing;
 - exact-file existence and ambiguity checks;
 - library candidate paths, namesake evidence, and alphabetical ordering;
+- selected-Library implementation and adjacent-PDB companion paths;
 - the detached File List terminal;
 - entry offsets, compressed and expanded lengths, and compression facts used
   by ranged-entry planning; and
 - the entry identities used to query which content the entry cache already
   holds.
 
-PackageHouse resolves the narrowing once against that snapshot. Every terminal
-in the query consumes the resulting entry space and the same narrowing
-receipt. A terminal cannot rescan the archive, construct a second path
-inventory, or resolve root preference independently.
+PackageHouse resolves the base narrowing once against that snapshot. Library
+selection consumes that candidate space. PackageHouse then derives any
+requested selected-Library companion closure from owner-issued correspondence
+and the same snapshot. A terminal cannot rescan the archive, construct a
+second path inventory, resolve root preference independently, or widen a
+companion to its entire root.
 
 Namesake evidence and alphabetical ordering require only directory paths.
 Namespace selection visits candidate assemblies from the narrowed space in
@@ -129,22 +140,94 @@ exclusive payload mode.
 The file list:
 
 - preserves every validated package entry path and declared expanded length;
-- is complete for the query's narrowed package space;
+- is complete for the query's effective content space: the base narrowed
+  package space plus exact selected-Library companion entries;
 - carries no stream, payload generation, cache handle, or source authority;
-- identifies which exact files a later request may name; and
+- identifies which exact files a later request may name when that later
+  query's narrowing or companion closure admits them; and
 - does not imply that any listed entry content was materialized.
 
 PackageHouse may already need the archive directory to plan a ranged
 acquisition. It publishes that directory as file-list evidence only when the
-query asks for it, and projects it through the exact narrowing receipt before
-publication. An internal planning read does not silently enlarge the product
-result.
+query asks for it, and projects it through the exact narrowing and companion
+receipts before publication. An internal planning read does not silently
+enlarge the product result.
 
 A selected file or library entry is always complete. PackageHouse returns the
 whole validated ZIP entry or a typed non-success; it never returns a partial
 assembly and labels it acquired. The file list explains what else the package
 contains and can be requested next. The settlement and transfer receipt, not
 the file list, establish that the returned entry completed validation.
+
+## Selected-Library companion closure
+
+Libraries and Best Library may request the existing
+`ImplementationPortablePdb` selected-Library companion demand. This is a
+modifier on a library-returning terminal, not a general PDB terminal.
+
+The base narrowing selects each primary Library candidate. The package
+asset-selection and correspondence owners may associate that Library with an
+implementation assembly outside the winning primary root. PackageHouse
+preserves that correspondence and derives the implementation assembly's
+same-directory, same-file-name-stem `.pdb` path from the central-directory
+snapshot.
+
+The effective content space then adds only:
+
+- the exact owner-issued implementation assembly when it is not already in the
+  base narrowed space; and
+- its exact adjacent Portable PDB entry when the directory lists it.
+
+This closure does not select the implementation entry's root family, add its
+neighbors, or make a later preference-chain family contribute candidates. A
+simultaneous File List contains the complete base narrowed inventory plus these
+exact closure entries, not the complete companion root.
+
+The implementation assembly remains the ranged-read block anchor under
+[package read demand](package-read-demand.md#selected-library-companion-demand).
+The PDB is an optional exact entry and never another anchor. An absent,
+directory-only, unreadable, or limit-omitted PDB does not fail an otherwise
+valid Library result; the typed omission remains visible. A Library without an
+implementation counterpart does not invent one or a PDB.
+
+The companion demand is package-local and never dispatches a `.snupkg` or
+symbol-server request. PackageHouse may satisfy it from retained package
+content, the entry cache, or an authorized package-source transfer. A valid
+cached package entry avoids that transfer. If the central-directory snapshot
+does not list the companion, PackageHouse settles typed absence without trying
+another symbol provider.
+
+PackageHouse does not open the PDB, validate Portable PDB format or identity,
+inspect embedded PDB content, or consult `.snupkg` or symbol-server sources.
+The [PDB acquisition owner](../pdb-acquisition.md#pdb-location-strategy)
+may perform those later operations only when a separate downstream source or
+PDB query requests them. That operation consumes embedded or supplied
+package-local content and valid PDB-store entries before an applicable remote
+route. A valid cache hit skips that route. Invalid, mismatched, or unreadable
+cached content remains visible and may continue to another authorized provider
+unless the operation is cache-only or offline. The downstream operation
+preserves its independent source authority, limits, and identity checks.
+
+This boundary has distinct authorities:
+
+- PackageHouse owns package-local companion delivery and its omission receipt.
+- The selected Library's owner-issued assembly reference and Metadata identity
+  checks authorize assembly/PDB correspondence.
+- `PdbAcquisitionService` owns matching external-PDB acquisition mechanics.
+- Hosts own capability construction, network permission, stores, limits,
+  cancellation, and offline/cache-only policy.
+- Product source composition owns whether a source request invokes that
+  capability and how authored and decompiled candidates are ordered.
+
+The last authority is transitional today:
+`AssemblyContextSourceQuery` and legacy CLI wrappers still orchestrate parts of
+the embedded, adjacent, and external sequence. The target
+[SourceHouse](source-house.md), tracked by
+[#6512](https://github.com/richlander/dotnet-inspect/issues/6512), consumes
+PackageHouse-supplied Library and PDB content first, owns PDB-use policy and
+authored-source candidate ordering, and invokes PDB acquisition only through
+an explicit host-authorized capability. This design requires that typed
+handoff but does not redefine SourceHouse or PDB-acquisition policy.
 
 ## Best Library
 
@@ -192,7 +275,8 @@ owner-issued capabilities and evidence. Planning may consider:
 - complete-payload and entry-cache state;
 - the source's manifest and range capabilities;
 - advertised archive length and the package-cache size cut;
-- the exact narrowing, terminal set, files, libraries, and optional namespace;
+- the exact narrowing, terminal set, files, libraries, optional namespace, and
+  selected-Library companion demand;
 - transfer, archive, expanded-entry, request-count, and operation limits; and
 - whether a complete transfer is required to preserve the semantic result.
 
@@ -230,12 +314,15 @@ One settlement preserves:
 - the exact admitted central-directory snapshot identity when the query
   requires archive evidence;
 - one narrowing receipt shared by every terminal result;
+- the requested selected-Library companion demand and exact companion-closure
+  receipt when present;
 - the source decision and authority;
 - the requested target and root-family preference chain, plus the selected
   applicable root family when present;
 - owner-issued asset and namespace evidence;
 - selected files or libraries and their actual package paths;
-- optional complete detached file-list evidence;
+- optional complete detached file-list evidence for the effective content
+  space;
 - the acquisition and transfer receipts;
 - typed fallback, no-match, unavailability, and failure evidence; and
 - any live acquired content generation owned by the settlement.
@@ -273,9 +360,9 @@ while continuing to consume NuGet-owned framework and source facts.
 The counted stack has six slices:
 
 1. Lock this focused PackageHouse semantic-demand and planning contract.
-2. Put existing nuspec, file-list, exact-file, selected-asset, and
-   whole-archive behavior behind semantic queries. Migrate one current
-   production route while preserving output.
+2. Put existing nuspec, file-list, exact-file, selected-asset,
+   selected-Library PDB companion, and whole-archive behavior behind semantic
+   queries. Migrate one current production route while preserving output.
 3. Add reusable narrowing, Libraries, and Best Library by composing the
    existing asset-selection and Metadata owners. Preserve real multi-library
    package evidence.
@@ -294,11 +381,13 @@ later adopters remain focused owner-specific slices.
 
 The production demo is a Package Query over `System.Text.Json`: one TFM plus
 `ref || lib` narrowing returns the selected complete `System.Text.Json.dll`
-entry and the complete detached file list for that same selected root space,
-without the Browser choosing an acquisition mode. The neighboring
-multi-library case uses `Avalonia`, an arbitrary ordered root chain, exact
-namespace selection, and deterministic alphabetical fallback for an absent
-namespace.
+entry and the complete detached file list for that same effective content
+space, without the Browser choosing an acquisition mode. When the companion
+modifier is present, a listed implementation PDB appears as one exact closure
+entry; absence is a typed omission and does not start symbol acquisition. The
+neighboring multi-library case uses `Avalonia`, an arbitrary ordered root
+chain, exact namespace selection, and deterministic alphabetical fallback for
+an absent namespace.
 
 ## Pathological cases and gates
 
@@ -309,10 +398,15 @@ All implementation gates run in Release.
 | Nuspec with direct manifest capability | No archive payload acquisition; the exact manifest and source receipt settle. |
 | Package-wide file list | Every admitted path appears once; no expanded entry content is opened. |
 | TFM-wide file list | Every path in the owner-issued target scope appears once; unrelated target paths do not appear. |
-| Ordered root preference | The first applicable family is selected from an arbitrary-length chain; a later family cannot contribute entries or libraries. |
-| Shared directory evidence | File List, exact-file admission, library candidates, and range spans derive from one validated snapshot and one narrowing receipt. |
-| Exact files | Every returned entry lies in the narrowed space and is complete and validated; an outside, missing, or ambiguous path fails visibly. |
-| File list plus selected library | One narrowing receipt governs the complete narrowed file list and one complete selected assembly entry. |
+| Ordered root preference | The first applicable family is selected from an arbitrary-length chain; a later family cannot contribute candidates or whole-root inventory. Exact owner-issued companion closure does not select that family. |
+| Shared directory evidence | File List, exact-file admission, library candidates, companion closure, and range spans derive from one validated snapshot plus narrowing and closure receipts. |
+| Exact files | Every explicitly requested file lies in the base narrowed space and is complete and validated; an outside, missing, or ambiguous path fails visibly. |
+| File list plus selected library | One narrowing receipt and any exact closure receipt govern the complete effective file list and selected Library content. |
+| Reference primary plus implementation PDB | The reference root remains primary; only the owner-issued implementation assembly and listed adjacent PDB enter companion closure. The rest of the implementation root remains absent. |
+| Missing or unmaterialized package-local PDB | The Library remains usable and the exact typed omission is visible; PackageHouse does not consult another symbol source. |
+| Cached package-local PDB | PackageHouse returns the valid retained or entry-cached companion without a package-source request. |
+| Later remote symbol acquisition | It occurs only for a separate authorized downstream PDB/source query after embedded, supplied package-local, and applicable valid store content do not answer it. |
+| SourceHouse adoption | Supplied PackageHouse PDB content is consumed before an explicitly authorized external-PDB capability; hosts do not recreate candidate order. |
 | Namespace in several libraries | The first exact namespace match in file-name-stem and package-path order wins. |
 | Namespace absent | The alphabetically first compatible library wins. |
 | Namesake evidence | Package-ID/file-name equality is reported without opening the assembly and does not alter selection order. |
@@ -338,9 +432,13 @@ This design does not:
 - make PackageHouse a Metadata decoder or infer namespace facts from file
   names;
 - make PackageHouse a ZIP parser or permit terminal-specific archive scans;
+- make PackageHouse a Portable PDB decoder, identity validator, `.snupkg`
+  client, or symbol-server client;
+- make PackageHouse own source-candidate ordering or PDB-use policy;
 - require every demand to use ranged acquisition;
 - promise that a file list means every listed entry is materialized;
-- permit different terminals in one query to resolve different narrowed spaces;
+- permit different terminals in one query to resolve different base narrowings
+  or companion closures;
 - return partial assembly entries;
 - define command syntax, output shape, rendering, or presentation;
 - migrate all callers in one PR; or
