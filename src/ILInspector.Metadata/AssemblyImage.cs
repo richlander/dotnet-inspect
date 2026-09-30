@@ -16,7 +16,8 @@ public sealed class AssemblyImage : IDisposable
 {
     readonly Stream? _stream;
     readonly Action? _ensureLenderAlive;
-    readonly bool _hasMetadata;
+    readonly MetadataImageFormatResult _format;
+    readonly MetadataReader? _metadataReader;
     readonly bool _ownsReader;
     bool _disposed;
 
@@ -27,19 +28,34 @@ public sealed class AssemblyImage : IDisposable
         PEReader peReader,
         bool ownsReader,
         Action? ensureLenderAlive = null,
-        bool? admittedHasMetadata = null)
+        MetadataImageFormatResult? admittedFormat = null)
     {
-        bool hasMetadata;
-        if (admittedHasMetadata is bool retainedAdmission)
+        MetadataImageFormatResult format;
+        if (admittedFormat is { } retainedAdmission)
         {
-            hasMetadata = retainedAdmission;
+            format = retainedAdmission;
         }
         else
         {
             try
             {
-                hasMetadata =
-                    MetadataFormatAdmission.AdmitImage(peReader);
+                format =
+                    MetadataFormatAdmission.AdmitAndClassify(peReader);
+            }
+            catch (Exception ex)
+            {
+                if (ownsReader)
+                    OwnedResourceCleanup.DisposeAfterFailure(peReader, ex);
+                throw;
+            }
+        }
+
+        MetadataReader? metadataReader = null;
+        if (format is MetadataImageFormatResult.SupportedEcma335)
+        {
+            try
+            {
+                metadataReader = peReader.GetMetadataReader();
             }
             catch (Exception ex)
             {
@@ -51,7 +67,8 @@ public sealed class AssemblyImage : IDisposable
 
         _stream = stream;
         PEReader = peReader;
-        _hasMetadata = hasMetadata;
+        _format = format;
+        _metadataReader = metadataReader;
         _ownsReader = ownsReader;
         _ensureLenderAlive = ensureLenderAlive;
     }
@@ -62,7 +79,17 @@ public sealed class AssemblyImage : IDisposable
         get
         {
             EnsureAlive();
-            return _hasMetadata;
+            return _format
+                is MetadataImageFormatResult.SupportedEcma335;
+        }
+    }
+
+    internal MetadataImageFormatResult Format
+    {
+        get
+        {
+            EnsureAlive();
+            return _format;
         }
     }
 
@@ -127,29 +154,31 @@ public sealed class AssemblyImage : IDisposable
 
         Stream? ownedStream = stream;
         PEReader? peReader = null;
-        bool? hasMetadata = null;
+        MetadataImageFormatResult? format = null;
         try
         {
             peReader = new PEReader(
                 ownedStream,
                 PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen);
-            hasMetadata =
-                MetadataFormatAdmission.AdmitImage(peReader);
+            format =
+                MetadataFormatAdmission.AdmitAndClassify(peReader);
 
             Stream streamToDispose = ownedStream;
             ownedStream = null;
-            if (hasMetadata.Value)
+            if (format
+                is MetadataImageFormatResult.SupportedEcma335)
                 streamToDispose.Dispose();
             else
                 OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
                     streamToDispose);
 
+            PEReader transferredReader = peReader;
+            peReader = null;
             var image = new AssemblyImage(
                 stream: null,
-                peReader,
+                transferredReader,
                 ownsReader: true,
-                admittedHasMetadata: hasMetadata.Value);
-            peReader = null;
+                admittedFormat: format);
             return image;
         }
         catch (Exception ex)
@@ -178,8 +207,25 @@ public sealed class AssemblyImage : IDisposable
         }
     }
 
-    internal MetadataReader GetMetadataReader() =>
-        MetadataFormatAdmission.GetMetadataReader(PEReader);
+    internal MetadataReader GetMetadataReader()
+    {
+        if (!TryGetMetadataReader(out MetadataReader? reader))
+        {
+            throw new BadImageFormatException(
+                "The PE image contains no managed metadata.");
+        }
+
+        return reader;
+    }
+
+    internal bool TryGetMetadataReader(
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out MetadataReader? reader)
+    {
+        EnsureAlive();
+        reader = _metadataReader;
+        return reader is not null;
+    }
 
     internal void EnsureAlive()
     {
@@ -195,7 +241,7 @@ public sealed class AssemblyImage : IDisposable
             return;
         _disposed = true;
 
-        if (_hasMetadata)
+        if (_format is MetadataImageFormatResult.SupportedEcma335)
         {
             if (_ownsReader)
                 PEReader.Dispose();

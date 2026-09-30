@@ -13,6 +13,13 @@ public static class MetadataDeclarationText
         return relationship.DeclarationName.ToString();
     }
 
+    public static string RenderDeclarationName(
+        MetadataAccessorRootDeclarationEvidence declaration)
+    {
+        ArgumentNullException.ThrowIfNull(declaration);
+        return declaration.Name.ToString();
+    }
+
     public static string? RenderParameterName(
         MetadataParameterDeclarationEvidence parameter)
     {
