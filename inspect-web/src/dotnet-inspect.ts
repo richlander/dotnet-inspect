@@ -500,7 +500,7 @@ import {
   type ProductDestination,
 } from "./brand.ts";
 import {
-  DEFAULT_PLATFORM_FRAMEWORK, isExactPlatformPruningFramework,
+  isExactPlatformPruningFramework,
   loadPlatformIndex, parsePlatformCatalogTarget,
   platformCatalogFramework, requirePlatformPackageSupplies,
   type PlatformAssemblyRow, type PlatformIndex, type PlatformCatalogTarget,
@@ -12587,7 +12587,11 @@ function spotlightLoadedPackageMatches(query: string) {
 
 // Platform selection is independent of the focused NuGet package.
 function platformScopeTfm(): string {
-  return state.platformSelection?.tfm ?? DEFAULT_PLATFORM_FRAMEWORK;
+  const framework =
+    state.platformSelection?.tfm ?? state.platformIndex?.defaultFramework;
+  if (!framework)
+    throw new Error("The Platform catalog default is unavailable.");
+  return framework;
 }
 
 const platformVersions = new Map<string, { values: string[] } & PlatformSubjectStatus>();
@@ -12596,10 +12600,12 @@ const platformPackages = new Map<string, AppPackage>();
 let platformCatalogSequence = 0;
 
 function selectedPlatformTarget(): PlatformCatalogTarget | null {
+  const index = state.platformIndex;
+  if (!index) return null;
   const selection = state.platformSelection;
-  return state.platformIndex?.target(
-    selection?.tfm ?? DEFAULT_PLATFORM_FRAMEWORK,
-    selection?.version) ?? null;
+  return index.target(
+    selection?.tfm ?? index.defaultFramework,
+    selection?.version);
 }
 
 function platformTargetLabel() {
@@ -12642,10 +12648,11 @@ function retainPlatformPackageForTarget(
   return packageModel;
 }
 
-async function ensurePlatformCatalog(tfm: string, version?: string): Promise<PlatformCatalogTarget> {
-  const catalogTfm = platformCatalogFramework(tfm);
+async function ensurePlatformCatalog(tfm?: string, version?: string): Promise<PlatformCatalogTarget> {
   state.platformIndex ??= await loadPlatformIndex();
   if (!state.platformIndex) throw new Error("The Platform catalog could not be loaded.");
+  const catalogTfm = platformCatalogFramework(
+    tfm ?? state.platformIndex.defaultFramework);
   const bundled = state.platformIndex.target(catalogTfm, version);
   if (bundled) return bundled;
   if (!version) throw new Error(`The Platform catalog has no target for ${catalogTfm}.`);
@@ -12752,7 +12759,7 @@ function startPlatformTargetWork(target: PlatformCatalogTarget) {
 }
 
 async function openPlatformSubject(
-  tfm = state.platformSelection?.tfm ?? DEFAULT_PLATFORM_FRAMEWORK,
+  tfm = state.platformSelection?.tfm,
   version = state.platformSelection?.version,
 ) {
   const capacityError = platformCoordinateCapacityError();
@@ -22010,7 +22017,7 @@ async function restoreWorkspaceFromLocation(
     if (platformCoordinate(tab)) {
       try {
         const catalog = await ensurePlatformCatalog(
-          tab.framework || DEFAULT_PLATFORM_FRAMEWORK,
+          tab.framework || undefined,
           tab.version === "latest" ? undefined : tab.version);
         if (!navigationSequence.isCurrent(navigationSeq)) return;
         state.platformSelection = { tfm: catalog.tfm, version: catalog.version, includeAllLibraries: false, filter: "" };

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
-  DEFAULT_PLATFORM_FRAMEWORK,
   parsePlatformIndex,
   type PlatformAssemblyRow,
   type PlatformCatalogTarget,
@@ -46,7 +45,8 @@ test("reference membership, not implementation kind or public type count, define
 test("exact framework Library names rank ahead of partial catalog matches", async () => {
   const value: unknown = JSON.parse(await readFile(
     new URL("../assets/platform-index.json", import.meta.url), "utf8"));
-  const catalog = parsePlatformIndex(value).target(DEFAULT_PLATFORM_FRAMEWORK);
+  const index = parsePlatformIndex(value);
+  const catalog = index.target(index.defaultFramework);
   assert.ok(catalog);
   const matches = rankPlatformLibraryMatches(
     platformInventory(catalog, true, "Microsoft.AspNetCore"),

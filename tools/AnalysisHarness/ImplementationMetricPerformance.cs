@@ -6,8 +6,17 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using ILInspector.Analysis;
+
+#if IMPLEMENTATION_METRIC_EVIDENCE_V1
+using ImplementationMetricSelection =
+    ILInspector.Analysis.ImplementationMetricEvidenceKind;
+#else
+using ImplementationMetricSelection =
+    ILInspector.Analysis.ImplementationMetricKind;
+#endif
 
 namespace ILInspector.AnalysisHarness;
 
@@ -29,6 +38,7 @@ public sealed record ImplementationMetricScenarioReport(
     long P95AllocatedBytes,
     int BodyCount,
     int RelationshipCount,
+    string ResultIdentitySha256,
     int AttributionProbeBodies,
     long AttributionProbeIlBytes,
     int MetricBodies,
@@ -73,11 +83,11 @@ public static class ImplementationMetricPerformance
         [
             new(
                 "body-size",
-                ImplementationMetricEvidenceKind.BodySize),
+                ImplementationMetricSelection.BodySize),
             new(
                 "body-size-plus-relationships",
-                ImplementationMetricEvidenceKind.BodySize
-                    | ImplementationMetricEvidenceKind
+                ImplementationMetricSelection.BodySize
+                    | ImplementationMetricSelection
                         .SiblingOverloadRelationships),
             new(
                 "complete-profile-v1",
@@ -95,7 +105,7 @@ public static class ImplementationMetricPerformance
                     image,
                     scope,
                     limits,
-                    scenario.Evidence);
+                    scenario.Metrics);
             }
         }
 
@@ -130,7 +140,7 @@ public static class ImplementationMetricPerformance
                         image,
                         scope,
                         limits,
-                        scenario.Evidence);
+                        scenario.Metrics);
                 TimeSpan elapsed =
                     Stopwatch.GetElapsedTime(started);
                 TimeSpan cpu =
@@ -170,10 +180,9 @@ public static class ImplementationMetricPerformance
             Console.WriteLine(
                 JsonSerializer.Serialize(
                     report,
-                    new JsonSerializerOptions
-                    {
-                        WriteIndented = true,
-                    }));
+                    ImplementationMetricPerformanceJsonContext
+                        .Default
+                        .ImplementationMetricPerformanceReport));
         }
         else
         {
@@ -186,13 +195,13 @@ public static class ImplementationMetricPerformance
         ImmutableArray<byte> image,
         ImmutableHashSet<int> scope,
         ImplementationMetricWorkLimits limits,
-        ImplementationMetricEvidenceKind evidence) =>
+        ImplementationMetricSelection metrics) =>
         LibraryBodyAnalysisService.ExecuteImage(
             "System.Private.CoreLib.dll",
             image,
             LibraryBodyAnalysisRequest
                 .CreateImplementationMetrics(
-                    evidence,
+                    metrics,
                     limits,
                     scope));
 
@@ -210,8 +219,8 @@ public static class ImplementationMetricPerformance
             ?? throw new InvalidOperationException(
                 "Finite implementation metric work was not published.");
         int relationshipCount =
-            scenario.Evidence.HasFlag(
-                ImplementationMetricEvidenceKind
+            scenario.Metrics.HasFlag(
+                ImplementationMetricSelection
                     .SiblingOverloadRelationships)
                 ? MethodImplementationProfileAnalysis
                     .CollectOverloadRelationships(
@@ -252,6 +261,9 @@ public static class ImplementationMetricPerformance
             Percentile95(allocated),
             execution.ImplementationMetrics.Bodies.Length,
             relationshipCount,
+            ComputeResultIdentity(
+                execution,
+                scenario.Metrics),
             work.AttributionProbeBodies,
             work.AttributionProbeIlBytes,
             work.MetricBodies,
@@ -264,6 +276,160 @@ public static class ImplementationMetricPerformance
             elapsed,
             cpu,
             allocated);
+    }
+
+    static string ComputeResultIdentity(
+        LibraryBodyAnalysisExecution execution,
+        ImplementationMetricSelection metrics)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(
+            stream,
+            System.Text.Encoding.UTF8,
+            leaveOpen: true))
+        {
+            ImmutableArray<MethodImplementationMetricEvidence> bodies =
+                execution.ImplementationMetrics.Bodies;
+            writer.Write(bodies.Length);
+            foreach (MethodImplementationMetricEvidence body in bodies)
+            {
+                writer.Write(body.Method.MetadataToken);
+                writer.Write(body.EvidenceMethod.MetadataToken);
+                if (metrics.HasFlag(
+                    ImplementationMetricSelection.BodySize))
+                {
+                    WriteNullable(writer, body.ILBytes);
+                }
+                if (metrics.HasFlag(
+                    ImplementationMetricSelection
+                        .ExceptionRegions))
+                {
+                    WriteExceptionRegions(
+                        writer,
+                        body.ExceptionRegions);
+                }
+                if (metrics.HasFlag(
+                    ImplementationMetricSelection.Locals))
+                {
+                    WriteLocals(writer, body.Locals);
+                }
+                if (metrics.HasFlag(
+                    ImplementationMetricSelection
+                        .InstructionShape))
+                {
+                    WriteInstructionShape(
+                        writer,
+                        body.InstructionShape);
+                }
+                if (metrics.HasFlag(
+                    ImplementationMetricSelection.ControlFlow))
+                {
+                    WriteControlFlow(writer, body.ControlFlow);
+                }
+                if (metrics.HasFlag(
+                    ImplementationMetricSelection.DirectCalls))
+                {
+                    WriteDirectCalls(writer, body.DirectCalls);
+                }
+            }
+
+            ImmutableArray<OverloadCallRelationship> relationships =
+                metrics.HasFlag(
+                    ImplementationMetricSelection
+                        .SiblingOverloadRelationships)
+                    ? execution.ImplementationMetrics
+                        .SiblingRelationships?.Relationships ?? []
+                    : [];
+            writer.Write(relationships.Length);
+            foreach (OverloadCallRelationship relationship
+                in relationships)
+            {
+                writer.Write(relationship.Caller.MetadataToken);
+                writer.Write(relationship.Callee.MetadataToken);
+                writer.Write(
+                    relationship.EvidenceMethod.MetadataToken);
+            }
+        }
+        return Convert.ToHexString(
+            SHA256.HashData(stream.GetBuffer().AsSpan(
+                0,
+                checked((int)stream.Length))));
+    }
+
+    static void WriteNullable(
+        BinaryWriter writer,
+        int? value)
+    {
+        writer.Write(value.HasValue);
+        if (value.HasValue)
+            writer.Write(value.GetValueOrDefault());
+    }
+
+    static void WriteExceptionRegions(
+        BinaryWriter writer,
+        ImplementationMetricExceptionRegionCounts? value)
+    {
+        writer.Write(value is not null);
+        if (value is null)
+            return;
+
+        writer.Write(value.CatchCount);
+        writer.Write(value.FilterCount);
+        writer.Write(value.FinallyCount);
+        writer.Write(value.FaultCount);
+    }
+
+    static void WriteLocals(
+        BinaryWriter writer,
+        ImplementationMetricLocalEvidence? value)
+    {
+        writer.Write(value is not null);
+        if (value is null)
+            return;
+
+        writer.Write(value.DeclaredCount);
+        writer.Write(value.IncompleteReason ?? string.Empty);
+    }
+
+    static void WriteInstructionShape(
+        BinaryWriter writer,
+        ImplementationMetricInstructionShape? value)
+    {
+        writer.Write(value is not null);
+        if (value is null)
+            return;
+
+        writer.Write(value.InstructionCount);
+        writer.Write(value.DistinctOpcodeCount);
+    }
+
+    static void WriteControlFlow(
+        BinaryWriter writer,
+        ImplementationMetricControlFlow? value)
+    {
+        writer.Write(value is not null);
+        if (value is null)
+            return;
+
+        writer.Write(value.BasicBlockCount);
+        writer.Write(value.BranchCount);
+        writer.Write(value.ConditionalBranchCount);
+        writer.Write(value.SwitchCount);
+        writer.Write(value.SwitchTargetCount);
+        writer.Write(value.LoopCount);
+    }
+
+    static void WriteDirectCalls(
+        BinaryWriter writer,
+        ImplementationMetricDirectCalls? value)
+    {
+        writer.Write(value is not null);
+        if (value is null)
+            return;
+
+        writer.Write(value.InvocationCount);
+        writer.Write(value.DistinctTargetCount);
+        writer.Write(value.IncompleteReason ?? string.Empty);
     }
 
     static (Guid Mvid, ImmutableHashSet<int> Scope)
@@ -384,10 +550,15 @@ public static class ImplementationMetricPerformance
 
     sealed record Scenario(
         string Name,
-        ImplementationMetricEvidenceKind Evidence);
+        ImplementationMetricSelection Metrics);
 
     readonly record struct Sample(
         double ElapsedMilliseconds,
         double CpuMilliseconds,
         long AllocatedBytes);
 }
+
+[JsonSourceGenerationOptions(WriteIndented = true)]
+[JsonSerializable(typeof(ImplementationMetricPerformanceReport))]
+internal partial class ImplementationMetricPerformanceJsonContext
+    : JsonSerializerContext;
