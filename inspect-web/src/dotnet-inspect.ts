@@ -2477,7 +2477,7 @@ async function installRetainedWorkspacePosting(
       }
       : null;
     state.rootKind = state.package?.isRuntimePack ? "platform" : "package";
-    state.workspaceSubjectOpen = true;
+    state.workspaceSubjectOpen = state.package === null;
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
     if (detailFailure !== null) {

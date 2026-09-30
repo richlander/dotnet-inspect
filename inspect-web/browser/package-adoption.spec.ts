@@ -1027,6 +1027,7 @@ test.describe("Package Query website over real Wasm", () => {
       .toContainText(literalCoordinate.packageId.toLowerCase());
     await expect(page.locator("[data-navigation-order]"))
       .toContainText(literalCoordinate.version);
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
   });
 
   test("qualifies package Results by decoded library literal and opens the exact Root", async ({

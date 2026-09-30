@@ -335,6 +335,7 @@ test("exact canonical completion renders and focuses once", async () => {
   await installation;
 
   assert.equal(harness.presentationCurrent(), true);
+  assert.equal(harness.state.workspaceSubjectOpen, false);
   const rendersBeforeCompletion = harness.renders();
   harness.completePresentation();
   assert.equal(harness.renders(), rendersBeforeCompletion + 1);
