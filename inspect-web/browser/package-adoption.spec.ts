@@ -996,6 +996,39 @@ test.describe("Capability Spotlight search over real Wasm", () => {
 });
 
 test.describe("Package Query website over real Wasm", () => {
+  test("opens a coordinate result through retained definition activation", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([literalCoordinate]);
+    await installGalleryRoutes(context, registry);
+
+    await page.goto("/query");
+    const packageInput = page.locator("#package-query-prefix");
+    await expect(packageInput).toBeVisible({ timeout: 120_000 });
+    await packageInput.fill(literalCoordinate.packageId);
+    await page.locator("#package-query-run").click();
+
+    await expect(page.locator(".query-row h2"))
+      .toHaveText([literalCoordinate.packageId], { timeout: 30_000 });
+    const open = page.locator("[data-query-row-open]");
+    await expect(open).not.toHaveAttribute("data-query-root-request", /.+/);
+    await open.click();
+
+    await expect(page.locator(".query-main")).toHaveCount(0);
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${literalCoordinate.packageId}/`
+          + `${literalCoordinate.version}#package$`,
+      ),
+      { timeout: 180_000 },
+    );
+    await expect(page.locator("[data-navigation-order]"))
+      .toContainText(literalCoordinate.packageId.toLowerCase());
+    await expect(page.locator("[data-navigation-order]"))
+      .toContainText(literalCoordinate.version);
+  });
+
   test("qualifies package Results by decoded library literal and opens the exact Root", async ({
     page,
     context,

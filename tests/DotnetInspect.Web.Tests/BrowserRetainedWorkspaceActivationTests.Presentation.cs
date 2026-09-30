@@ -386,6 +386,60 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         }
     }
 
+    [Fact]
+    public async Task CatalogFacade_PackageQueryPreparesProductDefinition()
+    {
+        _ = await OptionsAsync();
+        Catalog.BrowserProductWorkspacePlans.ConfigurePlatform();
+        await Catalog.BrowserRetainedWorkspaceActivationService
+            .ResetForTestsAsync();
+        try
+        {
+            string preparationJson =
+                await Catalog.CatalogExports
+                    .PreparePackageQueryWorkspaceDefinition(
+                        "package-query",
+                        "System.Text.Json@9.0.4",
+                        "/packages/System.Text.Json/9.0.4#package",
+                        "System.Text.Json",
+                        "9.0.4");
+            Catalog.BrowserRetainedWorkspacePreparationResult preparation =
+                Assert.IsType<
+                    Catalog.BrowserRetainedWorkspacePreparationResult>(
+                        JsonSerializer.Deserialize(
+                            preparationJson,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .BrowserRetainedWorkspacePreparationResult));
+            Assert.Equal("prepared", preparation.Status);
+            Catalog.BrowserRetainedWorkspacePreparedPosting prepared =
+                Assert.IsType<Catalog.BrowserRetainedWorkspacePreparedPosting>(
+                    preparation.Preparation);
+            Assert.Equal("package-query", prepared.RetainedDefinitionId);
+            Assert.Null(prepared.CanonicalPacket);
+            Catalog.BrowserWorkspaceShareTab tab =
+                Assert.Single(prepared.Definition.Tabs);
+            Assert.Equal("System.Text.Json", tab.Source, ignoreCase: true);
+            Assert.Equal("9.0.4", tab.Version);
+            Assert.NotEmpty(prepared.Definition.Registrations);
+
+            string cancellationJson =
+                await Catalog.CatalogExports.CancelRetainedWorkspaceActivation(
+                    Assert.IsType<string>(preparation.Receipt));
+            Catalog.BrowserRetainedWorkspaceActivationResult cancellation =
+                Assert.IsType<Catalog.BrowserRetainedWorkspaceActivationResult>(
+                    JsonSerializer.Deserialize(
+                        cancellationJson,
+                        Catalog.BrowserCatalogJsonContext.Default
+                            .BrowserRetainedWorkspaceActivationResult));
+            Assert.NotEqual("failed", cancellation.Status);
+        }
+        finally
+        {
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .ResetForTestsAsync();
+        }
+    }
+
     static async Task AssertCatalogFacadeAsync(
         bool includePlatform)
     {
