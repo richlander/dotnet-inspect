@@ -433,40 +433,40 @@ function bindItemActions(
   actions: ScopeBarBindingActions,
 ): void {
   root.querySelectorAll<HTMLButtonElement>("[data-scope]").forEach(button =>
-    button.addEventListener("click", () => {
+    button.onclick = () => {
       if (button.dataset.navigationCurrent === "true"
         || navigationItemIsDisabled(button)) return;
       const scope = button.dataset.scope;
       if (isWorkspaceScope(scope)) actions.onScopeSelect(scope);
-    }));
+    });
   root.querySelectorAll<HTMLButtonElement>("[data-package-lens]").forEach(
-    button => button.addEventListener("click", () => {
+    button => button.onclick = () => {
       if (button.dataset.navigationCurrent === "true"
         || navigationItemIsDisabled(button)) return;
       const lens = button.dataset.packageLens;
       if (isPackageLens(lens)) actions.onPackageLensSelect(lens);
-    }));
+    });
   root.querySelectorAll<HTMLButtonElement>("[data-library-lens]").forEach(
-    button => button.addEventListener("click", () => {
+    button => button.onclick = () => {
       if (button.dataset.navigationCurrent === "true"
         || navigationItemIsDisabled(button)) return;
       const lens = button.dataset.libraryLens;
       if (isLibraryLens(lens)) actions.onLibraryLensSelect(lens);
-    }));
+    });
   root.querySelectorAll<HTMLButtonElement>("[data-lens]").forEach(button =>
-    button.addEventListener("click", () => {
+    button.onclick = () => {
       if (button.dataset.navigationCurrent === "true"
         || navigationItemIsDisabled(button)) return;
       const lens = button.dataset.lens;
       if (isTypeLens(lens)) actions.onTypeLensSelect(lens);
-    }));
+    });
   root.querySelectorAll<HTMLButtonElement>("[data-member-section]").forEach(
-    button => button.addEventListener("click", () => {
+    button => button.onclick = () => {
       if (button.dataset.navigationCurrent === "true"
         || navigationItemIsDisabled(button)) return;
       const section = button.dataset.memberSection;
       if (isMemberSection(section)) actions.onMemberSectionSelect(section);
-    }));
+    });
 }
 
 export function bindScopeBar(
@@ -539,7 +539,7 @@ function tabButton(
       ? ` aria-controls="${escapeHtml(panelId)}"`
       : ""}`
     : "";
-  return `<button type="button" class="adaptive-navigation-tab lens ${current ? "active" : ""}" ${itemAttributes(id, attribute, current, escapeHtml)} data-navigation-item="tab" data-inspector-tab role="tab" aria-selected="${current}" tabindex="${tabStop ? "0" : "-1"}"${activeAttributes} aria-label="${escapedLabel}" title="${escapedLabel}"><span class="lens-label">${escapedLabel}</span></button>`;
+  return `<button type="button" class="adaptive-navigation-tab lens ${current ? "active" : ""}" ${itemAttributes(id, attribute, current, escapeHtml)} data-rendered-interaction-key="scope-bar:tab:${escapeHtml(attribute)}:${escapeHtml(id)}" data-navigation-item="tab" data-inspector-tab role="tab" aria-selected="${current}" tabindex="${tabStop ? "0" : "-1"}"${activeAttributes} aria-label="${escapedLabel}" title="${escapedLabel}"><span class="lens-label">${escapedLabel}</span></button>`;
 }
 
 function subjectTab(
@@ -551,7 +551,7 @@ function subjectTab(
   escapeHtml: (value: unknown) => string,
 ): string {
   const escapedLabel = escapeHtml(label);
-  return `<button type="button" class="adaptive-navigation-tab scope-seg ${current ? "active" : ""}" ${itemAttributes(id, "data-scope", current, escapeHtml)} data-navigation-item="tab" data-subject-tab role="tab" aria-selected="${current}" tabindex="${tabStop ? "0" : "-1"}"${current ? ' id="active-subject-tab"' : ""} aria-controls="${escapeHtml(subjectPanelId)}" aria-label="${escapedLabel}" title="${escapedLabel}"><span>${escapedLabel}</span></button>`;
+  return `<button type="button" class="adaptive-navigation-tab scope-seg ${current ? "active" : ""}" ${itemAttributes(id, "data-scope", current, escapeHtml)} data-rendered-interaction-key="scope-bar:tab:data-scope:${escapeHtml(id)}" data-navigation-item="tab" data-subject-tab role="tab" aria-selected="${current}" tabindex="${tabStop ? "0" : "-1"}"${current ? ' id="active-subject-tab"' : ""} aria-controls="${escapeHtml(subjectPanelId)}" aria-label="${escapedLabel}" title="${escapedLabel}"><span>${escapedLabel}</span></button>`;
 }
 
 function menuItem(
@@ -562,7 +562,7 @@ function menuItem(
   escapeHtml: (value: unknown) => string,
 ): string {
   const escapedLabel = escapeHtml(label);
-  return `<button type="button" class="adaptive-navigation-menu-item ${current ? "active" : ""}" ${itemAttributes(id, attribute, current, escapeHtml)} data-navigation-item="menuitem" role="menuitemradio" aria-checked="${current}" tabindex="-1" aria-label="${escapedLabel}" title="${escapedLabel}">${escapedLabel}</button>`;
+  return `<button type="button" class="adaptive-navigation-menu-item ${current ? "active" : ""}" ${itemAttributes(id, attribute, current, escapeHtml)} data-rendered-interaction-key="scope-bar:menuitem:${escapeHtml(attribute)}:${escapeHtml(id)}" data-navigation-item="menuitem" role="menuitemradio" aria-checked="${current}" tabindex="-1" aria-label="${escapedLabel}" title="${escapedLabel}">${escapedLabel}</button>`;
 }
 
 function descriptorStateLabel(state: string): string {

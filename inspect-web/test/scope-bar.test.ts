@@ -20,6 +20,7 @@ class FakeElement {
   hidden = false;
   rendered = true;
   tabIndex = 0;
+  onclick: (() => void) | null = null;
   private readonly listeners = new Map<string, EventListener[]>();
 
   constructor(dataset: Record<string, string | undefined> = {}) {
@@ -52,6 +53,7 @@ class FakeElement {
 
   dispatch(type: string, values: Record<string, unknown> = {}) {
     let prevented = false;
+    if (type === "click") this.onclick?.();
     for (const listener of this.listeners.get(type) ?? []) {
       listener(fakeDom.event({
         ...values,
@@ -205,6 +207,12 @@ test("scope bar renders complete full-label Tabs and Chooser inventories", () =>
   assert.match(
     html,
     /data-navigation-item="menuitem" role="menuitemradio" aria-checked="true"/);
+  assert.match(
+    html,
+    /data-rendered-interaction-key="scope-bar:tab:data-lens:source"/);
+  assert.match(
+    html,
+    /data-rendered-interaction-key="scope-bar:menuitem:data-lens:source"/);
   for (const label of ["Package", "Library", "Type", "API", "Metadata", "Source"]) {
     assert.ok(html.includes(`>${label}<`) || html.includes(`>${label}</span>`));
   }
@@ -401,6 +409,28 @@ test("bindings dispatch typed tab and Chooser items but not current items", () =
   source.dispatch("click");
 
   assert.deepEqual(calls, ["type:metadata", "type:source"]);
+});
+
+test("preserved navigation controls keep one action binding", () => {
+  const root = new FakeRoot();
+  const source = new FakeElement({
+    lens: "source",
+    navigationCurrent: "false",
+  });
+  root.add("[data-subject-tab]");
+  root.add("[data-inspector-tab]", source);
+  root.add("[data-scope]");
+  root.add("[data-package-lens]");
+  root.add("[data-library-lens]");
+  root.add("[data-lens]", source);
+  root.add("[data-member-section]");
+  const calls: string[] = [];
+
+  bindScopeBar(fakeDom.parentNode(root), recordingActions(calls));
+  bindScopeBar(fakeDom.parentNode(root), recordingActions(calls));
+  source.dispatch("click");
+
+  assert.deepEqual(calls, ["type:source"]);
 });
 
 test("typed focus records its presentation and restores the visible replacement", () => {
