@@ -97,7 +97,6 @@
       ],
       "allowOnly": [
         "CSharpText",
-        "CSharpText.MemberSlicing",
         "DotnetInspector.Cache",
         "DotnetInspector.DocumentationHouse.Direct",
         "DotnetInspector.Ecosystems",

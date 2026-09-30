@@ -800,13 +800,16 @@ existing paths in this slice.
 
 The second production consumer is the Browser/Wasm viewer for exact root
 `README.md` and `skills/**/*.md` document-manifest entries. The managed export
-executes a focused House `Acquire` operation, opens the selected README or
-Skill through the settlement's pull stream, and incrementally decodes UTF-8
-through bounded pooled byte and character buffers. The admitted `.nupkg` and
-the final displayed string remain resident, but no second complete expanded
-entry `byte[]` is created. Root `PACKAGE.md` viewing retains its existing eager
-entry path in this slice, while the managed-to-TypeScript wire DTO and frontend
-call site remain unchanged.
+executes a focused ranged House `Acquire` carrying one document demand, applies
+size first, and opens the selected README or Skill through the settlement's
+pull stream. It incrementally decodes UTF-8 through bounded pooled byte and
+character buffers. The Browser package-entry store publishes the archive
+directory and selected expanded entries to Cache Storage, so a warm read after
+store recreation makes no package request. The final displayed string remains
+resident, but the complete `.nupkg` is not downloaded for an archive above the
+size cut. Root `PACKAGE.md` viewing retains its existing complete eager entry
+path in this slice, while the managed-to-TypeScript wire DTO and frontend call
+site remain unchanged.
 
 Both consumers use `PackageDocumentEntryResolver` for safe path validation,
 case-insensitive manifest matching, actual-path preservation, and visible
