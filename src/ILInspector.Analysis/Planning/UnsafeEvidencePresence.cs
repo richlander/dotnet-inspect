@@ -75,20 +75,35 @@ public static class UnsafeEvidencePresence
     public static MethodDefinitionExecution Execute(
         string sourceName,
         PEReader peReader) =>
+        Execute(sourceName, peReader, Description);
+
+    /// <summary>Runs the supplied work description and returns the execution with its receipt.</summary>
+    public static MethodDefinitionExecution Execute(
+        string sourceName,
+        PEReader peReader,
+        WorkDescription description) =>
         MethodDefinitionExecution.Execute(
-            Description,
+            description,
             sourceName,
             peReader);
 
     public static bool HasEvidence(
         string path,
         PdbContext context)
+        => RequireEvidence(Inspect(path, context, Description));
+
+    /// <summary>Runs the supplied plan and returns its detached answer and receipt.</summary>
+    public static UnsafeEvidencePresenceInspection Inspect(
+        string path,
+        PdbContext context,
+        WorkDescription description)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(description);
 
         return context.InspectImage(
-            peReader => HasEvidence(path, peReader));
+            peReader => Inspect(path, peReader, description));
     }
 
     public static bool HasEvidence(
@@ -104,18 +119,43 @@ public static class UnsafeEvidencePresence
         }
 
         using var peReader = new PEReader(image);
-        return HasEvidence(path, peReader);
+        return RequireEvidence(Inspect(path, peReader, Description));
     }
 
-    static bool HasEvidence(
+    static UnsafeEvidencePresenceInspection Inspect(
         string path,
+        PEReader peReader,
+        WorkDescription description)
+    {
+        MethodDefinitionExecution execution = Execute(
+            path,
+            peReader,
+            description);
+        return Project(
+            execution.ResultOf(
+                UnsafeEvidencePresenceProducer.Instance),
+            execution.Receipt,
+            peReader);
+    }
+
+    /// <summary>
+    /// Projects one detached producer execution while the owning image remains
+    /// available for the failure label.
+    /// </summary>
+    public static UnsafeEvidencePresenceInspection Project(
+        ProducerResult<int> result,
+        WorkReceipt receipt,
         PEReader peReader)
     {
-        ProducerResult<int> result =
-            Execute(path, peReader).ResultOf(
-                UnsafeEvidencePresenceProducer.Instance);
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(receipt);
+        ArgumentNullException.ThrowIfNull(peReader);
         if (result.Outcome is ProducerOutcome.Complete or ProducerOutcome.Stopped)
-            return result.Value > 0;
+        {
+            return new UnsafeEvidencePresenceInspection.Available(
+                result.Value > 0,
+                receipt);
+        }
 
         // The failure is recorded by token; presenting it resolves that one
         // method's name with a length-checked, capped read.
@@ -124,8 +164,43 @@ public static class UnsafeEvidencePresence
             ? MethodRowProjection.FailureLabel(peReader.GetMetadataReader(), token).ToString()
             : result.Failure?.Unit ?? result.Critical?.Unit ?? "(unknown)";
         string reason = result.Failure?.Message ?? result.Critical?.Message ?? "";
-        throw new InvalidDataException(
-            "Unsafe evidence presence is incomplete because "
-            + $"{unit} could not be analyzed: {reason}");
+        return new UnsafeEvidencePresenceInspection.Incomplete(
+            new InvalidDataException(
+                "Unsafe evidence presence is incomplete because "
+                + $"{unit} could not be analyzed: {reason}"),
+            result.Outcome,
+            receipt);
     }
+
+    static bool RequireEvidence(UnsafeEvidencePresenceInspection inspection) =>
+        inspection switch
+        {
+            UnsafeEvidencePresenceInspection.Available available =>
+                available.HasEvidence,
+            UnsafeEvidencePresenceInspection.Incomplete incomplete =>
+                throw incomplete.Error,
+            _ => throw new InvalidOperationException(
+                "Unknown unsafe-evidence inspection outcome."),
+        };
+}
+
+/// <summary>Detached answer or execution failure for one inspection.</summary>
+public abstract record UnsafeEvidencePresenceInspection
+{
+    private UnsafeEvidencePresenceInspection()
+    {
+    }
+
+    /// <summary>The producer settled with an available Boolean answer.</summary>
+    public sealed record Available(
+        bool HasEvidence,
+        WorkReceipt Receipt)
+        : UnsafeEvidencePresenceInspection;
+
+    /// <summary>The producer did not complete after execution began.</summary>
+    public sealed record Incomplete(
+        InvalidDataException Error,
+        ProducerOutcome Outcome,
+        WorkReceipt Receipt)
+        : UnsafeEvidencePresenceInspection;
 }

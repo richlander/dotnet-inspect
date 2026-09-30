@@ -40,6 +40,7 @@ src/DotnetInspector.Presentation
 src/DotnetInspector.Queries
 src/QuerySpace
 src/DotnetInspector.ResearchQueries
+src/DotnetInspector.ResearchSections
 src/DotnetInspector.Sections
 src/DotnetInspector.Services
 src/DotnetInspector.SourceHouse
