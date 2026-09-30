@@ -107,12 +107,11 @@ in the query consumes the resulting entry space and the same narrowing
 receipt. A terminal cannot rescan the archive, construct a second path
 inventory, or resolve root preference independently.
 
-Namesake evidence and alphabetical fallback require only directory paths.
-Namespace selection opens candidate assemblies from the narrowed space in
-deterministic alphabetical order and stops at the first exact match. If
-namespace evidence for an earlier candidate cannot be completed, the query
-fails visibly because the House cannot prove that a later candidate is the
-first match.
+Namesake evidence and alphabetical ordering require only directory paths.
+Namespace selection visits candidate assemblies from the narrowed space in
+that deterministic order and stops at the first exact match. If namespace
+evidence for an earlier candidate cannot be completed, the query fails visibly
+because the House cannot prove that a later candidate is the first match.
 
 A complete archive transfer does not bypass the snapshot contract. Its
 directory is validated into the same evidence shape before terminals execute.
@@ -161,16 +160,17 @@ preference from paths, or decode Metadata itself.
 
 Selection is deterministic:
 
-1. When a namespace is supplied, retain compatible libraries whose owner-issued
-   namespace inventory contains that exact namespace.
-2. If one or more libraries remain, select the alphabetically first library.
-3. If no library contains the namespace, select the alphabetically first
-   compatible library.
+1. Order compatible libraries alphabetically.
+2. When a namespace is supplied, visit libraries in that order and select the
+   first whose owner-issued namespace inventory contains that exact namespace.
+3. If the namespace is absent from every library, or no namespace was supplied,
+   select the first compatible library in that order.
 
-Alphabetical order compares assembly simple name using ordinal
-case-insensitive ordering, then normalized package path using ordinal
-case-insensitive ordering. The path tie-break makes distinct libraries with
-the same simple name deterministic.
+Alphabetical order compares the assembly file-name stem from the validated
+package path using ordinal case-insensitive ordering, then compares normalized
+package path using ordinal case-insensitive ordering. It does not require the
+assembly manifest name, which may differ from the file name. The path tie-break
+makes distinct libraries with the same file-name stem deterministic.
 
 A package namesake is a pure name fact: `System.Text.Json.dll` is namesake
 evidence for package `System.Text.Json`. It is derived from the package ID and
@@ -313,7 +313,7 @@ All implementation gates run in Release.
 | Shared directory evidence | File List, exact-file admission, library candidates, and range spans derive from one validated snapshot and one narrowing receipt. |
 | Exact files | Every returned entry lies in the narrowed space and is complete and validated; an outside, missing, or ambiguous path fails visibly. |
 | File list plus selected library | One narrowing receipt governs the complete narrowed file list and one complete selected assembly entry. |
-| Namespace in several libraries | The alphabetically first exact namespace match wins. |
+| Namespace in several libraries | The first exact namespace match in file-name-stem and package-path order wins. |
 | Namespace absent | The alphabetically first compatible library wins. |
 | Namesake evidence | Package-ID/file-name equality is reported without opening the assembly and does not alter selection order. |
 | Namespace evidence failure | Failure remains visible; it cannot become alphabetical fallback. |
