@@ -19,3 +19,21 @@ namespace ILInspector.Metadata.SignatureUseFixtures.ShardB
         public ShardA.NamespaceSource? Source;
     }
 }
+
+namespace ILInspector.Metadata.SignatureUseFixtures.IsolationBusy
+{
+    public sealed class BusySource
+    {
+        public ShardA.NamespaceSource? First;
+        public ShardA.NamespaceSource? Second;
+        public ShardA.NamespaceSource? Third;
+    }
+
+    public class LimitedExceptionBase : Exception;
+}
+
+namespace ILInspector.Metadata.SignatureUseFixtures.IsolationHealthy
+{
+    public sealed class HealthyException :
+        IsolationBusy.LimitedExceptionBase;
+}

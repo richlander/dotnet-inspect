@@ -150,12 +150,12 @@ public sealed class MetadataLibrarySignatureUseTests
     public void ExactNamespaceBatchKeepsLimitsIndependent()
     {
         const string busyNamespace =
-            "ILInspector.Metadata.SignatureUseFixtures.ShardA";
+            "ILInspector.Metadata.SignatureUseFixtures.IsolationBusy";
         const string healthyNamespace =
-            "ILInspector.Metadata.SignatureUseFixtures.ShardB";
+            "ILInspector.Metadata.SignatureUseFixtures.IsolationHealthy";
         var policy = new MetadataOperationPolicy(
             long.MaxValue,
-            maxDeclarationCandidates: 3);
+            maxDeclarationCandidates: 4);
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.Open(
                 typeof(FixtureAnchor).Assembly.Location);
@@ -184,6 +184,12 @@ public sealed class MetadataLibrarySignatureUseTests
             healthy.Disposition);
         Assert.Equivalent(busy, batch.Results[0], strict: true);
         Assert.Equivalent(healthy, batch.Results[1], strict: true);
+        Assert.Contains(
+            healthy.Types,
+            static type =>
+                type.Name.Segments is ["HealthyException"]
+                && type.Classification.HasFlag(
+                    MetadataLibraryTypeClassification.Exception));
     }
 
     [Fact]

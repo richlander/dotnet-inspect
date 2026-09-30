@@ -555,7 +555,6 @@ internal static class MetadataLibrarySignatureUseInspection
         {
             BuildTypeInventory();
             ScanSites();
-            PrepareInheritanceClassification();
             ClassifyInheritance();
         }
 
@@ -664,26 +663,29 @@ internal static class MetadataLibrarySignatureUseInspection
 
         private void ClassifyInheritance()
         {
+            if (_singlePartition is not null)
+            {
+                ClassifyInheritance(_singlePartition);
+                return;
+            }
+
+            foreach (Partition partition in _partitions)
+                ClassifyInheritance(partition);
+        }
+
+        private void ClassifyInheritance(Partition partition)
+        {
+            _inheritanceClassification.AsSpan().Clear();
+            _inheritanceSettled.AsSpan().Clear();
             foreach (TypeEntry entry in _types)
             {
-                if (PartitionForSource(entry) is null)
+                if (!partition.IsAdmitted(entry))
                     continue;
                 _cancellationToken.ThrowIfCancellationRequested();
                 entry.Classification |=
-                    SafeInheritanceClassification(entry);
-            }
-        }
-
-        private void PrepareInheritanceClassification()
-        {
-            foreach (TypeEntry entry in _types)
-            {
-                if (PartitionForSource(entry) is not null)
-                    continue;
-                TypeDefinition definition =
-                    _reader.GetTypeDefinition(entry.Handle);
-                _baseSiteExamined[TypeRow(entry.Handle)] =
-                    !definition.BaseType.IsNil;
+                    SafeInheritanceClassification(
+                        entry,
+                        partition);
             }
         }
 
@@ -725,11 +727,15 @@ internal static class MetadataLibrarySignatureUseInspection
         }
 
         private MetadataLibraryTypeClassification
-            SafeInheritanceClassification(TypeEntry entry)
+            SafeInheritanceClassification(
+                TypeEntry entry,
+                Partition partition)
         {
             try
             {
-                return InheritanceClassification(entry);
+                return InheritanceClassification(
+                    entry,
+                    partition);
             }
             catch (Exception exception)
                 when (IsMalformedClassificationEvidence(exception))
@@ -746,7 +752,8 @@ internal static class MetadataLibrarySignatureUseInspection
                 or OverflowException;
 
         private MetadataLibraryTypeClassification InheritanceClassification(
-            TypeEntry entry)
+            TypeEntry entry,
+            Partition partition)
         {
             const MetadataLibraryTypeClassification inheritedFlags =
                 MetadataLibraryTypeClassification.Attribute
@@ -771,7 +778,8 @@ internal static class MetadataLibrarySignatureUseInspection
                 }
                 _inheritanceVisitGeneration[row] = visitGeneration;
                 _inheritancePath.Add(current);
-                if (_typesByRow[row] is { } currentEntry)
+                TypeEntry? currentEntry = _typesByRow[row];
+                if (currentEntry is not null)
                 {
                     result =
                         currentEntry.Classification & inheritedFlags;
@@ -779,7 +787,9 @@ internal static class MetadataLibrarySignatureUseInspection
                         break;
                 }
 
-                if (!_baseSiteExamined[row])
+                if (currentEntry is null
+                    || (partition.IsAdmitted(currentEntry)
+                        && !_baseSiteExamined[row]))
                 {
                     result = MetadataLibraryTypeClassification.None;
                     break;
