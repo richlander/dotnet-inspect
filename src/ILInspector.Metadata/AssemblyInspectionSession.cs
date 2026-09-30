@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using Inspector.Resources;
-using Inspector.Artifacts;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -100,13 +99,14 @@ public sealed class AssemblyInspectionSession :
             AssemblyImage.Borrow(
                 context.BorrowedPEReader,
                 context.EnsureAliveForBorrower,
-                context.ArtifactRegistration));
+                context.ArtifactIdentity));
 
     /// <summary>
     /// Exact acquisition-issued artifact identity retained by this image, when
     /// the session was opened or borrowed from an artifact-backed descriptor.
     /// </summary>
-    public ArtifactIdentity? ArtifactIdentity => _image.ArtifactIdentity;
+    public AssemblyArtifactIdentity? ArtifactIdentity =>
+        _image.ArtifactIdentity;
 
     public MetadataDeclarationSession CreateDeclarationSession(
         MetadataOperationContext operationContext)

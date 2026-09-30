@@ -101,6 +101,12 @@ row outside the bound inventory rejects the optional provenance binding
 visibly; it never joins by name. The complete all-Type summary remains
 available when only the optional provenance binding is rejected.
 
+Metadata projects that identity to Research as the opaque
+`AssemblyArtifactIdentity`; equality preserves the underlying
+acquisition-issued artifact identity across equivalent assembly descriptors
+without exposing the Artifacts contract floor as a Research dependency. This
+is a layer-owned view of the same identity, not a second identity scheme.
+
 The detached document retains the owner-issued immutable source coordinate
 when one exists. A local or otherwise mutable artifact retains an explicitly
 run-local binding receipt and non-projectable Share outcome; the document does
@@ -423,9 +429,10 @@ product-owned Metadata inventory and CSharpText word results:
 - `LibraryNameFamilies_SeparatesExactSpellings`: acronym, casing, and plural
   variants remain separate ordinal families.
 - `LibraryNameFamilies_RejectMismatchedArtifactSession` and
+  `LibraryNameFamilies_AcceptsEquivalentArtifactDescriptor` and
   `LibraryNameFamilies_RequireArtifactBackedAssembly`: the producer requires
-  acquisition-issued exact artifact identity rather than joining by display
-  identity or MVID alone.
+  acquisition-issued exact artifact identity, accepts equivalent descriptors
+  for that artifact, and does not join by display identity or MVID alone.
 - `LibraryNameFamilies_RejectIncompleteOrMismatchedInventory`: a bounded
   incomplete Metadata inventory fails visibly rather than issuing
   success-shaped partial rows.

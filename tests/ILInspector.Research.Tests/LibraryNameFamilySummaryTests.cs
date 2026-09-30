@@ -322,6 +322,33 @@ public sealed class LibraryNameFamilySummaryTests
     }
 
     [Fact]
+    public void LibraryNameFamilies_AcceptsEquivalentArtifactDescriptor()
+    {
+        using FixtureExecution fixture = OpenFixture();
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.ResearchNameFamilies.AssemblyPath());
+        ResolvedAssemblyReference equivalent =
+            ResolvedAssemblyReference.CreateFromArtifactIfManaged(
+                fixture.Assembly.Registration.ArtifactRegistration!,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "equivalent-name-family-fixture"))
+            ?? throw new InvalidOperationException(
+                "The fixture must contain managed metadata.");
+
+        LibraryNameFamilyDocument document = Assert.IsType<
+            LibraryNameFamilySummaryOutcome.Available>(
+                LibraryNameFamilySummary.Execute(
+                    equivalent,
+                    fixture.Session,
+                    provenance: fixture.Provenance)).Document;
+
+        Assert.Equal(
+            fixture.Session.ArtifactIdentity,
+            document.Binding.Artifact);
+    }
+
+    [Fact]
     public void LibraryNameFamilies_RequireArtifactBackedAssembly()
     {
         byte[] image = File.ReadAllBytes(

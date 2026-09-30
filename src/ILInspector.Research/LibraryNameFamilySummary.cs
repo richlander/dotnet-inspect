@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using CSharpText;
 using ILInspector.Metadata;
-using Inspector.Artifacts;
 
 namespace ILInspector.Research;
 
@@ -88,7 +87,7 @@ public sealed record LibraryNameFamilyLimits
 }
 
 public sealed record LibraryNameFamilyBinding(
-    ArtifactIdentity Artifact,
+    AssemblyArtifactIdentity Artifact,
     AssemblyReferenceIdentity Assembly,
     Guid ModuleVersionId);
 
@@ -279,17 +278,15 @@ public static class LibraryNameFamilySummary
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(session);
 
-        ArtifactAcquisitionRegistration? artifact =
-            assembly.Registration.ArtifactRegistration;
+        AssemblyArtifactIdentity? artifact =
+            assembly.Registration.ArtifactIdentity;
         if (artifact is null)
         {
             return new LibraryNameFamilySummaryOutcome.Unavailable(
                 LibraryNameFamilyUnavailableReason.MissingArtifactBinding,
                 "Library name families require an artifact-backed assembly.");
         }
-        if (!ReferenceEquals(
-                session.ArtifactIdentity,
-                artifact.Artifact))
+        if (session.ArtifactIdentity != artifact)
         {
             return new LibraryNameFamilySummaryOutcome.Rejected(
                 LibraryNameFamilyRejectionReason.ArtifactIdentityMismatch,
@@ -382,7 +379,7 @@ public static class LibraryNameFamilySummary
                 PdbTypeSourceEvidence>? sourceByType) =
             BindProvenance(
                 provenance,
-                artifact.Artifact,
+                artifact,
                 assembly.Identity,
                 moduleVersionId,
                 definitions);
@@ -470,7 +467,7 @@ public static class LibraryNameFamilySummary
         return new LibraryNameFamilySummaryOutcome.Available(
             new(
                 new(
-                    artifact.Artifact,
+                    artifact,
                     assembly.Identity,
                     moduleVersionId),
                 MethodologyVersion,
@@ -496,7 +493,7 @@ public static class LibraryNameFamilySummary
         IReadOnlyDictionary<MetadataTypeDefinitionAddress, PdbTypeSourceEvidence>?
             SourceByType) BindProvenance(
         PdbSourceProvenanceOutcome? provenance,
-        ArtifactIdentity artifact,
+        AssemblyArtifactIdentity artifact,
         AssemblyReferenceIdentity assembly,
         Guid moduleVersionId,
         IReadOnlyList<AssemblyTypeDeclaration> definitions)
@@ -529,9 +526,7 @@ public static class LibraryNameFamilySummary
                     null);
             case PdbSourceProvenanceOutcome.Available available:
                 PdbSourceProvenanceResult result = available.Result;
-                if (!ReferenceEquals(
-                        result.Binding.Artifact,
-                        artifact))
+                if (!result.Binding.IsSameArtifact(artifact))
                 {
                     return Rejected(
                         LibraryNameFamilyProvenanceRejection
