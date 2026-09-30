@@ -279,6 +279,7 @@ export function createTypeLeverageCoordinator<TRequest>(
     readonly request: TRequest;
     readonly key: string;
     readonly libraryKey: string;
+    readonly cacheGeneration: number;
   }
   type FeatureEvent = OperationFeatureEvent<
     TypeLeveragePresentation,
@@ -297,9 +298,14 @@ export function createTypeLeverageCoordinator<TRequest>(
   const presentationLibraries = new Map<string, string>();
   const indexes = new Map<string, BrowserLibraryNamespaceLeverage>();
   const shards = new Map<string, BrowserLibraryTypeLeverageShard>();
+  const cacheGenerations = new Map<string, number>();
   const inputs = new Map<OperationId, Input>();
   const shardKey = (libraryKey: string, exactNamespace: string) =>
     JSON.stringify([libraryKey, exactNamespace]);
+  const cacheGeneration = (libraryKey: string) =>
+    cacheGenerations.get(libraryKey) ?? 0;
+  const ownsCacheGeneration = (input: Input) =>
+    input.cacheGeneration === cacheGeneration(input.libraryKey);
   const inputFor = (operationId: OperationId) => {
     const input = inputs.get(operationId);
     if (input === undefined)
@@ -365,11 +371,15 @@ export function createTypeLeverageCoordinator<TRequest>(
         return undefined;
       };
       const finish = (value: TypeLeveragePresentation): undefined => {
-        presentations.set(input.key, value);
-        presentationLibraries.set(input.key, input.libraryKey);
-        sink.reportTerminal(dependencies.isCurrent(input.request)
+        if (ownsCacheGeneration(input)) {
+          presentations.set(input.key, value);
+          presentationLibraries.set(input.key, input.libraryKey);
+        }
+        sink.reportTerminal(
+          ownsCacheGeneration(input) && dependencies.isCurrent(input.request)
           ? { kind: "succeeded", value }
-          : { kind: "canceled", reason: "superseded" });
+          : { kind: "canceled", reason: "superseded" },
+        );
         return quiesce();
       };
       const fail = (error: unknown): undefined => {
@@ -393,7 +403,8 @@ export function createTypeLeverageCoordinator<TRequest>(
               if (index === undefined) {
                 index = await dependencies.queryIndex(input.request);
                 availableIndex(index);
-                indexes.set(input.libraryKey, index);
+                if (ownsCacheGeneration(input))
+                  indexes.set(input.libraryKey, index);
               }
               const requested = [
                 ...new Set(
@@ -410,7 +421,8 @@ export function createTypeLeverageCoordinator<TRequest>(
                       exactNamespace,
                     );
                     availableShard(shard);
-                    shards.set(key, shard);
+                    if (ownsCacheGeneration(input))
+                      shards.set(key, shard);
                   }
                   return shard;
                 }),
@@ -445,6 +457,9 @@ export function createTypeLeverageCoordinator<TRequest>(
       request: requestValue,
       key,
       libraryKey: dependencies.libraryKey(requestValue),
+      cacheGeneration: cacheGeneration(
+        dependencies.libraryKey(requestValue),
+      ),
     }, adapter);
     if (result.kind === "rejected"
         && dependencies.isCurrent(requestValue)) {
@@ -460,6 +475,10 @@ export function createTypeLeverageCoordinator<TRequest>(
     request,
     retry(requestValue) {
       const libraryKey = dependencies.libraryKey(requestValue);
+      cacheGenerations.set(
+        libraryKey,
+        cacheGeneration(libraryKey) + 1,
+      );
       for (const [key, cachedLibrary] of presentationLibraries) {
         if (cachedLibrary === libraryKey) {
           presentations.delete(key);

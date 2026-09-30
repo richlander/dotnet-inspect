@@ -274,3 +274,64 @@ test("retry invalidates the index and namespace-shard caches", async () => {
   assert.equal(shardQueries, 2);
   assert.equal(published.at(-1)?.status, "ready");
 });
+
+test("pre-retry shard completion cannot repopulate caches", async () => {
+  interface Request {
+    readonly key: string;
+    readonly library: string;
+  }
+  let current = "A";
+  let oldBPending = false;
+  let releaseOldB = (_value: BrowserLibraryTypeLeverageShard): void => {
+    throw new Error("The old B shard request did not start.");
+  };
+  const shardQueries: string[] = [];
+  const toolsShard: BrowserLibraryTypeLeverageShard = {
+    ...shard,
+    namespace: "Example.Tools",
+    types: [],
+    seaLevelOrder: [],
+    mountainPeakOrder: [],
+  };
+  const coordinator = createTypeLeverageCoordinator<Request>({
+    operationAuthority: createOperationAuthorityPage(),
+    key: request => request.key,
+    libraryKey: request => request.library,
+    queryIndex: async () => index,
+    selectNamespaces: request => [
+      request.key === "B" ? "Example.Tools" : "Example.Core",
+    ],
+    queryShard: request => {
+      shardQueries.push(request.key);
+      if (request.key === "B" && !oldBPending) {
+        oldBPending = true;
+        return new Promise(resolve => {
+          releaseOldB = resolve;
+        });
+      }
+      return Promise.resolve(
+        request.key === "B" ? toolsShard : shard,
+      );
+    },
+    isCurrent: request => request.key === current,
+    describeError: error => String(error),
+    reportOperationDiagnostic: () => undefined,
+    publish: () => undefined,
+  });
+
+  coordinator.request({ key: "A", library: "library" });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  current = "B";
+  coordinator.request({ key: "B", library: "library" });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  current = "A";
+  coordinator.retry({ key: "A", library: "library" });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  releaseOldB(toolsShard);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  current = "B";
+  coordinator.request({ key: "B", library: "library" });
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.deepEqual(shardQueries, ["A", "B", "A", "B"]);
+});

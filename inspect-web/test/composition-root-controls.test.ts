@@ -1303,6 +1303,9 @@ test("typed type panel owns its rendered control bindings", () => {
       assert.match(
         appSource,
         /const value = ns \|\| GLOBAL_NAMESPACE_FILTER/);
+      assert.match(
+        appSource,
+        /typeLeverageMatchesFilter\(undefined, leverageFilter\)[\s\S]*\.filter\(row =>\s*exactNamespace === null \|\| row\.namespace === exactNamespace\)/);
     });
   assert.equal(selectorCount("#type-filter"), 1);
   assert.equal(selectorCount("#type-list"), 5);

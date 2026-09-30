@@ -5085,9 +5085,20 @@ function selectedForwarder() {
 
 function filteredTypeRows(): Array<AppTypeSurface | BrowserPlatformForwarderRow> {
   const definitions = filteredTypes();
-  const forwarders = filterForwardedTypes(
-    currentPlatformForwarderView()?.forwarders ?? [],
-    { text: state.typeFilter, namespace: selectedNamespaceFilter() ?? "", kind: state.kindFilter });
+  const exactNamespace = selectedNamespaceFilter();
+  const leverage = currentTypeLeveragePresentation();
+  const leverageFilter = leverage ? state.typeLeverageFilter : "";
+  const forwarders = typeLeverageMatchesFilter(undefined, leverageFilter)
+    ? filterForwardedTypes(
+      currentPlatformForwarderView()?.forwarders ?? [],
+      {
+        text: state.typeFilter,
+        namespace: exactNamespace ?? "",
+        kind: state.kindFilter,
+      },
+    ).filter(row =>
+      exactNamespace === null || row.namespace === exactNamespace)
+    : [];
   return forwarders.length === 0 ? definitions : [...definitions, ...forwarders]
     .sort((left, right) =>
       left.namespace.localeCompare(right.namespace)
