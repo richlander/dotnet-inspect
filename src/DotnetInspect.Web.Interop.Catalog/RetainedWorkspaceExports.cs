@@ -4,6 +4,7 @@ using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.SourceSelection;
+using NuGetFetch;
 using PackageAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePackagePresentation>;
 using PlatformAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePlatformPresentation>;
 
@@ -25,6 +26,29 @@ public static partial class CatalogExports
                     label,
                     canonicalLocation,
                     canonicalPacket)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspacePreparationResult);
+    }
+
+    [JSExport]
+    public static async Task<string> PreparePackageQueryWorkspaceDefinition(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string packageId,
+        string version)
+    {
+        BrowserRetainedWorkspacePreparationResult result =
+            await BrowserRetainedWorkspaceActivationService
+                .PreparePackageQueryAsync(
+                    retainedDefinitionId,
+                    label,
+                    canonicalLocation,
+                    packageId,
+                    version)
                 .ConfigureAwait(false);
         return JsonSerializer.Serialize(
             result,
@@ -525,6 +549,37 @@ internal static class BrowserRetainedWorkspaceActivationService
                     StringComparer.Ordinal)).ConfigureAwait(false);
 
     internal static async Task<BrowserRetainedWorkspacePreparationResult>
+        PreparePackageQueryAsync(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string packageId,
+        string version)
+    {
+        BrowserRetainedWorkspaceActivationRequest request;
+        try
+        {
+            request = BrowserExternalPackageWorkspaceRequestFactory.Create(
+                retainedDefinitionId,
+                label,
+                canonicalLocation,
+                PackageSourceCoordinate.Create(packageId, version),
+                BrowserPackageWorkspace.ProductWorkspacePlan);
+        }
+        catch (ArgumentException ex)
+        {
+            return new(
+                "failed",
+                null,
+                null,
+                null,
+                new("InvalidRequest", ex.Message));
+        }
+
+        return await PrepareAsync(request).ConfigureAwait(false);
+    }
+
+    internal static async Task<BrowserRetainedWorkspacePreparationResult>
         PrepareAsync(
         string retainedDefinitionId,
         string label,
@@ -555,6 +610,12 @@ internal static class BrowserRetainedWorkspaceActivationService
                 new("InvalidRequest", ex.Message));
         }
 
+        return await PrepareAsync(request).ConfigureAwait(false);
+    }
+
+    static async Task<BrowserRetainedWorkspacePreparationResult> PrepareAsync(
+        BrowserRetainedWorkspaceActivationRequest request)
+    {
         BrowserRetainedWorkspaceActivationSession session =
             Owner.BeginActivation(request);
         lock (Gate)
@@ -1218,7 +1279,7 @@ internal static class BrowserRetainedWorkspaceActivationService
     static BrowserRetainedWorkspacePreparedPosting PreparedPosting(
         BrowserRetainedWorkspacePostingDraft posting)
     {
-        string canonicalPacket = CanonicalPacket(posting.Projection);
+        string? canonicalPacket = CanonicalPacket(posting.Projection);
         return new(
             posting.RetainedDefinitionId,
             posting.Label,
@@ -1256,15 +1317,11 @@ internal static class BrowserRetainedWorkspaceActivationService
             posting.RetainedDefinitionId,
             posting.Label,
             posting.CanonicalLocation,
-            posting.CanonicalPacket
-                ?? throw new InvalidOperationException(
-                    "The packet activation export cannot project a non-packet retained definition."),
+            posting.CanonicalPacket,
             posting.RealizationId,
             posting.PublicationOrdinal,
             Definition(
-                posting.CanonicalPacket
-                    ?? throw new InvalidOperationException(
-                        "The packet activation export requires a canonical packet."),
+                posting.CanonicalPacket,
                 posting.Definition),
             BrowserCatalogWireProjection.Project(posting.Navigation),
             [
@@ -1344,19 +1401,16 @@ internal static class BrowserRetainedWorkspaceActivationService
             surface.Documents.Count,
             surface.InspectionErrors.Length > 0 || surface.InspectionError is not null);
 
-    static string CanonicalPacket(
+    static string? CanonicalPacket(
         CompleteRestorationProjection projection) =>
         projection is CompleteRestorationProjection.Projectable projectable
             ? projectable.CanonicalPacket
-            : throw new InvalidOperationException(
-                "The packet activation export cannot project a non-packet retained definition.");
+            : null;
 
     static BrowserRetainedWorkspaceDefinitionState Definition(
-        string canonicalPacket,
+        string? canonicalPacket,
         CommittedScenarioDefinitionSet definition)
     {
-        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
-            canonicalPacket);
         CommittedNavigationDefinition navigation =
             definition.Navigation
             ?? throw new InvalidOperationException(
@@ -1365,6 +1419,16 @@ internal static class BrowserRetainedWorkspaceActivationService
             definition.Workspace
             ?? throw new InvalidOperationException(
                 "A restored Workspace requires its Workspace definition.");
+        if (canonicalPacket is null)
+        {
+            return ExternalPackageDefinition(
+                definition,
+                navigation,
+                workspace);
+        }
+
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            canonicalPacket);
         return new(
             [
                 .. packet.Tabs.Select((tab, index) => new BrowserWorkspaceShareTab(
@@ -1388,6 +1452,58 @@ internal static class BrowserRetainedWorkspaceActivationService
             [.. workspace.Registrations.Select(Registration)],
             navigation.Focus,
             definition.Scenario.Context);
+    }
+
+    static BrowserRetainedWorkspaceDefinitionState ExternalPackageDefinition(
+        CommittedScenarioDefinitionSet definition,
+        CommittedNavigationDefinition navigation,
+        WorkspaceDefinition workspace)
+    {
+        NavigationTabDefinition tab = AssertSingle(
+            navigation.Tabs,
+            "A nonprojectable external Package definition requires one Navigation tab.");
+        WorkspaceContextDefinition context = AssertSingle(
+            workspace.Contexts,
+            "A nonprojectable external Package definition requires one Workspace context.");
+        DefinitionMemberCoordinate.PackageCoordinate package =
+            tab.Coordinate
+                as DefinitionMemberCoordinate.PackageCoordinate
+                ?? throw new InvalidOperationException(
+                    "A nonprojectable external Package definition requires a Package tab.");
+        DefinitionMemberCoordinate member = AssertSingle(
+            context.Members,
+            "A nonprojectable external Package definition requires one Package member.");
+        if (!Equals(member, package))
+        {
+            throw new InvalidOperationException(
+                "The external Package Navigation tab must match its Workspace member.");
+        }
+
+        return new(
+            [
+                new BrowserWorkspaceShareTab(
+                    tab.Id,
+                    package.Kind,
+                    package.Id,
+                    package.Version,
+                    package.Framework,
+                    package.RuntimeIdentifier),
+            ],
+            [new BrowserWorkspaceShareContext(context.Name, [tab.Id])],
+            [.. workspace.Registrations.Select(Registration)],
+            navigation.Focus,
+            definition.Scenario.Context);
+    }
+
+    static T AssertSingle<T>(
+        IReadOnlyList<T> values,
+        string message)
+    {
+        if (values.Count != 1)
+        {
+            throw new InvalidOperationException(message);
+        }
+        return values[0];
     }
 
     static BrowserRetainedWorkspaceRegistration Registration(

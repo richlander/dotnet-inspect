@@ -145,6 +145,7 @@ type CatalogOperationName =
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "observeRetainedWorkspaceSettlement"
+  | "preparePackageQueryWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
   | "recordRetainedWorkspaceNavigationPosting"
@@ -1804,6 +1805,29 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.observeRetainedWorkspaceSettlement(...args),
     ),
+    preparePackageQueryWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-prepare-package-query-workspace-definition",
+      5,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["preparePackageQueryWorkspaceDefinition"]
+        >
+      ) => facades.catalog.preparePackageQueryWorkspaceDefinition(...args),
+      async (facades, result) => {
+        if (result.status !== "prepared" || result.receipt === null) return;
+        const cancellation =
+          await facades.catalog.cancelRetainedWorkspaceActivation(
+            result.receipt,
+          );
+        if (cancellation.status === "failed") {
+          throw new Error(
+            cancellation.failure?.message
+              ?? "Rejected package-query Workspace preparation could not be cleaned up.",
+          );
+        }
+      },
+    ),
     prepareRetainedWorkspaceDefinition: valueOperation(
       "ordinary-catalog-prepare-retained-workspace-definition",
       4,
@@ -2302,6 +2326,10 @@ export function bindEngineWorkerOrdinaryClient(
       observeRetainedWorkspaceSettlement: bind(
         engineWorkerOrdinaryOperations.catalog
           .observeRetainedWorkspaceSettlement,
+      ),
+      preparePackageQueryWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .preparePackageQueryWorkspaceDefinition,
       ),
       prepareRetainedWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog

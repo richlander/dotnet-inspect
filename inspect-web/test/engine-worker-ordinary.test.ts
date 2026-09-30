@@ -259,6 +259,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("encodeWorkspaceShareState"),
     observeRetainedWorkspaceSettlement: () =>
       unexpected("observeRetainedWorkspaceSettlement"),
+    preparePackageQueryWorkspaceDefinition: () =>
+      unexpected("preparePackageQueryWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinition: () =>
       unexpected("prepareRetainedWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinitionWithCredentials: () =>
@@ -2186,6 +2188,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "observeRetainedWorkspaceSettlement",
+      "preparePackageQueryWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinitionWithCredentials",
       "recordRetainedWorkspaceNavigationPosting",
@@ -2207,7 +2210,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 99);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 100);
 
   const state = fixture();
   const groups = [
