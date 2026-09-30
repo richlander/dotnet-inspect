@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
 using DotnetInspector.Queries;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
 using NuGetFetch;
@@ -167,6 +168,34 @@ public sealed partial class ExactTypeInspectionOperationTests
             });
         var store = new InMemoryPackageStore();
         using var client = new HttpClient(new FailingHandler());
+        var input = new WorkspaceContextInput
+        {
+            Framework = Framework,
+            Members =
+            [
+                WorkspaceMemberCoordinate.Platform(
+                    "runtime",
+                    facade,
+                    runtimeVersion,
+                    Framework),
+            ],
+        };
+        ExactLibrarySourceCoordinate focusLibrary;
+        await using (var focusWorkspace =
+            new InspectionWorkspace(
+                new WorkspacePlan([], [input])))
+        {
+            WorkspaceDeclarationContext focusContext =
+                await WorkspaceContextLoader.LoadDeclarationContextAsync(
+                    focusWorkspace,
+                    input,
+                    LoadOptions(client, store),
+                    TestContext.Current.CancellationToken);
+            focusLibrary = Assert.IsAssignableFrom<
+                ExactLibrarySourceCoordinate>(
+                    Assert.Single(
+                        focusContext.Receipt.Members).Coordinate);
+        }
         SubjectRelationsQueryPlan plan = Assert.IsType<
             SubjectRelationsQueryPlanResult.Accepted>(
                 SubjectRelationsQuery.ResolveIntent(
@@ -190,20 +219,10 @@ public sealed partial class ExactTypeInspectionOperationTests
         ExactTypeRelationsInspectionOutcome outcome =
             await ExactTypeRelationsInspectionOperation.ExecuteAsync(
                 new TypeRelationsInspectionRequest(
-                    new WorkspaceContextInput
-                    {
-                        Framework = Framework,
-                        Members =
-                        [
-                            WorkspaceMemberCoordinate.Platform(
-                                "runtime",
-                                facade,
-                                runtimeVersion,
-                                Framework),
-                        ],
-                    },
+                    input,
                     "Relations.IContract",
-                    FocusAssemblyName: facade),
+                    FocusAssemblyName: facade,
+                    FocusLibrary: focusLibrary),
                 LoadOptions(client, store),
                 plan,
                 count: new SubjectRelationPopulationCountRequest(),

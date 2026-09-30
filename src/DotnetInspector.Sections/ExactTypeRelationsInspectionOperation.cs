@@ -114,6 +114,7 @@ public static class ExactTypeRelationsInspectionOperation
                 selectedPlatformAssemblies.Add(member.Assembly);
         }
         string? focusAssemblyName = request.FocusAssemblyName;
+        ExactLibrarySourceCoordinate? focusLibrary = request.FocusLibrary;
         AssemblyReferenceIdentity? platformAssemblyDemand =
             PlatformAssemblyDemand(input);
         ExactTypeRelationsInspectionOutcome? outcome = null;
@@ -178,7 +179,7 @@ public static class ExactTypeRelationsInspectionOperation
                             request.Type,
                             request.SelectionKind,
                             focusAssemblyName,
-                            request.FocusLibrary,
+                            focusLibrary,
                             cancellationToken: cancellationToken);
                     if (focus
                         is WorkspaceExactTypeFocusOutcome
@@ -207,6 +208,7 @@ public static class ExactTypeRelationsInspectionOperation
                             required.Assembly.Name);
                         input = expandedInput;
                         focusAssemblyName = required.Assembly.Name;
+                        focusLibrary = null;
                         platformAssemblyDemand = required.Assembly;
                         continue;
                     }
