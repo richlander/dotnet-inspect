@@ -190,7 +190,7 @@ public class LibraryFindingConsumerTests
             default,
             null,
             null,
-            ImmutableDictionary<ClassificationExecution, ILInspector.Analysis.Planning.WorkReceipt>.Empty);
+            []);
         var inspection = new LibraryInspection();
 
         LibraryMetadataService.ApplyMethodClassificationResult(

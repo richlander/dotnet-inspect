@@ -169,6 +169,11 @@ public abstract record ClassificationAnswer
     public sealed record Aborted(CriticalFailure Critical) : ClassificationAnswer;
 }
 
+/// <summary>One completed closing and its source-work receipt.</summary>
+public readonly record struct ClassificationReceipt(
+    ClassificationExecution Execution,
+    WorkReceipt Receipt);
+
 /// <summary>
 /// The typed result of a classification request: one answer per question, in
 /// question order, and, when the Finding was requested, the merged rows in
@@ -185,7 +190,7 @@ public sealed record MethodClassificationResult(
     ImmutableArray<ClassifiedMethodRow> MergedRows,
     FindingInspection<ClassifiedMethodObservation>? Finding,
     CriticalFailure? Critical,
-    ImmutableDictionary<ClassificationExecution, WorkReceipt> Receipts)
+    ImmutableArray<ClassificationReceipt> Receipts)
 {
     public ClassificationAnswer AnswerTo(ClassificationQuestion question)
     {
@@ -196,6 +201,19 @@ public sealed record MethodClassificationResult(
         }
 
         throw new ArgumentException("The question was not asked.", nameof(question));
+    }
+
+    public WorkReceipt ReceiptOf(ClassificationExecution execution)
+    {
+        foreach (ClassificationReceipt receipt in Receipts)
+        {
+            if (receipt.Execution == execution)
+                return receipt.Receipt;
+        }
+
+        throw new ArgumentException(
+            "The execution was not requested.",
+            nameof(execution));
     }
 }
 
@@ -356,13 +374,16 @@ public static class MethodClassificationQuery
         }
 
         var receipts =
-            ImmutableDictionary.CreateBuilder<ClassificationExecution, WorkReceipt>();
+            ImmutableArray.CreateBuilder<ClassificationReceipt>(
+                requestedExecutions.Count);
         CriticalFailure? critical = null;
         for (int i = 0; i < requestedExecutions.Count; i++)
         {
             ClassificationExecution execution = requestedExecutions[i];
             MethodDefinitionExecution completed = executions[i];
-            receipts[execution] = completed.Receipt;
+            receipts.Add(new ClassificationReceipt(
+                execution,
+                completed.Receipt));
             critical ??= completed.Receipt.Critical;
         }
 
@@ -371,7 +392,7 @@ public static class MethodClassificationQuery
             merged,
             inspection,
             critical,
-            receipts.ToImmutable());
+            receipts.MoveToImmutable());
     }
 
     static MethodDefinitionExecution ExecutionOf(
@@ -412,7 +433,7 @@ public static class MethodClassificationQuery
                 ? null
                 : MetadataFindings.InspectClassifiedMethods([], findingSubject),
             null,
-            ImmutableDictionary<ClassificationExecution, WorkReceipt>.Empty);
+            []);
     }
 
     /// <summary>

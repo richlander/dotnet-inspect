@@ -240,24 +240,26 @@ public sealed class MethodClassificationQueryTests
                 new ClassificationExecution(ClassificationClosing.Count),
                 new ClassificationExecution(ClassificationClosing.Exists),
             ],
-            result.Receipts.Keys.OrderBy(static key => key.Closing));
+            result.Receipts
+                .Select(static receipt => receipt.Execution)
+                .OrderBy(static key => key.Closing));
         Assert.True(
-            result.Receipts[
+            result.ReceiptOf(
                 new ClassificationExecution(
-                    ClassificationClosing.Rows)].IdentityBudgetArmed);
+                    ClassificationClosing.Rows)).IdentityBudgetArmed);
         Assert.False(
-            result.Receipts[
+            result.ReceiptOf(
                 new ClassificationExecution(
-                    ClassificationClosing.Count)].IdentityBudgetArmed);
+                    ClassificationClosing.Count)).IdentityBudgetArmed);
         Assert.False(
-            result.Receipts[
+            result.ReceiptOf(
                 new ClassificationExecution(
-                    ClassificationClosing.Exists)].IdentityBudgetArmed);
+                    ClassificationClosing.Exists)).IdentityBudgetArmed);
         Assert.Equal(
             0,
-            result.Receipts[
+            result.ReceiptOf(
                 new ClassificationExecution(
-                    ClassificationClosing.Count)].IdentityWorkCharged);
+                    ClassificationClosing.Count)).IdentityWorkCharged);
     }
 
     [Fact]
@@ -318,10 +320,10 @@ public sealed class MethodClassificationQueryTests
                 rows.Methods.Select(static row => row.MethodName.ToString()));
             Assert.Null(result.Critical);
 
-            WorkReceipt receipt = result.Receipts[
+            WorkReceipt receipt = result.ReceiptOf(
                 new ClassificationExecution(
                     ClassificationClosing.Head,
-                    2)];
+                    2));
             Assert.Equal(3, receipt.UnitsVisited);
             Assert.Equal(
                 ProducerOutcome.Stopped,

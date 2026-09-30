@@ -590,11 +590,13 @@ public partial class SectionPipelineTests
                 new ClassificationExecution(ClassificationClosing.Rows),
                 new ClassificationExecution(ClassificationClosing.Count),
             ],
-            available.Result.Receipts.Keys.OrderBy(static key => key.Closing));
+            available.Result.Receipts
+                .Select(static receipt => receipt.Execution)
+                .OrderBy(static key => key.Closing));
         Assert.False(
-            available.Result.Receipts[
+            available.Result.ReceiptOf(
                 new ClassificationExecution(
-                    ClassificationClosing.Count)].IdentityBudgetArmed);
+                    ClassificationClosing.Count)).IdentityBudgetArmed);
         Assert.Equal(1, context.SharedQueryCount);
     }
 
@@ -624,11 +626,12 @@ public partial class SectionPipelineTests
         Assert.True(Assert.IsType<ClassificationAnswer.Count>(answer).Value > 0);
         Assert.Equal(
             [new ClassificationExecution(ClassificationClosing.Count)],
-            available.Result.Receipts.Keys);
+            available.Result.Receipts.Select(
+                static receipt => receipt.Execution));
         Assert.False(
-            available.Result.Receipts[
+            available.Result.ReceiptOf(
                 new ClassificationExecution(
-                    ClassificationClosing.Count)].IdentityBudgetArmed);
+                    ClassificationClosing.Count)).IdentityBudgetArmed);
     }
 
     [Fact]
