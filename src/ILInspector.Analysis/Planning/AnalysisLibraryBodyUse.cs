@@ -144,17 +144,6 @@ internal sealed class AnalysisLibraryBodyUseProducer
                 return;
             }
 
-            bool unavailable = body.Diagnostics.Any(
-                static diagnostic =>
-                    diagnostic.Kind
-                        == AnalysisLibraryBodyUseDiagnosticKind
-                            .MalformedBody);
-            if (unavailable)
-            {
-                _bodiesUnavailable++;
-                return;
-            }
-
             long attempted = checked(
                 (long)_occurrences.Count
                     + body.Occurrences.Length);
