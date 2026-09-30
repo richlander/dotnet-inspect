@@ -193,6 +193,56 @@ public sealed class MetadataLibrarySignatureUseTests
     }
 
     [Fact]
+    public void ExactNamespaceBatchDoesNotShareInheritedClassification()
+    {
+        const string alphaNamespace =
+            "ILInspector.Metadata.SignatureUseFixtures.ClassificationAlpha";
+        const string betaNamespace =
+            "ILInspector.Metadata.SignatureUseFixtures.ClassificationBeta";
+        var policy = new MetadataOperationPolicy(
+            long.MaxValue,
+            maxDeclarationCandidates: 2);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                typeof(FixtureAnchor).Assembly.Location);
+
+        MetadataLibrarySignatureUseResult independent =
+            Available(
+                session.LibrarySignatureUses(
+                    new(policy, alphaNamespace),
+                    TestContext.Current.CancellationToken));
+        MetadataLibrarySignatureUseBatchResult alphaFirst =
+            Available(
+                session.LibrarySignatureUseBatch(
+                    new(
+                        policy,
+                        [alphaNamespace, betaNamespace]),
+                    TestContext.Current.CancellationToken));
+        MetadataLibrarySignatureUseBatchResult alphaSecond =
+            Available(
+                session.LibrarySignatureUseBatch(
+                    new(
+                        policy,
+                        [betaNamespace, alphaNamespace]),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equivalent(
+            independent,
+            alphaFirst.Results[0],
+            strict: true);
+        Assert.Equivalent(
+            independent,
+            alphaSecond.Results[1],
+            strict: true);
+        Assert.Contains(
+            independent.Types,
+            static type =>
+                type.Name.Segments is ["ADerived"]
+                && type.Classification
+                    == MetadataLibraryTypeClassification.None);
+    }
+
+    [Fact]
     public void ExactNamespaceBatchRejectsInvalidSetAndSharedImageLimit()
     {
         Assert.Throws<ArgumentException>(

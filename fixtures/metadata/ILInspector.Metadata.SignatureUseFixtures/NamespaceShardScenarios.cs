@@ -37,3 +37,17 @@ namespace ILInspector.Metadata.SignatureUseFixtures.IsolationHealthy
     public sealed class HealthyException :
         IsolationBusy.LimitedExceptionBase;
 }
+
+namespace ILInspector.Metadata.SignatureUseFixtures.ClassificationAlpha
+{
+    public class ADerived :
+        ClassificationBeta.BMiddle;
+
+    public class ZBase : Exception;
+}
+
+namespace ILInspector.Metadata.SignatureUseFixtures.ClassificationBeta
+{
+    public class BMiddle :
+        ClassificationAlpha.ZBase;
+}

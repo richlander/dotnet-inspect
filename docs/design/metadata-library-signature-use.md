@@ -185,9 +185,10 @@ executing.
 Each namespace result is strictly equivalent to executing its exact-namespace
 request independently. It retains its own exact namespace, canonical Types and
 occurrences, disposition, coverage, diagnostics, ordering, and logical policy
-counters. Shared execution does not combine budgets: a limited or malformed
-site qualifies only its source namespace, while healthy peers continue under
-their independent logical counters.
+counters. Request order determines result order only; it cannot change any
+namespace result. Shared execution does not combine budgets: a limited or
+malformed site qualifies only its source namespace, while healthy peers
+continue under their independent logical counters.
 
 The batch receipt records actual shared physical work once. Image admission and
 the Type inventory contribute once to that receipt but remain present in every

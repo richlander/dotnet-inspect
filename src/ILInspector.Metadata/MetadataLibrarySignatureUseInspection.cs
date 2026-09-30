@@ -416,6 +416,8 @@ internal static class MetadataLibrarySignatureUseInspection
         private readonly TypeEntry?[] _typesByRow;
         private readonly MetadataLibraryTypeClassification[]
             _inheritanceClassification;
+        private readonly MetadataLibraryTypeClassification[]?
+            _batchInitialClassification;
         private readonly bool[] _inheritanceSettled;
         private readonly bool[] _baseSiteExamined;
         private readonly int[] _inheritanceVisitGeneration;
@@ -528,6 +530,11 @@ internal static class MetadataLibrarySignatureUseInspection
             _typesByRow = new TypeEntry?[typeRowCapacity];
             _inheritanceClassification =
                 new MetadataLibraryTypeClassification[typeRowCapacity];
+            if (singlePartition is null)
+            {
+                _batchInitialClassification =
+                    new MetadataLibraryTypeClassification[typeRowCapacity];
+            }
             _inheritanceSettled = new bool[typeRowCapacity];
             _baseSiteExamined = new bool[typeRowCapacity];
             _inheritanceVisitGeneration = new int[typeRowCapacity];
@@ -547,7 +554,11 @@ internal static class MetadataLibrarySignatureUseInspection
             ImmutableArray.CreateBuilder<
                 MetadataLibrarySignatureUseResult>(_partitions.Length);
             foreach (Partition partition in _partitions)
+            {
+                ClassifyInheritance(partition);
                 results.Add(CreateResult(partition));
+                ResetClassification(partition);
+            }
             return results.MoveToImmutable();
         }
 
@@ -581,7 +592,7 @@ internal static class MetadataLibrarySignatureUseInspection
             [.. _types
                 .Where(partition.IsAdmitted)
                 .Select(
-                static entry =>
+                    static entry =>
                     new MetadataLibrarySignatureType(
                         entry.Address,
                         entry.Name,
@@ -634,6 +645,11 @@ internal static class MetadataLibrarySignatureUseInspection
 
                 TypeDefinitionHandle handle =
                     (TypeDefinitionHandle)entity;
+                MetadataLibraryTypeClassification initialClassification =
+                    SafeInitialClassification(
+                        handle,
+                        declaration.Name,
+                        isCoreLibrary);
                 var entry = new TypeEntry(
                     handle,
                     MetadataTypeDefinitionAddress.FromHandle(
@@ -641,10 +657,7 @@ internal static class MetadataLibrarySignatureUseInspection
                         handle),
                     declaration.Name,
                     definitionKind,
-                    SafeInitialClassification(
-                        handle,
-                        declaration.Name,
-                        isCoreLibrary));
+                    initialClassification);
                 if (!_typesByName.TryAdd(entry.Name, entry))
                 {
                     throw new BadImageFormatException(
@@ -657,6 +670,11 @@ internal static class MetadataLibrarySignatureUseInspection
                         "More than one Type inventory entry has the same TypeDef.");
                 }
                 _typesByRow[row] = entry;
+                if (_batchInitialClassification is not null)
+                {
+                    _batchInitialClassification[row] =
+                        initialClassification;
+                }
                 _types.Add(entry);
             }
         }
@@ -664,13 +682,7 @@ internal static class MetadataLibrarySignatureUseInspection
         private void ClassifyInheritance()
         {
             if (_singlePartition is not null)
-            {
                 ClassifyInheritance(_singlePartition);
-                return;
-            }
-
-            foreach (Partition partition in _partitions)
-                ClassifyInheritance(partition);
         }
 
         private void ClassifyInheritance(Partition partition)
@@ -686,6 +698,18 @@ internal static class MetadataLibrarySignatureUseInspection
                     SafeInheritanceClassification(
                         entry,
                         partition);
+            }
+        }
+
+        private void ResetClassification(Partition partition)
+        {
+            foreach (TypeEntry entry in _types)
+            {
+                if (!partition.IsAdmitted(entry))
+                    continue;
+                entry.Classification =
+                    _batchInitialClassification![
+                        TypeRow(entry.Handle)];
             }
         }
 
