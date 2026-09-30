@@ -936,6 +936,18 @@ public class FidelityCheckGeneratedFilterTests
             Assert.True(targetedRemover.UsedProductWholeMember);
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, targetedRemover.Status);
 
+            var explicitResults = FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "ExplicitEventFixture")
+                .Where(result => result.Method.Contains("Changed", StringComparison.Ordinal))
+                .ToList();
+            Assert.Equal(2, explicitResults.Count);
+            foreach (var result in explicitResults)
+            {
+                Assert.False(result.UsedProductWholeMember, result.Method);
+                Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            }
+
             var overrideResults = FidelityCheck.Evaluate(
                     assemblyPath,
                     typeName => typeName == "OverrideEventFixture",
