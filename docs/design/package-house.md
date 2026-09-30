@@ -23,9 +23,10 @@ Their adoption remains separately reviewed.
 focused [semantic content-demand contract](package-house-semantic-content-demand.md).
 Callers declare one reusable package narrowing plus evidence terminals;
 PackageHouse owns cache, manifest, directory, ranged-entry, complete-transfer,
-and typed-fallback planning. The content-demand owner composes existing source,
-asset-selection, Metadata, cache, and transfer owners without absorbing their
-algorithms.
+and typed-fallback planning. Archive-backed planning derives every narrowing
+and terminal from one validated ZIP central-directory snapshot. The
+content-demand owner composes existing source, archive, asset-selection,
+Metadata, cache, and transfer owners without absorbing their algorithms.
 
 [#7423](https://github.com/richlander/dotnet-inspect/issues/7423) extends that
 composition with package-slice policy. Its first focused slice defines only the

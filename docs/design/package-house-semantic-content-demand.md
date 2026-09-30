@@ -17,7 +17,7 @@ The operator approved one product-facing rule:
 
 Commands, Workspace loaders, and hosts do not choose ranged or complete
 payload access. They do not retry a ranged result through a complete path or
-reconstruct archive selectors. PackageHouse preserves the semantic demand
+reconstruct archive selectors. PackageHouse preserves the semantic query
 through planning, execution, typed fallback, settlement, and receipts.
 
 The semantic content query is separate from the existing package identity or
@@ -99,7 +99,8 @@ The snapshot is the singular basis for:
 - the detached File List terminal;
 - entry offsets, compressed and expanded lengths, and compression facts used
   by ranged-entry planning; and
-- determining which entries already exist in the entry cache.
+- the entry identities used to query which content the entry cache already
+  holds.
 
 PackageHouse resolves the narrowing once against that snapshot. Every terminal
 in the query consumes the resulting entry space and the same narrowing
@@ -226,7 +227,8 @@ One settlement preserves:
 
 - the exact package identity or version demand;
 - the exact semantic content query;
-- the exact admitted central-directory snapshot identity;
+- the exact admitted central-directory snapshot identity when the query
+  requires archive evidence;
 - one narrowing receipt shared by every terminal result;
 - the source decision and authority;
 - the requested target and root-family preference chain, plus the selected
