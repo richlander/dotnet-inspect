@@ -1032,10 +1032,15 @@ that result into one
 retains the comparison context, selected analyses and views, flattened outcome
 state, typed API inspection failures independently of the selected view, the
 selected API Changes payload, selected Summary rows, and selected Transitions
-rows. API Changes retain both compatibility-classified rows and unmatched
-producer correspondence such as a changed Type definition or member without a
-compatibility classification. Each outcome names its analysis identity and is
-exactly one of:
+rows. A selected-Library composition may additionally retain the owner-issued
+`LibraryApiDiffOutcome`, including its exact endpoint summaries,
+`ComparisonDocument<LibraryApiTypeDiff>`, and non-success evidence. The
+generic operation and the rich Library presentation consume one
+`AssemblyContextApiComparisonResult`; a host must not rerun API comparison or
+reconstruct Type/member correspondence. API Changes retain both
+compatibility-classified rows and unmatched producer correspondence such as a
+changed Type definition or member without a compatibility classification.
+Each outcome names its analysis identity and is exactly one of:
 
 - **Compared.** The analysis's native keyed comparison, such as
   `ApiFindingComparison` or `FindingComparison<T>`. Research keeps the
@@ -1043,7 +1048,9 @@ exactly one of:
   ([Research composition](finding-nomenclature.md#research-composition)).
 - **Unavailable.** The analysis could not run at this surface for these
   endpoints. It keeps its owner-issued typed reason, such as API "not
-  compared".
+  compared". A host may resolve this state before dispatch when it cannot
+  construct the analysis on that platform. Such an outcome short-circuits the
+  producer and does not participate in shared body preparation.
 - **Failed.** The analysis's producer failed. It keeps its owner-issued typed
   diagnostic.
 
@@ -1063,11 +1070,15 @@ single-`api` Library request still delivers
 An explicit `--analysis` request, or a request selecting Summary or
 Transitions, delivers `InspectionEnvelope<DiffAnalysisDocument>`.
 Unprojected `--json` writes that exact Content and `--envelope` writes the same
-Content with `result_kind` `diff-analysis`, schema version `1`, Share, and
+Content with `result_kind` `diff-analysis`, schema version `2`, Share, and
 ordered diagnostics. Type and Member targets remain semantic request inputs;
 presentation-only columns, fields, row or line clipping, and tabular formats
-are rejected before acquisition. Browser/Wasm consumption of the same
-envelope remains a later adoption slice.
+are rejected before acquisition. Inspect Web's Metadata facade consumes the
+same envelope for its existing Library-root Compare operation. Its production
+request selects Library surface, `api`, and Changes; Type and Member Compare
+continue to project from the retained `libraryApi` presentation. Browser-valid
+`api-attribute` requests execute, while body-dependent analyses retain typed
+host-resolved `Unavailable` outcomes without producer preparation.
 
 For rendered output, explicit `--analysis api` changes delivery ownership, not
 presentation intent. Without an explicit Changes section, table, TSV, and
@@ -1105,9 +1116,10 @@ Two coherent steps deliver analysis selection to both production hosts:
    `Summary`, `Changes`, and `Transitions` views, the pairwise `--finding` and
    `Finding Transitions` retirements, and discovery through `explain`, `-D`,
    and help.
-2. **Transport and Browser/Wasm.** The JSON transport of `DiffAnalysisResult`
-   and the website's adoption of the same validation, catalog, and result,
-   with C# and TypeScript call sites.
+2. **Transport and Browser/Wasm.** The JSON transport of
+   `DiffAnalysisDocument` and the website's adoption of the same validation,
+   catalog, and envelope, with C# and TypeScript call sites. Browser-host
+   availability is an input to the shared operation, not a second result model.
 
 Shipped product skills are updated once both have landed
 ([#8611](https://github.com/richlander/dotnet-inspect/issues/8611)).

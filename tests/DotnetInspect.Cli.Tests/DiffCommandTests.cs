@@ -2963,7 +2963,7 @@ public class DiffCommandTests
         Assert.Equal(
             "diff-analysis",
             envelope.RootElement.GetProperty("result_kind").GetString());
-        Assert.Equal(1, envelope.RootElement.GetProperty("schema_version").GetInt32());
+        Assert.Equal(2, envelope.RootElement.GetProperty("schema_version").GetInt32());
         Assert.True(JsonElement.DeepEquals(
             json.RootElement,
             envelope.RootElement.GetProperty("content")));

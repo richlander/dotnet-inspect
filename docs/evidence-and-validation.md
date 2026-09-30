@@ -187,6 +187,13 @@ NLinq provenance, and invocation. Do not publish ratios without the code that
 produced each column. When an oracle wins, identify the concrete implementation
 choice Planner can adopt.
 
+Commit those implementations, sources, provenance, and invocations with the
+enablement so later work can rerun and extend the same comparison. These
+benchmarks are development aids, not continually supported tests or a product
+performance offering, and they need not be built or run by CI. A shared
+performance harness may centralize them later; do not block an individual
+producer enablement on that future work.
+
 When a comparison exposes a safety check, place it at the narrowest shared
 owner. First distinguish
 [session-owned format admission](design/assembly-inspection-query.md#session-owned-format-admission)
@@ -218,16 +225,19 @@ than an inspected artifact:
 - `tests/NLinq.Oracle` is the pinned NLinq copy, with its provenance in
   `PROVENANCE.md`.
 - `tests/DotnetInspector.PerformanceOracles` adds the operators NLinq lacks
-  (`Take`, `Skip`, `TryTakeExactly` for a strict window, and `TakeLast`), the
-  method-definition source, and the `Scorecard` harness that checks answers
-  and times rotated rounds. `MethodPopulation<TSelection>` supplies the LINQ
-  and NLinq columns for any method selection; an enablement registers its Old
-  and Planner columns beside them.
+  (`Take`, `Skip`, stable `OrderBy`, `TryTakeExactly` for a strict window, and
+  `TakeLast`), the method-definition source, and the `Scorecard` harness that
+  checks answers and times rotated rounds. `MethodPopulation<TSelection>`
+  supplies the LINQ and NLinq columns for any method selection; an enablement
+  registers its Old and Planner columns beside them.
 - `tests/ILInspector.Metadata.PerformanceOracles.Tests` owns the privileged
   Metadata test projection. `MemberGroupPopulation` projects Metadata's
   prepared exact-overload model through LINQ, NLinq, and the shipping Planner
   kernel, preserving the same selection, row projection, bounds, and closing
   without exposing raw-reader lifetime through the public product API.
+- `tests/DotnetInspector.Queries.PerformanceOracles` owns the Type Find
+  population comparison, keeping its Queries dependency out of the generic
+  fixture and product API.
 - `tools/QuerySpaceScorecard` runs a scorecard over the public-methods
   population. `queryspace-scorecard check <assembly>...` compares answers, and
   `queryspace-scorecard time [--rounds N] [--budget-ms N] [--tsv <path>]
@@ -247,6 +257,13 @@ than an inspected artifact:
   retains generated bodies. Publish it for the target RID and run the
   resulting `analysis-harness <check|time> <System.Private.CoreLib.dll>
   <System.Text.Json.dll>`.
+- `tools/TypeFindPopulationScorecard` checks and times one complete immutable
+  Type population through LINQ, pinned NLinq, and the shipping selector. Its
+  normalized rows include the selected tier, effective pattern, exact
+  association, name, and similarity. Run
+  `type-find-population-scorecard <pattern> <check|time> <assembly>...`.
+  The shipping column is `Selector`, not `Planner`, because it settles an
+  already materialized population rather than executing a QuerySpace plan.
 
 **The scorecard** scores Old, LINQ, NLinq, and Planner for Exists, Count,
 Head(N), Tail(N), Rows, and Rows(n..m), over one open query on pinned real

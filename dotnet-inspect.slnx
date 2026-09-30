@@ -105,6 +105,9 @@
     <Project Path="fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.SpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.SourceProvenanceFixtures/ILInspector.Metadata.SourceProvenanceFixtures.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.SourceProvenanceLookalike/ILInspector.Metadata.SourceProvenanceLookalike.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.SourceProvenanceNetStandard/ILInspector.Metadata.SourceProvenanceNetStandard.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer/ILInspector.Metadata.TypeDependencyConsumer.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.TypeDependencyReference/ILInspector.Metadata.TypeDependencyReference.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.CloneSearchFixtures/DotnetInspector.CloneSearchFixtures.csproj" />
@@ -278,6 +281,7 @@
     <Project Path="tests/DotnetInspector.PackageManifestCorpus/DotnetInspector.PackageManifestCorpus.csproj" />
     <Project Path="tests/DotnetInspector.Presentation.Tests/DotnetInspector.Presentation.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Queries.Consumer/DotnetInspector.Queries.Consumer.csproj" />
+    <Project Path="tests/DotnetInspector.Queries.PerformanceOracles/DotnetInspector.Queries.PerformanceOracles.csproj" />
     <Project Path="tests/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
     <Project Path="tests/DotnetInspector.PortableQueries.Tests/DotnetInspector.PortableQueries.Tests.csproj" />
     <Project Path="tests/DotnetInspector.PerformanceOracles/DotnetInspector.PerformanceOracles.csproj" />
@@ -300,9 +304,11 @@
     <Project Path="tools/CSharpPrinter.Benchmarks/CSharpPrinter.Benchmarks.csproj" />
     <Project Path="tools/MemberBodySizeScorecard/MemberBodySizeScorecard.csproj" />
     <Project Path="tools/MemberGroupScorecard/MemberGroupScorecard.csproj" />
+    <Project Path="tools/BodyUseScorecard/BodyUseScorecard.csproj" />
     <Project Path="tools/PackageHouse.CliBenchmarks/PackageHouse.CliBenchmarks.csproj" />
     <Project Path="tools/MethodClassificationScorecard/MethodClassificationScorecard.csproj" />
     <Project Path="tools/QuerySpaceScorecard/QuerySpaceScorecard.csproj" />
+    <Project Path="tools/TypeFindPopulationScorecard/TypeFindPopulationScorecard.csproj" />
     <Project Path="tools/CSharpDiffHarness/CSharpDiffHarness.csproj" />
     <Project Path="tools/DecompilerHarness/DecompilerHarness.csproj" />
     <Project Path="tools/DiffHarnessCommon/DiffHarnessCommon.csproj" />

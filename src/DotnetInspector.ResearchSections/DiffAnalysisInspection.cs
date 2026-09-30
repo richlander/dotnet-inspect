@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
@@ -34,7 +35,8 @@ public sealed record DiffAnalysisInspectionRequest(
     InspectionCapabilityCatalog Catalog,
     AnalysisSetValidationResult.Accepted Selection,
     DiffAnalysisInput Input,
-    DiffAnalysisDocumentViews Views);
+    DiffAnalysisDocumentViews Views,
+    LibraryApiDiffOutcome? LibraryApi = null);
 
 public sealed record DiffAnalysisComparisonContext(
     string Name,
@@ -83,7 +85,8 @@ public sealed record DiffAnalysisDocument
         ImmutableArray<DiffAnalysisTransitionRow>? transitions,
         ApiDiff? apiResult = null,
         ImmutableArray<DiffAnalysisUnclassifiedApiChange>
-            unclassifiedChanges = default)
+            unclassifiedChanges = default,
+        LibraryApiDiffOutcome? libraryApi = null)
     {
         Comparison = comparison;
         Outcomes = outcomes;
@@ -97,6 +100,7 @@ public sealed record DiffAnalysisDocument
                 unclassifiedChanges.IsDefault ? [] : unclassifiedChanges);
         Summary = summary;
         Transitions = transitions;
+        LibraryApi = libraryApi;
     }
 
     public DiffAnalysisComparisonContext Comparison { get; }
@@ -106,6 +110,7 @@ public sealed record DiffAnalysisDocument
     public DiffAnalysisChangesDocument? Changes { get; }
     public ImmutableArray<DiffAnalysisSummaryRow>? Summary { get; }
     public ImmutableArray<DiffAnalysisTransitionRow>? Transitions { get; }
+    public LibraryApiDiffOutcome? LibraryApi { get; }
 
     public ApiDiff? GetApiChanges() => _apiChanges;
 
@@ -307,7 +312,8 @@ public static class DiffAnalysisInspection
                 ? [.. projections.SelectMany(projection => projection.Transitions)]
                 : null,
             apiResult: apiDiff,
-            unclassifiedChanges: unclassifiedApiChanges);
+            unclassifiedChanges: unclassifiedApiChanges,
+            libraryApi: request.LibraryApi);
 
         return new(
             document,
@@ -1187,6 +1193,7 @@ public static class DiffAnalysisInspection
 }
 
 [JsonSourceGenerationOptions(
+    Converters = [typeof(LibraryApiDiffOutcomeJsonConverter)],
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     WriteIndented = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

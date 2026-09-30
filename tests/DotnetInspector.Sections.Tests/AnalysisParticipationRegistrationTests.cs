@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using ILInspector.Metadata;
@@ -190,6 +191,65 @@ public sealed class AnalysisParticipationRegistrationTests
         Assert.All(result.Outcomes, outcome => Assert.IsType<DiffAnalysisOutcome.Compared>(outcome));
     }
 
+    [Theory]
+    [InlineData(
+        AnalysisReportSurfaceKind.Type,
+        "api-attribute",
+        DiffAnalysisDocumentViews.Changes,
+        DiffAnalysisViewRejectionReason.ChangesRequireApi)]
+    [InlineData(
+        AnalysisReportSurfaceKind.Library,
+        "api",
+        DiffAnalysisDocumentViews.Transitions,
+        DiffAnalysisViewRejectionReason.TransitionsRequireTypeOrMember)]
+    public void DiffAnalysisViews_RejectUnsupportedCombinations(
+        AnalysisReportSurfaceKind surface,
+        string analysis,
+        DiffAnalysisDocumentViews views,
+        DiffAnalysisViewRejectionReason expected)
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                surface,
+                targetCount: 1,
+                [analysis]));
+
+        Assert.Equal(
+            expected,
+            DiffAnalysisViewAdmission.Validate(accepted, views));
+    }
+
+    [Theory]
+    [InlineData(
+        AnalysisReportSurfaceKind.Library,
+        "api",
+        DiffAnalysisDocumentViews.Changes)]
+    [InlineData(
+        AnalysisReportSurfaceKind.Type,
+        "api-attribute",
+        DiffAnalysisDocumentViews.Transitions)]
+    [InlineData(
+        AnalysisReportSurfaceKind.Member,
+        "allocation",
+        DiffAnalysisDocumentViews.Summary)]
+    public void DiffAnalysisViews_AcceptSupportedCombinations(
+        AnalysisReportSurfaceKind surface,
+        string analysis,
+        DiffAnalysisDocumentViews views)
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                surface,
+                targetCount: 1,
+                [analysis]));
+
+        Assert.Null(DiffAnalysisViewAdmission.Validate(accepted, views));
+    }
+
     [Fact]
     public void AnalysisSet_TargetFailureIsRequestFailureBeforeAnyProducerOutcome()
     {
@@ -299,6 +359,120 @@ public sealed class AnalysisParticipationRegistrationTests
         Assert.True(parsed.RootElement.TryGetProperty("summary", out _));
         Assert.False(parsed.RootElement.TryGetProperty("changes", out _));
         Assert.False(parsed.RootElement.TryGetProperty("transitions", out _));
+        Assert.False(parsed.RootElement.TryGetProperty("libraryApi", out _));
+    }
+
+    [Fact]
+    public void DiffAnalysisOperation_HostUnavailableBodyAnalysesSkipPreparation()
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Member,
+                targetCount: 1,
+                ["allocation", "call-site", "unsafety"]));
+        int prepared = 0;
+        var input = new DiffAnalysisInput(
+            new ApiSurface(),
+            new ApiSurface(),
+            [],
+            [],
+            new HashSet<string>(),
+            ["Sample.Widget"],
+            new HashSet<string>(),
+            _ =>
+            {
+                prepared++;
+                throw new InvalidOperationException(
+                    "Unavailable analyses must not prepare body signals.");
+            },
+            hostUnavailability:
+            [
+                new(new AnalysisDeclarationId("allocation"),
+                    "Browser/Wasm cannot construct method bodies."),
+                new(new AnalysisDeclarationId("call-site"),
+                    "Browser/Wasm cannot construct method bodies."),
+                new(new AnalysisDeclarationId("unsafety"),
+                    "Browser/Wasm cannot construct method bodies."),
+            ]);
+
+        DiffAnalysisResult result =
+            DiffAnalysisOperation.Execute(catalog, accepted, input);
+
+        Assert.Equal(0, prepared);
+        Assert.Equal(
+            ["allocation", "call-site", "unsafety"],
+            result.Outcomes.Select(outcome => outcome.Identity));
+        Assert.All(
+            result.Outcomes,
+            outcome => Assert.Equal(
+                "Browser/Wasm cannot construct method bodies.",
+                Assert.IsType<DiffAnalysisOutcome.Unavailable>(outcome).Reason));
+    }
+
+    [Fact]
+    public void DiffAnalysisInspection_SerializesOwnerIssuedLibraryApiOutcome()
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Library,
+                targetCount: 1,
+                ["api"]));
+        var identity = new AssemblyReferenceIdentity(
+            "Sample",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        var endpoint = new LibraryApiDiffEndpointSummary(
+            identity,
+            ApiSurfaceScope.Public,
+            IsComplete: true,
+            []);
+        var libraryApi = new LibraryApiDiffOutcome.Rejected(
+            LibraryApiDiffRejectionKind.LogicalLibraryMismatch,
+            endpoint,
+            endpoint);
+        var input = new DiffAnalysisInput(
+            new ApiSurface(),
+            new ApiSurface(),
+            [],
+            [],
+            new HashSet<string>(),
+            [],
+            memberTargetIdentities: null,
+            prepareBodySignals: null);
+
+        InspectionEnvelope<DiffAnalysisDocument> inspection =
+            DiffAnalysisInspection.Execute(
+                new DiffAnalysisInspectionRequest(
+                    "Sample",
+                    "1.0.0",
+                    "2.0.0",
+                    catalog,
+                    accepted,
+                    input,
+                    DiffAnalysisDocumentViews.Changes,
+                    libraryApi));
+
+        string json = JsonSerializer.Serialize(
+            inspection.Content,
+            DiffAnalysisInspectionJsonContext.Default.DiffAnalysisDocument);
+        using var parsed = JsonDocument.Parse(json);
+        JsonElement embedded = parsed.RootElement.GetProperty("libraryApi");
+        Assert.Equal("rejected", embedded.GetProperty("outcome").GetString());
+        Assert.Equal(
+            (int)LibraryApiDiffRejectionKind.LogicalLibraryMismatch,
+            embedded.GetProperty("kind").GetInt32());
+        Assert.Equal(
+            "Sample",
+            embedded
+                .GetProperty("before")
+                .GetProperty("identity")
+                .GetProperty("name")
+                .GetString());
     }
 
     [Fact]
