@@ -19,6 +19,12 @@ presentation.
 This first delivery has no byte prefilter. The optional prefilter proof and
 gate from #5795 remain deferred by #6030.
 
+This revision defines the target cancellation ownership. The finite producer
+has no cancellation contract; the containing Package Query operation observes
+optional cancellation at coarse orchestration boundaries. That correction is
+unverified until the production migration removes the current token
+propagation and per-unit polling and lands the replacement operation gates.
+
 ## Claim
 
 Given:
@@ -26,8 +32,7 @@ Given:
 - one callback-scoped `AssemblyInspectionSession` for a Metadata-admitted
   ordinary ECMA-335 assembly;
 - one validated, non-empty `StringLiteralUseOperand`;
-- one finite positive `StringLiteralUsePatternBudget`; and
-- one cancellation token;
+- one finite positive `StringLiteralUsePatternBudget`;
 
 `StringLiteralUsePatternAnalysis.Inspect` returns every decoded `ldstr`
 instruction whose decoded user string contains the operand according to
@@ -36,8 +41,11 @@ outcome.
 
 A semantic miss exists only when every MethodDef row and every applicable
 method body completed within the admitted bounds. Decode failure, unsupported
-input, work-limit exhaustion, and cancellation never become a miss. Any such
-outcome discards matches accumulated before the interruption.
+input, and work-limit exhaustion never become a miss. Any such outcome
+discards matches accumulated before the interruption. Cancellation of the
+containing operation is not producer input or a producer result; an
+orchestrator that observes it discards provisional producer evidence and
+publishes no normal operation completion.
 
 ## Public contract
 
@@ -49,8 +57,7 @@ public static class StringLiteralUsePatternAnalysis
     public static StringLiteralUsePatternResult Inspect(
         AssemblyInspectionSession session,
         StringLiteralUseOperand operand,
-        StringLiteralUsePatternBudget budget,
-        CancellationToken cancellationToken = default);
+        StringLiteralUsePatternBudget budget);
 }
 ```
 
@@ -255,21 +262,27 @@ The bounds above prevent work or retention from becoming open-ended; the
 Package Query evaluator composes them with its separate retained-image and
 candidate-count bounds.
 
-## Cancellation
+## Operation cancellation
 
-The producer checks cancellation:
+The producer accepts no cancellation token and performs no cancellation
+polling. Its explicit method, body-byte, instruction, decoded-character, and
+occurrence budgets are the only intra-run work boundaries. Cancellation cannot
+interrupt an admitted producer invocation; it settles through the ordinary
+producer contract under those finite bounds.
 
-- before traversal;
-- before each MethodDef row;
-- before each bounded body read;
-- before instruction decoding;
-- while visiting decoded instructions;
-- before each bounded user-string decode;
-- before retaining each match; and
-- before returning a completed result.
+The containing Package Query operation owns optional cancellation. It observes
+cancellation before scheduling bounded candidate work, between candidate or
+selected-assembly evaluations, after one bounded producer invocation completes
+and its required cleanup settles, and before terminal publication. Tokens may
+still enter asynchronous acquisition or lifetime operations under their
+owning contracts, but do not enter this producer or its decoder.
 
-Cancellation propagates as `OperationCanceledException`. It is not a result
-arm and discards provisional matches.
+Cancellation observed after this producer starts does not interrupt the
+in-progress invocation. The operation discards its provisional evidence,
+declines to schedule later work, and publishes no normal completion.
+Cancellation does not become `WorkLimitExceeded`, a semantic miss, or a
+producer rejection. This is the focused adoption of the coarse
+[Assembly Analysis cancellation boundary](assembly-analysis-operation.md#cancellation-boundary).
 
 ## Failure classification
 
@@ -289,7 +302,8 @@ implementation shape that is not a managed IL body supported by this producer.
 The producer does not guess that such a method has no matching literal.
 
 Only scoped Metadata and Instructions outcomes are classified. Cancellation
-and unexpected exceptions propagate. The producer has no broad catch.
+is outside this producer contract. Unexpected exceptions propagate. The
+producer has no broad catch.
 
 Dedicated malformed-body and malformed-user-string fixture coverage is
 unverified in this slice unless an existing benign rejection fixture exercises
@@ -302,7 +316,9 @@ producer. It invokes `Inspect` inside
 `ArtifactAssemblyInspection.Execute`'s callback-scoped
 `AssemblyInspectionSession` and directly retains the returned resource-free
 occurrences. The evaluator maps the four result arms without reinterpreting
-literal semantics or reconstructing occurrence identity.
+literal semantics or reconstructing occurrence identity. It invokes the
+producer without a cancellation token and owns cancellation observations
+around the bounded invocation and required cleanup.
 
 The first hosts evaluate up to five explicitly supplied `ID@VERSION`
 candidates serially. Candidate acquisition, package selection, event delivery,
@@ -321,7 +337,7 @@ The focused Release suite
 - deterministic exact and exhausted method, body-byte, instruction,
   decoded-character, and occurrence limits;
 - exhaustion after earlier matches and non-matches without partial evidence;
-- cancellation propagation;
+- token-free producer invocation and bounded completion;
 - contained artifact-authored display text;
 - resource-free evidence that remains usable after session disposal; and
 - operand and budget validation.
@@ -330,11 +346,19 @@ The bounded Instructions decode extension has its own focused tests for exact
 limit completion, pre-decode limit exhaustion, and unchanged malformed-IL
 classification.
 
+The production migration adds Package Query Release gates for cancellation
+before producer scheduling, between bounded evaluations, and after producer
+completion and required cleanup without normal operation completion. This
+owner selects no repository-wide source scan for cancellation tokens; the
+producer API shape plus focused Analysis and production-consumer tests provide
+proportional evidence for this boundary.
+
 ## Non-goals
 
 - No byte prefilter or raw-image substring search.
 - No regex, glob, culture-aware, normalized, or case-insensitive matching.
 - No value-flow, control-flow, or call-argument reconstruction.
+- No producer-local cancellation contract or polling.
 - No package, evaluator, archive, Workspace, renderer, worker, CLI, or Browser
   behavior.
 - No package-wide conclusion from one selected implementation assembly.
