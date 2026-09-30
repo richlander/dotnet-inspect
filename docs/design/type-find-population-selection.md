@@ -105,3 +105,11 @@ dotted effective spelling, explicit-generic fallback, first-association
 deduplication, limits, and no-selection outcomes. Existing
 `FindMatchTierTests` gate the unchanged CLI behavior against
 `System.Text.Json`.
+
+`tools/TypeFindPopulationScorecard` compares the same immutable real-assembly
+population and settlement contract through idiomatic LINQ, pinned NLinq, and
+the shipping selector. The shipping column is named `Selector`, not `Planner`:
+this selector consumes an already materialized population and is not a
+QuerySpace Planner adoption. `check` verifies tier, effective pattern,
+association, name, similarity, ordering, and standard closing answers before
+`time` measures rotated NativeAOT rounds and reports ratios to NLinq.

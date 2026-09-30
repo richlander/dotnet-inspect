@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Queries;
 using NLinq;
 
 namespace DotnetInspector.PerformanceOracles.Tests;
@@ -86,6 +87,70 @@ public sealed class ScorecardTests
         int publicCount = PublicMethods.NLinqColumn(shape).Answer(ScorecardClosing.Count, pe).Count!.Value;
         int staticCount = oracle.Answer(ScorecardClosing.Count, pe).Count!.Value;
         Assert.InRange(staticCount, 1, publicCount - 1);
+    }
+
+    [Theory]
+    [InlineData("JsonSer")]
+    [InlineData("System.Text.Json.JsonSer")]
+    [InlineData("Serializer")]
+    [InlineData("JsonSerialiser")]
+    [InlineData("JsonSerialiser<T>")]
+    [InlineData("Json*")]
+    [InlineData("NoSuchTypePattern")]
+    public void TypeFindPopulationColumns_AgreeOnRealTypePopulation(string pattern)
+    {
+        var shape = new ScorecardShape(N: 3, WindowFirst: 2, WindowLast: 4);
+        IReadOnlyList<ScorecardAsset<TypeFindPopulationScorecardAsset>> assets =
+            TypeFindPopulationScorecard.LoadAssets(
+                pattern,
+                [typeof(System.Text.Json.JsonSerializer).Assembly.Location]);
+        ScorecardColumn<TypeFindPopulationScorecardAsset, TypeFindPopulationScorecardRow> oracle =
+            TypeFindPopulationScorecard.NLinqColumn(shape);
+
+        ScorecardCheck check = Scorecard.Check(
+            assets,
+            oracle,
+            [
+                TypeFindPopulationScorecard.LinqColumn(shape),
+                oracle,
+                TypeFindPopulationScorecard.SelectorColumn(shape),
+            ],
+            TypeFindPopulationScorecard.RowText);
+
+        Assert.True(check.Agrees, string.Join(Environment.NewLine, check.Mismatches));
+    }
+
+    [Fact]
+    public void TypeFindPopulationColumns_PreserveFirstAssociationForDuplicateNames()
+    {
+        TypeFindPopulationCandidate<int>[] candidates =
+        [
+            new(41, "Example.JsonSerializer"),
+            new(99, "Example.JsonSerializer"),
+            new(7, "Example.JsonSerializerContext"),
+        ];
+        var shape = new ScorecardShape(N: 1, WindowFirst: 1, WindowLast: 1);
+        ScorecardAsset<TypeFindPopulationScorecardAsset>[] assets =
+        [
+            new("duplicates", new("JsonSer", candidates)),
+        ];
+        ScorecardColumn<TypeFindPopulationScorecardAsset, TypeFindPopulationScorecardRow> oracle =
+            TypeFindPopulationScorecard.NLinqColumn(shape);
+
+        ScorecardCheck check = Scorecard.Check(
+            assets,
+            oracle,
+            [
+                TypeFindPopulationScorecard.LinqColumn(shape),
+                oracle,
+                TypeFindPopulationScorecard.SelectorColumn(shape),
+            ],
+            TypeFindPopulationScorecard.RowText);
+
+        Assert.True(check.Agrees, string.Join(Environment.NewLine, check.Mismatches));
+        ScorecardAnswer<TypeFindPopulationScorecardRow> rows =
+            oracle.Answer(ScorecardClosing.Rows, assets[0].Asset);
+        Assert.Equal([41, 7], rows.Rows!.Select(static row => row.Association));
     }
 
     struct StaticMethodSelection : IMethodSelection
