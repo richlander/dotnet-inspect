@@ -20,14 +20,15 @@ internal sealed class AnalysisLibraryBodyUseProducer
         CancellationToken cancellationToken)
         : base(
             "AnalysisLibraryBodyUse",
-            version: 2,
+            version: 4,
             tier: 0,
             MethodDefinitionLayers.Body
-                | MethodDefinitionLayers.ModuleLookup
-                | MethodDefinitionLayers.StateMachineRelationship,
+                | MethodDefinitionLayers.ModuleLookup,
             parameters:
                 $"instructions={limits.MaximumInstructionsPerBody};"
-                + $"occurrences={limits.MaximumOccurrences}")
+                + $"occurrences={limits.MaximumOccurrences};"
+                + $"methodSignatureBytes="
+                + limits.MaximumMethodSignatureBytes)
     {
         _limits = limits;
         _cancellationToken = cancellationToken;
@@ -63,9 +64,9 @@ internal sealed class AnalysisLibraryBodyUseProducer
                     view.MethodHandle,
                     view.MethodDefinition,
                     view.GetBody(),
-                    view.StateMachineByImplementation,
                     _limits.MaximumInstructionsPerBody,
                     _limits.MaximumOccurrences,
+                    _limits.MaximumMethodSignatureBytes,
                     _cancellationToken);
             return new(fact);
         }
@@ -211,7 +212,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
         AnalysisLibraryBodyUseCoverage Coverage);
 }
 
-internal sealed record BodyTypeUsePhysicalFact(
+internal readonly record struct BodyTypeUsePhysicalFact(
     TypeDefinitionHandle PhysicalType,
     int PhysicalMethodToken,
     AnalysisLibraryBodyUseFidelity Fidelity);

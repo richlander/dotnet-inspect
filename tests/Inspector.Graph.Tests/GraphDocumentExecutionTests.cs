@@ -213,6 +213,7 @@ public sealed class GraphDocumentExecutionTests
                     Assert.Same(
                         document.Identity,
                         degree.Receipt.SourceDocument);
+                    Assert.Equal(adjacency.Receipt, degree.Receipt);
                 }
             }
         }

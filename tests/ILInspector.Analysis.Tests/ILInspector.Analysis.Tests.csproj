@@ -47,6 +47,7 @@
     <ProjectReference Include="..\ILInspector.Metadata.LegacyOracles\ILInspector.Metadata.LegacyOracles.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.AllocationLifetimeFixtures\ILInspector.Analysis.AllocationLifetimeFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.BodyUseFixtures\ILInspector.Analysis.BodyUseFixtures.csproj" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.BodyUseVbFixtures\ILInspector.Analysis.BodyUseVbFixtures.vbproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.Fixtures\ILInspector.Analysis.Fixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.MalformedOwnershipFixtures\ILInspector.Analysis.MalformedOwnershipFixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.AsyncSiblingFriendFixtures\ILInspector.Analysis.AsyncSiblingFriendFixtures.csproj" ReferenceOutputAssembly="false" />

@@ -6,8 +6,10 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Cache;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Platforms;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using DotnetInspector.Queries;
 
@@ -81,6 +83,55 @@ public class TypeSearchServiceTests
                     static registration =>
                         registration.Declaration.Id.Value)
                 .ToArray());
+    }
+
+    [Fact]
+    public void FindWorkspacePlan_RejectsExplicitEmptyEcosystemScope()
+    {
+        var options = new FindOptions
+        {
+            Ecosystems = [],
+        };
+
+        Assert.Throws<ArgumentException>(
+            () => FindSourceCollector.CreateWorkspacePlan(options));
+    }
+
+    [Fact]
+    public void FindPlatformPopulations_FollowWorkspacePlanDeclarationOrder()
+    {
+        var aspNetCore = new PlatformLibraryPopulationDeclaration(
+            PlatformFamily.AspNetCore);
+        var runtime = new PlatformLibraryPopulationDeclaration(
+            PlatformFamily.DotNetRuntime);
+        Assert.Equal(
+            [runtime, aspNetCore],
+            PlatformFindSearchWorkspace.GetPlatformPopulations(
+                EcosystemPackCatalog.CreatePlatformWorkspacePlan()));
+
+        WorkspacePlan plan = new(
+        [
+            Registration("ecosystem.test-aspnetcore", aspNetCore),
+            Registration("ecosystem.test-runtime", runtime),
+        ]);
+
+        Assert.Equal(
+            [aspNetCore, runtime],
+            PlatformFindSearchWorkspace.GetPlatformPopulations(plan));
+
+        static WorkspaceRegistration Registration(
+            string id,
+            PlatformLibraryPopulationDeclaration population) =>
+            new WorkspaceRegistration.Ecosystem(
+                new WorkspaceEcosystemRegistrationDeclaration(
+                    WorkspaceEcosystemRegistrationId.Create(id),
+                    namespaceRoots: [],
+                    corePackages: [],
+                    populations:
+                    [
+                        new WorkspaceEcosystemPopulationDeclaration.Platform(
+                            population),
+                    ]));
     }
 
     [Fact]
