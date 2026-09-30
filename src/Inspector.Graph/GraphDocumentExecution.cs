@@ -845,7 +845,9 @@ public static partial class GraphDocumentExecution
 
     sealed class GraphExecutionWork
     {
-        readonly HashSet<int> _canonicalNodesExamined = [];
+        HashSet<int>? _canonicalNodesExamined;
+        int _canonicalNodeCount;
+        bool _allCanonicalNodesExamined;
 
         internal GraphExecutionWork(
             GraphDocumentIdentity sourceDocument)
@@ -860,13 +862,26 @@ public static partial class GraphDocumentExecution
         internal int AdjacencyEntriesExamined { get; set; }
         internal int NodesAdmitted { get; set; }
 
-        internal void ExamineNode(int nodeId) =>
-            _canonicalNodesExamined.Add(nodeId);
+        internal void ExamineNode(int nodeId)
+        {
+            if (_allCanonicalNodesExamined)
+                return;
+            if ((_canonicalNodesExamined ??= []).Add(nodeId))
+                _canonicalNodeCount++;
+        }
+
+        internal void ExamineAllNodes(int nodeCount)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(nodeCount);
+            _canonicalNodesExamined = null;
+            _canonicalNodeCount = nodeCount;
+            _allCanonicalNodesExamined = true;
+        }
 
         internal GraphExecutionWorkReceipt CreateReceipt() =>
             new(
                 SourceDocument,
-                _canonicalNodesExamined.Count,
+                _canonicalNodeCount,
                 CanonicalEdgesExamined,
                 SelectedEdgesIndexed,
                 StructuralViewsBuilt,

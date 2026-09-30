@@ -488,6 +488,11 @@ partial-completion cases.
 | `GraphExecutionPerformanceIsMeasured` | NativeAOT and Browser/Wasm measurements report execution time, allocation where available, work receipts, and every supported terminal on representative and pathological assets |
 | Existing `Inspector.Graph` dependency gate | The complete execution implementation remains BCL-only in both the evaluated project graph and compiled assembly references |
 
+`eng/measure-graph-degree.cs` is the NativeAOT scorecard for directed
+single-relationship degree execution and unchanged bidirectional and
+multi-relationship controls over the real System.Text.Json and CoreLib
+type-use graphs.
+
 The implementation may split these claims across focused suites, but no
 source-text scan or debug-only assertion counts as the gate.
 

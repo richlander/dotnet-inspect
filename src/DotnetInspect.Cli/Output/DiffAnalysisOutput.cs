@@ -9,7 +9,7 @@ internal static class DiffAnalysisOutput
     private static readonly InspectionEnvelopeJsonContract<DiffAnalysisDocument>
         s_jsonContract = new(
             "diff-analysis",
-            1,
+            2,
             DiffAnalysisInspectionJsonContext.Default.DiffAnalysisDocument);
 
     internal static bool Write(
