@@ -1526,6 +1526,18 @@ public partial class PackageCommand
                 return 1;
             }
 
+            if (!effectiveDiscovery
+                && IsPackageChildrenProjection(options))
+            {
+                return await WritePackageChildrenAsync(
+                    result,
+                    resolution,
+                    extractPath,
+                    packageName,
+                    version,
+                    options);
+            }
+
             if (options.Tree && !effectiveDiscovery)
             {
                 WritePackageDependencyHierarchyTree(result, options);

@@ -23,6 +23,11 @@ public class DotnetToolSettingsParserTests
         Assert.Equal("2", settings!.Version);
         Assert.True(settings.IsRidSpecificPointerPackage);
         Assert.Equal(["mytool"], settings.Commands);
+        DotnetToolCommand command =
+            Assert.Single(settings.CommandEntries!);
+        Assert.Equal("mytool", command.Name);
+        Assert.Equal("mytool.dll", command.EntryPoint);
+        Assert.Equal("dotnet", command.Runner);
         Assert.NotNull(settings.RuntimeIdentifierPackages);
         Assert.Collection(settings.RuntimeIdentifierPackages!,
             r => { Assert.Equal("win-x64", r.RuntimeIdentifier); Assert.Equal("MyTool.win-x64", r.PackageId); },
@@ -46,6 +51,9 @@ public class DotnetToolSettingsParserTests
         Assert.Equal("1", settings!.Version);
         Assert.False(settings.IsRidSpecificPointerPackage);
         Assert.Equal(["portabletool"], settings.Commands);
+        Assert.Equal(
+            "portabletool.dll",
+            Assert.Single(settings.CommandEntries!).EntryPoint);
         Assert.Null(settings.RuntimeIdentifierPackages);
     }
 

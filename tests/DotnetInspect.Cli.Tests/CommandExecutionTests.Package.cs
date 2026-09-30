@@ -1759,7 +1759,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_TreeRequiresDependencyHierarchySelection()
+    public async Task Package_TreeDefaultsToPackageChildren()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.TreeAlias",
@@ -1767,21 +1767,57 @@ public partial class CommandExecutionTests
             "# Test package");
         try
         {
-            var (exit, _, error) = await RunAppAsync("package", packagePath, "--tree", "--tips", "q");
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--tree", "--tips", "q");
             var (categoryExit, _, categoryError) = await RunAppAsync(
                 "package", packagePath, "-S", "@Dependencies", "--tree", "--tips", "q");
             var (aliasExit, _, aliasError) = await RunAppAsync(
                 "package", packagePath, "--dependencies", "-S", "Manifest", "--tips", "q");
 
-            Assert.Equal(1, exit);
-            Assert.Contains("--tree requires exactly '-S \"Dependency Hierarchy\"'", error);
-            Assert.DoesNotContain("--layout", error);
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "Test.TreeAlias 1.0.0",
+                output);
+            Assert.Contains("No compile Libraries", output);
+            Assert.Empty(error);
             Assert.Equal(1, categoryExit);
-            Assert.Contains("--tree requires exactly '-S \"Dependency Hierarchy\"'", categoryError);
+            Assert.Contains(
+                "--tree without a section renders Package children",
+                categoryError);
             Assert.DoesNotContain("--layout", categoryError);
             Assert.Equal(1, aliasExit);
             Assert.Contains("--dependencies has been removed", aliasError);
             Assert.DoesNotContain("--tree requires", aliasError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DefaultRendersSelectedCompileLibraries()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Test.LibraryFiles 1.0.0", output);
+            Assert.Contains(
+                "lib/net10.0/Latest.One.dll",
+                output);
+            Assert.Contains(
+                "lib/net10.0/Latest.Two.dll",
+                output);
+            Assert.Contains("Type declarations", output);
+            Assert.DoesNotContain("## Package Info", output);
+            Assert.Empty(error);
         }
         finally
         {

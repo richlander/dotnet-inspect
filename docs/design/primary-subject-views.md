@@ -374,6 +374,13 @@ presentation.
    tool packages, with Library rows addressed through the step 3 Library
    selector and tool pointer rows through `package <id>`.
 
+Package step 5 is partially adopted. The host-neutral Package children
+document, bare CLI Markdown Tree, explicit bare `--tree`, and Inspect Web Count
+consumer are implemented for compile, tool payload, RID pointer, and native
+tool shapes. Explicit sections and structured or row projections still use the
+sectioned Package document, so the complete-format and child-navigation
+obligations remain pending rather than being claimed by this slice.
+
 ## Gates
 
 This document's obligations are gated through each adoption, in Release,
@@ -400,3 +407,6 @@ against that adoption's motivating assets:
   rows in `dotnet-inspect.any`.
 
 Until an adoption lands, every obligation is `unverified` for that command.
+For Package, the implemented Tree and Browser Count gates verify only the
+partial adoption stated above; exhaustive complete-format and exact
+child-navigation gates remain `unverified`.

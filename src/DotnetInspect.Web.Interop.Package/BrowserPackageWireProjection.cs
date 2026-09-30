@@ -279,6 +279,77 @@ internal static class BrowserPackageWireProjection
             [.. inspection.Diagnostics.Select(Project)]);
     }
 
+    internal static BrowserPackageChildrenInspection Project(
+        InspectionEnvelope<PackageChildrenDocument> inspection)
+    {
+        ArgumentNullException.ThrowIfNull(inspection);
+        PackageChildrenDocument content = inspection.Content;
+        return new(
+            new(
+                content.Kind.ToString(),
+                content.Status.ToString(),
+                content.Subject.PackageId.ToString(),
+                content.Subject.PackageVersion.ToString(),
+                content.Subject.TargetFramework?.ToString(),
+                [
+                    .. content.Libraries.Select(
+                        static library =>
+                        {
+                            (int? count, string? status, string? detail) =
+                                library.PublicTypeDeclarations switch
+                                {
+                                    LibraryTypePopulationCountOutcome.Counted
+                                        counted =>
+                                        (
+                                            (int?)counted.Total,
+                                            (string?)"Counted",
+                                            (string?)null),
+                                    LibraryTypePopulationCountOutcome.Incomplete
+                                        incomplete =>
+                                        (
+                                            (int?)null,
+                                            (string?)"Incomplete",
+                                            $"{incomplete.Bound}: "
+                                                + $"{incomplete.Measured} > "
+                                                + $"{incomplete.Limit}"),
+                                    LibraryTypePopulationCountOutcome.Unavailable
+                                        unavailable =>
+                                        (
+                                            (int?)null,
+                                            (string?)"Unavailable",
+                                            unavailable.Reason.ToString()),
+                                    null =>
+                                        (
+                                            (int?)null,
+                                            (string?)"Unavailable",
+                                            library.Unavailable?.Detail
+                                                .ToString()),
+                                    _ => throw new InvalidOperationException(
+                                        "Unknown Package Library declaration Count outcome."),
+                                };
+                            return new BrowserPackageLibraryChild(
+                                library.AssetId.ToString(),
+                                library.AssetPath.ToString(),
+                                library.AssemblyName.ToString(),
+                                library.Role.ToString(),
+                                count,
+                                status,
+                                detail);
+                        }),
+                ],
+                [
+                    .. content.RuntimeIdentifierPackages.Select(
+                        static package =>
+                            new BrowserPackageRuntimeIdentifierChild(
+                                package.RuntimeIdentifier.ToString(),
+                                package.PackageId.ToString())),
+                ],
+                content.Detail?.ToString(),
+                content.IsComplete),
+            Project(inspection.Share),
+            [.. inspection.Diagnostics.Select(Project)]);
+    }
+
     static BrowserPackageVersionSettlementOutcome Project(
         PackageVersionSettlementOutcome outcome) =>
         outcome switch

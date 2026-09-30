@@ -22,6 +22,7 @@ import {
 import type {
   BrowserAssemblySurface,
   BrowserMemberSurface,
+  BrowserPackageChildrenInspection,
   BrowserPackageInfoMeasurementInspection,
   BrowserPackageSurface,
   BrowserPackageVersionSettlementInspection,
@@ -229,6 +230,41 @@ function packageInfo(): BrowserPackageInfoMeasurementInspection {
   };
 }
 
+function packageChildren(
+  surface: BrowserPackageSurface,
+  counts = surface.assemblies.map(descriptor => descriptor.publicTypes),
+): BrowserPackageChildrenInspection {
+  return {
+    content: {
+      kind: "Libraries",
+      status: "Available",
+      packageId: surface.package,
+      packageVersion: surface.version,
+      targetFramework: surface.activeFramework,
+      libraries: surface.assemblies.map((descriptor, index) => ({
+        assetId: descriptor.id,
+        assetPath: descriptor.asset,
+        assemblyName: descriptor.name,
+        role: "Compile",
+        publicTypeDeclarations: counts[index] ?? null,
+        countStatus: "Counted",
+        detail: null,
+      })),
+      runtimeIdentifierPackages: [],
+      detail: null,
+      isComplete: true,
+    },
+    share: {
+      kind: "NonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "package-children/share",
+      reason: "No canonical Workspace share projection.",
+    },
+    diagnostics: [],
+  };
+}
+
 function generatedPackageSurfaceRejectsMutation(
   surface: BrowserPackageSurface,
 ): void {
@@ -417,6 +453,41 @@ test("NuGet package models retain the shared Package Info envelope", () => {
     measurements);
 
   assert.equal(model.packageInfo, measurements);
+});
+
+test("Package children own Library declaration counts", () => {
+  const surface = packageSurface();
+  const children = packageChildren(surface, [17]);
+  const model = createNuGetPackageModel(
+    surface,
+    {
+      content: {
+        kind: "Settled",
+        result: {
+          request: { packageId: "example.package", version: "1.2.3" },
+          coordinate: { packageId: "example.package", version: "1.2.3" },
+          includePrerelease: false,
+          freshness: null,
+          listings: [],
+          sourceListings: [],
+        },
+        failure: null,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-version-settlement/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+    packageInfo(),
+    children);
+
+  assert.equal(model.packageChildren, children);
+  assert.equal(model.assemblies[0]?.publicTypes, 17);
+  assert.equal(model.totalTypes, 17);
 });
 
 test("Workspace occurrence activation preserves matching inspection envelopes", () => {
@@ -636,6 +707,7 @@ function acquisitionDependencies(
         diagnostics: [],
       },
       packageInfo: packageInfo(),
+      packageChildren: packageChildren(packageSurface()),
       surface: packageSurface(),
     }),
     loadRuntimePack: async () => JSON.stringify(
@@ -750,6 +822,7 @@ test("NotSettled package loads preserve the complete shared baseline", async () 
     queryPackage: async () => ({
       versionSettlement,
       packageInfo: null,
+      packageChildren: null,
       surface: null,
     }),
   }));

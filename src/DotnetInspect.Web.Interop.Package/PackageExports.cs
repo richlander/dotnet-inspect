@@ -108,6 +108,7 @@ public static partial class PackageExports
                 BrowserPackageWireProjection.Project(
                     notSettled.VersionSettlement),
                 PackageInfo: null,
+                PackageChildren: null,
                 Surface: null);
         }
 
@@ -118,16 +119,141 @@ public static partial class PackageExports
                 realization,
                 CancellationToken.None);
         BrowserInspectionScope scope = scopeLease.Scope;
+        InspectionEnvelope<PackageChildrenDocument> packageChildren =
+            await PackageChildrenAsync(
+                    scope,
+                    scope.Coordinates[0],
+                    CancellationToken.None)
+                .ConfigureAwait(false);
         return new(
             BrowserPackageWireProjection.Project(
                 realization.VersionSettlement),
             BrowserPackageWireProjection.Project(
                 realization.PackageInfo),
+            BrowserPackageWireProjection.Project(packageChildren),
             BrowserPackageWireProjection.Project(
                 BrowserPackageSurfaceProjection.ProjectSurface(
                     scope,
                     scope.Coordinates[0])));
     }
+
+    private static async ValueTask<
+        InspectionEnvelope<PackageChildrenDocument>>
+        PackageChildrenAsync(
+            BrowserInspectionScope scope,
+            BrowserPackageCoordinate coordinate,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(coordinate);
+        PackageCompileAssetSelection selection =
+            coordinate.Selection;
+        var subject = new PackageChildrenSubject(
+            coordinate.PackageId,
+            coordinate.Version,
+            selection.TargetFramework);
+        if (!selection.IsSelected)
+        {
+            (PackageChildrenStatus status, string detail, bool complete) =
+                selection.Status switch
+                {
+                    PackageCompileAssetSelectionStatus.NoCompileAssets =>
+                        (
+                            PackageChildrenStatus.NoCompileAssets,
+                            "The Package contains no compile Libraries.",
+                            true),
+                    PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
+                        (
+                            PackageChildrenStatus.SelectedEmpty,
+                            "The selected compile group contains no Libraries.",
+                            true),
+                    PackageCompileAssetSelectionStatus
+                        .NoMatchingTargetFramework =>
+                        (
+                            PackageChildrenStatus.NoApplicableTarget,
+                            selection.Message
+                                ?? "No compile Library target matches the request.",
+                            false),
+                    PackageCompileAssetSelectionStatus
+                        .InvalidImplementationAssets =>
+                        (
+                            PackageChildrenStatus.InvalidSelection,
+                            selection.Message
+                                ?? "The selected compile Libraries have invalid implementation correspondence.",
+                            false),
+                    _ =>
+                        (
+                            PackageChildrenStatus.Unavailable,
+                            selection.Message
+                                ?? "The compile Library population is unavailable.",
+                            false),
+                };
+            return PackageChildrenEnvelope(
+                PackageChildrenDocument.LibrariesWithoutRows(
+                    subject,
+                    status,
+                    detail,
+                    complete));
+        }
+
+        Dictionary<string, BrowserWorkspaceParticipant> participants =
+            scope.SurfaceParticipants
+                .Where(participant =>
+                    ReferenceEquals(
+                        participant.Coordinate.Root.Identity,
+                        coordinate.Root.Identity))
+                .ToDictionary(
+                    static participant => participant.Asset.Id,
+                    StringComparer.Ordinal);
+        PackageLibraryInspectionTarget[] targets =
+            scope.UseSurface<PackageLibraryInspectionTarget[]>(group =>
+            [
+                .. selection.Assets.Select(asset =>
+                    participants.TryGetValue(
+                        asset.Id,
+                        out BrowserWorkspaceParticipant? participant)
+                            ? new PackageLibraryInspectionTarget(
+                                asset.Id,
+                                asset.Path,
+                                PackageLibraryChildRole.Compile,
+                                group,
+                                participant.Participant)
+                            : PackageLibraryInspectionTarget
+                                .CreateUnavailable(
+                                    asset.Id,
+                                    asset.Path,
+                                    asset.AssemblyName,
+                                    PackageLibraryChildRole.Compile,
+                                    PackageLibraryChildUnavailableReason
+                                        .AssemblyUnavailable,
+                                    "The selected compile Library was not "
+                                        + "realized in the browser Workspace.")),
+            ]);
+        return await PackageChildrenInspection.ExecuteLibrariesAsync(
+                subject,
+                targets,
+                new()
+                {
+                    MaxLibraries =
+                        BrowserInspectionScope.MaxAssembliesPerRole,
+                    Materialization = new(
+                        BrowserInspectionScope.MaxRetainedImageBytes,
+                        BrowserInspectionScope.MaxRetainedImageBytes),
+                    Extraction =
+                        BrowserApiSurfacePolicy.ExtractionBounds,
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static InspectionEnvelope<PackageChildrenDocument>
+        PackageChildrenEnvelope(PackageChildrenDocument document) =>
+        new(
+            document,
+            new InspectionShare.NonProjectable(
+                "package-children/share",
+                "Package children do not yet have a canonical Workspace "
+                    + "Share projection."));
 
     /// <summary>
     /// Bounded public API summary for one exact package compile asset.

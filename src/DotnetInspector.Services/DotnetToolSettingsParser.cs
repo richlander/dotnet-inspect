@@ -150,20 +150,27 @@ public static class DotnetToolSettingsParser
 
         var version = root?.Attribute("Version")?.Value;
 
+        List<DotnetToolCommand>? commands = ParseCommandEntries(root);
         return version switch
         {
             "2" => new DotnetToolSettingsData(
                 version,
                 "DotNetCliTool Version=\"2\" (RID-specific)",
                 IsRidSpecificPointerPackage: true,
-                ParseCommands(root),
-                ParseRidPackages(root)),
+                commands?.Select(static command => command.Name).ToList(),
+                ParseRidPackages(root))
+            {
+                CommandEntries = commands,
+            },
             "1" or null => new DotnetToolSettingsData(
                 version,
                 "DotNetCliTool Version=\"1\" (portable)",
                 IsRidSpecificPointerPackage: false,
-                ParseCommands(root),
-                RuntimeIdentifierPackages: null),
+                commands?.Select(static command => command.Name).ToList(),
+                RuntimeIdentifierPackages: null)
+            {
+                CommandEntries = commands,
+            },
             _ => null,
         };
     }
@@ -204,6 +211,9 @@ public static class DotnetToolSettingsParser
                 == right.IsRidSpecificPointerPackage
             && SequenceEqual(left.Commands, right.Commands)
             && SequenceEqual(
+                left.CommandEntries,
+                right.CommandEntries)
+            && SequenceEqual(
                 left.RuntimeIdentifierPackages,
                 right.RuntimeIdentifierPackages);
 
@@ -215,16 +225,20 @@ public static class DotnetToolSettingsParser
             ? right is null
             : right is not null && left.SequenceEqual(right);
 
-    private static List<string>? ParseCommands(XElement? root)
+    private static List<DotnetToolCommand>? ParseCommandEntries(
+        XElement? root)
     {
         var commands = root?.Element("Commands")?.Elements("Command");
         if (commands == null)
             return null;
 
         return commands
-            .Select(c => c.Attribute("Name")?.Value)
-            .Where(n => n != null)
-            .Cast<string>()
+            .Select(command => new DotnetToolCommand(
+                command.Attribute("Name")?.Value ?? "",
+                command.Attribute("EntryPoint")?.Value,
+                command.Attribute("Runner")?.Value))
+            .Where(static command =>
+                !string.IsNullOrWhiteSpace(command.Name))
             .ToList();
     }
 

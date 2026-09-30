@@ -63,6 +63,15 @@ unrelated domain categories.
 Minimal views should remain close to one screenful. Prefer compact fields,
 counts, and summaries over unbounded inventories.
 
+The staged Package primary-subject adoption gives bare Package Markdown its
+single high-value native children Tree instead of the automatic Package
+section union. `Package Info` remains the explicit facts view. The Tree uses
+the selected compile-Library population and exact public Type-declaration
+Counts; a managed tool payload may collapse its dependency Libraries only at
+Minimal verbosity. Normal and Detailed Trees list every Library. Explicit
+sections and non-native output projections retain the section model until the
+complete-format adoption lands.
+
 For library inspection, References, Ecosystem Dependencies, Switches, Type
 Forwarders, P/Invoke Methods, and Union Types are measured or structurally
 `Verbose` inventories. They therefore enter automatic output at `-v:d`, not

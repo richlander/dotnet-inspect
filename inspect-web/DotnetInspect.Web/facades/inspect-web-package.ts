@@ -696,6 +696,24 @@ export interface BrowserPackageChangesSummary {
   readonly completion: string;
 }
 
+export interface BrowserPackageChildren {
+  readonly kind: string;
+  readonly status: string;
+  readonly packageId: string;
+  readonly packageVersion: string;
+  readonly targetFramework: string | null;
+  readonly libraries: ReadonlyArray<BrowserPackageLibraryChild>;
+  readonly runtimeIdentifierPackages: ReadonlyArray<BrowserPackageRuntimeIdentifierChild>;
+  readonly detail: string | null;
+  readonly isComplete: boolean;
+}
+
+export interface BrowserPackageChildrenInspection {
+  readonly content: BrowserPackageChildren;
+  readonly share: BrowserInspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+
 export interface BrowserPackageDependencies {
   readonly package: string;
   readonly version: string;
@@ -767,9 +785,20 @@ export interface BrowserPackageInfoMeasurements {
   readonly hasSelectedSlice: boolean;
 }
 
+export interface BrowserPackageLibraryChild {
+  readonly assetId: string;
+  readonly assetPath: string;
+  readonly assemblyName: string;
+  readonly role: string;
+  readonly publicTypeDeclarations: number | null;
+  readonly countStatus: string | null;
+  readonly detail: string | null;
+}
+
 export interface BrowserPackageLoadResult {
   readonly versionSettlement: BrowserPackageVersionSettlementInspection;
   readonly packageInfo: BrowserPackageInfoMeasurementInspection | null;
+  readonly packageChildren: BrowserPackageChildrenInspection | null;
   readonly surface: BrowserPackageSurface | null;
 }
 
@@ -1009,6 +1038,11 @@ export interface BrowserPackageQueryTermDescriptor {
   readonly valueKind: string;
   readonly example: string;
   readonly multiline: boolean;
+}
+
+export interface BrowserPackageRuntimeIdentifierChild {
+  readonly runtimeIdentifier: string;
+  readonly packageId: string;
 }
 
 export interface BrowserPackageSurface {

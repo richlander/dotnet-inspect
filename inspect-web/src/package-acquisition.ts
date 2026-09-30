@@ -13,6 +13,7 @@ import type {
   BrowserMemberSurface as MemberSurfaceFromPackageFacade,
   BrowserPackageDocument as PackageDocumentFromPackageFacade,
   BrowserPackageIcon as PackageIconFromPackageFacade,
+  BrowserPackageChildrenInspection,
   BrowserPackageInfoMeasurementInspection,
   BrowserPackageLoadResult,
   BrowserPackageSurface as PackageSurfaceFromPackageFacade,
@@ -167,6 +168,7 @@ export interface AppPackage {
   inspectionError?: string;
   versionSettlement?: BrowserPackageVersionSettlementInspection;
   packageInfo?: BrowserPackageInfoMeasurementInspection;
+  packageChildren?: BrowserPackageChildrenInspection;
   isRuntimePack: boolean;
   platformContextId?: string | null;
   surfaceRevision?: number;
@@ -312,6 +314,26 @@ function packageTypes(result: InspectedPackageSurface): AppTypeSurface[] {
   return (result.types ?? []).map(createAppTypeSurface);
 }
 
+function packageAssemblies(
+  result: InspectedPackageSurface,
+  packageChildren?: BrowserPackageChildrenInspection,
+): InspectedAssemblySurface[] {
+  const counts = new Map(
+    (packageChildren?.content.libraries ?? [])
+      .filter(library => library.publicTypeDeclarations !== null)
+      .map(library => [
+        library.assetId,
+        library.publicTypeDeclarations!,
+      ] as const),
+  );
+  return (result.assemblies ?? []).map(assembly => {
+    const publicTypes = counts.get(assembly.id);
+    return publicTypes === undefined
+      ? assembly
+      : { ...assembly, publicTypes };
+  });
+}
+
 function surfaceInspectionErrors(result: InspectedPackageSurface): string[] {
   return result.inspectionErrors?.length
     ? [...result.inspectionErrors]
@@ -389,8 +411,15 @@ export function createNuGetPackageModel(
 ): AppPackage;
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
+  versionSettlement: BrowserPackageVersionSettlementInspection,
+  packageInfo: BrowserPackageInfoMeasurementInspection,
+  packageChildren: BrowserPackageChildrenInspection,
+): AppPackage;
+export function createNuGetPackageModel(
+  result: InspectedPackageSurface,
   versionSettlement?: BrowserPackageVersionSettlementInspection,
   packageInfo?: BrowserPackageInfoMeasurementInspection,
+  packageChildren?: BrowserPackageChildrenInspection,
 ): AppPackage {
   const rootOnly = result.compileLibrary.status === "NoCompileAssets"
     || result.compileLibrary.status === "EmptyCompileGroup"
@@ -422,6 +451,7 @@ export function createNuGetPackageModel(
     inspectionErrors.push(result.compileLibrary.message
       || `No compile Library is available (${result.compileLibrary.status}).`);
   }
+  const assemblies = packageAssemblies(result, packageChildren);
   return {
     id: result.package,
     version: result.version,
@@ -433,10 +463,10 @@ export function createNuGetPackageModel(
     ...(selectedCompileAssetId ? { selectedCompileAssetId } : {}),
     source: { kind: "nuget.org" },
     producerLabel: "NuGet.org",
-    assemblies: [...(result.assemblies ?? [])],
+    assemblies,
     types: packageTypes(result),
     accessibility: [...(result.accessibility ?? [])],
-    totalTypes: (result.assemblies ?? [])
+    totalTypes: assemblies
       .reduce((count, candidate) => count + (candidate.publicTypes ?? 0), 0),
     totalMembers: result.totalMembers,
     documents: [...(result.documents ?? [])],
@@ -448,6 +478,9 @@ export function createNuGetPackageModel(
       : {}),
     ...(packageInfo
       ? { packageInfo }
+      : {}),
+    ...(packageChildren
+      ? { packageChildren }
       : {}),
     isRuntimePack: false,
     surfaceRevision: 0,
@@ -476,6 +509,9 @@ export function createWorkspaceOccurrencePackageModel(
       : {}),
     ...(retained?.packageInfo
       ? { packageInfo: retained.packageInfo }
+      : {}),
+    ...(retained?.packageChildren
+      ? { packageChildren: retained.packageChildren }
       : {}),
   };
 }
@@ -858,6 +894,8 @@ export function createPackageAcquisition(
         BrowserPackageVersionSettlementInspection | undefined;
       let packageInfo:
         BrowserPackageInfoMeasurementInspection | undefined;
+      let packageChildren:
+        BrowserPackageChildrenInspection | undefined;
       if (request.rootRequest !== undefined) {
         if (!dependencies.queryPackageRoot) {
           throw new Error("Exact package Root opening is unavailable.");
@@ -883,17 +921,26 @@ export function createPackageAcquisition(
             "A settled package surface must carry Package Info measurements.");
         }
         packageInfo = loadResult.packageInfo;
+        if (loadResult.packageChildren === null) {
+          throw new Error(
+            "A settled package surface must carry Package children.");
+        }
+        packageChildren = loadResult.packageChildren;
         result = loadResult.surface;
       }
       if (request.isCurrent && !request.isCurrent()) return null;
       dependencies.refreshPackageStats();
-      if (versionSettlement && !packageInfo) {
+      if (versionSettlement && (!packageInfo || !packageChildren)) {
         throw new Error(
-          "A settled package model requires Package Info measurements.");
+          "A settled package model requires Package Info and children.");
       }
       const packageModel =
-        versionSettlement && packageInfo
-          ? createNuGetPackageModel(result, versionSettlement, packageInfo)
+        versionSettlement && packageInfo && packageChildren
+          ? createNuGetPackageModel(
+            result,
+            versionSettlement,
+            packageInfo,
+            packageChildren)
           : createNuGetPackageModel(result);
       dependencies.retainPackage(packageModel, request.replacePackage);
       dependencies.recordRecentPackage(

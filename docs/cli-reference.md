@@ -676,6 +676,22 @@ dotnet-inspect package System.Text.Json \
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
 
+Bare `package ID[@VERSION]` output and bare `--tree` render the Package's
+native children Tree. Ordinary packages list every Library in the selected
+compile population with its public Type-declaration Count, including
+forwarders. `--tfm` selects an explicit target; otherwise the Package selection
+default chooses the target. Tool pointer packages list their RID packages,
+managed tool payloads list the entry-point Library before their dependencies,
+and native tool payloads state that they contain no managed Libraries. Minimal
+output may collapse a managed tool's dependency Libraries into one counted
+branch; `-v:n` and `-v:d` list every Library.
+
+Select `Package Info` explicitly for Package facts. Explicit sections,
+structured and row projections, and explicitly selected output formats retain
+the sectioned Package document during this staged adoption. A bare Package Tree
+is distinct from the dependency graph: select `Dependency Hierarchy` together
+with `--tree` for rooted transitive dependencies.
+
 `package ID[@VERSION] --workspace PACKET` inspects the matching direct Package
 in the packet's selected context, independently of its focused tab, and reuses
 the exact Package Root and target admitted during Workspace restoration.
