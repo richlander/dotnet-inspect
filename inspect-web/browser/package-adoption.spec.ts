@@ -2959,6 +2959,24 @@ test.describe("deterministic two-host Workspace demo", () => {
     const savedWorkspaceName =
       `${retainedWorkspace.packageId} ${retainedWorkspace.version}`;
     const resavedWorkspaceName = `Re-saved ${savedWorkspaceName}`;
+    const expectFocusedPackageOverview = async (): Promise<void> => {
+      const overview = page.locator(".package-overview-surface");
+      await expect(overview).toBeVisible({ timeout: 180_000 });
+      await expect(overview.locator("h1"))
+        .toHaveText(retainedWorkspace.packageId);
+      await expect(overview.locator(".overview-surface-footer"))
+        .toContainText(retainedWorkspace.version);
+    };
+    const currentHistoryWorkspaceId = () => page.evaluate<string | null>(() => {
+      const value: unknown = history.state;
+      if (typeof value !== "object" || value === null
+        || !("inspectWorkspaceId" in value)) {
+        return null;
+      }
+      return typeof value.inspectWorkspaceId === "string"
+        ? value.inspectWorkspaceId
+        : null;
+    });
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
@@ -3049,10 +3067,25 @@ test.describe("deterministic two-host Workspace demo", () => {
     await open.focus();
     await expect(open).toBeFocused();
     await open.click();
+    await expectFocusedPackageOverview();
+    const managedPackageUrl = page.url();
+    expect(new URL(managedPackageUrl).searchParams.get("w"))
+      .toBe(persisted.entries[0]!.packet);
+    expect(managedPackageUrl).not.toBe(compatibilityUrl);
+    await page.locator("[data-product-navigation-button]")
+      .dispatchEvent("click");
+    await page.locator(
+      '[data-product-navigation-menu]:not([hidden]) '
+        + '[data-product-destination="workspace"]',
+    )
+      .dispatchEvent("click");
     await expect(page.locator("[data-navigation-order]"))
       .toContainText(retainedWorkspace.packageId, { timeout: 180_000 });
     await expect(page.locator("[data-navigation-order]"))
       .toContainText(retainedWorkspace.version);
+    const managedWorkspaceUrl = page.url();
+    const managedWorkspaceHistoryId = await currentHistoryWorkspaceId();
+    expect(managedWorkspaceHistoryId).not.toBeNull();
     await expect(page.locator(".workspace-row")
       .filter({ hasText: savedWorkspaceName })
       .locator("small"))
@@ -3072,6 +3105,8 @@ test.describe("deterministic two-host Workspace demo", () => {
     await page.getByLabel("Workspace name", { exact: true })
       .fill(resavedWorkspaceName);
     await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.locator(".workspace-list .workspace-row"))
+      .toHaveCount(2);
     const resavedPacket = await page.evaluate<string | null, string>(name => {
       const raw = localStorage.getItem("inspect-saved-workspaces");
       if (raw === null) return null;
@@ -3094,13 +3129,8 @@ test.describe("deterministic two-host Workspace demo", () => {
         : null;
     }, resavedWorkspaceName);
     expect(resavedPacket).toBe(persisted.entries[0]!.packet);
-    await expect.poll(
-      () => new URL(page.url()).searchParams.get("w"),
-      { timeout: 180_000 },
-    )
-      .toBe(persisted.entries[0]!.packet);
-    const managedUrl = page.url();
-    expect(managedUrl).not.toBe(compatibilityUrl);
+    expect(page.url()).toBe(managedWorkspaceUrl);
+    const managedUrl = managedWorkspaceUrl;
     await expect(page.locator("[data-workspace-add-package]")).toHaveCount(0);
 
     await page.locator("[data-product-navigation-button]").click();
@@ -3110,6 +3140,8 @@ test.describe("deterministic two-host Workspace demo", () => {
       .toHaveText("Package query");
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect.poll(currentHistoryWorkspaceId)
+      .toBe(managedWorkspaceHistoryId);
     await expect(page.locator("[data-navigation-order]"))
       .toContainText(retainedWorkspace.packageId);
     await expect(page.locator("#package-query-heading")).toHaveCount(0);
@@ -3192,7 +3224,7 @@ test.describe("deterministic two-host Workspace demo", () => {
     await expect(page).toHaveURL(/\/activity$/);
     await page.evaluate(() => {
       window.addEventListener("popstate", () => {
-        queueMicrotask(() => history.back());
+        queueMicrotask(() => history.go(-2));
       }, { once: true });
       history.back();
     });

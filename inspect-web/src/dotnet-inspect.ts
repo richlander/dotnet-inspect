@@ -14368,6 +14368,14 @@ async function buildStateUrl(base = location.href): Promise<URL> {
     : new URL(base);
 }
 
+function retainedWorkspaceProductDestinationUrl(): URL | null {
+  const posting = activeRetainedWorkspacePosting;
+  if (posting === null || posting.canonicalPacket === null) return null;
+  const destination = new URL(posting.canonicalLocation, location.href);
+  destination.hash = "workspace";
+  return destination;
+}
+
 async function buildShareUrl(base = location.href): Promise<URL> {
   if (state.workspaceFeedUrl)
     return new URL(state.workspaceFeedUrl);
@@ -17321,7 +17329,10 @@ async function openWorkspaceProductDestination(): Promise<{
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
-  const projection = buildStateUrl();
+  const retainedDestination = retainedWorkspaceProductDestinationUrl();
+  const projection = retainedDestination === null
+    ? buildStateUrl()
+    : Promise.resolve(retainedDestination);
   Object.assign(state, routeState);
 
   let projected: URL | null = null;
