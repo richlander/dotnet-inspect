@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
+using DotnetInspector.LibraryMetadata;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
@@ -92,12 +94,9 @@ public static class WorkspaceExactTypeFocusQuery
                 population.ReadDeclarations(
                     member.Occurrence,
                     cancellationToken);
-            if (outcome
-                is not WorkspaceDeclarationInventoryOutcome.Inspected
-                {
-                    Outcome:
-                        AssemblyTypeDeclarationInventoryOutcome.Read read,
-                })
+            if (!TryGetInventory(
+                    outcome,
+                    out AssemblyTypeDeclarationInventory? inventory))
             {
                 outcomes.Add(new(member, IsComplete: false));
                 continue;
@@ -105,7 +104,7 @@ public static class WorkspaceExactTypeFocusQuery
 
             outcomes.Add(new(member, IsComplete: true));
             foreach (AssemblyTypeDeclaration declaration
-                in read.Inventory.GetDeclarations(includeAll))
+                in inventory.GetDeclarations(includeAll))
             {
                 if (declaration.Kind
                         != AssemblyTypeDeclarationKind.Definition)
@@ -200,6 +199,29 @@ public static class WorkspaceExactTypeFocusQuery
         };
     }
 
+    private static bool TryGetInventory(
+        WorkspaceDeclarationInventoryOutcome outcome,
+        [NotNullWhen(true)]
+        out AssemblyTypeDeclarationInventory? inventory)
+    {
+        inventory = outcome switch
+        {
+            WorkspaceDeclarationInventoryOutcome.Inspected
+            {
+                Outcome:
+                    AssemblyTypeDeclarationInventoryOutcome.Read read,
+            } => read.Inventory,
+            WorkspaceDeclarationInventoryOutcome.LibraryInspected
+            {
+                Outcome:
+                    LibraryTypeDeclarationInventoryInspectionOutcome.Completed
+                        completed,
+            } => completed.Correspondence.Inventory,
+            _ => null,
+        };
+        return inventory is not null;
+    }
+
     private static WorkspaceExactTypeFocusOutcome?
         TrySelectSimpleName(
             WorkspaceDeclarationPopulation population,
@@ -234,8 +256,7 @@ public static class WorkspaceExactTypeFocusQuery
                 || group is null
                 || assembly is null)
             {
-                outcomes.Add(new(member, IsComplete: false));
-                continue;
+                return null;
             }
 
             AssemblyContextParticipant participant =
@@ -451,6 +472,17 @@ public static class WorkspaceExactTypeFocusQuery
         ResolvedAssemblyReference source,
         MetadataTypeIdentity target,
         out AssemblyReferenceIdentity? assembly,
+        out MetadataTypeDefinitionName? type) =>
+        TryGetExactTarget(
+            source.Identity,
+            target,
+            out assembly,
+            out type);
+
+    internal static bool TryGetExactTarget(
+        AssemblyReferenceIdentity source,
+        MetadataTypeIdentity target,
+        out AssemblyReferenceIdentity? assembly,
         out MetadataTypeDefinitionName? type)
     {
         MetadataNamedTypeIdentity? named = target switch
@@ -473,7 +505,7 @@ public static class WorkspaceExactTypeFocusQuery
 
         assembly = named.Scope.Kind switch
         {
-            MetadataTypeScopeKind.CurrentModule => source.Identity,
+            MetadataTypeScopeKind.CurrentModule => source,
             MetadataTypeScopeKind.AssemblyReference
                 when named.Scope.Assembly is { } reference =>
                 new AssemblyReferenceIdentity(

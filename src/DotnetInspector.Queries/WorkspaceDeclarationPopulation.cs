@@ -244,6 +244,21 @@ public abstract class WorkspaceDeclarationInventoryOutcome
     }
 }
 
+internal abstract record WorkspaceDeclarationRelationInspectionOutcome
+{
+    private WorkspaceDeclarationRelationInspectionOutcome()
+    {
+    }
+
+    internal sealed record Inspected(
+        MetadataRelationInspectionResult Result,
+        AssemblyAcquisitionRegistration Registration)
+        : WorkspaceDeclarationRelationInspectionOutcome;
+
+    internal sealed record Unavailable(string Detail)
+        : WorkspaceDeclarationRelationInspectionOutcome;
+}
+
 public enum WorkspaceDeclarationInventoryBound
 {
     ReadAttempts,
@@ -259,6 +274,11 @@ public sealed class WorkspaceDeclarationPopulation
     readonly IReadOnlyDictionary<
         WorkspaceDeclarationOccurrence,
         WorkspaceDeclarationMemberAccess> _access;
+    readonly object _relationRegistrationGate = new();
+    readonly Dictionary<
+        WorkspaceDeclarationOccurrence,
+        AssemblyAcquisitionRegistration> _relationRegistrations =
+            new(ReferenceEqualityComparer.Instance);
 
     internal WorkspaceDeclarationPopulation(
         InspectionWorkspace workspace,
@@ -308,6 +328,17 @@ public sealed class WorkspaceDeclarationPopulation
         return true;
     }
 
+    internal bool TryGetMember(
+        WorkspaceDeclarationOccurrence occurrence,
+        out WorkspaceDeclarationMember? member)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        member = Receipt.Members.FirstOrDefault(candidate =>
+            ReferenceEquals(candidate.Occurrence, occurrence));
+        return member is not null
+            && _access.ContainsKey(occurrence);
+    }
+
     internal IEnumerable<(
         WorkspaceDeclarationMember Member,
         AssemblyContextGroup Group,
@@ -326,6 +357,26 @@ public sealed class WorkspaceDeclarationPopulation
                     member,
                     assemblyContext.Group,
                     assemblyContext.Assembly);
+            }
+        }
+    }
+
+    internal IEnumerable<(
+        WorkspaceDeclarationMember Member,
+        WorkspaceLibraryOccurrence Occurrence)> ReadLibraryAccesses()
+    {
+        foreach (WorkspaceDeclarationMember member in Receipt.Members)
+        {
+            if (_access.TryGetValue(
+                    member.Occurrence,
+                    out var access)
+                && access
+                    is WorkspaceDeclarationMemberAccess.LibraryOccurrence
+                        library)
+            {
+                yield return (
+                    member,
+                    library.Occurrence);
             }
         }
     }
@@ -381,6 +432,96 @@ public sealed class WorkspaceDeclarationPopulation
             cancellationToken.ThrowIfCancellationRequested();
             return new WorkspaceDeclarationInventoryOutcome.Unavailable(
                 WorkspaceDeclarationPopulationFailure.ContextUnavailable);
+        }
+    }
+
+    internal WorkspaceDeclarationRelationInspectionOutcome ReadRelations(
+        WorkspaceDeclarationOccurrence occurrence,
+        MetadataRelationInspectionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_access.TryGetValue(occurrence, out var access)
+            || access
+                is not WorkspaceDeclarationMemberAccess.LibraryOccurrence
+                    library)
+        {
+            return new WorkspaceDeclarationRelationInspectionOutcome
+                .Unavailable(
+                    "The selected declaration occurrence is not backed by "
+                        + "an admitted Library.");
+        }
+        if (Availability() is not null)
+        {
+            return new WorkspaceDeclarationRelationInspectionOutcome
+                .Unavailable(
+                    "The Workspace declaration population is unavailable.");
+        }
+
+        WorkspaceLibraryOperationIssueOutcome issued =
+            _workspace.IssueLibraryOperation(library.Occurrence);
+        if (issued is not WorkspaceLibraryOperationIssueOutcome.Issued
+            available)
+        {
+            return new WorkspaceDeclarationRelationInspectionOutcome
+                .Unavailable(
+                    "The selected Library occurrence is unavailable.");
+        }
+
+        using (available.Lease)
+        {
+            LibraryMetadataRelationInspectionOutcome outcome =
+                LibraryMetadataRelationInspection.Execute(
+                    library.Occurrence.Library,
+                    available.Lease,
+                    request,
+                    cancellationToken);
+            if (outcome
+                is not LibraryMetadataRelationInspectionOutcome.Completed
+                    completed
+                || completed.Result.Receipt.ModuleVersionId
+                    is not Guid moduleVersionId)
+            {
+                return new WorkspaceDeclarationRelationInspectionOutcome
+                    .Unavailable(
+                        outcome
+                            is LibraryMetadataRelationInspectionOutcome
+                                .Unavailable unavailable
+                            ? unavailable.Detail
+                            : "The selected Library relation inspection "
+                                + "did not establish a module generation.");
+            }
+
+            AssemblyAcquisitionRegistration registration;
+            lock (_relationRegistrationGate)
+            {
+                if (!_relationRegistrations.TryGetValue(
+                        occurrence,
+                        out registration!))
+                {
+                    registration =
+                        AssemblyAcquisitionRegistration.ForArtifact(
+                            library.Occurrence.Library.ApiAssembly
+                                .Registration,
+                            moduleVersionId);
+                    _relationRegistrations.Add(
+                        occurrence,
+                        registration);
+                }
+                else if (registration.ModuleVersionId != moduleVersionId)
+                {
+                    return new WorkspaceDeclarationRelationInspectionOutcome
+                        .Unavailable(
+                            "The selected Library relation inspection "
+                                + "changed module generation.");
+                }
+            }
+            return new WorkspaceDeclarationRelationInspectionOutcome
+                .Inspected(
+                    completed.Result,
+                    registration);
         }
     }
 

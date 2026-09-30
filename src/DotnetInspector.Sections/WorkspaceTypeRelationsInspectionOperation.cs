@@ -113,11 +113,18 @@ public static class WorkspaceTypeRelationsInspectionOperation
             && appliesRowSelection
             && producerCandidatePopulation
             && plan.Selection.Form is not null;
+        bool countSelectionNeedsCandidates =
+            count is not null
+            && rows is null
+            && appliesRowSelection
+            && producerCandidatePopulation
+            && plan.Selection.Form is null;
         bool countNeedsRows =
             count is not null
             && (!producerCandidatePopulation
                 || (appliesRowSelection
-                    && !countSelectionNeedsNoRows));
+                    && !countSelectionNeedsNoRows
+                    && !countSelectionNeedsCandidates));
         int producerStart =
             rows?.Continuation is not null
             && continuationAuthority is not null
@@ -126,7 +133,6 @@ public static class WorkspaceTypeRelationsInspectionOperation
         RowSelectionPlan<string>? producerSelection =
             appliesRowSelection
             && producerCandidatePopulation
-            && plan.Selection.Form is not null
                 ? RowsCohortExecutor.ResolveUnorderedSelection(
                     rowSelection!)
                 : null;
@@ -143,7 +149,13 @@ public static class WorkspaceTypeRelationsInspectionOperation
                     : WorkspaceTypeHierarchyRelationExecutionPlan
                         .CanonicalRows(
                             producerSelection,
+                            plan.Selection.Form,
                             rows!.MaximumRows)
+                : countSelectionNeedsCandidates
+                    ? WorkspaceTypeHierarchyRelationExecutionPlan
+                        .CanonicalCandidates(
+                            producerSelection!,
+                            plan.Selection.Form)
                 : WorkspaceTypeHierarchyRelationExecutionPlan.Exhaustive(
                     materializeRows:
                         rows is not null || countNeedsRows,
@@ -167,7 +179,10 @@ public static class WorkspaceTypeRelationsInspectionOperation
         if (relations.CandidateSelectionFailure is { } selectionFailure)
         {
             throw SelectionFailure(
-                plan.Selection.Form!.Value,
+                relations.CandidateSelectionFailureForm
+                    ?? throw new InvalidOperationException(
+                        "Candidate selection failure requires a relation "
+                            + "form."),
                 selectionFailure);
         }
         var inspectionRequest = new SubjectRelationsInspectionRequest(

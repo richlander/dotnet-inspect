@@ -9,6 +9,149 @@ namespace DotnetInspector.PlatformHouse.Installed.Tests;
 
 public sealed class PlatformSelectedReferencePopulationExecutorTests
 {
+    [Fact]
+    public async Task ExactTargetRealizesWithoutDiscovery()
+    {
+        Harness context = await CreateContextAsync(
+            referenceCapabilities: null);
+        context = context with
+        {
+            Request = CreateExactRequest(context),
+        };
+        int discoveries = 0;
+        int packageRealizations = 0;
+
+        PlatformPopulationArtifactMaterializationOutcome outcome =
+            await PlatformHouseSelectedReferencePopulationExecutor
+                .ExecuteAsync(
+                    context.Request,
+                    [
+                        Discovery(
+                            context,
+                            context.InstalledDiscovery,
+                            context.InstalledTarget,
+                            new TestAssociation("installed"),
+                            () => discoveries++),
+                        Discovery(
+                            context,
+                            context.PackageDiscovery,
+                            context.PackageTarget,
+                            new TestAssociation("package"),
+                            () => discoveries++),
+                    ],
+                    [
+                        Success(
+                            context,
+                            context.InstalledReference),
+                        Success(
+                            context,
+                            context.PackageReference,
+                            () => packageRealizations++,
+                            associationCapability:
+                                context.PackageDiscovery),
+                    ],
+                    "exact-reference-population-test");
+
+        if (outcome
+            is PlatformPopulationArtifactMaterializationOutcome.Terminal
+                terminal)
+        {
+            Assert.Fail(TerminalMessage(terminal));
+        }
+        var completed = Assert.IsType<
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
+                outcome);
+        Assert.Equal(0, discoveries);
+        Assert.Equal(0, packageRealizations);
+        var settlement = Assert.IsType<
+            PlatformTargetSettlement.Exact>(
+                completed.Population.Outcome.Receipt.TargetSettlement);
+        Assert.Equal(
+            context.InstalledTarget,
+            settlement.SettledTarget);
+        Assert.Single(
+            completed.Population.Outcome.Receipt.SourceSettlements);
+        Assert.Equal(
+            1,
+            completed.Population.Outcome.Receipt.ConsumedWork
+                .SourceOperations);
+        Assert.Equal(
+            0,
+            completed.Population.Outcome.Receipt.ConsumedWork
+                .TargetCandidates);
+
+        await RetireAsync(completed);
+    }
+
+    [Fact]
+    public async Task ExactTargetFallbackPreservesSourceSettlements()
+    {
+        Harness context = await CreateContextAsync(
+            referenceCapabilities: null);
+        context = context with
+        {
+            Request = CreateExactRequest(context),
+        };
+        int discoveries = 0;
+        int packageRealizations = 0;
+
+        PlatformPopulationArtifactMaterializationOutcome outcome =
+            await PlatformHouseSelectedReferencePopulationExecutor
+                .ExecuteAsync(
+                    context.Request,
+                    [
+                        Discovery(
+                            context,
+                            context.InstalledDiscovery,
+                            context.InstalledTarget,
+                            new TestAssociation("installed"),
+                            () => discoveries++),
+                        Discovery(
+                            context,
+                            context.PackageDiscovery,
+                            context.PackageTarget,
+                            new TestAssociation("package"),
+                            () => discoveries++),
+                    ],
+                    [
+                        Unavailable(
+                            context.InstalledReference),
+                        Success(
+                            context,
+                            context.PackageReference,
+                            () => packageRealizations++,
+                            associationCapability:
+                                context.PackageDiscovery),
+                    ],
+                    "exact-reference-population-test");
+
+        if (outcome
+            is PlatformPopulationArtifactMaterializationOutcome.Terminal
+                terminal)
+        {
+            Assert.Fail(TerminalMessage(terminal));
+        }
+        var completed = Assert.IsType<
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
+                outcome);
+        Assert.Equal(0, discoveries);
+        Assert.Equal(1, packageRealizations);
+        Assert.Collection(
+            completed.Population.Outcome.Receipt.SourceSettlements,
+            preferred => Assert.Equal(
+                PlatformSourceSettlementDisposition.OutcomeRelevant,
+                preferred.Disposition),
+            fallback => Assert.Equal(
+                PlatformSourceSettlementDisposition.Selected,
+                fallback.Disposition));
+        Assert.Equal(
+            2,
+            completed.Population.Outcome.Receipt.ConsumedWork
+                .SourceOperations);
+
+        await RetireAsync(completed);
+    }
+
     [Theory]
     [InlineData(PlatformFamily.DotNetRuntime)]
     [InlineData(PlatformFamily.AspNetCore)]
@@ -442,6 +585,44 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
             TestContext.Current.CancellationToken);
     }
 
+    static PlatformHouseRequest CreateExactRequest(
+        Harness context) =>
+        new(
+            PlatformHouseRequestIdentity.Create(
+                "exact-reference-population-request"),
+            new PlatformTargetDemand.Exact(
+                context.InstalledTarget),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create("standalone")),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.CompletePopulation(),
+                PlatformViewDemand.Reference),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create(
+                    "exact-reference-population-sources"),
+                PlatformSourcePolicyGeneration.Create("generation-1"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Reference,
+                        PlatformSourceSelectionMode.Fallback,
+                        [
+                            context.InstalledReference,
+                            context.PackageReference,
+                        ]),
+                ]),
+            new PlatformHouseWorkBudget(
+                maxSourceOperations: 16,
+                maxTargetCandidates: 0,
+                maxAssemblies: context.MaxAssemblies,
+                maxXmlDocuments: 0,
+                maxPortablePdbs: 0,
+                maxSourceDocuments: 0,
+                maxBytes: context.Contents.Sum(
+                    static content => content.Bytes.LongLength) * 4,
+                maxForwardingHops: 0,
+                maxDuration: TimeSpan.FromSeconds(30)),
+            TestContext.Current.CancellationToken);
+
     static PlatformTargetDiscoverySource Discovery(
         Harness context,
         PlatformSourceCapabilityIdentity capability,
@@ -559,6 +740,25 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
             associationCapability is null
                 ? null
                 : context.PackageRoute);
+
+    static PlatformReferencePopulationRealizationSource Unavailable(
+        PlatformSourceCapabilityIdentity capability) =>
+        new(
+            capability,
+            (request, target, _, _) =>
+            {
+                PlatformReferencePopulationRealizationSourceAttempt attempt =
+                    new PlatformReferencePopulationRealizationSourceAttempt
+                        .NotSucceeded(
+                            new PlatformSourceContribution.Unavailable(
+                                PlatformSourceFacet.Reference,
+                                capability,
+                                request.Snapshot,
+                                Generation(capability),
+                                target,
+                                PlatformSourceUnavailabilityKind.Absent));
+                return ValueTask.FromResult(attempt);
+            });
 
     static async ValueTask RetireAsync(
         PlatformPopulationArtifactMaterializationOutcome.Completed completed)

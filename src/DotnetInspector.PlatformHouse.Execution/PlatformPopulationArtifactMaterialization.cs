@@ -148,6 +148,34 @@ public static class PlatformHousePopulationArtifactMaterializer
 
     internal static ValueTask<
         PlatformPopulationArtifactMaterializationOutcome>
+        MaterializeExactReferencesAsync(
+            PlatformHouseRequest request,
+            IReadOnlyList<
+                PlatformPopulationLibraryArtifactMaterializationItem> items,
+            PlatformHouseConsumedWork consumedWork,
+            string identityPrefix,
+            IReadOnlyList<PlatformSourceSettlement>
+                retainedSettlements,
+            Func<PlatformHouseConsumedWork> currentWork,
+            CancellationToken materializationCancellation)
+    {
+        ArgumentNullException.ThrowIfNull(retainedSettlements);
+        ArgumentNullException.ThrowIfNull(currentWork);
+        return MaterializeCoreAsync(
+            request,
+            PlatformViewDemand.Reference,
+            items,
+            [],
+            consumedWork,
+            identityPrefix,
+            targetSelection: null,
+            retainedSettlements,
+            currentWork,
+            materializationCancellation);
+    }
+
+    internal static ValueTask<
+        PlatformPopulationArtifactMaterializationOutcome>
         MaterializeSelectedReferencesAsync(
             PlatformHouseRequest request,
             IReadOnlyList<
@@ -484,6 +512,22 @@ public static class PlatformHousePopulationArtifactMaterializer
                             targetSelection,
                             retainedSettlements);
                 }
+                if (retainedSettlements is not null)
+                {
+                    if (expectedView != PlatformViewDemand.Reference)
+                    {
+                        throw new InvalidOperationException(
+                            "Exact retained population materialization "
+                                + "supports only a Reference population.");
+                    }
+                    return PlatformHousePopulationRealizer
+                        .RealizeExactReferencesAsync(
+                            request,
+                            selections,
+                            contentLeases,
+                            consumedWork,
+                            retainedSettlements);
+                }
 
                 return expectedView switch
                 {
@@ -755,10 +799,10 @@ public static class PlatformHousePopulationArtifactMaterializer
 
     static IReadOnlyList<PlatformSourceSettlement>?
         TerminalRetainedSettlements(
-            PlatformTargetSelectionContext? targetSelection,
+            PlatformTargetSelectionContext? _,
             IReadOnlyList<PlatformSourceSettlement>?
                 retainedSettlements) =>
-        targetSelection is null || retainedSettlements is null
+        retainedSettlements is null
             ? null
             :
             [.. retainedSettlements.Select(

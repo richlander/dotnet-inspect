@@ -211,6 +211,19 @@ public abstract record InspectionGraphAssemblyIdentity
             Provenance = assembly.Provenance;
         }
 
+        internal Acquired(
+            AssemblyAcquisitionRegistration registration,
+            AssemblyReferenceIdentity assembly,
+            AssemblyResolutionProvenance provenance)
+        {
+            Registration = registration
+                ?? throw new ArgumentNullException(nameof(registration));
+            Assembly = assembly
+                ?? throw new ArgumentNullException(nameof(assembly));
+            Provenance = provenance
+                ?? throw new ArgumentNullException(nameof(provenance));
+        }
+
         public AssemblyAcquisitionRegistration Registration { get; }
         public AssemblyReferenceIdentity Assembly { get; }
         public AssemblyResolutionProvenance Provenance { get; }
@@ -343,6 +356,16 @@ public abstract record InspectionGraphSubject
     public static InspectionGraphSubject ForAcquiredAssembly(
         ResolvedAssemblyReference assembly) =>
         ForAssembly(new InspectionGraphAssemblyIdentity.Acquired(assembly));
+
+    internal static InspectionGraphSubject ForAcquiredAssembly(
+        AssemblyAcquisitionRegistration registration,
+        AssemblyReferenceIdentity assembly,
+        AssemblyResolutionProvenance provenance) =>
+        ForAssembly(
+            new InspectionGraphAssemblyIdentity.Acquired(
+                registration,
+                assembly,
+                provenance));
 
     public static InspectionGraphSubject ForMetadataAssembly(
         AssemblyReferenceIdentity assembly) =>

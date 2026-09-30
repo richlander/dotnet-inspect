@@ -156,12 +156,22 @@ public sealed class PackagePlatformHouseAdapter
     public Task<PackagePlatformHouseResult<PackageReferenceRealization>> RealizeReferenceAsync(
         PlatformHouseRequest request,
         PackageSourceOperationLease operation) =>
+        RealizeReferenceAsync(
+            request,
+            request.Work,
+            operation);
+
+    public Task<PackagePlatformHouseResult<PackageReferenceRealization>>
+        RealizeReferenceAsync(
+            PlatformHouseRequest request,
+            PlatformHouseWorkBudget remainingWork,
+            PackageSourceOperationLease operation) =>
         RealizeReference(
             request,
             null,
             null,
             selectedTarget: null,
-            request.Work,
+            remainingWork,
             operation,
             fromDiscovery: false);
 

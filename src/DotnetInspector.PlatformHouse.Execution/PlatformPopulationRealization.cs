@@ -240,6 +240,26 @@ public static class PlatformHousePopulationRealizer
             .ConfigureAwait(false);
 
     internal static ValueTask<PlatformPopulationRealizationResult>
+        RealizeExactReferencesAsync(
+            PlatformHouseRequest request,
+            IReadOnlyList<PlatformPopulationLibraryContentSelection>
+                selections,
+            IReadOnlyList<ArtifactContentLease> contentLeases,
+            PlatformHouseConsumedWork consumedWork,
+            IReadOnlyList<PlatformSourceSettlement> retainedSettlements) =>
+        RealizeAsync(
+            request,
+            PlatformViewDemand.Reference,
+            selections,
+            contentLeases,
+            [],
+            [],
+            consumedWork,
+            priorContributions: null,
+            targetSelection: null,
+            retainedSettlements);
+
+    internal static ValueTask<PlatformPopulationRealizationResult>
         RealizeSelectedReferencesAsync(
             PlatformHouseRequest request,
             IReadOnlyList<PlatformPopulationLibraryContentSelection>
@@ -344,8 +364,7 @@ public static class PlatformHousePopulationRealizer
         PlatformFamilyTarget? target = request.Target switch
         {
             PlatformTargetDemand.Exact exact
-                when targetSelection is null
-                    && retainedSettlements is null => exact.Target,
+                when targetSelection is null => exact.Target,
             PlatformTargetDemand.FamilyDefault demand
                 when targetSelection is not null
                     && retainedSettlements is { Count: > 0 }
@@ -355,6 +374,21 @@ public static class PlatformHousePopulationRealizer
                 targetSelection.Target,
             _ => null,
         };
+        PlatformTargetSettlement? targetSettlement =
+            request.Target switch
+            {
+                PlatformTargetDemand.Exact exact
+                    when targetSelection is null =>
+                        new PlatformTargetSettlement.Exact(exact),
+                PlatformTargetDemand.FamilyDefault demand
+                    when targetSelection is not null
+                        && retainedSettlements is { Count: > 0 }
+                        && ReferenceEquals(
+                            targetSelection.TargetSettlement.Demand,
+                            demand) =>
+                        targetSelection.TargetSettlement,
+                _ => null,
+            };
         PlatformPopulationLibraryContentSelection[] referenceSelections =
             [.. references];
         ArtifactContentLease[] acceptedReferenceLeases =
@@ -390,7 +424,7 @@ public static class PlatformHousePopulationRealizer
                         owners,
                         PlatformHouseRejectionKind.InvalidRequest,
                         "platform-population.invalid-request",
-                        targetSelection?.TargetSettlement,
+                        targetSettlement,
                         TerminalRetainedSettlements(
                             targetSelection,
                             retainedSettlements))
@@ -406,7 +440,7 @@ public static class PlatformHousePopulationRealizer
                         owners,
                         PlatformHouseRejectionKind.InvalidRequest,
                         "platform-population.invalid-view",
-                        targetSelection?.TargetSettlement,
+                        targetSettlement,
                         TerminalRetainedSettlements(
                             targetSelection,
                             retainedSettlements))
@@ -423,7 +457,7 @@ public static class PlatformHousePopulationRealizer
                         leases,
                         owners,
                         "platform-population.work-incomplete",
-                        targetSelection?.TargetSettlement,
+                        targetSettlement,
                         TerminalRetainedSettlements(
                             targetSelection,
                             retainedSettlements))
@@ -449,7 +483,7 @@ public static class PlatformHousePopulationRealizer
                         owners,
                         PlatformHouseRejectionKind.InvalidOwnerResult,
                         "platform-population.invalid-content",
-                        targetSelection?.TargetSettlement,
+                        targetSettlement,
                         TerminalRetainedSettlements(
                             targetSelection,
                             retainedSettlements))
@@ -496,7 +530,7 @@ public static class PlatformHousePopulationRealizer
                         owners,
                         PlatformHouseRejectionKind.InvalidRetainedEvidence,
                         "platform-population.missing-selected-evidence",
-                        targetSelection!.TargetSettlement,
+                        targetSettlement,
                         TerminalRetainedSettlements(
                             targetSelection,
                             retainedSettlements))
@@ -580,10 +614,9 @@ public static class PlatformHousePopulationRealizer
                 viewCorrespondence);
             var receipt = new PlatformHouseReceipt(
                 request.Snapshot,
-                (PlatformTargetSettlement?)
-                    targetSelection?.TargetSettlement
-                    ?? new PlatformTargetSettlement.Exact(
-                        (PlatformTargetDemand.Exact)request.Target),
+                targetSettlement
+                    ?? throw new InvalidOperationException(
+                        "A realized population requires one settled target."),
                 settlements,
                 consumedWork,
                 completion);
@@ -613,7 +646,7 @@ public static class PlatformHousePopulationRealizer
                     cleanup.Kinds,
                     cancellationObserved: true,
                     "platform-population.cancellation-cleanup-failed",
-                    targetSelection?.TargetSettlement,
+                    targetSettlement,
                     TerminalRetainedSettlements(
                         targetSelection,
                         retainedSettlements));
@@ -630,7 +663,7 @@ public static class PlatformHousePopulationRealizer
                     owners,
                     PlatformHouseRejectionKind.InvalidOwnerResult,
                     "platform-population.released-content",
-                    targetSelection?.TargetSettlement,
+                    targetSettlement,
                     TerminalRetainedSettlements(
                         targetSelection,
                         retainedSettlements))
@@ -646,7 +679,7 @@ public static class PlatformHousePopulationRealizer
                     owners,
                     PlatformHouseRejectionKind.InvalidRetainedEvidence,
                     "platform-population.invalid-retained-evidence",
-                    targetSelection?.TargetSettlement,
+                    targetSettlement,
                     TerminalRetainedSettlements(
                         targetSelection,
                         retainedSettlements))
@@ -1181,10 +1214,10 @@ public static class PlatformHousePopulationRealizer
 
     static IReadOnlyList<PlatformSourceSettlement>?
         TerminalRetainedSettlements(
-            PlatformTargetSelectionContext? targetSelection,
+            PlatformTargetSelectionContext? _,
             IReadOnlyList<PlatformSourceSettlement>?
                 retainedSettlements) =>
-        targetSelection is null || retainedSettlements is null
+        retainedSettlements is null
             ? null
             :
             [.. retainedSettlements.Select(

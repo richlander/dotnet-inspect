@@ -191,6 +191,42 @@ internal static class PlatformTypeCatalogRouting
             PlatformLibraryPopulationDeclaration population,
             CommandContext context,
             NuGetSourceOptions sourceOptions,
+            CancellationToken cancellationToken) =>
+        await RealizePopulationAsync(
+                dotnetRoot,
+                population,
+                exactTarget: null,
+                context,
+                sourceOptions,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal static async ValueTask<
+        PlatformPopulationArtifactMaterializationOutcome>
+        RealizePopulationAsync(
+            string? dotnetRoot,
+            PlatformFamilyTarget exactTarget,
+            CommandContext context,
+            NuGetSourceOptions sourceOptions,
+            CancellationToken cancellationToken) =>
+        await RealizePopulationAsync(
+                dotnetRoot,
+                new PlatformLibraryPopulationDeclaration(
+                    exactTarget.Family),
+                exactTarget,
+                context,
+                sourceOptions,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    private static async ValueTask<
+        PlatformPopulationArtifactMaterializationOutcome>
+        RealizePopulationAsync(
+            string? dotnetRoot,
+            PlatformLibraryPopulationDeclaration population,
+            PlatformFamilyTarget? exactTarget,
+            CommandContext context,
+            NuGetSourceOptions sourceOptions,
             CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(population);
@@ -210,6 +246,7 @@ internal static class PlatformTypeCatalogRouting
                 installed,
                 package,
                 population.Family,
+                exactTarget,
                 cancellationToken);
 
         List<PlatformTargetDiscoverySource> discoverySources = [];
@@ -360,6 +397,7 @@ internal static class PlatformTypeCatalogRouting
         InstalledPlatformHouseAdapter? installed,
         PackagePlatformHouseAdapter package,
         PlatformFamily family,
+        PlatformFamilyTarget? exactTarget,
         CancellationToken cancellationToken)
     {
         string familyName = family switch
@@ -399,19 +437,21 @@ internal static class PlatformTypeCatalogRouting
         return new(
             PlatformHouseRequestIdentity.Create(
                 $"cli-platform-type-routing-{familyName}"),
-            new PlatformTargetDemand.FamilyDefault(
-                family,
-                new PlatformVersionlessRuntimeTargetPolicy(
-                    PlatformTargetSelectionPolicyIdentity.Create(
-                        $"cli-versionless-{familyName}-default"),
-                    PlatformTargetSelectionPolicyGeneration.Create(
-                        "generation-1"),
-                    PlatformVersion.Parse("10.0.1"),
-                    preferred,
-                    fallback),
-                new PlatformTargetDiscoveryBudget(
-                    maxCandidates: 128,
-                    maxComparisons: 512)),
+            exactTarget is null
+                ? new PlatformTargetDemand.FamilyDefault(
+                    family,
+                    new PlatformVersionlessRuntimeTargetPolicy(
+                        PlatformTargetSelectionPolicyIdentity.Create(
+                            $"cli-versionless-{familyName}-default"),
+                        PlatformTargetSelectionPolicyGeneration.Create(
+                            "generation-1"),
+                        PlatformVersion.Parse("10.0.1"),
+                        preferred,
+                        fallback),
+                    new PlatformTargetDiscoveryBudget(
+                        maxCandidates: 128,
+                        maxComparisons: 512))
+                : new PlatformTargetDemand.Exact(exactTarget),
             new PlatformHouseRequestOrigin.Standalone(
                 PlatformStandaloneOperationIdentity.Create(
                     $"cli-platform-type-routing-{familyName}")),
@@ -422,16 +462,23 @@ internal static class PlatformTypeCatalogRouting
                 PlatformSourcePlanIdentity.Create(
                     $"cli-platform-type-routing-{familyName}-sources"),
                 PlatformSourcePolicyGeneration.Create("generation-1"),
-                [
-                    new PlatformSourceSelection(
-                        PlatformSourceFacet.TargetDiscovery,
-                        PlatformSourceSelectionMode.Fallback,
-                        discoveryCapabilities),
-                    new PlatformSourceSelection(
-                        PlatformSourceFacet.Reference,
-                        PlatformSourceSelectionMode.Precedence,
-                        referenceCapabilities),
-                ]),
+                exactTarget is null
+                    ? [
+                        new PlatformSourceSelection(
+                            PlatformSourceFacet.TargetDiscovery,
+                            PlatformSourceSelectionMode.Fallback,
+                            discoveryCapabilities),
+                        new PlatformSourceSelection(
+                            PlatformSourceFacet.Reference,
+                            PlatformSourceSelectionMode.Precedence,
+                            referenceCapabilities),
+                    ]
+                    : [
+                        new PlatformSourceSelection(
+                            PlatformSourceFacet.Reference,
+                            PlatformSourceSelectionMode.Precedence,
+                            referenceCapabilities),
+                    ]),
             new PlatformHouseWorkBudget(
                 maxSourceOperations: 4,
                 maxTargetCandidates: 128,

@@ -32,11 +32,16 @@ public static class InstalledPlatformSelectedReferencePopulationRealization
                 long started = Stopwatch.GetTimestamp();
                 InstalledPlatformHouseResult<
                     InstalledReferenceRealization> result =
-                    await adapter.RealizeSelectedReferenceAsync(
-                            request,
-                            target,
-                            remainingWork)
-                        .ConfigureAwait(false);
+                    request.Target is PlatformTargetDemand.Exact
+                        ? await adapter.RealizeReferenceAsync(
+                                request,
+                                remainingWork)
+                            .ConfigureAwait(false)
+                        : await adapter.RealizeSelectedReferenceAsync(
+                                request,
+                                target,
+                                remainingWork)
+                            .ConfigureAwait(false);
                 return Prepare(
                     request,
                     target,
@@ -58,14 +63,13 @@ public static class InstalledPlatformSelectedReferencePopulationRealization
         {
             InstalledPlatformHouseResult<
                 InstalledReferenceRealization>.Succeeded success
-                when InstalledPlatformLibraryMaterializer
-                    .TryPrepareSelectedReferencePopulation(
-                        request,
-                        target,
-                        success,
-                        out IReadOnlyList<
-                            PlatformPopulationLibraryArtifactMaterializationItem>
-                            items) =>
+                when TryPrepare(
+                    request,
+                    target,
+                    success,
+                    out IReadOnlyList<
+                        PlatformPopulationLibraryArtifactMaterializationItem>
+                        items) =>
                 new PlatformReferencePopulationRealizationSourceAttempt
                     .Succeeded(
                         (PlatformSourceContribution.Realization)
@@ -99,6 +103,26 @@ public static class InstalledPlatformSelectedReferencePopulationRealization
             _ => throw new InvalidOperationException(
                 "Unknown installed reference result."),
         };
+
+    static bool TryPrepare(
+        PlatformHouseRequest request,
+        PlatformFamilyTarget target,
+        InstalledPlatformHouseResult<
+            InstalledReferenceRealization>.Succeeded success,
+        out IReadOnlyList<
+            PlatformPopulationLibraryArtifactMaterializationItem> items) =>
+        request.Target is PlatformTargetDemand.Exact
+            ? InstalledPlatformLibraryMaterializer
+                .TryPrepareExactReferencePopulation(
+                    request,
+                    success,
+                    out items)
+            : InstalledPlatformLibraryMaterializer
+                .TryPrepareSelectedReferencePopulation(
+                    request,
+                    target,
+                    success,
+                    out items);
 
     static PlatformReferencePopulationRealizationSourceAttempt InvalidAttempt(
         PlatformHouseRequest request,

@@ -113,58 +113,16 @@ public static class ExactTypeRelationsInspectionOperation
             }
             else
             {
-                InspectionEnvelope<
-                    SelectedContextExactTypeInspectionResult>? inspection =
-                    request.IncludeTypeInspection
-                        ? SelectedContextExactTypeInspectionOperation.Execute(
-                                workspace,
-                                context,
-                                new(
-                                    request.Type,
-                                    request.SelectionKind))
-                        : null;
-                WorkspaceDeclarationPopulation population =
-                    workspace.CaptureDeclarationPopulation([context])
-                        is WorkspaceDeclarationPopulationCapture
-                            .Captured captured
-                        ? captured.Population
-                        : throw new InvalidOperationException(
-                            "The loaded exact Type context could not be "
-                                + "captured as a relation population.");
-                WorkspaceExactTypeFocusOutcome focus =
-                    WorkspaceExactTypeFocusQuery.Execute(
-                        population,
-                        request.Type,
-                        request.SelectionKind,
-                        request.FocusAssemblyName,
-                        request.FocusLibrary,
-                        cancellationToken: cancellationToken);
-                if (focus
-                    is not WorkspaceExactTypeFocusOutcome.Found found)
-                {
-                    outcome =
-                        new ExactTypeRelationsInspectionOutcome.Unavailable(
-                            ((WorkspaceExactTypeFocusOutcome.Unavailable)
-                                focus).Detail);
-                }
-                else
-                {
-                    WorkspaceTypeRelationsInspectionResult relations =
-                        WorkspaceTypeRelationsInspectionOperation.Execute(
-                            workspace,
-                            population,
-                            found,
-                            plan,
-                            count,
-                            rows,
-                            rowSelection: rowSelection,
-                            includeNonPublic: includeNonPublic,
-                            cancellationToken: cancellationToken);
-                    outcome =
-                        new ExactTypeRelationsInspectionOutcome.Available(
-                            inspection,
-                            relations);
-                }
+                outcome = Execute(
+                    workspace,
+                    context,
+                    request,
+                    plan,
+                    count,
+                    rows,
+                    rowSelection,
+                    includeNonPublic,
+                    cancellationToken);
             }
         }
         catch (Exception failure)
@@ -181,5 +139,96 @@ public static class ExactTypeRelationsInspectionOperation
                 "Exact Type Subject Relations inspection")
             .ConfigureAwait(false);
         return outcome;
+    }
+
+    public static ExactTypeRelationsInspectionOutcome Execute(
+        InspectionWorkspace workspace,
+        WorkspaceDeclarationContext context,
+        TypeRelationsInspectionRequest request,
+        SubjectRelationsQueryPlan plan,
+        SubjectRelationPopulationCountRequest? count = null,
+        SubjectRelationPopulationRowsRequest? rows = null,
+        RowSelectionIntent<string>? rowSelection = null,
+        bool includeNonPublic = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(plan);
+        if (request.IncludeTypeInspection
+            && context.Group is null)
+        {
+            string detail = string.Join(
+                " ",
+                context.Receipt.Failures
+                    .OfType<WorkspaceDeclarationFailure.ContextLoad>()
+                    .Select(failure => failure.Failure.Message));
+            return new ExactTypeRelationsInspectionOutcome.Unavailable(
+                string.IsNullOrWhiteSpace(detail)
+                    ? "The exact Type candidate context could not be loaded."
+                    : detail);
+        }
+
+        InspectionEnvelope<
+            SelectedContextExactTypeInspectionResult>? inspection =
+            request.IncludeTypeInspection
+                ? SelectedContextExactTypeInspectionOperation.Execute(
+                        workspace,
+                        context,
+                        new(
+                            request.Type,
+                            request.SelectionKind))
+                : null;
+        WorkspaceDeclarationPopulation population =
+            workspace.CaptureDeclarationPopulation([context])
+                is WorkspaceDeclarationPopulationCapture.Captured captured
+                ? captured.Population
+                : throw new InvalidOperationException(
+                    "The loaded exact Type context could not be captured "
+                        + "as a relation population.");
+        WorkspaceExactTypeFocusOutcome focus =
+            WorkspaceExactTypeFocusQuery.Execute(
+                population,
+                request.Type,
+                request.SelectionKind,
+                request.FocusAssemblyName,
+                request.FocusLibrary,
+                cancellationToken: cancellationToken);
+        if (focus is not WorkspaceExactTypeFocusOutcome.Found found)
+        {
+            var unavailable =
+                (WorkspaceExactTypeFocusOutcome.Unavailable)focus;
+            string[] incomplete =
+            [
+                .. unavailable.Members
+                    .Where(static member => !member.IsComplete)
+                    .Select(static member =>
+                        member.Member.AssemblyIdentity.Name)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(5),
+            ];
+            return new ExactTypeRelationsInspectionOutcome.Unavailable(
+                unavailable.Detail
+                    + (incomplete.Length == 0
+                        ? ""
+                        : $" Incomplete assemblies: "
+                            + $"{string.Join(", ", incomplete)}."));
+        }
+
+        WorkspaceTypeRelationsInspectionResult relations =
+            WorkspaceTypeRelationsInspectionOperation.Execute(
+                workspace,
+                population,
+                found,
+                plan,
+                count,
+                rows,
+                rowSelection: rowSelection,
+                includeNonPublic: includeNonPublic,
+                cancellationToken: cancellationToken);
+        return new ExactTypeRelationsInspectionOutcome.Available(
+            inspection,
+            relations);
     }
 }

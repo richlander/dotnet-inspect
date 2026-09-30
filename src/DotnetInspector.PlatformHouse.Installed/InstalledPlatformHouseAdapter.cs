@@ -219,9 +219,18 @@ public sealed class InstalledPlatformHouseAdapter
 
     public async ValueTask<
         InstalledPlatformHouseResult<InstalledReferenceRealization>>
-        RealizeReferenceAsync(PlatformHouseRequest request)
+        RealizeReferenceAsync(PlatformHouseRequest request) =>
+        await RealizeReferenceAsync(request, request.Work)
+            .ConfigureAwait(false);
+
+    public async ValueTask<
+        InstalledPlatformHouseResult<InstalledReferenceRealization>>
+        RealizeReferenceAsync(
+            PlatformHouseRequest request,
+            PlatformHouseWorkBudget remainingWork)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(remainingWork);
         if (request.Target is not PlatformTargetDemand.Exact exact)
         {
             throw new ArgumentException(
@@ -231,7 +240,7 @@ public sealed class InstalledPlatformHouseAdapter
         return await RealizeReferenceCoreAsync(
                 request,
                 exact.Target,
-                request.Work)
+                remainingWork)
             .ConfigureAwait(false);
     }
 

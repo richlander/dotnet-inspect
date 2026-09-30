@@ -624,6 +624,95 @@ public sealed class PackagePlatformLibraryMaterializerTests
 
     [Fact]
     public async Task
+        ExactPackageReferencePopulationCompletesWithoutDiscovery()
+    {
+        const string version = "10.0.12";
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] runtime =
+            PackagePlatformTestData.Assembly("System.Runtime");
+        byte[] json =
+            PackagePlatformTestData.Assembly("System.Text.Json");
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.CreatePackages(
+                    (
+                        PackagePlatformTestEnvironment.RuntimePackageId,
+                        version,
+                        [
+                            PackagePlatformTestData.Entry(
+                                "ref/net10.0/System.Runtime.dll",
+                                runtime),
+                            PackagePlatformTestData.Entry(
+                                "ref/net10.0/System.Text.Json.dll",
+                                json),
+                        ])),
+            ]);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request =
+            ExactPackageReferencePopulationRequest(
+                adapter,
+                version,
+                cancellationToken);
+        int discoveryOperations = 0;
+
+        var completed = Assert.IsType<
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
+                await PlatformHouseSelectedReferencePopulationExecutor
+                    .ExecuteAsync(
+                        request,
+                        [
+                            PackagePlatformTargetDiscovery.CreateSource(
+                                adapter,
+                                (operation, remainingWork) =>
+                                {
+                                    discoveryOperations++;
+                                    return environment.IssueOperation(
+                                        operation.CancellationToken,
+                                        operationTimeout:
+                                            remainingWork.MaxDuration);
+                                }),
+                        ],
+                        [
+                            PackagePlatformSelectedReferencePopulationRealization
+                                .CreateSource(
+                                    adapter,
+                                    (operation, remainingWork) =>
+                                        environment.IssueOperation(
+                                            operation.CancellationToken,
+                                            operationTimeout:
+                                                remainingWork.MaxDuration),
+                                    PlatformHouseCandidateIdentity.Create(
+                                        "package-reference-population-candidate")),
+                        ],
+                        "package-exact-reference-population"));
+
+        Assert.Equal(0, discoveryOperations);
+        Assert.Equal(
+            ["System.Runtime", "System.Text.Json"],
+            completed.Population.Value.Members.Select(
+                static member =>
+                    member.PlatformLibrary.Library.ApiAssembly
+                        .AssemblyIdentity!.Identity.Name));
+        Assert.IsType<PlatformTargetSettlement.Exact>(
+            completed.Population.Outcome.Receipt.TargetSettlement);
+        Assert.Single(
+            completed.Population.Outcome.Receipt.SourceSettlements);
+
+        await environment.AssertSettledAsync();
+        Task artifactRetirement =
+            completed.Artifacts.DisposeAsync().AsTask();
+        foreach (LibraryContentOwner owner
+            in completed.Population.Owners)
+        {
+            await owner.DisposeAsync();
+        }
+        await artifactRetirement.WaitAsync(cancellationToken);
+    }
+
+    [Fact]
+    public async Task
         ForeignPopulationAssociationRejectsBeforePackageOperation()
     {
         CancellationToken cancellationToken =
@@ -2481,6 +2570,46 @@ public sealed class PackagePlatformLibraryMaterializerTests
             new PlatformHouseWorkBudget(
                 maxSourceOperations: 4,
                 maxTargetCandidates: 32,
+                maxAssemblies: 512,
+                maxXmlDocuments: 0,
+                maxPortablePdbs: 0,
+                maxSourceDocuments: 0,
+                maxBytes: 64L * 1024 * 1024,
+                maxForwardingHops: 0,
+                maxDuration: TimeSpan.FromSeconds(30)),
+            cancellationToken);
+
+    static PlatformHouseRequest ExactPackageReferencePopulationRequest(
+        PackagePlatformHouseAdapter adapter,
+        string version,
+        CancellationToken cancellationToken) =>
+        new(
+            PlatformHouseRequestIdentity.Create(
+                "exact-package-reference-population"),
+            new PlatformTargetDemand.Exact(
+                new(
+                    PlatformFamily.DotNetRuntime,
+                    PlatformTargetFramework.Parse("net10.0"),
+                    PlatformVersion.Parse(version))),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create(
+                    "exact-package-reference-population")),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.CompletePopulation(),
+                PlatformViewDemand.Reference),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create(
+                    "exact-package-reference-population-sources"),
+                PlatformSourcePolicyGeneration.Create("generation-1"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Reference,
+                        PlatformSourceSelectionMode.Precedence,
+                        [adapter.ReferenceRealization]),
+                ]),
+            new PlatformHouseWorkBudget(
+                maxSourceOperations: 4,
+                maxTargetCandidates: 0,
                 maxAssemblies: 512,
                 maxXmlDocuments: 0,
                 maxPortablePdbs: 0,

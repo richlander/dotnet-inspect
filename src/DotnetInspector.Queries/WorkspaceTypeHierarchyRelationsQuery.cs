@@ -25,7 +25,8 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
         int maximumRows,
         int? stopAfterCandidateCount,
         bool canonicalOrder,
-        RowSelectionPlan<string>? candidateSelection)
+        RowSelectionPlan<string>? candidateSelection,
+        SubjectRelationForm? candidateSelectionForm)
     {
         MaterializeRows = materializeRows;
         StartOrdinal = startOrdinal;
@@ -33,6 +34,7 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
         StopAfterCandidateCount = stopAfterCandidateCount;
         CanonicalOrder = canonicalOrder;
         CandidateSelection = candidateSelection;
+        CandidateSelectionForm = candidateSelectionForm;
     }
 
     public bool MaterializeRows { get; }
@@ -47,6 +49,8 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
 
     public RowSelectionPlan<string>? CandidateSelection { get; }
 
+    public SubjectRelationForm? CandidateSelectionForm { get; }
+
     public static WorkspaceTypeHierarchyRelationExecutionPlan Exhaustive(
         bool materializeRows = true,
         int startOrdinal = 0,
@@ -60,7 +64,8 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
             maximumRows,
             stopAfterCandidateCount: null,
             canonicalOrder: false,
-            candidateSelection: null);
+            candidateSelection: null,
+            candidateSelectionForm: null);
     }
 
     public static WorkspaceTypeHierarchyRelationExecutionPlan ForwardRows(
@@ -79,7 +84,8 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
             maximumRows,
             stopAfterCandidateCount,
             canonicalOrder: false,
-            candidateSelection: null);
+            candidateSelection: null,
+            candidateSelectionForm: null);
     }
 
     public static WorkspaceTypeHierarchyRelationExecutionPlan CanonicalRows(
@@ -94,15 +100,48 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
             maximumRows,
             stopAfterCandidateCount: null,
             canonicalOrder: true,
-            candidateSelection: null);
+            candidateSelection: null,
+            candidateSelectionForm: null);
     }
 
     public static WorkspaceTypeHierarchyRelationExecutionPlan CanonicalRows(
         RowSelectionPlan<string> candidateSelection,
+        SubjectRelationForm? candidateSelectionForm,
         int maximumRows)
     {
         ArgumentNullException.ThrowIfNull(candidateSelection);
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumRows, 1);
+        ValidateCandidateSelection(candidateSelection);
+        return new(
+            materializeRows: true,
+            startOrdinal: 0,
+            maximumRows,
+            stopAfterCandidateCount: null,
+            canonicalOrder: true,
+            candidateSelection,
+            candidateSelectionForm);
+    }
+
+    public static WorkspaceTypeHierarchyRelationExecutionPlan
+        CanonicalCandidates(
+            RowSelectionPlan<string> candidateSelection,
+            SubjectRelationForm? candidateSelectionForm)
+    {
+        ArgumentNullException.ThrowIfNull(candidateSelection);
+        ValidateCandidateSelection(candidateSelection);
+        return new(
+            materializeRows: false,
+            startOrdinal: 0,
+            maximumRows: int.MaxValue,
+            stopAfterCandidateCount: null,
+            canonicalOrder: true,
+            candidateSelection,
+            candidateSelectionForm);
+    }
+
+    private static void ValidateCandidateSelection(
+        RowSelectionPlan<string> candidateSelection)
+    {
         if (candidateSelection.Stages.Any(
                 static stage =>
                     stage.Kind is RowSelectionStageKind.Top))
@@ -112,13 +151,6 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
                     + "ranking order.",
                 nameof(candidateSelection));
         }
-        return new(
-            materializeRows: true,
-            startOrdinal: 0,
-            maximumRows,
-            stopAfterCandidateCount: null,
-            canonicalOrder: true,
-            candidateSelection);
     }
 }
 
@@ -130,6 +162,7 @@ public sealed record WorkspaceTypeHierarchyRelationsResult(
     int CandidateCount,
     int SelectedCandidateCount,
     bool CandidateCountIsComplete,
+    SubjectRelationForm? CandidateSelectionFailureForm,
     RowWindowFailure? CandidateSelectionFailure,
     ImmutableArray<SubjectRelationRow> Rows,
     ImmutableArray<WorkspaceTypeHierarchyRelationSource> Sources);
@@ -174,32 +207,47 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         StructuralSubjectIdentity focus;
         if (focusSelection.DefinitionOccurrence is { } focusOccurrence)
         {
-            if (!population.TryGetAccess(
+            if (population.TryGetAccess(
                     focusOccurrence,
                     out WorkspaceDeclarationMember? focusMember,
                     out _,
                     out ResolvedAssemblyReference? focusAssembly)
-                || focusMember is null
-                || focusAssembly is null
-                || !focusAssembly.Identity.IsEquivalentTo(
+                && focusMember is not null
+                && focusAssembly is not null
+                && focusAssembly.Identity.IsEquivalentTo(
                     focusSelection.Assembly))
+            {
+                var focusLibrary =
+                    StructuralSubjectIdentity.ForContextLibrary(
+                        workspaceSubject,
+                        new NavigationAssemblyIdentity(
+                            focusAssembly.Registration,
+                            focusAssembly.Identity,
+                            focusAssembly.Provenance),
+                        focusMember.Coordinate);
+                focus = StructuralSubjectIdentity.ForContextType(
+                    focusLibrary,
+                    focusSelection.Type);
+            }
+            else if (population.TryGetMember(
+                    focusOccurrence,
+                    out focusMember)
+                && focusMember is not null
+                && focusMember.AssemblyIdentity.IsEquivalentTo(
+                    focusSelection.Assembly))
+            {
+                focus = StructuralSubjectIdentity.ForReferencedType(
+                    workspaceSubject,
+                    focusSelection.Assembly,
+                    focusSelection.Type);
+            }
+            else
             {
                 throw new ArgumentException(
                     "The acquired hierarchy focus must be an available "
                         + "member of the captured population.",
                     nameof(focusSelection));
             }
-            var focusLibrary =
-                StructuralSubjectIdentity.ForContextLibrary(
-                    workspaceSubject,
-                    new NavigationAssemblyIdentity(
-                        focusAssembly.Registration,
-                        focusAssembly.Identity,
-                        focusAssembly.Provenance),
-                    focusMember.Coordinate);
-            focus = StructuralSubjectIdentity.ForContextType(
-                focusLibrary,
-                focusSelection.Type);
         }
         else
         {
@@ -216,6 +264,22 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             AssemblyContextGroup Group,
             ResolvedAssemblyReference Assembly)[] accesses =
             [.. population.ReadAccesses()];
+        (
+            WorkspaceDeclarationMember Member,
+            WorkspaceLibraryOccurrence Occurrence)[] libraryAccesses =
+            [.. population.ReadLibraryAccesses()];
+        int totalAccessCount =
+            checked(accesses.Length + libraryAccesses.Length);
+        var sources =
+            new List<WorkspaceTypeHierarchyRelationSource>(
+                totalAccessCount);
+        sources.AddRange(
+            accesses.Select(static item =>
+                new WorkspaceTypeHierarchyRelationSource(
+                    item.Assembly.Registration,
+                    item.Assembly.Identity,
+                    item.Assembly.Provenance,
+                    item.Member.Coordinate)));
         WorkspaceDeclarationContextReceipt[] unavailableContexts =
         [
             .. population.Receipt.Contexts.Where(
@@ -254,7 +318,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 if (executionPlan.StopAfterCandidateCount
                         is not int stopAfter
                     || observedCandidates.Count < stopAfter
-                    || scans.Count >= accesses.Length)
+                    || scans.Count >= totalAccessCount)
                 {
                     continue;
                 }
@@ -264,6 +328,45 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             }
             if (stopped)
                 break;
+        }
+        if (!stopped)
+        {
+            foreach ((WorkspaceDeclarationMember member,
+                WorkspaceLibraryOccurrence occurrence)
+                in libraryAccesses)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ParticipantScan scan = ScanLibrary(
+                    population,
+                    member,
+                    occurrence,
+                    focusSelection,
+                    includeNonPublic,
+                    form,
+                    cancellationToken,
+                    out WorkspaceTypeHierarchyRelationSource? source);
+                scans.Add(scan);
+                if (source is not null)
+                    sources.Add(source);
+                foreach (ResolvedMatch match in scan.Matches)
+                {
+                    observedCandidates.Add(
+                        new(
+                            MetadataRelationGraphCatalog.Form(
+                                match.Occurrence.Relationship),
+                            match.Occurrence.SourceSubject));
+                }
+                if (executionPlan.StopAfterCandidateCount
+                        is not int stopAfter
+                    || observedCandidates.Count < stopAfter
+                    || scans.Count >= totalAccessCount)
+                {
+                    continue;
+                }
+
+                stopped = true;
+                break;
+            }
         }
 
         SubjectRelationProducerOutcome metadata =
@@ -276,10 +379,13 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         var evidence = new SubjectRelationPopulationEvidence(
             populationAuthority,
             [metadata, correspondence]);
+        bool requiresCandidateGroups =
+            executionPlan.MaterializeRows
+            || executionPlan.CandidateSelection is not null;
         IGrouping<
             CandidateIdentity,
             ResolvedMatch>[] candidateGroups =
-            !executionPlan.MaterializeRows
+            !requiresCandidateGroups
                 ? []
                 :
                 [
@@ -292,7 +398,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                                 match.Occurrence.SourceSubject)),
                 ];
         int candidateCount =
-            executionPlan.MaterializeRows
+            requiresCandidateGroups
                 ? candidateGroups.Length
                 : scans
                     .SelectMany(scan => scan.Matches)
@@ -306,7 +412,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         IReadOnlyList<
             IGrouping<CandidateIdentity, ResolvedMatch>>
             plannedCandidateGroups =
-                !executionPlan.MaterializeRows
+                !requiresCandidateGroups
                     ? []
                     :
                     [
@@ -314,19 +420,40 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                             candidateGroups,
                             executionPlan.CanonicalOrder),
                     ];
+        SubjectRelationForm? candidateSelectionFailureForm = null;
         RowWindowFailure? candidateSelectionFailure = null;
         if (executionPlan.CandidateSelection is { } candidateSelection)
         {
-            RowSelectionResult<
-                IGrouping<CandidateIdentity, ResolvedMatch>> selected =
-                    RowSelectionExecutor.Apply(
-                        plannedCandidateGroups,
-                        candidateSelection);
-            candidateSelectionFailure = selected.Failure;
-            plannedCandidateGroups = selected.Values;
+            var selectedGroups =
+                new List<
+                    IGrouping<CandidateIdentity, ResolvedMatch>>();
+            foreach (SubjectRelationForm candidateForm
+                in CandidateForms(
+                    executionPlan.CandidateSelectionForm))
+            {
+                IGrouping<CandidateIdentity, ResolvedMatch>[] formGroups =
+                [
+                    .. plannedCandidateGroups.Where(
+                        group => group.Key.Form == candidateForm),
+                ];
+                RowSelectionResult<
+                    IGrouping<CandidateIdentity, ResolvedMatch>> selected =
+                        RowSelectionExecutor.Apply(
+                            formGroups,
+                            candidateSelection);
+                if (!selected.IsSuccess)
+                {
+                    candidateSelectionFailureForm = candidateForm;
+                    candidateSelectionFailure = selected.Failure;
+                    selectedGroups.Clear();
+                    break;
+                }
+                selectedGroups.AddRange(selected.Values);
+            }
+            plannedCandidateGroups = selectedGroups;
         }
         int selectedCandidateCount =
-            executionPlan.MaterializeRows
+            requiresCandidateGroups
                 ? plannedCandidateGroups.Count
                 : candidateCount;
         IGrouping<
@@ -385,16 +512,11 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             candidateCount,
             selectedCandidateCount,
             CandidateCountIsComplete: !stopped,
+            candidateSelectionFailureForm,
             candidateSelectionFailure,
             rows,
             [
-                .. population.ReadAccesses()
-                    .Select(static item =>
-                        new WorkspaceTypeHierarchyRelationSource(
-                            item.Assembly.Registration,
-                            item.Assembly.Identity,
-                            item.Assembly.Provenance,
-                            item.Member.Coordinate))
+                .. sources
                     .GroupBy(static source => source.Registration)
                     .Select(static group => group.First()),
             ]);
@@ -419,6 +541,127 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                             .Type),
                     StringComparer.Ordinal)
             : candidates;
+
+    private static IEnumerable<SubjectRelationForm> CandidateForms(
+        SubjectRelationForm? selectedForm)
+    {
+        if (selectedForm is null
+            or SubjectRelationForm.Interface)
+        {
+            yield return SubjectRelationForm.Interface;
+        }
+        if (selectedForm is null
+            or SubjectRelationForm.BaseType)
+        {
+            yield return SubjectRelationForm.BaseType;
+        }
+    }
+
+    private static ParticipantScan ScanLibrary(
+        WorkspaceDeclarationPopulation population,
+        WorkspaceDeclarationMember member,
+        WorkspaceLibraryOccurrence occurrence,
+        WorkspaceExactTypeFocusOutcome.Found focus,
+        bool includeNonPublic,
+        SubjectRelationForm? form,
+        CancellationToken cancellationToken,
+        out WorkspaceTypeHierarchyRelationSource? source)
+    {
+        WorkspaceDeclarationRelationInspectionOutcome outcome =
+            population.ReadRelations(
+                member.Occurrence,
+                new(
+                    [MetadataRelationFamily.Hierarchy],
+                    MetadataOperationPolicy.Unbounded,
+                    includeNonPublic: false,
+                    hierarchyTarget:
+                        new(
+                            focus.Type,
+                            form switch
+                            {
+                                SubjectRelationForm.Interface =>
+                                    MetadataHierarchyRelationKind.Interface,
+                                SubjectRelationForm.BaseType =>
+                                    MetadataHierarchyRelationKind.BaseType,
+                                _ => null,
+                            }))
+                {
+                    IncludeHidden = includeNonPublic,
+                },
+                cancellationToken);
+        if (outcome
+            is not WorkspaceDeclarationRelationInspectionOutcome.Inspected
+                inspected)
+        {
+            source = null;
+            return ParticipantScan.CreateUnavailable(
+                member,
+                ((WorkspaceDeclarationRelationInspectionOutcome.Unavailable)
+                    outcome).Detail,
+                retentionFailure: null);
+        }
+
+        var graphSource = new MetadataRelationGraphSource(
+            inspected.Registration,
+            member.AssemblyIdentity,
+            member.Selection);
+        MetadataRelationGraphProjection projection =
+            MetadataRelationGraphAdapter.Project(
+                graphSource,
+                inspected.Result);
+        InspectionGraphOccurrence[] occurrences =
+        [
+            .. projection.Occurrences,
+        ];
+        var matches = ImmutableArray.CreateBuilder<ResolvedMatch>();
+        int examined = 0;
+        int unavailable = 0;
+        foreach (InspectionGraphOccurrence graphOccurrence
+            in occurrences)
+        {
+            var hierarchy =
+                (MetadataHierarchyGraphEvidence)graphOccurrence.Evidence;
+            if (!WorkspaceExactTypeFocusQuery.TryGetExactTarget(
+                    member.AssemblyIdentity,
+                    hierarchy.Evidence.Target,
+                    out AssemblyReferenceIdentity? targetAssembly,
+                    out MetadataTypeDefinitionName? targetType)
+                || targetAssembly is null
+                || targetType is null)
+            {
+                unavailable++;
+                continue;
+            }
+
+            examined++;
+            if (targetType == focus.Type
+                && targetAssembly.IsEquivalentTo(focus.Assembly))
+            {
+                matches.Add(
+                    new(
+                        graphOccurrence,
+                        new(
+                            targetAssembly,
+                            targetType,
+                            Definition: null)));
+            }
+        }
+
+        source = new(
+            inspected.Registration,
+            member.AssemblyIdentity,
+            member.Selection,
+            member.Coordinate);
+        return new(
+            member,
+            projection,
+            matches.ToImmutable(),
+            occurrences.Length,
+            examined,
+            unavailable,
+            RetentionFailure: null,
+            EntryFailure: null);
+    }
 
     private static IEnumerable<ParticipantScan> ScanContext(
         AssemblyContextGroup group,

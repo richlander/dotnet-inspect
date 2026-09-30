@@ -14,7 +14,7 @@ public sealed class PlatformTargetSelectionContext
         SelectedAssociation> _selectedByCapability;
 
     internal PlatformTargetSelectionContext(
-        PlatformTargetSettlement.Selected targetSettlement,
+        PlatformTargetSettlement targetSettlement,
         IEnumerable<PlatformTargetDiscoveryCandidate> selectedCandidates,
         IReadOnlyDictionary<
             PlatformSourceCapabilityIdentity,
@@ -38,7 +38,7 @@ public sealed class PlatformTargetSelectionContext
 
     public PlatformFamilyTarget Target =>
         TargetSettlement.SettledTarget!;
-    public PlatformTargetSettlement.Selected TargetSettlement { get; }
+    public PlatformTargetSettlement TargetSettlement { get; }
     public IReadOnlyList<PlatformTargetDiscoveryCandidate>
         SelectedCandidates { get; }
     public IReadOnlyList<PlatformSourceSettlement> SourceSettlements { get; }

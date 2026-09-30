@@ -944,6 +944,49 @@ public sealed class MetadataRelationInspectionTests
     }
 
     [Fact]
+    public void HierarchyTargetSelectionRetainsRowsBeforeMalformedGenericContext()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(
+                    HierarchyRelationSafetyFixtures
+                        .BuildNoncontiguousGenericParameterHierarchy(),
+                    writable: false));
+
+        var available =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Hierarchy],
+                        MetadataOperationPolicy.Unbounded,
+                        hierarchyTarget: new(
+                            TypeName("Sample", "ITarget"),
+                            MetadataHierarchyRelationKind.Interface)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            available.Result.Hierarchy.Disposition);
+        MetadataHierarchyRelationEvidence relation =
+            Assert.Single(available.Result.Hierarchy.Evidence);
+        Assert.Equal(
+            TypeName("Sample", "ValidSource"),
+            relation.SourceType);
+        MetadataRelationDiagnostic diagnostic =
+            Assert.Single(available.Result.Hierarchy.Diagnostics);
+        Assert.Equal(
+            MetadataRelationDiagnosticKind.MalformedMetadata,
+            diagnostic.Kind);
+        Assert.Contains(
+            "contiguous",
+            diagnostic.Detail,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            1,
+            available.Result.Hierarchy.Coverage?.Unavailable);
+    }
+
+    [Fact]
     public void HierarchyAnalysisContainsMalformedGenericTypeSpecifications()
     {
         byte[] content =

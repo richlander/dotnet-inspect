@@ -226,6 +226,15 @@ internal static partial class MetadataRelationInspection
                 }
                 break;
             }
+            catch (BadImageFormatException exception)
+            {
+                diagnostics.Add(
+                    MalformedDiagnostic(
+                        MetadataRelationFamily.Hierarchy,
+                        MetadataTokens.GetToken(sourceHandle),
+                        exception.Message));
+                failedSources.Add(row.Source);
+            }
         }
 
         MetadataRelationCoverage coverage =

@@ -266,6 +266,11 @@ public sealed record MetadataRelationGraphProjection(
     ImmutableArray<InspectionGraphOccurrence> Occurrences,
     ImmutableArray<SubjectRelationProducerOutcome> Producers);
 
+internal sealed record MetadataRelationGraphSource(
+    AssemblyAcquisitionRegistration Registration,
+    AssemblyReferenceIdentity Identity,
+    AssemblyResolutionProvenance Provenance);
+
 /// <summary>Adapts Metadata-owned relation evidence into Query graph contracts.</summary>
 public static class MetadataRelationGraphAdapter
 {
@@ -298,6 +303,16 @@ public static class MetadataRelationGraphAdapter
 
     public static MetadataRelationGraphProjection Project(
         ResolvedAssemblyReference source,
+        MetadataRelationInspectionResult result) =>
+        Project(
+            new MetadataRelationGraphSource(
+                source.Registration,
+                source.Identity,
+                source.Provenance),
+            result);
+
+    internal static MetadataRelationGraphProjection Project(
+        MetadataRelationGraphSource source,
         MetadataRelationInspectionResult result)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -326,7 +341,7 @@ public static class MetadataRelationGraphAdapter
     }
 
     private static void ValidateReceiptEvidence(
-        ResolvedAssemblyReference source,
+        MetadataRelationGraphSource source,
         MetadataRelationInspectionResult result)
     {
         Guid? moduleVersionId = result.Receipt.ModuleVersionId;
@@ -425,7 +440,10 @@ public static class MetadataRelationGraphAdapter
         ArgumentNullException.ThrowIfNull(correspondence);
 
         InspectionGraphSubject sourceSubject =
-            InspectionGraphSubject.ForAcquiredAssembly(source);
+            InspectionGraphSubject.ForAcquiredAssembly(
+                source.Registration,
+                source.Identity,
+                source.Provenance);
         var result = ImmutableArray.CreateBuilder<SubjectRelationRow>();
         int occurrenceId = 0;
         foreach (MetadataAssemblyReferenceRelationPopulationRow row
@@ -537,7 +555,10 @@ public static class MetadataRelationGraphAdapter
             [
                 .. row.Occurrences.Select(evidence =>
                     ExtensionOccurrence(
-                        source,
+                        new(
+                            source.Registration,
+                            source.Identity,
+                            source.Provenance),
                         evidence,
                         occurrenceId++)),
             ];
@@ -606,7 +627,7 @@ public static class MetadataRelationGraphAdapter
     }
 
     private static void ProjectHierarchy(
-        ResolvedAssemblyReference source,
+        MetadataRelationGraphSource source,
         MetadataRelationFamilyResult<MetadataHierarchyRelationEvidence>
             result,
         List<InspectionGraphOccurrence> occurrences,
@@ -653,7 +674,7 @@ public static class MetadataRelationGraphAdapter
     }
 
     private static void ProjectExtensions(
-        ResolvedAssemblyReference source,
+        MetadataRelationGraphSource source,
         MetadataRelationFamilyResult<MetadataExtensionRelationEvidence>
             result,
         List<InspectionGraphOccurrence> occurrences,
@@ -680,7 +701,7 @@ public static class MetadataRelationGraphAdapter
     }
 
     private static InspectionGraphOccurrence ExtensionOccurrence(
-        ResolvedAssemblyReference source,
+        MetadataRelationGraphSource source,
         MetadataExtensionRelationEvidence evidence,
         int occurrenceId) =>
         new(
@@ -703,7 +724,7 @@ public static class MetadataRelationGraphAdapter
             []);
 
     private static void ProjectReferences(
-        ResolvedAssemblyReference source,
+        MetadataRelationGraphSource source,
         MetadataRelationFamilyResult<
             MetadataAssemblyReferenceRelationEvidence> result,
         List<InspectionGraphOccurrence> occurrences,
@@ -719,7 +740,10 @@ public static class MetadataRelationGraphAdapter
                 new(
                     occurrences.Count,
                     InspectionGraphIntegrationsCatalog.MetadataReference,
-                    InspectionGraphSubject.ForAcquiredAssembly(source),
+                    InspectionGraphSubject.ForAcquiredAssembly(
+                        source.Registration,
+                        source.Identity,
+                        source.Provenance),
                     InspectionGraphSubject.ForMetadataAssembly(
                         evidence.Target),
                     new MetadataReferenceGraphEvidence(
@@ -739,7 +763,7 @@ public static class MetadataRelationGraphAdapter
     }
 
     private static void ProjectSignatures(
-        ResolvedAssemblyReference source,
+        MetadataRelationGraphSource source,
         MetadataRelationFamilyResult<MetadataSignatureRelationEvidence>
             result,
         List<InspectionGraphOccurrence> occurrences,

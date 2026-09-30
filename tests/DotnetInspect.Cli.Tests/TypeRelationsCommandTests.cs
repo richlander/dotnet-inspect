@@ -83,7 +83,7 @@ public sealed class TypeRelationsCommandTests
     }
 
     [Fact]
-    public async Task PinnedPlatformCoordinateExecutesRelations()
+    public async Task PinnedPlatformCoordinateReturnsCrossAssemblyRelations()
     {
         var (_, _, version, error) = PlatformResolver.ResolveAssembly(
             "System.Private.CoreLib",
@@ -99,11 +99,15 @@ public sealed class TypeRelationsCommandTests
             $"runtime@{version!}",
             "-S",
             "Derived Types",
-            "--count");
+            "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
-        Assert.True(int.Parse(result.Output.Trim()) > 0);
+        string[] types = ReadJsonTypes(result.Output);
+        Assert.Contains(typeof(MemoryStream).FullName!, types);
+        Assert.Contains(
+            typeof(System.Security.Cryptography.CryptoStream).FullName!,
+            types);
     }
 
     [Fact]

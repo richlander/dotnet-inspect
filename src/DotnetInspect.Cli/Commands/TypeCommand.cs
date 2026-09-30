@@ -9,6 +9,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
@@ -1286,29 +1287,43 @@ public static class TypeCommand
         ExactTypeRelationsInspectionOutcome outcome;
         try
         {
-            outcome = await ExactTypeRelationsInspectionOperation
-                .ExecuteAsync(
-                    request.Inspection,
-                    request.EmbeddedContent is null
-                        ? capabilities
-                        : capabilities with
-                        {
-                            EmbeddedContent = request.EmbeddedContent,
-                        },
-                    accepted.Plan,
-                    count: options.Count
-                            ? new SubjectRelationPopulationCountRequest()
-                            : null,
-                        rows: options.Count
-                            ? null
-                            : new SubjectRelationPopulationRowsRequest(
-                                options.TypeRelationsRowSelection is null
-                                    ? options.Limit ?? int.MaxValue
-                                    : int.MaxValue),
-                        rowSelection: options.TypeRelationsRowSelection,
-                        includeNonPublic: options.IncludeAll,
-                        cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
+            var countRequest = options.Count
+                ? new SubjectRelationPopulationCountRequest()
+                : null;
+            var rowsRequest = options.Count
+                ? null
+                : new SubjectRelationPopulationRowsRequest(
+                    options.TypeRelationsRowSelection is null
+                        ? options.Limit ?? int.MaxValue
+                        : int.MaxValue);
+            outcome = request.PlatformTarget is { } platformTarget
+                ? await PlatformTypeRelationsRouting.ExecuteAsync(
+                        platformTarget,
+                        request.Inspection,
+                        accepted.Plan,
+                        countRequest,
+                        rowsRequest,
+                        options.TypeRelationsRowSelection,
+                        options.IncludeAll,
+                        new CommandContext(options.Verbose),
+                        options.SourceOptions ?? new NuGetSourceOptions(),
+                        cancellationToken)
+                    .ConfigureAwait(false)
+                : await ExactTypeRelationsInspectionOperation.ExecuteAsync(
+                        request.Inspection,
+                        request.EmbeddedContent is null
+                            ? capabilities
+                            : capabilities with
+                            {
+                                EmbeddedContent = request.EmbeddedContent,
+                            },
+                        accepted.Plan,
+                        countRequest,
+                        rowsRequest,
+                        options.TypeRelationsRowSelection,
+                        options.IncludeAll,
+                        cancellationToken)
+                    .ConfigureAwait(false);
         }
         catch (WorkspaceTypeRelationRowSelectionException failure)
         {
@@ -1490,7 +1505,8 @@ public static class TypeCommand
         string Type,
         string Source,
         string? SourceVersion,
-        IEmbeddedContentProvider? EmbeddedContent = null);
+        IEmbeddedContentProvider? EmbeddedContent = null,
+        PlatformFamilyTarget? PlatformTarget = null);
 
     private static async Task<CliTypeRelationsRequest?>
         CreateSubjectRelationsTypeRequestAsync(
@@ -1530,7 +1546,11 @@ public static class TypeCommand
                         options.TypeName),
                     options.TypeName,
                     pinnedFamily,
-                    pinnedVersion);
+                    pinnedVersion,
+                    PlatformTarget: CreatePlatformTarget(
+                        pinnedFamily,
+                        pinnedFramework,
+                        pinnedVersion));
             }
 
             var (assemblyPath, resolvedFamily, platformVersion, error) =
@@ -1572,7 +1592,11 @@ public static class TypeCommand
                     options.TypeName),
                 options.TypeName,
                 resolvedFamily,
-                platformVersion);
+                platformVersion,
+                PlatformTarget: CreatePlatformTarget(
+                    resolvedFamily,
+                    framework,
+                    platformVersion));
         }
 
         if (!string.IsNullOrWhiteSpace(options.AssemblyPath)
@@ -1768,6 +1792,22 @@ public static class TypeCommand
         }
         return $"net{version.Major}.{version.Minor}";
     }
+
+    private static PlatformFamilyTarget CreatePlatformTarget(
+        string family,
+        string framework,
+        string version) =>
+        new(
+            family switch
+            {
+                "runtime" => PlatformFamily.DotNetRuntime,
+                "aspnetcore" => PlatformFamily.AspNetCore,
+                _ => throw new InvalidOperationException(
+                    $"Unsupported Platform family '{family}'."),
+            },
+            DotnetInspector.Platforms.PlatformTargetFramework.Parse(
+                framework),
+            PlatformVersion.Parse(version));
 
     private static bool TryGetPinnedPlatformCoordinate(
         string? frameworkSpec,

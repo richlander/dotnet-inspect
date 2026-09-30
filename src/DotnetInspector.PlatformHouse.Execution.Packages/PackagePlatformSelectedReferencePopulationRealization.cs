@@ -48,14 +48,23 @@ public static class PackagePlatformSelectedReferencePopulationRealization
                         break;
                     case null:
                         result =
-                            await adapter.RealizeSelectedReferenceAsync(
-                                    request,
-                                    target,
-                                    remainingWork,
-                                    issueOperation(
+                            request.Target is PlatformTargetDemand.Exact
+                                ? await adapter.RealizeReferenceAsync(
                                         request,
-                                        remainingWork))
-                                .ConfigureAwait(false);
+                                        remainingWork,
+                                        issueOperation(
+                                            request,
+                                            remainingWork))
+                                    .ConfigureAwait(false)
+                                : await adapter
+                                    .RealizeSelectedReferenceAsync(
+                                        request,
+                                        target,
+                                        remainingWork,
+                                        issueOperation(
+                                            request,
+                                            remainingWork))
+                                    .ConfigureAwait(false);
                         break;
                     default:
                         return InvalidAttempt(
@@ -88,14 +97,13 @@ public static class PackagePlatformSelectedReferencePopulationRealization
         {
             PackagePlatformHouseResult<
                 PackageReferenceRealization>.Succeeded success
-                when PackagePlatformLibraryMaterializer
-                    .TryPrepareSelectedReferencePopulation(
-                        request,
-                        target,
-                        success,
-                        out IReadOnlyList<
-                            PlatformPopulationLibraryArtifactMaterializationItem>
-                            items) =>
+                when TryPrepare(
+                    request,
+                    target,
+                    success,
+                    out IReadOnlyList<
+                        PlatformPopulationLibraryArtifactMaterializationItem>
+                        items) =>
                 new PlatformReferencePopulationRealizationSourceAttempt
                     .Succeeded(
                         (PlatformSourceContribution.Realization)
@@ -129,6 +137,26 @@ public static class PackagePlatformSelectedReferencePopulationRealization
             _ => throw new InvalidOperationException(
                 "Unknown package-backed reference result."),
         };
+
+    static bool TryPrepare(
+        PlatformHouseRequest request,
+        PlatformFamilyTarget target,
+        PackagePlatformHouseResult<
+            PackageReferenceRealization>.Succeeded success,
+        out IReadOnlyList<
+            PlatformPopulationLibraryArtifactMaterializationItem> items) =>
+        request.Target is PlatformTargetDemand.Exact
+            ? PackagePlatformLibraryMaterializer
+                .TryPrepareExactReferencePopulation(
+                    request,
+                    success,
+                    out items)
+            : PackagePlatformLibraryMaterializer
+                .TryPrepareSelectedReferencePopulation(
+                    request,
+                    target,
+                    success,
+                    out items);
 
     static PlatformReferencePopulationRealizationSourceAttempt InvalidAttempt(
         PlatformHouseRequest request,

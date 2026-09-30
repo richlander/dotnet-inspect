@@ -536,6 +536,18 @@ public static class InstalledPlatformLibraryMaterializer
             items: out items);
     }
 
+    internal static bool TryPrepareExactReferencePopulation(
+        PlatformHouseRequest request,
+        InstalledPlatformHouseResult<
+            InstalledReferenceRealization>.Succeeded reference,
+        out IReadOnlyList<
+            PlatformPopulationLibraryArtifactMaterializationItem> items) =>
+        TryPrepareReferencePopulation(
+            request,
+            PlatformViewDemand.Reference,
+            reference,
+            out items);
+
     static bool TryPrepareReferencePopulation(
         PlatformHouseRequest request,
         PlatformFamilyTarget target,

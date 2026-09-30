@@ -95,7 +95,7 @@ internal abstract class CliPlatformTypeLocatorOutcome
 internal static class PlatformTypeLocatorRouting
 {
     private const int MaxTypeMemberBoundaryProbes = 64;
-    private static readonly LibraryTypeDeclarationInventoryInspectionBounds
+    internal static readonly LibraryTypeDeclarationInventoryInspectionBounds
         InventoryBounds = new(
             maximumAssemblyBytes: 512 * 1024 * 1024,
             maximumRetainedDeclarations: 500_000,

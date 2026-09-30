@@ -213,6 +213,17 @@ public sealed class AssemblyAcquisitionRegistration
     public ArtifactAcquisitionRegistration? ArtifactRegistration { get; }
     internal Guid Value => _value;
 
+    public static AssemblyAcquisitionRegistration ForArtifact(
+        ArtifactAcquisitionRegistration artifactRegistration,
+        Guid moduleVersionId)
+    {
+        ArgumentNullException.ThrowIfNull(artifactRegistration);
+        var registration = new AssemblyAcquisitionRegistration(
+            artifactRegistration);
+        registration.BindModuleVersionId(moduleVersionId);
+        return registration;
+    }
+
     /// <summary>
     /// Module generation bound to the artifact-backed descriptor.
     /// </summary>

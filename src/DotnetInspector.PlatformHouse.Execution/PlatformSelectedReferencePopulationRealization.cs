@@ -232,8 +232,8 @@ public sealed class PlatformReferencePopulationRealizationSource
 }
 
 /// <summary>
-/// Selects a versionless target and realizes its authoritative complete
-/// reference population in the same closed PlatformHouse operation.
+/// Settles an exact or versionless target and realizes its authoritative
+/// complete reference population in the same closed PlatformHouse operation.
 /// </summary>
 public static class PlatformHouseSelectedReferencePopulationExecutor
 {
@@ -267,6 +267,25 @@ public static class PlatformHouseSelectedReferencePopulationExecutor
                     ZeroConsumed(),
                     PlatformHouseRejectionKind.InvalidSourcePlan,
                     $"{identityPrefix}.source-set-invalid"));
+        }
+
+        if (request.Target is PlatformTargetDemand.Exact exact)
+        {
+            var exactSelection = new PlatformTargetSelectionContext(
+                new PlatformTargetSettlement.Exact(exact),
+                [],
+                new Dictionary<
+                    PlatformSourceCapabilityIdentity,
+                    PlatformTargetSelectionContext.SelectedAssociation>(
+                        ReferenceEqualityComparer.Instance),
+                [],
+                ZeroConsumed());
+            return await ContinueAsync(
+                    request,
+                    exactSelection,
+                    indexed,
+                    identityPrefix)
+                .ConfigureAwait(false);
         }
 
         PlatformPopulationArtifactMaterializationOutcome? owningResult = null;
@@ -369,7 +388,9 @@ public static class PlatformHouseSelectedReferencePopulationExecutor
                         request,
                         selection.Target,
                         remainingWork,
-                        source.SelectedAssociationCapability is null
+                        request.Target
+                            is not PlatformTargetDemand.FamilyDefault
+                            || source.SelectedAssociationCapability is null
                             ? null
                             : selection.CandidateFor(
                                 source.SelectedAssociationCapability,
@@ -487,17 +508,28 @@ public static class PlatformHouseSelectedReferencePopulationExecutor
         var selected =
             (PlatformReferencePopulationRealizationSourceAttempt.Succeeded)
                 decision.Selected!;
-        return await PlatformHousePopulationArtifactMaterializer
-            .MaterializeSelectedReferencesAsync(
-                request,
-                selected.Items,
-                work.Consumed,
-                identityPrefix,
-                selection,
-                settlements,
-                () => work.Consumed,
-                materializationCancellation.Token)
-            .ConfigureAwait(false);
+        return request.Target is PlatformTargetDemand.Exact
+            ? await PlatformHousePopulationArtifactMaterializer
+                .MaterializeExactReferencesAsync(
+                    request,
+                    selected.Items,
+                    work.Consumed,
+                    identityPrefix,
+                    settlements,
+                    () => work.Consumed,
+                    materializationCancellation.Token)
+                .ConfigureAwait(false)
+            : await PlatformHousePopulationArtifactMaterializer
+                .MaterializeSelectedReferencesAsync(
+                    request,
+                    selected.Items,
+                    work.Consumed,
+                    identityPrefix,
+                    selection,
+                    settlements,
+                    () => work.Consumed,
+                    materializationCancellation.Token)
+                .ConfigureAwait(false);
     }
 
     static PlatformPopulationArtifactMaterializationOutcome TerminalDecision(
@@ -602,7 +634,9 @@ public static class PlatformHouseSelectedReferencePopulationExecutor
                 ReferenceEqualityComparer.Instance);
         PlatformSourceSelection? plan =
             request.Sources.SelectionFor(PlatformSourceFacet.Reference);
-        if (request.Target is not PlatformTargetDemand.FamilyDefault
+        if (request.Target
+                is not PlatformTargetDemand.FamilyDefault
+                and not PlatformTargetDemand.Exact
             || request.Operation is not PlatformHouseOperation.Realize
             {
                 View: PlatformViewDemand.Reference,
@@ -623,7 +657,9 @@ public static class PlatformHouseSelectedReferencePopulationExecutor
                 || !request.Sources.Authorizes(
                     PlatformSourceFacet.Reference,
                     source.Capability)
-                || source.SelectedAssociationCapability is not null
+                || request.Target
+                        is PlatformTargetDemand.FamilyDefault
+                    && source.SelectedAssociationCapability is not null
                     && !request.Target.AuthorizesDiscoveryCapability(
                         source.SelectedAssociationCapability)
                 || !result.TryAdd(source.Capability, source))
