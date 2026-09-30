@@ -6,6 +6,15 @@ This document is the normative owner for stateless library-body Analysis
 execution, tracked by
 [#7553](https://github.com/richlander/dotnet-inspect/issues/7553).
 
+The target
+[Assembly Analysis Operation](assembly-analysis-operation.md) contract now
+owns the resource-free operation, stateless service, owner-issued source
+binding, and detached execution composition used to retire this service's
+closed producer hubs. This document remains authoritative for the current
+implementation and its focused result semantics during that migration. New
+producer coordination adopts the target contract rather than extending the
+feature, plan, runner, aggregate, or compatibility-index hubs described here.
+
 The selective implementation-metric extension is tracked by
 [#8450](https://github.com/richlander/dotnet-inspect/issues/8450) as the
 Analysis-owned second step of
