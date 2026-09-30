@@ -96,6 +96,46 @@ public sealed class MetadataMethodGroupAnalysisProjectionTests
                 + $"{allocated:N0} bytes.");
     }
 
+    [Fact]
+    public void ScorecardReportShowsEveryComparatorAllocation()
+    {
+        MemberGroupScorecardCell[] cells =
+            [..
+                from scenario in MemberGroupPopulation.Scenarios
+                from terminal in new[] { "Count", "Rows" }
+                from phase in new[] { "Kernel", "Composed" }
+                from column in new[]
+                {
+                    (Name: "LINQ", Allocation: 360L),
+                    (Name: "NLinq", Allocation: 240L),
+                    (Name: "Planner", Allocation: 112L),
+                }
+                select new MemberGroupScorecardCell(
+                    scenario.Name,
+                    terminal,
+                    phase,
+                    column.Name,
+                    Microseconds: 1,
+                    column.Allocation)];
+        var result = new MemberGroupScorecardResult(
+            new(
+                Compared: 0,
+                Mismatches: [],
+                AnswerHashes: []),
+            cells);
+
+        string report = MemberGroupPopulation.Report(result);
+
+        Assert.Contains(
+            "| LINQ alloc | NLinq alloc | Planner alloc |",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| 360 B | 240 B | 112 B |",
+            report,
+            StringComparison.Ordinal);
+    }
+
     private static void AssertAnswer(
         MemberGroupProjectionAnswer expected,
         MemberGroupProjectionAnswer actual)
