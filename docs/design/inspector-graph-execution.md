@@ -491,7 +491,9 @@ partial-completion cases.
 `eng/measure-graph-degree.cs` is the NativeAOT scorecard for directed
 single-relationship degree execution and unchanged bidirectional and
 multi-relationship controls over the real System.Text.Json and CoreLib
-type-use graphs.
+type-use graphs. Its `--construction` mode measures validated `GraphDocument`
+construction over the same canonical nodes and edges while requiring stable
+topology cardinalities and content checksums.
 
 The implementation may split these claims across focused suites, but no
 source-text scan or debug-only assertion counts as the gate.
