@@ -563,7 +563,7 @@ export interface BrowserRetainedWorkspacePosting {
   readonly retainedDefinitionId: string;
   readonly label: string;
   readonly canonicalLocation: string;
-  readonly canonicalPacket: string;
+  readonly canonicalPacket: string | null;
   readonly realizationId: string;
   readonly publicationOrdinal: number;
   readonly definition: BrowserRetainedWorkspaceDefinitionState;
@@ -591,7 +591,7 @@ export interface BrowserRetainedWorkspacePreparedPosting {
   readonly retainedDefinitionId: string;
   readonly label: string;
   readonly canonicalLocation: string;
-  readonly canonicalPacket: string;
+  readonly canonicalPacket: string | null;
   readonly definition: BrowserRetainedWorkspaceDefinitionState;
   readonly navigation: BrowserRetainedNavigationResult;
   readonly packages: ReadonlyArray<BrowserRetainedWorkspacePackageInventory>;
@@ -892,6 +892,7 @@ type $ManagedExports = {
             readonly "InspectVocabulary.1310674786": () => string;
             readonly "ListHomeDemos.1310674786": () => string;
             readonly "ObserveRetainedWorkspaceSettlement.976702342": (settlementId: string) => Promise<string>;
+            readonly "PreparePackageQueryWorkspaceDefinition.1330709314": (retainedDefinitionId: string, label: string, canonicalLocation: string, packageId: string, version: string) => Promise<string>;
             readonly "PrepareRetainedWorkspaceDefinition.1579276339": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string) => Promise<string>;
             readonly "PrepareRetainedWorkspaceDefinitionWithCredentials.1330709314": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourceCredentialsJson: string) => Promise<string>;
             readonly "RecordRetainedWorkspaceNavigationPosting.1618630472": (realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string) => string;
@@ -1194,6 +1195,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Catalog");
     value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "PreparePackageQueryWorkspaceDefinition.1330709314");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.PreparePackageQueryWorkspaceDefinition.1330709314\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
     value = $ownDataProperty(value, "PrepareRetainedWorkspaceDefinition.1579276339");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.PrepareRetainedWorkspaceDefinition.1579276339\u0027 is not callable.");
@@ -1424,6 +1437,12 @@ export async function observeRetainedWorkspaceSettlement(settlementId: string): 
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ObserveRetainedWorkspaceSettlement.976702342"](settlementId);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserRetainedWorkspaceSettlementResult;
+}
+
+export async function preparePackageQueryWorkspaceDefinition(retainedDefinitionId: string, label: string, canonicalLocation: string, packageId: string, version: string): Promise<BrowserRetainedWorkspacePreparationResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["PreparePackageQueryWorkspaceDefinition.1330709314"](retainedDefinitionId, label, canonicalLocation, packageId, version);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserRetainedWorkspacePreparationResult;
 }
 
 export async function prepareRetainedWorkspaceDefinition(retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string): Promise<BrowserRetainedWorkspacePreparationResult> {
