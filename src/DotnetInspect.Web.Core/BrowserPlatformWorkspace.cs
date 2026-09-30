@@ -1801,6 +1801,7 @@ internal static class BrowserPlatformWorkspace
                 deadline,
                 packageLeases,
                 identity is null
+                    || !state.ExactPackageRealization
                     ? null
                     : new Dictionary<string, AssemblyReferenceIdentity>(
                         StringComparer.OrdinalIgnoreCase)
@@ -1819,6 +1820,9 @@ internal static class BrowserPlatformWorkspace
             BrowserPlatformScope? basis,
             ImmutableArray<PlatformSelection> selections)
     {
+        if (basis is { ExactPackageRealization: false })
+            return null;
+
         var identities = new Dictionary<
             string,
             AssemblyReferenceIdentity>(
@@ -1842,6 +1846,12 @@ internal static class BrowserPlatformWorkspace
             TargetState state,
             ImmutableArray<PlatformSelection> selections)
     {
+        if (!state.Coordinates.IsEmpty
+            && !state.ExactPackageRealization)
+        {
+            return null;
+        }
+
         var identities = new Dictionary<
             string,
             AssemblyReferenceIdentity>(
