@@ -287,6 +287,11 @@ Count are observations of the Rows of the same population. This level does not
 merge, deduplicate, or reduce requests, and it does not decide what is pushed
 down; QuerySpace and the source do that for every consumer.
 
+An Analysis producer must not use LINQ as its production query path. Selection,
+projection, ordering, limits, Count, and Exists go through QuerySpace so the
+request reaches the source; LINQ remains only a performance oracle under the
+[evidence guidance](../evidence-and-validation.md#performance-oracles-for-queryspace-enablement).
+
 A producer's row vocabulary is owned with its result type, is host-neutral,
 and is bound through QuerySpace composition. A host binds and presents it; a
 host never defines it.
