@@ -41,10 +41,10 @@ internal static class FindSourceCollector
         ArgumentNullException.ThrowIfNull(options);
         return options.UsesImplicitPlatform
             ? EcosystemPackCatalog.CreatePlatformWorkspacePlan()
-            : options.Ecosystems is null
-            ? EcosystemPackCatalog.CreateWorkspacePlan()
-            : EcosystemPackCatalog.CreateWorkspacePlan(
-                options.Ecosystems);
+            : options.Ecosystems is not null
+                ? EcosystemPackCatalog.CreateWorkspacePlan(
+                    options.Ecosystems)
+                : WorkspacePlan.Empty;
     }
 
     /// <summary>
@@ -86,57 +86,47 @@ internal static class FindSourceCollector
         };
     }
 
-    public static async Task StreamSourcesAsync(
-        FindOptions options,
-        Func<bool> reachedLimit,
-        Func<AssemblySetRequest, Task> process)
+    internal static IReadOnlyList<AssemblySetRequest>
+        BuildOrderedSourceRequests(FindOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
+        var requests = new List<AssemblySetRequest>();
         foreach (string package in options.Packages)
         {
-            if (reachedLimit()) return;
-            await process(BuildFindRequest(options,
+            requests.Add(BuildFindRequest(options,
                 packages: [package], assemblies: [], platformAssemblies: [],
                 platformFrameworks: [], projects: [], directories: []));
         }
-
         foreach (string assembly in options.Assemblies)
         {
-            if (reachedLimit()) return;
-            await process(BuildFindRequest(options,
+            requests.Add(BuildFindRequest(options,
                 packages: [], assemblies: [assembly], platformAssemblies: [],
                 platformFrameworks: [], projects: [], directories: []));
         }
-
         foreach (string platformAssembly in options.PlatformAssemblies)
         {
-            if (reachedLimit()) return;
-            await process(BuildFindRequest(options,
+            requests.Add(BuildFindRequest(options,
                 packages: [], assemblies: [], platformAssemblies: [platformAssembly],
                 platformFrameworks: [], projects: [], directories: []));
         }
-
         foreach (string framework in options.PlatformFrameworks)
         {
-            if (reachedLimit()) return;
-            await process(BuildFindRequest(options,
+            requests.Add(BuildFindRequest(options,
                 packages: [], assemblies: [], platformAssemblies: [],
                 platformFrameworks: [framework], projects: [], directories: []));
         }
-
         foreach (string project in options.Projects)
         {
-            if (reachedLimit()) return;
-            await process(BuildFindRequest(options,
+            requests.Add(BuildFindRequest(options,
                 packages: [], assemblies: [], platformAssemblies: [],
                 platformFrameworks: [], projects: [project], directories: []));
         }
-
         foreach (string directory in options.BinPaths)
         {
-            if (reachedLimit()) return;
-            await process(BuildFindRequest(options,
+            requests.Add(BuildFindRequest(options,
                 packages: [], assemblies: [], platformAssemblies: [],
                 platformFrameworks: [], projects: [], directories: [directory]));
         }
+        return requests;
     }
 }
