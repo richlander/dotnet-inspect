@@ -18,14 +18,18 @@ Performance comes mostly from levels 1 and 2. This level makes that possible by
 describing work completely and declaratively, so the lower levels can share,
 reorder, collapse, and parallelize it without changing its meaning.
 
-No owner has adopted this design yet. Library Body Analysis Execution
+Library Body Analysis Execution
 ([Library body Analysis service](library-body-analysis-service.md)) is the
-intended first adopter; Research is the intended second. The adoption
-sequence, the `LibraryBodyIndex` drain evidence, and the producer census are
-kept in #8568, not here.
+first adopter: unsafe-evidence presence declares one method-definition
+producer, plans it with Exists, executes it through the serial reference
+executor, and publishes its typed result and receipt. Its production query now
+forms that closing through QuerySpace. Research remains the intended second
+adopter. The adoption sequence, the `LibraryBodyIndex` drain evidence, and the
+producer census are kept in #8568, not here.
 
-Every property below is **unverified** until its gate lands with the first
-adoption; see [Verification](#verification).
+The unsafe-evidence gates listed by its adopting design are verified in
+Release. Properties not exercised by that slice remain **unverified** until
+their named gate lands; see [Verification](#verification).
 
 ## Examples
 

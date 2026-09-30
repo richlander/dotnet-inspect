@@ -365,10 +365,21 @@ public class IndexBuildInvariantTests
             Assert.Fail(
                 failed.Error.ToString());
         }
-        Assert.IsType<
+        var available = Assert.IsType<
             DotnetInspector.Queries
                 .UnsafeEvidencePresenceResult.Available>(
                     result);
+        ILInspector.Analysis.Planning.ProducerParticipation participation =
+            available.Receipt.For(
+                ILInspector.Analysis.Planning
+                    .UnsafeEvidencePresenceProducer.Instance);
+        Assert.Equal(
+            ILInspector.Analysis.Planning.ProducerOutcome.Stopped,
+            participation.Outcome);
+        Assert.True(available.HasEvidence);
+        Assert.Equal(
+            available.Receipt.UnitsVisited,
+            participation.UnitsCompleted);
         Assert.Throws<InvalidOperationException>(
             () => context.GetPrefetchedImage());
     }

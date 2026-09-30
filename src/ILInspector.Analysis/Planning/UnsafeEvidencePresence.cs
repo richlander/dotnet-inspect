@@ -75,20 +75,35 @@ public static class UnsafeEvidencePresence
     public static MethodDefinitionExecution Execute(
         string sourceName,
         PEReader peReader) =>
+        Execute(sourceName, peReader, Description);
+
+    /// <summary>Runs the supplied work description and returns the execution with its receipt.</summary>
+    public static MethodDefinitionExecution Execute(
+        string sourceName,
+        PEReader peReader,
+        WorkDescription description) =>
         MethodDefinitionExecution.Execute(
-            Description,
+            description,
             sourceName,
             peReader);
 
     public static bool HasEvidence(
         string path,
         PdbContext context)
+        => Inspect(path, context, Description).HasEvidence;
+
+    /// <summary>Runs the supplied plan and returns its detached answer and receipt.</summary>
+    public static UnsafeEvidencePresenceInspection Inspect(
+        string path,
+        PdbContext context,
+        WorkDescription description)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(description);
 
         return context.InspectImage(
-            peReader => HasEvidence(path, peReader));
+            peReader => Inspect(path, peReader, description));
     }
 
     public static bool HasEvidence(
@@ -104,18 +119,27 @@ public static class UnsafeEvidencePresence
         }
 
         using var peReader = new PEReader(image);
-        return HasEvidence(path, peReader);
+        return Inspect(path, peReader, Description).HasEvidence;
     }
 
-    static bool HasEvidence(
+    static UnsafeEvidencePresenceInspection Inspect(
         string path,
-        PEReader peReader)
+        PEReader peReader,
+        WorkDescription description)
     {
+        MethodDefinitionExecution execution = Execute(
+            path,
+            peReader,
+            description);
         ProducerResult<int> result =
-            Execute(path, peReader).ResultOf(
+            execution.ResultOf(
                 UnsafeEvidencePresenceProducer.Instance);
         if (result.Outcome is ProducerOutcome.Complete or ProducerOutcome.Stopped)
-            return result.Value > 0;
+        {
+            return new UnsafeEvidencePresenceInspection(
+                result.Value > 0,
+                execution.Receipt);
+        }
 
         // The failure is recorded by token; presenting it resolves that one
         // method's name with a length-checked, capped read.
@@ -129,3 +153,8 @@ public static class UnsafeEvidencePresence
             + $"{unit} could not be analyzed: {reason}");
     }
 }
+
+/// <summary>The detached answer and execution evidence for one inspection.</summary>
+public sealed record UnsafeEvidencePresenceInspection(
+    bool HasEvidence,
+    WorkReceipt Receipt);

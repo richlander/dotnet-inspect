@@ -10,8 +10,8 @@ the target contract agreed before the held Depends and Library Query changes in
 [#7945](https://github.com/richlander/dotnet-inspect/pull/7945), and
 [#7872](https://github.com/richlander/dotnet-inspect/pull/7872) continue.
 
-The current implementation has several prerequisites and one executable row
-composition slice:
+The current implementation has several prerequisites, one executable row
+composition slice, and one structural Exists adoption:
 
 - `QuerySpace` carries portable intent, row-query resolution, semantic row
   selection, Query Operation registration, and the immutable
@@ -29,6 +29,15 @@ composition slice:
   projection, and terminal Count; and
 - [Source delegation](source-delegation.md) defines exact substitution of
   source work through completion evidence.
+
+Unsafe-evidence presence is the first Exists adopter. Its QuerySpace request
+names the method-definition row set and the Exists terminal, then lowers that
+closing to the Producer Planning `Exists` terminal before any assembly image is
+read. The production `UnsafeEvidencePresenceQuery` executes that resolved work
+description and preserves the producer receipt. This adoption adds no generic
+section-row Exists executor; [Open and closed
+queries](open-and-closed-queries.md) owns the terminal's meaning, and the
+unsafe-evidence operation owns its predicate and result.
 
 Those owners remain authoritative for their own semantics. This design owns
 only their reusable composition into one discoverable query space.
@@ -89,7 +98,8 @@ This owner defines:
 - the closed query-language boundary shared by hosts;
 - the requirement that resolved plans preserve inspectable structural meaning
   beside executable machinery;
-- preservation of the owner-issued Rows and exact Count terminal branch;
+- preservation of owner-issued Rows, exact Count, and Exists terminal
+  branches;
 - the distinction among semantic selection, work bounds, source continuation,
   delivery demand, and rendering windows;
 - preservation of an adjacent source owner's continuation without interpreting
@@ -103,7 +113,7 @@ This owner does not define:
 - any Package, Library, Type, Member, Dependency, Graph, or Find semantics;
 - subject or source authority, acquisition, pagination, retry, caching, or
   completion-evidence construction;
-- row predicate, order, Head, Tail, Window, Top, projection, or Count
+- row predicate, order, Head, Tail, Window, Top, projection, Count, or Exists
   semantics;
 - portable payload bytes or compatibility policy;
 - CLI grammar, Browser interaction, Markout rendering, LINQ use, or `jq`
@@ -209,7 +219,7 @@ One query space is an immutable effective binding containing:
 | Operation scope | One Query Operation definition, operation-only query-vocabulary identity, subject role, result grain, and operation profile. |
 | Row-query scopes | One or more stable scope identities, each pairing one row query vocabulary with the compatible declared row-set identities and shaping capabilities to which an instance of that intent may apply. |
 | Request shape | One operation intent plus optional section-owned projection intent, zero or more ordered row-intent associations, a non-empty participating row-set selection, and one terminal requirement. |
-| Terminal space | The supported terminal requirements, initially Rows and exact Count, preserving each participating row-set identity. |
+| Terminal space | The supported terminal requirements, including Rows, exact Count, and owner-issued Exists, preserving each participating row-set identity. |
 | Effects | The capability, acquisition, work, and completion consequences reachable through the effective bindings. |
 | Continuation acceptance | Whether this result composition can preserve an adjacent source contract's continuation; the selected source offer supplies any effective continuation capability. |
 | Result-contract references | Optional owner-issued mapping from a terminal/result shape to the output contract it produces; schema, Content Kind, and serialization remain with the output owner. |
@@ -504,7 +514,19 @@ Kind, or schema generation.
 
 Rows and exact Count are peer terminal requirements over each participating
 row set's selected sequence after membership projection, predicates, effective
-order, and semantic selection.
+order, and semantic selection. Exists is the Boolean closing defined by
+[Open and closed queries](open-and-closed-queries.md): it settles when the
+first selected unit satisfies its owner-issued predicate and otherwise
+requires source exhaustion.
+
+Query Space carries and validates Exists as structural request meaning. An
+operation that advertises it must lower the terminal to executable owner work
+before source acquisition and preserve the corresponding result, outcome, and
+receipt. Exists neither implies row projection nor manufactures completion
+evidence, and it may stop early only when the lowered work records that the
+closing settled. The unsafe-evidence presence operation is the first such
+lowering; generic section-row execution continues to support Rows and Count
+only.
 
 **Rows** then applies any validated cell projection and returns the selected
 typed rows plus their row-set identity, source, and completion outcomes. The
@@ -842,6 +864,7 @@ slices:
 | `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate canonical term keys across the query space; each portable intent resolves inside one operation or row query vocabulary; same-named owner-local families and predicates remain isolated across scopes, while distinct keys within one scope preserve their shared combining, exclusive, required-family, and duplicate-binding behavior. |
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
 | `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `SelectedRowSetListIsNonEmpty`, `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `RowsPreserveIndependentSourceOutcomes`, `IncompleteRowsRemainVisibleWithoutBecomingCount`, `CrossCohortRowsAreAtomicOnExecutionFailure`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; terminal resolution requires a participating row set, Rows preserves independent source evidence but publishes no partial execution result, and Count preserves its owner-issued success and all-or-failure branches. `CountCapturesCardinalityWhileRowsCaptureValues` verifies the terminal-specific snapshot boundary and caller-mutation isolation for the Graph Libraries adopter. |
+| `QuerySpacePreservesExistsClosing` | The unsafe-evidence descriptor advertises only Exists, its owner-issued request retains the method-definition row set and result contract, and request resolution lowers that closing to the Producer Planning Exists terminal before image acquisition. The production borrowed-context gate verifies execution publishes the corresponding producer receipt without prefetched image access. |
 | `ResolvedRowPlanRetainsStructuralMeaning` | Every executable predicate and order remains associated with its facet, operator, normalized operand, row set, and semantic stage. |
 | `ClosedOperatorAlgebraRejectsExecutableContent` | Portable resolution rejects unknown operators and carries no delegate, expression tree, regex program, or host callback. |
 | `SemanticHeadAndCandidateTakeRemainDistinct` | Candidate work and final-row cardinality coincide only through an explicitly proven optimization. |
