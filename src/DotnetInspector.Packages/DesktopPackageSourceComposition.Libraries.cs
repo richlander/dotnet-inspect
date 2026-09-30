@@ -145,7 +145,8 @@ public sealed partial class DesktopPackageSourceComposition
                         limits,
                         transferPolicy,
                         log,
-                        rangedSizeCut),
+                        rangedSizeCut,
+                        _versionSettlement),
                     sourceOperation);
             sourceOperation = null;
             return execution;

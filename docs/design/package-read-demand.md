@@ -148,7 +148,11 @@ selects only the implementation assets with those names. The surface is
 unchanged and is still read as whole folders. The package Root prepares an
 implementation role, and forms a role correspondence, only for the named
 assets. A name that selects no implementation asset is a visible realization
-failure, never an empty success.
+failure, never an empty success. The exact-Library operation has one narrower
+owner-issued exception: a name is satisfied when it selects an API asset whose
+compile correspondence explicitly has no implementation counterpart. Other
+House callers cannot request that policy, and every other unmatched name still
+fails.
 
 Named implementation assets are read in **aligned blocks**, not folders.
 Blocks are fixed by the archive alone:
@@ -251,7 +255,8 @@ A host that needs one exact selected package Library calls
 package demand, target framework, Library selector, required depth, optional
 selected-Library companion demand, and `Realize` operation. Its plan contains
 the host-provided authority-scoped store, limits, transfer policy, diagnostics,
-and ranged size cut.
+ranged size cut, and optional Package Version Service plan for selecting
+demands.
 
 The operation:
 
@@ -271,16 +276,20 @@ unqualified assembly name against either role. Zero and several matches remain
 visible typed outcomes; the operation never chooses another Library.
 
 Implementation depth derives one file name before acquisition so named
-implementation demand reaches the ranged read. Selection depth preserves the
-selector-issued API-to-implementation correspondence and therefore retains the
-selected implementation set; it also permits a reference-only Library with no
-implementation counterpart. Portable PDB companion demand requires
-implementation depth and remains optional as described above.
+implementation demand reaches the ranged read. The request permits that name
+to be satisfied by a selected API asset only when its selector-issued
+correspondence has no implementation counterpart. Every other unmatched
+implementation name remains a visible realization failure. Selection depth
+preserves the selector-issued API-to-implementation correspondence and
+therefore retains the selected implementation set. Both depths permit a
+reference-only Library with no implementation counterpart. Portable PDB
+companion demand requires implementation depth and remains optional as
+described above.
 
-Hosts bind package-source authorization, stores, deadlines, cancellation, and
-the consumer operation. They do not independently assemble the House request,
-choose asset demand, derive named implementation demand, execute realization,
-or resolve one handoff.
+Hosts bind package-source authorization, stores, version-settlement policy,
+deadlines, cancellation, and the consumer operation. They do not independently
+assemble the House request, choose asset demand, derive named implementation
+demand, execute realization, or resolve one handoff.
 
 Three production consumers adopt this operation:
 
@@ -423,8 +432,8 @@ All gates run in Release.
 | 18. The same history twice from a credential-free HTTP feed | the second makes no package request | case 16's gate; in Debug hosts, `DiffHistoryEvidenceEnvelope_RangedCellsRecordTheirReads` shows each cold cell's size probe, tail, and entry spans, and each warm cell's `EntryCache` path with no request |
 | 19. A named implementation Library requests its listed adjacent Portable PDB | the implementation DLL remains a block anchor, the PDB is retained as an exact entry, and its neighboring entry is not materialized | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandRetainsExactCompanion`, using the real `System.Text.Json` implementation assembly in a boundary archive |
 | 20. The requested adjacent Portable PDB is absent | realization and the selected Library handoff still settle without a PDB entry | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandAllowsAbsentCompanion` |
-| 21. A selected reference Library has no implementation counterpart | companion demand invents neither an implementation asset nor a PDB; the reference-only handoff settles | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandDoesNotInventImplementation` |
-| 22. CLI Address selects an exact Library from a pinned or latest configured package | both version policies use PackageHouse and render the same Member context | `ConfiguredPayloadAcquisitionTests.LibraryAddressCommand_ConfiguredPackageUsesHouseSelection` |
+| 21. A selected reference Library has no implementation counterpart | companion demand invents neither an implementation asset nor a PDB; House and the high-level exact-Library operation settle the reference-only handoff, and Browser documentation retains compiled XML while authored source is unavailable | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandDoesNotInventImplementation`, `PackageLibraryRealization_ImplementationDepthAllowsReferenceOnlyHandoff`, and `BrowserEngineBoundaryTests.QueryMemberDocumentation_ReferenceOnlyLibraryRetainsCompiledDocumentation` |
+| 22. CLI Address selects an exact Library from a pinned or latest configured package | both version policies use PackageHouse and render the same Member context; a repeated latest request uses the Package Version Service prior and entry cache when discovery is unavailable | `ConfiguredPayloadAcquisitionTests.LibraryAddressCommand_ConfiguredPackageUsesHouseSelection` and `LibraryAddressCommand_SelectedPackageUsesVersionPriorAndEntryCache` |
 | 23. CLI Address selects an exact Library from a local archive and requests source location | the exact archive is admitted by its embedded identity and the adjacent Portable PDB supplies source evidence | `CommandExecutionTests.LibraryAddressCommand_PackageSourceLocationUsesAdjacentPortablePdb` |
 | 24. A local archive lacks embedded package identity | exact-source admission fails visibly before Address inspection | `CommandExecutionTests.LibraryAddressCommand_LocalArchiveRequiresEmbeddedPackageIdentity` |
 | 25. One high-level exact-Library request is cold, warm, or missing | cold execution uses ranged acquisition, warm execution uses the entry cache without a package request, and a missing selector is a typed result | `PackageRangedRealizationTests.PackageLibraryRealization_ColdWarmAndMissing_AreOrchestrated`, real asset `PCLStorage` 1.0.2 |

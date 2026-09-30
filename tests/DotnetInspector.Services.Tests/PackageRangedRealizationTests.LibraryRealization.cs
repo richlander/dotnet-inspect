@@ -154,6 +154,55 @@ public sealed partial class PackageRangedRealizationTests
 
     [Fact]
     public async Task
+        PackageLibraryRealization_ImplementationDepthAllowsReferenceOnlyHandoff()
+    {
+        byte[] assembly = File.ReadAllBytes(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "PackageHouse",
+                "System.Text.Json.dll"));
+        byte[] archive = CreateAddressArchive(
+            assembly,
+            includeImplementation: false,
+            includePortablePdb: false);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(
+                new RangeFeed(
+                    AddressPackageId,
+                    AddressPackageVersion,
+                    archive));
+
+        var realized = Assert.IsType<
+            PackageLibraryRealizationResult.Realized>(
+                await environment.RealizeLibraryAsync(
+                    new InMemoryPackageStore(),
+                    "net10.0",
+                    new PackageLibrarySelector(
+                        "System.Text.Json.dll"),
+                    PackageLibraryRealizationDepth.Implementation,
+                    packageId: AddressPackageId,
+                    version: AddressPackageVersion,
+                    companionDemand:
+                        PackageHouseLibraryCompanionDemand
+                            .ImplementationPortablePdb));
+
+        Assert.Equal(AddressApiPath, realized.Handoff.Asset.Path);
+        Assert.Null(realized.Handoff.ImplementationAsset);
+        Assert.IsType<PackageHouseResult.Settled>(
+            realized.Settlement.Result);
+        Assert.DoesNotContain(
+            AddressImplementationPath,
+            realized.Acquired.Payload.Content.EnumerateEntries(),
+            StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            AddressPortablePdbPath,
+            realized.Acquired.Payload.Content.EnumerateEntries(),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task
         PackageLibraryRealization_QueryAmbiguityIsTyped()
     {
         const string Id = "Ambiguous.Library";

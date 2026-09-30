@@ -71,12 +71,15 @@ public sealed class PackageLibraryRealizationPlan
 {
     internal PackagePayloadAcquisitionPlan PayloadAcquisition { get; }
 
+    internal PackageVersionServicePlan? VersionSettlement { get; }
+
     public PackageLibraryRealizationPlan(
         PackageStoreProvider getStore,
         PackagePayloadLimits? limits = null,
         IPackagePayloadTransferPolicy? transferPolicy = null,
         Action<string>? log = null,
-        long rangedSizeCut = PackageRangedRead.DefaultSizeCut)
+        long rangedSizeCut = PackageRangedRead.DefaultSizeCut,
+        PackageVersionServicePlan? versionSettlement = null)
     {
         PayloadAcquisition = new(
             getStore,
@@ -85,6 +88,7 @@ public sealed class PackageLibraryRealizationPlan
             log,
             PackagePayloadAccess.Ranged,
             rangedSizeCut);
+        VersionSettlement = versionSettlement;
     }
 }
 
@@ -227,28 +231,46 @@ public static class PackageLibraryRealization
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(sourceOperation);
 
+        var house = new PackageHouse(
+            sourceAuthorization,
+            plan.PayloadAcquisition,
+            plan.PayloadAcquisition.Log,
+            plan.VersionSettlement);
         bool implementation =
             request.Depth == PackageLibraryRealizationDepth.Implementation;
-        var houseRequest = new PackageHouseRequest(
+        PackageHouseSettlement settlement =
+            await house.ExecuteAsync(
+                    CreateHouseRequest(
+                        request,
+                        implementation),
+                    sourceOperation)
+                .ConfigureAwait(false);
+        return Project(settlement, request.Selector);
+    }
+
+    private static PackageHouseRequest CreateHouseRequest(
+        PackageLibraryRealizationRequest request,
+        bool implementation) =>
+        new(
             request.Package,
             request.Operation,
             PackageHouseTargetContext.Exact(request.TargetFramework),
             PackageHouseAssetSelectionKind.Compile,
             PackageHouseLibraryHandoffMode.SelectedLibraries,
+            association: null,
             assetDemand: PackageAssetDemand.SurfaceAndImplementation,
             implementationNames: implementation
                 ? [request.Selector.ImplementationName]
                 : null,
-            libraryCompanionDemand: request.CompanionDemand);
-        var house = new PackageHouse(
-            sourceAuthorization,
-            plan.PayloadAcquisition,
-            plan.PayloadAcquisition.Log);
-        PackageHouseSettlement settlement =
-            await house.ExecuteAsync(
-                    houseRequest,
-                    sourceOperation)
-                .ConfigureAwait(false);
+            fileDemand: null,
+            evidenceDemand: PackageHouseEvidenceDemand.None,
+            libraryCompanionDemand: request.CompanionDemand,
+            allowReferenceOnlyImplementationNames: implementation);
+
+    private static PackageLibraryRealizationResult Project(
+        PackageHouseSettlement settlement,
+        PackageLibrarySelector selector)
+    {
         if (settlement is not PackageHouseSettlement.Acquired acquired)
         {
             return new PackageLibraryRealizationResult.Unavailable(
@@ -265,7 +287,7 @@ public static class PackageLibraryRealization
         }
 
         ImmutableArray<PackageHouseLibraryHandoff.Compile> matches =
-            Match(realization, request.Selector);
+            Match(realization, selector);
         return matches.Length switch
         {
             0 => new PackageLibraryRealizationResult.Unavailable(

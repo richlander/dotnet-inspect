@@ -438,6 +438,83 @@ public sealed partial class BrowserEngineBoundaryTests
             completed.AuthoredSource);
     }
 
+    [Fact]
+    public async Task
+        QueryMemberDocumentation_ReferenceOnlyLibraryRetainsCompiledDocumentation()
+    {
+        string packageId =
+            $"Browser.Documentation.ReferenceOnly.{Guid.NewGuid():N}";
+        const string assemblyName =
+            "DotnetInspect.Web.Interop.Package.dll";
+        const string summary =
+            "Searches package types from a reference-only Library.";
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                PackageEntries(
+                    ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                        $"""
+                         <package>
+                           <metadata>
+                             <id>{packageId}</id>
+                             <version>1.0.0</version>
+                             <authors>Tests</authors>
+                             <description>Reference-only documentation package.</description>
+                           </metadata>
+                         </package>
+                         """)),
+                    ($"ref/net11.0/{assemblyName}",
+                        File.ReadAllBytes(
+                            typeof(DotnetInspect.Web.Interop.Package
+                                .PackageExports).Assembly.Location)),
+                    ($"ref/net11.0/{Path.ChangeExtension(
+                        assemblyName,
+                        ".xml")}",
+                        Encoding.UTF8.GetBytes(
+                            $"""
+                             <?xml version="1.0"?>
+                             <doc>
+                               <assembly>
+                                 <name>DotnetInspect.Web.Interop.Package</name>
+                               </assembly>
+                               <members>
+                                 <member name="M:DotnetInspect.Web.Interop.Package.PackageExports.SearchTypes(System.String,System.String)">
+                                   <summary>{summary}</summary>
+                                 </member>
+                               </members>
+                             </doc>
+                             """))),
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        string json =
+            await DotnetInspect.Web.Interop.Package.PackageExports
+                .QueryMemberDocumentation(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    assemblyName,
+                    "M:DotnetInspect.Web.Interop.Package.PackageExports.SearchTypes(System.String,System.String)");
+        DocumentationQueryOutcome outcome =
+            Assert.IsAssignableFrom<DocumentationQueryOutcome>(
+                JsonSerializer.Deserialize(
+                    json,
+                    DocumentationQueryJsonContext.Default
+                        .DocumentationQueryOutcome));
+
+        var completed =
+            Assert.IsType<DocumentationQueryOutcome.Completed>(
+                outcome);
+        var available =
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                completed.CompiledXml);
+        Assert.Equal(summary, available.Documentation.Summary);
+        Assert.IsType<AuthoredDocumentationOutcome.Unavailable>(
+            completed.AuthoredSource);
+    }
+
     [Theory]
     [InlineData(
         "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
