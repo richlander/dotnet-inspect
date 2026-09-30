@@ -19,6 +19,13 @@ namespace DotnetInspect.Web.Interop.Source;
 [JsExportJsonOutput(
     nameof(SourceExports.QueryMethodBodyComparison),
     typeof(BrowserMethodBodyComparisonResult))]
+[JsExportJsonInput(
+    nameof(SourceExports.QueryRetainedMethodBodyComparison),
+    "requestJson",
+    typeof(BrowserMethodBodyComparisonRequest))]
+[JsExportJsonOutput(
+    nameof(SourceExports.QueryRetainedMethodBodyComparison),
+    typeof(BrowserMethodBodyComparisonResult))]
 public static partial class SourceExports
 {
     [JSExport]
@@ -79,6 +86,87 @@ public static partial class SourceExports
     }
 
     [JSExport]
+    public static async Task<string> QueryRetainedMethodBodyComparisonTargets(
+        string operationId,
+        string retainedDefinitionId,
+        string realizationId,
+        string navigationId,
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        var result = await RunMethodBodyOperation(operationId, token =>
+            MethodBodyOperations.WithRetainedPackageParticipantAsync(
+                retainedDefinitionId,
+                realizationId,
+                navigationId,
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                (group, participant) =>
+                {
+                    ApiSurface surface = MethodBodyOperations.Select(() =>
+                        BrowserMemberResolution.ImplementationSurface(
+                            group,
+                            participant));
+                    CallGraphMemberResolution before =
+                        MethodBodyOperations.Select(() =>
+                            BrowserMemberResolution
+                                .ResolveImplementationMember(
+                                    surface,
+                                    typeIdentity,
+                                    memberName,
+                                    selectorKey,
+                                    metadataToken));
+                    MetadataMethodAddress address =
+                        MethodBodyOperations.RequireAddress(
+                            group,
+                            participant,
+                            before.BodyToken);
+                    BrowserMethodBodySelection[] methods =
+                        MethodBodyOperations.Inventory(surface);
+                    BrowserMethodBodySelection selection =
+                        methods.SingleOrDefault(
+                            method =>
+                                method.MetadataToken == before.BodyToken)
+                        ?? throw new MethodBodyUnavailableException(
+                            "SelectionUnavailable: the selected "
+                                + "implementation body has no inventory "
+                                + "identity.");
+                    return new BrowserMethodBodyTargets(
+                        packageId,
+                        version,
+                        targetFramework,
+                        assemblyName,
+                        address.ModuleVersionId.ToString("D"),
+                        selection,
+                        methods);
+                },
+                token));
+        BrowserMethodBodyTargetsResult wire = result switch
+        {
+            BrowserManagedOperationResult<BrowserMethodBodyTargets, string, string>.Succeeded success =>
+                new(1, BrowserMethodBodyResultKind.Succeeded, success.Value, null, null, null, null),
+            BrowserManagedOperationResult<BrowserMethodBodyTargets, string, string>.Failed failure =>
+                new(1, BrowserMethodBodyResultKind.Failed, null, MethodBodyFailureKind(failure.FailureKind),
+                    failure.Error, failure.Diagnostic, null),
+            BrowserManagedOperationResult<BrowserMethodBodyTargets, string, string>.Canceled canceled =>
+                new(1, BrowserMethodBodyResultKind.Canceled, null, null, null, null,
+                    BrowserTypeSourceCancellation.FormatReason(canceled.Reason)),
+            _ => throw new InvalidOperationException("Unknown managed method-body outcome."),
+        };
+        return JsonSerializer.Serialize(
+            wire,
+            BrowserSourceJsonContext.Default.BrowserMethodBodyTargetsResult);
+    }
+
+    [JSExport]
     public static async Task<string> QueryMethodBodyComparison(string operationId, string requestJson)
     {
         var result = await RunMethodBodyOperation(
@@ -99,6 +187,40 @@ public static partial class SourceExports
             _ => throw new InvalidOperationException("Unknown managed method-body outcome."),
         };
         return JsonSerializer.Serialize(wire, BrowserSourceJsonContext.Default.BrowserMethodBodyComparisonResult);
+    }
+
+    [JSExport]
+    public static async Task<string> QueryRetainedMethodBodyComparison(
+        string operationId,
+        string retainedDefinitionId,
+        string realizationId,
+        string navigationId,
+        string requestJson)
+    {
+        var result = await RunMethodBodyOperation(
+            operationId,
+            token => MethodBodyComparisonOperations
+                .RunRetainedMethodBodyComparison(
+                    retainedDefinitionId,
+                    realizationId,
+                    navigationId,
+                    requestJson,
+                    token));
+        BrowserMethodBodyComparisonResult wire = result switch
+        {
+            BrowserManagedOperationResult<BrowserMethodBodyComparison, string, string>.Succeeded success =>
+                new(1, BrowserMethodBodyResultKind.Succeeded, success.Value, null, null, null, null),
+            BrowserManagedOperationResult<BrowserMethodBodyComparison, string, string>.Failed failure =>
+                new(1, BrowserMethodBodyResultKind.Failed, null, MethodBodyFailureKind(failure.FailureKind),
+                    failure.Error, failure.Diagnostic, null),
+            BrowserManagedOperationResult<BrowserMethodBodyComparison, string, string>.Canceled canceled =>
+                new(1, BrowserMethodBodyResultKind.Canceled, null, null, null, null,
+                    BrowserTypeSourceCancellation.FormatReason(canceled.Reason)),
+            _ => throw new InvalidOperationException("Unknown managed method-body outcome."),
+        };
+        return JsonSerializer.Serialize(
+            wire,
+            BrowserSourceJsonContext.Default.BrowserMethodBodyComparisonResult);
     }
 
     static Task<BrowserManagedOperationResult<T, string, string>> RunMethodBodyOperation<T>(

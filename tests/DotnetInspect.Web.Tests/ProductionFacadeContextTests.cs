@@ -148,6 +148,8 @@ public sealed class ProductionFacadeContextTests
             "CancelTypeSourceQuery",
             "QueryMethodBodyComparison",
             "QueryMethodBodyComparisonTargets",
+            "QueryRetainedMethodBodyComparison",
+            "QueryRetainedMethodBodyComparisonTargets",
             "QueryMemberAnnotatedSource",
             "QueryMemberFindingCensus",
             "QueryMemberSource",

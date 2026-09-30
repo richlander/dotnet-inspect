@@ -3,6 +3,10 @@ using CSharpText;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
+using WireDeclarationIdentity =
+    ILInspector.JsExportSurface.JsonWireDeclarationIdentity;
+using WireDeclarationPlan =
+    ILInspector.JsExportSurface.JsonWireDeclarationPlan;
 
 namespace ILInspector.TypeScriptGeneration;
 
@@ -56,11 +60,7 @@ static class DtsEmitter
         ApiType[] declarationTypes = declarationPlan.Types;
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             declaredTypesByScopedIdentity =
-                DeclaredTypesByScopedIdentity(
-                    surface,
-                    TypeInventory(
-                        surface,
-                        declarationTypes));
+                declarationPlan.DeclaredTypesByScopedIdentity;
         ValidateTypeNames(declarationPlan.Declarations);
         ValidateWireNames(
             surface.AssemblyIdentity,
@@ -106,11 +106,7 @@ static class DtsEmitter
         ApiType[] declarationTypes = declarationPlan.Types;
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             declaredTypesByScopedIdentity =
-                DeclaredTypesByScopedIdentity(
-                    surface,
-                    TypeInventory(
-                        surface,
-                        declarationTypes));
+                declarationPlan.DeclaredTypesByScopedIdentity;
         ValidateTypeNames(
             declarationPlan.Declarations,
             allocatedTypeNames);
@@ -163,396 +159,19 @@ static class DtsEmitter
             includeRawReturnType);
     }
 
-    internal static WireDeclarationPlan CreateWireDeclarationPlan(
+    internal static JsonWireDeclarationPlan CreateWireDeclarationPlan(
         ILInspector.JsExportSurface.JsExportSurface surface)
     {
-        ApiType[] declarationTypes = GetDeclarationTypes(surface);
-        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
-            declaredTypesByScopedIdentity =
-                DeclaredTypesByScopedIdentity(
-                    surface,
-                    TypeInventory(
-                        surface,
-                        declarationTypes));
-        HashSet<ApiType> recordTypes = surface.Records.ToHashSet();
-        Dictionary<ApiType, JsExportUnion> unionsByDefinition =
-            surface.Unions.ToDictionary(union => union.Definition);
-        var splitTypes = new HashSet<ApiType>(
-            declarationTypes.Where(type =>
-                surface.WireDirections.GetValueOrDefault(
-                    type,
-                    JsonWireDirection.Both)
-                    == JsonWireDirection.Both
-                && recordTypes.Contains(type)
-                && HasSupportedDirectionalDifference(
-                    surface,
-                    type,
-                    declaredTypesByScopedIdentity)));
-        var typesByDefinitionName = declarationTypes
-            .Where(type => type.DefinitionName is not null)
-            .GroupBy(type => type.DefinitionName!)
-            .Where(group => group.Count() == 1)
-            .ToDictionary(group => group.Key, group => group.Single());
-
-        // Close over local references so recursive and generic containers pick
-        // one consistent declaration direction throughout their type graph.
-        bool changed;
-        do
+        try
         {
-            changed = false;
-            foreach (ApiType type in declarationTypes)
-            {
-                if (splitTypes.Contains(type)
-                    || surface.WireDirections.GetValueOrDefault(
-                        type,
-                        JsonWireDirection.Both)
-                        != JsonWireDirection.Both)
-                {
-                    continue;
-                }
-
-                bool referencesSplit = recordTypes.Contains(type)
-                    ? HasSupportedDirectionalMembers(
-                            surface,
-                            type,
-                            declaredTypesByScopedIdentity,
-                            out _)
-                        && type.Members.Any(member =>
-                            GetEffectiveMemberPresence(
-                                surface,
-                                type,
-                                member,
-                                JsonWireDirection.Serialize,
-                                surface.AssemblyIdentity,
-                                declaredTypesByScopedIdentity)
-                                is JsonWireMemberPresence.Present
-                                    or JsonWireMemberPresence.Conditional
-                            && (ReferencesSplitType(
-                                    member.SignatureModel?.ReturnTypeShape,
-                                    declaredTypesByScopedIdentity,
-                                    splitTypes)
-                                || member.SignatureModel
-                                    ?.ReturnTypeReferences.Any(
-                                        reference =>
-                                            declaredTypesByScopedIdentity
-                                                .TryGetValue(
-                                                    reference,
-                                                    out ApiType? referenced)
-                                            && splitTypes.Contains(referenced))
-                                    == true))
-                    : unionsByDefinition.TryGetValue(
-                        type,
-                        out JsExportUnion? union)
-                    && union.CaseTypes.Any(caseType =>
-                        ReferencesSplitType(
-                            caseType,
-                            surface.AssemblyIdentity,
-                            typesByDefinitionName,
-                            splitTypes));
-                if (referencesSplit)
-                {
-                    splitTypes.Add(type);
-                    changed = true;
-                }
-            }
+            return JsonWireDeclarationPlan.Create(surface);
         }
-        while (changed);
-
-        var declarations = new List<WireDeclarationIdentity>();
-        foreach (ApiType type in declarationTypes)
+        catch (UnsupportedJsExportSurfaceException exception)
         {
-            JsonWireDirection directions =
-                surface.WireDirections.GetValueOrDefault(
-                    type,
-                    JsonWireDirection.Both);
-            if (splitTypes.Contains(type))
-            {
-                declarations.Add(new WireDeclarationIdentity(
-                    type,
-                    JsonWireDirection.Deserialize,
-                    IsSplit: true));
-                declarations.Add(new WireDeclarationIdentity(
-                    type,
-                    JsonWireDirection.Serialize,
-                    IsSplit: true));
-            }
-            else
-            {
-                declarations.Add(new WireDeclarationIdentity(
-                    type,
-                    directions,
-                    IsSplit: false));
-            }
+            throw new UnsupportedWireContractException(
+                exception.Location,
+                exception.Reason);
         }
-        return new WireDeclarationPlan(
-            declarationTypes,
-            [.. declarations],
-            splitTypes);
-    }
-
-    static bool HasSupportedDirectionalDifference(
-        ILInspector.JsExportSurface.JsExportSurface surface,
-        ApiType type,
-        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
-            declaredTypesByScopedIdentity)
-        => HasSupportedDirectionalMembers(
-            surface,
-            type,
-            declaredTypesByScopedIdentity,
-            out bool differs)
-        && differs;
-
-    static bool HasSupportedDirectionalMembers(
-        ILInspector.JsExportSurface.JsExportSurface surface,
-        ApiType type,
-        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
-            declaredTypesByScopedIdentity,
-        out bool differs)
-    {
-        differs = false;
-        foreach (ApiMember member in type.Members)
-        {
-            JsonWireMemberPresence serialize =
-                GetEffectiveMemberPresence(
-                    surface,
-                    type,
-                    member,
-                    JsonWireDirection.Serialize,
-                    surface.AssemblyIdentity,
-                    declaredTypesByScopedIdentity);
-            JsonWireMemberPresence deserialize =
-                GetEffectiveMemberPresence(
-                    surface,
-                    type,
-                    member,
-                    JsonWireDirection.Deserialize,
-                    surface.AssemblyIdentity,
-                    declaredTypesByScopedIdentity);
-            if (serialize == JsonWireMemberPresence.Unsupported
-                || deserialize == JsonWireMemberPresence.Unsupported)
-            {
-                return false;
-            }
-            differs |= serialize != deserialize;
-        }
-
-        return true;
-    }
-
-    static ApiType[] GetDeclarationTypes(
-        ILInspector.JsExportSurface.JsExportSurface surface)
-    {
-        foreach (JsExportUnion union in surface.Unions.Where(
-            union => ShouldEmit(surface, union.Definition)))
-        {
-            JsonWireDirection directions = surface.WireDirections.GetValueOrDefault(
-                union.Definition, JsonWireDirection.Both);
-            string? reason = (directions & JsonWireDirection.Deserialize) != 0
-                ? union.DeserializationUnsupportedReason
-                : union.SerializationUnsupportedReason;
-            if (reason is not null || union.IncludesNull is null || union.CaseTypes.Count == 0)
-            {
-                throw new UnsupportedWireContractException(
-                    union.Definition.FullName,
-                    reason ?? "union case or null evidence is unavailable");
-            }
-        }
-        foreach (JsExportPolymorphicUnion union
-            in surface.PolymorphicUnions.Where(
-                union => ShouldEmit(surface, union.Definition)))
-        {
-            string? reason = union.UnsupportedReason;
-            if (reason is not null
-                || union.TypeDiscriminatorPropertyName is null
-                || union.Cases.Count == 0)
-            {
-                throw new UnsupportedWireContractException(
-                    $"{union.Definition.FullName} JSON polymorphism",
-                    reason
-                        ?? "discriminator property or case evidence is unavailable");
-            }
-
-            JsonWireDirection directions =
-                surface.WireDirections.GetValueOrDefault(
-                    union.Definition,
-                    JsonWireDirection.Both);
-            if ((directions & JsonWireDirection.Deserialize)
-                != JsonWireDirection.None)
-            {
-                throw new UnsupportedWireContractException(
-                    $"{union.Definition.FullName} JSON polymorphism",
-                    "polymorphic deserialization is unsupported");
-            }
-        }
-        ValidateUnionCycles(surface);
-        return [
-            .. surface.Records
-                .Concat(surface.Enums)
-                .Concat(surface.Unions.Select(union => union.Definition))
-                .Concat(surface.PolymorphicUnions.Select(
-                    union => union.Definition))
-                .Concat(surface.PolymorphicUnions.SelectMany(
-                    union => union.Cases.Select(
-                        @case => @case.Definition)))
-                .Where(type => ShouldEmit(surface, type)),
-        ];
-    }
-
-    static void ValidateUnionCycles(ILInspector.JsExportSurface.JsExportSurface surface)
-    {
-        var unions = surface.Unions
-            .Where(union => ShouldEmit(surface, union.Definition) && union.Definition.DefinitionName is not null)
-            .ToDictionary(union => union.Definition.DefinitionName!, union => union);
-        var completed = new HashSet<JsExportUnion>();
-        var active = new HashSet<JsExportUnion>();
-        var pending = new Stack<(JsExportUnion Union, bool Exit)>();
-        foreach (JsExportUnion root in unions.Values)
-        {
-            pending.Push((root, false));
-            while (pending.TryPop(out var next))
-            {
-                if (next.Exit)
-                {
-                    active.Remove(next.Union);
-                    completed.Add(next.Union);
-                    continue;
-                }
-                if (completed.Contains(next.Union))
-                    continue;
-                if (!active.Add(next.Union))
-                {
-                    throw new UnsupportedWireContractException(
-                        next.Union.Definition.FullName,
-                        "recursive union case aliases are unsupported");
-                }
-                pending.Push((next.Union, true));
-                var types = new Stack<TypeRef>(next.Union.CaseTypes);
-                while (types.TryPop(out var type))
-                {
-                    if (TsTypeMapper.MatchesContainingAssembly(type, surface.AssemblyIdentity)
-                        && type.Resolution?.Type is { } definition
-                        && unions.TryGetValue(definition, out JsExportUnion? referenced))
-                        pending.Push((referenced, false));
-                    if (type.ElementType is { } element)
-                        types.Push(element);
-                    foreach (var argument in type.TypeArguments)
-                        types.Push(argument);
-                }
-            }
-        }
-    }
-
-    static IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
-        DeclaredTypesByScopedIdentity(
-            ILInspector.JsExportSurface.JsExportSurface surface,
-            IEnumerable<ApiType> types) =>
-        types
-            .SelectMany(type =>
-                surface.ReferencedTypeDefinitions
-                    .Where(candidate =>
-                        ReferenceEquals(candidate.Value, type))
-                    .Select(candidate => (
-                        Identity: candidate.Key,
-                        Type: type))
-                    .Concat(
-                        surface.AssemblyIdentity is { } assembly
-                            ? [
-                                (
-                                    Identity: new ApiTypeReferenceIdentity(
-                                        assembly,
-                                        type.FullName,
-                                        type.DefinitionName),
-                                    Type: type),
-                            ]
-                            : []))
-                .GroupBy(candidate => candidate.Identity)
-                .Where(group => group
-                    .Select(candidate => candidate.Type)
-                    .Distinct()
-                    .Count() == 1)
-                .ToDictionary(
-                group => group.Key,
-                group => group.First().Type);
-
-    static IEnumerable<ApiType> TypeInventory(
-        ILInspector.JsExportSurface.JsExportSurface surface,
-        ApiType[] declarationTypes) =>
-        (surface.AllTypes.Count > 0
-            ? surface.AllTypes
-            : declarationTypes)
-        .Concat(surface.ReferencedTypeDefinitions.Values)
-        .Distinct();
-
-    static bool ReferencesSplitType(
-        ApiTypeShape? shape,
-        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
-            declaredTypesByScopedIdentity,
-        IReadOnlySet<ApiType> splitTypes)
-    {
-        if (shape is null)
-            return false;
-
-        var pending = new Stack<ApiTypeShape>();
-        pending.Push(shape);
-        while (pending.TryPop(out ApiTypeShape? current))
-        {
-            if (current.Definition is { } definition
-                && declaredTypesByScopedIdentity.TryGetValue(
-                    definition,
-                    out ApiType? type)
-                && splitTypes.Contains(type))
-            {
-                return true;
-            }
-            if (current.ElementType is not null)
-                pending.Push(current.ElementType);
-            for (int index = current.TypeArguments.Length - 1;
-                index >= 0;
-                index--)
-            {
-                pending.Push(current.TypeArguments[index]);
-            }
-        }
-
-        return false;
-    }
-
-    static bool ReferencesSplitType(
-        TypeRef type,
-        ApiAssemblyIdentity? assemblyIdentity,
-        IReadOnlyDictionary<MetadataTypeDefinitionName, ApiType>
-            typesByDefinitionName,
-        IReadOnlySet<ApiType> splitTypes)
-    {
-        var pending = new Stack<TypeRef>();
-        pending.Push(type);
-        while (pending.TryPop(out TypeRef? current))
-        {
-            TypeRef definition = current.Kind == TypeRefKind.GenericInstance
-                ? current.ElementType!
-                : current;
-            if (TsTypeMapper.MatchesContainingAssembly(
-                    definition,
-                    assemblyIdentity)
-                && definition.Resolution?.Type is { } definitionName
-                && typesByDefinitionName.TryGetValue(
-                    definitionName,
-                    out ApiType? resolved)
-                && splitTypes.Contains(resolved))
-            {
-                return true;
-            }
-            if (current.ElementType is not null)
-                pending.Push(current.ElementType);
-            for (int index = current.TypeArguments.Length - 1;
-                index >= 0;
-                index--)
-            {
-                pending.Push(current.TypeArguments[index]);
-            }
-        }
-
-        return false;
     }
 
     static void EmitWireDeclarations(
@@ -763,7 +382,8 @@ static class DtsEmitter
 
         foreach (JsExportPolymorphicUnion union
             in surface.PolymorphicUnions
-                .Where(union => ShouldEmit(surface, union.Definition))
+                .Where(union =>
+                    declarationPlan.Contains(union.Definition))
                 .OrderBy(
                     union => AllocatedTypeName(
                         declarationPlan.Resolve(
@@ -1685,17 +1305,6 @@ static class DtsEmitter
         return type.Name;
     }
 
-    static bool ShouldEmit(
-        ILInspector.JsExportSurface.JsExportSurface surface,
-        ApiType type) =>
-        type.FullName is not TsTypeMapper.InertStringFullName
-        and not "System.Collections.Immutable.ImmutableArray`1"
-        and not "System.Text.Json.JsonElement"
-        && (!surface.WireDirections.TryGetValue(
-            type,
-            out JsonWireDirection directions)
-        || directions != JsonWireDirection.None);
-
     static void EmitEnum(
         StringBuilder sb,
         ApiType enumType,
@@ -2521,12 +2130,17 @@ static class DtsEmitter
         ];
 
     internal static bool UsesDateTimeOffset(
-        ILInspector.JsExportSurface.JsExportSurface surface) =>
-        FindDateTimeOffsetIdentities(surface).Count > 0
+        ILInspector.JsExportSurface.JsExportSurface surface)
+    {
+        JsonWireDeclarationPlan declarationPlan =
+            CreateWireDeclarationPlan(surface);
+        return FindDateTimeOffsetIdentities(surface).Count > 0
         || surface.Unions
-            .Where(union => ShouldEmit(surface, union.Definition))
+            .Where(union =>
+                declarationPlan.Contains(union.Definition))
             .SelectMany(union => union.CaseTypes)
             .Any(ContainsDateTimeOffset);
+    }
 
     static bool ContainsDateTimeOffset(TypeRef root)
     {
@@ -2612,16 +2226,14 @@ static class DtsEmitter
     internal static bool UsesJsonValue(
         ILInspector.JsExportSurface.JsExportSurface surface)
     {
-        ApiType[] declarationTypes = GetDeclarationTypes(surface);
+        JsonWireDeclarationPlan declarationPlan =
+            CreateWireDeclarationPlan(surface);
+        ApiType[] declarationTypes = declarationPlan.Types;
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             declaredTypesByScopedIdentity =
-                DeclaredTypesByScopedIdentity(
-                    surface,
-                    TypeInventory(
-                        surface,
-                        declarationTypes));
+                declarationPlan.DeclaredTypesByScopedIdentity;
         if (surface.Records
-            .Where(type => ShouldEmit(surface, type))
+            .Where(declarationPlan.Contains)
             .Any(type =>
         {
             JsonWireDirection directions =
@@ -2667,7 +2279,8 @@ static class DtsEmitter
         }
 
         return surface.PolymorphicUnions
-            .Where(union => ShouldEmit(surface, union.Definition))
+            .Where(union =>
+                declarationPlan.Contains(union.Definition))
             .Any(union =>
             {
                 ApiType root = union.Definition;
@@ -2803,60 +2416,6 @@ static class DtsEmitter
 
     static void EmitBlockedType(StringBuilder sb, string declarationName) =>
         sb.Append("export type ").Append(declarationName).Append(" = unknown;\n\n");
-
-    internal readonly record struct WireDeclarationIdentity(
-        ApiType Type,
-        JsonWireDirection Direction,
-        bool IsSplit);
-
-    internal sealed class WireDeclarationPlan
-    {
-        readonly IReadOnlySet<ApiType> _splitTypes;
-        readonly IReadOnlyDictionary<ApiType, WireDeclarationIdentity>
-            _singleDeclarations;
-        readonly IReadOnlyDictionary<
-            (ApiType Type, JsonWireDirection Direction),
-            WireDeclarationIdentity> _splitDeclarations;
-
-        internal WireDeclarationPlan(
-            ApiType[] types,
-            WireDeclarationIdentity[] declarations,
-            IReadOnlySet<ApiType> splitTypes)
-        {
-            Types = types;
-            Declarations = declarations;
-            _splitTypes = splitTypes;
-            _singleDeclarations = declarations
-                .Where(declaration => !declaration.IsSplit)
-                .ToDictionary(
-                    declaration => declaration.Type);
-            _splitDeclarations = declarations
-                .Where(declaration => declaration.IsSplit)
-                .ToDictionary(
-                    declaration => (
-                        declaration.Type,
-                        declaration.Direction));
-        }
-
-        internal ApiType[] Types { get; }
-
-        internal WireDeclarationIdentity[] Declarations { get; }
-
-        internal WireDeclarationIdentity Resolve(
-            ApiType type,
-            JsonWireDirection direction)
-        {
-            if (!_splitTypes.Contains(type))
-                return _singleDeclarations[type];
-            if (direction is not JsonWireDirection.Serialize
-                and not JsonWireDirection.Deserialize)
-            {
-                throw new InvalidOperationException(
-                    $"Split type '{type.FullName}' requires one wire direction.");
-            }
-            return _splitDeclarations[(type, direction)];
-        }
-    }
 
     private sealed record TypeMappingEnvironment(
         HashSet<string> KnownTypeNames,
