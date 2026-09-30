@@ -18,8 +18,12 @@ const client = {
     queryPackagePerformance: unused,
   },
   source: {
-    queryMethodBodyComparison: unused,
-    queryMethodBodyComparisonTargets: unused,
+    queryRetainedMethodBodyComparison: unused,
+    queryRetainedMethodBodyComparisonTargets: unused,
+  },
+  catalog: {
+    activateRetainedWorkspaceDefinition: unused,
+    captureCompleteWorkspaceShareState: unused,
   },
 };
 
@@ -28,6 +32,7 @@ test("published runtime benchmark bridge exposes only owned operations", () => {
 
   assert.deepEqual(Object.keys(bridge).sort(), [
     "analysis",
+    "catalog",
     "host",
     "package",
     "source",
@@ -42,8 +47,12 @@ test("published runtime benchmark bridge exposes only owned operations", () => {
     "queryPackagePerformance",
   ]);
   assert.deepEqual(Object.keys(bridge.source).sort(), [
-    "queryMethodBodyComparison",
-    "queryMethodBodyComparisonTargets",
+    "queryRetainedMethodBodyComparison",
+    "queryRetainedMethodBodyComparisonTargets",
+  ]);
+  assert.deepEqual(Object.keys(bridge.catalog).sort(), [
+    "activateRetainedWorkspaceDefinition",
+    "captureCompleteWorkspaceShareState",
   ]);
   assert.equal(bridge.host.buildIdentity, client.host.buildIdentity);
   assert.equal(bridge.package.queryPackage, client.package.queryPackage);
@@ -60,12 +69,20 @@ test("published runtime benchmark bridge exposes only owned operations", () => {
     client.analysis.queryPackagePerformance,
   );
   assert.equal(
-    bridge.source.queryMethodBodyComparison,
-    client.source.queryMethodBodyComparison,
+    bridge.source.queryRetainedMethodBodyComparison,
+    client.source.queryRetainedMethodBodyComparison,
   );
   assert.equal(
-    bridge.source.queryMethodBodyComparisonTargets,
-    client.source.queryMethodBodyComparisonTargets,
+    bridge.source.queryRetainedMethodBodyComparisonTargets,
+    client.source.queryRetainedMethodBodyComparisonTargets,
+  );
+  assert.equal(
+    bridge.catalog.activateRetainedWorkspaceDefinition,
+    client.catalog.activateRetainedWorkspaceDefinition,
+  );
+  assert.equal(
+    bridge.catalog.captureCompleteWorkspaceShareState,
+    client.catalog.captureCompleteWorkspaceShareState,
   );
 });
 

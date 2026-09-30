@@ -4,7 +4,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Services.Tests;
 
-public sealed class PackageDocumentContentInspectionTests
+public sealed class PackageFileContentInspectionTests
 {
     private static readonly PackageSourceCoordinate Coordinate =
         PackageSourceCoordinate.Create(
@@ -25,13 +25,15 @@ public sealed class PackageDocumentContentInspectionTests
                         fromCache: true,
                         producerKey));
 
-        InspectionEnvelope<PackageDocumentContentDocument> envelope =
-            await PackageDocumentContentInspection.ExecuteAsync(
-                new(settlement, "readme.md"),
+        InspectionEnvelope<PackageFileContentDocument> envelope =
+            await PackageFileContentInspection.ExecuteAsync(
+                new(
+                    Acquire(settlement, "readme.md"),
+                    PackageDocumentContentLimits.MaxDecodedBytes),
                 TestContext.Current.CancellationToken);
 
         Assert.Equal(
-            PackageDocumentContentStatus.Completed,
+            PackageFileContentStatus.Completed,
             envelope.Content.Status);
         Assert.Equal("contoso.documents", envelope.Content.PackageId);
         Assert.Equal("1.0.0", envelope.Content.Version);
@@ -39,64 +41,6 @@ public sealed class PackageDocumentContentInspectionTests
         Assert.Equal(expected, envelope.Content.Content.ToArray());
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Empty(envelope.Diagnostics);
-    }
-
-    [Fact]
-    public async Task MissingEntryIsVisibleRatherThanEmptySuccess()
-    {
-        PackageHouseSettlement.Acquired settlement =
-            CreateSettlement(
-                producerKey =>
-                    new InMemoryPackageContent(
-                        TestPackageArchive.Create(
-                            "Contoso.Documents.nuspec"),
-                        fromCache: true,
-                        producerKey));
-
-        InspectionEnvelope<PackageDocumentContentDocument> envelope =
-            await PackageDocumentContentInspection.ExecuteAsync(
-                new(settlement, "README.md"),
-                TestContext.Current.CancellationToken);
-
-        Assert.Equal(
-            PackageDocumentContentStatus.Unavailable,
-            envelope.Content.Status);
-        Assert.Empty(envelope.Content.Content);
-        Assert.Contains(
-            "does not contain",
-            envelope.Content.Detail!.Value.ToString(),
-            StringComparison.Ordinal);
-        Assert.Equal(
-            "package-document-content.entry-missing",
-            Assert.Single(envelope.Diagnostics).Code);
-    }
-
-    [Fact]
-    public async Task CaseVariantDuplicatesAreVisiblyAmbiguous()
-    {
-        PackageHouseSettlement.Acquired settlement =
-            CreateSettlement(
-                producerKey =>
-                    new InMemoryPackageContent(
-                        TestPackageArchive.CreateWithContent(
-                            ("README.md", "first"u8.ToArray()),
-                            ("readme.md", "second"u8.ToArray()),
-                            ("Contoso.Documents.nuspec", [])),
-                        fromCache: true,
-                        producerKey));
-
-        InspectionEnvelope<PackageDocumentContentDocument> envelope =
-            await PackageDocumentContentInspection.ExecuteAsync(
-                new(settlement, "README.md"),
-                TestContext.Current.CancellationToken);
-
-        Assert.Equal(
-            PackageDocumentContentStatus.Unavailable,
-            envelope.Content.Status);
-        Assert.Empty(envelope.Content.Content);
-        Assert.Equal(
-            "package-document-content.entry-ambiguous",
-            Assert.Single(envelope.Diagnostics).Code);
     }
 
     [Fact]
@@ -110,18 +54,63 @@ public sealed class PackageDocumentContentInspectionTests
                         PackageDocumentContentLimits.MaxDecodedBytes + 1L,
                         producerKey));
 
-        InspectionEnvelope<PackageDocumentContentDocument> envelope =
-            await PackageDocumentContentInspection.ExecuteAsync(
-                new(settlement, "README.md"),
+        InspectionEnvelope<PackageFileContentDocument> envelope =
+            await PackageFileContentInspection.ExecuteAsync(
+                new(
+                    Acquire(settlement, "README.md"),
+                    PackageDocumentContentLimits.MaxDecodedBytes),
                 TestContext.Current.CancellationToken);
 
         Assert.Equal(
-            PackageDocumentContentStatus.Unavailable,
+            PackageFileContentStatus.Unavailable,
             envelope.Content.Status);
         Assert.Empty(envelope.Content.Content);
         Assert.Equal(
-            "package-document-content.length-unavailable",
+            "package-file-content.length-unavailable",
             Assert.Single(envelope.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void EntryResolver_CaseVariantDuplicatesAreVisiblyAmbiguous()
+    {
+        PackageHouseSettlement.Acquired settlement =
+            CreateSettlement(
+                producerKey =>
+                    new InMemoryPackageContent(
+                        TestPackageArchive.CreateWithContent(
+                            ("README.md", "first"u8.ToArray()),
+                            ("readme.md", "second"u8.ToArray()),
+                            ("Contoso.Documents.nuspec", [])),
+                        fromCache: true,
+                        producerKey));
+
+        PackageFileEntryResolution resolution =
+            PackageFileEntryResolver.Resolve(
+                settlement,
+                "README.md");
+
+        Assert.Equal(
+            PackageFileEntryResolutionStatus.Ambiguous,
+            resolution.Status);
+        Assert.Null(resolution.Entry);
+    }
+
+    private static PackageFileAcquisitionResult.Acquired Acquire(
+        PackageHouseSettlement.Acquired settlement,
+        string path)
+    {
+        PackageFileEntryResolution resolution =
+            PackageFileEntryResolver.Resolve(settlement, path);
+        if (resolution.Status != PackageFileEntryResolutionStatus.Resolved)
+        {
+            throw new InvalidOperationException(
+                $"Test package file resolution failed: {resolution.Status}.");
+        }
+        return new(
+            settlement,
+            resolution.Entry
+                ?? throw new InvalidOperationException(
+                    "A resolved test package file entry is required."));
     }
 
     private static PackageHouseSettlement.Acquired CreateSettlement(

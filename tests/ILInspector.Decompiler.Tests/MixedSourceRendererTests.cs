@@ -44,8 +44,8 @@ public class MixedSourceRendererTests
         var lines = output.Split('\n');
         var cs = lines.Single(l => l.Contains("new int[n]"));
         var il = lines.Single(l => l.Contains("newarr"));
-        Assert.Contains("alloc.array(int[]; alloc=System.Int32[]; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once)", cs);
-        Assert.Contains("alloc.array(int[]; alloc=System.Int32[]; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once)", il);
+        Assert.Contains("alloc.array(int[]; alloc=System.Int32[]; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; lifetime-uses=IL_0006:return; multiplicity=once)", cs);
+        Assert.Contains("alloc.array(int[]; alloc=System.Int32[]; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; lifetime-uses=IL_0006:return; multiplicity=once)", il);
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public class MixedSourceRendererTests
         // The box is invisible in the source (object BoxInt(int x) => x;) yet the
         // annotated view shows it where it happens, as a trailing C# comment.
         var output = Render(nameof(AllocSampleClass.BoxInt));
-        Assert.Contains("return x;  // alloc.box(int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once)", output);
+        Assert.Contains("return x;  // alloc.box(int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; lifetime-uses=IL_0006:return; multiplicity=once)", output);
     }
 
     [Fact]
@@ -64,7 +64,7 @@ public class MixedSourceRendererTests
         // opcode, not a statement.
         var output = Render(nameof(AllocSampleClass.BoxInt));
         var line = output.Split('\n').Single(l => l.Contains(": box"));
-        Assert.Contains("alloc.box(int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once)", line);
+        Assert.Contains("alloc.box(int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; lifetime-uses=IL_0006:return; multiplicity=once)", line);
     }
 
     [Fact]

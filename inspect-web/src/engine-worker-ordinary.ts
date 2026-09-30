@@ -114,6 +114,8 @@ type SourceOperationName =
   | "cancelSourceQuery"
   | "queryMethodBodyComparisonTargets"
   | "queryMethodBodyComparison"
+  | "queryRetainedMethodBodyComparisonTargets"
+  | "queryRetainedMethodBodyComparison"
   | "cancelMethodBodyComparison"
   | "queryMemberSourceComparison"
   | "cancelMemberSourceComparison"
@@ -1559,6 +1561,26 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<SourceFacade["queryMethodBodyComparison"]>
       ) => facades.source.queryMethodBodyComparison(...args),
     ),
+    queryRetainedMethodBodyComparisonTargets: valueOperation(
+      "ordinary-source-query-retained-method-body-comparison-targets",
+      12,
+      (
+        facades,
+        ...args: Parameters<
+          SourceFacade["queryRetainedMethodBodyComparisonTargets"]
+        >
+      ) => facades.source.queryRetainedMethodBodyComparisonTargets(...args),
+    ),
+    queryRetainedMethodBodyComparison: valueOperation(
+      "ordinary-source-query-retained-method-body-comparison",
+      5,
+      (
+        facades,
+        ...args: Parameters<
+          SourceFacade["queryRetainedMethodBodyComparison"]
+        >
+      ) => facades.source.queryRetainedMethodBodyComparison(...args),
+    ),
     cancelMethodBodyComparison: valueOperation(
       "ordinary-source-cancel-method-body-comparison",
       2,
@@ -2187,6 +2209,14 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryMethodBodyComparison: bind(
         engineWorkerOrdinaryOperations.source.queryMethodBodyComparison,
+      ),
+      queryRetainedMethodBodyComparisonTargets: bind(
+        engineWorkerOrdinaryOperations.source
+          .queryRetainedMethodBodyComparisonTargets,
+      ),
+      queryRetainedMethodBodyComparison: bind(
+        engineWorkerOrdinaryOperations.source
+          .queryRetainedMethodBodyComparison,
       ),
       cancelMethodBodyComparison: bind(
         engineWorkerOrdinaryOperations.source
