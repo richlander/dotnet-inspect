@@ -13,6 +13,9 @@ query must preserve. Adopters apply it without redefining it:
   [#8574](https://github.com/richlander/dotnet-inspect/issues/8574) and method
   bodies as a source in
   [#8577](https://github.com/richlander/dotnet-inspect/issues/8577).
+- The [routing and settlement model](models/open-query-routing-settlement/README.md)
+  checks the interaction among exclusive classification, inclusive fan-out,
+  unit order, and independently settling Head closings.
 
 Every property below is **unverified** until its gate lands; see
 [Verification](#verification).
@@ -42,15 +45,16 @@ each question is visited only for the methods in its scope.
 
 This pattern owns this exact claim:
 
-> A closed query means its terminal applied, in unit order, to the units its
-> open query selects. Every lowering of a closed query, whether a derived
-> terminal, a closing merged with others, or a kernel, publishes the result,
-> outcome, and receipt that the reference execution of that closed query alone
-> would publish.
+> A closed query means its terminal applied, in unit order, to the stream its
+> open query selects through per-unit routing. Every lowering of a closed
+> query, whether a derived terminal, a closing merged with others, or a kernel,
+> publishes the result, outcome, and receipt that the reference execution of
+> that closed query alone would publish.
 
 This pattern defines:
 
 - the open query and the closed query;
+- per-unit exclusive classification and inclusive fan-out;
 - the terminals and the order in which one derives another; and
 - the equivalence that every lowering must preserve.
 
@@ -60,7 +64,10 @@ This pattern does not define:
   [Producer Planning](producer-planning.md) owns;
 - merging closings across consumers, traversal, or kernel selection, which
   level 2 owns;
-- any predicate's or projection's meaning, which its owner defines; or
+- a population's unit order, identity, or duplicate policy;
+- any classifier, predicate, or projection's domain meaning, which its owner
+  defines;
+- whole-source fallback, ranking, or ordering after a terminal; or
 - presentation, Findings, or envelopes.
 
 ## Open queries
@@ -72,6 +79,47 @@ whole types and scope guards over a classification, as Producer Planning
 defines them. An open query can be narrowed with more scope. Two open queries
 with the same identity and parameters are the same query, which is what lets
 their closings be merged.
+
+The population owner supplies one deterministic **unit order**. The reference
+execution visits that order without an implicit alphabetical, score, identity,
+or presentation sort. An optimized source may traverse differently only when
+the selected stream remains observably equal to that unit-ordered reference.
+
+Whether two observations with equal projected values are one unit or two
+belongs to the population owner. A terminal counts selected units, not distinct
+projected values. Deduplication that changes Head membership must therefore
+belong to the population or to an explicit selection stage before Head; applying
+it after Head is not an equivalent lowering.
+
+## Per-unit routing
+
+Routing decides which open-query streams receive the current unit. It has two
+forms:
+
+- **Exclusive classification.** One owner-issued classifier assigns the unit
+  one typed class or no class. If several underlying tests could match, the
+  classifier's declared precedence chooses exactly one class; lower-precedence
+  alternatives do not also publish for that unit. An open query declares the
+  classes it accepts. Classification is deterministic input to scheduling;
+  whichever consumer or producer executes first cannot change it.
+- **Inclusive fan-out.** Independent open queries evaluate the same unit. Every
+  matching active query may select and project it, so one unit may contribute
+  to several result streams. Each closing settles independently.
+
+Exclusive classification is per unit. It does not mean "use stream B only if
+stream A is empty across the whole source." That whole-source fallback cannot
+publish B until A's absence is established and is not part of this pattern. A
+future owner that requires that exhaustive semantic must define it separately.
+
+Find is the motivating production adopter, tracked by
+[#8984](https://github.com/richlander/dotnet-inspect/issues/8984). Its
+candidate owner can issue one exclusive match classification such as Exact,
+Prefix, Substring, Similar, or None while retaining candidate discovery order.
+An exact-only query accepts only Exact; an ordinary query accepts its declared
+broader class set. Head then counts accepted candidates across those classes
+and stops at the Nth. The Find owner separately defines those classes, their
+tests, candidate identity, and source order; this pattern does not redefine
+them.
 
 ## Closed queries and terminals
 
@@ -106,6 +154,14 @@ owner. When several consumers close the same open query, the most expansive
 closing is executed and the others are derived.
 The work may stop early only when every closing executed for that open query
 permits it.
+
+For fused queries, reaching a terminal deactivates only that closing. It is not
+visited, projected, or charged for later units, while other active closings may
+keep the shared traversal alive. The shared traversal stops early before the
+next available unit exactly when every consumer it serves has settled;
+otherwise it continues through source exhaustion. Head records whether it
+reached N selected units or the source exhausted first; both are successful
+Head outcomes, but they are distinct completion evidence.
 
 A derived closing has the outcome its own reference execution would have,
 which depends only on the operations that closing requires. Count, AtLeast(N),
@@ -338,3 +394,9 @@ one read.
   run alone. This is **unverified**.
 - **Merging.** Closings merged across consumers each receive the shape they
   asked for. This is **unverified** until level 2 adopts closing (#8574).
+- **Per-unit routing and settlement.** The
+  [bounded TLA+ model](models/open-query-routing-settlement/README.md) checks
+  exclusive classification, inclusive fan-out, unit-ordered Head results,
+  no work after one closing settles, and shared traversal until every closing
+  settles or exhausts. It establishes evidence about the pattern, not an
+  implementation gate; implementation equivalence remains **unverified**.
