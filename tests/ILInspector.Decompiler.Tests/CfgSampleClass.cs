@@ -6208,6 +6208,24 @@ public sealed class CfgGenericNestedEnumSink<T>
     }
 }
 
+public static class GenericLocalFunctionComponentSamples<T>
+{
+    public static T Cycle(T value, int count)
+    {
+        return First(value, count);
+
+        static T First(T item, int remaining)
+            => remaining == 0
+                ? item
+                : Second(item, remaining - 1);
+
+        static T Second(T item, int remaining)
+            => remaining == 0
+                ? item
+                : First(item, remaining - 1);
+    }
+}
+
 public sealed class CfgNullableTarget
 {
     public int Value;

@@ -602,6 +602,36 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void MutuallyRecursiveStaticLocalFunctionsOnGenericOwner_RaiseAtomically()
+    {
+        string output = PrintRaised(
+            nameof(GenericLocalFunctionComponentSamples<int>.Cycle),
+            fixtureType: typeof(GenericLocalFunctionComponentSamples<>));
+
+        Assert.Contains("static T First(T item, int remaining)", output);
+        Assert.Contains("static T Second(T item, int remaining)", output);
+        Assert.Contains("Second(item, remaining - 1)", output);
+        Assert.Contains("First(item, remaining - 1)", output);
+        Assert.DoesNotContain("__Cycle_g__", output);
+    }
+
+    [Theory]
+    [InlineData("<Cycle>g__First|0_0", "__Cycle_g__Second_0_1")]
+    [InlineData("<Cycle>g__Second|0_1", "__Cycle_g__First_0_0")]
+    public void DirectlyDecompiledGenericOwnerMember_DoesNotNestItsComponent(
+        string methodName,
+        string survivingCall)
+    {
+        string output = PrintRaised(
+            methodName,
+            fixtureType: typeof(GenericLocalFunctionComponentSamples<>));
+
+        Assert.Contains(survivingCall, output);
+        Assert.DoesNotContain("static T First(", output);
+        Assert.DoesNotContain("static T Second(", output);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void MutuallyRecursiveStaticLocalFunctions_CompileBackExactly()
     {

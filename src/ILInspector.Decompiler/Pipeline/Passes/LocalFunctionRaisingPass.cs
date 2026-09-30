@@ -966,7 +966,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             var componentOrder = discoveryOrder
                 .Where(stronglyConnectedIdentities.Contains)
                 .ToList();
-            if (stronglyConnectedIdentities.Contains((host.DeclaringType, host.Name)))
+            if (stronglyConnectedIdentities.Any(identity =>
+                    SameLocalFunctionDefinition(identity, host)))
             {
                 return false;
             }
@@ -1084,6 +1085,20 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         }
         return false;
     }
+
+    static bool SameLocalFunctionDefinition(
+        (TypeRef Type, string Name) identity,
+        IrFunction host)
+        => identity.Name == host.Name
+            && Equals(
+                NamedTypeDefinition(identity.Type),
+                NamedTypeDefinition(host.DeclaringType));
+
+    static TypeRef NamedTypeDefinition(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance
+            && type.ElementType is { } definition
+                ? definition
+                : type;
 
     static bool HasOnlyRewritableComponentReferences(
         IrFunction body,
