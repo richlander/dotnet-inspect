@@ -239,13 +239,18 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
         return populations;
     }
 
-    internal AssemblyContextResult<AssemblyTypeInventory> QueryTypes(
-        bool includeAll)
+    internal bool RunTypeInventories(
+        bool includeAll,
+        Action<AssemblyContextEntry<AssemblyTypeInventory>> consume,
+        Func<bool>? stop = null)
     {
         ThrowIfDisposed();
-        return AssemblyContextTypeInventoryQuery.Execute(
+        ArgumentNullException.ThrowIfNull(consume);
+        return AssemblyContextTypeInventoryQuery.ExecuteEach(
             _group,
-            includeAll);
+            includeAll,
+            consume,
+            stop);
     }
 
     internal AssemblyContextResult<AssemblyMemberMatches> QueryMembers(

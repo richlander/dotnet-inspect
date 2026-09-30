@@ -621,6 +621,14 @@ One invocation is governed entirely by the active command or selected lens
 declaration and never changes meaning based on whether a later subsystem
 happens to handle the result.
 
+Find delegates a pure semantic `Head(N)` plan as a maximum-result budget for
+one Type or Member pattern. The Find execution owner may stop after `N`
+established-order hits and avoid later source acquisition; every renderer and
+Count observes the same selected identities. A miss still performs any
+complete classification needed to determine namespace, prefix, similarity, or
+broadened results. Multi-pattern requests, Tail, and Window remain
+post-classification operations.
+
 The package adoption consumes the online metadata-query evidence policy from
 [Package Source Model](package-source-model.md#metadata-only-version-queries).
 Semantic limits do not cap that discovery or relax its completeness rules.

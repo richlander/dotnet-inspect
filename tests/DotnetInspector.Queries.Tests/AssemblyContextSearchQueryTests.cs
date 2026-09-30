@@ -155,6 +155,54 @@ public sealed class AssemblyContextSearchQueryTests
     }
 
     [Fact]
+    public async Task TypeInventory_StopAvoidsLaterParticipants()
+    {
+        string first =
+                    typeof(WorkspaceQueryImplementation).Assembly.Location;
+        string second = typeof(string).Assembly.Location;
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+                    CreateGroup(workspace, first, second);
+        var entries =
+                    new List<AssemblyContextEntry<AssemblyTypeInventory>>();
+
+        bool complete = AssemblyContextTypeInventoryQuery.ExecuteEach(
+                    group,
+                    includeAll: true,
+                    entry => entries.Add(entry),
+                    () => entries.Count == 1);
+
+        Assert.False(complete);
+        Assert.Single(entries);
+    }
+
+    [Fact]
+    public async Task MemberMatches_LimitIsSharedAcrossParticipants()
+    {
+        string first =
+                    typeof(WorkspaceQueryImplementation).Assembly.Location;
+        string second = typeof(string).Assembly.Location;
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+                    CreateGroup(workspace, first, second);
+
+        AssemblyContextResult<AssemblyMemberMatches> result =
+                    AssemblyContextMemberMatchesQuery.Execute(
+                        group,
+                        ["*"],
+                        includeAll: true,
+                        limit: 1);
+
+        AssemblyMemberMatches matches =
+                    Assert.IsType<
+                        AssemblyContextEntry<
+                            AssemblyMemberMatches>.Available>(
+                                Assert.Single(result.Assemblies))
+                        .Value;
+        Assert.Single(matches.Members);
+    }
+
+    [Fact]
     public async Task SurfaceQueries_PreserveHealthyRowsAndInspectionFailures()
     {
         string path = Path.Combine(
@@ -226,15 +274,19 @@ public sealed class AssemblyContextSearchQueryTests
 
     private static AssemblyContextGroup CreateGroup(
         InspectionWorkspace workspace,
-        string path)
+        params string[] paths)
     {
-        ResolvedAssemblyReference assembly =
-            ResolvedAssemblyReference.CreateFromPath(
-                path,
-                AssemblyResolutionProvenance.Local("query tests"));
         var policy = new TestBindingPolicy();
         return workspace.CreateAssemblyContextGroup(
-            [new AssemblyContextParticipant(assembly, policy)]);
+            [
+                .. paths.Select(path =>
+                    new AssemblyContextParticipant(
+                        ResolvedAssemblyReference.CreateFromPath(
+                            path,
+                            AssemblyResolutionProvenance.Local(
+                                "query tests")),
+                        policy)),
+            ]);
     }
 
     private static byte[] BuildPartialSurfaceImage()

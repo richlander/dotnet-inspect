@@ -75,15 +75,17 @@ public class FindCommand
                 CommandError.Write("No pattern specified.");
                 return new(1, RowCount: null);
             }
+            FindOptions searchOptions =
+                CreateSearchOptions(options, patterns);
 
             PlatformFindSearchWorkspace? platformWorkspace = null;
-            if (options.UsesImplicitPlatform)
+            if (searchOptions.UsesImplicitPlatform)
             {
                 logger.Log(
                     "No scope specified, defaulting to the platform Workspace");
                 platformWorkspace =
                     await PlatformFindSearchWorkspace.OpenAsync(
-                        options,
+                        searchOptions,
                         context,
                         cancellationToken);
             }
@@ -92,7 +94,7 @@ public class FindCommand
             ExplicitFindSearchWorkspace? explicitWorkspace =
                 platformWorkspace is null
                     ? new(
-                        options,
+                        searchOptions,
                         context.HttpClient,
                         logger.Log,
                         cancellationToken)
@@ -103,7 +105,7 @@ public class FindCommand
             if (options.Members)
             {
                 return await ExecuteMemberSearchAsync(
-                    options,
+                    searchOptions,
                     patterns,
                     rowSelection,
                     logger,
@@ -115,7 +117,7 @@ public class FindCommand
 
             FindSearchResult<TypeFindResult> search =
                 await TypeSearchService.FindTypesAsync(
-                    options,
+                    searchOptions,
                     patterns,
                     logger,
                     context.HttpClient,
@@ -125,7 +127,7 @@ public class FindCommand
                     explicitWorkspace);
             FindSearchResult<MemberFindResult>? memberTier =
                 await FindBroadenedMembersAsync(
-                    options,
+                    searchOptions,
                     patterns,
                     search.Rows,
                     logger,
@@ -220,6 +222,23 @@ public class FindCommand
             CommandError.Write(ex);
             return new(1, RowCount: null);
         }
+    }
+
+    private static FindOptions CreateSearchOptions(
+        FindOptions options,
+        IReadOnlyList<string> patterns)
+    {
+        if (patterns.Count != 1
+            || options.QueryPlan?.ResultLimit is not int resultLimit)
+        {
+            return options;
+        }
+
+        int effectiveLimit =
+            options.Limit is int existingLimit
+                ? Math.Min(existingLimit, resultLimit)
+                : resultLimit;
+        return options with { Limit = effectiveLimit };
     }
 
     /// <summary>

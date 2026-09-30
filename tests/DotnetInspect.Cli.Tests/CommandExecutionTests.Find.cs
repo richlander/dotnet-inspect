@@ -97,6 +97,60 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Find_ImplicitPlatformWorkspace_SemanticHeadLimitsTypeExecution()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "JsonSerializer",
+            "-n",
+            "1",
+            "--json",
+            "--compact",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            row.GetProperty("full_name").GetString());
+        Assert.Equal(
+            "runtime",
+            row.GetProperty("source").GetString());
+    }
+
+    [Fact]
+    public async Task
+        Find_ImplicitPlatformWorkspace_SemanticHeadLimitsMemberExecution()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            ".MapGet",
+            "-n",
+            "1",
+            "--json",
+            "--compact",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            "MapGet",
+            row.GetProperty("member").GetString());
+        Assert.Equal(
+            "aspnetcore",
+            row.GetProperty("source").GetString());
+    }
+
+    [Fact]
+    public async Task
         Find_ImplicitPlatformWorkspace_BroadensToAspNetCoreMembers()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -720,6 +774,129 @@ public partial class CommandExecutionTests
         Assert.Equal(
             error.IndexOf(diagnostic, StringComparison.Ordinal),
             error.LastIndexOf(diagnostic, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    [InlineData("--tsv")]
+    [InlineData("--table")]
+    public async Task Find_SemanticHeadStopsBeforeLaterTypeSource(
+        string? format)
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindHead-{Guid.NewGuid():N}");
+        var args = new List<string>
+        {
+            "find",
+            nameof(CommandExecutionTests),
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "-n",
+            "1",
+            "--tips",
+            "q",
+        };
+        if (format is not null)
+            args.Add(format);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        Assert.Contains(nameof(CommandExecutionTests), output);
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task Find_SemanticHeadStopsBeforeLaterMemberSource()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindMemberHead-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            $".{nameof(Find_BroadenedMemberFallbackReusesExplicitWorkspace)}",
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "-n",
+            "1",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            nameof(Find_BroadenedMemberFallbackReusesExplicitWorkspace),
+            output);
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Theory]
+    [InlineData(
+        "CommandExecutionTests,DefinitelyAbsentFindMultiPattern",
+        false)]
+    [InlineData("CommandExecutionTests", true)]
+    public async Task Find_NonPrefixSelectionRemainsExhaustive(
+        string pattern,
+        bool tail)
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindExhaustive-{Guid.NewGuid():N}");
+        var args = new List<string>
+        {
+            "find",
+            pattern,
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "-n",
+            "1",
+            "--json",
+            "--tips",
+            "q",
+        };
+        if (tail)
+            args.Add("--tail");
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        Assert.Contains(nameof(CommandExecutionTests), output);
+        Assert.Contains("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task Find_SemanticHeadCountStopsAtSelectedCardinality()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindCountHead-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            nameof(CommandExecutionTests),
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "-n",
+            "1",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.DoesNotContain("Directory not found", error);
     }
 
     [Fact]
