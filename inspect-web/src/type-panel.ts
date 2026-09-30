@@ -188,6 +188,33 @@ export interface MemberGroup {
   name: string;
   kind: string;
   overloads: readonly MemberOverloadSummary[];
+  completeCount?: number;
+  completeCountStatus?: "available" | "pending" | "failed";
+}
+
+export function familyOutsideMarkerHtml(
+  group: MemberGroup,
+  selectedAccessibility: string,
+  escapeHtml: EscapeHtml,
+): string {
+  if (group.overloads.some(overload => overload.graphOnly)) return "";
+  const completeCountStatus = group.completeCountStatus
+    ?? (group.completeCount == null ? "pending" : "available");
+  if (completeCountStatus === "failed") {
+    const description =
+      `The out-of-view overload count is unavailable for the ${selectedAccessibility} view.`;
+    return ` <span class="family-outside-count unavailable" aria-label="${escapeHtml(description)}" title="${escapeHtml(description)}">+?</span>`;
+  }
+  if (completeCountStatus !== "available") return "";
+
+  const outsideCount = Math.max(
+    0,
+    (group.completeCount ?? group.overloads.length)
+      - group.overloads.length);
+  if (outsideCount === 0) return "";
+  const description =
+    `${outsideCount} more overloads are outside the ${selectedAccessibility} view.`;
+  return ` <span class="family-outside-count" aria-label="${escapeHtml(description)}" title="${escapeHtml(description)}">+${outsideCount}</span>`;
 }
 
 export type MemberNavEntry =
@@ -285,6 +312,7 @@ export interface TypePanelBindingActions {
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
+  onMemberSpellingSelect: (spelling: string | undefined) => void;
   onMemberBack: () => void;
   onMemberCompositionAccessibilitySelect: (accessibility: string) => void;
   onMemberCompositionKindSelect: (kind: string) => void;
@@ -373,6 +401,12 @@ export function bindTypePanel(
         "click",
         () => actions.onMemberAccessibilityFilterSelect(
           button.dataset.memberAccessFilter)));
+  root.querySelectorAll<HTMLElement>("[data-member-spelling]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberSpellingSelect(
+          button.dataset.memberSpelling)));
   root.querySelectorAll<HTMLElement>("[data-member-trait-filter]")
     .forEach(button =>
       button.addEventListener(
@@ -639,6 +673,7 @@ export interface MemberNavOptions {
   filterControlsHtml: string;
   selectedMemberKey: string;
   selectedOverloadIndex: number | null;
+  selectedAccessibility?: string;
   escapeHtml: EscapeHtml;
   typeDisplayName: (item: TypeSummary) => string;
   shortKind: (kind: string) => string;
@@ -651,6 +686,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
   const {
     type, entries, memberCount, visibleMemberCount, filterControlsHtml,
     selectedMemberKey, selectedOverloadIndex,
+    selectedAccessibility = "public",
     escapeHtml, typeDisplayName, shortKind, highlight,
     overloadHeat, familyHeatCue,
   } = options;
@@ -681,6 +717,10 @@ export function renderMemberNav(options: MemberNavOptions): string {
             const isMulti = group.overloads.length > 1;
             const graphOnly =
               group.overloads.some(overload => overload.graphOnly);
+            const outsideMarker = familyOutsideMarkerHtml(
+              group,
+              selectedAccessibility,
+              escapeHtml);
             const active = group.key === selectedMemberKey;
             const selected = active && (isMulti ? selectedOverloadIndex == null : true);
             const cue = active && isMulti ? familyHeatCue?.(group) ?? null : null;
@@ -690,7 +730,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
             return `<button class="type-row member-row${graphOnly ? " graph-member-row" : ""} ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
               <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
               <span class="type-name${family ? " family-name" : ""}">${graphOnly || isMulti ? escapeHtml(group.name) : singleMemberLabelHtml(group, escapeHtml, highlight)}</span>
-              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${group.overloads.length}×</span>` : singleMemberDetailHtml(group, escapeHtml, shortKind)}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
+              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${group.overloads.length}×</span>` : singleMemberDetailHtml(group, escapeHtml, shortKind)}${outsideMarker}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
             </button>`;
           }
           const selected = entry.group.key === selectedMemberKey && selectedOverloadIndex === entry.index;

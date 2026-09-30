@@ -707,6 +707,9 @@ public class ApiAccessor
     public string Kind { get; set; } = "";
     public string? Accessibility { get; set; }
 
+    [JsonIgnore]
+    public bool IsHidden { get; set; }
+
     /// <summary>
     /// Whether the accessor's MethodDef access mask has an exact C# accessibility
     /// representation. Null on older serialized surfaces.
@@ -863,6 +866,10 @@ public class ApiType
     /// serialized surfaces; C# rendering preserves that compatibility fallback.
     /// </summary>
     public string? Accessibility { get; set; }
+
+    [JsonIgnore]
+    public bool IsHidden { get; set; }
+
     public string Kind { get; set; } = "";  // class, struct, interface, enum, delegate
     public List<string> Attributes { get; set; } = [];
 
@@ -1104,6 +1111,9 @@ public class ApiMember
     public string Kind { get; set; } = "";  // method, property, field, event, constructor, operator, explicit-interface-implementation, extension-method
     public List<string> Attributes { get; set; } = [];
 
+    [JsonIgnore]
+    public bool IsHidden { get; set; }
+
     /// <summary>
     /// The property or event MethodSemantics role for this MethodDef.
     /// <see cref="ApiMethodSemanticsKind.None"/> is a positive full-extraction
@@ -1229,6 +1239,12 @@ public class ApiMember
     [JsonIgnore]
     public string? GetterAccessibility { get; set; }
 
+    [JsonIgnore]
+    public MethodAttributes? GetterPhysicalMethodAccess { get; set; }
+
+    [JsonIgnore]
+    public bool GetterIsHidden { get; set; }
+
     /// <summary>
     /// Whether a property has a setter, and that setter's accessibility.
     /// Null preserves older or hand-composed surface compatibility.
@@ -1240,6 +1256,12 @@ public class ApiMember
     [JsonIgnore]
     public string? SetterAccessibility { get; set; }
 
+    [JsonIgnore]
+    public MethodAttributes? SetterPhysicalMethodAccess { get; set; }
+
+    [JsonIgnore]
+    public bool SetterIsHidden { get; set; }
+
     /// <summary>
     /// MethodDef tokens of an event's add/remove accessors when known. Serialized (like
     /// <see cref="GetterToken"/>/<see cref="SetterToken"/>) so JSON consumers can address an
@@ -1249,6 +1271,24 @@ public class ApiMember
     public int? AdderToken { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? RemoverToken { get; set; }
+
+    [JsonIgnore]
+    public string? AdderAccessibility { get; set; }
+
+    [JsonIgnore]
+    public MethodAttributes? AdderPhysicalMethodAccess { get; set; }
+
+    [JsonIgnore]
+    public string? RemoverAccessibility { get; set; }
+
+    [JsonIgnore]
+    public MethodAttributes? RemoverPhysicalMethodAccess { get; set; }
+
+    [JsonIgnore]
+    public bool AdderIsHidden { get; set; }
+
+    [JsonIgnore]
+    public bool RemoverIsHidden { get; set; }
 
     /// <summary>
     /// Whether each event accessor MethodDef has a managed body RVA.
@@ -1357,6 +1397,13 @@ public class ApiMember
     /// Null for public members.
     /// </summary>
     public string? Accessibility { get; set; }
+
+    /// <summary>
+    /// The MethodDef's own access flag before C# spelling projects an explicit
+    /// interface implementation into its interface accessibility bucket.
+    /// </summary>
+    [JsonIgnore]
+    public MethodAttributes? PhysicalMethodAccess { get; set; }
 
     /// <summary>
     /// The declaration's own accessibility modifier when it differs from the

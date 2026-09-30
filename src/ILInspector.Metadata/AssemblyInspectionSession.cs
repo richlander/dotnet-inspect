@@ -121,10 +121,10 @@ public sealed class AssemblyInspectionSession :
         _image.EnsureAlive();
 
     internal MetadataReader GetMetadataReaderForDeclarationSession()
-    {
-        _image.EnsureAlive();
-        return _image.GetMetadataReader();
-    }
+        => GetAdmittedMetadataReader();
+
+    internal MetadataReader GetAdmittedMetadataReader() =>
+        _image.GetMetadataReader();
 
     internal PEReader GetPEReaderForDeclarationSession()
     {
@@ -182,7 +182,10 @@ public sealed class AssemblyInspectionSession :
         get
         {
             _image.EnsureAlive();
-            return _methodBodies ??= new MethodBodySource(_image.PEReader, _image.EnsureAlive);
+            return _methodBodies ??= new MethodBodySource(
+                _image.PEReader,
+                _image.GetMetadataReader(),
+                _image.EnsureAlive);
         }
     }
 
@@ -208,9 +211,15 @@ public sealed class AssemblyInspectionSession :
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        _image.EnsureAlive();
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataRelationInspectionOutcome.Rejected(
+                _image.Format,
+                "The selected image contains no managed metadata.");
+        }
         return MetadataRelationInspection.Execute(
             _image.PEReader,
+            reader,
             request,
             cancellationToken);
     }
@@ -224,9 +233,16 @@ public sealed class AssemblyInspectionSession :
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        _image.EnsureAlive();
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataLibrarySignatureUseOutcome.Rejected(
+                MetadataLibrarySignatureUseRejectionKind.UnsupportedImage,
+                "The selected image contains no managed metadata.",
+                _image.Format);
+        }
         return MetadataLibrarySignatureUseInspection.Execute(
             _image.PEReader,
+            reader,
             request,
             cancellationToken);
     }
@@ -241,10 +257,16 @@ public sealed class AssemblyInspectionSession :
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        _image.EnsureAlive();
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new
+                MetadataAssemblyReferenceRelationPopulationOutcome.Rejected(
+                    _image.Format,
+                    "The selected image contains no managed metadata.");
+        }
         return MetadataRelationInspection
             .ExecuteAssemblyReferencePopulation(
-                _image.PEReader,
+                reader,
                 request,
                 cancellationToken);
     }
@@ -258,9 +280,15 @@ public sealed class AssemblyInspectionSession :
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        _image.EnsureAlive();
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataExtensionRelationPopulationOutcome.Rejected(
+                _image.Format,
+                "The selected image contains no managed metadata.");
+        }
         return MetadataRelationInspection.ExecuteExtensionPopulation(
             _image.PEReader,
+            reader,
             request,
             cancellationToken);
     }
