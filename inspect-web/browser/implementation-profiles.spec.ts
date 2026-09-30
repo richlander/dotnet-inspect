@@ -20,11 +20,13 @@ function overload(
   signature: string,
   metadataToken: number,
   name = "Run",
+  accessibility = "public",
 ): BrowserMemberSurface {
   return {
     ...run,
     name,
     signature,
+    accessibility,
     metadataToken,
     declarationMetadataToken: metadataToken,
     documentationId: `M:Example.Widget.${stableSelector}`,
@@ -43,10 +45,24 @@ function overload(
 function overloadedPackage(): BrowserPackageSurface {
   const type = {
     ...createType("Example.Widget", core),
-    members: 4,
+    members: 6,
     api: [
       overload("Run(int)", "public void Run(int value)", 0x06000100),
       overload("Run(string)", "public void Run(string value)", 0x06000101),
+      overload(
+        "Run(Guid)",
+        "private void Run(Guid value)",
+        0x06000104,
+        "Run",
+        "private",
+      ),
+      overload(
+        "Run(DateTime)",
+        "private void Run(DateTime value)",
+        0x06000105,
+        "Run",
+        "private",
+      ),
       overload(
         "Compute(int)",
         "public void Compute(int value)",
@@ -72,7 +88,7 @@ function overloadedPackage(): BrowserPackageSurface {
       ...surface.types.filter(candidate =>
         candidate.definitionId !== type.definitionId),
     ],
-    totalMembers: 5,
+    totalMembers: 7,
   };
 }
 
@@ -131,14 +147,6 @@ test("Type heat paints the member list without an Implementation section", async
   await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
   await expect(rows.nth(1)).not.toHaveClass(/\bheated\b/);
 
-  await page.locator('[data-nav-overload="0"]').click();
-  await expect(page.getByRole("heading", { name: "Implementation" }))
-    .toHaveCount(0);
-  await expect(page.getByText("Implementation evidence", { exact: true }))
-    .toHaveCount(0);
-  expect(await html.getAttribute(
-    "data-implementation-profile-request-count")).toBeNull();
-
   // Moving within the Type reuses its heat without exposing family details.
   const compute = page.locator("[data-nav-member]")
     .filter({ hasText: "Compute" });
@@ -147,8 +155,27 @@ test("Type heat paints the member list without an Implementation section", async
   await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
   await expect(rows.nth(1)).toHaveClass(/\bheated\b/);
   await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
+
+  // The selected non-public population joins exact MethodDef tokens from the
+  // same cached Type record; changing accessibility issues no new heat request.
+  await page.locator("#member-filter-summary").click();
+  await page.locator('[data-member-access-filter="private"]').click();
+  const privateRun = page.locator("[data-nav-member]")
+    .filter({ hasText: "Run" });
+  await privateRun.click();
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
+  await expect(rows.nth(0)).toHaveAttribute(
+    "aria-description",
+    "70 instructions; 71% of the largest body in this family, which is not a listed overload",
+  );
+  await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
+  await expect(rows.nth(1)).not.toHaveClass(/\bheated\b/);
+  await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
   await page.locator('[data-nav-overload="1"]').click();
   await expect(page.getByRole("heading", { name: "Implementation" }))
+    .toHaveCount(0);
+  await expect(page.getByText("Implementation evidence", { exact: true }))
     .toHaveCount(0);
   expect(await html.getAttribute(
     "data-implementation-profile-request-count")).toBeNull();

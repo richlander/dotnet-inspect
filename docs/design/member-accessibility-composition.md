@@ -125,10 +125,10 @@ rows it has loaded.
   `ISimdVector<TSelf,T>`, and keep `public`. The Browser's host-side mapping of explicit
   implementations to `private` and finalizers to `protected` retires.
 - **Heat over non-public rows.**
-  [Implementation profiles](inspect-web-implementation-profiles.md) currently
-  states that methods outside the public roster are never rows. Showing heat
-  on non-public rows is a separate focused change to that owner. The Type heat
-  record already measures those methods, so the change needs no new request.
+  [Implementation profiles](inspect-web-implementation-profiles.md) keeps its
+  public-family request predicate while allowing a selected non-public
+  population to join exact MethodDef tokens already present in the Type heat
+  record. The change needs no new request.
 
 ## Evidence
 

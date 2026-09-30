@@ -82,8 +82,8 @@ implementation asset or platform implementation assembly. Uploaded standalone
 Libraries are outside this slice because they do not yet participate in the
 same retained Browser workspace and Analysis facade path.
 
-An **eligible family** is a public API group on the visible Type with at least
-two public overloads and one of these shapes:
+An **eligible request family** is a public API group on the visible Type with
+at least two public overloads and one of these shapes:
 
 - every overload is an ordinary `method` declared on the visible Type; or
 - every overload is an `extension-method` attached to the visible Type, and
@@ -91,25 +91,31 @@ two public overloads and one of these shapes:
 
 A group that mixes ordinary and extension methods, or extension methods from
 multiple declaring Types, is not eligible. The Type heat query and the Browser
-apply this same predicate: the visible Type and every roster member belong to
-the `public` accessibility bucket. For an attached extension family, the
-visible Type defines the public roster and the exact declaring Type defines the
-analyzed same-name family. Same-name methods for other receivers may therefore
-contribute the family maximum and relationships without becoming visible rows,
-just as non-public same-name methods do for an ordinary family.
+apply this same request predicate: the visible Type and every roster member
+belong to the `public` accessibility bucket. For an attached extension family,
+the visible Type defines the public roster and the exact declaring Type defines
+the analyzed same-name family. Same-name methods for other receivers may
+therefore contribute the family maximum and relationships without joining the
+public roster, just as non-public same-name methods do for an ordinary family.
 
 For each eligible family, two sets are distinct:
 
-- the **public roster** is the listed overloads; only these are rows; and
+- the **public roster** is the owner-issued request roster; and
 - the **analyzed family** is every same-name method declared on the family's
   exact declaring Type, regardless of accessibility.
 
+The **visible row set** is the selected accessibility population's matching
+same-kind overload group. The public population must match the public roster
+exactly. A non-public population may join only exact MethodDef tokens already
+present in the analyzed family, and it retains the ordinary-method or
+single-declarer extension shape above. A non-public-only method name without an
+eligible public request family does not trigger analysis or acquire heat.
+
 Heat and hub derivation read only the analyzed family. Methods outside the
-public roster, whether non-public or public but hidden by the API surface, are
-never rows and never show heat or a hub strip, but they set the family maximum
-and take part in call relationships. A listed overload is therefore not
-presented as large when an unlisted implementation dwarfs it, and a listed
-forwarder into an unlisted method is never a hub.
+visible row set set the family maximum and take part in call relationships,
+but do not themselves show heat or a hub strip. A visible overload is therefore
+not presented as large when an out-of-view implementation dwarfs it, and a
+visible forwarder into an out-of-view method is never a hub.
 
 Readers take sparse walks through an assembly. The Type the reader selected is
 the aggregation scope; this design does not analyze a whole Library by
@@ -124,9 +130,12 @@ The member list is built in two passes:
 1. The Browser loads and paints the Type's members from the API surface.
    Package acquisition, API loading, Type navigation, and this first paint
    issue no implementation-profile request.
-2. After that paint, when the Type has at least one eligible family and no
-   cached heat state, the Browser requests the Type heat record once. Expanding
-   a family then reads heat from that record; it issues no request.
+2. After that paint, when the Type's public API surface has at least one
+   eligible request family and no cached heat state, the Browser requests the
+   Type heat record once. This remains true when the painted member list is a
+   non-public accessibility population. Expanding a family or changing the
+   selected accessibility then reads heat from that record; neither action
+   issues a request.
 
 The Type heat query declares `InspectionCost.Unbounded`, like the family
 query: its breadth is bounded by the Type, but its cost is dominated by
@@ -176,7 +185,7 @@ One Type heat request names one exact implementation participant and Type:
 Unknown, ambiguous, or non-public visible-Type selection fails visibly and
 never widens to whole-Library analysis. An attached family without one exact
 declaring Type is ineligible rather than guessed from display text. A Type with
-no eligible family completes as an available record with no families.
+no eligible request family completes as an available record with no families.
 
 ## Type heat record
 
@@ -277,8 +286,8 @@ Hub state is shown for an overload whose own measurement is complete even when
 another analyzed body is incomplete: a missing relationship from an incomplete
 body can only withhold a hub strip, never add one.
 
-The member list keeps public API roster order. Heat and hub state annotate
-rows; they never reorder them.
+The member list keeps the selected population's owner-issued row order. Heat
+and hub state annotate rows; they never reorder them.
 
 ## Presentation
 
@@ -446,10 +455,11 @@ The following gates enforce this design:
    reuse on return, workspace replacement, and stale-publication suppression.
 5. Family-projection tests prove size, the family maximum, the half-of-maximum
    heat threshold, noise suppression from sizes and trivial flags, hub
-   derivation, and unknown-maximum handling over the real-asset families plus
-   synthetic incomplete, bodyless, generated-body, and non-public-callee
-   boundaries.
-6. Member-list rendering and accessibility tests prove roster order,
+   derivation, exact public-roster matching, exact non-public MethodDef joins,
+   and unknown-maximum handling over the real-asset families plus synthetic
+   incomplete, bodyless, generated-body, and non-public-callee boundaries.
+6. Member-list rendering and accessibility tests prove selected-population row
+   order, public and non-public overload heat from one Type record,
    right-anchored heat with at most 75% reach, the hub strip, parent-row status
    text and tokens, accessible descriptions, every visible state, the absence
    of raw metric labels, and the absence of an Implementation detail section.
