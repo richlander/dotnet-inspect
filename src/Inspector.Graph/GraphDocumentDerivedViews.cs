@@ -127,7 +127,7 @@ public static partial class GraphDocumentExecution
             StructuralViewsBuilt = 1,
             NodesAdmitted = document.Nodes.Length,
         };
-        ExamineAllNodes(document.Nodes.Length, work);
+        work.ExamineAllNodes(document.Nodes.Length);
         var edgeIds = new List<int>?[document.Nodes.Length];
         var neighborNodeIds = new List<int>?[document.Nodes.Length];
         HashSet<TRelationship> relationships = SelectedRelationships(
@@ -200,12 +200,20 @@ public static partial class GraphDocumentExecution
             StructuralViewsBuilt = 1,
             NodesAdmitted = document.Nodes.Length,
         };
-        ExamineAllNodes(document.Nodes.Length, work);
+        work.ExamineAllNodes(document.Nodes.Length);
         var degrees = new int[document.Nodes.Length];
-        var selectedNeighbors = new HashSet<GraphNeighborIdentity>();
         HashSet<TRelationship> relationships = SelectedRelationships(
             plan.Relationships,
             document.RelationshipComparer);
+        // One directed relationship inherits the document's logical-edge
+        // uniqueness. Both directions can encounter reciprocal edges, while
+        // multiple relationships can share the same endpoints.
+        HashSet<GraphNeighborIdentity>? selectedNeighbors =
+            relationships.Count > 0
+            && (relationships.Count > 1
+                || plan.Direction == GraphTraversalDirection.Both)
+                ? []
+                : null;
         if (relationships.Count > 0)
         {
             foreach (GraphEdge<TRelationship> edge in document.Edges)
@@ -290,7 +298,7 @@ public static partial class GraphDocumentExecution
     static void AddSelectedDegrees<TRelationship>(
         GraphEdge<TRelationship> edge,
         GraphTraversalDirection direction,
-        HashSet<GraphNeighborIdentity> selectedNeighbors,
+        HashSet<GraphNeighborIdentity>? selectedNeighbors,
         int[] degrees,
         GraphExecutionWork work)
         where TRelationship : notnull
@@ -321,21 +329,16 @@ public static partial class GraphDocumentExecution
     static void AddNeighbor(
         int nodeId,
         int neighborNodeId,
-        HashSet<GraphNeighborIdentity> selectedNeighbors,
+        HashSet<GraphNeighborIdentity>? selectedNeighbors,
         int[] degrees,
         GraphExecutionWork work)
     {
-        if (selectedNeighbors.Add(new(nodeId, neighborNodeId)))
+        if (selectedNeighbors is null
+            || selectedNeighbors.Add(new(nodeId, neighborNodeId)))
+        {
             degrees[nodeId]++;
+        }
         work.AdjacencyEntriesExamined++;
-    }
-
-    static void ExamineAllNodes(
-        int nodeCount,
-        GraphExecutionWork work)
-    {
-        for (var nodeId = 0; nodeId < nodeCount; nodeId++)
-            work.ExamineNode(nodeId);
     }
 
     static ImmutableArray<int> SnapshotDistinctSorted(

@@ -15,6 +15,108 @@ public partial class CommandExecutionTests
         "Definitely.NoSuch.Package.ForFindDiscovery";
 
     [Fact]
+    public async Task
+        Find_ImplicitPlatformWorkspace_SearchesRuntimeAndAspNetCoreWithoutNetStandard()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "System.Text.Json.JsonSerializer,"
+                + "Microsoft.AspNetCore.Builder.WebApplication,"
+                + "System.Collections.Generic.Dictionary*",
+            "--json",
+            "--compact",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            document.RootElement.EnumerateArray().ToArray();
+        Assert.Contains(
+            rows,
+            row =>
+                row.GetProperty("full_name").GetString()
+                    == "System.Text.Json.JsonSerializer"
+                && row.GetProperty("source").GetString()
+                    == "runtime");
+        Assert.Contains(
+            rows,
+            row =>
+                row.GetProperty("full_name").GetString()
+                    == "Microsoft.AspNetCore.Builder.WebApplication"
+                && row.GetProperty("source").GetString()
+                    == "aspnetcore");
+        Assert.DoesNotContain(
+            rows,
+            row =>
+                row.GetProperty("source").GetString()
+                    == "netstandard");
+        Assert.All(
+            rows.Where(row =>
+                row.GetProperty("full_name").GetString()
+                    ?.StartsWith(
+                        "System.Collections.Generic.Dictionary",
+                        StringComparison.Ordinal) is true),
+            row => Assert.Equal(
+                "runtime",
+                row.GetProperty("source").GetString()));
+    }
+
+    [Fact]
+    public async Task
+        Find_ImplicitPlatformWorkspace_SearchesAspNetCoreMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            ".MapGet",
+            "--json",
+            "--compact",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            document.RootElement.EnumerateArray().ToArray();
+        Assert.NotEmpty(rows);
+        Assert.All(
+            rows,
+            row => Assert.Equal(
+                "aspnetcore",
+                row.GetProperty("source").GetString()));
+        Assert.Contains(
+            rows,
+            row =>
+                row.GetProperty("member").GetString()
+                    == "MapGet"
+                && row.GetProperty("library").GetString()
+                    == "Microsoft.AspNetCore.Routing");
+    }
+
+    [Fact]
+    public async Task
+        Find_ImplicitPlatformWorkspace_BroadensToAspNetCoreMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "MapGet",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Members", output);
+        Assert.Contains(
+            "Microsoft.AspNetCore.Routing",
+            output);
+        Assert.Contains(
+            "aspnetcore@",
+            output);
+    }
+
+    [Fact]
     public async Task Find_SimpleGlob_FindsDotSpelledNestedPlatformTypes()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1171,7 +1273,7 @@ public partial class CommandExecutionTests
     [Fact]
     [Trait("Speed", "Slow")]
     public async Task
-        Find_DefaultExactNamespacePreservesPackageAndPlatformObservations()
+        Find_DefaultExactNamespaceUsesPlatformWorkspace()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
@@ -1185,21 +1287,14 @@ public partial class CommandExecutionTests
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
             [.. document.RootElement.EnumerateArray()];
-        Assert.Equal(10, rows.Length);
-        Assert.Equal(
-            5,
-            rows.Count(static row =>
-                row.GetProperty("source").GetString()
-                    == "System.Text.Json"));
-        Assert.Equal(
-            5,
-            rows.Count(static row =>
-                row.GetProperty("source").GetString()
-                    == "runtime"));
+        Assert.Equal(5, rows.Length);
         Assert.All(
             rows,
             static row =>
             {
+                Assert.Equal(
+                    "runtime",
+                    row.GetProperty("source").GetString());
                 Assert.Equal(
                     "Namespace",
                     row.GetProperty("match").GetString());
@@ -1217,7 +1312,7 @@ public partial class CommandExecutionTests
     [Fact]
     [Trait("Speed", "Slow")]
     public async Task
-        Find_DefaultNamespaceDescendantsPreservePackageAndPlatformObservations()
+        Find_DefaultNamespaceDescendantsUsePlatformWorkspace()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
@@ -1232,18 +1327,13 @@ public partial class CommandExecutionTests
         JsonElement[] rows =
             [.. document.RootElement.EnumerateArray()];
         Assert.NotEmpty(rows);
-        Assert.Equal(
-            ["System.Text.Json", "runtime"],
-            rows
-                .Select(
-                    static row =>
-                        row.GetProperty("source").GetString()!)
-                .Distinct(StringComparer.Ordinal)
-                .ToArray());
         Assert.All(
             rows,
             static row =>
             {
+                Assert.Equal(
+                    "runtime",
+                    row.GetProperty("source").GetString());
                 Assert.Equal(
                     "System.Text.Json.Serialization.*",
                     row.GetProperty("pattern").GetString());
@@ -1251,31 +1341,22 @@ public partial class CommandExecutionTests
                     "Namespace",
                     row.GetProperty("match").GetString());
             });
-        foreach (string source in new[] { "System.Text.Json", "runtime" })
-        {
-            JsonElement[] sourceRows =
-            [
-                .. rows.Where(
-                    row =>
-                        row.GetProperty("source").GetString() == source),
-            ];
-            Assert.Contains(
-                sourceRows,
-                static row =>
-                    row.GetProperty("namespace").GetString()
-                        == "System.Text.Json.Serialization");
-            Assert.Contains(
-                sourceRows,
-                static row =>
-                    row.GetProperty("namespace").GetString()
-                        == "System.Text.Json.Serialization.Metadata");
-        }
+        Assert.Contains(
+            rows,
+            static row =>
+                row.GetProperty("namespace").GetString()
+                    == "System.Text.Json.Serialization");
+        Assert.Contains(
+            rows,
+            static row =>
+                row.GetProperty("namespace").GetString()
+                    == "System.Text.Json.Serialization.Metadata");
     }
 
     [Fact]
     [Trait("Speed", "Slow")]
     public async Task
-        Find_DefaultMultiPatternNamespaceDescendantsPreserveAllSources()
+        Find_DefaultMultiPatternNamespaceDescendantsPreservePatternOrder()
     {
         const string NamespacePattern = "System.Text.Json.Nodes.*";
         const string DirectPattern =
@@ -1299,25 +1380,18 @@ public partial class CommandExecutionTests
                     row.GetProperty("pattern").GetString()
                         == NamespacePattern),
         ];
-        Assert.Equal(10, namespaceRows.Length);
-        Assert.Equal(
-            5,
-            namespaceRows.Count(
-                static row =>
-                    row.GetProperty("source").GetString()
-                        == "System.Text.Json"));
-        Assert.Equal(
-            5,
-            namespaceRows.Count(
-                static row =>
-                    row.GetProperty("source").GetString()
-                        == "runtime"));
+        Assert.Equal(5, namespaceRows.Length);
         Assert.All(
             namespaceRows,
             static row =>
+            {
+                Assert.Equal(
+                    "runtime",
+                    row.GetProperty("source").GetString());
                 Assert.Equal(
                     "Namespace",
-                    row.GetProperty("match").GetString()));
+                    row.GetProperty("match").GetString());
+            });
 
         JsonElement directRow =
             Assert.Single(

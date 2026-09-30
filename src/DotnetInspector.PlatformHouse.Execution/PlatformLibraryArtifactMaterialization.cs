@@ -336,6 +336,31 @@ public static class PlatformHouseArtifactMaterializer
                     request.CancellationToken)
             .ConfigureAwait(false);
 
+    public static async ValueTask<
+        PlatformLibraryArtifactMaterializationOutcome> MaterializeAsync(
+            PlatformHouseRequest request,
+            PlatformViewDemand view,
+            IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> items,
+            PlatformHouseConsumedWork consumedWork,
+            string identityPrefix,
+            Func<PlatformHouseConsumedWork> currentWork)
+    {
+        ArgumentNullException.ThrowIfNull(currentWork);
+        return await MaterializeCoreAsync(
+                request,
+                view,
+                items,
+                consumedWork,
+                identityPrefix,
+                targetSelection: null,
+                retainedSettlements: null,
+                currentWork,
+                materializationCancellation:
+                    request.CancellationToken)
+            .ConfigureAwait(false);
+    }
+
     internal static async ValueTask<
         PlatformLibraryArtifactMaterializationOutcome>
         MaterializeSelectedAsync(
