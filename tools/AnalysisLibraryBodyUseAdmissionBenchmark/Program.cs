@@ -94,7 +94,6 @@ foreach (BenchmarkAsset asset in assets)
              operation++)
         {
             result = Execute(asset.Path);
-            RequireFingerprint(asset, fingerprint, result);
         }
         elapsed[i] =
             Stopwatch.GetElapsedTime(started).TotalMilliseconds
@@ -105,6 +104,7 @@ foreach (BenchmarkAsset asset in assets)
         allocated[i] =
             (GC.GetAllocatedBytesForCurrentThread() - allocatedBefore)
             / OperationsPerSample;
+        RequireFingerprint(asset, fingerprint, result);
         GC.KeepAlive(result);
     }
 
