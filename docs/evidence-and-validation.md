@@ -238,6 +238,15 @@ than an inspected artifact:
   and composed costs separately; its answer hashes cover the complete
   normalized result. Publish it for the target RID and run
   `membergroup-scorecard <check|time> <System.Text.Json.dll>`.
+- `tools/MemberBodySizeScorecard` checks the current focused Analysis route
+  against LINQ, NLinq, and an explicitly experimental #8577 breadth-limited
+  Planner over the same prepared logical-to-physical body population. It
+  scores body-size Exists, Count, Head, Tail, Rows, and strict Window for
+  one-logical-method and public-family breadth, reports current focused
+  preparation (including attribution and body-size evidence) separately, and
+  retains generated bodies. Publish it for the target RID and run the
+  resulting `analysis-harness <check|time> <System.Private.CoreLib.dll>
+  <System.Text.Json.dll>`.
 
 **The scorecard** scores Old, LINQ, NLinq, and Planner for Exists, Count,
 Head(N), Tail(N), Rows, and Rows(n..m), over one open query on pinned real
