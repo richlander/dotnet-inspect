@@ -1175,6 +1175,7 @@ public class LibraryInspectionView
         foreach (LibraryStructuralTypeLeverageShard shard
             in salience.TypeLeverageShards)
         {
+            AddTypeLeverageQualificationRows(rows, shard);
             IReadOnlyDictionary<
                 MetadataTypeDefinitionAddress,
                 LibraryStructuralTypeLeverageRow> byType =
@@ -1199,6 +1200,90 @@ public class LibraryInspectionView
                 static row =>
                     row.MountainPeak ? "Mountain peak" : null);
         }
+    }
+
+    private static void AddTypeLeverageQualificationRows(
+        List<LibraryMetricRow> rows,
+        LibraryStructuralTypeLeverageShard shard)
+    {
+        LibraryStructuralSignatureUseQualification signature =
+            shard.SignatureUse;
+        rows.Add(
+            new(
+                "Type-Leverage Shard",
+                "Qualification",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                $"sea-level {shard.SeaLevel.Disposition}; "
+                    + $"mountain-peak {shard.MountainPeak.Disposition}; "
+                    + $"roles {shard.RoleDisposition}; "
+                    + $"signature {signature.Disposition}",
+                Namespace: shard.Namespace));
+        rows.Add(
+            new(
+                "Type-Leverage Shard",
+                "Signature-use coverage",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                $"sites {signature.Coverage.Examined}/"
+                    + $"{signature.Coverage.Considered}; "
+                    + $"unavailable {signature.Coverage.Unavailable}; "
+                    + $"limited {signature.Coverage.Limited}; "
+                    + $"occurrences {signature.OccurrenceCount}",
+                Namespace: shard.Namespace));
+
+        rows.AddRange(
+            signature.Diagnostics.Select(diagnostic =>
+                new LibraryMetricRow(
+                    "Type-Leverage Shard Diagnostic",
+                    "Signature use",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    FormatSignatureUseDiagnostic(diagnostic),
+                    Namespace: shard.Namespace)));
+    }
+
+    private static string FormatSignatureUseDiagnostic(
+        MetadataLibrarySignatureUseDiagnostic diagnostic)
+    {
+        string token = diagnostic.MetadataToken is { } metadataToken
+            ? $" [0x{metadataToken:X8}]"
+            : "";
+        var qualification = new List<string>();
+        if (diagnostic.BudgetDimension is { } budgetDimension)
+            qualification.Add($"budget {budgetDimension}");
+        if (diagnostic.BudgetLimit is { } budgetLimit)
+            qualification.Add($"limit {budgetLimit}");
+        if (diagnostic.AttemptedCharge is { } attemptedCharge)
+            qualification.Add($"attempted {attemptedCharge}");
+        string suffix = qualification.Count == 0
+            ? ""
+            : $"; {string.Join("; ", qualification)}";
+        return $"{diagnostic.Kind}{token}: {diagnostic.Detail}{suffix}";
     }
 
     private static void AddTypeLeverageOrder(

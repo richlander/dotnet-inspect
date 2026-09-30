@@ -1176,6 +1176,9 @@ test("typed type panel owns its rendered control bindings", () => {
     clearFilters,
     /state\.typeLeverageFilter = ""/);
   assert.match(
+    clearFilters,
+    /if \(state\.typeLeverageEnabled\) loadTypeLeverage\(\);\s*else renderPreservingMemberFocus\(\)/);
+  assert.match(
     binding,
     /onTypeFilterChange: value => \{[\s\S]*?render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},/);
   assert.match(

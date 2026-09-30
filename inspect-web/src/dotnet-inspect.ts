@@ -11285,7 +11285,8 @@ function bindTypePanelEvents() {
       state.kindFilter = "";
       state.typeLeverageFilter = "";
       state.accessibilityFilter = defaultAccessibilityFilter(state.package);
-      renderPreservingMemberFocus();
+      if (state.typeLeverageEnabled) loadTypeLeverage();
+      else renderPreservingMemberFocus();
     },
     onCopyAnchor: anchor => {
       const type = selectedType();
