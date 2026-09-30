@@ -134,6 +134,10 @@ takes its accessors' join defined above, not its interface's bucket. Attached ex
 declarations are records of their declaring Type, so they appear only under C#
 spelling.
 
+Hidden status also remains record-local under metadata spelling. A hidden
+property or event record does not hide its accessor MethodDef records; each
+accessor is admitted or hidden by its own metadata.
+
 In both spellings the buckets partition that spelling's population, and every
 Count is in that spelling's unit: declarations for C# spelling, records for
 metadata spelling.

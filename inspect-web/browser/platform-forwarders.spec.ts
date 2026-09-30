@@ -46,6 +46,10 @@ test("XML forwarders open each immediate Library and restore fresh history actio
   await expect(page.locator('[data-inspector-tab][data-lens="source"]')).toBeVisible();
   await expect(page.locator("[data-platform-forwarder]")).toHaveCount(0);
   await expect(page.locator('[data-type="System.Private.Xml:System.Xml.XmlReader"]')).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-type-member-population-request",
+    /"System.Xml.XmlReader","csharp","public"\]$/,
+  );
   await page.locator("#nav-back").click();
   await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
   await page.locator("#nav-back").click();
