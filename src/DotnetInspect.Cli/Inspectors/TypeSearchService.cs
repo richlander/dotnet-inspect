@@ -1230,11 +1230,19 @@ internal static class TypeSearchService
                     ? bounded - accepted
                     : null;
             List<TypeFindResult> classified =
-                ClassifyCandidates(
+                intent == FindTypeMatchIntent.Ordinary
+                && TryGetNamespaceDescendantPattern(
                     pattern,
-                    candidates,
-                    remaining,
-                    intent);
+                    out NamespaceSearchPattern namespacePattern)
+                    ? ClassifyNamespaceCandidates(
+                        namespacePattern,
+                        candidates,
+                        remaining)
+                    : ClassifyCandidates(
+                        pattern,
+                        candidates,
+                        remaining,
+                        intent);
             if (classified.Count == 0)
             {
                 if (sourceComplete)
@@ -1253,6 +1261,29 @@ internal static class TypeSearchService
             accepted += classified.Count;
         }
         return results;
+    }
+
+    private static List<TypeFindResult> ClassifyNamespaceCandidates(
+        NamespaceSearchPattern pattern,
+        IReadOnlyList<TypeSearchResult> candidates,
+        int? limit)
+    {
+        IEnumerable<TypeSearchResult> selected =
+            NamespaceCandidates(
+                pattern.Namespace,
+                pattern.Match,
+                candidates);
+        if (limit is int maximum)
+            selected = selected.Take(maximum);
+        return
+        [
+            .. selected.Select(candidate =>
+                ToFindResult(
+                    pattern.Pattern,
+                    TypeFindMatchKind.Namespace,
+                    similarity: 1.0,
+                    candidate)),
+        ];
     }
 
     private static List<TypeFindResult> ClassifyCandidates(
@@ -1567,7 +1598,7 @@ internal static class TypeSearchService
             TypeCandidateSourceIdentity Source)> _provisionalIdentities = [];
         readonly Dictionary<
             (string FullName, TypeCandidateSourceIdentity Source),
-            TypeFindResult?> _classifications = [];
+            CachedTypeClassification?> _classifications = [];
 
         internal bool Observe(
             AssemblyContextSubject subject,
@@ -1596,9 +1627,16 @@ internal static class TypeSearchService
                 pattern,
                 candidate,
                 intent);
+            TypeFindResult? classification =
+                candidate.Classification;
             _classifications.TryAdd(
                 identity,
-                candidate.Classification);
+                classification is null
+                    ? null
+                    : new(
+                        classification.Pattern,
+                        classification.Match,
+                        classification.Similarity));
             if (!accepted
                 || existingIdentities.Contains(identity)
                 || !_provisionalIdentities.Add(identity))
@@ -1618,7 +1656,7 @@ internal static class TypeSearchService
                 ExactNamespaceSourceIdentity(candidate));
             if (!_classifications.Remove(
                     identity,
-                    out TypeFindResult? classification))
+                    out CachedTypeClassification? classification))
             {
                 accepted = false;
                 return false;
@@ -1626,7 +1664,14 @@ internal static class TypeSearchService
 
             candidate.ClassifiedPattern = pattern;
             candidate.ClassifiedIntent = intent;
-            candidate.Classification = classification;
+            candidate.Classification =
+                classification is { } cached
+                    ? ToFindResult(
+                        cached.Pattern,
+                        cached.Match,
+                        cached.Similarity,
+                        candidate)
+                    : null;
             accepted = classification is not null;
             return true;
         }
@@ -1636,6 +1681,11 @@ internal static class TypeSearchService
             _provisionalIdentities.Clear();
         }
     }
+
+    private readonly record struct CachedTypeClassification(
+        string Pattern,
+        TypeFindMatchKind Match,
+        double? Similarity);
 
     private readonly record struct NamespaceSearchPattern(
         string Pattern,

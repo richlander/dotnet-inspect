@@ -1373,15 +1373,22 @@ public partial class CommandExecutionTests
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
             [.. document.RootElement.EnumerateArray()];
-        Assert.Equal(6, rows.Length);
         Assert.All(
             rows,
             static row =>
                 Assert.Equal(
                     "System.Text.Json",
                     row.GetProperty("source").GetString()));
+        JsonElement[] namespaceRows =
+        [
+            .. rows.Where(
+                static row =>
+                    row.GetProperty("pattern").GetString()
+                        == NamespacePattern),
+        ];
+        Assert.Equal(5, namespaceRows.Length);
         Assert.All(
-            rows[..5],
+            namespaceRows,
             static row =>
             {
                 Assert.Equal(
@@ -1391,15 +1398,23 @@ public partial class CommandExecutionTests
                     "Namespace",
                     row.GetProperty("match").GetString());
             });
-        Assert.Equal(
-            DirectPattern,
-            rows[^1].GetProperty("pattern").GetString());
-        Assert.Equal(
-            DirectPattern,
-            rows[^1].GetProperty("full_name").GetString());
+        Assert.All(
+            rows[namespaceRows.Length..],
+            static row =>
+                Assert.StartsWith(
+                    DirectPattern,
+                    row.GetProperty("pattern").GetString()));
+        JsonElement directRow =
+            Assert.Single(
+                rows,
+                static row =>
+                    row.GetProperty("full_name").GetString()
+                        == DirectPattern
+                    && row.GetProperty("match").GetString()
+                        == "Exact");
         Assert.Equal(
             "Exact",
-            rows[^1].GetProperty("match").GetString());
+            directRow.GetProperty("match").GetString());
     }
 
     [Fact]
@@ -1431,6 +1446,43 @@ public partial class CommandExecutionTests
         Assert.Equal(
             "Partial",
             row.GetProperty("match").GetString());
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Find_CompatibilityPackageHeadPreservesProvenance()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "JsonSerializer",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "-n",
+            "3",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
+        Assert.Equal(3, rows.Length);
+        Assert.All(
+            rows,
+            static row =>
+            {
+                Assert.Equal(
+                    "System.Text.Json",
+                    row.GetProperty("library").GetString());
+                Assert.Equal(
+                    "System.Text.Json",
+                    row.GetProperty("source").GetString());
+                Assert.Equal(
+                    "10.0.0",
+                    row.GetProperty("source_version").GetString());
+            });
     }
 
     [Fact]
@@ -1624,8 +1676,10 @@ public partial class CommandExecutionTests
             Assert.Single(
                 rows,
                 static row =>
-                    row.GetProperty("pattern").GetString()
-                        == DirectPattern);
+                    row.GetProperty("full_name").GetString()
+                        == DirectPattern
+                    && row.GetProperty("match").GetString()
+                        == "Exact");
         Assert.Equal(
             DirectPattern,
             directRow.GetProperty("full_name").GetString());
@@ -1635,9 +1689,12 @@ public partial class CommandExecutionTests
         Assert.Equal(
             NamespacePattern,
             rows[0].GetProperty("pattern").GetString());
-        Assert.Equal(
-            DirectPattern,
-            rows[^1].GetProperty("pattern").GetString());
+        Assert.All(
+            rows[namespaceRows.Length..],
+            static row =>
+                Assert.StartsWith(
+                    DirectPattern,
+                    row.GetProperty("pattern").GetString()));
     }
 
     [Fact]

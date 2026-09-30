@@ -232,6 +232,25 @@ public class FindMatchTierTests
     }
 
     [Fact]
+    public async Task Find_HeadStillLetsMemberNameOutrankWeakTypeEvidence()
+    {
+        var options = new FindOptions
+        {
+            Pattern = "AppendFormat",
+            PlatformFrameworks = ["runtime"],
+            Limit = 1,
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Members", output);
+        Assert.Contains("System.Text.StringBuilder", output);
+        Assert.DoesNotContain("DateFormat", output);
+    }
+
+    [Fact]
     public async Task Find_MemberTierIsVisibleWhenJsonOmitsIt()
     {
         var options = new FindOptions
