@@ -819,7 +819,7 @@ test("the type nav reports no matches for an empty filtered group", () => {
   assert.match(html, /data-type-filter-disclosure open/);
 });
 
-test("the type nav renders independent accessible leverage cues", () => {
+test("the type nav renders exclusive accessible pole cues", () => {
     const html = renderTypeNav({
       current: jsonSerializer,
       visible: [jsonSerializer, jsonDocument],
@@ -849,23 +849,31 @@ test("the type nav renders independent accessible leverage cues", () => {
                 "8 external source Types; top-leverage namespace",
             }
           : null,
-      typeLeverageCue: item => item.id === jsonSerializer.id
-        ? {
-            seaLevel: true,
-            mountainPeak: true,
-            seaLevelStrength: 1,
-            mountainPeakStrength: 0.8,
+      typeLeverageCue: item => {
+        if (item.id === jsonSerializer.id) {
+          return {
+            pole: "sea-level",
             description:
-              "8 incoming Type peers; 6 outgoing Type peers; "
-              + "sea-level Type; mountain-peak Type",
-          }
-        : null,
+              "8 incoming Type peers; 6 outgoing Type peers; sea-level Type",
+          };
+        }
+        if (item.id === jsonDocument.id) {
+          return {
+            pole: "mountain-peak",
+            description:
+              "4 incoming Type peers; 9 outgoing Type peers; mountain-peak Type",
+          };
+        }
+        return null;
+      },
     });
 
     assert.match(html, /data-type-leverage-filter="sea-level"/);
-    assert.match(html, /type-row selected sea-level mountain-peak/);
-    assert.match(html, /class="type-leverage-sea"/);
-    assert.match(html, /class="type-leverage-peak"/);
+    assert.match(html, /type-row selected sea-level/);
+    assert.match(html, /class="type-leverage-icon sea-level"/);
+    assert.match(html, /aria-hidden="true">▁<\/span>/);
+    assert.match(html, /class="type-leverage-icon mountain-peak"/);
+    assert.match(html, /aria-hidden="true">▲<\/span>/);
     assert.match(
       html,
       /role="img" aria-label="8 incoming Type peers; 6 outgoing Type peers/,
@@ -876,10 +884,14 @@ test("the type nav renders independent accessible leverage cues", () => {
       html,
       /aria-label="8 external source Types; top-leverage namespace"/,
     );
-    assert.doesNotMatch(
-      html.match(/data-type="System\.Text\.Json\.JsonDocument"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? "",
-      /type-leverage-cues/,
-    );
+    const seaRow = html.match(
+      /class="type-row selected sea-level"[^>]*data-type="System\.Text\.Json\.JsonSerializer"[\s\S]*?<\/button>/,
+    )?.[0] ?? "";
+    const peakRow = html.match(
+      /class="type-row  mountain-peak"[^>]*data-type="System\.Text\.Json\.JsonDocument"[\s\S]*?<\/button>/,
+    )?.[0] ?? "";
+    assert.doesNotMatch(seaRow, /mountain-peak/);
+    assert.doesNotMatch(peakRow, /sea-level/);
 });
 
 test("the type nav omits a parent action when the Library has no visible parent", () => {

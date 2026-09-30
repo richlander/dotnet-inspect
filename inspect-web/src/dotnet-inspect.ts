@@ -5138,7 +5138,7 @@ function createTypeLeverageTarget(
     const assemblyFileName = platformAssemblyRequest(row);
     const salienceLibraryKey = JSON.stringify([
       "library-structural-salience",
-      "structural-salience.v1",
+      "structural-salience.v2",
       "signature",
       generation,
       "platform",
@@ -5170,7 +5170,7 @@ function createTypeLeverageTarget(
 
   const salienceLibraryKey = JSON.stringify([
     "library-structural-salience",
-    "structural-salience.v1",
+    "structural-salience.v2",
     "signature",
     generation,
     "package",

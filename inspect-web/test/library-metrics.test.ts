@@ -112,7 +112,7 @@ test("renders owner-issued structural salience orders and qualification", () => 
   const salience = projectTypeLeverage({
     schemaVersion: 1,
     outcome: "available",
-    methodologyVersion: "structural-salience.v1",
+    methodologyVersion: "structural-salience.v2",
     evidenceMode: "signature",
     disposition: "Qualified",
     coverage: { considered: 5, examined: 4, unavailable: 1, limited: 0 },
@@ -126,9 +126,9 @@ test("renders owner-issued structural salience orders and qualification", () => 
     failure: null,
     compileLibrary: data.compileLibrary,
   }, [{
-    schemaVersion: 1,
+    schemaVersion: 2,
     outcome: "available",
-    methodologyVersion: "structural-salience.v1",
+    methodologyVersion: "structural-salience.v2",
     evidenceMode: "signature",
     namespace: "Example.Core",
     disposition: "complete",
@@ -140,8 +140,7 @@ test("renders owner-issued structural salience orders and qualification", () => 
       signatureIncomingDegree: 6,
       signatureOutgoingDegree: 2,
       role: "foundation",
-      seaLevel: true,
-      mountainPeak: false,
+      pole: "SeaLevel",
     }, {
       typeDefinitionId: "Example.Core.Store",
       typeDisplay: "Example.Core.Store",
@@ -149,8 +148,7 @@ test("renders owner-issued structural salience orders and qualification", () => 
       signatureIncomingDegree: 1,
       signatureOutgoingDegree: 5,
       role: "orchestrator",
-      seaLevel: false,
-      mountainPeak: true,
+      pole: "MountainPeak",
     }],
     seaLevelOrder: ["Example.Core.Engine", "Example.Core.Store"],
     mountainPeakOrder: ["Example.Core.Store", "Example.Core.Engine"],
@@ -168,8 +166,12 @@ test("renders owner-issued structural salience orders and qualification", () => 
   assert.match(html, /Sea level/);
   assert.match(html, /Engine/);
   assert.match(html, /6 incoming peers · foundation/);
+  assert.match(html, /6 incoming peers · foundation · sea level/);
   assert.match(html, /Mountain peaks/);
   assert.match(html, /5 outgoing peers · orchestrator/);
+  assert.match(html, /5 outgoing peers · orchestrator · mountain peak/);
+  assert.match(html, /metrics-salience-type sea-level/);
+  assert.match(html, /metrics-salience-type mountain-peak/);
   assert.match(html, /Structural salience is qualified/);
   assert.match(html, /One signature was unavailable\./);
   assert.match(
@@ -193,7 +195,7 @@ test("a sole zero-leverage namespace remains explicitly selectable", () => {
   const zeroLeverageIndex = {
     schemaVersion: 1,
     outcome: "available",
-    methodologyVersion: "structural-salience.v1",
+    methodologyVersion: "structural-salience.v2",
     evidenceMode: "signature",
     disposition: "complete",
     coverage: { considered: 4, examined: 4, unavailable: 0, limited: 0 },

@@ -313,12 +313,20 @@ a designation cutoff or receive a designation. Helper-looking names such as
 `SR` or `ThrowHelper` are not an identity or classification contract and do
 not justify exclusion.
 
-Among eligible Types, every Type tied at the namespace's named nonzero maximum
-is sea level or mountain peak when that maximum is at least three distinct
-peers. The three-peer floor requires evidence of leverage across a group and
-prevents one- and two-edge ties from turning sparse adjacency into a
-high-value designation. Raw scores and complete orders remain available when
-no Type qualifies.
+Among eligible Types, every Type tied at a namespace's named nonzero maximum
+qualifies for that directional pole when the maximum is at least three
+distinct peers. The three-peer floor requires evidence of leverage across a
+group and prevents one- and two-edge ties from turning sparse adjacency into a
+high-value designation.
+
+Research issues at most one visible pole per Type. A Type that qualifies in
+only one direction receives that pole. When it qualifies in both directions,
+the larger raw directional degree wins: incoming wins sea level and outgoing
+wins mountain peak. Equal incoming and outgoing degrees issue no pole. This
+dominant-or-none rule does not remove the Type from either complete order or
+discard either raw degree; it prevents one categorical cue from implying
+reciprocity, a cycle, or two simultaneous structural identities. Raw scores
+and complete orders remain available when no Type receives a pole.
 
 Eligibility is local to these two degree-ordered views. It is not a low-value
 classification and cannot suppress a canonical row or transfer to another
@@ -450,12 +458,13 @@ topology selection.
 The existing Metrics lens adds a structural-salience view rather than new
 persistent workspace chrome. It presents the Research-issued namespace order
 and, for a selected namespace, separate sea-level and mountain-peak Type lists
-in their Research-issued order. Each visible Type row discloses its named
-degree and structural role and activates the exact metadata Type key. A
-presentation limit may take a prefix of an issued order, but Browser does not
-sort, merge, exclude, or recompute rows. Relationship Crossing may decorate an
-already selected exact Type with its report-issued role; it does not infer role
-from the bounded call projection.
+in their Research-issued order. The lists remain directional rankings, not
+category membership lists. Each visible Type row discloses its named degree,
+structural role, and owner-issued pole when present, and activates the exact
+metadata Type key. A presentation limit may take a prefix of an issued order,
+but Browser does not sort, merge, exclude, or recompute rows. Relationship
+Crossing may decorate an already selected exact Type with its report-issued
+role; it does not infer role from the bounded call projection.
 
 The Type Browser adds an explicit `Structural salience` action inside its
 existing filter disclosure. Activating it requests the Library namespace index
@@ -473,11 +482,9 @@ that key. Operation authority prevents stale results from publishing into a
 replacement workspace. Loading, qualified, unavailable, and failed outcomes
 remain visible and retryable.
 
-Browser presentation consumes Research-issued top-leverage, sea-level, and
-mountain-peak designations. It does not apply a second percentage, rank, or
-threshold. A Type may belong to both categories; Browser preserves that
-overlap with two independent non-text cues and accessible evidence text rather
-than forcing one category to win.
+Browser presentation consumes Research-issued top-leverage and nullable Type
+pole designations. It does not apply a second percentage, rank, threshold, or
+tie-break.
 
 Sea-level and mountain-peak filters select their respective presentation
 categories and intersect with the existing text, namespace, kind, Library, and
@@ -486,6 +493,18 @@ selected or hover state. The filter summary and each decorated row expose the
 category in text so color is not the only carrier. Deactivating the view clears
 only leverage presentation and filtering; it does not discard the cached
 Research result.
+
+Structural salience follows the existing implementation-heat visual grammar.
+Categorical icons and glyphs occupy the left gutter. Scalar magnitude heat,
+including implementation-profile heat, remains a horizontal gradient anchored
+at the right edge. A sea-level Type uses a baseline glyph plus a subtle
+bottom-up vertical wash; a mountain-peak Type uses a peak glyph plus a subtle
+top-down vertical wash. Shape and vertical origin carry the distinction while
+theme-owned color remains secondary. A Type with no issued pole receives no
+salience icon or wash. Hover and selection remain visibly stronger than either
+wash, and accessible text remains authoritative. These cues express only the
+owner-issued pole; they do not encode quality, reciprocity, reachability, or a
+cycle.
 
 A treemap cell discloses its type summary on pointer hover or keyboard focus
 and activates the exact metadata type key to continue the settled

@@ -1204,7 +1204,10 @@ public class LibraryInspectionView
                 shard.SeaLevel.Types,
                 byType,
                 static row => row.SignatureIncomingDegree,
-                static row => row.SeaLevel ? "Sea level" : null);
+                static row =>
+                    row.Pole == LibraryStructuralTypePole.SeaLevel
+                        ? "Sea level"
+                        : null);
             AddTypeLeverageOrder(
                 rows,
                 shard,
@@ -1214,7 +1217,9 @@ public class LibraryInspectionView
                 byType,
                 static row => row.SignatureOutgoingDegree,
                 static row =>
-                    row.MountainPeak ? "Mountain peak" : null);
+                    row.Pole == LibraryStructuralTypePole.MountainPeak
+                        ? "Mountain peak"
+                        : null);
         }
     }
 

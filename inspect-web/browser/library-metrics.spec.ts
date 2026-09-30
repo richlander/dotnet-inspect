@@ -26,7 +26,8 @@ test("complexity cells disclose evidence and activate exact type keys", async ({
 
 test("structural salience preserves issued orders and exact interactions", async ({
   page,
-}) => {
+}, testInfo) => {
+  await page.setViewportSize({ width: 1100, height: 800 });
   await page.goto("/browser/library-metrics.html");
   const salience = page.locator(".metrics-salience-section");
   await expect(salience).toContainText("Structural Salience");
@@ -37,6 +38,20 @@ test("structural salience preserves issued orders and exact interactions", async
     .toContainText("7 incoming peers · foundation");
   await expect(salience.locator(".metrics-salience-order").nth(1))
     .toContainText("6 outgoing peers · orchestrator");
+  await expect(salience.locator(".metrics-salience-type.sea-level").first())
+    .toContainText("sea level");
+  await expect(
+    salience.locator(".metrics-salience-type.mountain-peak").first(),
+  ).toContainText("mountain peak");
+  await expect(salience.locator(".sea-level.mountain-peak")).toHaveCount(0);
+  await expect(salience.locator(".sea-level .metrics-salience-pole").first())
+    .toHaveText("▁");
+  await expect(
+    salience.locator(".mountain-peak .metrics-salience-pole").first(),
+  ).toHaveText("▲");
+  await salience.screenshot({
+    path: testInfo.outputPath("structural-salience-poles.png"),
+  });
 
   await salience.locator(
     '[data-metrics-salience-type-key="Example.B"]',

@@ -120,11 +120,15 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
                 static shard => shard.Rows.Length),
             salience.TypeLeverageShards.Sum(
                 static shard =>
-                    shard.Rows.Count(static row => row.SeaLevel)),
+                    shard.Rows.Count(static row =>
+                        row.Pole
+                            == LibraryStructuralTypePole.SeaLevel)),
             salience.TypeLeverageShards.Sum(
                 static shard =>
                     shard.Rows.Count(
-                        static row => row.MountainPeak)),
+                        static row =>
+                            row.Pole
+                                == LibraryStructuralTypePole.MountainPeak)),
             Checksum(salience),
             indexCost.IndexMilliseconds,
             indexCost.IndexBytes,
@@ -294,9 +298,14 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
                 value.Append(':');
                 value.Append(row.SignatureOutgoingDegree);
                 value.Append(':');
-                value.Append(row.SeaLevel ? '1' : '0');
-                value.Append(':');
-                value.Append(row.MountainPeak ? '1' : '0');
+                value.Append(row.Pole switch
+                {
+                    LibraryStructuralTypePole.SeaLevel => 'S',
+                    LibraryStructuralTypePole.MountainPeak => 'M',
+                    null => '-',
+                    _ => throw new InvalidOperationException(
+                        "Unknown structural Type pole."),
+                });
                 value.Append(';');
             }
         }

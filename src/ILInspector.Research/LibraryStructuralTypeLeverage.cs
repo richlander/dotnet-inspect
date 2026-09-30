@@ -8,7 +8,7 @@ namespace ILInspector.Research;
 public static class LibraryStructuralSalience
 {
     public const string CurrentMethodologyVersion =
-        "structural-salience.v1";
+        "structural-salience.v2";
     public const int MinimumDesignationDegree = 3;
 }
 
@@ -22,6 +22,12 @@ public enum LibraryStructuralTypeRole
     Foundation,
     Hub,
     Orchestrator,
+}
+
+public enum LibraryStructuralTypePole
+{
+    SeaLevel,
+    MountainPeak,
 }
 
 public enum LibraryStructuralEvidenceDisposition
@@ -58,8 +64,7 @@ public sealed record LibraryStructuralTypeLeverageRow(
     int SignatureIncomingDegree,
     int SignatureOutgoingDegree,
     LibraryStructuralTypeRole Role,
-    bool SeaLevel,
-    bool MountainPeak);
+    LibraryStructuralTypePole? Pole);
 
 public sealed record LibraryStructuralTypeLeverageOrder(
     LibraryStructuralEvidenceDisposition Disposition,

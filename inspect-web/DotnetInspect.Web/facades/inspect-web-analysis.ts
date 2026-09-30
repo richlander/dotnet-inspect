@@ -26,6 +26,8 @@ export type BrowserCloneCandidateSeedKind = "Library" | "Type" | "Member" | numb
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
+export type BrowserLibraryStructuralTypePole = "SeaLevel" | "MountainPeak" | number;
+
 export type BrowserMetadataRootMalformedReason = "UnmappableMetadataDirectory" | "TruncatedFixedPrefix" | "InvalidSignature" | "InvalidVersionLength" | "TruncatedVersionField" | "MissingVersionTerminator" | number;
 
 export type JsonValueKind = number;
@@ -610,8 +612,7 @@ export interface BrowserLibraryTypeLeverageRow {
   readonly signatureIncomingDegree: number;
   readonly signatureOutgoingDegree: number;
   readonly role: string;
-  readonly seaLevel: boolean;
-  readonly mountainPeak: boolean;
+  readonly pole: BrowserLibraryStructuralTypePole | null;
 }
 
 export interface BrowserLibraryTypeLeverageShard {
@@ -1202,4 +1203,3 @@ export async function queryPlatformTypeImplementationHeat(targetFramework: strin
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeImplementationHeat;
 }
-

@@ -10,6 +10,7 @@ import {
 } from "./source-inspection.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 import { isForwardedType, type TypeInventoryRow } from "./platform-forwarders.ts";
+import type { TypeLeveragePole } from "./type-leverage.ts";
 
 export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
   "base · interfaces · derived — select a highlighted node to open";
@@ -581,10 +582,7 @@ export interface TypeNavNamespaceLeverageCue {
 }
 
 export interface TypeNavLeverageCue {
-  seaLevel: boolean;
-  mountainPeak: boolean;
-  seaLevelStrength: number | null;
-  mountainPeakStrength: number | null;
+  pole: TypeLeveragePole;
   description: string;
 }
 
@@ -663,19 +661,14 @@ export function renderTypeNav(options: TypeNavOptions): string {
               const selected = item.id === current?.id;
               const definingLibrary = typeLibraryLabel(item);
               const leverage = typeLeverageCue(item);
-              const leverageClasses = leverage
-                ? `${leverage.seaLevel ? " sea-level" : ""}${leverage.mountainPeak ? " mountain-peak" : ""}`
-                : "";
+              const leverageClass = leverage ? ` ${leverage.pole}` : "";
               const leverageHtml = leverage
-                ? `<span class="type-leverage-cues${leverageClasses}" role="img" aria-label="${escapeHtml(leverage.description)}" title="${escapeHtml(leverage.description)}">
-                    ${leverage.seaLevel ? `<span class="type-leverage-sea" style="--type-leverage-strength:${leverage.seaLevelStrength ?? 1}" aria-hidden="true"></span>` : ""}
-                    ${leverage.mountainPeak ? `<span class="type-leverage-peak" style="--type-leverage-strength:${leverage.mountainPeakStrength ?? 1}" aria-hidden="true"></span>` : ""}
-                  </span>`
+                ? `<span class="type-leverage-icon ${leverage.pole}" role="img" aria-label="${escapeHtml(leverage.description)}" title="${escapeHtml(leverage.description)}"><span aria-hidden="true">${leverage.pole === "sea-level" ? "▁" : "▲"}</span></span>`
                 : "";
-              return `<button class="type-row ${selected ? "selected" : ""}${leverageClasses}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
+              return `<button class="type-row ${selected ? "selected" : ""}${leverageClass}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
+                ${leverageHtml}
                 <span class="kind-icon" aria-hidden="true">${isForwardedType(item) ? "↗" : kindIcon(item.kind)}</span>
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
-                ${leverageHtml}
                 ${isForwardedType(item)
                   ? '<small class="forwarded-type-label">Forwarded</small>'
                   : `<small title="${item.members} ${item.members === 1 ? "member" : "members"}">${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${item.members}</small>`}

@@ -3,6 +3,7 @@ import type {
   TypeLeveragePresentation,
   TypeLeverageShardPresentation,
 } from "./type-leverage.ts";
+import { typeLeveragePole } from "./type-leverage.ts";
 
 const TREEMAP_WIDTH = 900;
 const TREEMAP_HEIGHT = 360;
@@ -72,11 +73,17 @@ function renderSalienceOrder(
   escapeHtml: (value: unknown) => string,
 ): string {
   const visible = rows.slice(0, SALIENCE_ORDER_LIMIT);
-  const items = visible.map(row =>
-    `<button type="button" class="metrics-salience-type" data-metrics-salience-type-key="${escapeHtml(row.typeDefinitionId)}">
-      <span>${escapeHtml(shortTypeName(row.typeDisplay))}</span>
-      <small>${formatNumber(row[degree])} ${degree === "signatureIncomingDegree" ? "incoming" : "outgoing"} peers · ${escapeHtml(row.role)}</small>
-    </button>`).join("");
+  const items = visible.map(row => {
+    const pole = typeLeveragePole(row.pole);
+    const poleText = pole === "sea-level"
+      ? "sea level"
+      : pole === "mountain-peak" ? "mountain peak" : "";
+    return `<button type="button" class="metrics-salience-type${pole ? ` ${pole}` : ""}" data-metrics-salience-type-key="${escapeHtml(row.typeDefinitionId)}">
+      <span class="metrics-salience-pole" aria-hidden="true">${pole === "sea-level" ? "▁" : pole === "mountain-peak" ? "▲" : ""}</span>
+      <span class="metrics-salience-type-name">${escapeHtml(shortTypeName(row.typeDisplay))}</span>
+      <small>${formatNumber(row[degree])} ${degree === "signatureIncomingDegree" ? "incoming" : "outgoing"} peers · ${escapeHtml(row.role)}${poleText ? ` · ${poleText}` : ""}</small>
+    </button>`;
+  }).join("");
   const disclosure = rows.length > visible.length
     ? `Top ${visible.length.toLocaleString()} of ${rows.length.toLocaleString()} owner-issued rows`
     : `${rows.length.toLocaleString()} owner-issued rows`;
@@ -143,7 +150,7 @@ function renderStructuralSalience(
       </div>`
     : `<p class="metrics-salience-loading">Choose an exact namespace to load its Type orders.</p>`;
   return `<section class="document-section metrics-salience-section">
-    <div class="metrics-visual-copy"><h2>Structural Salience</h2><p>Namespace leverage identifies important areas. The two Type orders expose same-namespace foundations and orchestrators without blending their scores.</p></div>
+    <div class="metrics-visual-copy"><h2>Structural Salience</h2><p>Namespace leverage identifies important areas. The two Type orders preserve raw direction; baseline and peak cues show the single owner-issued pole.</p></div>
     <label class="metrics-salience-namespace"><span>Namespace</span><select data-metrics-salience-namespace>${optionsHtml}</select></label>
     ${qualification}
     ${orders}

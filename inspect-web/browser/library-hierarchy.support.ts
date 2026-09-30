@@ -1333,7 +1333,7 @@ async function installFacades(
         return {
           schemaVersion: 1,
           outcome: "available",
-          methodologyVersion: "structural-salience.v1",
+          methodologyVersion: "structural-salience.v2",
           evidenceMode: "signature",
           disposition: "complete",
           coverage: {
@@ -1368,13 +1368,12 @@ async function installFacades(
           signatureIncomingDegree: 3,
           signatureOutgoingDegree: 0,
           role: "foundation",
-          seaLevel: true,
-          mountainPeak: false
+          pole: "SeaLevel"
         }] : [];
         return {
-          schemaVersion: 1,
+          schemaVersion: 2,
           outcome: "available",
-          methodologyVersion: "structural-salience.v1",
+          methodologyVersion: "structural-salience.v2",
           evidenceMode: "signature",
           namespace: exactNamespace,
           disposition: "complete",

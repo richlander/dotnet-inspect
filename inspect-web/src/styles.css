@@ -43,6 +43,8 @@
   --heat-c1: 0.055;
   --heat-h: 68;
   --hub-strip: oklch(0.80 0.13 72);
+  --salience-sea: oklch(0.72 0.10 230);
+  --salience-peak: oklch(0.80 0.12 72);
   --overload-family: #c6a6ff;
   --heat-cue-progress: #8ebb76;
   --heat-cue-problem: #e06c6c;
@@ -122,6 +124,8 @@
   --heat-c1: 0.055;
   --heat-h: 72;
   --hub-strip: oklch(0.62 0.14 62);
+  --salience-sea: oklch(0.54 0.12 230);
+  --salience-peak: oklch(0.62 0.14 62);
   --overload-family: #6a3fc8;
   --heat-cue-progress: #3f7d2c;
   --heat-cue-problem: #b3261e;
@@ -1108,6 +1112,9 @@ kbd {
 }
 .chevron { color: var(--dim); }
 .type-row {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   height: 30px;
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) auto auto;
@@ -1117,6 +1124,7 @@ kbd {
   border-left: 2px solid transparent;
   color: var(--text);
 }
+.type-row > * { position: relative; z-index: 1; }
 .type-row:hover { background: rgba(255,255,255,.02); }
 .type-row.selected {
   border-left-color: var(--shell-accent);
@@ -1134,25 +1142,48 @@ kbd {
 }
 .type-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px var(--mono); }
 .type-row small { color: var(--dim); font: 10px var(--mono); }
-.type-leverage-cues {
+.type-row:is(.sea-level, .mountain-peak)::after,
+.metrics-salience-type:is(.sea-level, .mountain-peak)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.type-row.sea-level::after,
+.metrics-salience-type.sea-level::after {
+  background: linear-gradient(
+    0deg,
+    color-mix(in oklch, var(--salience-sea) 22%, transparent) 0%,
+    transparent 62%);
+}
+.type-row.mountain-peak::after,
+.metrics-salience-type.mountain-peak::after {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--salience-peak) 22%, transparent) 0%,
+    transparent 62%);
+}
+.type-leverage-icon {
+  position: absolute;
+  left: 10px;
+  top: 6px;
+  z-index: 2;
   display: grid;
-  grid-template-columns: 3px 3px;
-  gap: 2px;
-  width: 8px;
+  width: 12px;
   height: 18px;
+  place-items: center;
+  font: 700 10px/1 var(--mono);
 }
-.type-leverage-sea,
-.type-leverage-peak {
-  border-radius: 2px;
-  opacity: var(--type-leverage-strength);
+.type-leverage-icon.sea-level {
+  align-items: end;
+  color: var(--salience-sea);
+  font-size: 14px;
 }
-.type-leverage-sea {
-  grid-column: 1;
-  background: var(--blue);
-}
-.type-leverage-peak {
-  grid-column: 2;
-  background: var(--yellow);
+.type-leverage-icon.mountain-peak {
+  align-items: start;
+  color: var(--salience-peak);
+  font-size: 8px;
 }
 .nav-back-row {
   display: grid;
@@ -1476,12 +1507,16 @@ kbd {
 .metrics-salience-order h3 { margin: 0; padding: 10px 12px; color: var(--text); border-bottom: 1px solid var(--line); font-size: 13px; }
 .metrics-salience-order > p { margin: 0; padding: 8px 12px; color: var(--dim); border-top: 1px solid var(--line); font: 10px var(--mono); }
 .metrics-salience-types { display: grid; }
-.metrics-salience-type { display: grid; gap: 3px; min-width: 0; padding: 9px 12px; color: var(--text); text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; }
+.metrics-salience-type { position: relative; isolation: isolate; overflow: hidden; display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 3px 7px; min-width: 0; padding: 9px 12px; color: var(--text); text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; }
+.metrics-salience-type > * { position: relative; z-index: 1; }
 .metrics-salience-type:last-child { border-bottom: 0; }
 .metrics-salience-type:hover,
 .metrics-salience-type:focus-visible { background: var(--panel-active); }
-.metrics-salience-type span { overflow: hidden; text-overflow: ellipsis; font: 12px var(--mono); }
-.metrics-salience-type small { color: var(--dim); font: 10px var(--mono); }
+.metrics-salience-pole { display: grid; width: 14px; height: 14px; place-items: center; font: 700 10px/1 var(--mono); }
+.metrics-salience-type.sea-level .metrics-salience-pole { align-items: end; color: var(--salience-sea); font-size: 14px; }
+.metrics-salience-type.mountain-peak .metrics-salience-pole { align-items: start; color: var(--salience-peak); font-size: 8px; }
+.metrics-salience-type-name { overflow: hidden; text-overflow: ellipsis; font: 12px var(--mono); }
+.metrics-salience-type small { grid-column: 2; color: var(--dim); font: 10px var(--mono); }
 .metrics-salience-loading { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .metadata-surface-scroll > .metadata-shape-section { padding: 0; }
 .metadata-shape-section .section-title { min-height: 40px; margin: 0; padding: 0 16px; border-bottom: 1px solid var(--line); }

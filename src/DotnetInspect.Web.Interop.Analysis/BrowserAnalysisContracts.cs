@@ -353,6 +353,14 @@ public sealed record BrowserLibrarySignatureUseCoverage(
     int Unavailable,
     int Limited);
 
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserLibraryStructuralTypePole>))]
+public enum BrowserLibraryStructuralTypePole
+{
+    SeaLevel,
+    MountainPeak,
+}
+
 public sealed record BrowserLibraryTypeLeverageRow(
     string TypeDefinitionId,
     string TypeDisplay,
@@ -360,8 +368,7 @@ public sealed record BrowserLibraryTypeLeverageRow(
     int SignatureIncomingDegree,
     int SignatureOutgoingDegree,
     string Role,
-    bool SeaLevel,
-    bool MountainPeak);
+    BrowserLibraryStructuralTypePole? Pole);
 
 public sealed record BrowserPerformanceMember(
     string Assembly,
