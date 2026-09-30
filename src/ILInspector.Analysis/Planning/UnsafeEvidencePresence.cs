@@ -131,14 +131,30 @@ public static class UnsafeEvidencePresence
             path,
             peReader,
             description);
-        ProducerResult<int> result =
+        return Project(
             execution.ResultOf(
-                UnsafeEvidencePresenceProducer.Instance);
+                UnsafeEvidencePresenceProducer.Instance),
+            execution.Receipt,
+            peReader);
+    }
+
+    /// <summary>
+    /// Projects one detached producer execution while the owning image remains
+    /// available for the failure label.
+    /// </summary>
+    public static UnsafeEvidencePresenceInspection Project(
+        ProducerResult<int> result,
+        WorkReceipt receipt,
+        PEReader peReader)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(receipt);
+        ArgumentNullException.ThrowIfNull(peReader);
         if (result.Outcome is ProducerOutcome.Complete or ProducerOutcome.Stopped)
         {
             return new UnsafeEvidencePresenceInspection.Available(
                 result.Value > 0,
-                execution.Receipt);
+                receipt);
         }
 
         // The failure is recorded by token; presenting it resolves that one
@@ -153,7 +169,7 @@ public static class UnsafeEvidencePresence
                 "Unsafe evidence presence is incomplete because "
                 + $"{unit} could not be analyzed: {reason}"),
             result.Outcome,
-            execution.Receipt);
+            receipt);
     }
 
     static bool RequireEvidence(UnsafeEvidencePresenceInspection inspection) =>

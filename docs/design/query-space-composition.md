@@ -34,8 +34,9 @@ Unsafe-evidence presence is the first Exists adopter. Its QuerySpace request
 names the method-definition row set and the Exists terminal, then lowers that
 closing to the Producer Planning `Exists` terminal before any assembly image is
 read. The production `UnsafeEvidencePresenceQuery` executes that resolved work
-description and preserves the producer receipt. This adoption adds no generic
-section-row Exists executor; [Open and closed
+description through Assembly Analysis Operation's exact session access and
+preserves both the Method-source receipt and producer receipt. This adoption
+adds no generic section-row Exists executor; [Open and closed
 queries](open-and-closed-queries.md) owns the terminal's meaning, and the
 unsafe-evidence operation owns its predicate and result.
 

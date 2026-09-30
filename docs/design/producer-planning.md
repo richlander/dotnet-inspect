@@ -24,10 +24,13 @@ first production adopter of this work-description contract: unsafe-evidence
 presence declares one method-definition producer, plans it with Exists,
 executes it through the serial reference executor, and publishes its typed
 result and receipt. Its production query now forms that closing through
-QuerySpace. The hub remains interim; [Assembly Analysis Operation](assembly-analysis-operation.md)
-is the target composition that retires it. Research remains the intended
-second adopter. The adoption sequence, the `LibraryBodyIndex` drain evidence,
-and the producer census are kept in #8568, not here.
+QuerySpace, binds the resulting single-producer Method request to exact
+session-issued access through
+[Assembly Analysis Operation](assembly-analysis-operation.md), and preserves a
+separate source receipt. The serial executor remains interim beneath that
+composition. Research remains the intended second adopter. The adoption
+sequence, the `LibraryBodyIndex` drain evidence, and the producer census are
+kept in #8568, not here.
 
 The unsafe-evidence gates listed by its adopting design are verified in
 Release. Properties not exercised by that slice remain **unverified** until

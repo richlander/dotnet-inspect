@@ -118,6 +118,7 @@ public abstract record UnsafeEvidencePresenceResult
     /// <summary>The probe completed and reports whether at least one finding exists.</summary>
     public sealed record Available(
         bool HasEvidence,
+        MethodDefinitionSourceReceipt SourceReceipt,
         WorkReceipt Receipt)
         : UnsafeEvidencePresenceResult;
 
@@ -125,6 +126,7 @@ public abstract record UnsafeEvidencePresenceResult
     public sealed record ExecutionIncomplete(
         InvalidDataException Error,
         ProducerOutcome Outcome,
+        MethodDefinitionSourceReceipt SourceReceipt,
         WorkReceipt Receipt)
         : UnsafeEvidencePresenceResult;
 
@@ -242,6 +244,12 @@ public static class UnsafeEvidencePresenceQuery
                 "The owner-issued unsafe-evidence QuerySpace request "
                 + "must resolve.");
 
+    private static readonly MethodDefinitionSourceRequest<int>
+        OwnerMethodSource =
+            MethodDefinitionSourceRequest<int>.Create(
+                OwnerPlan.Work,
+                UnsafeEvidencePresenceProducer.Instance);
+
     public static InspectionQuery<UnsafeEvidencePresenceResult> Definition { get; } =
         new("Unsafe evidence presence", InspectionCost.NetworkFree);
 
@@ -324,26 +332,59 @@ public static class UnsafeEvidencePresenceQuery
     {
         try
         {
-            UnsafeEvidencePresenceInspection inspection =
-                UnsafeEvidencePresence.Inspect(
-                    path,
-                    context,
-                    OwnerPlan.Work);
+            var operation = AssemblyAnalysisOperation<int>.Create(
+                path,
+                OwnerMethodSource);
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Borrow(context);
+            return session.SnapshotOperation<
+                AssemblyAnalysisOperation<int>,
+                UnsafeEvidencePresenceResult>(
+                operation,
+                access =>
+                {
+                    AssemblyAnalysisServiceResult<int> serviceResult =
+                        AssemblyAnalysisService.Instance.Execute(
+                            operation,
+                            access);
+                    if (serviceResult
+                        is not AssemblyAnalysisServiceResult<int>.Completed
+                            completed)
+                    {
+                        var rejected =
+                            (AssemblyAnalysisServiceResult<int>.Rejected)
+                                serviceResult;
+                        return new UnsafeEvidencePresenceResult.Failed(
+                            new InvalidOperationException(
+                                "Unsafe evidence presence could not bind its "
+                                + $"assembly analysis operation: {rejected.Kind}."));
+                    }
 
-            return inspection switch
-            {
-                UnsafeEvidencePresenceInspection.Available available =>
-                    new UnsafeEvidencePresenceResult.Available(
-                        available.HasEvidence,
-                        available.Receipt),
-                UnsafeEvidencePresenceInspection.Incomplete incomplete =>
-                    new UnsafeEvidencePresenceResult.ExecutionIncomplete(
-                        incomplete.Error,
-                        incomplete.Outcome,
-                        incomplete.Receipt),
-                _ => throw new InvalidOperationException(
-                    "Unknown unsafe-evidence inspection outcome."),
-            };
+                    UnsafeEvidencePresenceInspection inspection =
+                        access.InspectImage(
+                            peReader =>
+                                UnsafeEvidencePresence.Project(
+                                    completed.Execution.ResultOf(
+                                        UnsafeEvidencePresenceProducer.Instance),
+                                    completed.Execution.WorkReceipt,
+                                    peReader));
+                    return inspection switch
+                    {
+                        UnsafeEvidencePresenceInspection.Available available =>
+                            new UnsafeEvidencePresenceResult.Available(
+                                available.HasEvidence,
+                                completed.Execution.SourceReceipt,
+                                available.Receipt),
+                        UnsafeEvidencePresenceInspection.Incomplete incomplete =>
+                            new UnsafeEvidencePresenceResult.ExecutionIncomplete(
+                                incomplete.Error,
+                                incomplete.Outcome,
+                                completed.Execution.SourceReceipt,
+                                incomplete.Receipt),
+                        _ => throw new InvalidOperationException(
+                            "Unknown unsafe-evidence inspection outcome."),
+                    };
+                });
         }
         catch (Exception ex)
         {

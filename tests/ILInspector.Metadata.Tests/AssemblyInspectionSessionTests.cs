@@ -153,6 +153,59 @@ public class AssemblyInspectionSessionTests
     }
 
     [Fact]
+    public void SnapshotOperation_BindsExactOperationAndStableSubject()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+        var firstOperation = new object();
+        var secondOperation = new object();
+
+        var first = session.SnapshotOperation(
+            firstOperation,
+            access =>
+            {
+                Assert.Same(firstOperation, access.Operation);
+                Assert.True(access.HasMetadata);
+                string? assemblyName = access.InspectImage(
+                    reader =>
+                        reader.GetMetadataReader()
+                            .GetString(
+                                reader.GetMetadataReader()
+                                    .GetAssemblyDefinition()
+                                    .Name));
+                return (access.Subject, assemblyName);
+            });
+        AssemblyInspectionSubjectIdentity secondSubject =
+            session.SnapshotOperation(
+                secondOperation,
+                access =>
+                {
+                    Assert.Same(secondOperation, access.Operation);
+                    return access.Subject;
+                });
+
+        Assert.Equal(SelfName, first.assemblyName);
+        Assert.Same(first.Subject, secondSubject);
+    }
+
+    [Fact]
+    public void SnapshotOperation_RejectsDisposedSessionBeforeCallback()
+    {
+        var session = AssemblyInspectionSession.Open(SelfPath);
+        session.Dispose();
+        bool invoked = false;
+
+        Assert.Throws<ObjectDisposedException>(
+            () => session.SnapshotOperation(
+                new object(),
+                access =>
+                {
+                    invoked = true;
+                    return access.Subject;
+                }));
+        Assert.False(invoked);
+    }
+
+    [Fact]
     public void BorrowedSessionSnapshot_UsesTheLenderLifetime()
     {
         using var context = PdbContext.Open(SelfPath);
