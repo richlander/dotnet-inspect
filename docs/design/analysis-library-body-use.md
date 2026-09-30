@@ -343,6 +343,13 @@ scorecard excludes only the Planner execution receipt: an oracle cannot
 truthfully manufacture Producer Planning participation and work without
 invoking the Planner itself.
 
+The scorecard is end to end: timing begins before bounded Type-inventory
+admission and includes method traversal, body decoding, logical-owner
+attribution, operand binding, occurrence admission, diagnostics, and terminal
+closing. It never begins from pre-materialized occurrence rows. LINQ Count
+lazily enumerates each admitted per-method occurrence batch; Rows alone
+materializes the complete occurrence population.
+
 The scorecard runs four columns:
 
 - **Direct** is the existing explicit MethodDef traversal.
@@ -376,10 +383,13 @@ exact detail, including bounded or unsupported Type-inventory admission.
 
 NativeAOT is the only accepted timing. The report identifies the exact
 candidate, assets, source locations, pinned NLinq provenance, invocation,
-per-closing answer hashes, absolute medians, allocation, and ratios to NLinq.
-It runs the Roslyn fidelity assets and the body-use ECMA safety fixtures. A
-faster fair oracle is evidence for Planner improvement; the oracle is not
-burdened with unconsumed Planner work.
+per-closing answer hashes, terminal value, bodies and operands reached,
+absolute per-asset deltas to NLinq, absolute medians, allocation, and ratios to
+NLinq. Work shape precedes ratios so shared Analysis cost remains visible and
+the report cannot be read as a terminal-operator microbenchmark. It runs the
+Roslyn fidelity assets and the body-use ECMA safety fixtures. A faster fair
+oracle is evidence for Planner improvement; the oracle is not burdened with
+unconsumed Planner work.
 
 The four implementations and report live in
 [`BodyUseScorecard.cs`](../../tools/AnalysisHarness/BodyUseScorecard.cs).
