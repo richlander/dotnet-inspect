@@ -390,13 +390,12 @@ with their existing owners rather than becoming plan execution state.
 `WorkspacePlan.TraversalTargetPolicy` carries the non-null, host-neutral value
 owned by
 [Traversal target-framework policy](traversal-target-framework-policy.md).
-Existing constructors currently use its `ProductDefault(net12.0)` value;
-callers may supply a configured policy. The retained-plan shape is correct:
+Existing constructors use its `ProductDefault(net11.0)` value; callers may
+supply a configured policy. The retained-plan shape is correct:
 the value is immutable traversal authority for every Workspace created from
-the plan, and registration replacement preserves the exact instance. The
-product default is wrong and must change to `ProductDefault(net11.0)`.
+the plan, and registration replacement preserves the exact instance.
 
-The corrected policy keeps this plan value authoritative from Workspace
+The policy keeps this plan value authoritative from Workspace
 construction through every traversal. It is available before any Package or
 Platform is realized. The product-curated default plan registers the .NET
 Runtime Ecosystem and can realize a matching .NET 11 Platform through an
@@ -419,8 +418,9 @@ This adoption does not consume the plan value to select a root package,
 rewrite explicit contexts, begin acquisition, or reconstruct a target from a
 realized member. Platform realization consumes the target and issues separate
 identity, membership, and generation evidence; it does not replace the target.
-The corrected constant and Platform-correspondence adoption remain focused
-follow-on work under their owning designs.
+The corrected product default and generated Browser Platform catalog
+correspondence are implemented. Realization-time Platform correspondence
+remains focused follow-on work under its owning design.
 
 ##### Request-to-plan adoption and evidence
 

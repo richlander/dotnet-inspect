@@ -51,7 +51,7 @@ One `PackageDependencyMemberCallGraphInspectionRequest` carries:
 
 The selected root framework is frozen in the binding. The traversal target
 does not replace it. Omitted host traversal input uses
-`TraversalTargetFrameworkPolicy.ProductDefault`, currently `net12.0`.
+`TraversalTargetFrameworkPolicy.ProductDefault`, currently `net11.0`.
 
 The focus carries no display text. Hosts resolve type and member selectors
 before invoking the inspection and supply exact implementation identity.
