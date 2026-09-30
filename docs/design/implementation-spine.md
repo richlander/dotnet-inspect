@@ -673,7 +673,7 @@ normative algorithm.
 | Group-wide direct-call acquisition | `AssemblyContextCallCensusQuery` executes focused participant Analysis over one admitted assembly group and carries typed participant failures beside the Analysis-owned census | Reuse directly as the Library-population prerequisite |
 | Root paths | `LibraryBodyRootPathAnalysis` and `AssemblyPairClusterRootPathQuery` consume `LibraryCallGraphAnalysisResult` | Reuse the focused bounded path result |
 | Argument and receiver populations | Direct-call argument evidence exists, while result sinks, field stores/loads, and return flows remain index-only | Not required by methodology version 1; a separately approved dispatch design decides whether and how to consume a focused result |
-| Member Research composition | `AssemblyContextMemberProjectionQuery` still creates `CompatibilityIndex` and `ResearchAssemblyContext` | Consume exact focused results and receipt-associated Research inputs |
+| Member Research composition | `ResearchAssemblyContext` consumes receipt-associated focused results; `AssemblyContextMemberProjectionQuery` still creates `CompatibilityIndex` for call relationships, invocation destinations, and local throws | Migrate those query-owned compatibility paths separately |
 | Body-signal comparison | `BodySignalComparisonInput` and parts of `ResearchDiff` remain index-shaped | Migrate only when the reporting or comparison consumer requires those facts |
 | Implementation comparison | Complexity consumes focused profiles, while broader implementation inputs still retain body indexes | Preserve the existing Research control plane and replace index evidence owner by owner |
 
