@@ -774,6 +774,46 @@ public class PdbSourceProvenanceTests
     }
 
     [Theory]
+    [InlineData(NestingShape.Missing, PdbTypeSourceDisposition.Unknown)]
+    [InlineData(NestingShape.NilParent, PdbTypeSourceDisposition.Unknown)]
+    [InlineData(NestingShape.OutOfRange, PdbTypeSourceDisposition.Unknown)]
+    [InlineData(NestingShape.SelfCycle, PdbTypeSourceDisposition.Unknown)]
+    [InlineData(
+        NestingShape.Valid,
+        PdbTypeSourceDisposition.GeneratedEvidenceOnly)]
+    public void NestedVisibility_RequiresConsistentDeclaringType(
+        NestingShape nestingShape,
+        PdbTypeSourceDisposition expectedDisposition)
+    {
+        (byte[] image, byte[] pdb) = BuildMarkerMetadata(
+            nestingShape: nestingShape);
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+        context.LoadPdbFromStream(
+            new MemoryStream(pdb, writable: false));
+
+        PdbSourceProvenanceResult result =
+            Assert.IsType<PdbSourceProvenanceOutcome.Available>(
+                context.InspectSourceProvenance()).Result;
+
+        PdbTypeSourceEvidence type = Assert.Single(
+            result.Types,
+            type => type.MetadataName.ToString() == "MalformedNested");
+        Assert.Equal(expectedDisposition, type.Disposition);
+        Assert.Contains(
+            type.Contributions,
+            contribution =>
+                contribution.Kind
+                    == PdbTypeSourceContributionKind.CompilerSynthesized);
+        Assert.Equal(
+            expectedDisposition == PdbTypeSourceDisposition.Unknown,
+            type.Contributions.Any(contribution =>
+                contribution.Kind
+                    == PdbTypeSourceContributionKind.Unknown));
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(2)]
     public void BodylessMethodMarker_DoesNotRequireMethodDebugInformation(
@@ -863,7 +903,8 @@ public class PdbSourceProvenanceTests
         int repeatedDocumentNameComponentCount = 0,
         bool appendInvalidDocumentNameComponent = false,
         byte documentNameSeparator = (byte)'/',
-        int methodDebugInformationRowCount = 2)
+        int methodDebugInformationRowCount = 2,
+        NestingShape nestingShape = NestingShape.OutOfRange)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1006,9 +1047,28 @@ public class PdbSourceProvenanceTests
                 systemObject,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(3));
-        metadata.AddNestedType(
-            malformedNested,
-            MetadataTokens.TypeDefinitionHandle(0x7FFF));
+        switch (nestingShape)
+        {
+            case NestingShape.Missing:
+                break;
+            case NestingShape.NilParent:
+                metadata.AddNestedType(malformedNested, default);
+                break;
+            case NestingShape.OutOfRange:
+                metadata.AddNestedType(
+                    malformedNested,
+                    MetadataTokens.TypeDefinitionHandle(0x7FFF));
+                break;
+            case NestingShape.SelfCycle:
+                metadata.AddNestedType(malformedNested, malformedNested);
+                break;
+            case NestingShape.Valid:
+                metadata.AddNestedType(malformedNested, bodyless);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(nestingShape));
+        }
         TypeDefinitionHandle legacyGenerated =
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
@@ -1058,6 +1118,10 @@ public class PdbSourceProvenanceTests
             compilerConstructor,
             metadata.GetOrAddBlob(new byte[] { 1, 0, 1 }));
         metadata.AddCustomAttribute(
+            malformedNested,
+            compilerConstructor,
+            metadata.GetOrAddBlob(new byte[] { 1, 0, 0, 0 }));
+        metadata.AddCustomAttribute(
             legacyGenerated,
             legacyGeneratedConstructor,
             toolA);
@@ -1072,10 +1136,11 @@ public class PdbSourceProvenanceTests
         rowCounts[(int)TableIndex.TypeDef] = 7;
         rowCounts[(int)TableIndex.MethodDef] = 2;
         rowCounts[(int)TableIndex.MemberRef] = 4;
-        rowCounts[(int)TableIndex.CustomAttribute] = 9;
+        rowCounts[(int)TableIndex.CustomAttribute] = 10;
         rowCounts[(int)TableIndex.Assembly] = 1;
         rowCounts[(int)TableIndex.AssemblyRef] = 3;
-        rowCounts[(int)TableIndex.NestedClass] = 1;
+        rowCounts[(int)TableIndex.NestedClass] =
+            nestingShape == NestingShape.Missing ? 0 : 1;
         var pdbMetadata = new MetadataBuilder();
         BlobHandle documentName =
             repeatedDocumentNameComponent is null
@@ -1216,5 +1281,14 @@ public class PdbSourceProvenanceTests
     private sealed class TestArtifactProvenance : IArtifactProvenance
     {
         public static TestArtifactProvenance Instance { get; } = new();
+    }
+
+    public enum NestingShape
+    {
+        Missing,
+        NilParent,
+        OutOfRange,
+        SelfCycle,
+        Valid,
     }
 }

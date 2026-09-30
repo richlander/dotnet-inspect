@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
@@ -814,9 +815,14 @@ public partial class PdbContext
             {
                 nestingUnknown = true;
             }
+            if (!nestingUnknown
+                && IsNestedVisibility(type.Attributes) != !current.IsNil)
+            {
+                nestingUnknown = true;
+            }
             HashSet<TypeDefinitionHandle> seen = [typeHandle];
             int depth = 0;
-            while (!current.IsNil)
+            while (!nestingUnknown && !current.IsNil)
             {
                 if (!seen.Add(current)
                     || ++depth > limits.MaxNestingDepth)
@@ -835,8 +841,15 @@ public partial class PdbContext
                 inheritedMarkers.AddRange(declaringMarkers);
                 try
                 {
-                    current = metadata.GetTypeDefinition(current)
-                        .GetDeclaringType();
+                    TypeDefinition declaringType =
+                        metadata.GetTypeDefinition(current);
+                    current = declaringType.GetDeclaringType();
+                    if (IsNestedVisibility(declaringType.Attributes)
+                        != !current.IsNil)
+                    {
+                        nestingUnknown = true;
+                        break;
+                    }
                 }
                 catch (Exception exception)
                     when (exception is BadImageFormatException
@@ -1048,6 +1061,11 @@ public partial class PdbContext
             }
         }
     }
+
+    private static bool IsNestedVisibility(TypeAttributes attributes) =>
+        (attributes & TypeAttributes.VisibilityMask)
+            is not TypeAttributes.NotPublic
+            and not TypeAttributes.Public;
 
     private static bool TryGetDocumentNameCharacterCount(
         MetadataReader pdb,

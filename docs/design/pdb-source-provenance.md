@@ -264,9 +264,11 @@ this way. The compiler-synthesis rule therefore applies only at Type or
 enclosing-Type grain.
 
 Enclosing-Type inheritance follows exact Metadata nesting identity with a
-finite relationship bound. A cycle, malformed declaring-Type relationship, or
-bound failure yields unknown evidence for affected Types rather than generated
-success.
+finite relationship bound. At every hop, nested visibility requires a non-nil
+declaring Type and top-level visibility requires a nil declaring Type. A
+missing row, nil parent for a nested Type, cycle, out-of-range handle, other
+malformed relationship, or bound failure yields unknown evidence for affected
+Types rather than generated success.
 
 ## Type-contribution evidence
 
