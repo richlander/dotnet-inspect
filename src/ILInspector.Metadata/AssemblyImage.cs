@@ -31,7 +31,6 @@ public sealed class AssemblyImage : IDisposable
         MetadataImageFormatResult? admittedFormat = null)
     {
         MetadataImageFormatResult format;
-        MetadataReader? metadataReader = null;
         if (admittedFormat is { } retainedAdmission)
         {
             format = retainedAdmission;
@@ -50,6 +49,8 @@ public sealed class AssemblyImage : IDisposable
                 throw;
             }
         }
+
+        MetadataReader? metadataReader = null;
         if (format is MetadataImageFormatResult.SupportedEcma335)
         {
             try

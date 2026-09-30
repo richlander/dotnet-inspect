@@ -18,11 +18,13 @@ Performance comes mostly from levels 1 and 2. This level makes that possible by
 describing work completely and declaratively, so the lower levels can share,
 reorder, collapse, and parallelize it without changing its meaning.
 
-No owner has adopted this design yet. Library Body Analysis Execution
-([Library body Analysis service](library-body-analysis-service.md)) is the
-intended first adopter; Research is the intended second. The adoption
-sequence, the `LibraryBodyIndex` drain evidence, and the producer census are
-kept in #8568, not here.
+No owner has adopted this design yet.
+[Assembly Analysis Operation](assembly-analysis-operation.md) is the target
+composition for the intended first adoption, retiring the closed producer hubs
+in [Library Body Analysis Execution](library-body-analysis-service.md).
+Research is the intended second adopter. The adoption sequence, the
+`LibraryBodyIndex` drain evidence, and the producer census are kept in #8568,
+not here.
 
 Every property below is **unverified** until its gate lands with the first
 adoption; see [Verification](#verification).
@@ -319,13 +321,15 @@ passes: they "communicate through the tree, never side-channel state".
 **Rule.** A producer is given units. No producer loops over the subject
 itself.
 
-*Lets the lower levels:* cancel and bound work at unit boundaries, yield on
+*Lets the lower levels:* bound and settle work at unit boundaries, yield on
 single-threaded Browser/Wasm, report progress, attribute time per producer,
-and schedule in parallel, all without producer changes.
+and schedule in parallel, all without producer changes. Cancellation, when an
+operation exposes it, remains a coarser orchestrator decision and does not
+enter producer visits or per-unit callbacks.
 
 *Lesson:* Roslyn's operation callbacks and Go's shared `inspect` traversal give
 N analyzers one walk. Analyses that walk the program themselves cannot be
-interrupted, parallelized, or fused.
+bounded, parallelized, or fused.
 
 ### Scope is declared on the edge, not tested inside the visit
 
@@ -418,10 +422,10 @@ runs as one loop specialized to gate, predicate, and projection.
 **Field demand is declared before work.** A producer declares the fields it
 reads, in the same vocabulary as its data layers, `MethodDefinitionLayers`:
 `Flags`, `NameComparison`, `AttributeTypeMatch`, `SignatureShape`, and
-`StateMachineRelationship`, and `IdentityText`, beside `Body` and
-`ModuleLookup`. Reading an undeclared field throws
-`ProducerContractException`, exactly as reading an undeclared layer does. That
-runtime contract is the enforcement gate. From the declarations, the planner:
+`IdentityText`, beside `Body` and `ModuleLookup`. Reading an undeclared field
+throws `ProducerContractException`, exactly as reading an undeclared layer
+does. That runtime contract is the enforcement gate. From the declarations,
+the planner:
 
 - arms the gate's identity budget only when some requested producer declares
   `IdentityText`, so a plan of Count, Exists, and classification spends no

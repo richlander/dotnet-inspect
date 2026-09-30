@@ -78,17 +78,20 @@ provenance. Exact method analysis reads signals,
 allocations, direct calls, unsafe evidence, exception regions, opportunities,
 and diagnostics from one physical MethodDef body without exposing the snapshot
 or Analysis index to its consumer. Analysis index execution remains sequential,
-preserving the Browser/Wasm baseline. The `extensions` and `find` commands also
-execute typed queries through ephemeral workspaces. Type `Implementers` and
-`Derived Types` sections execute Subject Relations through QuerySpace over an
-exact Workspace population. Ordinary search fan-out creates and disposes
-one-participant groups
-sequentially; explicit extension reachability uses one binding-consistent group
-so its name index, lazy member-edge traversal, and extension census observe the
-same retained participant images. That group retains the workspace's bounded
-image budget; participants rejected by acquisition or the budget remain visible
-as extension and reachability warnings rather than silently shortening the
-search. Other foundations include shared image and inspection session ownership,
+preserving the Browser/Wasm baseline. The `extensions`,
+and `find` commands also execute typed queries through ephemeral workspaces.
+Unscoped `find` realizes the platform Workspace through
+PlatformHouse and retains its Runtime and ASP.NET Core Focus participants in
+one invocation-owned group shared by Type and Member queries. Type
+`Implementers` and `Derived Types` sections execute Subject Relations through
+QuerySpace over an exact Workspace population. Other ordinary search fan-out
+creates and disposes one-participant groups sequentially;
+explicit extension reachability uses one binding-consistent group so its name
+index, lazy member-edge traversal, and extension census observe the same
+retained participant images. Each group retains the workspace's bounded image
+budget; participants rejected by acquisition or the budget remain visible as
+search or reachability failures rather than silently shortening the answer.
+Other foundations include shared image and inspection session ownership,
 catalog generations, `PersistentCache`, typed provenance and resolution currencies,
 and `InertString`; the remaining workspace model describes how those pieces
 will be composed.
