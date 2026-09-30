@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms.Formats;
 using ILInspector.Metadata;
@@ -1072,7 +1073,7 @@ public sealed partial class PackagePlatformSource
             try
             {
                 using var pe = new PEReader(
-                    content.ToImmutableArray());
+                    ImmutableCollectionsMarshal.AsImmutableArray(content));
                 if (!pe.HasMetadata)
                 {
                     throw Reject(
