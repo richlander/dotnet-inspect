@@ -1822,7 +1822,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_ExactNamespaceExcludesDescendantsAndNearNames()
+    public async Task Find_ExactNamespaceKeepsBroaderCandidateSeparate()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
@@ -1836,14 +1836,26 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
-        JsonElement row =
-            Assert.Single(document.RootElement.EnumerateArray());
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
         Assert.Equal(
-            "World.Blue.Nodes.Foo",
-            row.GetProperty("full_name").GetString());
+            [
+                "World.Blue.Nodes.Foo",
+                "World.Blue.Nodes.More.Descendant",
+            ],
+            rows.Select(
+                static row =>
+                    row.GetProperty("full_name").GetString()));
         Assert.Equal(
-            "Namespace",
-            row.GetProperty("match").GetString());
+            ["Namespace", "Prefix"],
+            rows.Select(
+                static row =>
+                    row.GetProperty("match").GetString()));
+        Assert.Equal(
+            ["World.Blue.Nodes", "World.Blue.Nodes*"],
+            rows.Select(
+                static row =>
+                    row.GetProperty("pattern").GetString()));
     }
 
     [Fact]
