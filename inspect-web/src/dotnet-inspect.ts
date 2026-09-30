@@ -6286,13 +6286,17 @@ function namespaceOptions() {
   return [...counts.keys()]
     .sort((a, b) => a.localeCompare(b))
     .map(ns => {
-      const value = ns || GLOBAL_NAMESPACE_FILTER;
+      const value = namespaceFilterValue(ns);
       return `<option value="${escapeHtml(value)}" ${state.namespaceFilter === value ? "selected" : ""}>${escapeHtml(ns || "(global namespace)")} · ${counts.get(ns)}</option>`;
     })
     .join("");
 }
 
 const GLOBAL_NAMESPACE_FILTER = "__dotnet_inspect_global_namespace__";
+
+function namespaceFilterValue(exactNamespace: string): string {
+  return exactNamespace || GLOBAL_NAMESPACE_FILTER;
+}
 
 function selectedNamespaceFilter(): string | null {
   if (state.namespaceFilter === GLOBAL_NAMESPACE_FILTER) return "";
@@ -8769,6 +8773,7 @@ function renderTypeNavPane(
     kindFilter: state.kindFilter,
     namespaceCount: namespaces().length,
     namespaceOptionsHtml: namespaceOptions(),
+    namespaceSelectionValue: namespaceFilterValue,
     kindFilters: typeKinds(),
     accessibilityControlHtml: accessibilityControl(),
     leverageControlHtml: typeLeverageControl(),

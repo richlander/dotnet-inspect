@@ -557,6 +557,7 @@ export interface TypeNavOptions {
   kindFilter: string;
   namespaceCount: number;
   namespaceOptionsHtml: string;
+  namespaceSelectionValue?: (exactNamespace: string) => string;
   kindFilters: readonly string[];
   accessibilityControlHtml: string;
   leverageControlHtml?: string;
@@ -598,6 +599,8 @@ export function renderTypeNav(options: TypeNavOptions): string {
   const typeLeverageCue = options.typeLeverageCue ?? (() => null);
   const namespaceLeverageCue =
     options.namespaceLeverageCue ?? (() => null);
+  const namespaceSelectionValue =
+    options.namespaceSelectionValue ?? (namespace => namespace);
   return `
     <aside id="content-navigation-pane" class="type-browser" aria-label="Public types">
       <div class="browser-head">
@@ -650,7 +653,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
             : "";
           return `
           <section class="type-group${namespaceLeverage?.topLeverage ? " top-leverage" : ""}">
-            <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
+            <button class="namespace-row" data-namespace="${escapeHtml(namespaceSelectionValue(namespace))}">
               <span class="chevron">⌄</span>
               <span>${escapeHtml(namespace)}</span>
               ${namespaceLeverageHtml}

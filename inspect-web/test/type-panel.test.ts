@@ -757,6 +757,42 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.doesNotMatch(html, /· class</);
 });
 
+test("the type nav preserves the host selection value for the global namespace", () => {
+  const globalType = {
+    ...jsonSerializer,
+    id: "GlobalType",
+    definitionId: "GlobalType",
+    name: "GlobalType",
+    displayName: "GlobalType",
+    namespace: "",
+  };
+  const html = renderTypeNav({
+    current: globalType,
+    visible: [globalType],
+    typeGroups: new Map([["", [globalType]]]),
+    typeFilter: "",
+    namespaceFilter: "__global__",
+    kindFilter: "",
+    namespaceCount: 1,
+    namespaceOptionsHtml: '<option value="__global__">global namespace · 1</option>',
+    namespaceSelectionValue: namespace =>
+      namespace === "" ? "__global__" : namespace,
+    kindFilters: ["class"],
+    accessibilityControlHtml: "",
+    library: "GlobalFixture",
+    parentSubject: "library",
+    filtersExpanded: false,
+    filterSummary: "global namespace",
+    escapeHtml,
+    typeDisplayName,
+    typeLibraryLabel: noTypeLibraryLabel,
+    kindIcon,
+  });
+
+  assert.match(html, /class="namespace-row" data-namespace="__global__"/);
+  assert.doesNotMatch(html, /class="namespace-row" data-namespace=""/);
+});
+
 test("the type nav reports no matches for an empty filtered group", () => {
   const html = renderTypeNav({
     current: jsonSerializer,

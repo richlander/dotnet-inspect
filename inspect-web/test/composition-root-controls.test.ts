@@ -1322,7 +1322,13 @@ test("typed type panel owns its rendered control bindings", () => {
         /state\.namespaceFilter === GLOBAL_NAMESPACE_FILTER\s*\? ""\s*: state\.namespaceFilter/);
       assert.match(
         appSource,
-        /const value = ns \|\| GLOBAL_NAMESPACE_FILTER/);
+        /const value = namespaceFilterValue\(ns\)/);
+      assert.match(
+        appSource,
+        /namespaceSelectionValue: namespaceFilterValue/);
+      assert.match(
+        appSource,
+        /function namespaceFilterValue\(exactNamespace: string\): string \{\s*return exactNamespace \|\| GLOBAL_NAMESPACE_FILTER;\s*}/);
       assert.match(
         appSource,
         /typeLeverageMatchesFilter\(undefined, leverageFilter\)[\s\S]*\.filter\(row =>\s*exactNamespace === null \|\| row\.namespace === exactNamespace\)/);
