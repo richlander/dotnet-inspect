@@ -1330,6 +1330,12 @@ static partial class FidelityCheck
         {
             return null;
         }
+        if (entry.Member.Kind == "event"
+            && entry.Member.SignatureModel?.Accessors.Any(
+                accessor => accessor.IsExplicitInterfaceImplementation == true) == true)
+        {
+            return null;
+        }
         if (entry.Member.Kind == "event" && entry.Member.IsOverride)
         {
             // The compile-back skeleton does not reconstruct non-target base events.
