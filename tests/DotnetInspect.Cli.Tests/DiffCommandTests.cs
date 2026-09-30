@@ -16,6 +16,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using InertText;
 using Markout;
 
@@ -311,6 +312,28 @@ public class DiffCommandTests
         Assert.Equal("MemberSignatureChanged", row.Kind);
         Assert.Equal("string Echo(string value)", row.Old);
         Assert.Equal("string Echo(string value, int repeat)", row.New);
+    }
+
+    [Fact]
+    public void BuildTableView_OrdersByFullTypeNameBeforeDisplayLowering()
+    {
+        var change = new ApiChange(
+            ChangeKind.MemberAdded,
+            ChangeClassification.Additive,
+            "Member was added");
+
+        DiffTableView view = DiffOutputFormatter.BuildTableView(
+            "Sample",
+            [
+                new TypeDiff("Z.JsonArray", [change]),
+                new TypeDiff("A.JsonMarshal", [change]),
+            ],
+            "1.0.0",
+            "2.0.0");
+
+        Assert.Equal(
+            ["JsonMarshal", "JsonArray"],
+            view.Rows!.Select(row => row.Type));
     }
 
     [Fact]
@@ -1183,7 +1206,7 @@ public class DiffCommandTests
                             Inspection(oldState),
                             Inspection(newState)));
 
-                var row = Assert.Single(DiffCommand.RetainedComparisonRows(
+                var row = Assert.Single(DiffAnalysisInspection.RetainedComparisonRows(
                     retained,
                     "v1",
                     "v2",
@@ -1243,7 +1266,7 @@ public class DiffCommandTests
             CSharpFindings.LineDescriptor,
             comparison);
 
-        var row = Assert.Single(DiffCommand.RetainedComparisonRows(
+        var row = Assert.Single(DiffAnalysisInspection.RetainedComparisonRows(
             retained,
             "v1",
             "v2",
@@ -2902,6 +2925,518 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public async Task CommandLine_AnalysisEnvelopeMatchesContentJson()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+        var request = new DiffOptions
+        {
+            LibraryVersionRange = $"{v1}..{v2}",
+            Analysis = ["allocation"],
+            TypeFilter = ["DiffFixtureSample.DiffSample"],
+            MemberFilter = ["RegressesAllocInLoop"],
+            JsonOutput = true,
+        };
+
+        var (jsonExit, jsonOutput, jsonError) =
+            await ConsoleCapture.RunAsync(() => DiffCommand.ExecuteAsync(request));
+        string[] args = CommandLineBuilder.PreprocessArgs(
+        [
+            "diff", "--library", $"{v1}..{v2}",
+            "--analysis", "allocation",
+            "--type", "DiffFixtureSample.DiffSample",
+            "--member", "RegressesAllocInLoop",
+            "--envelope", "--compact",
+        ]);
+        var (envelopeExit, envelopeOutput, envelopeError) =
+            await ConsoleCapture.RunAsync(async () =>
+                await CommandLineBuilder.CreateRootCommand()
+                    .Parse(args)
+                    .InvokeAsync());
+
+        Assert.Equal(0, jsonExit);
+        Assert.Equal(0, envelopeExit);
+        Assert.Empty(jsonError);
+        Assert.Empty(envelopeError);
+        using var json = JsonDocument.Parse(jsonOutput);
+        using var envelope = JsonDocument.Parse(envelopeOutput);
+        Assert.Equal(
+            "diff-analysis",
+            envelope.RootElement.GetProperty("result_kind").GetString());
+        Assert.Equal(1, envelope.RootElement.GetProperty("schema_version").GetInt32());
+        Assert.True(JsonElement.DeepEquals(
+            json.RootElement,
+            envelope.RootElement.GetProperty("content")));
+        Assert.Equal(
+            "Member",
+            json.RootElement.GetProperty("comparison")
+                .GetProperty("surface").GetString());
+        Assert.True(json.RootElement.TryGetProperty("transitions", out var transitions));
+        Assert.NotEmpty(transitions.EnumerateArray());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ApiAnalysisJsonScopesChangesToTypeTarget()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Analysis = ["api"],
+                TypeFilter = ["DiffFixtureSample.DiffSample"],
+                JsonOutput = true,
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement types = document.RootElement.GetProperty("changes")
+            .GetProperty("types");
+        Assert.NotEmpty(types.EnumerateArray());
+        Assert.All(
+            types.EnumerateArray(),
+            type => Assert.Equal(
+                "DiffFixtureSample.DiffSample",
+                type.GetProperty("type").GetString()));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ApiAnalysisPreservesNamespacePrefixChangesFilter()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+        string range = $"{v1}..{v2}";
+
+        var (implicitExit, implicitOutput, implicitError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    TypeFilter = ["DiffFixtureSample"],
+                }));
+        var (explicitExit, explicitOutput, explicitError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    Analysis = ["api"],
+                    TypeFilter = ["DiffFixtureSample"],
+                }));
+        var (jsonExit, jsonOutput, jsonError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    Analysis = ["api"],
+                    TypeFilter = ["DiffFixtureSample"],
+                    JsonOutput = true,
+                }));
+
+        Assert.Equal(0, implicitExit);
+        Assert.Equal(0, explicitExit);
+        Assert.Equal(0, jsonExit);
+        Assert.Empty(implicitError);
+        Assert.Empty(explicitError);
+        Assert.Empty(jsonError);
+        Assert.Equal(implicitOutput, explicitOutput);
+        Assert.Contains(
+            "5 breaking, 4 additive across 4 types",
+            explicitOutput,
+            StringComparison.Ordinal);
+
+        using var document = JsonDocument.Parse(jsonOutput);
+        JsonElement changes = document.RootElement.GetProperty("changes");
+        Assert.Equal(5, changes.GetProperty("totalBreaking").GetInt32());
+        Assert.Equal(4, changes.GetProperty("totalAdditive").GetInt32());
+        Assert.Equal(4, changes.GetProperty("types").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ApiAnalysisPreservesUnclassifiedTypeDefinitionChanges()
+    {
+        string v1 = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+        string range = $"{v1}..{v2}";
+        var changes = new HashSet<string>(
+            [DiffSections.Changes.Name],
+            StringComparer.OrdinalIgnoreCase);
+
+        var (implicitExit, implicitOutput, implicitError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    TypeFilter = ["TypeDefinitionOnly"],
+                    IncludeSections = changes,
+                }));
+        var (explicitExit, explicitOutput, explicitError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    Analysis = ["api"],
+                    TypeFilter = ["TypeDefinitionOnly"],
+                    IncludeSections = changes,
+                }));
+        var (jsonExit, jsonOutput, jsonError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    Analysis = ["api"],
+                    TypeFilter = ["TypeDefinitionOnly"],
+                    JsonOutput = true,
+                }));
+
+        Assert.Equal(0, implicitExit);
+        Assert.Equal(0, explicitExit);
+        Assert.Equal(0, jsonExit);
+        Assert.Empty(implicitError);
+        Assert.Empty(explicitError);
+        Assert.Empty(jsonError);
+        Assert.Equal(implicitOutput, explicitOutput);
+        Assert.Contains("## Other API Changes", explicitOutput);
+        Assert.Contains("TypeDefinitionOnly", explicitOutput);
+        Assert.DoesNotContain("No API changes detected", explicitOutput);
+
+        using var document = JsonDocument.Parse(jsonOutput);
+        JsonElement type = Assert.Single(
+            document.RootElement.GetProperty("changes")
+                .GetProperty("types").EnumerateArray());
+        JsonElement unclassified = Assert.Single(
+            type.GetProperty("unclassifiedChanges").EnumerateArray());
+        Assert.Equal(
+            "TypeDefinitionChanged",
+            unclassified.GetProperty("kind").GetString());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ApiAnalysisMemberScopeExcludesTypeDefinitionChanges()
+    {
+        string v1 = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = $"{v1}..{v2}",
+                    Analysis = ["api"],
+                    TypeFilter = ["TypeDefinitionOnly"],
+                    MemberFilter = ["Value"],
+                    JsonOutput = true,
+                }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(
+            "Member",
+            document.RootElement.GetProperty("comparison")
+                .GetProperty("surface").GetString());
+        Assert.Empty(
+            document.RootElement.GetProperty("changes")
+                .GetProperty("types").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ApiAnalysisMemberScopeRetainsGenericConstraintChanges()
+    {
+        string v1 = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = $"{v1}..{v2}",
+                    Analysis = ["api"],
+                    TypeFilter = ["MethodConstraintChange"],
+                    MemberFilter = ["Apply"],
+                    JsonOutput = true,
+                }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement changes =
+            document.RootElement.GetProperty("changes");
+        Assert.Equal(1, changes.GetProperty("totalBreaking").GetInt32());
+        Assert.Equal(1, changes.GetProperty("totalAdditive").GetInt32());
+        JsonElement type = Assert.Single(
+            changes.GetProperty("types").EnumerateArray());
+        Assert.Equal(
+            ["TypeParameterConstraintTightened", "TypeParameterConstraintLoosened"],
+            type.GetProperty("changes").EnumerateArray()
+                .Select(change => change.GetProperty("kind").GetString()));
+        Assert.Empty(type.GetProperty("unclassifiedChanges").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task CommandLine_ApiAnalysisMemberScopePreservesBreakingGenericConstraint()
+    {
+        string v1 = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+        string range = $"{v1}..{v2}";
+
+        async Task<(int ExitCode, string Output, string Error)> Run(
+            params string[] prefix)
+        {
+            string[] args = CommandLineBuilder.PreprocessArgs(
+            [
+                "diff",
+                "--library", range,
+                .. prefix,
+                "--type", "LibraryApiDiffFixture.MethodConstraintChange",
+                "--member", "Apply",
+                "--breaking",
+                "-S", "Changes",
+                "--tsv",
+            ]);
+            return await ConsoleCapture.RunAsync(async () =>
+                await CommandLineBuilder.CreateRootCommand()
+                    .Parse(args)
+                    .InvokeAsync());
+        }
+
+        var implicitResult = await Run();
+        var explicitResult = await Run("--analysis", "api");
+
+        Assert.Equal(0, implicitResult.ExitCode);
+        Assert.Equal(0, explicitResult.ExitCode);
+        Assert.Empty(implicitResult.Error);
+        Assert.Empty(explicitResult.Error);
+        Assert.Contains("Summary\t1 breaking", implicitResult.Output);
+        Assert.Contains("Summary\t1 breaking", explicitResult.Output);
+        Assert.Contains("TypeParameterConstraintTightened", implicitResult.Output);
+        Assert.Contains("TypeParameterConstraintTightened", explicitResult.Output);
+        Assert.DoesNotContain("TypeParameterConstraintLoosened", implicitResult.Output);
+        Assert.DoesNotContain("TypeParameterConstraintLoosened", explicitResult.Output);
+    }
+
+    [Theory]
+    [InlineData("AddedType", "TypeAdded")]
+    [InlineData("RemovedType", "TypeRemoved")]
+    public async Task ExecuteAsync_ApiAnalysisWholeTypeChangesDoNotDuplicateMembers(
+        string typeName,
+        string expectedKind)
+    {
+        string v1 = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = $"{v1}..{v2}",
+                    Analysis = ["api"],
+                    TypeFilter = [typeName],
+                    JsonOutput = true,
+                }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement type = Assert.Single(
+            document.RootElement.GetProperty("changes")
+                .GetProperty("types").EnumerateArray());
+        Assert.Equal(
+            expectedKind,
+            Assert.Single(type.GetProperty("changes").EnumerateArray())
+                .GetProperty("kind").GetString());
+        Assert.Empty(type.GetProperty("unclassifiedChanges").EnumerateArray());
+    }
+
+    [Theory]
+    [InlineData("table")]
+    [InlineData("tsv")]
+    [InlineData("jsonl")]
+    public async Task ExecuteAsync_ExplicitApiPreservesDefaultTypeSummary(
+        string format)
+    {
+        string v1 = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+        string range = $"{v1}..{v2}";
+        bool tsv = format == "tsv";
+        bool jsonl = format == "jsonl";
+
+        var (implicitExit, implicitOutput, implicitError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    TypeFilter = ["TypeDefinitionOnly"],
+                    Tabular = true,
+                    Tsv = tsv,
+                    Jsonl = jsonl,
+                }));
+        var (explicitExit, explicitOutput, explicitError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    Analysis = ["api"],
+                    TypeFilter = ["TypeDefinitionOnly"],
+                    Tabular = true,
+                    Tsv = tsv,
+                    Jsonl = jsonl,
+                }));
+
+        Assert.Equal(0, implicitExit);
+        Assert.Equal(0, explicitExit);
+        Assert.Empty(implicitError);
+        Assert.Empty(explicitError);
+        Assert.Equal(implicitOutput, explicitOutput);
+        Assert.Contains("unclassified API changes", explicitOutput);
+        if (jsonl)
+            Assert.DoesNotContain("\"classification\":", explicitOutput);
+    }
+
+    [Theory]
+    [InlineData("tsv")]
+    [InlineData("jsonl")]
+    public async Task ExecuteAsync_ExplicitApiPreservesNameOnlyPrecedence(
+        string format)
+    {
+        string v1 = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+        string range = $"{v1}..{v2}";
+        bool tsv = format == "tsv";
+        bool jsonl = format == "jsonl";
+
+        var (implicitExit, implicitOutput, implicitError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    TypeFilter = ["HardChangedType"],
+                    NameOnly = true,
+                    Tabular = true,
+                    Tsv = tsv,
+                    Jsonl = jsonl,
+                }));
+        var (explicitExit, explicitOutput, explicitError) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = range,
+                    Analysis = ["api"],
+                    TypeFilter = ["HardChangedType"],
+                    NameOnly = true,
+                    Tabular = true,
+                    Tsv = tsv,
+                    Jsonl = jsonl,
+                }));
+
+        Assert.Equal(0, implicitExit);
+        Assert.Equal(0, explicitExit);
+        Assert.Empty(implicitError);
+        Assert.Empty(explicitError);
+        Assert.Equal(implicitOutput, explicitOutput);
+        Assert.Contains(
+            "LibraryApiDiffFixture.HardChangedType",
+            explicitOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Versions", explicitOutput);
+        Assert.DoesNotContain("change", explicitOutput);
+    }
+
+    [Fact]
+    public async Task CommandLine_ExplicitApiWildcardChangesPreservesDetailedRows()
+    {
+        string v1 = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+        string range = $"{v1}..{v2}";
+
+        async Task<(int ExitCode, string Output, string Error)> Run(
+            params string[] prefix)
+        {
+            string[] args = CommandLineBuilder.PreprocessArgs(
+            [
+                "diff",
+                "--library", range,
+                .. prefix,
+                "--type", "LibraryApiDiffFixture.HardChangedType",
+                "-S", "Cha*",
+                "--tsv",
+            ]);
+            return await ConsoleCapture.RunAsync(async () =>
+                await CommandLineBuilder.CreateRootCommand()
+                    .Parse(args)
+                    .InvokeAsync());
+        }
+
+        var implicitResult = await Run();
+        var explicitResult = await Run("--analysis", "api");
+
+        Assert.Equal(0, implicitResult.ExitCode);
+        Assert.Equal(0, explicitResult.ExitCode);
+        Assert.Empty(implicitResult.Error);
+        Assert.Empty(explicitResult.Error);
+        Assert.Equal(implicitResult.Output, explicitResult.Output);
+        Assert.Contains("classification", explicitResult.Output);
+        Assert.Contains("VirtualRemoved", explicitResult.Output);
+    }
+
+    [Theory]
+    [InlineData("--json", "--columns")]
+    [InlineData("--json", "--fields")]
+    [InlineData("--envelope", "--columns")]
+    [InlineData("--envelope", "--fields")]
+    public async Task CommandLine_AnalysisTransportRejectsColumnsAndFieldsBeforeAcquisition(
+        string transport,
+        string projection)
+    {
+        string[] args = CommandLineBuilder.PreprocessArgs(
+        [
+            "diff",
+            "--library", "missing-old.dll..missing-new.dll",
+            "--analysis", "api",
+            transport,
+            projection, "Type",
+        ]);
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(async () =>
+                await CommandLineBuilder.CreateRootCommand()
+                    .Parse(args)
+                    .InvokeAsync());
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("cannot be combined", error);
+        Assert.DoesNotContain("File not found", output);
+        Assert.DoesNotContain("File not found", error);
+    }
+
+    [Fact]
+    public void TryPlanAnalysisSet_ExplicitApiChangesUsesSharedDocument()
+    {
+        Assert.True(DiffCommand.TryPlanAnalysisSet(
+            new DiffOptions
+            {
+                Analysis = ["api"],
+                IncludeSections = new HashSet<string>(
+                    [DiffSections.Changes.Name],
+                    StringComparer.OrdinalIgnoreCase),
+            },
+            out DiffCommand.DiffAnalysisPlan? plan));
+        Assert.NotNull(plan);
+
+        Assert.True(DiffCommand.TryPlanAnalysisSet(
+            new DiffOptions
+            {
+                IncludeSections = new HashSet<string>(
+                    [DiffSections.Changes.Name],
+                    StringComparer.OrdinalIgnoreCase),
+            },
+            out plan));
+        Assert.Null(plan);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_JsonAllocationRegressions_SelectsAnalysisDiff()
     {
         var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
@@ -3385,21 +3920,57 @@ public class DiffCommandTests
                 AnalysisReportSurfaceKind.Member,
                 targetCount: 1,
                 ["api", "call-site"]));
-        AnalysisDescriptor api = accepted.Analyses[0];
-        AnalysisDescriptor callSite = accepted.Analyses[1];
-        AnalysisSurfaceParticipation Participation(AnalysisDescriptor analysis)
-            => analysis.ParticipationFor(AnalysisOperationKind.Compare)!
-                .For(AnalysisReportSurfaceKind.Member)!;
-        var result = new DiffAnalysisResult(
-            AnalysisReportSurfaceKind.Member,
+        var document = new DiffAnalysisDocument(
+            new DiffAnalysisComparisonContext(
+                "Sample",
+                "1.0.0",
+                "2.0.0",
+                AnalysisReportSurfaceKind.Member,
+                DiffAnalysisDocumentViews.Changes,
+                ["api", "call-site"]),
             [
-                new DiffAnalysisOutcome.Failed(api, Participation(api), "api producer failed"),
-                new DiffAnalysisOutcome.Unavailable(callSite, Participation(callSite), "no body at this endpoint"),
-            ]);
+                new DiffAnalysisDocumentOutcome(
+                    "api",
+                    DiffAnalysisDocumentOutcomeKind.Failed,
+                    ["api.type", "api.member"],
+                    "api producer failed"),
+                new DiffAnalysisDocumentOutcome(
+                    "call-site",
+                    DiffAnalysisDocumentOutcomeKind.Unavailable,
+                    ["analysis.call-site"],
+                    "no body at this endpoint"),
+            ],
+            changes: null,
+            summary:
+            [
+                new(
+                    "api",
+                    DiffAnalysisDocumentOutcomeKind.Failed,
+                    0, 0, 0, 0,
+                    "api producer failed"),
+                new(
+                    "call-site",
+                    DiffAnalysisDocumentOutcomeKind.Unavailable,
+                    0, 0, 0, 0,
+                    "no body at this endpoint"),
+            ],
+            transitions: null);
         var run = new DiffCommand.AnalysisSetRun(
-            result,
-            [.. result.Outcomes.Select(outcome =>
-                (outcome, (IReadOnlyList<FindingTransitionRow>)[]))]);
+            new InspectionEnvelope<DiffAnalysisDocument>(
+                document,
+                new InspectionShare.NonProjectable(
+                    "diff",
+                    "This test does not project a share packet."),
+                [
+                    new InspectionDiagnostic(
+                        "diff-analysis.failed",
+                        InspectionDiagnosticSeverity.Error,
+                        "Analysis 'api' failed: api producer failed"),
+                    new InspectionDiagnostic(
+                        "diff-analysis.unavailable",
+                        InspectionDiagnosticSeverity.Warning,
+                        "Analysis 'call-site' was not compared: no body at this endpoint"),
+                ]));
 
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
             Task.FromResult(DiffCommand.WriteAnalysisSet(
@@ -3441,6 +4012,96 @@ public class DiffCommandTests
         Assert.Contains("Summary", multiOutput, StringComparison.Ordinal);
         Assert.Contains("call-site", multiOutput, StringComparison.Ordinal);
         Assert.Contains("The Changes view requires a compared 'api' analysis", multiError, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnalysisSet_ChangesOnlyCompleteTransport_KeepsFailedOutcomeVisible()
+    {
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            DiffAnalysisCommandCapability.Catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Member,
+                targetCount: 1,
+                ["api"]));
+        var document = new DiffAnalysisDocument(
+            new DiffAnalysisComparisonContext(
+                "Sample",
+                "1.0.0",
+                "2.0.0",
+                AnalysisReportSurfaceKind.Member,
+                DiffAnalysisDocumentViews.Changes,
+                ["api"]),
+            [
+                new DiffAnalysisDocumentOutcome(
+                    "api",
+                    DiffAnalysisDocumentOutcomeKind.Failed,
+                    ["api.type", "api.member"],
+                    "api producer failed"),
+            ],
+            changes: null,
+            summary: null,
+            transitions: null);
+        var run = new DiffCommand.AnalysisSetRun(
+            new InspectionEnvelope<DiffAnalysisDocument>(
+                document,
+                new InspectionShare.NonProjectable(
+                    "diff",
+                    "This test does not project a share packet."),
+                [
+                    new InspectionDiagnostic(
+                        "diff-analysis.failed",
+                        InspectionDiagnosticSeverity.Error,
+                        "Analysis 'api' failed: api producer failed"),
+                ]));
+        var plan = new DiffCommand.DiffAnalysisPlan(
+            accepted,
+            [DiffSections.Changes.Name]);
+
+        var (jsonExit, jsonOutput, jsonError) =
+            await ConsoleCapture.RunAsync(() =>
+                Task.FromResult(DiffCommand.WriteAnalysisSet(
+                    "Sample",
+                    new ApiSurface(),
+                    new ApiSurface(),
+                    "1.0.0",
+                    "2.0.0",
+                    new DiffOptions { JsonOutput = true },
+                    plan,
+                    run)));
+        var (envelopeExit, envelopeOutput, envelopeError) =
+            await ConsoleCapture.RunAsync(() =>
+                Task.FromResult(DiffCommand.WriteAnalysisSet(
+                    "Sample",
+                    new ApiSurface(),
+                    new ApiSurface(),
+                    "1.0.0",
+                    "2.0.0",
+                    new DiffOptions
+                    {
+                        EnvelopeOutput = true,
+                        CompactJson = true,
+                    },
+                    plan,
+                    run)));
+
+        Assert.Equal(1, jsonExit);
+        Assert.Equal(1, envelopeExit);
+        Assert.Contains("Analysis 'api' failed", jsonError, StringComparison.Ordinal);
+        Assert.Contains("Analysis 'api' failed", envelopeError, StringComparison.Ordinal);
+
+        using var json = JsonDocument.Parse(jsonOutput);
+        using var envelope = JsonDocument.Parse(envelopeOutput);
+        Assert.Equal(
+            "Failed",
+            json.RootElement.GetProperty("outcomes")[0]
+                .GetProperty("kind").GetString());
+        Assert.False(json.RootElement.TryGetProperty("changes", out _));
+        Assert.Equal(
+            "diff-analysis",
+            envelope.RootElement.GetProperty("result_kind").GetString());
+        Assert.True(JsonElement.DeepEquals(
+            json.RootElement,
+            envelope.RootElement.GetProperty("content")));
     }
 
 }
