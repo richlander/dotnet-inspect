@@ -198,62 +198,7 @@ public class MetricSectionTests
                             0x02000001,
                             "Signature fixture failed."),
                     ]));
-        LibraryStructuralSalienceDocument salience =
-            LibraryStructuralReport.CreateStructuralSalience(
-                index,
-                [shard]);
-        var coverage =
-            new ImplementationProfilePopulationCoverageReceipt(
-                WasRequested: true,
-                HasFullMethodEvidenceScope: true,
-                DeclaredMethods: [],
-                ManagedMethodBodies: [],
-                ProfiledEvidenceBodies: [],
-                UnavailableBodies: [],
-                Diagnostics: []);
-        var document = new LibraryStructuralReportDocument(
-            new(
-                "QualifiedFixture.dll",
-                null!,
-                LibraryBodyAnalysisFeatures.MethodEvidence
-                    | LibraryBodyAnalysisFeatures
-                        .ImplementationProfiles,
-                HasFullMethodEvidenceScope: true,
-                Diagnostics: []),
-            LibraryStructuralReport.CurrentMethodologyVersion,
-            new(
-                coverage,
-                PhysicalEvidenceBodyCount: 0,
-                ProfiledPhysicalEvidenceBodyCount: 0,
-                LogicalOwnerCount: 0,
-                CompleteProfileCount: 0,
-                IncompleteProfileCount: 0,
-                IncompleteReasons: [],
-                UnavailableReasons: []),
-            Distributions: [],
-            new(
-                "Async state-machine bodies",
-                CompleteBodyCount: 0,
-                PresentCount: 0,
-                AbsentCount: 0),
-            TypeSummaries: [],
-            EntangledRelationships: [],
-            Diagnostics: [],
-            salience);
-        var view = new LibraryInspectionView(new LibraryInspection
-        {
-            FileName = "QualifiedFixture.dll",
-            LibraryMetricsQueryResult =
-                new LibraryMetricsResult.Available(document),
-        });
-
-        string output = MarkoutSerializer.Serialize(
-            view,
-            InspectionContext.Default,
-            new MarkoutWriterOptions
-            {
-                IncludeSections = [SectionNames.LibraryMetrics],
-            });
+        string output = RenderStructuralSalience(index, [shard]);
 
         Assert.Contains("Type-Leverage Shard", output);
         Assert.Contains(
@@ -268,6 +213,85 @@ public class MetricSectionTests
                 + "Signature fixture failed.",
             output);
         Assert.Contains("| Example |", output);
+    }
+
+    [Fact]
+    public void
+        LibraryMetrics_RendersNamespaceIndexDiagnosticsWhenShardIsComplete()
+    {
+        Guid moduleVersionId =
+            new("4b42dd61-f809-47a5-b0c4-2da4dba78989");
+        var assembly = new AssemblyReferenceIdentity(
+            "QualifiedFixture",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        MetadataTypeDefinitionAddress address =
+            MetadataTypeDefinitionAddress.FromToken(
+                moduleVersionId,
+                0x02000001);
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Example",
+                    ["Root"])).Name;
+        var type = new MetadataLibrarySignatureType(
+            address,
+            name,
+            AssemblyTypeDefinitionKind.Class,
+            MetadataLibraryTypeClassification.None);
+        var counters = new MetadataOperationCounters(0);
+        LibraryStructuralNamespaceLeverageIndex index =
+            LibraryStructuralReport.CreateNamespaceLeverageIndex(
+                new(
+                    new(
+                        moduleVersionId,
+                        assembly,
+                        ExactNamespace: null,
+                        counters),
+                    MetadataLibrarySignatureUseDisposition.Partial,
+                    [type],
+                    [],
+                    new(
+                        considered: 1,
+                        examined: 0,
+                        unavailable: 0,
+                        limited: 1),
+                    [
+                        new(
+                            MetadataLibrarySignatureUseDiagnosticKind.Limit,
+                            0x02000001,
+                            "Declaration budget exhausted.",
+                            MetadataOperationDimension.DeclarationCandidates,
+                            BudgetLimit: 100,
+                            AttemptedCharge: 101),
+                    ]));
+        LibraryStructuralTypeLeverageShard shard =
+            LibraryStructuralReport.CreateTypeLeverageShard(
+                new(
+                    new(
+                        moduleVersionId,
+                        assembly,
+                        ExactNamespace: "Example",
+                        counters),
+                    MetadataLibrarySignatureUseDisposition.Complete,
+                    [type],
+                    [],
+                    new(
+                        considered: 0,
+                        examined: 0,
+                        unavailable: 0,
+                        limited: 0),
+                    []));
+
+        string output = RenderStructuralSalience(index, [shard]);
+
+        Assert.Contains("Namespace Leverage Diagnostic", output);
+        Assert.Contains(
+            "Limit [0x02000001]: Declaration budget exhausted.; "
+                + "budget DeclarationCandidates; limit 100; attempted 101",
+            output);
+        Assert.DoesNotContain("Type-Leverage Shard Diagnostic", output);
     }
 
     [Fact]
@@ -1276,4 +1300,66 @@ public class MetricSectionTests
                 root.Parse(processed),
                 processed);
         });
+
+    private static string RenderStructuralSalience(
+        LibraryStructuralNamespaceLeverageIndex index,
+        IEnumerable<LibraryStructuralTypeLeverageShard> shards)
+    {
+        LibraryStructuralSalienceDocument salience =
+            LibraryStructuralReport.CreateStructuralSalience(
+                index,
+                shards);
+        var coverage =
+            new ImplementationProfilePopulationCoverageReceipt(
+                WasRequested: true,
+                HasFullMethodEvidenceScope: true,
+                DeclaredMethods: [],
+                ManagedMethodBodies: [],
+                ProfiledEvidenceBodies: [],
+                UnavailableBodies: [],
+                Diagnostics: []);
+        var document = new LibraryStructuralReportDocument(
+            new(
+                "QualifiedFixture.dll",
+                null!,
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles,
+                HasFullMethodEvidenceScope: true,
+                Diagnostics: []),
+            LibraryStructuralReport.CurrentMethodologyVersion,
+            new(
+                coverage,
+                PhysicalEvidenceBodyCount: 0,
+                ProfiledPhysicalEvidenceBodyCount: 0,
+                LogicalOwnerCount: 0,
+                CompleteProfileCount: 0,
+                IncompleteProfileCount: 0,
+                IncompleteReasons: [],
+                UnavailableReasons: []),
+            Distributions: [],
+            new(
+                "Async state-machine bodies",
+                CompleteBodyCount: 0,
+                PresentCount: 0,
+                AbsentCount: 0),
+            TypeSummaries: [],
+            EntangledRelationships: [],
+            Diagnostics: [],
+            salience);
+        var view = new LibraryInspectionView(new LibraryInspection
+        {
+            FileName = "QualifiedFixture.dll",
+            LibraryMetricsQueryResult =
+                new LibraryMetricsResult.Available(document),
+        });
+
+        return MarkoutSerializer.Serialize(
+            view,
+            InspectionContext.Default,
+            new MarkoutWriterOptions
+            {
+                IncludeSections = [SectionNames.LibraryMetrics],
+            });
+    }
 }

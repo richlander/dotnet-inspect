@@ -451,7 +451,9 @@ public sealed class GraphDocument<
     private void ValidateNodeSubjects(
         IEqualityComparer<TSubject> subjectComparer)
     {
-        var subjects = new HashSet<TSubject>(subjectComparer);
+        var subjects = new HashSet<TSubject>(
+            Nodes.Length,
+            subjectComparer);
         if (Nodes.Any(node => !subjects.Add(node.Subject)))
         {
             throw new ArgumentException(
@@ -526,6 +528,7 @@ public sealed class GraphDocument<
     {
         var boundOccurrences = new int[Occurrences.Length];
         var logicalEdges = new HashSet<EdgeIdentity>(
+            Edges.Length,
             new EdgeIdentityComparer(relationshipComparer));
 
         foreach (GraphEdge<TRelationship> edge in Edges)
@@ -651,7 +654,7 @@ public sealed class GraphDocument<
     private void ValidateSeeds(
         IEqualityComparer<TSubject> subjectComparer)
     {
-        var targets = new HashSet<GraphTarget>();
+        var targets = new HashSet<GraphTarget>(Seeds.Length);
         foreach (GraphSeed<TSubject> seed in Seeds)
         {
             if (seed.Target.Kind is not (

@@ -12,47 +12,14 @@ internal static partial class MetadataRelationInspection
 {
     internal static MetadataRelationInspectionOutcome Execute(
         PEReader image,
+        MetadataReader reader,
         MetadataRelationInspectionRequest request,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-
-        MetadataImageFormatResult format =
-            MetadataImageFormatClassifier.Classify(image);
-        if (format is not MetadataImageFormatResult.SupportedEcma335)
-        {
-            return new MetadataRelationInspectionOutcome.Rejected(
-                format,
-                format switch
-                {
-                    MetadataImageFormatResult.NoMetadata =>
-                        "The selected image contains no managed metadata.",
-                    MetadataImageFormatResult.UnsupportedWindowsMetadata =>
-                        "Windows Metadata is not a supported relation input.",
-                    MetadataImageFormatResult.MalformedRoot =>
-                        "The selected image has a malformed metadata root.",
-                    _ => "The selected image format is unavailable.",
-                });
-        }
-
-        MetadataReader reader;
-        try
-        {
-            reader = image.GetMetadataReader(
-                MetadataReaderOptions.None);
-        }
-        catch (Exception exception)
-            when (exception is BadImageFormatException
-                or OverflowException)
-        {
-            return new MetadataRelationInspectionOutcome.Rejected(
-                new MetadataImageFormatResult.MalformedRoot(
-                    MetadataRootMalformedReason
-                        .UnmappableMetadataDirectory),
-                exception.Message);
-        }
 
         using var operation =
             new MetadataOperationContext(request.Policy);

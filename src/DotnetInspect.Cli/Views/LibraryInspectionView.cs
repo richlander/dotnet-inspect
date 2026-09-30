@@ -1144,6 +1144,22 @@ public class LibraryInspectionView
                     + $"{salience.NamespaceIndex.SignatureUse.OccurrenceCount}; "
                     + $"diagnostics "
                     + salience.NamespaceIndex.SignatureUse.Diagnostics.Length));
+        rows.AddRange(
+            salience.NamespaceIndex.SignatureUse.Diagnostics.Select(diagnostic =>
+                new LibraryMetricRow(
+                    "Namespace Leverage Diagnostic",
+                    "Signature use",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    FormatSignatureUseDiagnostic(diagnostic))));
         for (var index = 0;
             index < salience.NamespaceIndex.Rows.Length;
             index++)

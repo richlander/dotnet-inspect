@@ -328,11 +328,10 @@ public static class AssemblyTypeDeclarationInventoryReader
                     CandidateOpenFailureKind.InvalidImage,
                     "The selected image has no managed metadata.");
             }
-
-            MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
-            return ReadDeclarations(
+            MetadataReader reader =
+                MetadataFormatAdmission.GetMetadataReader(peReader);
+            return Read(
                 reader,
-                AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
                 maximumRetainedDeclarations,
                 maximumRetainedTextCharacters);
         }
@@ -357,6 +356,36 @@ public static class AssemblyTypeDeclarationInventoryReader
         }
         catch (Exception ex) when (
             ex is BadImageFormatException or ArgumentOutOfRangeException or OverflowException)
+        {
+            return Rejected(
+                CandidateOpenFailureKind.InvalidImage,
+                "The selected image metadata is invalid.");
+        }
+    }
+
+    internal static AssemblyTypeDeclarationInventoryOutcome Read(
+        MetadataReader reader,
+        int maximumRetainedDeclarations,
+        int maximumRetainedTextCharacters)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maximumRetainedDeclarations);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maximumRetainedTextCharacters);
+
+        try
+        {
+            return ReadDeclarations(
+                reader,
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
+                maximumRetainedDeclarations,
+                maximumRetainedTextCharacters);
+        }
+        catch (Exception ex)
+            when (ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
         {
             return Rejected(
                 CandidateOpenFailureKind.InvalidImage,

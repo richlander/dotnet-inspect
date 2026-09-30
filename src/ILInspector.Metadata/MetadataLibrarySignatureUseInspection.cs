@@ -11,48 +11,14 @@ internal static class MetadataLibrarySignatureUseInspection
 {
     internal static MetadataLibrarySignatureUseOutcome Execute(
         PEReader image,
+        MetadataReader reader,
         MetadataLibrarySignatureUseRequest request,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-
-        MetadataImageFormatResult format =
-            MetadataImageFormatClassifier.Classify(image);
-        if (format is not MetadataImageFormatResult.SupportedEcma335)
-        {
-            return new MetadataLibrarySignatureUseOutcome.Rejected(
-                MetadataLibrarySignatureUseRejectionKind.UnsupportedImage,
-                format switch
-                {
-                    MetadataImageFormatResult.NoMetadata =>
-                        "The selected image contains no managed metadata.",
-                    MetadataImageFormatResult.UnsupportedWindowsMetadata =>
-                        "Windows Metadata is not a supported signature-use input.",
-                    MetadataImageFormatResult.MalformedRoot =>
-                        "The selected image has a malformed metadata root.",
-                    _ => "The selected image format is unavailable.",
-                },
-                format);
-        }
-
-        MetadataReader reader;
-        try
-        {
-            reader = image.GetMetadataReader(MetadataReaderOptions.None);
-        }
-        catch (Exception exception)
-            when (exception is BadImageFormatException
-                or OverflowException)
-        {
-            return new MetadataLibrarySignatureUseOutcome.Rejected(
-                MetadataLibrarySignatureUseRejectionKind.MalformedImage,
-                exception.Message,
-                new MetadataImageFormatResult.MalformedRoot(
-                    MetadataRootMalformedReason
-                        .UnmappableMetadataDirectory));
-        }
 
         AssemblyReferenceIdentity assembly;
         Guid moduleVersionId;
@@ -101,7 +67,7 @@ internal static class MetadataLibrarySignatureUseInspection
 
         AssemblyTypeDeclarationInventoryOutcome inventoryOutcome =
             AssemblyTypeDeclarationInventoryReader.Read(
-                image,
+                reader,
                 MaximumInt(request.Policy.MaxStructuredNodes),
                 MaximumInt(request.Policy.MaxRetainedText));
         if (inventoryOutcome
