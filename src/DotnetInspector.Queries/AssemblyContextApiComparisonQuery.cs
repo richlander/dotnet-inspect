@@ -18,6 +18,12 @@ public sealed class AssemblyContextApiComparisonEndpoint
     public AssemblyContextApiSurfaceResult Projection { get; }
     public bool IsComplete => CompleteSurface is not null;
 
+    /// <summary>
+    /// The complete projected surface, when another host-neutral operation
+    /// needs to consume the exact endpoint evidence without re-projecting it.
+    /// </summary>
+    public ApiSurface? Surface => CompleteSurface;
+
     internal ApiSurface? CompleteSurface =>
         Projection.Truncation is null
         && Projection.Assemblies.Assemblies is
