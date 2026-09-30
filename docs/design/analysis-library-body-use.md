@@ -201,6 +201,9 @@ peers, remove self relationships, rank Types, or aggregate evidence.
 The work is declared through
 [Producer Planning](producer-planning.md), not another
 `LibraryBodyAnalysisFeatures` path or `LibraryBodyIndex` projection.
+[Method Query Source](method-query-source.md) now owns the later migration of
+body producers to source-native breadth and depth; this slice specializes the
+existing body-use producer without preempting that migration.
 
 The body-use producer is a method-definition producer. Its shipping consumer
 closes it with the Rows terminal. The scorecard also exercises its internal
