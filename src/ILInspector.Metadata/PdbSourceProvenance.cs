@@ -636,6 +636,9 @@ public partial class PdbContext
     {
         int documentCount = pdb.GetTableRowCount(TableIndex.Document);
         int rawTypeCount = metadata.GetTableRowCount(TableIndex.TypeDef);
+        int methodCount = metadata.GetTableRowCount(TableIndex.MethodDef);
+        int methodDebugInformationCount =
+            pdb.GetTableRowCount(TableIndex.MethodDebugInformation);
         if (documentCount > limits.MaxDocuments)
         {
             throw Limit(
@@ -651,6 +654,12 @@ public partial class PdbContext
                 Math.Max(0, rawTypeCount - 1),
                 limits.MaxTypes,
                 "metadata Type definitions");
+        }
+        if (methodDebugInformationCount != 0
+            && methodDebugInformationCount != methodCount)
+        {
+            throw new BadImageFormatException(
+                $"The Portable PDB MethodDebugInformation table has {methodDebugInformationCount} rows for {methodCount} metadata methods.");
         }
 
         var pathLimits = new PdbSourcePathClassificationLimits(
@@ -894,6 +903,9 @@ public partial class PdbContext
                         null,
                         marker));
                 }
+
+                if (methodDebugInformationCount == 0)
+                    continue;
 
                 foreach (SequencePointDocumentRange range
                     in ReadVisibleSequencePointDocuments(methodHandle))

@@ -314,6 +314,10 @@ is abstract, bodyless, has only hidden sequence points, or has no PDB method
 row. A method with both a marker and mapped evidence retains both
 contributions.
 
+An entirely absent Portable PDB `MethodDebugInformation` table means that no
+method has mapped-document associations. A non-empty table must match the PE
+MethodDef population; a partial table is malformed rather than absence.
+
 A valid `CompilerGeneratedAttribute` directly on a Type or enclosing Type
 identifies the Type itself as compiler synthesis. It adds a
 `CompilerSynthesized` Type contribution and classifies that Type's

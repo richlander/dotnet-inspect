@@ -773,6 +773,58 @@ public class PdbSourceProvenanceTests
                 type => type.MetadataName.ToString() == name);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public void BodylessMethodMarker_DoesNotRequireMethodDebugInformation(
+        int methodDebugInformationRowCount)
+    {
+        (byte[] image, byte[] pdb) = BuildMarkerMetadata(
+            methodDebugInformationRowCount:
+                methodDebugInformationRowCount);
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+        context.LoadPdbFromStream(
+            new MemoryStream(pdb, writable: false));
+
+        PdbSourceProvenanceResult result =
+            Assert.IsType<PdbSourceProvenanceOutcome.Available>(
+                context.InspectSourceProvenance()).Result;
+
+        PdbTypeSourceEvidence type = Assert.Single(
+            result.Types,
+            type => type.MetadataName.ToString() == "BodylessMarker");
+        Assert.Equal(
+            PdbTypeSourceDisposition.GeneratedEvidenceOnly,
+            type.Disposition);
+        Assert.Contains(
+            type.Contributions,
+            contribution =>
+                contribution is
+                {
+                    Kind:
+                        PdbTypeSourceContributionKind.MarkerGenerated,
+                    Method: not null,
+                    DocumentRowId: null,
+                });
+    }
+
+    [Fact]
+    public void PartialMethodDebugInformationTable_IsMalformed()
+    {
+        (byte[] image, byte[] pdb) = BuildMarkerMetadata(
+            methodDebugInformationRowCount: 1);
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+        context.LoadPdbFromStream(
+            new MemoryStream(pdb, writable: false));
+
+        Assert.IsType<PdbSourceProvenanceOutcome.Failed>(
+            context.InspectSourceProvenance());
+    }
+
     private static ArtifactBoundAssembly CreateArtifact(byte[] image)
     {
         var authority = new ArtifactGenerationAuthority();
@@ -810,7 +862,8 @@ public class PdbSourceProvenanceTests
         byte[]? repeatedDocumentNameComponent = null,
         int repeatedDocumentNameComponentCount = 0,
         bool appendInvalidDocumentNameComponent = false,
-        byte documentNameSeparator = (byte)'/')
+        byte documentNameSeparator = (byte)'/',
+        int methodDebugInformationRowCount = 2)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1050,8 +1103,12 @@ public class PdbSourceProvenanceTests
             document,
             embeddedSource,
             embeddedValue);
-        pdbMetadata.AddMethodDebugInformation(default, default);
-        pdbMetadata.AddMethodDebugInformation(default, default);
+        for (int index = 0;
+             index < methodDebugInformationRowCount;
+             index++)
+        {
+            pdbMetadata.AddMethodDebugInformation(default, default);
+        }
         var contentId = new BlobContentId(
             new Guid("412BF724-7DCC-453A-A77B-A4875C15B86E"),
             0x12345678);
