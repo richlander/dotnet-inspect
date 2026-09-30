@@ -284,6 +284,26 @@ public class LocalFunctionRaisingPassTests
         Assert.Contains("g__Read", output);
     }
 
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingHostAliasMember), "g__Read")]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingHostAliasMemberGroup), "g__Read")]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingHostAliasField), "g___read")]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingHostAliasProperty), "g__Result")]
+    public void InstanceLocalFunctionShadowingHostAliasMember_DeclinesShadowingDeclaration(
+        string methodName,
+        string generatedName)
+    {
+        string output = PrintRaised(
+            methodName,
+            function => Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>(),
+                declaration => declaration.Name == "Other"));
+
+        Assert.Contains("DisplayClass", output);
+        Assert.Contains(generatedName, output);
+        Assert.Contains("static int Other(int current)", output);
+    }
+
     [Fact]
     public void InstanceLocalFunctionShadowingInstanceMemberGroup_StaysLowered()
     {

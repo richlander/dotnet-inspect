@@ -278,7 +278,11 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 continue;
 
             string sourceName = CSharpNaming.MethodName(method.Name);
-            if (HasShadowedInstanceMemberReference(function, method, sourceName))
+            if (HasShadowedInstanceMemberReference(
+                    function,
+                    method,
+                    sourceName,
+                    plannedEnvironment: environment))
                 continue;
 
             if (!context.TryEnterCrossMethodPipeline(method, out var importScope))
@@ -576,6 +580,9 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
         public IrExpression Substitution() => (IrExpression)_value.Clone();
 
+        public bool IsBoundReceiver(IrFunction host)
+            => LocalFunctionRaisingPass.IsBoundReceiver(host, _value);
+
         public void Materialize(IrFunction host, IrFunction body)
         {
             if (PlaceholderIndex is not { } placeholder)
@@ -610,6 +617,14 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             foreach (var capture in Captures.Values)
                 capture.Materialize(host, body);
         }
+
+        public bool SubstitutesToBoundReceiver(
+            IrFunction host,
+            IrExpression expression)
+            => expression is LoadField read
+                && HostReads.Any(hostRead => ReferenceEquals(hostRead, read))
+                && Captures.TryGetValue(read.Field.Name, out var capture)
+                && capture.IsBoundReceiver(host);
 
         public void Elide(IrFunction host)
         {
@@ -887,7 +902,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         IrFunction function,
         MethodRef localMethod,
         string localName,
-        IrFunction? enclosingHost = null)
+        IrFunction? enclosingHost = null,
+        Environment? plannedEnvironment = null)
     {
         foreach (var node in function.Descendants)
         {
@@ -1023,7 +1039,11 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     || receiver is not null
                         && (IsHostReceiver(function, receiver)
                             || enclosingHost is not null
-                                && IsBoundReceiver(enclosingHost, receiver)))
+                                && IsBoundReceiver(enclosingHost, receiver)
+                            || plannedEnvironment is not null
+                                && plannedEnvironment.SubstitutesToBoundReceiver(
+                                    function,
+                                    receiver)))
                 && string.Equals(memberName, localName, StringComparison.Ordinal))
             {
                 return true;
