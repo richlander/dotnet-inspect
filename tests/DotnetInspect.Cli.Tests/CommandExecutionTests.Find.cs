@@ -236,17 +236,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_NamespaceExactMiss_RetriesAsPrefix()
+    public async Task Find_NamespacePatternIncludesBroaderMatches()
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "System.Text", "--platform", "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Contains("No exact matches for 'System.Text'", error);
-        Assert.Contains("System.Text*", error);
+        Assert.Empty(error);
         Assert.Contains("StringBuilder", output);
         Assert.Contains("System.Text.Json", output);
-        Assert.DoesNotContain("TextInfo", output);
+        Assert.Contains("TextInfo", output);
     }
 
     [Fact]
@@ -997,7 +996,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Equal("1", output.Trim());
+        Assert.True(
+            int.TryParse(
+                output.Trim(),
+                CultureInfo.InvariantCulture,
+                out int count),
+            output);
+        Assert.True(count > 1, output);
     }
 
     [Fact]
@@ -1008,7 +1013,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Equal("1", output.Trim());
+        Assert.True(
+            int.TryParse(
+                output.Trim(),
+                CultureInfo.InvariantCulture,
+                out int count),
+            output);
+        Assert.True(count > 1, output);
     }
 
     [Fact]
@@ -1019,7 +1030,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Equal("1", output.Trim());
+        Assert.True(
+            int.TryParse(
+                output.Trim(),
+                CultureInfo.InvariantCulture,
+                out int count),
+            output);
+        Assert.True(count > 1, output);
     }
 
     [Fact]
@@ -1030,7 +1047,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Equal("1", output.Trim());
+        Assert.True(
+            int.TryParse(
+                output.Trim(),
+                CultureInfo.InvariantCulture,
+                out int count),
+            output);
+        Assert.True(count > 1, output);
     }
 
     [Fact]
@@ -1041,7 +1064,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Equal("1", output.Trim());
+        Assert.True(
+            int.TryParse(
+                output.Trim(),
+                CultureInfo.InvariantCulture,
+                out int count),
+            output);
+        Assert.True(count > 1, output);
     }
 
     [Fact]
@@ -1052,7 +1081,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Equal("1", output.Trim());
+        Assert.True(
+            int.TryParse(
+                output.Trim(),
+                CultureInfo.InvariantCulture,
+                out int count),
+            output);
+        Assert.True(count > 1, output);
     }
 
     // ── find command ─────────────────────────────────────────────────

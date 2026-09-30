@@ -1822,10 +1822,12 @@ internal static class TypeSearchService
         bool findCandidates)
     {
         List<TypeSearchResult> results = [];
+        bool classifyCandidates =
+            findCandidates && pattern is not null;
         HashSet<(
             string FullName,
             TypeCandidateSourceIdentity Source)>? identities =
-            findCandidates
+            classifyCandidates
                 ? []
                 : null;
 
@@ -1837,7 +1839,7 @@ internal static class TypeSearchService
             && options.Limit.HasValue
             && results.Count >= options.Limit.Value;
         TypeHeadStopper? headStopper =
-            findCandidates
+            classifyCandidates
             && pattern is not null
             && options.Limit is int limit
                 ? new(
@@ -1877,7 +1879,7 @@ internal static class TypeSearchService
                     logger,
                     ReachedLimit,
                     markFailure,
-                    findCandidates: findCandidates,
+                    findCandidates: classifyCandidates,
                     identities: identities,
                     intent: options.TypeMatchIntent,
                     headStopper: headStopper);
@@ -1906,16 +1908,18 @@ internal static class TypeSearchService
         bool findCandidates)
     {
         List<TypeSearchResult> results = [];
+        bool classifyCandidates =
+            findCandidates && pattern is not null;
         HashSet<(
             string FullName,
             TypeCandidateSourceIdentity Source)>? identities =
-            findCandidates
+            classifyCandidates
                 ? []
                 : null;
         IReadOnlyList<string> searchPatterns =
             pattern is null ? ["*"] : [pattern];
         TypeHeadStopper? headStopper =
-            findCandidates
+            classifyCandidates
             && pattern is not null
             && options.Limit is int limit
                 ? new(
@@ -1969,7 +1973,7 @@ internal static class TypeSearchService
                 logger,
                 static () => false,
                 markFailure,
-                findCandidates: findCandidates,
+                findCandidates: classifyCandidates,
                 identities: identities,
                 intent: options.TypeMatchIntent,
                 headStopper: headStopper);

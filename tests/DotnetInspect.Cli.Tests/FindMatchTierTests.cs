@@ -142,6 +142,44 @@ public class FindMatchTierTests
     }
 
     [Fact]
+    public async Task
+        FindTypesAsync_ExactOnlyMultiPatternClassifiesSharedInventory()
+    {
+        using var httpClient = new HttpClient();
+        string[] patterns =
+        [
+            "JsonSerializerOptions",
+            "JsonSerializer",
+        ];
+        FindSearchResult<TypeFindResult> search =
+            await TypeSearchService.FindTypesAsync(
+                new FindOptions
+                {
+                    Pattern = string.Join(',', patterns),
+                    Assemblies = [SystemTextJson],
+                    TypeMatchIntent = FindTypeMatchIntent.ExactOnly,
+                },
+                patterns,
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                "System.Text.Json.JsonSerializerOptions",
+                "System.Text.Json.JsonSerializer",
+            ],
+            search.Rows.Select(static row => row.FullName));
+        Assert.Equal(
+            patterns,
+            search.Rows.Select(static row => row.Pattern));
+        Assert.All(
+            search.Rows,
+            static row =>
+                Assert.Equal(TypeFindMatchKind.Exact, row.Match));
+    }
+
+    [Fact]
     public async Task FindTypesAsync_DottedPrefixKeepsEffectiveWildcard()
     {
         List<TypeFindResult> rows =
