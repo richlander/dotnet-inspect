@@ -4,6 +4,10 @@ using System.Text;
 using System.Text.Encodings.Web;
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
+using WireDeclarationIdentity =
+    ILInspector.JsExportSurface.JsonWireDeclarationIdentity;
+using WireDeclarationPlan =
+    ILInspector.JsExportSurface.JsonWireDeclarationPlan;
 
 namespace ILInspector.TypeScriptGeneration;
 
@@ -52,7 +56,7 @@ internal static class TypeScriptFacadeEmitter
         ];
         ValidateRuntimeIdentities(functions);
 
-        DtsEmitter.WireDeclarationPlan declarationPlan =
+        WireDeclarationPlan declarationPlan =
             DtsEmitter.CreateWireDeclarationPlan(surface);
         TypeScriptNameAllocator names =
             TypeScriptNameAllocator.Create(
@@ -497,7 +501,7 @@ internal static class TypeScriptFacadeEmitter
     {
         private readonly HashSet<string> _moduleBindings;
         private readonly Dictionary<
-            DtsEmitter.WireDeclarationIdentity,
+            WireDeclarationIdentity,
             string> _typeNames;
         private readonly Dictionary<JsExportFunction, string> _operationNames;
         private readonly Dictionary<JsExportFunction, string[]> _parameterNames;
@@ -510,7 +514,7 @@ internal static class TypeScriptFacadeEmitter
 
         private TypeScriptNameAllocator(
             HashSet<string> moduleBindings,
-            Dictionary<DtsEmitter.WireDeclarationIdentity, string>
+            Dictionary<WireDeclarationIdentity, string>
                 typeNames,
             Dictionary<JsExportFunction, string> operationNames,
             Dictionary<JsExportFunction, string[]> parameterNames,
@@ -535,7 +539,7 @@ internal static class TypeScriptFacadeEmitter
 
         public static TypeScriptNameAllocator Create(
             global::ILInspector.JsExportSurface.JsExportSurface surface,
-            DtsEmitter.WireDeclarationPlan declarationPlan,
+            WireDeclarationPlan declarationPlan,
             IReadOnlyList<JsExportFunction> functions)
         {
             var moduleBindings = new HashSet<string>(
@@ -608,9 +612,9 @@ internal static class TypeScriptFacadeEmitter
                         "ts-jsexport#JsonText#brand",
                         TypeScriptIdentifier.IsStrictModeBindingIdentifier);
             var typeNames = new Dictionary<
-                DtsEmitter.WireDeclarationIdentity,
+                WireDeclarationIdentity,
                 string>();
-            foreach (DtsEmitter.WireDeclarationIdentity declaration
+            foreach (WireDeclarationIdentity declaration
                 in declarationPlan.Declarations.OrderBy(
                     CanonicalTypeIdentity,
                     StringComparer.Ordinal))
@@ -702,7 +706,7 @@ internal static class TypeScriptFacadeEmitter
         }
 
         public IReadOnlyDictionary<
-            DtsEmitter.WireDeclarationIdentity,
+            WireDeclarationIdentity,
             string> TypeNames =>
             _typeNames;
 
@@ -768,7 +772,7 @@ internal static class TypeScriptFacadeEmitter
         }
 
         static string CanonicalTypeIdentity(
-            DtsEmitter.WireDeclarationIdentity declaration)
+            WireDeclarationIdentity declaration)
         {
             string identity = declaration.Type.FullName
             + "|"
