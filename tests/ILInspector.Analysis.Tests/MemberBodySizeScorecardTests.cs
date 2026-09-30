@@ -69,6 +69,96 @@ public sealed class MemberBodySizeScorecardTests
     }
 
     [Fact]
+    public void DefaultScenariosDisambiguateRepeatedAssetPaths()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "packages",
+            "System.Text.Json.10.0.0.dll");
+
+        IReadOnlyList<MemberBodySizeScorecardScenario>
+            scenarios =
+                MemberBodySizeScorecard.DefaultScenarios(
+                    [path, path]);
+
+        Assert.Equal(4, scenarios.Count);
+        Assert.Equal(
+            4,
+            scenarios
+                .Select(static scenario =>
+                    scenario.Name)
+                .Distinct()
+                .Count());
+        Assert.Contains(
+            scenarios,
+            static scenario =>
+                scenario.Name.StartsWith(
+                    "System.Text.Json.10.0.0 #1 ",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            scenarios,
+            static scenario =>
+                scenario.Name.StartsWith(
+                    "System.Text.Json.10.0.0 #2 ",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ReportUsesScenarioIdentityAndPublishesRatioRanges()
+    {
+        IReadOnlyList<MemberBodySizeScorecardCell> cells =
+        [
+            .. Scorecard.Closings.SelectMany(
+                closing =>
+                    new[]
+                    {
+                        Cell(0, closing, "Old", 20),
+                        Cell(0, closing, "LINQ", 10),
+                        Cell(0, closing, "NLinq", 10),
+                        Cell(
+                            0,
+                            closing,
+                            "Planner (experimental)",
+                            5),
+                        Cell(1, closing, "Old", 40),
+                        Cell(1, closing, "LINQ", 20),
+                        Cell(1, closing, "NLinq", 10),
+                        Cell(
+                            1,
+                            closing,
+                            "Planner (experimental)",
+                            5),
+                    }),
+        ];
+        var result = new MemberBodySizeScorecardResult(
+            new(0, [], []),
+            cells,
+            []);
+
+        string report =
+            MemberBodySizeScorecard.Report(result);
+
+        Assert.Contains(
+            "2.83x (2.00-4.00x)",
+            report);
+
+        static MemberBodySizeScorecardCell Cell(
+            int scenarioIndex,
+            ScorecardClosing closing,
+            string column,
+            double microseconds) =>
+            new(
+                scenarioIndex,
+                "duplicate display name",
+                closing,
+                column,
+                microseconds,
+                AllocatedBytes: 0,
+                WindowFailed: false);
+    }
+
+    [Fact]
     public void DirectColumnsContainMalformedPhysicalBody()
     {
         MemberBodySizeScorecardScenario scenario = new(

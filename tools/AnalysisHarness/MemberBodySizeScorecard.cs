@@ -58,6 +58,7 @@ public sealed record MemberBodySizeScorecardTiming(
     int Warmup = 2);
 
 public sealed record MemberBodySizeScorecardCell(
+    int ScenarioIndex,
     string Scenario,
     ScorecardClosing Closing,
     string Column,
@@ -110,14 +111,20 @@ public static class MemberBodySizeScorecard
     {
         var scenarios =
             new List<MemberBodySizeScorecardScenario>();
-        foreach (string path in assemblyPaths)
+        IReadOnlyList<string> assetNames =
+            ScorecardAssetNames.FromPaths(assemblyPaths);
+        for (int index = 0;
+            index < assemblyPaths.Count;
+            index++)
         {
+            string path = assemblyPaths[index];
             string fullPath = Path.GetFullPath(path);
             string assemblyName = AssemblyName(fullPath);
             switch (assemblyName)
             {
                 case "System.Private.CoreLib":
                     Add(
+                        assetNames[index],
                         fullPath,
                         "System.Text",
                         "StringBuilder",
@@ -126,6 +133,7 @@ public static class MemberBodySizeScorecard
                     break;
                 case "System.Text.Json":
                     Add(
+                        assetNames[index],
                         fullPath,
                         "System.Text.Json",
                         "JsonDocument",
@@ -134,6 +142,7 @@ public static class MemberBodySizeScorecard
                     break;
                 case "ILInspector.Analysis.Fixtures":
                     Add(
+                        assetNames[index],
                         fullPath,
                         "ILInspector.Analysis.ImplementationProfileFixtures",
                         "ImplementationHeatLambdaSample",
@@ -149,6 +158,7 @@ public static class MemberBodySizeScorecard
         return scenarios;
 
         void Add(
+            string assetName,
             string path,
             string @namespace,
             string type,
@@ -156,8 +166,7 @@ public static class MemberBodySizeScorecard
             int familyRows)
         {
             string prefix =
-                $"{Path.GetFileNameWithoutExtension(path)} "
-                + $"{type}.{method}";
+                $"{assetName} {type}.{method}";
             scenarios.Add(
                 new(
                     $"{prefix} / one logical method",
@@ -259,9 +268,10 @@ public static class MemberBodySizeScorecard
         writer.WriteLine(
             "| --- | --- | ---: | ---: | ---: | ---: | "
             + "---: | ---: | ---: | ---: |");
-        foreach (string scenario
+        foreach ((int index, string scenario)
             in result.Cells
-                .Select(static cell => cell.Scenario)
+                .Select(static cell =>
+                    (cell.ScenarioIndex, cell.Scenario))
                 .Distinct())
         {
             foreach (ScorecardClosing closing
@@ -270,7 +280,7 @@ public static class MemberBodySizeScorecard
                 MemberBodySizeScorecardCell[] selected =
                 [
                     .. result.Cells.Where(cell =>
-                        cell.Scenario == scenario
+                        cell.ScenarioIndex == index
                         && cell.Closing == closing),
                 ];
                 MemberBodySizeScorecardCell oracle =
@@ -334,20 +344,27 @@ public static class MemberBodySizeScorecard
 
         writer.WriteLine();
         writer.WriteLine(
-            "| Closing | Old geo mean | LINQ geo mean | "
-            + "Planner geo mean |");
+            "| Closing | Old geo mean (range) | "
+            + "LINQ geo mean (range) | "
+            + "Planner geo mean (range) |");
         writer.WriteLine("| --- | ---: | ---: | ---: |");
         foreach (ScorecardClosing closing
             in Scorecard.Closings)
         {
             writer.WriteLine(
                 $"| {s_shape.Label(closing)} | "
-                + $"{GeometricRatio(result.Cells, closing, "Old"):F2}x | "
-                + $"{GeometricRatio(result.Cells, closing, "LINQ"):F2}x | "
-                + $"{GeometricRatio(
+                + $"{FormatRatio(RatioSummary(
                     result.Cells,
                     closing,
-                    "Planner (experimental)"):F2}x |");
+                    "Old"))} | "
+                + $"{FormatRatio(RatioSummary(
+                    result.Cells,
+                    closing,
+                    "LINQ"))} | "
+                + $"{FormatRatio(RatioSummary(
+                    result.Cells,
+                    closing,
+                    "Planner (experimental)"))} |");
         }
         return writer.ToString();
     }
@@ -357,14 +374,16 @@ public static class MemberBodySizeScorecard
         TextWriter writer)
     {
         writer.WriteLine(
-            "scenario\tclosing\tcolumn\tmedian_us\tallocated_bytes"
-            + "\twindow_failed");
+            "scenario_index\tscenario\tclosing\tcolumn\tmedian_us"
+            + "\tallocated_bytes\twindow_failed");
         foreach (MemberBodySizeScorecardCell cell
             in result.Cells)
         {
             writer.WriteLine(
                 string.Join(
                     '\t',
+                    cell.ScenarioIndex.ToString(
+                        CultureInfo.InvariantCulture),
                     cell.Scenario,
                     s_shape.Label(cell.Closing),
                     cell.Column,
@@ -658,7 +677,7 @@ public static class MemberBodySizeScorecard
                             MemberBodySizeProjectionRow,
                             Eligible>(eligible);
                     List<MemberBodySizeProjectionRow> rows =
-                        selected.OrderBy<
+                        NLinqExtensions.OrderBy<
                             Filter<
                                 MemberBodySizeProjectionRow,
                                 Map<
@@ -668,6 +687,7 @@ public static class MemberBodySizeScorecard
                                     ProjectRow>,
                                 Eligible>,
                             MemberBodySizeProjectionRow>(
+                                selected,
                                 RowComparer.Instance);
                     return Answer(closing, rows, s_shape);
                 }
@@ -829,7 +849,7 @@ public static class MemberBodySizeScorecard
                 model.PeReader.GetMethodBody(
                     method.RelativeVirtualAddress);
             int length =
-                body.GetILBytes()?.Length ?? 0;
+                body.GetILReader().Length;
             largest = Math.Max(largest, length);
             bodies++;
         }
@@ -1095,6 +1115,7 @@ public static class MemberBodySizeScorecard
                 failed.Contains(column.Name);
             cells.Add(
                 new(
+                    asset.Index,
                     asset.Scenario.Name,
                     closing,
                     column.Name,
@@ -1191,36 +1212,47 @@ public static class MemberBodySizeScorecard
         return values[values.Count / 2];
     }
 
-    static double GeometricRatio(
+    static RatioStatistics RatioSummary(
         IReadOnlyList<MemberBodySizeScorecardCell> cells,
         ScorecardClosing closing,
         string column)
     {
         double logarithms = 0;
-        int count = 0;
-        foreach (IGrouping<string, MemberBodySizeScorecardCell>
+        var ratios = new List<double>();
+        foreach (IGrouping<int, MemberBodySizeScorecardCell>
             scenario in cells
                 .Where(cell =>
                     cell.Closing == closing
                     && !cell.WindowFailed)
                 .GroupBy(static cell =>
-                    cell.Scenario))
+                    cell.ScenarioIndex))
         {
             double oracle =
                 scenario.Single(static cell =>
                         cell.Column == "NLinq")
                     .Microseconds;
-            logarithms += Math.Log(
+            double ratio =
                 scenario.Single(cell =>
-                        cell.Column == column)
-                    .Microseconds
-                / oracle);
-            count++;
+                    cell.Column == column)
+                .Microseconds
+                / oracle;
+            logarithms += Math.Log(ratio);
+            ratios.Add(ratio);
         }
-        return count == 0
-            ? double.NaN
-            : Math.Exp(logarithms / count);
+        return ratios.Count == 0
+            ? new(double.NaN, double.NaN, double.NaN)
+            : new(
+                Math.Exp(logarithms / ratios.Count),
+                ratios.Min(),
+                ratios.Max());
     }
+
+    static string FormatRatio(
+        RatioStatistics ratio) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"{ratio.GeometricMean:F2}x "
+            + $"({ratio.Minimum:F2}-{ratio.Maximum:F2}x)");
 
     static void ValidateTiming(
         MemberBodySizeScorecardTiming timing)
@@ -1368,6 +1400,11 @@ public static class MemberBodySizeScorecard
         double Microseconds,
         long AllocatedBytes);
 
+    readonly record struct RatioStatistics(
+        double GeometricMean,
+        double Minimum,
+        double Maximum);
+
     readonly struct ProjectRow(Model model)
         : IFunc<
             BodyGroup,
@@ -1413,6 +1450,7 @@ public static class MemberBodySizeScorecard
         readonly PEReader _peReader;
 
         Asset(
+            int index,
             MemberBodySizeScorecardScenario scenario,
             ImmutableArray<byte> image,
             PEReader peReader,
@@ -1420,6 +1458,7 @@ public static class MemberBodySizeScorecard
             ImmutableHashSet<int> scope,
             PreparedPopulation population)
         {
+            Index = index;
             Scenario = scenario;
             _peReader = peReader;
             Model = new(
@@ -1432,13 +1471,16 @@ public static class MemberBodySizeScorecard
                 reader.MethodDefinitions.Count);
         }
 
+        internal int Index { get; }
+
         internal MemberBodySizeScorecardScenario Scenario
         { get; }
 
         internal Model Model { get; }
 
         internal static Asset Open(
-            MemberBodySizeScorecardScenario scenario)
+            MemberBodySizeScorecardScenario scenario,
+            int index = 0)
         {
             byte[] bytes =
                 File.ReadAllBytes(scenario.AssemblyPath);
@@ -1459,6 +1501,7 @@ public static class MemberBodySizeScorecard
                         scope,
                         reader.MethodDefinitions.Count);
                 return new(
+                    index,
                     scenario,
                     image,
                     peReader,
@@ -1504,10 +1547,14 @@ public static class MemberBodySizeScorecard
             var assets = new List<Asset>();
             try
             {
-                foreach (MemberBodySizeScorecardScenario scenario
-                    in scenarios)
+                for (int index = 0;
+                    index < scenarios.Count;
+                    index++)
                 {
-                    assets.Add(Asset.Open(scenario));
+                    assets.Add(
+                        Asset.Open(
+                            scenarios[index],
+                            index));
                 }
                 return new(assets);
             }
