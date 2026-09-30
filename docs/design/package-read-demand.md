@@ -13,8 +13,9 @@ The [PackageHouse semantic content-demand
 contract](package-house-semantic-content-demand.md) owns the reusable
 package/TFM/root-family narrowing and whether cache, manifest,
 archive-directory, ranged, or complete acquisition satisfies a query. This
-document owns only entry expansion after the House resolves that narrowing and
-selects ranged execution. Commands and hosts do not select an access mode.
+document owns only entry expansion after the House resolves that narrowing
+against one validated ZIP central-directory snapshot and selects ranged
+execution. Commands and hosts do not select an access mode.
 
 The claim has five parts:
 

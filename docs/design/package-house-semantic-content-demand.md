@@ -82,6 +82,44 @@ instruction, source URL, or fallback preference. Network permission, source
 authorization, transfer limits, cache capacity, and operation deadlines remain
 host-supplied capabilities and policy.
 
+## ZIP central-directory snapshot
+
+Except for a nuspec request satisfied directly by the authorized source,
+archive-backed content planning begins from one immutable, validated ZIP
+central-directory snapshot. The archive reader owns its construction and ZIP
+validation. PackageHouse retains its exact identity and composes its evidence;
+it does not independently parse ZIP structures.
+
+The snapshot is the singular basis for:
+
+- the package-wide entry inventory;
+- TFM-wide and ordered-root narrowing;
+- exact-file existence and ambiguity checks;
+- library candidate paths, namesake evidence, and alphabetical ordering;
+- the detached File List terminal;
+- entry offsets, compressed and expanded lengths, and compression facts used
+  by ranged-entry planning; and
+- determining which entries already exist in the entry cache.
+
+PackageHouse resolves the narrowing once against that snapshot. Every terminal
+in the query consumes the resulting entry space and the same narrowing
+receipt. A terminal cannot rescan the archive, construct a second path
+inventory, or resolve root preference independently.
+
+Namesake evidence and alphabetical fallback require only directory paths.
+Namespace selection opens candidate assemblies from the narrowed space in
+deterministic alphabetical order and stops at the first exact match. If
+namespace evidence for an earlier candidate cannot be completed, the query
+fails visibly because the House cannot prove that a later candidate is the
+first match.
+
+A complete archive transfer does not bypass the snapshot contract. Its
+directory is validated into the same evidence shape before terminals execute.
+A warm operation may consume an owner-issued cached snapshot. The semantic
+result does not disclose whether the snapshot came from a directory-range read,
+a complete payload, or the directory cache; the transfer receipt records that
+execution path.
+
 ## File-list evidence
 
 A query may ask for the complete detached file list together with another
@@ -188,6 +226,7 @@ One settlement preserves:
 
 - the exact package identity or version demand;
 - the exact semantic content query;
+- the exact admitted central-directory snapshot identity;
 - one narrowing receipt shared by every terminal result;
 - the source decision and authority;
 - the requested target and root-family preference chain, plus the selected
@@ -269,6 +308,7 @@ All implementation gates run in Release.
 | Package-wide file list | Every admitted path appears once; no expanded entry content is opened. |
 | TFM-wide file list | Every path in the owner-issued target scope appears once; unrelated target paths do not appear. |
 | Ordered root preference | The first applicable family is selected from an arbitrary-length chain; a later family cannot contribute entries or libraries. |
+| Shared directory evidence | File List, exact-file admission, library candidates, and range spans derive from one validated snapshot and one narrowing receipt. |
 | Exact files | Every returned entry lies in the narrowed space and is complete and validated; an outside, missing, or ambiguous path fails visibly. |
 | File list plus selected library | One narrowing receipt governs the complete narrowed file list and one complete selected assembly entry. |
 | Namespace in several libraries | The alphabetically first exact namespace match wins. |
@@ -295,6 +335,7 @@ This design does not:
   transfer receipt issuance;
 - make PackageHouse a Metadata decoder or infer namespace facts from file
   names;
+- make PackageHouse a ZIP parser or permit terminal-specific archive scans;
 - require every demand to use ranged acquisition;
 - promise that a file list means every listed entry is materialized;
 - permit different terminals in one query to resolve different narrowed spaces;
