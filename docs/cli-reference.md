@@ -179,6 +179,13 @@ formats keep Type rows only and note omitted member matches; `--count` rejects
 an answer that includes them. Use `find .AppendFormat` for member rows in
 every format.
 
+For one Type or Member pattern, `-n N` is also Find's maximum direct-hit
+budget. Find stops after the first `N` source-ordered matches and does not
+acquire later sources. A direct miss still completes the namespace, prefix,
+similarity, or broadened-member work needed to determine its answer.
+Multi-pattern requests, `--tail`, and row windows remain exhaustive before
+selection.
+
 ### Library namespace Type listings
 
 An exact Library can list its public Type declarations from one exact

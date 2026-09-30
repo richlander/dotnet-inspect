@@ -170,11 +170,12 @@ ordering.
 Direct candidates are likewise restored to context, member, and declaration
 inventory order before the per-pattern limit is applied.
 
-`FindOptions.Limit` is applied only to classified candidate rows. It is not
-passed to `WorkspaceDeclarationLocatorOptions` and cannot reduce inventory
-reads or retained inventories. Public semantic row selection remains an L2/CLI
-operation after the complete locator result and does not remove upstream
-coverage.
+`FindOptions.Limit` is applied only to classified locator candidate rows. It
+is not passed to `WorkspaceDeclarationLocatorOptions` and cannot reduce
+locator inventory reads or retained inventories. A pure semantic Head plan
+also carries its maximum result count as `FindQueryPlan.ResultLimit`; the CLI
+may use that count at an execution boundary that preserves the same result
+order, but it does not claim reduced locator coverage.
 
 The selected-candidate handoff is an owner-issued
 `TypeFindInspectionTarget`, not a command-display parser. It derives exact
@@ -312,10 +313,13 @@ similarity passes reuse those resolved assembly sets; a result limit still
 acquires sources lazily in established order and stops before later sources.
 The command owns that lifetime across both Type classification and the
 broadened Member tier.
-This slice's result limit is the trusted `FindOptions.Limit` compatibility
-input. CLI semantic row selection, including `-n`, remains post-classification
-until the stacked row-limit-pushdown successor establishes where the first
-presented row is already determined.
+A pure CLI semantic Head plan supplies the same operational limit for one
+pattern. Direct Type or Member matching stops after that many ordered hits,
+including before acquisition of a later source. A miss still reaches the
+complete namespace, prefix, similarity, or broadened classification evidence
+needed to construct its answer. Multi-pattern requests, Tail, and Window do
+not supply an operational limit because their final prefix cannot be inferred
+from one shared collection budget.
 Each admitted assembly executes the same inventory query, and the service
 projects its type name, namespace, full name, kind, library file base name,
 source, and source version into the internal `TypeSearchResult` currency. The
@@ -327,12 +331,11 @@ route reopens assemblies, infers metadata facts from display text, or replaces
 a typed query failure with a candidate.
 
 A non-null collection pattern may be pushed into each inventory scan. With a
-non-tabular single pattern and an active result limit, `FindTypesAsync` selects
-the filtered path: sources stream in the order above and collection stops
-before resolving later sources once the limit is met. Tabular, TSV, and JSONL
-output select the census path even for one pattern. Without the filtered
-early-exit shape, the service collects the full authorized inventory before
-classifying patterns.
+single pattern and an active result limit, `FindTypesAsync` selects the
+filtered path in every output format: sources stream in the order above and
+collection stops before resolving later sources once the limit is met.
+Without the filtered early-exit shape, the service collects the full
+authorized inventory before classifying patterns.
 
 `CollectTypesAsync` is also a compatibility seam for `TypeCommand`,
 `TypeLookupService`, and `TypeFindIfMissResolver`. Those consumers own their

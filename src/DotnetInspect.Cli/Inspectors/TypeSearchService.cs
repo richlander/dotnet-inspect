@@ -1113,36 +1113,43 @@ internal static class TypeSearchService
         bool hasFailures = false;
         void MarkFailure() => hasFailures = true;
         cancellationToken.ThrowIfCancellationRequested();
-        List<TypeSearchResult> allTypes = [];
-        AssemblyContextResult<AssemblyTypeInventory> queryResult =
-            workspace.QueryTypes(options.IncludeAll);
-        foreach (AssemblyContextEntry<AssemblyTypeInventory> entry
-            in queryResult.Assemblies)
-        {
-            AddTypes(
-                allTypes,
-                ["*"],
-                options.TypeFilter,
-                workspace.SourceFor(entry.Subject),
-                entry,
-                logger,
-                static () => false,
-                MarkFailure);
-        }
-        cancellationToken.ThrowIfCancellationRequested();
+        List<TypeSearchResult>? completeInventory = null;
 
         Task<List<TypeSearchResult>> Collect(string? pattern)
         {
-            IEnumerable<TypeSearchResult> selected =
-                pattern is null
-                    ? allTypes
-                    : allTypes.Where(candidate =>
-                        TypeMatcher.MatchesTypeFilter(
-                            candidate.FullName,
-                            pattern));
-            if (pattern is not null && options.Limit is { } limit)
-                selected = selected.Take(limit);
-            return Task.FromResult(selected.ToList());
+            if (pattern is null && completeInventory is not null)
+                return Task.FromResult(completeInventory);
+
+            List<TypeSearchResult> results = [];
+            List<TypeSearchResult>? observedInventory =
+                pattern is null ? null : [];
+            IReadOnlyList<string> searchPatterns =
+                pattern is null ? ["*"] : [pattern];
+            bool ReachedLimit() =>
+                pattern is not null
+                && options.Limit is int limit
+                && results.Count >= limit;
+            bool complete = workspace.RunTypeInventories(
+                options.IncludeAll,
+                entry => AddTypes(
+                    results,
+                    searchPatterns,
+                    options.TypeFilter,
+                    workspace.SourceFor(entry.Subject),
+                    entry,
+                    logger,
+                    ReachedLimit,
+                    MarkFailure,
+                    observedInventory),
+                pattern is not null && options.Limit.HasValue
+                    ? ReachedLimit
+                    : null);
+            if (pattern is null)
+                completeInventory = results;
+            else if (complete)
+                completeInventory = observedInventory;
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(results);
         }
 
         List<TypeFindResult> results =
@@ -1975,7 +1982,8 @@ internal static class TypeSearchService
         AssemblyContextEntry<AssemblyTypeInventory> entry,
         VerboseLogger logger,
         Func<bool> reachedLimit,
-        Action markFailure)
+        Action markFailure,
+        List<TypeSearchResult>? inventory = null)
     {
         switch (entry)
         {
@@ -1984,13 +1992,6 @@ internal static class TypeSearchService
                 foreach (AssemblyTypeInventoryEntry type
                     in available.Value.Types)
                 {
-                    if (!searchPatterns.Any(searchPattern =>
-                            TypeMatcher.MatchesTypeFilter(
-                                type.FullName,
-                                searchPattern)))
-                    {
-                        continue;
-                    }
                     if (typeFilter is not null
                         && !TypeMatcher.MatchesTypeFilter(
                             type.FullName,
@@ -1999,7 +2000,14 @@ internal static class TypeSearchService
                         continue;
                     }
 
-                    results.Add(new TypeSearchResult
+                    bool matches = searchPatterns.Any(searchPattern =>
+                        TypeMatcher.MatchesTypeFilter(
+                            type.FullName,
+                            searchPattern));
+                    if (!matches && inventory is null)
+                        continue;
+
+                    var result = new TypeSearchResult
                     {
                         TypeName = type.TypeName,
                         Namespace = type.Namespace,
@@ -2008,7 +2016,12 @@ internal static class TypeSearchService
                         Assembly = assembly.Library,
                         Source = assembly.Source,
                         SourceVersion = assembly.SourceVersion,
-                    });
+                    };
+                    inventory?.Add(result);
+                    if (!matches)
+                        continue;
+
+                    results.Add(result);
                     if (reachedLimit())
                         break;
                 }

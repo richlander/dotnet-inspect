@@ -71,8 +71,8 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     public bool Members { get; init; }
 
     /// <summary>
-    /// Internal operational limit used by trusted lookup consumers. The
-    /// <c>find</c> CLI does not lower semantic row selection into this value.
+    /// Operational result limit used by trusted lookup consumers and by a
+    /// single-pattern CLI semantic Head plan.
     /// </summary>
     public int? Limit { get; init; }
 

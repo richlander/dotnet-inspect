@@ -171,6 +171,11 @@ Tips:
 
 > Goal: Return only the first N matches from a find search.
 
+For one direct Type or Member pattern, the same count is Find's execution
+budget: once N ordered hits are found, later sources are not acquired. Miss
+classification and non-prefix selection still complete the evidence they
+need.
+
 ### 5a. Using `find -n N`
 
 ```bash

@@ -264,22 +264,48 @@ public static class AssemblyContextTypeInventoryQuery
             bool includeAll = false)
         => AssemblyContextQueryExecutor.Execute(
             group,
-            session =>
-            {
-                ApiSurface surface =
-                    session.ApiSurface(includeAll, typesOnly: true);
-                return new AssemblyTypeInventory(
-                    surface.Types
-                    .Select(
-                        static type =>
-                            new AssemblyTypeInventoryEntry(
-                                type.Name,
-                                type.Namespace,
-                                type.FullName,
-                                type.Kind))
-                    .ToImmutableArray(),
-                    surface.InspectionFailures.ToImmutableArray());
-            });
+            session => Inspect(session, includeAll));
+
+    public static bool ExecuteEach(
+            AssemblyContextGroup group,
+            bool includeAll,
+            Action<AssemblyContextEntry<AssemblyTypeInventory>> consume,
+            Func<bool>? stop = null)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(consume);
+        foreach (AssemblyContextParticipant participant
+            in group.Participants)
+        {
+            if (stop?.Invoke() == true)
+                return false;
+            consume(
+                AssemblyContextQueryExecutor.ExecuteParticipant(
+                    group,
+                    participant,
+                    session => Inspect(session, includeAll)));
+        }
+        return true;
+    }
+
+    private static AssemblyTypeInventory Inspect(
+        AssemblyInspectionSession session,
+        bool includeAll)
+    {
+        ApiSurface surface =
+            session.ApiSurface(includeAll, typesOnly: true);
+        return new AssemblyTypeInventory(
+            surface.Types
+                .Select(
+                    static type =>
+                        new AssemblyTypeInventoryEntry(
+                            type.Name,
+                            type.Namespace,
+                            type.FullName,
+                            type.Kind))
+                .ToImmutableArray(),
+            surface.InspectionFailures.ToImmutableArray());
+    }
 }
 
 /// <summary>Searches member names in every participant.</summary>
@@ -298,20 +324,66 @@ public static class AssemblyContextMemberMatchesQuery
             int? limit = null)
     {
         ArgumentNullException.ThrowIfNull(patterns);
-        return AssemblyContextQueryExecutor.Execute(
-            group,
-            (subject, session) =>
-            {
-                ApiSurface surface = session.ApiSurface(includeAll);
-                return new AssemblyMemberMatches(
-                    MemberSearch.Search(
-                        surface,
+        if (limit is null)
+        {
+            return AssemblyContextQueryExecutor.Execute(
+                group,
+                (subject, session) =>
+                    Inspect(
                         subject.Identity.Name,
+                        session,
                         patterns,
-                        limit)
-                    .ToImmutableArray(),
-                    surface.InspectionFailures.ToImmutableArray());
-            });
+                        includeAll,
+                        limit));
+        }
+
+        var entries =
+            ImmutableArray.CreateBuilder<
+                AssemblyContextEntry<AssemblyMemberMatches>>();
+        int remaining = limit.Value;
+        foreach (AssemblyContextParticipant participant
+            in group.Participants)
+        {
+            if (remaining <= 0)
+                break;
+            AssemblyContextEntry<AssemblyMemberMatches> entry =
+                AssemblyContextQueryExecutor.ExecuteParticipant(
+                    group,
+                    participant,
+                    session =>
+                        Inspect(
+                            participant.Assembly.Identity.Name,
+                            session,
+                            patterns,
+                            includeAll,
+                            remaining));
+            entries.Add(entry);
+            if (entry
+                is AssemblyContextEntry<
+                    AssemblyMemberMatches>.Available available)
+            {
+                remaining -= available.Value.Members.Length;
+            }
+        }
+        return new(entries.ToImmutable());
+    }
+
+    private static AssemblyMemberMatches Inspect(
+        string assemblyName,
+        AssemblyInspectionSession session,
+        IReadOnlyList<string> patterns,
+        bool includeAll,
+        int? limit)
+    {
+        ApiSurface surface = session.ApiSurface(includeAll);
+        return new AssemblyMemberMatches(
+            MemberSearch.Search(
+                surface,
+                assemblyName,
+                patterns,
+                limit)
+            .ToImmutableArray(),
+            surface.InspectionFailures.ToImmutableArray());
     }
 }
 
