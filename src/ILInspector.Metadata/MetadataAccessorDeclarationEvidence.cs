@@ -104,6 +104,68 @@ public enum MetadataAccessorSemanticsRole
     Other,
 }
 
+internal static class MetadataAccessorSemanticsRoleDecoder
+{
+    internal static bool TryDecode(
+        MetadataAccessorDeclarationKind kind,
+        ushort raw,
+        out MetadataAccessorSemanticsRole role)
+    {
+        role = default;
+        return kind switch
+        {
+            MetadataAccessorDeclarationKind.Property =>
+                TryDecodeProperty(raw, out role),
+            MetadataAccessorDeclarationKind.Event =>
+                TryDecodeEvent(raw, out role),
+            _ => false,
+        };
+    }
+
+    static bool TryDecodeProperty(
+        ushort raw,
+        out MetadataAccessorSemanticsRole role)
+    {
+        role = raw switch
+        {
+            (ushort)MethodSemanticsAttributes.Getter =>
+                MetadataAccessorSemanticsRole.Getter,
+            (ushort)MethodSemanticsAttributes.Setter =>
+                MetadataAccessorSemanticsRole.Setter,
+            (ushort)MethodSemanticsAttributes.Other =>
+                MetadataAccessorSemanticsRole.Other,
+            _ => default,
+        };
+        return raw is
+            (ushort)MethodSemanticsAttributes.Getter
+            or (ushort)MethodSemanticsAttributes.Setter
+            or (ushort)MethodSemanticsAttributes.Other;
+    }
+
+    static bool TryDecodeEvent(
+        ushort raw,
+        out MetadataAccessorSemanticsRole role)
+    {
+        role = raw switch
+        {
+            (ushort)MethodSemanticsAttributes.Adder =>
+                MetadataAccessorSemanticsRole.AddOn,
+            (ushort)MethodSemanticsAttributes.Remover =>
+                MetadataAccessorSemanticsRole.RemoveOn,
+            (ushort)MethodSemanticsAttributes.Raiser =>
+                MetadataAccessorSemanticsRole.Fire,
+            (ushort)MethodSemanticsAttributes.Other =>
+                MetadataAccessorSemanticsRole.Other,
+            _ => default,
+        };
+        return raw is
+            (ushort)MethodSemanticsAttributes.Adder
+            or (ushort)MethodSemanticsAttributes.Remover
+            or (ushort)MethodSemanticsAttributes.Raiser
+            or (ushort)MethodSemanticsAttributes.Other;
+    }
+}
+
 public enum MetadataEventTypeCategoryStatus
 {
     ConfirmedDelegate,
@@ -495,7 +557,7 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                     association.RawSemantics);
                 _context.Charge(
                     MetadataOperationDimension.RelationshipEdges);
-                if (!TryDecodeRole(
+                if (!MetadataAccessorSemanticsRoleDecoder.TryDecode(
                         request.Declaration.Kind,
                         association.RawSemantics,
                         out MetadataAccessorSemanticsRole role))
@@ -1680,65 +1742,6 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                     .GetDeclaringType(),
             _ => default,
         };
-
-    static bool TryDecodeRole(
-        MetadataAccessorDeclarationKind kind,
-        ushort raw,
-        out MetadataAccessorSemanticsRole role)
-    {
-        role = default;
-        return kind switch
-        {
-            MetadataAccessorDeclarationKind.Property =>
-                TryDecodePropertyRole(raw, out role),
-            MetadataAccessorDeclarationKind.Event =>
-                TryDecodeEventRole(raw, out role),
-            _ => false,
-        };
-    }
-
-    static bool TryDecodePropertyRole(
-        ushort raw,
-        out MetadataAccessorSemanticsRole role)
-    {
-        role = raw switch
-        {
-            (ushort)MethodSemanticsAttributes.Getter =>
-                MetadataAccessorSemanticsRole.Getter,
-            (ushort)MethodSemanticsAttributes.Setter =>
-                MetadataAccessorSemanticsRole.Setter,
-            (ushort)MethodSemanticsAttributes.Other =>
-                MetadataAccessorSemanticsRole.Other,
-            _ => default,
-        };
-        return raw is
-            (ushort)MethodSemanticsAttributes.Getter
-            or (ushort)MethodSemanticsAttributes.Setter
-            or (ushort)MethodSemanticsAttributes.Other;
-    }
-
-    static bool TryDecodeEventRole(
-        ushort raw,
-        out MetadataAccessorSemanticsRole role)
-    {
-        role = raw switch
-        {
-            (ushort)MethodSemanticsAttributes.Adder =>
-                MetadataAccessorSemanticsRole.AddOn,
-            (ushort)MethodSemanticsAttributes.Remover =>
-                MetadataAccessorSemanticsRole.RemoveOn,
-            (ushort)MethodSemanticsAttributes.Raiser =>
-                MetadataAccessorSemanticsRole.Fire,
-            (ushort)MethodSemanticsAttributes.Other =>
-                MetadataAccessorSemanticsRole.Other,
-            _ => default,
-        };
-        return raw is
-            (ushort)MethodSemanticsAttributes.Adder
-            or (ushort)MethodSemanticsAttributes.Remover
-            or (ushort)MethodSemanticsAttributes.Raiser
-            or (ushort)MethodSemanticsAttributes.Other;
-    }
 
     MetadataAccessorDeclarationResult.Rejected Reject(
         MetadataAccessorDeclarationRequest request,
