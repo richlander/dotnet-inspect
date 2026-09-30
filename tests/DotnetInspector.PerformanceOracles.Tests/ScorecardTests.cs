@@ -410,6 +410,69 @@ public sealed class ScorecardTests
         Assert.All(cells, cell => Assert.Equal(3, cell.RoundMedians.Count));
     }
 
+    [Fact]
+    public void CheckAndMeasure_CanSelectOneClosing()
+    {
+        ScorecardAsset<int[]>[] assets =
+            [new("small", [1, 2, 3, 4])];
+        var oracle =
+            new ScorecardColumn<int[], int>("NLinq", Answer);
+        var planner =
+            new ScorecardColumn<int[], int>("Planner", Answer);
+        ScorecardClosing[] closings = [ScorecardClosing.Rows];
+
+        ScorecardCheck check = Scorecard.Check(
+            assets,
+            oracle,
+            [oracle, planner],
+            Text,
+            closings: closings);
+        IReadOnlyList<ScorecardCell> cells = Scorecard.Measure(
+            assets,
+            [oracle, planner],
+            new(
+                Rounds: 1,
+                Warmup: 0,
+                BudgetMilliseconds: 1,
+                MinSamples: 1,
+                MaxSamples: 1),
+            closings: closings);
+
+        Assert.True(check.Agrees);
+        Assert.Equal(1, check.Compared);
+        Assert.Equal(2, cells.Count);
+        string report =
+            Scorecard.Report(cells, oracle.Name, Shape);
+        Assert.Contains("| Rows |", report);
+        Assert.DoesNotContain("| Count |", report);
+    }
+
+    [Fact]
+    public void CheckAndMeasure_RejectVacuousOrDuplicateClosingSets()
+    {
+        ScorecardAsset<int[]>[] assets = [new("small", [1])];
+        var oracle =
+            new ScorecardColumn<int[], int>("NLinq", Answer);
+
+        Assert.Throws<ArgumentException>(
+            () => Scorecard.Check(
+                assets,
+                oracle,
+                [oracle],
+                Text,
+                closings: []));
+        Assert.Throws<ArgumentException>(
+            () => Scorecard.Measure(
+                assets,
+                [oracle],
+                new(),
+                closings:
+                [
+                    ScorecardClosing.Rows,
+                    ScorecardClosing.Rows,
+                ]));
+    }
+
     static readonly ScorecardShape Shape = new(N: 2, WindowFirst: 2, WindowLast: 4);
 
     // A reference column over System.Linq: the answers every agreeing column must give.

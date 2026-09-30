@@ -67,7 +67,6 @@ public partial class LibraryCommand
         {
             requestedLibraryPath += ".dll";
         }
-        bool pathQualified = requestedLibraryPath.Contains('/');
         if (!TryGetPackageCompileLibrarySelection(
                 requestedLibraryPath,
                 out string? pathTargetFramework))
@@ -82,18 +81,18 @@ public partial class LibraryCommand
             ?? TfmResolver.ExtractTfmFromPath(requestedLibraryPath)
             ?? TraversalTargetFrameworkPolicy
                 .ProductDefaultTargetFramework;
-        string implementationName =
-            Path.GetFileName(requestedLibraryPath);
+        var librarySelector =
+            new PackageLibrarySelector(requestedLibraryPath);
 
         using var stores =
             new DesktopPackageStoreScope("inspect-cli-address");
-        PackageHouseSettlement? settlement;
+        PackageLibraryRealizationResult? library;
         if (target.IsLocalFile)
         {
-            settlement = await RealizeLocalPackageAddressAsync(
+            library = await RealizeLocalPackageAddressAsync(
                     target,
                     targetFramework,
-                    implementationName,
+                    librarySelector,
                     companionDemand,
                     stores,
                     context,
@@ -102,10 +101,10 @@ public partial class LibraryCommand
         }
         else
         {
-            settlement = await RealizeConfiguredPackageAddressAsync(
+            library = await RealizeConfiguredPackageAddressAsync(
                     target,
                     targetFramework,
-                    implementationName,
+                    librarySelector,
                     companionDemand,
                     stores,
                     options,
@@ -114,64 +113,42 @@ public partial class LibraryCommand
                 .ConfigureAwait(false);
         }
 
-        if (settlement is null)
+        if (library is null)
             return 1;
 
-        if (settlement is not PackageHouseSettlement.Acquired acquired
-            || settlement.Result is not PackageHouseResult.Settled
-            || settlement.Result.Evidence.Realization
-                is not PackageHouseRealizationReceipt.Compile realization)
+        if (library is not PackageLibraryRealizationResult.Realized realized)
         {
-            WritePackageHouseFailure(
-                settlement.Result,
-                options.AssemblyName);
-            return 1;
-        }
-
-        PackageHouseLibraryHandoff.Compile[] handoffs =
-        [
-            .. realization.LibraryHandoffs
-                .OfType<PackageHouseLibraryHandoff.Compile>()
-                .Where(candidate =>
-                    pathQualified
-                        ? candidate.Asset.Path.Equals(
-                                requestedLibraryPath,
-                                StringComparison.OrdinalIgnoreCase)
-                            || candidate.ImplementationAsset?.Path.Equals(
-                                requestedLibraryPath,
-                                StringComparison.OrdinalIgnoreCase)
-                                is true
-                        : candidate.Asset.AssemblyName.Equals(
-                                implementationName,
-                                StringComparison.OrdinalIgnoreCase)
-                            || candidate.ImplementationAsset?.AssemblyName
-                                .Equals(
-                                    implementationName,
-                                    StringComparison.OrdinalIgnoreCase)
-                                    is true),
-        ];
-        if (handoffs.Length != 1)
-        {
-            CommandError.Write(
-                handoffs.Length == 0
-                    ? $"Library '{options.AssemblyName}' was not selected "
-                        + $"from package '{target.PackageName}'."
-                    : $"Library '{options.AssemblyName}' selected more than "
-                        + "one package Library.");
+            if (library.Status
+                is PackageLibraryRealizationStatus.Missing
+                    or PackageLibraryRealizationStatus.Ambiguous)
+            {
+                CommandError.Write(
+                    library.Status == PackageLibraryRealizationStatus.Missing
+                        ? $"Library '{options.AssemblyName}' was not selected "
+                            + $"from package '{target.PackageName}'."
+                        : $"Library '{options.AssemblyName}' selected more "
+                            + "than one package Library.");
+            }
+            else
+            {
+                WritePackageHouseFailure(
+                    library.Settlement.Result,
+                    options.AssemblyName);
+            }
             return 1;
         }
 
         InspectionEnvelope<LibraryAddressInspectionOutcome> envelope =
             await PackageLibraryAddressInspection.ExecuteAsync(
-                    acquired,
-                    handoffs[0],
+                    realized.Acquired,
+                    realized.Handoff,
                     intent,
                     cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         return await RenderPackageAddressAsync(
                 envelope,
-                handoffs[0],
-                realization.Selection.TargetFramework,
+                realized.Handoff,
+                realized.Realization.Selection.TargetFramework,
                 options,
                 pipeline,
                 userVerbosity,
@@ -226,11 +203,11 @@ public partial class LibraryCommand
         };
     }
 
-    private static async Task<PackageHouseSettlement?>
+    private static async Task<PackageLibraryRealizationResult?>
         RealizeConfiguredPackageAddressAsync(
         PackageReferenceTarget target,
         string targetFramework,
-        string implementationName,
+        PackageLibrarySelector librarySelector,
         PackageHouseLibraryCompanionDemand companionDemand,
         DesktopPackageStoreScope stores,
         LibraryOptions options,
@@ -239,68 +216,53 @@ public partial class LibraryCommand
     {
         await using DesktopPackageSourceComposition composition =
             context.CreatePackageSourceComposition();
-        ConfiguredPackagePayloadResult result;
-        if (DotnetInspector.Packages.PackageExtractor
-                .TryNormalizePackageVersion(
-                target.Version,
-                out string pinnedVersion))
+        try
         {
-            result = await composition.AcquirePinnedAsync(
-                    target.PackageName,
-                    pinnedVersion,
-                    stores.Get,
-                    options.SourceOptions,
-                    context.Logger.Log,
-                    cancellationToken,
-                    compileTargetContext:
-                        PackageHouseTargetContext.Exact(targetFramework),
-                    access: PackagePayloadAccess.Ranged,
-                    implementationNames: [implementationName],
-                    libraryHandoff:
-                        PackageHouseLibraryHandoffMode.SelectedLibraries,
-                    libraryCompanionDemand: companionDemand)
-                .ConfigureAwait(false);
+            return DotnetInspector.Packages.PackageExtractor
+                    .TryNormalizePackageVersion(
+                    target.Version,
+                    out string pinnedVersion)
+                ? await composition.RealizeLibraryAsync(
+                        PackageSourceCoordinate.Create(
+                            target.PackageName,
+                            pinnedVersion),
+                        targetFramework,
+                        librarySelector,
+                        PackageLibraryRealizationDepth.Implementation,
+                        stores.Get,
+                        options.SourceOptions,
+                        context.Logger.Log,
+                        cancellationToken,
+                        companionDemand: companionDemand)
+                    .ConfigureAwait(false)
+                : await composition.RealizeSelectedLibraryAsync(
+                        target.PackageName,
+                        string.IsNullOrWhiteSpace(target.Version)
+                            ? null
+                            : target.Version,
+                        targetFramework,
+                        librarySelector,
+                        PackageLibraryRealizationDepth.Implementation,
+                        stores.Get,
+                        options.SourceOptions,
+                        context.Logger.Log,
+                        options.IncludePrerelease,
+                        cancellationToken: cancellationToken,
+                        companionDemand: companionDemand)
+                    .ConfigureAwait(false);
         }
-        else
+        catch (ArgumentException failure)
         {
-            result = await composition.AcquireSelectedAsync(
-                    target.PackageName,
-                    string.IsNullOrWhiteSpace(target.Version)
-                        ? null
-                        : target.Version,
-                    stores.Get,
-                    options.SourceOptions,
-                    context.Logger.Log,
-                    options.IncludePrerelease,
-                    cancellationToken: cancellationToken,
-                    compileTargetContext:
-                        PackageHouseTargetContext.Exact(targetFramework),
-                    access: PackagePayloadAccess.Ranged,
-                    implementationNames: [implementationName],
-                    libraryHandoff:
-                        PackageHouseLibraryHandoffMode.SelectedLibraries,
-                    libraryCompanionDemand: companionDemand)
-                .ConfigureAwait(false);
-        }
-
-        if (result.HouseSettlement is { } settlement)
-            return settlement;
-
-        foreach (PackageAuthorityFailure failure in result.Failures)
             CommandError.Write(failure.Message);
-        if (result.Failures.Count == 0)
-        {
-            CommandError.Write(
-                "PackageHouse payload acquisition returned no settlement.");
+            return null;
         }
-        return null;
     }
 
-    private static async Task<PackageHouseSettlement?>
+    private static async Task<PackageLibraryRealizationResult?>
         RealizeLocalPackageAddressAsync(
         PackageReferenceTarget target,
         string targetFramework,
-        string implementationName,
+        PackageLibrarySelector librarySelector,
         PackageHouseLibraryCompanionDemand companionDemand,
         DesktopPackageStoreScope stores,
         CommandContext context,
@@ -350,16 +312,13 @@ public partial class LibraryCommand
             PackageHouseOperationProfile.Realize,
             fetch.RequestTimeout,
             fetch.OperationTimeout);
-        var request = new PackageHouseRequest(
+        var request = new PackageLibraryRealizationRequest(
             new PackageHouseDemand.Exact(available.Coordinate),
+            targetFramework,
+            librarySelector,
+            PackageLibraryRealizationDepth.Implementation,
             operation,
-            PackageHouseTargetContext.Exact(targetFramework),
-            PackageHouseAssetSelectionKind.Compile,
-            PackageHouseLibraryHandoffMode.SelectedLibraries,
-            assetDemand:
-                PackageAssetDemand.SurfaceAndImplementation,
-            implementationNames: [implementationName],
-            libraryCompanionDemand: companionDemand);
+            companionDemand);
         await using PackageSourceSettlementLease sourceLease =
             PackageSourceSettlementService.IssueLease(
                 authority =>
@@ -374,20 +333,18 @@ public partial class LibraryCommand
                 cancellationToken,
                 operation.RequestTimeout,
                 operation.OperationTimeout);
-        var house = new PackageHouse(
-            new SingleAddressSourceAuthorization(
-                available.Coordinate.PackageId,
-                PackageSourceAuthorization.Authorize(
-                    source,
-                    client.Source.Association)),
-            new PackagePayloadAcquisitionPlan(
-                stores.Get,
-                log: context.Logger.Log,
-                access: PackagePayloadAccess.Ranged),
-            context.Logger.Log);
-        return await house.ExecuteAsync(
+        return await PackageLibraryRealization.ExecuteAsync(
                 request,
-                sourceOperation).ConfigureAwait(false);
+                new SingleAddressSourceAuthorization(
+                    available.Coordinate.PackageId,
+                    PackageSourceAuthorization.Authorize(
+                        source,
+                        client.Source.Association)),
+                new PackageLibraryRealizationPlan(
+                    stores.Get,
+                    log: context.Logger.Log),
+                sourceOperation)
+            .ConfigureAwait(false);
     }
 
     private static LibraryAddressPopulationRecord ConvertAddressRecord(

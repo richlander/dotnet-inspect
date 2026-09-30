@@ -11,9 +11,9 @@ internal sealed class LambdaRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("generated-type:lambda-holder", "GeneratedCodeIdentity.IsNonCapturingLambdaMethod"),
                 new FactPrimitive("generated-type:display-class", "GeneratedCodeIdentity.IsCapturingLambdaMethod"),
             ],
-            PositiveCoverage: "LambdaRaisingPassTests non-capturing, capturing, non-capturing local-bodied, and parameter-capturing local-bodied fixtures",
+            PositiveCoverage: "LambdaRaisingPassTests non-capturing, capturing, nested-lambda, captured-local materialization, non-capturing local-bodied, and parameter-capturing local-bodied fixtures",
             AdversarialCoverage: "LambdaRaisingPassTests generated-name lookalike without metadata and outer-local capturing local-bodied guard",
-            MissingDiscriminator: "outer-local capturing local-bound bodies need additional closure/state facts"),
+            MissingDiscriminator: "outer-local capturing bodies with their own local storage need additional closure/state facts"),
 
         new(
             new LoweringFactKey(LoweringFactRegister.ClosureConversion, nameof(ClosureCoverage.CapturedClosure)),
@@ -22,7 +22,7 @@ internal sealed class LambdaRecoveryFacts : ILoweringFactProvider
                 new FactPrimitive("generated-type:display-class", "GeneratedCodeIdentity.IsCapturingLambdaMethod"),
                 new FactPrimitive("place.re-evaluable", "PlaceIdentity same-place atoms for safe environment substitution"),
             ],
-            PositiveCoverage: "LambdaRaisingPassTests folded captures, local display-class environments, shared captures, and parameter-capturing local-bodied fixtures",
+            PositiveCoverage: "LambdaRaisingPassTests folded captures, local display-class environments, captured-local materialization, shared captures, and parameter-capturing local-bodied fixtures",
             AdversarialCoverage: "LambdaRaisingPassTests guards for unsupported outer-local local-bodied and generated-name lookalike forms",
             MissingDiscriminator: "nested display-class environments and display classes captured by local functions remain owed"),
 
