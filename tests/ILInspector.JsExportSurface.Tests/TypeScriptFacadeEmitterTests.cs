@@ -181,8 +181,8 @@ public sealed class TypeScriptFacadeEmitterTests
         Assert.Equal(
             JsonWireDirection.Both,
             surface.WireDirections[envelope]);
-        DtsEmitter.WireDeclarationPlan plan =
-            DtsEmitter.CreateWireDeclarationPlan(surface);
+        JsonWireDeclarationPlan plan =
+            JsonWireDeclarationPlan.Create(surface);
         Assert.Equal(
             2,
             plan.Declarations.Count(declaration =>
