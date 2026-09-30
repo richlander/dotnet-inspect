@@ -327,13 +327,18 @@ test("uploaded Library method family renders owner-backed receiver kinds", async
   await expect(page.locator(".member-surface-list"))
     .toContainText("public extension void Run(Example.Widget value)");
   await expect(page.locator("html")).toHaveAttribute(
-    "data-uploaded-library-member-group-document-request",
+    "data-uploaded-type-member-population-request",
     JSON.stringify([
       "Uploaded.Library.dll",
       4,
       "Example.Widget",
-      "Run",
+      "csharp",
+      "public",
     ]),
+  );
+  await expect(page.locator("html")).not.toHaveAttribute(
+    "data-uploaded-library-member-group-document-request",
+    /.+/,
   );
 });
 

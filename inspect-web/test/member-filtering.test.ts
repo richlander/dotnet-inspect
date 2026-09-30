@@ -166,7 +166,7 @@ const groups = [
   },
 ];
 
-test("member filters compose on one matching overload", () => {
+test("member filters compose locally after managed accessibility selection", () => {
   const methodGroup = groups[0];
   assert.ok(methodGroup);
   assert.equal(memberGroupMatches(methodGroup, {
@@ -181,7 +181,7 @@ test("member filters compose on one matching overload", () => {
     accessibility: "protected",
     trait: "isStatic",
     query: "",
-  }), false);
+  }), true);
 });
 
 test("member search covers names and signatures", () => {

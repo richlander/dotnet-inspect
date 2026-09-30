@@ -235,6 +235,123 @@ public sealed class LibraryApiSurfaceInspectionTests
     }
 
     [Fact]
+    public async Task TypeMemberPopulation_UsesTheExactLibrary()
+    {
+        byte[] bytes = await RealSystemTextJsonAsync();
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreateAsync([bytes]);
+        await using OwnedLibrary library =
+            OwnedLibrary.Create(
+                artifacts,
+                artifactIndex: 0,
+                Identity(bytes));
+        using LibraryOperationLease operation = library.IssueOperation();
+
+        LibraryTypeMemberPopulationInspectionOutcome.Completed completed =
+            Assert.IsType<
+                LibraryTypeMemberPopulationInspectionOutcome.Completed>(
+                LibraryTypeMemberPopulationInspection.Execute(
+                    PopulationRequest(library.Reference),
+                    operation,
+                    TestContext.Current.CancellationToken));
+        MetadataTypeMemberPopulation population = Assert.IsType<
+                MetadataTypeMemberPopulationOutcome.Available>(
+                completed.Population)
+            .Population;
+
+        Assert.Equal(16, population.Composition.Public);
+        Assert.Equal(
+            population.Composition.Public,
+            population.Groups.Sum(group => group.Members.Length));
+    }
+
+    [Fact]
+    public async Task TypeMemberPopulation_RejectsForeignLease()
+    {
+        byte[] bytes = await RealSystemTextJsonAsync();
+        ManagedMetadataIdentity.Assembly identity = Identity(bytes);
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreateAsync([bytes, bytes]);
+        await using OwnedLibrary requested =
+            OwnedLibrary.Create(artifacts, artifactIndex: 0, identity);
+        await using OwnedLibrary foreign =
+            OwnedLibrary.Create(artifacts, artifactIndex: 1, identity);
+        using LibraryOperationLease operation = foreign.IssueOperation();
+
+        LibraryTypeMemberPopulationInspectionOutcome.Rejected rejected =
+            Assert.IsType<
+                LibraryTypeMemberPopulationInspectionOutcome.Rejected>(
+                LibraryTypeMemberPopulationInspection.Execute(
+                    PopulationRequest(requested.Reference),
+                    operation,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            LibraryTypeMemberPopulationInspectionRejection
+                .LeaseReferenceMismatch,
+            rejected.Reason);
+    }
+
+    [Fact]
+    public async Task TypeMemberPopulation_RejectsIdentityMismatch()
+    {
+        byte[] bytes = await RealSystemTextJsonAsync();
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreateAsync([bytes]);
+        var wrongIdentity = new ManagedMetadataIdentity.Assembly(
+            new AssemblyReferenceIdentity(
+                "System.Text.Json",
+                new Version(99, 0, 0, 0),
+                Culture: null,
+                PublicKeyToken: null));
+        await using OwnedLibrary library =
+            OwnedLibrary.Create(
+                artifacts,
+                artifactIndex: 0,
+                wrongIdentity);
+        using LibraryOperationLease operation = library.IssueOperation();
+
+        LibraryTypeMemberPopulationInspectionOutcome.Rejected rejected =
+            Assert.IsType<
+                LibraryTypeMemberPopulationInspectionOutcome.Rejected>(
+                LibraryTypeMemberPopulationInspection.Execute(
+                    PopulationRequest(library.Reference),
+                    operation,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            LibraryTypeMemberPopulationInspectionRejection
+                .AssemblyIdentityMismatch,
+            rejected.Reason);
+    }
+
+    [Fact]
+    public async Task TypeMemberPopulation_ReportsMalformedMetadata()
+    {
+        byte[] realBytes = await RealSystemTextJsonAsync();
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreateAsync([[1, 2, 3]]);
+        await using OwnedLibrary library =
+            OwnedLibrary.Create(
+                artifacts,
+                artifactIndex: 0,
+                Identity(realBytes));
+        using LibraryOperationLease operation = library.IssueOperation();
+
+        LibraryTypeMemberPopulationInspectionOutcome.Failed failed =
+            Assert.IsType<
+                LibraryTypeMemberPopulationInspectionOutcome.Failed>(
+                LibraryTypeMemberPopulationInspection.Execute(
+                    PopulationRequest(library.Reference),
+                    operation,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            LibraryTypeMemberPopulationInspectionFailure.MalformedMetadata,
+            failed.Reason);
+    }
+
+    [Fact]
     public async Task CancellationBeforeBorrow_StopsInspection()
     {
         byte[] bytes = await RealSystemTextJsonAsync();
@@ -262,6 +379,24 @@ public sealed class LibraryApiSurfaceInspectionTests
             library,
             ApiSurfaceExtractionScope.Public,
             s_bounds);
+
+    private static LibraryTypeMemberPopulationInspectionRequest
+        PopulationRequest(LibraryReference library) =>
+        new(
+            library,
+            new(
+                Name("System.Text.Json", "JsonDocument"),
+                MetadataMemberSpelling.CSharp,
+                includeHidden: false,
+                MetadataMethodAccessibilityFilter.Public),
+            s_bounds);
+
+    private static MetadataTypeDefinitionName Name(
+        string @namespace,
+        string name) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(@namespace, [name]))
+            .Name;
 
     private static LibraryApiSurfaceCorrespondence Completed(
         LibraryApiSurfaceInspectionOutcome outcome) =>
