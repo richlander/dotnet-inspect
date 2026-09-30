@@ -4,8 +4,9 @@
 
 This document is the normative design for **Contextual Resource Explanation**,
 the composition behind top-level `explain` dispatch, command-local `--explain`,
-and the reusable `--references` projection proposed by
-[#8148](https://github.com/richlander/dotnet-inspect/issues/8148).
+the reusable `--references` projection proposed by
+[#8148](https://github.com/richlander/dotnet-inspect/issues/8148), and the
+compact related-gesture `-T` projection.
 
 The composition is designed but not implemented. Product-resource explanation
 for the complete Library structural domain is already implemented by
@@ -16,6 +17,10 @@ identity remains owned and staged by
 This document does not complete either adjacent adoption. It fixes the
 operation boundary and handoffs so each owner can land independently without
 inventing a second contextual-explanation path.
+
+The existing `--tips` alias and valued tip levels remain current product
+behavior until one implementation slice atomically adopts the replacement
+contract and updates Progressive Disclosure, CLI reference, and tests.
 
 ## Owner and exact claim
 
@@ -28,9 +33,14 @@ inventing a second contextual-explanation path.
 > inspection references already issued for selected semantic rows in that
 > selected order. For the top-level `explain` facade, distinguish an exact
 > product-resource path, reusable inspection reference, or capability-search
-> text by syntax before dispatch. Direct explanation, facade dispatch, and
-> reference projection preserve each selected owner's Content and visible
-> failure outcomes without fallback.
+> text by syntax before dispatch. When a host explicitly requests related
+> gestures, join owner-issued related-operation affordances to that host's
+> bindings and resolve a deterministic bounded projection. Direct explanation,
+> facade dispatch, reference projection, and related-gesture projection
+> preserve each selected owner's Content and visible failure outcomes without
+> fallback; without the explicit gesture request, ordinary option parsing is
+> the only related-gesture cost and no gesture registry, affordance, or host
+> binding is realized for that invocation.
 
 This owner defines:
 
@@ -40,14 +50,18 @@ This owner defines:
   references, and capability-search text;
 - the command-level and exact-subject meanings of `--explain`;
 - the row-preserving meaning of `--references`;
+- the distinction between owner-issued related operations and host-issued
+  gestures;
+- explicit, lazy, bounded related-gesture projection;
 - the typed handoff sequence among command resolution, adjacent explanation
-  owners, row selection, and presentation;
+  owners, host bindings, row selection, and presentation;
 - operation admission, cardinality, and failure behavior; and
 - the staged CLI and Browser/Wasm adoption path.
 
 It does not define product-resource paths, subject or occurrence identity,
 reference syntax, capability-search matching or Content, acquisition policy,
-row-selection semantics, explanation Content, or presentation formats.
+row-selection semantics, explanation Content, host command syntax, gesture
+ranking policy, or presentation formats.
 
 ## Product role
 
@@ -102,6 +116,47 @@ The shared facade is convenient; the operations remain distinct. Search never
 turns its highest-ranked candidate into an explanation without an explicit
 exact-path handoff.
 
+Related gestures provide a compact continuation when a user does not need the
+complete explanation:
+
+```console
+dotnet-inspect member JsonSerializer --package System.Text.Json -T
+```
+
+`-T` is a zero-arity, short-only explicit gesture. It projects a small
+deterministic set of applicable CLI invocations to `stderr` after successful
+ordinary output. There is no `--tips` alias and no quiet, minimal, or detailed
+tip level. The complete semantic relationship set remains available through
+contextual explanation rather than a second verbosity scale.
+
+The absence of `-T` is also a contract. Outside ordinary option parsing, it
+does not realize or enumerate the gesture registry, resolve affordances,
+evaluate recommendation-specific result facts, construct command arguments,
+rank gestures, or render a related-gesture block.
+
+### Why `-T` composes with ordinary output
+
+`-D` and `-Q` are terminal metadata operations. Their requested Content is the
+structural or query-capability description itself, so they replace ordinary
+inspection output without first producing the inspected resource.
+
+`-T` asks a different question: which host gestures are useful after this
+successful interaction with this exact command resource, resolved subject, and
+available typed result facts? Replacing ordinary output would either hide the
+resource that gives those gestures context or execute its producers while
+discarding the result. `-T` therefore composes the ordinary resource and its
+applicable next gestures in one invocation. The ordinary Content remains on
+`stdout`; the CLI host projection remains on `stderr`.
+
+This is intentionally HATEOAS-like: the current resource and applicable
+transitions are available together rather than requiring a second discovery
+invocation. It is not a claim of REST or hypermedia-protocol conformance.
+The stderr gesture block is not host-neutral Content, a portable link relation,
+or part of `InspectionEnvelope<TContent>`. Contextual explanation retains the
+typed semantic affordances; each host independently binds and presents them.
+Here *one-shot* means one invocation and one exact resolved context, not one
+combined output stream or universal representation.
+
 ## Basis and deliberate difference
 
 `kubectl` provides nearby but incomplete precedents:
@@ -117,6 +172,19 @@ dotnet-inspect deliberately joins those experiences. An owner-issued reusable
 reference must be accepted unchanged by `explain`, while `--explain` avoids the
 handoff entirely when the current command already holds the exact typed
 subject.
+
+Two other systems inform the related-gesture boundary:
+
+| Precedent | Adopted idea | Deliberate difference |
+| --- | --- | --- |
+| [REST hypermedia](https://ics.uci.edu/~fielding/pubs/dissertation/rest_arch_style.htm#sec_5_1_5) | A representation exposes relations or transitions applicable to the current resource, allowing the interaction to continue from that state. | `-T` is an explicit CLI host projection on `stderr`; it does not place CLI commands in host-neutral Content, define a universal link-relation vocabulary, or claim REST conformance. |
+| [Language Server Protocol](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) code actions, code lenses, and symbol hierarchies | Providers associate typed relationships or applicable actions with exact context; clients choose how to present and invoke them, and may resolve expensive detail lazily. | A dotnet-inspect subject owner issues operation affordances rather than CLI command identifiers. Each host binds those affordances independently. |
+| [PowerShell `Get-Command -ParameterType`](https://learn.microsoft.com/powershell/module/microsoft.powershell.core/get-command) and typed pipelines | Commands can be discovered from the subject type they accept instead of a hand-maintained help list. | Contextual explanation preserves the exact command resource or resolved subject and may use already-computed success facts; CLR type compatibility alone does not create a relationship. |
+
+Dependency explainers such as `npm explain`, `cargo tree`, and
+`nix why-depends` demonstrate navigable subject relationships, but do not
+provide the host-binding separation or contextual action ranking this
+composition requires.
 
 This design also follows the existing dotnet-inspect projection split:
 
@@ -140,7 +208,8 @@ row predicate, presentation format, destination, or decoration modifier.
 | Reusable Inspection Reference ([#7916](https://github.com/richlander/dotnet-inspect/issues/7916)) | Reference identity, qualification, shell-safe spelling, parsing, occurrence semantics, and the affordance descriptor used for subject explanation |
 | [Inspection Subject Navigation](inspection-subject-navigation.md) | Workspace-rooted structural subject identity and routes where a Workspace-backed command consumes those values |
 | [Output Shapes](output-shapes.md) | Semantic row selection, scalar/list projection boundaries, structured projection, presentation, and output destination |
-| Host | CLI option lowering or Browser interaction, presentation selection, and destination handling |
+| Command or subject owner | Related-operation affordance identity, relationship meaning, and any owner-issued availability or failure outcome |
+| Host | CLI option lowering or Browser interaction, affordance-to-gesture binding, invocation syntax, applicability refinement from already-available context, ordering preference, presentation selection, and destination handling |
 
 The composition consumes those contracts without widening them:
 
@@ -208,6 +277,96 @@ subject, including its accepted operations and other affordances. This
 composition selects and invokes that operation; it does not define the
 affordance vocabulary or add subject facts to the installed-capability
 `ResourceExplanationDocument`.
+
+### Related operations and host gestures
+
+A **related-operation affordance** is an owner-issued typed relationship from
+one command resource or exact subject to an operation that can consume or
+navigate from it. The relationship meaning and any owner-issued unavailable or
+failed outcome remain with that command or subject owner.
+
+A **host gesture binding** is a host-owned association from one exact
+affordance identity to one host interaction. A CLI binding owns command syntax,
+argument construction, a concise purpose, applicability refinement, and a
+declarative ordering preference. A Browser binding may instead own a link,
+button, route, or other interaction. Equal display text, command names,
+argument shapes, or accepted CLR types never create a binding.
+
+The join currency is the exact owner-issued affordance identity. The
+composition does not derive it from the current parser command, rendered
+output, a help entry, a command string, or a subject's display name. An
+affordance without a binding remains explainable but produces no gesture for
+that host. A binding without its exact affordance is invalid registration
+rather than a speculative recommendation.
+
+Related operations and likely next gestures are intentionally different:
+
+- the command or subject owner declares which operations are related and why;
+- the host decides which of its bound gestures are applicable and useful in
+  the current interaction; and
+- host ranking does not become product or subject semantics.
+
+One affordance may have bindings in several hosts. Those bindings need not use
+equal labels, ordering, or interaction shapes, but they must retain the same
+affordance identity and may not claim a relationship the owner did not issue.
+
+### Lazy related-gesture resolution
+
+Registration declarations are static product composition. A host retains them
+as lazy module or registry inputs; registry realization and per-invocation
+resolution are strictly demand-driven.
+
+Unless `-T` or another explicit host interaction requests related gestures,
+the host does not:
+
+- realize, enumerate, or index the host gesture registry;
+- ask the command or subject owner for related affordances;
+- resolve any host gesture binding;
+- inspect completed result facts for recommendation purposes;
+- construct or quote command arguments;
+- rank gestures; or
+- render related-gesture output.
+
+When `-T` is present, resolution occurs only after the ordinary command
+completes successfully. A binding may consume the exact command resource,
+resolved subject, and typed facts already produced and retained by that
+successful invocation. It may not widen section demand, execute another
+producer, reacquire or reopen a source, parse rendered output, or construct a
+new subject merely to improve a recommendation. If a needed fact is not
+already available, that binding is not applicable to the compact projection.
+
+Command-local or reusable-reference explanation may explicitly resolve the
+subject owner's complete affordance explanation under that owner's contract.
+That explicit explanation work does not weaken the zero-work requirement for
+ordinary invocations without `-T`.
+
+### Ordering and bounds
+
+Each host binding declares an ordering preference. Applicable gestures are
+ordered by that preference and then by stable binding identity, producing a
+deterministic total order independent of registration enumeration or task
+scheduling.
+
+The CLI `-T` projection emits at most three gestures. It does not randomize,
+rotate, or learn ranking from previous invocations. Contextual explanation may
+present the complete bounded affordance set and unavailable reasons; the
+compact `-T` projection emits only currently applicable CLI gestures.
+
+The CLI projects structured command and argument tokens through one
+containment-aware renderer rather than concatenating one shell command string
+inside each registration. The copied presentation is a host gesture, not
+subject identity or a reusable inspection reference.
+
+The CLI lowers the bounded gesture rows through Markout's plain-text path on
+`stderr`. This is one host-specific, single-format projection rather than a
+broad rendering domain. Browser/Wasm binds the shared affordance identities to
+host-native interactions and does not parse or reproduce the CLI rendering.
+
+The host resolves, orders, bounds, contains, and materializes the complete
+gesture block before writing any of it. Candidate resolution, containment, or
+materialization failure therefore cannot leave a plausible partial block on
+`stderr`. Destination-write failure remains governed by the output sink's
+visible failure contract.
 
 ### Explain facade dispatch
 
@@ -364,6 +523,24 @@ commit mechanics remain owned by the output-destination contract.
 `--bare` retains its decoration-only meaning and is not accepted as an alias.
 `--format name` and `-o name` are not introduced.
 
+### `-T`
+
+`-T` is an optional post-success host projection. It does not select sections,
+change semantic rows, alter the command's stdout Content, or enter another
+inspection domain. The CLI writes the bounded related-gesture block to
+`stderr` after successful ordinary or explanation output.
+
+No long alias or value is accepted. `--tips`, `-T:q`, `-T:m`, and `-T:d` are
+invalid input rather than compatibility spellings. Bare `-T` consumes no
+following token; that token retains the command's ordinary positional
+ownership and validation.
+
+A successful command with no applicable binding emits no related-gesture
+block. A host-binding resolution or rendering failure after explicit `-T`
+remains visible and makes the requested invocation non-successful; it does not
+silently degrade to an empty block. A failed ordinary command never resolves
+or emits related gestures.
+
 ## Handoff invariants
 
 ### Direct handoff
@@ -425,6 +602,9 @@ Every unavailable boundary remains visible:
 | Subject explanation fails | Return the exact typed failure and no success-shaped empty Document |
 | Selected row set has no reference projection | Reject `--references` before stdout |
 | One selected row cannot produce its required reference | Fail the complete projection with no partial list |
+| `-T` is absent | Outside ordinary option parsing, do not realize or enumerate the gesture registry or perform affordance, binding, ranking, argument-construction, or gesture-rendering work |
+| Successful command has no applicable CLI binding | Preserve success and emit no related-gesture block |
+| Explicit `-T` binding resolution or rendering fails | Report the exact failure and make the invocation non-successful; do not emit a plausible partial or empty success |
 | Reusable reference cannot be parsed or reopened | `explain` returns the reference owner's exact invalid, unavailable, or failed outcome |
 | Capability-search text has no matching resource | Return the complete empty `CapabilityCatalogSearchDocument` |
 | Capability search fails or is incomplete | Return its exact typed failure; do not invoke either exact explanation operation |
@@ -449,6 +629,18 @@ dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 \
   Serialize:1 --explain
 ```
 
+The same subject can request a compact continuation without changing stdout:
+
+```console
+dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 \
+  Serialize:1 -T
+```
+
+The bounded projection may include a related Type tree, Member Index, or
+version Diff only when the responsible owners issued those affordances and the
+CLI has applicable bindings using facts already available from the successful
+invocation.
+
 Member Index can select and project reusable references:
 
 ```console
@@ -471,9 +663,17 @@ The pathological neighboring cases are:
 - a generic Type or Member emits one legible shell-safe reference;
 - a row window selects one exact reference without renumbering identity;
 - one selected row lacks an owner-issued reference and no partial list is
-  committed; and
+  committed;
 - a reusable reference reopens after the original Workspace has closed without
-  claiming the old occurrence or artifact realization.
+  claiming the old occurrence or artifact realization;
+- the same invocation without `-T` reaches no affordance or host-binding
+  resolver;
+- a related operation with no CLI binding remains visible in full explanation
+  but absent from `-T`;
+- a CLI binding whose dynamic fact was not already produced remains absent
+  rather than widening command demand; and
+- two equal gesture labels backed by different affordance identities remain
+  distinct.
 
 ## Invariants and evidence
 
@@ -495,6 +695,13 @@ The pathological neighboring cases are:
 | Owner-issued references distinguish overload, declaring Type, generic identity, and source context. | #7916 contract tests plus first-adopter integration cases. |
 | Every emitted reference is accepted unchanged by `explain`. | CLI round-trip tests over authentic package and platform subjects. |
 | CLI and Browser/Wasm consume equal contextual explanation Content for the same typed input. | Shared Content equality or serialization fixture in the Browser adoption slice. |
+| Without `-T`, ordinary command execution does not realize or enumerate the gesture registry and performs no invocation-specific affordance or host-binding resolution, result-fact recommendation analysis, command construction, ranking, or related-gesture rendering. | CLI integration gate with lazy registry construction and every recommendation collaborator replaced by fail-fast fakes, covering representative successful root, Package, Type, Member, Find, and Diff paths without `-T`. |
+| `-T` resolves only after ordinary success and consumes only the exact command resource, resolved subject, and typed facts already retained by that invocation. | First-adopter CLI gate with counting acquisition and producer collaborators, misleading rendered output, and a result fact available only through the retained typed success context. |
+| A CLI binding joins only its exact owner-issued affordance identity and cannot manufacture a relationship from command text, labels, argument shape, or CLR type. | Registry-construction and collision tests with equal labels and accepted types, one missing affordance, and one unbound affordance. |
+| Applicable CLI gestures have deterministic ordering and a fixed maximum of three. | Permuted-registration test covering equal ordering preferences, stable binding-identity tie-breaking, more than three applicable bindings, and repeated equal projections. |
+| Invalid legacy and valued spellings are rejected without stealing positional input. | CLI parser matrix covering `--tips`, `--tips q`, `-T:q`, `-T:m`, and `-T:d`, plus commands where a token following bare `-T` is accepted or rejected solely by ordinary positional grammar. |
+| Explicit `-T` preserves stdout byte-for-byte and writes only the bounded gesture projection to stderr. | Production-host before/after test over the authentic Member scenario, plus structured and raw output representatives. |
+| Explicit binding, containment, materialization, or destination-write failure is visible and cannot become success-shaped empty output. | CLI failure matrix with the first, middle, and final candidate failing during lazy resolution, containment, or materialization before the destination write, asserting empty related-gesture stderr, plus the output sink's existing visible destination-write failure gate. |
 
 Until its named Release gate ships, each property is **unverified**.
 
@@ -505,25 +712,34 @@ replacement, retry, or scheduling semantics.
 ## Production adoption
 
 1. Lock this composition contract and its owner boundaries.
-2. Have Resource Explanation register the Member command-level product
+2. Atomically replace the current `--tips` and level-valued option contract
+   with bare short-only `-T`, updating Progressive Disclosure, CLI reference,
+   and tests in the same implementation slice.
+3. Add the contextual related-affordance composition substrate and lazy
+   host-binding seam with a fail-fast no-demand gate proving that absent `-T`
+   performs no invocation-specific work.
+4. Have Resource Explanation register the Member command-level product
    resource without changing subject acquisition semantics.
-3. Have #7916 define the reusable reference and subject-affordance contracts,
+5. Have #7916 define the reusable reference and subject-affordance contracts,
    including shell-safe generic identity.
-4. Add the host-neutral contextual-explanation selection and handoff
-   substrate, with Member as the bounded first adopter. Advertise Member
-   `--explain` only when both its command-level resource and exact-subject
-   mapping are present.
-5. Add Member Index `--references` as the first row projection and demonstrate
+6. Add the host-neutral contextual-explanation selection and handoff
+   substrate, with Member as the bounded first adopter. Its CLI adoption
+   supplies the first related-gesture bindings and demonstrates that `-T`
+   consumes no new producer or acquisition work. Advertise Member `--explain`
+   only when both its command-level resource and exact-subject mapping are
+   present.
+7. Add Member Index `--references` as the first row projection and demonstrate
    unchanged consumption by `explain`.
-6. Adopt the same composition one command owner at a time for Type, Library,
+8. Adopt the same composition one command owner at a time for Type, Library,
    Package, Findings, occurrences, and clusters.
-7. Add a Browser/Wasm consumer over the shared contextual-explanation input
-   and completed explanation envelope.
-8. Update the shipped skill after production behavior exists so it teaches
+9. Add a Browser/Wasm binding over the shared related-operation affordances
+   and contextual-explanation input without consuming CLI command syntax.
+10. Update the shipped skill after production behavior exists so it teaches
    capability search for unfamiliar text, exact-path explanation, direct
-   `--explain`, and reusable-reference composition.
+   `--explain`, reusable-reference composition, and explicit compact `-T`
+   continuation.
 
-Steps 2 through 8 are separately owned implementation efforts. This document
+Steps 2 through 10 are separately owned implementation efforts. This document
 does not authorize one PR to change all participating owners.
 The separately tracked #8424 adoption adds Capability Catalog Search as a
 third top-level facade branch after its host-neutral operation exists; it does
@@ -549,5 +765,13 @@ This design does not:
 - treat identity as a `--format` value;
 - infer explainability from parser metadata, display labels, rendered output,
   CLR reflection, or observed envelopes;
+- put CLI command identities, syntax, argument templates, or ranking policy in
+  Resource Explanation or a subject owner's affordance descriptor;
+- run acquisition, producers, section demand, or result analysis solely to
+  enrich `-T`;
+- retain `--tips` or valued `-T` spellings solely for compatibility;
+- require equal CLI and Browser gesture presentation or ordering;
+- claim REST or HATEOAS conformance, make the stderr gesture block part of
+  host-neutral Content, or define a portable hypermedia relation protocol;
 - require every command to support contextual explanation or references; or
 - adopt every command family in one implementation change.
