@@ -304,6 +304,7 @@
    <Project Path="tools/AnalysisHarness/AnalysisHarness.csproj" />
     <Project Path="tools/AotProbe/AotProbe.csproj" />
     <Project Path="tools/CSharpPrinter.Benchmarks/CSharpPrinter.Benchmarks.csproj" />
+    <Project Path="tools/MemberBodySizeScorecard/MemberBodySizeScorecard.csproj" />
     <Project Path="tools/MemberGroupScorecard/MemberGroupScorecard.csproj" />
     <Project Path="tools/BodyUseScorecard/BodyUseScorecard.csproj" />
     <Project Path="tools/PackageHouse.CliBenchmarks/PackageHouse.CliBenchmarks.csproj" />
