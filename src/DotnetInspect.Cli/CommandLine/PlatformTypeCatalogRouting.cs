@@ -12,6 +12,7 @@ using DotnetInspector.PlatformQueries;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Installed;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 
 namespace DotnetInspect.Cli.CommandLine;
 
@@ -176,7 +177,8 @@ internal static class PlatformTypeCatalogRouting
             CancellationToken cancellationToken) =>
         await RealizePopulationAsync(
                 dotnetRoot,
-                PlatformFamily.DotNetRuntime,
+                new PlatformLibraryPopulationDeclaration(
+                    PlatformFamily.DotNetRuntime),
                 context,
                 sourceOptions,
                 cancellationToken)
@@ -186,11 +188,12 @@ internal static class PlatformTypeCatalogRouting
         PlatformPopulationArtifactMaterializationOutcome>
         RealizePopulationAsync(
             string? dotnetRoot,
-            PlatformFamily family,
+            PlatformLibraryPopulationDeclaration population,
             CommandContext context,
             NuGetSourceOptions sourceOptions,
             CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(population);
         InstalledPlatformHouseAdapter? installed =
             dotnetRoot is null
                 ? null
@@ -203,7 +206,11 @@ internal static class PlatformTypeCatalogRouting
         PackagePlatformHouseAdapter package =
             packageRuntime.CreateAdapter("cli-platform-type-routing-package");
         PlatformHouseRequest request =
-            CreateRequest(installed, package, family, cancellationToken);
+            CreateRequest(
+                installed,
+                package,
+                population.Family,
+                cancellationToken);
 
         List<PlatformTargetDiscoverySource> discoverySources = [];
         List<PlatformReferencePopulationRealizationSource>

@@ -8,18 +8,13 @@ using DotnetInspector.PlatformHouse;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Inspectors;
 
 internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
 {
-    private static readonly PlatformFamily[] Families =
-    [
-        PlatformFamily.DotNetRuntime,
-        PlatformFamily.AspNetCore,
-    ];
-
     private readonly InspectionWorkspace _workspace;
     private readonly AssemblyContextGroup _group;
     private readonly Dictionary<
@@ -48,15 +43,20 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
 
+        WorkspacePlan plan = FindSourceCollector.CreateWorkspacePlan(options);
+        IReadOnlyList<PlatformLibraryPopulationDeclaration> populations =
+            GetPlatformPopulations(plan);
         string? dotnetRoot =
             PlatformTypeCatalogRouting.FindActiveDotnetRoot();
         var snapshots = new List<PlatformAssemblySnapshot>();
-        foreach (PlatformFamily family in Families)
+        foreach (PlatformLibraryPopulationDeclaration population
+            in populations)
         {
+            PlatformFamily family = population.Family;
             PlatformPopulationArtifactMaterializationOutcome realization =
                 await PlatformTypeCatalogRouting.RealizePopulationAsync(
                         dotnetRoot,
-                        family,
+                        population,
                         context,
                         options.SourceOptions ?? new NuGetSourceOptions(),
                         cancellationToken)
@@ -109,8 +109,7 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
                 "The default platform Workspace realized no Focus assemblies.");
         }
 
-        var workspace = new InspectionWorkspace(
-            FindSourceCollector.CreateWorkspacePlan(options));
+        var workspace = new InspectionWorkspace(plan);
         AssemblyContextGroup? group = null;
         try
         {
@@ -159,6 +158,85 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
             ExceptionDispatchInfo.Capture(operationFailure).Throw();
             throw;
         }
+    }
+
+    internal static IReadOnlyList<PlatformLibraryPopulationDeclaration>
+        GetPlatformPopulations(WorkspacePlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        var populations = new List<PlatformLibraryPopulationDeclaration>();
+        var identities = new HashSet<PlatformLibraryPopulationDeclaration>();
+
+        foreach (WorkspaceRegistration registration in plan.Registrations)
+        {
+            switch (registration)
+            {
+                case WorkspaceRegistration.PackagePrefix:
+                    break;
+                case WorkspaceRegistration.ExactLibrary:
+                    throw new NotSupportedException(
+                        "The implicit Find Workspace plan contains an exact "
+                            + "Library population that Find does not yet "
+                            + "realize.");
+                case WorkspaceRegistration.Ecosystem ecosystem:
+                    if (!ecosystem.Declaration.CorePackages.IsEmpty)
+                    {
+                        throw new NotSupportedException(
+                            $"The implicit Find Workspace ecosystem "
+                                + $"'{ecosystem.Declaration.Id.Value}' contains "
+                                + "core package populations that Find does not "
+                                + "yet realize.");
+                    }
+
+                    foreach (WorkspaceEcosystemPopulationDeclaration declared
+                        in ecosystem.Declaration.Populations)
+                    {
+                        switch (declared)
+                        {
+                            case WorkspaceEcosystemPopulationDeclaration
+                                .PackagePrefix:
+                                break;
+                            case WorkspaceEcosystemPopulationDeclaration
+                                .Platform platform:
+                                if (!identities.Add(platform.Population))
+                                {
+                                    throw new InvalidOperationException(
+                                        "The implicit Find Workspace plan "
+                                            + "declares the same Platform "
+                                            + "population more than once.");
+                                }
+
+                                populations.Add(platform.Population);
+                                break;
+                            case WorkspaceEcosystemPopulationDeclaration
+                                .ExactLibrary:
+                                throw new NotSupportedException(
+                                    $"The implicit Find Workspace ecosystem "
+                                        + $"'{ecosystem.Declaration.Id.Value}' "
+                                        + "contains an exact Library "
+                                        + "population that Find does not yet "
+                                        + "realize.");
+                            default:
+                                throw new InvalidOperationException(
+                                    "Unknown Workspace ecosystem population "
+                                        + "declaration.");
+                        }
+                    }
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown Workspace registration declaration.");
+            }
+        }
+
+        if (populations.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "The implicit Find Workspace plan does not declare any "
+                    + "Platform populations.");
+        }
+
+        return populations;
     }
 
     internal AssemblyContextResult<AssemblyTypeInventory> QueryTypes(

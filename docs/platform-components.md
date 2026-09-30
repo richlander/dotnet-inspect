@@ -25,6 +25,11 @@ version that is not available locally may require acquisition. See
 [version resolution](design/version-resolution.md) for the selection and cache
 rules.
 
+For NativeAOT hosts, installed discovery requires a valid `DOTNET_ROOT`.
+NativeAOT cannot derive a CoreCLR runtime root, and dotnet-inspect intentionally
+does not search `PATH` for an SDK. Without `DOTNET_ROOT`, platform resolution
+uses its package-backed fallback.
+
 ## Using `find` to Discover Types
 
 Explicit search scopes compose. To search the platform and one package:

@@ -76,6 +76,13 @@ package lists are owned by the Ecosystem packs; since package-set retirement
 slice 3 (#8818) the Microsoft.Extensions and ASP.NET Core lists are empty, so
 the default realizes the two platform families alone.
 
+Installed Platform discovery is a host-configured capability, not ambient
+machine probing. CoreCLR hosts may derive the active runtime root from their
+runtime layout; NativeAOT hosts require a valid `DOTNET_ROOT` to authorize
+installed SDK and reference-pack discovery. Without that capability, Find uses
+the package-backed Platform fallback. It intentionally does not search `PATH`
+for another SDK.
+
 ## Gesture model
 
 | Invocation | Workspace searched |
