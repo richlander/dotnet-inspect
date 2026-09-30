@@ -11,7 +11,13 @@ type BenchmarkAnalysis = Pick<
 >;
 type BenchmarkSource = Pick<
   EngineClient["source"],
-  "queryMethodBodyComparison" | "queryMethodBodyComparisonTargets"
+  "queryRetainedMethodBodyComparison"
+  | "queryRetainedMethodBodyComparisonTargets"
+>;
+type BenchmarkCatalog = Pick<
+  EngineClient["catalog"],
+  "activateRetainedWorkspaceDefinition"
+  | "captureCompleteWorkspaceShareState"
 >;
 
 export interface PublishedRuntimeBenchmarkBridge {
@@ -19,6 +25,7 @@ export interface PublishedRuntimeBenchmarkBridge {
   readonly package: BenchmarkPackage;
   readonly analysis: BenchmarkAnalysis;
   readonly source: BenchmarkSource;
+  readonly catalog: BenchmarkCatalog;
 }
 
 export interface PublishedRuntimeBenchmarkTarget {
@@ -47,9 +54,16 @@ export function createPublishedRuntimeBenchmarkBridge(
       queryPackagePerformance: client.analysis.queryPackagePerformance,
     },
     source: {
-      queryMethodBodyComparison: client.source.queryMethodBodyComparison,
-      queryMethodBodyComparisonTargets:
-        client.source.queryMethodBodyComparisonTargets,
+      queryRetainedMethodBodyComparison:
+        client.source.queryRetainedMethodBodyComparison,
+      queryRetainedMethodBodyComparisonTargets:
+        client.source.queryRetainedMethodBodyComparisonTargets,
+    },
+    catalog: {
+      activateRetainedWorkspaceDefinition:
+        client.catalog.activateRetainedWorkspaceDefinition,
+      captureCompleteWorkspaceShareState:
+        client.catalog.captureCompleteWorkspaceShareState,
     },
   };
 }
