@@ -2,6 +2,8 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
+using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using NuGet.Versioning;
 
@@ -12,6 +14,45 @@ namespace DotnetInspect.Web.Tests;
 [SupportedOSPlatform("browser")]
 public sealed class BrowserProductHomeDemosTests
 {
+    [Fact]
+    public void ProductDefaultWorkspaceAndShippedPlatformCatalogShareReleaseLine()
+    {
+        WorkspacePlan plan = EcosystemPackCatalog.CreatePlatformWorkspacePlan();
+        Assert.Same(
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            plan.TraversalTargetPolicy);
+
+        using JsonDocument document = JsonDocument.Parse(
+            File.ReadAllText(
+                Path.Combine(
+                    RepositoryRoot(),
+                    "inspect-web",
+                    "assets",
+                    "platform-index.json")));
+        string defaultFramework = Assert.IsType<string>(
+            document.RootElement
+                .GetProperty("defaultFramework")
+                .GetString());
+        Assert.Equal(
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
+            defaultFramework);
+        PlatformTargetFramework defaultReleaseLine =
+            PlatformTargetFramework.Parse(defaultFramework);
+
+        JsonElement target = Assert.Single(
+            document.RootElement
+                .GetProperty("targets")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("tfm").GetString()
+                    == defaultFramework);
+        NuGetVersion exactVersion = NuGetVersion.Parse(
+            Assert.IsType<string>(
+                target.GetProperty("version").GetString()));
+        Assert.Equal(defaultReleaseLine.Major, exactVersion.Major);
+        Assert.Equal(defaultReleaseLine.Minor, exactVersion.Minor);
+    }
+
     [Fact]
     public void ListHomeDemos_MatchesProductCatalogOrderAndLabels()
     {
