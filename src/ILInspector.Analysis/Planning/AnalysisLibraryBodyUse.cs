@@ -53,7 +53,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
     {
         _cancellationToken.ThrowIfCancellationRequested();
         if (!view.HasManagedBody)
-            return new(null);
+            return new(null, view.Terminal);
 
         try
         {
@@ -68,7 +68,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
                     _limits.MaximumOccurrences,
                     _limits.MaximumMethodSignatureBytes,
                     _cancellationToken);
-            return new(fact);
+            return new(fact, view.Terminal);
         }
         catch (Exception exception)
             when (LibraryMethodAnalysisRunner
@@ -78,7 +78,8 @@ internal sealed class AnalysisLibraryBodyUseProducer
                 BodyTypeUseMethodFact.Unavailable(
                     view.TypeHandle,
                     view.Token,
-                    ProducerFailure.Describe(exception)));
+                    ProducerFailure.Describe(exception)),
+                view.Terminal);
         }
     }
 
@@ -96,16 +97,22 @@ internal sealed class AnalysisLibraryBodyUseProducer
     internal override Result Complete(
         Accumulator accumulator,
         MethodDefinitionCompletionView completion) =>
-        accumulator.Complete();
+        accumulator.Complete(
+            completion.Terminal == ProducerTerminal.Rows);
+
+    internal override bool Settles(VisitFact fact) =>
+        IsSettling(fact, _limits.MaximumOccurrences);
 
     internal sealed record VisitFact(
-        BodyTypeUseMethodFact? Body);
+        BodyTypeUseMethodFact? Body,
+        ProducerTerminal Terminal);
 
     internal sealed class Accumulator(int maximumOccurrences)
     {
-        readonly List<BodyTypeUseOccurrence> _occurrences = [];
-        readonly List<BodyTypeUsePhysicalFact> _bodies = [];
+        List<BodyTypeUseOccurrence>? _occurrences;
+        List<BodyTypeUsePhysicalFact>? _bodies;
         readonly List<AnalysisLibraryBodyUseDiagnostic> _diagnostics = [];
+        int _occurrenceCount;
         int _bodiesConsidered;
         int _bodiesExamined;
         int _bodiesPhysicalOnly;
@@ -117,21 +124,40 @@ internal sealed class AnalysisLibraryBodyUseProducer
         int _operandsLimited;
         bool _occurrenceLimitReported;
 
-        internal void Add(VisitFact visit)
+        internal ImmutableArray<BodyTypeUseOccurrence> Add(
+            VisitFact visit) =>
+            Add(
+                visit,
+                retainOccurrences:
+                    visit.Terminal == ProducerTerminal.Rows,
+                retainBodies:
+                    visit.Terminal == ProducerTerminal.Rows);
+
+        internal ImmutableArray<BodyTypeUseOccurrence> Add(
+            VisitFact visit,
+            bool retainOccurrences,
+            bool retainBodies)
         {
             if (visit.Body is not { } body)
-                return;
+                return [];
 
+            if (retainOccurrences)
+                _occurrences ??= [];
+            if (retainBodies)
+                _bodies ??= [];
             _bodiesConsidered++;
             _operandsConsidered += body.OperandsConsidered;
             _operandsExamined += body.OperandsExamined;
             _operandsUnavailable += body.OperandsUnavailable;
             _diagnostics.AddRange(body.Diagnostics);
-            _bodies.Add(
-                new(
-                    body.PhysicalType,
-                    body.PhysicalMethodToken,
-                    body.Fidelity));
+            if (retainBodies)
+            {
+                _bodies!.Add(
+                    new(
+                        body.PhysicalType,
+                        body.PhysicalMethodToken,
+                        body.Fidelity));
+            }
 
             if (body.Limited)
             {
@@ -141,7 +167,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
                     body.OperandsConsidered
                         - body.OperandsExamined
                         - body.OperandsUnavailable);
-                return;
+                return [];
             }
 
             bool unavailable = body.Diagnostics.Any(
@@ -152,11 +178,11 @@ internal sealed class AnalysisLibraryBodyUseProducer
             if (unavailable)
             {
                 _bodiesUnavailable++;
-                return;
+                return [];
             }
 
             long attempted = checked(
-                (long)_occurrences.Count
+                (long)_occurrenceCount
                     + body.Occurrences.Length);
             if (attempted > maximumOccurrences)
             {
@@ -173,7 +199,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
                             attempted));
                     _occurrenceLimitReported = true;
                 }
-                return;
+                return [];
             }
 
             if (body.Fidelity
@@ -184,14 +210,57 @@ internal sealed class AnalysisLibraryBodyUseProducer
             else
             {
                 _bodiesExamined++;
-                _occurrences.AddRange(body.Occurrences);
+                _occurrenceCount += body.Occurrences.Length;
+                if (retainOccurrences)
+                    _occurrences!.AddRange(body.Occurrences);
+                return body.Occurrences;
             }
+
+            return [];
         }
 
-        internal Result Complete() =>
+        internal Result Complete(bool retainRows) =>
+            Create(
+                _occurrenceCount,
+                retainRows
+                    ? [.. _occurrences ?? []]
+                    : default,
+                retainRows
+                    ? [.. _bodies ?? []]
+                    : default);
+
+        internal Result CompleteCount(int occurrenceCount)
+        {
+            if (occurrenceCount != _occurrenceCount)
+            {
+                throw new InvalidOperationException(
+                    "The Count terminal disagreed with admitted occurrence rows.");
+            }
+            return Create(occurrenceCount, default, default);
+        }
+
+        internal Result CompleteRows(
+            ImmutableArray<BodyTypeUseOccurrence> occurrences)
+        {
+            if (occurrences.Length != _occurrenceCount)
+            {
+                throw new InvalidOperationException(
+                    "The Rows terminal disagreed with admitted occurrence rows.");
+            }
+            return Create(
+                occurrences.Length,
+                occurrences,
+                [.. _bodies ?? []]);
+        }
+
+        Result Create(
+            int occurrenceCount,
+            ImmutableArray<BodyTypeUseOccurrence> occurrences,
+            ImmutableArray<BodyTypeUsePhysicalFact> bodies) =>
             new(
-                [.. _occurrences],
-                [.. _bodies],
+                occurrenceCount,
+                occurrences,
+                bodies,
                 [.. _diagnostics],
                 new(
                     _bodiesConsidered,
@@ -205,7 +274,23 @@ internal sealed class AnalysisLibraryBodyUseProducer
                     _operandsLimited));
     }
 
+    internal static bool IsSettling(
+        VisitFact visit,
+        int maximumOccurrences) =>
+        visit.Body is { } body
+        && !body.Limited
+        && body.Fidelity
+            == AnalysisLibraryBodyUseFidelity.LogicalOwner
+        && !body.Diagnostics.Any(
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind
+                        .MalformedBody)
+        && body.Occurrences.Length > 0
+        && body.Occurrences.Length <= maximumOccurrences;
+
     internal sealed record Result(
+        int OccurrenceCount,
         ImmutableArray<BodyTypeUseOccurrence> Occurrences,
         ImmutableArray<BodyTypeUsePhysicalFact> Bodies,
         ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics,
