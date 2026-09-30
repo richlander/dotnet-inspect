@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface.Tests;
 
@@ -14,15 +15,26 @@ public sealed class JsonNamingPoliciesTests
     {
         Assert.Equal(
             JsonNamingPolicy.SnakeCaseLower.ConvertName(name),
-            JsonNamingPolicies.SnakeCaseLower(name));
+            Resolve(name, JsonWireNamingPolicy.SnakeCaseLower));
         Assert.Equal(
             JsonNamingPolicy.SnakeCaseUpper.ConvertName(name),
-            JsonNamingPolicies.SnakeCaseUpper(name));
+            Resolve(name, JsonWireNamingPolicy.SnakeCaseUpper));
         Assert.Equal(
             JsonNamingPolicy.KebabCaseLower.ConvertName(name),
-            JsonNamingPolicies.KebabCaseLower(name));
+            Resolve(name, JsonWireNamingPolicy.KebabCaseLower));
         Assert.Equal(
             JsonNamingPolicy.KebabCaseUpper.ConvertName(name),
-            JsonNamingPolicies.KebabCaseUpper(name));
+            Resolve(name, JsonWireNamingPolicy.KebabCaseUpper));
     }
+
+    static string Resolve(
+        string name,
+        JsonWireNamingPolicy namingPolicy) =>
+        JsonWireContractRules.ResolvePropertyName(
+            new ApiType
+            {
+                Name = "Contract",
+                JsonPropertyNamingPolicy = namingPolicy,
+            },
+            new ApiMember { Name = name });
 }
