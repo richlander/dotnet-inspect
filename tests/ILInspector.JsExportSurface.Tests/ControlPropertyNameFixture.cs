@@ -1,8 +1,60 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices.JavaScript;
+using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
 namespace ILInspector.JsExportSurface.Tests;
+
+public sealed class SetsRequiredMembersInputFixture
+{
+    [SetsRequiredMembers]
+    public SetsRequiredMembersInputFixture() => Name = "default";
+
+    public required string Name { get; set; }
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<StringEnumInputState>))]
+public enum StringEnumInputState
+{
+    Ready = 1,
+    Finished = 2,
+}
+
+public sealed record StringEnumInputFixture(StringEnumInputState State);
+
+[JsonSerializable(typeof(SetsRequiredMembersInputFixture))]
+[JsonSerializable(typeof(StringEnumInputFixture))]
+internal sealed partial class SetsRequiredMembersJsonContext
+    : JsonSerializerContext;
+
+[SupportedOSPlatform("browser")]
+public static partial class SetsRequiredMembersFixtureExports
+{
+    [JSExport]
+    public static string ReadSetsRequiredMembers(string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            SetsRequiredMembersJsonContext.Default
+                .SetsRequiredMembersInputFixture)!
+        .Name;
+
+    [JSExport]
+    public static string ReadStringEnum(string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            SetsRequiredMembersJsonContext.Default
+                .StringEnumInputFixture)!
+        .State.ToString();
+
+    [JSExport]
+    public static string WriteStringEnum() =>
+        JsonSerializer.Serialize(
+            new StringEnumInputFixture(StringEnumInputState.Ready),
+            SetsRequiredMembersJsonContext.Default
+                .StringEnumInputFixture);
+}
 
 internal sealed record ControlPropertyNameFixture
 {
@@ -116,7 +168,7 @@ internal sealed class ConverterControlledAccessibleEnumFixture
             JsonStringEnumConverter<
                 ConverterControlledAccessibleEnum>))]
     public ConverterControlledAccessibleEnum ConvertedField
-        { get; set; } =
+    { get; set; } =
         ConverterControlledAccessibleEnum.One;
 }
 
@@ -206,6 +258,19 @@ internal sealed partial class ValidWhenWritingNullArrayFieldJsonContext
     ReadCommentHandling = JsonCommentHandling.Skip)]
 [JsonSerializable(typeof(string))]
 internal sealed partial class AdditionalOptionsJsonContext
+    : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
+[JsonSerializable(typeof(string))]
+internal sealed partial class UnsupportedUnmappedMembersJsonContext
+    : JsonSerializerContext;
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed record StrictUnmappedInputFixture(string Name);
+
+[JsonSerializable(typeof(StrictUnmappedInputFixture))]
+internal sealed partial class StrictUnmappedInputJsonContext
     : JsonSerializerContext;
 
 internal sealed class MemberJsonConverterFixture
@@ -306,4 +371,10 @@ internal sealed class ExtensionDataWireFixture
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement> Extra { get; set; } = [];
+}
+
+internal sealed class JsonRequiredWireFixture
+{
+    [JsonRequired]
+    public string Name { get; set; } = "";
 }
