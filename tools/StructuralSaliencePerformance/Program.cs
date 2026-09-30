@@ -256,8 +256,14 @@ static (int Namespaces, int Rows, int Sea, int Peaks, string Identity)
         LibraryStructuralTypeLeverageShard shard => (
             1,
             shard.Rows.Length,
-            shard.Rows.Count(static row => row.SeaLevel),
-            shard.Rows.Count(static row => row.MountainPeak),
+            shard.Rows.Count(
+                static row =>
+                    row.Pole
+                        == LibraryStructuralTypePole.SeaLevel),
+            shard.Rows.Count(
+                static row =>
+                    row.Pole
+                        == LibraryStructuralTypePole.MountainPeak),
             IdentityShard(shard)),
         LibraryStructuralSalienceDocument document => (
             document.NamespaceIndex.Rows.Length,
@@ -265,10 +271,16 @@ static (int Namespaces, int Rows, int Sea, int Peaks, string Identity)
                 static shard => shard.Rows.Length),
             document.TypeLeverageShards.Sum(
                 static shard =>
-                    shard.Rows.Count(static row => row.SeaLevel)),
+                    shard.Rows.Count(
+                        static row =>
+                            row.Pole
+                                == LibraryStructuralTypePole.SeaLevel)),
             document.TypeLeverageShards.Sum(
                 static shard =>
-                    shard.Rows.Count(static row => row.MountainPeak)),
+                    shard.Rows.Count(
+                        static row =>
+                            row.Pole
+                                == LibraryStructuralTypePole.MountainPeak)),
             IdentityDocument(document)),
         _ => throw new InvalidOperationException(
             "Unknown structural-salience result."),
@@ -333,9 +345,15 @@ static void AppendShard(
         value.Append(':');
         value.Append(row.SignatureOutgoingDegree);
         value.Append(':');
-        value.Append(row.SeaLevel ? '1' : '0');
+        value.Append(
+            row.Pole == LibraryStructuralTypePole.SeaLevel
+                ? '1'
+                : '0');
         value.Append(':');
-        value.Append(row.MountainPeak ? '1' : '0');
+        value.Append(
+            row.Pole == LibraryStructuralTypePole.MountainPeak
+                ? '1'
+                : '0');
         value.Append(';');
     }
 }
