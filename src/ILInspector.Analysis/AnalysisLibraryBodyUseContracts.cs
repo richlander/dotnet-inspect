@@ -60,7 +60,8 @@ public sealed record AnalysisLibraryBodyUseLimits(
     int MaximumTypeDefinitions = 1_000_000,
     int MaximumRetainedTextCharacters = 16_000_000,
     int MaximumInstructionsPerBody = 1_000_000,
-    int MaximumOccurrences = 10_000_000)
+    int MaximumOccurrences = 10_000_000,
+    int MaximumMethodSignatureBytes = 16_000_000)
 {
     internal void Validate()
     {
@@ -72,6 +73,8 @@ public sealed record AnalysisLibraryBodyUseLimits(
             MaximumInstructionsPerBody);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             MaximumOccurrences);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            MaximumMethodSignatureBytes);
     }
 }
 

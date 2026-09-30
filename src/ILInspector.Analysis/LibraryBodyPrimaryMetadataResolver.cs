@@ -113,7 +113,12 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     internal IMethodCallResolver CreateCallResolver(
         GenericScope scope,
         MethodIdentity caller) =>
-        new CallResolver(this, scope, caller);
+        new CallResolver(this, scope, caller.MetadataToken);
+
+    internal IMethodCallResolver CreateCallResolver(
+        GenericScope scope,
+        MethodDefinitionHandle caller) =>
+        new CallResolver(this, scope, MetadataTokens.GetToken(caller));
 
     internal CallerUnsafeMode? ResolveSameImageCallerUnsafeMode(
         int operandToken,
@@ -687,7 +692,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     sealed class CallResolver(
         LibraryBodyPrimaryMetadataResolver owner,
         GenericScope scope,
-        MethodIdentity caller)
+        int callerToken)
         : IMethodCallResolver
     {
         public MemberRef ResolveMember(int token)
@@ -696,7 +701,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                 scope,
                 (MethodDefinitionHandle)
                     MetadataTokens.EntityHandle(
-                        caller.MetadataToken));
+                        callerToken));
 
         public MemberRef ResolveIndirectCall(int signatureToken)
             => owner.ResolveCalliMember(signatureToken, scope);
