@@ -75,7 +75,9 @@ public sealed partial class PackageDependencyTraversalQueryTests
             edgeIndex,
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Realize),
-            PackageHouseTargetContext.Exact("net12.0"));
+            PackageHouseTargetContext.Exact(
+                TraversalTargetFrameworkPolicy
+                    .ProductDefaultTargetFramework));
 
         PackageDependencyEdgeRealizationExecution execution =
             PackageDependencyEdgeRealizationQuery.Execute(request);
@@ -88,7 +90,7 @@ public sealed partial class PackageDependencyTraversalQueryTests
             Assert.IsType<PackageHouseDemand.Candidate>(
                 execution.Request.Demand).Value);
         Assert.Equal(
-            "net12.0",
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
             execution.Request.TargetContext!.RequestedFramework);
         Assert.Equal(
             ".NETStandard2.0",
@@ -139,14 +141,17 @@ public sealed partial class PackageDependencyTraversalQueryTests
                 TraversalTargetFrameworkPolicy.ProductDefault);
         var platformTarget = new PlatformFamilyTarget(
             PlatformFamily.DotNetRuntime,
-            PlatformTargetFramework.Parse("net12.0"),
-            PlatformVersion.Parse("12.0.0"));
+            PlatformTargetFramework.Parse(
+                TraversalTargetFrameworkPolicy
+                    .ProductDefaultTargetFramework),
+            PlatformVersion.Parse("11.0.0"));
         PlatformPruneInventory inventory =
             PlatformPruneInventory.FromExactFamily(
                 new PlatformPruneTarget(
                     "Microsoft.NETCore.App",
-                    "net12.0",
-                    NuGetVersion.Parse("12.0.0")),
+                    TraversalTargetFrameworkPolicy
+                        .ProductDefaultTargetFramework,
+                    NuGetVersion.Parse("11.0.0")),
                 ["system.componentmodel.annotations|4.5.0"]);
         var request = new PackageDependencyEdgeRealizationRequest(
             traversal,
@@ -155,7 +160,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Realize),
             PackageHouseTargetContext.Exact(
-                "net12.0",
+                TraversalTargetFrameworkPolicy
+                    .ProductDefaultTargetFramework,
                 platformTarget: platformTarget),
             inventory);
 
@@ -225,7 +231,9 @@ public sealed partial class PackageDependencyTraversalQueryTests
                     rootOccurrenceIndex: 0,
                     firstEdgeIndex,
                     operation,
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
         PackageDependencyEdgeRealizationExecution secondExecution =
             PackageDependencyEdgeRealizationQuery.Execute(
                 new PackageDependencyEdgeRealizationRequest(
@@ -233,7 +241,9 @@ public sealed partial class PackageDependencyTraversalQueryTests
                     rootOccurrenceIndex: 1,
                     secondEdgeIndex,
                     operation,
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
 
         Assert.Same(first, firstExecution.Subject.Candidate);
         Assert.Same(
@@ -279,13 +289,15 @@ public sealed partial class PackageDependencyTraversalQueryTests
                     rootOccurrenceIndex: 0,
                     edgeIndex: 0,
                     operation,
-                    PackageHouseTargetContext.Exact("net12.0"))));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework))));
         Assert.Throws<ArgumentException>(
             () => new PackageDependencyEdgeRealizationRequest(
                 traversal,
                 rootOccurrenceIndex: 0,
                 edgeIndex: 0,
                 operation,
-                PackageHouseTargetContext.Exact("net11.0")));
+                PackageHouseTargetContext.Exact("net12.0")));
     }
 }

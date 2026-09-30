@@ -94,18 +94,20 @@ Platform receipt is typed non-success rather than permission to retarget the
 Workspace. Platform-dependent evidence admitted against an earlier slot
 generation cannot silently continue against its replacement.
 
-## Current implementation gap
+## Current implementation status
 
-The current implementation already constructs `ProductDefault` or
-`Configured` in `WorkspacePlan` and passes that retained value to Traversal.
-That authority flow is correct and is required for empty-Workspace traversal.
-However, `ProductDefaultTargetFramework` is currently `net12.0`; it must be
-`net11.0`. Platform realization and Platform-dependent traversal composition
-must also consume and validate the same Workspace target rather than selecting
-or issuing a second one. The implementation does not yet expose one shared
-product-default release-line value from which Traversal and product Workspace
-Platform selection are both formed. This documentation change does not
-present those corrections as shipped.
+`ProductDotNetReleaseLine` owns the singular product-default `net11.0`
+currency. `WorkspacePlan` constructs `ProductDefault(net11.0)` from it or
+retains a caller-supplied `Configured` policy and passes that value to
+Traversal. The Platform catalog generator consumes the same release-line
+value, and the Browser consumes the generated catalog default rather than
+maintaining another default literal. Product gates require the default and
+empty plans, the curated Browser Workspace, and the shipped catalog's exact
+`11.0.*` target to correspond.
+
+Platform realization and Platform-dependent traversal composition must still
+consume and validate the Workspace target rather than selecting or issuing a
+second one.
 
 ## Traversal and selection are different policies
 
@@ -238,8 +240,8 @@ policy merely because they inspect packages.
 
 | Property | Release gate |
 | --- | --- |
-| The default product Workspace and neutral empty Workspace both retain `ProductDefault(net11.0)`. | The plan-retention shape is covered by existing `WorkspacePlanTests`; the corrected constant and both construction paths are unverified until adoption slice 2 lands. |
-| `ProductDefaultTargetFramework` and the product-default Workspace .NET version always share one release line; `net11.0` accepts exact `11.0.*` and rejects .NET 10/12 candidates without retargeting. | Unverified until adoption slices 2 and 3 land. |
+| The default product Workspace and neutral empty Workspace both retain `ProductDefault(net11.0)`. | `WorkspacePlanTests.EmptyPlanIsReusableWithoutSharingLiveIdentity` and `BrowserProductHomeDemosTests.ProductDefaultWorkspaceAndShippedPlatformCatalogShareReleaseLine`. |
+| `ProductDefaultTargetFramework` and the product-default Workspace .NET version always share one release line; `net11.0` accepts exact `11.0.*` and rejects .NET 10/12 candidates without retargeting. | Default/catalog correspondence is gated by `BrowserProductHomeDemosTests.ProductDefaultWorkspaceAndShippedPlatformCatalogShareReleaseLine`; `parsePlatformIndex` and its TypeScript tests reject a default without a matching shipped target, while `BrowserPlatformCatalogTests` gate exact-version release-line matching. Realization-time correspondence remains unverified until adoption slice 3 lands. |
 | An empty Workspace can load a package and traverse it under `net11.0` without Platform realization. | Unverified until adoption slice 4 lands. |
 | A configured `net10.0` Workspace uses `net10.0` for every destination edge and matching Platform composition. | Edge stability is covered by `Traversal_TargetPolicyIsStructuralCurrency`; Workspace/Platform correspondence is unverified until adoption slices 3-5 land. |
 | Direct `net12.0` Selection under a default `net11.0` Workspace does not retarget traversal or manufacture .NET 12 Platform evidence. | Unverified until adoption slices 4-6 land. |

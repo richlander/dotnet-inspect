@@ -97,7 +97,7 @@ public sealed partial class PackageHouseExecutionTests
                 PackageDependencyMemberCallGraphInspectionOutcome.Available>(
                 envelope.Content);
         Assert.Equal(
-            "net12.0",
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
             available.Document.TraversalTargetPolicy.TargetFramework);
         Assert.Equal(
             TraversalTargetFrameworkPolicySource.ProductDefault,
@@ -396,7 +396,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
         WorkspaceScopeSnapshot rooted =
@@ -472,7 +474,7 @@ public sealed partial class PackageHouseExecutionTests
             "net11.0",
             destination.Descriptor.SelectedTargetFramework);
         Assert.Equal(
-            "net12.0",
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
             completed.TraversalTargetPolicy.TargetFramework);
         Assert.Empty(completed.Baseline.RegisteredEcosystems);
         Assert.Equal(
@@ -532,7 +534,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
         WorkspaceScopeSnapshot rooted =
@@ -622,7 +626,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
 
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
@@ -705,7 +711,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
         PackageDependencyEdgeRealizationEvidence retainedRealization =
             await execution.ExecuteAsync(
                 environment.CreateHouse(
@@ -814,7 +822,9 @@ public sealed partial class PackageHouseExecutionTests
                             edgeIndex,
                             PackageHouseOperation.Create(
                                 PackageHouseOperationProfile.Realize),
-                            PackageHouseTargetContext.Exact("net12.0")))),
+                            PackageHouseTargetContext.Exact(
+                                TraversalTargetFrameworkPolicy
+                                    .ProductDefaultTargetFramework)))),
         ];
 
         await using var workspace = new InspectionWorkspace();
@@ -902,7 +912,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
 
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
@@ -995,7 +1007,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
 
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
@@ -1087,7 +1101,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
 
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
@@ -1164,14 +1180,17 @@ public sealed partial class PackageHouseExecutionTests
                         .RecursiveSources));
         var platformTarget = new PlatformFamilyTarget(
             PlatformFamily.DotNetRuntime,
-            PlatformTargetFramework.Parse("net12.0"),
-            PlatformVersion.Parse("12.0.0"));
+            PlatformTargetFramework.Parse(
+                TraversalTargetFrameworkPolicy
+                    .ProductDefaultTargetFramework),
+            PlatformVersion.Parse("11.0.0"));
         PlatformPruneInventory inventory =
             PlatformPruneInventory.FromExactFamily(
                 new PlatformPruneTarget(
                     "Microsoft.NETCore.App",
-                    "net12.0",
-                    NuGetVersion.Parse("12.0.0")),
+                    TraversalTargetFrameworkPolicy
+                        .ProductDefaultTargetFramework,
+                    NuGetVersion.Parse("11.0.0")),
                 [$"{CallGraphTargetPackage}|{RouteVersion}"]);
         PackageDependencyEdgeRealizationExecution execution =
             PackageDependencyEdgeRealizationQuery.Execute(
@@ -1182,7 +1201,8 @@ public sealed partial class PackageHouseExecutionTests
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
                     PackageHouseTargetContext.Exact(
-                        "net12.0",
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework,
                         platformTarget: platformTarget),
                     inventory));
 

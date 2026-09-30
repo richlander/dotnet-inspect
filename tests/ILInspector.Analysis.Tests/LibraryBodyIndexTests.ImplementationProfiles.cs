@@ -422,7 +422,7 @@ public partial class LibraryBodyIndexTests
                 EmitGuardRejectedLocalSignatureAssembly(),
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.Locals,
+                        ImplementationMetricKind.Locals,
                         limits,
                         new HashSet<int>
                         {
@@ -466,8 +466,8 @@ public partial class LibraryBodyIndexTests
                 EmitMalformedLocalSignatureAssembly(),
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.BodySize
-                            | ImplementationMetricEvidenceKind
+                        ImplementationMetricKind.BodySize
+                            | ImplementationMetricKind
                                 .Locals,
                         limits,
                         new HashSet<int>
@@ -520,9 +520,9 @@ public partial class LibraryBodyIndexTests
                 EmitMalformedInstructionAssembly(),
                 LibraryBodyAnalysisRequest
                     .CreateImplementationMetrics(
-                        ImplementationMetricEvidenceKind.BodySize
-                            | ImplementationMetricEvidenceKind.Locals
-                            | ImplementationMetricEvidenceKind
+                        ImplementationMetricKind.BodySize
+                            | ImplementationMetricKind.Locals
+                            | ImplementationMetricKind
                                 .InstructionShape,
                         limits,
                         new HashSet<int>
