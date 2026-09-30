@@ -618,6 +618,33 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void Scorecard_PreservesTypeInventoryLimitRejection()
+    {
+        AssertScorecardRejection(
+            new(
+                "inventory-limit",
+                "InventoryLimit.dll",
+                BuildIndependentImage([0x2A])),
+            new(
+                MaximumRetainedTextCharacters: 1),
+            AnalysisLibraryBodyUseRejectionKind.Limit);
+    }
+
+    [Fact]
+    public void Scorecard_PreservesUnsupportedInventoryRejection()
+    {
+        AssertScorecardRejection(
+            new(
+                "duplicate-inventory",
+                "DuplicateInventory.dll",
+                BuildIndependentImage(
+                    [0x2A],
+                    duplicateTypeDefinition: true)),
+            new(),
+            AnalysisLibraryBodyUseRejectionKind.UnsupportedImage);
+    }
+
+    [Fact]
     public void ExecuteImage_ContainsMalformedBodyAndRetainsHealthyBody()
     {
         ImmutableArray<byte> image =
@@ -1439,6 +1466,43 @@ public sealed class AnalysisLibraryBodyUseTests
                     ? $"{rejected.Kind}: {rejected.Detail}"
                     : $"Unexpected outcome {outcome.GetType().Name}.");
 
+    static void AssertScorecardRejection(
+        BodyUseScorecardAsset asset,
+        AnalysisLibraryBodyUseLimits limits,
+        AnalysisLibraryBodyUseRejectionKind expectedKind)
+    {
+        BodyUseScorecardCheck check = BodyUseScorecard.Check(
+            [asset],
+            limits,
+            TestContext.Current.CancellationToken);
+        Assert.True(
+            check.Agrees,
+            string.Join(
+                Environment.NewLine,
+                check.Mismatches.Select(static mismatch =>
+                    $"{mismatch.Column}: {mismatch.Answer}; "
+                        + $"oracle {mismatch.OracleAnswer}")));
+
+        BodyUseScorecardExecution planner = BodyUseScorecard.Execute(
+            BodyUseScorecardColumn.Planner,
+            asset,
+            limits,
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(planner.Rejection);
+        Assert.Equal(expectedKind, planner.Rejection.Kind);
+        foreach (BodyUseScorecardColumn column
+            in Enum.GetValues<BodyUseScorecardColumn>())
+        {
+            BodyUseScorecardExecution execution =
+                BodyUseScorecard.Execute(
+                    column,
+                    asset,
+                    limits,
+                    TestContext.Current.CancellationToken);
+            Assert.Equal(planner.Rejection, execution.Rejection);
+        }
+    }
+
     static ImmutableArray<byte> BuildIndependentImage(
         byte[] firstBody,
         bool unreadableSecondBody = false,
@@ -1448,7 +1512,8 @@ public sealed class AnalysisLibraryBodyUseTests
         bool truncatedOwnSignature = false,
         int largeTruncatedParameters = 0,
         bool unreadableMemberName = false,
-        bool bodylessOnly = false)
+        bool bodylessOnly = false,
+        bool duplicateTypeDefinition = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1484,6 +1549,18 @@ public sealed class AnalysisLibraryBodyUseTests
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
+        if (duplicateTypeDefinition)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Independent"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        }
         if (missingCurrentModuleTypeReference)
         {
             metadata.AddTypeReference(

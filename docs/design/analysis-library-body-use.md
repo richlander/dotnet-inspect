@@ -343,6 +343,8 @@ Comparator traversal also preserves the production completion boundary:
 cancellation is observed before and during population traversal, recoverable
 body-acquisition failure becomes per-method unavailable evidence, and a
 producer-global critical abort becomes the same atomic rejection as Planner.
+Every rejected execution retains and compares the public rejection kind and
+exact detail, including bounded or unsupported Type-inventory admission.
 
 NativeAOT is the only accepted timing. The report identifies the exact
 candidate, assets, source locations, pinned NLinq provenance, invocation,

@@ -35,10 +35,17 @@ public sealed record BodyUseScorecardAnswer(
     AnalysisLibraryBodyUseCoverage Coverage,
     ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics);
 
+public sealed record BodyUseScorecardRejection(
+    AnalysisLibraryBodyUseRejectionKind Kind,
+    string Detail)
+{
+    public override string ToString() => $"{Kind}: {Detail}";
+}
+
 public sealed record BodyUseScorecardExecution(
     BodyUseScorecardColumn Column,
     BodyUseScorecardAnswer? Answer,
-    string? Rejection)
+    BodyUseScorecardRejection? Rejection)
 {
     public bool Available => Answer is not null;
 }
@@ -397,7 +404,10 @@ public static class BodyUseScorecard
                 return new(
                     column,
                     null,
-                    $"Type inventory exceeded {incomplete.Bound}.");
+                    new(
+                        AnalysisLibraryBodyUseRejectionKind.Limit,
+                        $"The Type inventory exceeded "
+                            + $"{incomplete.Bound}."));
             }
             if (inventoryOutcome
                 is AssemblyTypeDeclarationInventoryOutcome.Rejected rejected)
@@ -405,7 +415,9 @@ public static class BodyUseScorecard
                 return new(
                     column,
                     null,
-                    rejected.Failure.Detail);
+                    new(
+                        AnalysisLibraryBodyUseRejectionKind.UnsupportedImage,
+                        rejected.Failure.Detail));
             }
 
             MetadataReader reader = image.GetMetadataReader();
@@ -414,7 +426,11 @@ public static class BodyUseScorecard
                 return new(
                     column,
                     null,
-                    "The image has no assembly manifest.");
+                    new(
+                        AnalysisLibraryBodyUseRejectionKind
+                            .MissingAssemblyIdentity,
+                        "A Library body-use population requires "
+                            + "an assembly manifest."));
             }
             if (reader.GetGuid(reader.GetModuleDefinition().Mvid)
                 == Guid.Empty)
@@ -422,7 +438,11 @@ public static class BodyUseScorecard
                 return new(
                     column,
                     null,
-                    "The image has an empty module version identifier.");
+                    new(
+                        AnalysisLibraryBodyUseRejectionKind
+                            .MissingAssemblyIdentity,
+                        "The metadata image has an empty module "
+                            + "version identifier."));
             }
 
             var inventory =
@@ -450,8 +470,9 @@ public static class BodyUseScorecard
             return new(
                 column,
                 null,
-                $"{AnalysisLibraryBodyUseRejectionKind.Limit}: "
-                    + abort.Failure.Message);
+                new(
+                    AnalysisLibraryBodyUseRejectionKind.Limit,
+                    abort.Failure.Message));
         }
         catch (Exception exception)
             when (LibraryMethodAnalysisRunner
@@ -460,7 +481,9 @@ public static class BodyUseScorecard
             return new(
                 column,
                 null,
-                ProducerFailure.Describe(exception));
+                new(
+                    AnalysisLibraryBodyUseRejectionKind.MalformedImage,
+                    ProducerFailure.Describe(exception)));
         }
     }
 
@@ -486,7 +509,7 @@ public static class BodyUseScorecard
                 new(
                     BodyUseScorecardColumn.Planner,
                     null,
-                    $"{rejected.Kind}: {rejected.Detail}"),
+                    new(rejected.Kind, rejected.Detail)),
             _ => throw new InvalidOperationException(
                 "The body-use operation returned an unknown outcome."),
         };
@@ -520,7 +543,7 @@ public static class BodyUseScorecard
         {
             return left.Answer is null
                 && right.Answer is null
-                && StringComparer.Ordinal.Equals(
+                && Equals(
                     left.Rejection,
                     right.Rejection);
         }
