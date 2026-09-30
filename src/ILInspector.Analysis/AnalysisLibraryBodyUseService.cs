@@ -128,58 +128,28 @@ public static class AnalysisLibraryBodyUseService
                     ?? result.Critical?.Message
                     ?? "The Analysis body-use producer did not complete.";
                 return new AnalysisLibraryBodyUseOutcome.Rejected(
-                    AnalysisLibraryBodyUseRejectionKind.Execution,
+                    result.Critical is null
+                        ? AnalysisLibraryBodyUseRejectionKind.Execution
+                        : AnalysisLibraryBodyUseRejectionKind.Limit,
                     detail);
             }
 
             var inventory =
                 ((AssemblyTypeDeclarationInventoryOutcome.Read)
                     inventoryOutcome).Inventory;
-            ImmutableArray<AnalysisLibraryBodyUseType> types =
-                BuildTypes(metadata, inventory);
-            var names = types.ToDictionary(
-                static type => type.Type,
-                static type => type.Name);
-            ImmutableArray<AnalysisLibraryBodyUseOccurrence> occurrences =
-                [.. value.Occurrences.Select(
-                    occurrence => ProjectOccurrence(
-                        metadata,
-                        names,
-                        occurrence))];
-            ImmutableArray<AnalysisLibraryBodyUsePhysicalEvidence> physical =
-                [.. value.Bodies.Select(
-                    body =>
-                    {
-                        MetadataTypeDefinitionAddress address =
-                            MetadataTypeDefinitionAddress.FromHandle(
-                                metadata,
-                                body.PhysicalType);
-                        return new AnalysisLibraryBodyUsePhysicalEvidence(
-                            address,
-                            names[address],
-                            body.PhysicalMethodToken,
-                            body.Fidelity);
-                    })];
-            bool partial = value.Diagnostics.Any(
-                static diagnostic =>
-                    diagnostic.Kind
-                        is not AnalysisLibraryBodyUseDiagnosticKind
-                            .UnavailableLogicalOwner);
-            AnalysisLibraryBodyUseDisposition disposition =
-                partial
-                    ? AnalysisLibraryBodyUseDisposition.Partial
-                    : value.Coverage.BodiesPhysicalOnly != 0
-                        ? AnalysisLibraryBodyUseDisposition.Qualified
-                        : AnalysisLibraryBodyUseDisposition.Complete;
+            AnalysisLibraryBodyUseProjection projection = Project(
+                metadata,
+                inventory,
+                value);
             return new AnalysisLibraryBodyUseOutcome.Available(
                 new(
                     new(mvid, inventory.Identity, execution.Receipt),
-                    disposition,
-                    types,
-                    occurrences,
-                    physical,
-                    value.Coverage,
-                    value.Diagnostics));
+                    projection.Disposition,
+                    projection.Types,
+                    projection.Occurrences,
+                    projection.PhysicalEvidence,
+                    projection.Coverage,
+                    projection.Diagnostics));
         }
         catch (Exception exception)
             when (LibraryMethodAnalysisRunner
@@ -189,6 +159,59 @@ public static class AnalysisLibraryBodyUseService
                 AnalysisLibraryBodyUseRejectionKind.MalformedImage,
                 ProducerFailure.Describe(exception));
         }
+    }
+
+    internal static AnalysisLibraryBodyUseProjection Project(
+        MetadataReader metadata,
+        AssemblyTypeDeclarationInventory inventory,
+        AnalysisLibraryBodyUseProducer.Result value)
+    {
+        ArgumentNullException.ThrowIfNull(inventory);
+        ArgumentNullException.ThrowIfNull(value);
+
+        ImmutableArray<AnalysisLibraryBodyUseType> types =
+            BuildTypes(metadata, inventory);
+        var names = types.ToDictionary(
+            static type => type.Type,
+            static type => type.Name);
+        ImmutableArray<AnalysisLibraryBodyUseOccurrence> occurrences =
+            [.. value.Occurrences.Select(
+                occurrence => ProjectOccurrence(
+                    metadata,
+                    names,
+                    occurrence))];
+        ImmutableArray<AnalysisLibraryBodyUsePhysicalEvidence> physical =
+            [.. value.Bodies.Select(
+                body =>
+                {
+                    MetadataTypeDefinitionAddress address =
+                        MetadataTypeDefinitionAddress.FromHandle(
+                            metadata,
+                            body.PhysicalType);
+                    return new AnalysisLibraryBodyUsePhysicalEvidence(
+                        address,
+                        names[address],
+                        body.PhysicalMethodToken,
+                        body.Fidelity);
+                })];
+        bool partial = value.Diagnostics.Any(
+            static diagnostic =>
+                diagnostic.Kind
+                    is not AnalysisLibraryBodyUseDiagnosticKind
+                        .UnavailableLogicalOwner);
+        AnalysisLibraryBodyUseDisposition disposition =
+            partial
+                ? AnalysisLibraryBodyUseDisposition.Partial
+                : value.Coverage.BodiesPhysicalOnly != 0
+                    ? AnalysisLibraryBodyUseDisposition.Qualified
+                    : AnalysisLibraryBodyUseDisposition.Complete;
+        return new(
+            disposition,
+            types,
+            occurrences,
+            physical,
+            value.Coverage,
+            value.Diagnostics);
     }
 
     static ImmutableArray<AnalysisLibraryBodyUseType> BuildTypes(
@@ -251,3 +274,11 @@ public static class AnalysisLibraryBodyUseService
             occurrence.OccurrenceOrdinal);
     }
 }
+
+internal readonly record struct AnalysisLibraryBodyUseProjection(
+    AnalysisLibraryBodyUseDisposition Disposition,
+    ImmutableArray<AnalysisLibraryBodyUseType> Types,
+    ImmutableArray<AnalysisLibraryBodyUseOccurrence> Occurrences,
+    ImmutableArray<AnalysisLibraryBodyUsePhysicalEvidence> PhysicalEvidence,
+    AnalysisLibraryBodyUseCoverage Coverage,
+    ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics);

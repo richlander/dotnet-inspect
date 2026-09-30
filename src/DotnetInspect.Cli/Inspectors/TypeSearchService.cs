@@ -31,8 +31,19 @@ internal static class TypeSearchService
         VerboseLogger logger,
         HttpClient httpClient,
         CancellationToken cancellationToken = default,
-        CommandContext? commandContext = null)
+        CommandContext? commandContext = null,
+        PlatformFindSearchWorkspace? platformWorkspace = null)
     {
+        if (platformWorkspace is not null)
+        {
+            return await FindWithPlatformWorkspaceAsync(
+                options,
+                patterns,
+                logger,
+                platformWorkspace,
+                cancellationToken);
+        }
+
         AssemblySetRequest request =
             FindSourceCollector.BuildFindRequest(options);
         bool platformCatalogFailed = false;
@@ -686,9 +697,9 @@ internal static class TypeSearchService
                     Assembly = candidate.Observation.Selection switch
                     {
                         TypeDeclarationLocatorSelection.PackageSelection
-                            {
-                                AssetPath: { Length: > 0 } assetPath,
-                            } =>
+                        {
+                            AssetPath: { Length: > 0 } assetPath,
+                        } =>
                             Path.GetFileNameWithoutExtension(assetPath),
                         _ =>
                             candidate.Observation.AssemblyIdentity.Name,
@@ -1085,6 +1096,65 @@ internal static class TypeSearchService
                 kind,
                 "Unknown API Type kind."),
         };
+
+    private static async Task<FindSearchResult<TypeFindResult>>
+        FindWithPlatformWorkspaceAsync(
+            FindOptions options,
+            string[] patterns,
+            VerboseLogger logger,
+            PlatformFindSearchWorkspace workspace,
+            CancellationToken cancellationToken)
+    {
+        bool hasFailures = false;
+        void MarkFailure() => hasFailures = true;
+        cancellationToken.ThrowIfCancellationRequested();
+        List<TypeSearchResult> allTypes = [];
+        AssemblyContextResult<AssemblyTypeInventory> queryResult =
+            workspace.QueryTypes(options.IncludeAll);
+        foreach (AssemblyContextEntry<AssemblyTypeInventory> entry
+            in queryResult.Assemblies)
+        {
+            AddTypes(
+                allTypes,
+                ["*"],
+                options.TypeFilter,
+                workspace.SourceFor(entry.Subject),
+                entry,
+                logger,
+                static () => false,
+                MarkFailure);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+
+        Task<List<TypeSearchResult>> Collect(string? pattern)
+        {
+            IEnumerable<TypeSearchResult> selected =
+                pattern is null
+                    ? allTypes
+                    : allTypes.Where(candidate =>
+                        TypeMatcher.MatchesTypeFilter(
+                            candidate.FullName,
+                            pattern));
+            if (pattern is not null && options.Limit is { } limit)
+                selected = selected.Take(limit);
+            return Task.FromResult(selected.ToList());
+        }
+
+        List<TypeFindResult> results =
+            patterns.Length == 1
+                ? await FindSinglePatternAsync(
+                    patterns[0],
+                    options,
+                    Collect)
+                : await FindMultiPatternAsync(
+                    patterns,
+                    options,
+                    Collect);
+        return CreateSearchResult(
+            results,
+            hasFailures,
+            options.PackagePrefixLimitReached);
+    }
 
     private static async Task<FindSearchResult<TypeFindResult>>
         FindWithLegacyAsync(
