@@ -761,12 +761,14 @@ A read may therefore surface decompression, size, or checksum failure. Early
 disposal means abandonment rather than successful completion. The caller owns
 and disposes the stream while the acquired payload generation remains live.
 
-The Browser/Wasm package store still retains the complete admitted `.nupkg` in
-memory, and a displayed document may ultimately remain resident in the pane.
-The bounded path avoids a second complete expanded-entry `byte[]`; it does not
-promise zero-copy acquisition. A CLI host can copy the same stream to stdout
-or a file with one bounded transfer buffer. A Browser host can decode
-progressively into its final resident representation.
+The Browser/Wasm package store retains complete archives for complete
+acquisition and directory plus entry records for ranged acquisition. A
+displayed document may ultimately remain resident in the pane. Its bounded
+path avoids a second complete expanded-entry `byte[]`; it does not promise
+zero-copy acquisition. The CLI's detached content inspection instead owns one
+complete expanded-entry array, which its projections reuse without a second
+entry-sized copy. A Browser host can decode progressively into its final
+resident representation.
 
 This capability belongs only to `PackageHouseSettlement.Acquired`. The legacy
 `PackageExtractor`, extracted-file, `PackageFileContent`, and Source paths gain
@@ -775,32 +777,41 @@ live House settlement rather than wrapping an already materialized `byte[]` or
 legacy file read in a stream. Package content that does not implement the
 internal House pull capability fails visibly; the House does not fall back to
 the legacy eager entry-opening contract. Ranged content implements it for its
-materialized entries, as [package read demand](package-read-demand.md#document-demand)
+materialized entries, as [package read demand](package-read-demand.md#exact-file-demand)
 owns. Filesystem content additionally
 requires a retained package archive: its declared entry size and CRC validate
 the extracted-file stream, while archive-less content is visibly unsupported.
 
-The first production consumer is exact-version online CLI export of one
-literal root `README.md` or `skills/**/SKILL.md` path to a file. The command
-acquires directly through the House, with ranged access and a
-[document demand](package-read-demand.md#document-demand) in the
-authority-scoped store, without invoking the legacy `PackageExtractor` route. A README copies progressively to the
-destination with the bounded exact-byte sink. A Skill decodes progressively
-into the existing containment-selected representation before that
-representation is written; it does not bypass Skill containment to preserve
-original bytes. Local archives, floating or range version selection, stdout,
-target-framework filters, path globs and roles, partial document scopes,
-.NET tool-wrapper redirection, and other package files retain their existing
-paths in this slice.
+`PackageFileAcquisition` is the host-neutral exact-file operation above this
+pull capability. It accepts a pinned coordinate, safe relative path, House
+operation, source authorization, authority-scoped store plan, limits, transfer
+policy, and operation lease. It owns the
+[file demand](package-read-demand.md#exact-file-demand), ranged House request,
+cache-first and size-first execution, case-insensitive manifest resolution,
+actual-path preservation, and generation-bound `OpenRead()`. Hosts bind their
+environment and project the result; they do not recreate those steps.
+
+The first production consumer is exact-version online CLI content for one
+literal root `README.md` or `skills/**/SKILL.md` path. The command calls
+`DesktopPackageSourceComposition.AcquireFileAsync`, without invoking the
+legacy `PackageExtractor` route. The host-neutral file-content inspection
+drains the acquired file through EOF, so length and checksum validation
+complete, and returns detached immutable bytes up to the caller's explicit
+limit. The CLI applies its existing separator, raw, JSONL, or Skill projection.
+Exact README file output instead copies `OpenRead()` directly to its
+destination with one bounded buffer. Local archives, floating or range version
+selection, target-framework filters, path globs and roles, partial document
+scopes, and .NET tool-wrapper redirection retain their existing paths.
 
 The second production consumer is the Browser/Wasm viewer for exact root
-`README.md` and `skills/**/*.md` document-manifest entries. The managed export
-executes a focused House `Acquire` operation, opens the selected README or
-Skill through the settlement's pull stream, and incrementally decodes UTF-8
-through bounded pooled byte and character buffers. The admitted `.nupkg` and
-the final displayed string remain resident, but no second complete expanded
-entry `byte[]` is created. Root `PACKAGE.md` viewing retains its existing eager
-entry path in this slice, while the managed-to-TypeScript wire DTO and frontend
+`README.md`, root `PACKAGE.md`, and `skills/**/*.md` document entries. The host
+first validates that the path belongs to that browsable vocabulary, then calls
+`PackageFileAcquisition` and incrementally decodes the acquired file through
+bounded pooled UTF-8 buffers. The Browser package-entry store publishes the
+archive directory and selected expanded entries to Cache Storage, so a warm
+read after store recreation makes no package request. The final displayed
+string remains resident, but the complete `.nupkg` is not downloaded for an
+archive above the size cut. The managed-to-TypeScript wire DTO and frontend
 call site remain unchanged.
 
 `PackageHouseExecutionTests.ExactPayloadRead_IsColdAndPullsFromTheHouseGeneration`
@@ -812,10 +823,10 @@ gates the Browser/Wasm-relevant absence of an expanded-entry-sized allocation,
 nuget.org `System.Text.Json` package, and
 `PackageArchiveValidatorTests.CheckedPullRead_RejectsContentBeyondTheDeclaredLength`
 preserves lazy checked-read failure.
-`BrowserEngineBoundaryTests.PackageDocument_ReadmeAndSkillPullThroughHouseAcquisition`
-gates the production Browser route, multi-buffer UTF-8 decoding, Skill
-selection, cache reuse, package-only acquisition, and visible refusal of a
-non-manifest path.
+`BrowserEngineBoundaryTests.PackageDocument_ReadmePackageAndSkillUseExactFileAcquisition`
+gates the production Browser route, multi-buffer UTF-8 decoding, README,
+PACKAGE, and Skill selection, cache reuse, package-only acquisition, and
+visible refusal of a non-manifest path.
 
 ## Shared version-settlement inspection
 
@@ -904,7 +915,7 @@ The current execution floor binds stable host capabilities to the
 authority-and-producer-scoped store provider, payload limits, transfer policy,
 payload diagnostics, and payload access: complete, or ranged, which only a
 `Realize` operation, whose selection bounds the read, or an `Acquire` carrying
-a [document demand](package-read-demand.md#document-demand), which names the
+a [file demand](package-read-demand.md#exact-file-demand), which names the
 entries it reads, may use
 ([Ranged payload realization](package-source-model.md#ranged-payload-realization)). It carries no source lease, operation context,
 payload, or release obligation and does not take ownership of stores returned

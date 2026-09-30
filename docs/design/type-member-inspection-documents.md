@@ -182,7 +182,7 @@ The design composes established repository contracts:
 | [DocumentationHouse](documentation-house.md) | Each documentation outcome has one exact library-scoped subject; multi-subject execution is only a bounded optimization over independent exact requests. |
 | [SourceHouse](source-house.md) | Authored and decompiled source remain typed producer attempts under explicit source and PDB policy. |
 | [Inspection operation composition](inspection-operation-composition.md) | Hosts lower gestures to typed requests and consume one completed host-neutral envelope. |
-| [Selective implementation metric Analysis](library-body-analysis-service.md) | Requested evidence, effective evidence, executable prerequisites, and actual producer participation remain distinct. |
+| [Selective implementation metric Analysis](library-body-analysis-service.md) | Requested metrics, required canonical facts, executable work stages, and actual producer participation remain distinct. |
 
 PR
 [#8411](https://github.com/richlander/dotnet-inspect/pull/8411)
@@ -756,6 +756,71 @@ Exact overload Rows are the join currency for optional documentation
 attachments and overload-scoped metrics. Those producers may not add, remove,
 reorder, or replace rows.
 
+### Exact-overload analysis model
+
+Metadata owns one exact-overload analysis model. LINQ, NLinq, QuerySpace
+Planner, and any future executor are projections of that model; they do not
+define separate populations and compare only their final cardinality.
+
+The model guarantees declaration fidelity for assemblies produced by Roslyn
+and bounded containment for every admitted assembly. Containment does not
+invent C# semantics for arbitrary IL. A non-Roslyn or malformed shape that
+cannot satisfy the model returns a typed unsupported, incomplete, or failed
+outcome rather than a plausible partial population.
+
+One execution has three phases:
+
+1. **Prepare.** Resolve one structured Type-definition name to one exact
+   TypeDef. Validate and index MethodSemantics and other cross-table
+   relationships that touch that Type. Preparation is bounded, generation-
+   specific, and reusable by every terminal in the execution. A single-subject
+   request does not construct a whole-image Type-definition index; such an
+   index is justified only when one generation will answer multiple Type
+   subjects.
+2. **Select.** Enumerate only the resolved TypeDef's MethodDefs in metadata
+   order. Apply exact metadata name and ordinary-method membership, validated
+   accessor exclusion, effective accessibility, receiver classification, and
+   hidden admission. Cheap in-place metadata comparisons precede attribute or
+   signature work, but no optimization may skip validation required to settle
+   the population.
+3. **Close.** Count folds selected units without constructing result rows.
+   Rows retains only the requested handle window and then projects display
+   signature, canonical identity, fingerprint, accessibility, and receiver.
+   Combined Count and Rows share one selection pass.
+
+The Roslyn fidelity contract includes:
+
+- structured declaring-Type and exact metadata-name identity;
+- ordinary methods distinct from constructors, operators, accessors, and
+  explicit-interface declarations;
+- MethodSemantics validation before accessor exclusion;
+- effective accessibility, including interface implementation evidence;
+- exhaustive `this`, `static`, and `extension` classification, with extension
+  taking precedence over metadata-static;
+- hidden-declaration admission independent of accessibility;
+- stable metadata order; and
+- the same canonical signature, fingerprint, and row identity used by exact
+  Member inspection.
+
+The arbitrary-assembly containment contract includes:
+
+- SRM-only inspection with no inspected-assembly loading or execution;
+- bounded metadata, relationship, candidate, signature, and retained-text
+  work;
+- validation before trusting cross-table ownership or role claims;
+- visible typed failure for malformed or exhausted work; and
+- diagnostics that do not reproduce hostile artifact text.
+
+A performance scorecard first constructs this owner-issued model, then
+projects it into idiomatic LINQ, NLinq, and Planner executions. Every column
+receives the same prepared source, predicate, row projector, bounds, and
+terminal. The scorecard reports shared preparation, terminal-kernel, and
+composed costs separately. When the QuerySpace enablement scorecard adds an
+Old column, that column is the exact pre-QuerySpace production path being
+replaced, not eager whole-API extraction or another historical
+implementation. Answer equivalence covers outcome kind, completion, Count,
+ordered row identity, and failure, not only cardinality.
+
 ## Documentation attachment
 
 Documentation is typed attached content, not population membership and not
@@ -888,7 +953,7 @@ contract as follows:
   population;
 - it does not expose QuerySpace Rows or Count, mirror the overload population,
   or repeat inherited Member predicates and ordering;
-- an unqualified request is rejected because no metric evidence was requested,
+- an unqualified request is rejected because no metric was requested,
   not because a metric Count lacks a predicate; and
 - hosts join results to settled overload Rows by exact identity, family
   binding, and generation, suppressing stale publication.
@@ -902,11 +967,11 @@ population queries.
 
 The selective Analysis owner remains responsible for:
 
-- requested versus effective evidence;
+- requested metrics versus required canonical facts;
 - semantic and executable prerequisites;
 - physical-body scope and logical/physical correspondence;
 - work bounds;
-- per-evidence completion; and
+- per-metric completion; and
 - actual producer-participation receipts.
 
 Its sibling-relationship result must identify exact Member endpoints and state
@@ -1232,7 +1297,7 @@ The implementation sequence must add Release gates proving:
 - sibling-relationship decoration consumes the settled exact-overload roster,
   returns exact endpoints, and changes neither membership nor order;
 - body-size-only and sibling-relationship metric requests execute only their
-  #8450/#8455 effective evidence and work prerequisites;
+  #8450/#8455 required facts and work stages;
 - Type and Member metrics routes expose no declaration Rows or Count;
 - CLI and Browser execute the same host-neutral document routes and preserve
   Content, Share, and diagnostics;

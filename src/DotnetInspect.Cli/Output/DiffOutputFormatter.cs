@@ -23,6 +23,14 @@ namespace DotnetInspect.Cli.Output;
 /// </summary>
 public static class DiffOutputFormatter
 {
+    internal sealed record OrderedTableRow(
+        string TypeFullName,
+        DiffTableRow Row);
+
+    internal sealed record OrderedDetailedChangeRow(
+        string TypeFullName,
+        DiffDetailedChangeRow Row);
+
     /// <summary>
     /// Renders a type's simple name with generic arity expanded to a C#-friendly
     /// form (<c>JsonConverter`1</c> → <c>JsonConverter&lt;T&gt;</c>) for the human
@@ -43,6 +51,21 @@ public static class DiffOutputFormatter
     }
 
     public static DiffTableView BuildTableView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+        => BuildTableView(
+            name,
+            typeDiffs,
+            fromVersion,
+            toVersion,
+            additionalRows: null,
+            summary: null);
+
+    internal static DiffTableView BuildTableView(
+        string name,
+        IReadOnlyList<TypeDiff> typeDiffs,
+        string fromVersion,
+        string toVersion,
+        IReadOnlyList<OrderedTableRow>? additionalRows,
+        string? summary)
     {
         int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0;
         foreach (var td in typeDiffs)
@@ -52,51 +75,74 @@ public static class DiffOutputFormatter
             totalPotentiallyBreaking += td.PotentiallyBreakingCount;
         }
 
-        var rows = typeDiffs.OrderBy(td => td.TypeFullName).Select(td =>
-        {
-            string symbol;
-            string detail;
+        var rows = typeDiffs.Select(td =>
+            {
+                string symbol;
+                string detail;
 
-            if (td.IsAdded)
-            {
-                symbol = "+";
-                detail = "added";
-            }
-            else if (td.IsRemoved)
-            {
-                symbol = "-";
-                detail = "removed";
-            }
-            else if (td.BreakingCount > 0)
-            {
-                symbol = "x";
-                detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
-            }
-            else
-            {
-                symbol = "~";
-                detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
-            }
+                if (td.IsAdded)
+                {
+                    symbol = "+";
+                    detail = "added";
+                }
+                else if (td.IsRemoved)
+                {
+                    symbol = "-";
+                    detail = "removed";
+                }
+                else if (td.BreakingCount > 0)
+                {
+                    symbol = "x";
+                    detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
+                }
+                else
+                {
+                    symbol = "~";
+                    detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
+                }
 
-            return new DiffTableRow(
-                DiffViewText.Field(symbol),
-                DiffViewText.Field(TypeMatcher.GetSimpleName(td.TypeFullName)),
-                DiffViewText.Field(detail));
-        }).ToList();
+                return new OrderedTableRow(
+                    td.TypeFullName,
+                    new DiffTableRow(
+                        DiffViewText.Field(symbol),
+                        DiffViewText.Field(TypeMatcher.GetSimpleName(td.TypeFullName)),
+                        DiffViewText.Field(detail)));
+            })
+            .Concat(additionalRows ?? [])
+            .OrderBy(row => row.TypeFullName, StringComparer.Ordinal)
+            .Select(row => row.Row)
+            .ToList();
 
         return new DiffTableView(
             DiffViewText.Field($"API Diff: {name}"),
             DiffViewText.Field($"{fromVersion} -> {toVersion}"),
-            DiffViewText.Field(FormatSummaryCounts(
-                totalBreaking,
-                totalAdditive,
-                totalPotentiallyBreaking)))
+            DiffViewText.Field(
+                summary
+                    ?? FormatSummaryCounts(
+                        totalBreaking,
+                        totalAdditive,
+                        totalPotentiallyBreaking)))
         {
             Rows = rows.Count > 0 ? rows : null
         };
     }
 
     public static DiffDetailedChangesView BuildDetailedChangesView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+        => BuildDetailedChangesView(
+            name,
+            typeDiffs,
+            fromVersion,
+            toVersion,
+            additionalRows: null,
+            summary: null);
+
+    internal static DiffDetailedChangesView BuildDetailedChangesView(
+        string name,
+        IReadOnlyList<TypeDiff> typeDiffs,
+        string fromVersion,
+        string toVersion,
+        IReadOnlyList<OrderedDetailedChangeRow>? additionalRows,
+        string? summary)
     {
         int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0;
         foreach (var td in typeDiffs)
@@ -107,17 +153,24 @@ public static class DiffOutputFormatter
         }
 
         var rows = typeDiffs
-            .OrderBy(td => td.TypeFullName, StringComparer.Ordinal)
-            .SelectMany(td => td.Changes.Select(change => BuildDetailedRow(td.TypeFullName, change)))
+            .SelectMany(td => td.Changes.Select(change =>
+                new OrderedDetailedChangeRow(
+                    td.TypeFullName,
+                    BuildDetailedRow(td.TypeFullName, change))))
+            .Concat(additionalRows ?? [])
+            .OrderBy(row => row.TypeFullName, StringComparer.Ordinal)
+            .Select(row => row.Row)
             .ToList();
 
         return new DiffDetailedChangesView(
             DiffViewText.Field($"API Diff: {name}"),
             DiffViewText.Field($"{fromVersion} -> {toVersion}"),
-            DiffViewText.Field(FormatSummaryCounts(
-                totalBreaking,
-                totalAdditive,
-                totalPotentiallyBreaking)))
+            DiffViewText.Field(
+                summary
+                    ?? FormatSummaryCounts(
+                        totalBreaking,
+                        totalAdditive,
+                        totalPotentiallyBreaking)))
         {
             Rows = rows.Count > 0 ? rows : null
         };
@@ -594,6 +647,32 @@ public static class DiffOutputFormatter
     public static string RenderFullMarkdown(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion, MarkoutWriterOptions? options = null)
     {
         var view = BuildFullView(name, typeDiffs, fromVersion, toVersion);
+        var writer = new MarkoutWriter(new MarkdownFormatter(), options);
+        DiffViewContext.Default.Serialize(view, writer);
+        return writer.Complete().TrimEnd();
+    }
+
+    internal static string RenderFullMarkdown(
+        string name,
+        IReadOnlyList<TypeDiff> typeDiffs,
+        IReadOnlyList<DiffChangeRow> otherChanges,
+        string summary,
+        string fromVersion,
+        string toVersion,
+        MarkoutWriterOptions? options = null)
+    {
+        DiffFullView view = BuildFullView(
+            name,
+            typeDiffs,
+            fromVersion,
+            toVersion);
+        if (otherChanges.Count > 0)
+        {
+            view.Status = default;
+            view.OtherChanges = [.. otherChanges];
+        }
+        if (typeDiffs.Count > 0 || otherChanges.Count > 0)
+            view.SummaryText = DiffViewText.Field($"**Summary:** {summary}");
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
         return writer.Complete().TrimEnd();
@@ -1538,7 +1617,9 @@ public static class DiffOutputFormatter
         return rows.Count > 0 ? rows : null;
     }
 
-    private static DiffDetailedChangeRow BuildDetailedRow(string typeFullName, ApiChange change)
+    internal static DiffDetailedChangeRow BuildDetailedRow(
+        string typeFullName,
+        ApiChange change)
         => BuildDetailedRow(
             typeFullName,
             change.Kind,

@@ -498,7 +498,7 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    public void Evaluate_UsesProductWholeMemberForOrdinaryConstructors()
+    public void Evaluate_PreservesPrivateConstructorArtifactAndReportsContextFailure()
     {
         var assemblyPath = CompileFixture("""
             using System;
@@ -596,7 +596,8 @@ public class FidelityCheckGeneratedFilterTests
                         && method.Overload == constructorOverload));
 
             Assert.True(result.UsedProductWholeMember);
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.Contains("CS0122", result.Detail, StringComparison.Ordinal);
         }
         finally
         {
@@ -1186,24 +1187,6 @@ public class FidelityCheckGeneratedFilterTests
         {
             DeleteFixture(assemblyPath);
         }
-    }
-
-    [Fact]
-    public void ConstructorShellAccessibility_PreservesBodySyntaxDiagnostics()
-    {
-        const string member = """
-                private Fixture()
-                {
-                    Consume(,);
-                }
-            """;
-
-        Assert.True(
-            FidelityCheck.TryForcePublicConstructorAccessibility(
-                member,
-                out string normalized));
-        Assert.Contains("public Fixture()", normalized, StringComparison.Ordinal);
-        Assert.Contains("Consume(,);", normalized, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -192,6 +192,7 @@ public sealed class MetadataDeclarationSession : IDisposable
                         operation,
                         _methodSemanticsAssociations!,
                         PostMethodDeclaration,
+                        PostTypeDeclaration,
                         GetOrCreateTypeDefinitionIndex,
                         GetOrCreateMemorySafetyIndex)
                     .Post(request, token);
@@ -200,6 +201,40 @@ public sealed class MetadataDeclarationSession : IDisposable
             _accessorDeclarations.Add(request, result);
             return result;
         }
+    }
+
+    public MetadataAccessorAssociationResult RelateAccessor(
+        MetadataTypeDefinitionAddress type,
+        ILInspector.MetadataPrimitives.MetadataMethodAddress method,
+        CancellationToken token = default)
+    {
+        EnsureAccess();
+        token.ThrowIfCancellationRequested();
+        MetadataOperationContext operation = _operationContext!;
+        var request = new MetadataAccessorAssociationRequest(type, method);
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected rejected)
+        {
+            return new MetadataAccessorAssociationResult.Rejected(
+                new MetadataAccessorAssociationFailure(
+                    request,
+                    MetadataAccessorAssociationFailureReason.BudgetExceeded,
+                    MetadataAccessorAssociationStage.RequestValidation,
+                    MetadataAccessorAssociationMechanism.ImageAdmission,
+                    "The metadata image was not admitted.",
+                    BudgetDimension:
+                        MetadataOperationDimension.MetadataRows,
+                    BudgetLimit:
+                        rejected.Failure.MaxMetadataRows,
+                    AttemptedCharge:
+                        rejected.Failure.ImageMetadataRows),
+                operation.Counters);
+        }
+
+        return new MetadataAccessorAssociationEvidenceOperation(
+            _assemblySession!.GetMetadataReaderForDeclarationSession(),
+            operation,
+            _methodSemanticsAssociations!)
+            .Relate(request, token);
     }
 
     /// <summary>

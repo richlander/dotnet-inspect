@@ -75,6 +75,38 @@ internal static class InstalledHiveFileSystem
         return null;
     }
 
+    internal static string? FindUniqueChildIgnoringCase(
+        string parent,
+        string expectedName,
+        InstalledEntryKind expectedKind,
+        InstalledObservationBudget observation,
+        CancellationToken cancellationToken)
+    {
+        string? found = null;
+        foreach (string entry in Directory.EnumerateFileSystemEntries(parent))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            observation.Observe();
+
+            if (!string.Equals(
+                    Path.GetFileName(entry),
+                    expectedName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (found is not null)
+                throw new InstalledInvalidLayoutException();
+
+            bool isDirectory = IsDirectory(entry);
+            if (isDirectory != (expectedKind == InstalledEntryKind.Directory))
+                throw new InstalledInvalidLayoutException();
+            found = entry;
+        }
+
+        return found;
+    }
+
     internal static bool IsDirectory(string path) =>
         (File.GetAttributes(path) & FileAttributes.Directory) != 0;
 

@@ -25,6 +25,38 @@ Run without installing:
 dnx dotnet-inspect -y -- <command>
 ```
 
+### Choose a Platform source
+
+dotnet-inspect can load direct local libraries, packages from configured
+Package Sources, and Platform libraries. Platform requests prefer locally
+installed packs when dotnet-inspect has a usable .NET root and the requested
+version is installed. Otherwise, they use the package-backed Platform source.
+
+A framework-dependent invocation may derive the root containing its current
+CoreCLR runtime; a NativeAOT invocation cannot. For a .NET installation outside
+that runtime-derived location, learn the root from machine provisioning or its
+tool manager, verify that it contains `packs`, and set process-scoped
+`DOTNET_ROOT`:
+
+```bash
+dotnet_root=/absolute/path/to/dotnet-root
+test -d "$dotnet_root/packs" &&
+  DOTNET_ROOT="$dotnet_root" dnx dotnet-inspect -y -- find JsonSerializer
+```
+
+```powershell
+$dotnetRoot = "C:\absolute\path\to\dotnet-root"
+if (-not (Test-Path -Path (Join-Path $dotnetRoot "packs") -PathType Container)) {
+    throw "The selected .NET root does not contain packs."
+}
+$env:DOTNET_ROOT = $dotnetRoot
+dnx dotnet-inspect -y -- find JsonSerializer
+```
+
+`DOTNET_ROOT` is the installed-root override; dotnet-inspect does not infer it
+from `PATH`. Without a usable explicit or runtime-derived root, Platform
+requests use the package-backed source.
+
 ## Repository development SDK
 
 Published tool users can install or run `dotnet-inspect` with the commands
@@ -53,7 +85,7 @@ and repository-specific guidance.
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
 | Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print`, `project ./src/DotnetInspect.Cli -S "Package README file"` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, dependency package skills, and root package README files; restore/build first if dependencies changed. dotnet-inspect does not restore, build, or acquire missing packages. |
-| Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
+| Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Prefers installed packs when the requested version is available; otherwise uses package-backed Platform packs. |
 | Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
 
 Platform packs have distinct package, Platform, and direct-library views. For
@@ -507,7 +539,8 @@ dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "M
 Default output is Markdown. For compact human scanning use `--table`; for
 machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
-Use `-T q` to suppress tips in script-oriented commands.
+Tips are off by default. Use `-T` for contextual suggestions on `stderr` or
+`-T:d` for a larger set.
 
 Positional `depends <type>`, ordinary single-Library API `diff`, `package
 activity`, Package Query, online package range-version population, and exact
@@ -624,9 +657,9 @@ dotnet-inspect package Newtonsoft.Json@13.0.4 \
 dotnet-inspect package Markout@0.35.2 \
   --path "skills/*/SKILL.md" -n 1 --tail --paths
 dotnet-inspect package Markout@0.35.2 \
-  --path skills/markout/SKILL.md --content --out skill.md
+  --path skills/markout/SKILL.md --content --raw
 dotnet-inspect package System.Text.Json --version 10.0.0 \
-  --path README.md --content --out README.md
+  --path README.md --content --raw
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
   --tfm net8.0 -S "Package files" --paths
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
@@ -658,15 +691,18 @@ enumeration, optional exact directory-segment `--tfm` filtering, and optional
 observe the same selected rows; `--roots` instead emits their ordered distinct
 top-level package roots. Add `--lines` only to clip rendered text.
 
-For an exact online package version, writing one literal root `README.md` or
-`skills/**/SKILL.md` path to `--out` acquires directly through the PackageHouse
-filesystem store rather than the legacy extraction route. README bytes copy
-progressively to the file. Skill documents retain their existing containment
-and link-normalization behavior, so the House stream is decoded into that
-final selected representation before the file is written. Local packages,
-floating or range version selection, stdout, target-framework filters, path
-globs and roles, scoped documents, .NET tool-wrapper redirection, and other
-package files retain their existing behavior.
+For an exact online package version, requesting one literal root `README.md` or
+`skills/**/SKILL.md` path with `--content` acquires directly through the
+PackageHouse filesystem store using HTTP Range requests rather than the legacy
+extraction route. The exact entry is detached through the shared package
+document-content inspection, then the CLI applies its existing separator,
+`--raw`, JSONL, or `--out` projection. Skill documents retain their containment
+and link-normalization behavior. Detached content projections accept documents
+up to 16 MiB; an exact README written to `--out` remains a bounded byte stream
+and is not subject to that detached-content limit. Local packages, floating or
+range version selection, target-framework filters, path globs and roles,
+scoped documents, .NET tool-wrapper redirection, and other package files retain
+their existing behavior.
 
 For one package with `--layout`, `-n`, `--tail`, and `--rows A..B` select
 complete sorted file paths after archive extraction and `--lib`, `--tools`, or
@@ -1769,7 +1805,7 @@ Target, or Kind field order; Traversal is a sequence order. Asset-mode
 For recursive package traversal, `--tfm` selects the root package dependency
 group and configures the stable traversal target. When `--tfm` is omitted, the
 root keeps its package-local selection while newly reached packages use the
-product traversal default, currently `net12.0`; a compatible destination
+product traversal default, currently `net11.0`; a compatible destination
 selection does not replace that target on later edges.
 
 For `graph integrations` and `graph calls`, one semantic row is one logical

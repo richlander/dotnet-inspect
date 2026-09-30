@@ -1317,30 +1317,39 @@ friend only its test assemblies. The current
 `LayeringTests.Metadata_FriendsOnlyTestAssemblies` gate enforces the complete
 friend set rather than checking selected production assembly names.
 
-### Format admission is an owner precondition
+### Session-owned format admission
 
-`AssemblyImage` owns general assembly-format admission. Its construction
-classifies the immutable image and, for supported ECMA-335 metadata,
-constructs the shared `MetadataReader` before publishing an
-`AssemblyInspectionSession`. Unsupported Windows Metadata and malformed
-reader construction therefore fail before any producer runs. A native image
-may publish a session with `HasMetadata == false`; the session settles a
-metadata request as `NoMetadata` without invoking its producer.
+Assembly Inspection owns general assembly-format admission for operations
+reached through `AssemblyInspectionSession`. The image owner classifies one
+immutable image and, for supported ECMA-335 metadata, establishes the retained
+`MetadataReader` before publishing the session. Unsupported Windows Metadata
+and malformed reader construction settle at that owner boundary before a
+Metadata producer runs. An image without managed metadata may still publish a
+session, but a metadata request settles as no metadata without invoking its
+producer.
 
-A Metadata producer reached through `AssemblyInspectionSession` consumes only
-that retained admitted reader. It must not classify the image again or carry
-its own Windows Metadata check. Raw `PEReader` entry points that remain during
-the incremental scanner migration are compatibility admission boundaries, not
-the producer contract; migrate them behind the session rather than copying
-their checks into new producers.
+The admitted reader is a lifetime-bound precondition issued by the session.
+Metadata producers reached through that session consume the retained reader;
+they do not own general image-format classification or reader construction.
+Raw `PEReader` entry points that remain during incremental scanner migration
+are compatibility admission boundaries, not the producer contract. New
+session-backed producers consume the owner-issued precondition rather than
+copying those compatibility checks.
 
-Admission does not make metadata rows trustworthy. Each producer remains
-responsible for high-fidelity answers on Roslyn-produced assemblies and for
-secure, bounded behavior on every admitted assembly. Producer-owned guarded
-decoding, work budgets, recursion bounds, and visible partial or failed
-outcomes enforce that second responsibility. General format admission and
-producer-local containment are separate gates; neither substitutes for the
-other.
+Format admission does not make metadata rows trustworthy. Each producer
+remains responsible for high-fidelity answers on Roslyn-produced assemblies
+and for secure, bounded behavior on every admitted assembly. Guarded decoding,
+work budgets, recursion bounds, and visible partial or failed outcomes enforce
+that producer-local containment. General format admission and producer-local
+containment are separate boundaries; neither substitutes for the other.
+
+Implementation adoption must positively gate the supported ECMA-335,
+no-metadata, unsupported Windows Metadata, malformed-reader, lifetime, and
+visible producer-failure outcomes in Release. This design selects **no
+automated composition-absence gate** for the negative claim that no
+session-backed producer repeats admission. The absence remains unverified by
+automation and is enforced by owner review; implementation evidence must not
+describe positive session-path gates as repository-wide absence proof.
 
 ```csharp
 public sealed class AssemblyInspectionSession : IDisposable
@@ -1891,7 +1900,7 @@ interface IResearchFactProducer {
     IReadOnlyList<Annotation> Produce(ResearchFactContext context);
 }
 // ResearchFactRegistry holds the producers and Collect()s them;
-// ResearchAssemblyContext.Create(LibraryBodyIndex) builds the shared inputs once.
+// MemberProjectionAnalysisInput joins focused results from one execution.
 ```
 
 The mapping to this spec is nearly 1:1:
@@ -1899,7 +1908,7 @@ The mapping to this spec is nearly 1:1:
 | This spec | Research API |
 | --- | --- |
 | **facet** (one owner) | a producer's `Produces` set — one producer per fact id |
-| **shared PE-owner, parsed once** | `ResearchAssemblyContext.Create(index)` — built once, read by all producers |
+| **shared evidence input** | `MemberProjectionAnalysisInput` — exact focused results from one Analysis execution |
 | **session / hub** | `ResearchFactRegistry` — holds producers, `Collect`s over the shared context |
 | **facet dependencies** | producer `DependsOn` |
 | **CLI selects + renders; service produces** | Research's own contract: *"Producers contribute projection-neutral facts; presenters render the merged set."* |

@@ -11,23 +11,39 @@ public sealed class InstalledPlatformAssemblyReferenceResolverTests
 {
     [Fact]
     public async Task
-        ResolveAsync_PreservesInstalledProvenanceAndSettlesContribution()
+        ResolveAsync_BindsNamesakeAndReturnsCanonicalInstalledIdentity()
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
         using var hive = new TestHive();
         string source = FindReferenceAssembly("System.Text.Json.dll");
+        string directory = hive.CreateReferencePack();
         hive.CopyAssembly(
-            hive.CreateReferencePack(),
+            directory,
             source);
+        File.WriteAllBytes(
+            Path.Combine(directory, "Unrelated.dll"),
+            [0, 1, 2, 3]);
         InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
-        AssemblyReferenceIdentity identity = ReadIdentity(source);
+        AssemblyReferenceIdentity targetIdentity = ReadIdentity(source);
+        AssemblyReferenceIdentity sourceIdentity =
+            targetIdentity with { Version = new Version(8, 0, 0, 0) };
         PlatformHouseRequest request =
-            Request(adapter, identity, cancellationToken);
+            Request(adapter, sourceIdentity, cancellationToken);
         var reference = Assert.IsType<
             InstalledPlatformHouseResult<
                 InstalledReferenceRealization>.Succeeded>(
                     await adapter.RealizeReferenceAsync(request));
+        var contribution =
+            Assert.IsType<PlatformSourceContribution.Realization>(
+                reference.Contribution);
+        var binding = Assert.IsType<
+            PlatformLibraryDemand.AssemblyReferenceBinding>(
+                Assert.IsType<PlatformPopulationDemand.Library>(
+                    contribution.Population).Value);
+        var sourceBinding = Assert.IsType<
+            InstalledReferencePopulationDemand.AssemblyReferenceBinding>(
+                reference.Value.Population);
         PlatformHouseConsumedWork consumed = Consumed(reference);
         PlatformHouseCandidateIdentity candidate =
             PlatformHouseCandidateIdentity.Create("installed-candidate");
@@ -51,6 +67,9 @@ public sealed class InstalledPlatformAssemblyReferenceResolverTests
 
         var decision = Assert.IsType<AssemblyBindingDecision.Resolved>(
             completed.Value);
+        Assert.Equal(sourceIdentity, binding.Identity);
+        Assert.Equal(sourceIdentity, sourceBinding.Identity);
+        Assert.Equal(targetIdentity, decision.Candidate.Identity);
         var platformProvenance =
             Assert.IsType<PlatformLibraryArtifactProvenance>(
                 decision.Candidate.Registration
@@ -85,6 +104,95 @@ public sealed class InstalledPlatformAssemblyReferenceResolverTests
             PlatformHouseSettlementKind.Completed,
             completed.Receipt.SettlementKind);
         Assert.Equal(consumed, completed.Receipt.ConsumedWork);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_IncompatibleNamesakeReportsNameOwnedNoMatch()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        using var hive = new TestHive();
+        string source = FindReferenceAssembly("System.Text.Json.dll");
+        hive.CopyAssembly(hive.CreateReferencePack(), source);
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        AssemblyReferenceIdentity sourceIdentity =
+            ReadIdentity(source) with
+            {
+                Version = new Version(8, 0, 0, 0),
+                PublicKeyToken = "0000000000000000",
+            };
+        PlatformHouseRequest request =
+            Request(adapter, sourceIdentity, cancellationToken);
+        var reference = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(request));
+
+        var completed = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await InstalledPlatformAssemblyReferenceResolver
+                    .ResolveAsync(
+                        request,
+                        reference,
+                        Consumed(reference)));
+        var missing = Assert.IsType<AssemblyBindingDecision.Missing>(
+            completed.Value);
+
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NameOwnedNoMatch,
+            missing.Disposition);
+        Assert.Equal(
+            PlatformAssemblyReferenceCompletionKind.NameOwnedNoMatch,
+            Assert.IsType<PlatformHouseCompletion.AssemblyReference>(
+                    completed.Receipt.Completion)
+                .Kind);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_AbsentNamesakeReportsNoNameOwner()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        using var hive = new TestHive();
+        hive.CreateReferencePack();
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformHouseRequest request = Request(
+            adapter,
+            ReadIdentity(
+                FindReferenceAssembly("System.Text.Json.dll")),
+            cancellationToken);
+        var terminal = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledReferenceRealization>.NotSucceeded>(
+                    await adapter.RealizeReferenceAsync(request));
+        var unavailable =
+            Assert.IsType<PlatformSourceContribution.Unavailable>(
+                terminal.Contribution);
+
+        var completed = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await InstalledPlatformAssemblyReferenceResolver
+                    .ResolveAsync(
+                        request,
+                        terminal,
+                        TerminalConsumed(
+                            InstalledSourceTerminalCase.Unavailable)));
+        var missing = Assert.IsType<AssemblyBindingDecision.Missing>(
+            completed.Value);
+
+        Assert.Equal(
+            PlatformSourceUnavailabilityKind.Absent,
+            unavailable.Reason);
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            missing.Disposition);
+        Assert.Equal(
+            PlatformAssemblyReferenceCompletionKind.NoNameOwner,
+            Assert.IsType<PlatformHouseCompletion.AssemblyReference>(
+                    completed.Receipt.Completion)
+                .Kind);
     }
 
     [Fact]
@@ -196,9 +304,14 @@ public sealed class InstalledPlatformAssemblyReferenceResolverTests
         switch (terminalCase)
         {
             case InstalledSourceTerminalCase.Unavailable:
-                Assert.IsType<
+                var unavailable = Assert.IsType<
                     PlatformHouseOutcome<
                         AssemblyBindingDecision>.Unavailable>(outcome);
+                Assert.Equal(
+                    PlatformSourceUnavailabilityKind.Unavailable,
+                    Assert.IsType<PlatformSourceContribution.Unavailable>(
+                            terminal.Contribution)
+                        .Reason);
                 break;
             case InstalledSourceTerminalCase.Rejected:
                 var rejected = Assert.IsType<
