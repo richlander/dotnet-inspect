@@ -846,8 +846,8 @@ These gates land with the implementing slice and run in Release:
   the same answers and failures through the planned execution.
 - **Early stop:** the receipt shows no definition visited after the first
   evidence.
-- **Failure:** an incomplete definition before any evidence yields the failed
-  outcome, not an absent answer.
+- **Failure:** an incomplete definition before any evidence preserves the
+  failed outcome and work receipt, not an absent answer.
 - **Undeclared access:** a producer that requested only the declaration layer
   cannot obtain the body layer, and a producer cannot read another
   producer's result without declaring the dependency.
