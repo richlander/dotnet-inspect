@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Queries;
 using NLinq;
 
 namespace DotnetInspector.PerformanceOracles.Tests;
@@ -49,6 +50,29 @@ public sealed class ScorecardTests
     }
 
     [Fact]
+    public void OracleOrderBy_IsStable()
+    {
+        (string Key, int Id)[] input =
+        [
+            ("b", 1),
+            ("a", 2),
+            ("b", 3),
+            ("a", 4),
+        ];
+        var source = input.AsNLinq();
+        ListEnumerator<(string Key, int Id)> ordered =
+            OracleOperators.OrderBy<
+                ArrayEnumerator<(string Key, int Id)>,
+                (string Key, int Id)>(
+                    source,
+                    StableRowComparer.Instance);
+
+        Assert.Equal(
+            [2, 4, 1, 3],
+            ordered.ToList().Select(static row => row.Id));
+    }
+
+    [Fact]
     public void PublicMethods_NLinqAndLinqColumnsAgreeOnRealAssemblies()
     {
         // System.Reflection.Metadata has far more than 110 selected methods, so
@@ -88,11 +112,85 @@ public sealed class ScorecardTests
         Assert.InRange(staticCount, 1, publicCount - 1);
     }
 
+    [Theory]
+    [InlineData("JsonSer")]
+    [InlineData("System.Text.Json.JsonSer")]
+    [InlineData("Serializer")]
+    [InlineData("JsonSerialiser")]
+    [InlineData("JsonSerialiser<T>")]
+    [InlineData("Json*")]
+    [InlineData("NoSuchTypePattern")]
+    public void TypeFindPopulationColumns_AgreeOnRealTypePopulation(string pattern)
+    {
+        var shape = new ScorecardShape(N: 3, WindowFirst: 2, WindowLast: 4);
+        IReadOnlyList<ScorecardAsset<TypeFindPopulationScorecardAsset>> assets =
+            TypeFindPopulationScorecard.LoadAssets(
+                pattern,
+                [typeof(System.Text.Json.JsonSerializer).Assembly.Location]);
+        ScorecardColumn<TypeFindPopulationScorecardAsset, TypeFindPopulationScorecardRow> oracle =
+            TypeFindPopulationScorecard.NLinqColumn(shape);
+
+        ScorecardCheck check = Scorecard.Check(
+            assets,
+            oracle,
+            [
+                TypeFindPopulationScorecard.LinqColumn(shape),
+                oracle,
+                TypeFindPopulationScorecard.SelectorColumn(shape),
+            ],
+            TypeFindPopulationScorecard.RowText);
+
+        Assert.True(check.Agrees, string.Join(Environment.NewLine, check.Mismatches));
+    }
+
+    [Fact]
+    public void TypeFindPopulationColumns_PreserveFirstAssociationForDuplicateNames()
+    {
+        TypeFindPopulationCandidate<int>[] candidates =
+        [
+            new(41, "Example.JsonSerializer"),
+            new(99, "Example.JsonSerializer"),
+            new(7, "Example.JsonSerializerContext"),
+        ];
+        var shape = new ScorecardShape(N: 1, WindowFirst: 1, WindowLast: 1);
+        ScorecardAsset<TypeFindPopulationScorecardAsset>[] assets =
+        [
+            new("duplicates", new("JsonSer", candidates)),
+        ];
+        ScorecardColumn<TypeFindPopulationScorecardAsset, TypeFindPopulationScorecardRow> oracle =
+            TypeFindPopulationScorecard.NLinqColumn(shape);
+
+        ScorecardCheck check = Scorecard.Check(
+            assets,
+            oracle,
+            [
+                TypeFindPopulationScorecard.LinqColumn(shape),
+                oracle,
+                TypeFindPopulationScorecard.SelectorColumn(shape),
+            ],
+            TypeFindPopulationScorecard.RowText);
+
+        Assert.True(check.Agrees, string.Join(Environment.NewLine, check.Mismatches));
+        ScorecardAnswer<TypeFindPopulationScorecardRow> rows =
+            oracle.Answer(ScorecardClosing.Rows, assets[0].Asset);
+        Assert.Equal([41, 7], rows.Rows!.Select(static row => row.Association));
+    }
+
     struct StaticMethodSelection : IMethodSelection
     {
         public readonly bool IsSelected(MetadataReader reader, TypeDefinition type, MethodDefinition method) =>
             default(PublicMethodSelection).IsSelected(reader, type, method)
             && (method.Attributes & System.Reflection.MethodAttributes.Static) != 0;
+    }
+
+    sealed class StableRowComparer : IComparer<(string Key, int Id)>
+    {
+        public static StableRowComparer Instance { get; } = new();
+
+        public int Compare(
+            (string Key, int Id) left,
+            (string Key, int Id) right) =>
+            StringComparer.Ordinal.Compare(left.Key, right.Key);
     }
 
     [Fact]
@@ -310,6 +408,69 @@ public sealed class ScorecardTests
 
         Assert.Equal(Scorecard.Closings.Count * columns.Length, cells.Count);
         Assert.All(cells, cell => Assert.Equal(3, cell.RoundMedians.Count));
+    }
+
+    [Fact]
+    public void CheckAndMeasure_CanSelectOneClosing()
+    {
+        ScorecardAsset<int[]>[] assets =
+            [new("small", [1, 2, 3, 4])];
+        var oracle =
+            new ScorecardColumn<int[], int>("NLinq", Answer);
+        var planner =
+            new ScorecardColumn<int[], int>("Planner", Answer);
+        ScorecardClosing[] closings = [ScorecardClosing.Rows];
+
+        ScorecardCheck check = Scorecard.Check(
+            assets,
+            oracle,
+            [oracle, planner],
+            Text,
+            closings: closings);
+        IReadOnlyList<ScorecardCell> cells = Scorecard.Measure(
+            assets,
+            [oracle, planner],
+            new(
+                Rounds: 1,
+                Warmup: 0,
+                BudgetMilliseconds: 1,
+                MinSamples: 1,
+                MaxSamples: 1),
+            closings: closings);
+
+        Assert.True(check.Agrees);
+        Assert.Equal(1, check.Compared);
+        Assert.Equal(2, cells.Count);
+        string report =
+            Scorecard.Report(cells, oracle.Name, Shape);
+        Assert.Contains("| Rows |", report);
+        Assert.DoesNotContain("| Count |", report);
+    }
+
+    [Fact]
+    public void CheckAndMeasure_RejectVacuousOrDuplicateClosingSets()
+    {
+        ScorecardAsset<int[]>[] assets = [new("small", [1])];
+        var oracle =
+            new ScorecardColumn<int[], int>("NLinq", Answer);
+
+        Assert.Throws<ArgumentException>(
+            () => Scorecard.Check(
+                assets,
+                oracle,
+                [oracle],
+                Text,
+                closings: []));
+        Assert.Throws<ArgumentException>(
+            () => Scorecard.Measure(
+                assets,
+                [oracle],
+                new(),
+                closings:
+                [
+                    ScorecardClosing.Rows,
+                    ScorecardClosing.Rows,
+                ]));
     }
 
     static readonly ScorecardShape Shape = new(N: 2, WindowFirst: 2, WindowLast: 4);

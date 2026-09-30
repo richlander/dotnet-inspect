@@ -692,6 +692,26 @@ public class CfgSampleClass
         return x => { int y = x + z; return y * y; };
     }
 
+    public static System.Func<string, IEnumerable<int>> CapturingParameterWithNestedLambda(
+        int offset)
+        => text => text.Select(character => character + 1).Append(offset);
+
+    public static int CapturingLocalWithNestedLambdaInBranch(
+        IReadOnlyList<string> items,
+        int maxWidth)
+    {
+        int firstColumnMaxWidth = maxWidth / 2;
+        if (items.Count > firstColumnMaxWidth)
+        {
+            return items
+                .SelectMany(text => text
+                    .Select(character => character + 1)
+                    .Append(firstColumnMaxWidth))
+                .Max();
+        }
+        return firstColumnMaxWidth;
+    }
+
     // Multi-statement lambda block body returned from inside a nested `if`, so
     // the enclosing `return` statement sits one indent level deeper than the
     // method body — exercises that the expanded block's braces track the
@@ -2806,13 +2826,23 @@ public class CfgSampleClass
         int Mul(int v) => v * n;
     }
 
-    // Adversarial negative: a recursive local function (its body calls itself), which
-    // keeps the import non-recursive — must stay lowered.
+    // Self recursion is a one-member dependency component.
     public static int RecursiveLocalFunction(int n)
     {
         return Fact(n);
 
         int Fact(int v) => v <= 1 ? 1 : v * Fact(v - 1);
+    }
+
+    public static int MutuallyRecursiveStaticLocalFunctions(int value)
+    {
+        return IsEven(value) ? 1 : 0;
+
+        static bool IsEven(int current)
+            => current == 0 || IsOdd(current - 1);
+
+        static bool IsOdd(int current)
+            => current != 0 && IsEven(current - 1);
     }
 
     // Adversarial negative: the captured variable `n` is reassigned AFTER the only
@@ -6195,6 +6225,24 @@ public sealed class CfgGenericNestedEnumSink<T>
             CompletionPart.Complete => 3,
             _ => 0,
         };
+    }
+}
+
+public static class GenericLocalFunctionComponentSamples<T>
+{
+    public static T Cycle(T value, int count)
+    {
+        return First(value, count);
+
+        static T First(T item, int remaining)
+            => remaining == 0
+                ? item
+                : Second(item, remaining - 1);
+
+        static T Second(T item, int remaining)
+            => remaining == 0
+                ? item
+                : First(item, remaining - 1);
     }
 }
 

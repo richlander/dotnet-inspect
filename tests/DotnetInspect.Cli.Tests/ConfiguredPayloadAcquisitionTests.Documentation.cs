@@ -51,6 +51,62 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
     [Fact]
     public async Task
+        LibraryAddressCommand_SelectedPackageUsesVersionPriorAndEntryCache()
+    {
+        string id = $"Package.Address.Prior.{Guid.NewGuid():N}";
+        string source = Path.Combine(_root, "address-prior-feed");
+        string assemblyPath =
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location;
+        string assemblyName = Path.GetFileName(assemblyPath);
+        int methodToken =
+            typeof(ConfiguredPayloadAcquisitionTests)
+                .GetMethod(nameof(Dispose))!
+                .MetadataToken;
+        WriteLocalPackage(
+            source,
+            id,
+            "Package Address prior fixture.",
+            library: await File.ReadAllBytesAsync(
+                assemblyPath,
+                TestContext.Current.CancellationToken),
+            libraryName: assemblyName);
+        string[] args =
+        [
+            "library",
+            "address",
+            $"0x{methodToken:X8}+0x0",
+            "--package",
+            id,
+            "--library",
+            $"lib/net11.0/{assemblyName}",
+            "--source",
+            source,
+            "-S",
+            "Context: Member",
+            "--tips",
+            "q",
+        ];
+
+        var first = await RunCommandAsync(args);
+        Assert.True(
+            first.Exit == 0,
+            $"Exit {first.Exit}\n{first.Output}\n{first.Error}");
+        File.Delete(
+            Path.Combine(
+                source,
+                $"{id.ToLowerInvariant()}.{Version}.nupkg"));
+
+        var second = await RunCommandAsync(args);
+        Assert.True(
+            second.Exit == 0,
+            $"Exit {second.Exit}\n{second.Output}\n{second.Error}");
+        Assert.Empty(second.Error);
+        Assert.Equal(first.Output, second.Output);
+        Assert.Contains(nameof(Dispose), second.Output);
+    }
+
+    [Fact]
+    public async Task
         TypeCommand_ConfiguredRuntimeAssetPreservesInspectionWithoutDocumentation()
     {
         string id =

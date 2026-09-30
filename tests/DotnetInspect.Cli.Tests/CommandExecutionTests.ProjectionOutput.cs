@@ -481,6 +481,7 @@ public partial class CommandExecutionTests
             new[]
             {
                 "depends",
+                "diff",
                 "ecosystem",
                 "extensions",
                 "find",

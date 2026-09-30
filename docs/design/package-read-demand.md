@@ -2,13 +2,25 @@
 
 ## Status, owner, and claim
 
-This document is the normative owner for **how much of a package archive a
-realization asks a ranged read for**. It is a slice of
+This document is the normative owner for **which package entries a resolved
+semantic-content narrowing selects when PackageHouse plans a ranged read**. It
+is a slice of
 [#8386](https://github.com/richlander/dotnet-inspect/issues/8386), whose goal
 is that assemblies a person or an agent inspects all day do not cost network
 all day.
 
-The claim has five parts:
+The [PackageHouse semantic content-demand
+contract](package-house-semantic-content-demand.md) owns the reusable
+package/TFM/root-family narrowing and whether cache, manifest,
+archive-directory, ranged, or complete acquisition satisfies a query. This
+document owns only entry expansion after the House resolves that narrowing
+against one validated ZIP central-directory snapshot and selects ranged
+execution. The current direct selected-Library PDB companion remains an
+existing request path; the semantic content-query successor instead uses
+`GetLibraryAndInventoryForTarget` evidence followed by the semantic exact-entry
+expansion defined below. Commands and hosts do not select an access mode.
+
+The claim has six parts:
 
 - **Asset demand.** A House request carries an asset demand. `Surface` asks
   for the compile surface only: the reference or compile assets the
@@ -17,11 +29,11 @@ The claim has five parts:
   implementation role and no role correspondence. It is never upgraded in
   place: a consumer that needs the implementation asks for a realization with
   that demand.
-- **The folder is the unit of a ranged read.** A ranged selection is expanded
-  from each selected asset to every direct entry of that asset's folder: the
-  folder's other assemblies and their documentation files, but not its
-  subfolders, such as satellite resource folders. A command that inspects one
-  assembly of a folder usually inspects its neighbors and their
+- **The folder is the unit of an asset realization.** A ranged asset
+  selection is expanded from each selected asset to every direct entry of that
+  asset's folder: the folder's other assemblies and their documentation files,
+  but not its subfolders, such as satellite resource folders. A command that
+  inspects one assembly of a folder usually inspects its neighbors and their
   documentation next, and a whole folder is cached as a whole.
 - **Named implementation reads aligned blocks.** A consumer may name the
   implementation assemblies it needs. Those are read in fixed, entry-aligned
@@ -32,11 +44,18 @@ The claim has five parts:
   returns selected Library handoffs may request the package-local Portable
   PDB beside each selected implementation assembly. A listed companion is
   added as one exact entry; an absent companion does not fail realization.
-- **Files are named directly.** A file demand names exact entries or folders.
-  A ranged `Acquire` may carry it, and ranged content serves the House's pull
-  reads. Hosts that need one exact path call `PackageFileAcquisition`, which
-  owns the demand, House execution, cache-aware acquisition, manifest
-  resolution, and generation-bound read.
+- **Semantic exact entries stay exact.** The semantic Files terminal and
+  selected content of `GetLibraryAndInventoryForTarget` expand only their
+  exact owner-issued entry references under ranged execution. They do not add
+  the package root or sibling entries. A complete-transfer fallback may retain
+  the whole archive, but its semantic result publishes only the requested
+  entries.
+- **Current direct Files remain folder-expanded.** `PackageFileDemand` names
+  entry paths or folder prefixes, but the current compatibility route expands
+  a named entry to its direct folder. `PackageFileAcquisition` owns that
+  demand, House execution, cache-aware acquisition, manifest resolution, and
+  generation-bound read until #8994 adopters migrate to semantic exact-entry
+  expansion.
 
 This document transfers one claim from the
 [package source model](package-source-model.md#ranged-payload-realization):
@@ -127,11 +146,12 @@ role.
 
 ### The folder unit
 
+This unit applies to asset realization and the current folder-expanded
+`PackageFileDemand`; it does not apply to semantic exact-entry expansion.
 After the realization selects its assets, the House adds every entry whose
-parent folder is a selected asset's folder. It adds nothing from other
-folders and nothing from subfolders. The realization receipt is still
-evaluated over the materialized content, so it names only entries that were
-read.
+parent folder is a selected asset's folder. It adds nothing from other folders
+and nothing from subfolders. The realization receipt is still evaluated over
+the materialized content, so it names only entries that were read.
 
 A cached directory tells a later read which entries its demand needs and
 which the entry cache already holds, without a request
@@ -148,7 +168,11 @@ selects only the implementation assets with those names. The surface is
 unchanged and is still read as whole folders. The package Root prepares an
 implementation role, and forms a role correspondence, only for the named
 assets. A name that selects no implementation asset is a visible realization
-failure, never an empty success.
+failure, never an empty success. The exact-Library operation has one narrower
+owner-issued exception: a name is satisfied when it selects an API asset whose
+compile correspondence explicitly has no implementation counterpart. Other
+House callers cannot request that policy, and every other unmatched name still
+fails.
 
 Named implementation assets are read in **aligned blocks**, not folders.
 Blocks are fixed by the archive alone:
@@ -230,6 +254,18 @@ demand. It belongs only to a compile `Realize` request that asks for
 companion is `ImplementationPortablePdb`: for each selected implementation
 assembly, the House derives the same-directory, same-stem `.pdb` path.
 
+This section describes the current direct realization handoff. The semantic
+content-query successor does not request this companion with
+`GetLibraryAndInventoryForTarget`. Instead, that TFM-wide operation downloads
+the policy-selected DLL and returns a complete logical Library inventory. Each
+row reports typed directory evidence for its owner-issued implementation DLL
+and adjacent PDB. A later host-neutral PDB operation may request those exact
+entries through the Files terminal or skip to an external provider. That
+settlement owner is tracked by
+[#9002](https://github.com/richlander/dotnet-inspect/issues/9002). Until that
+successor and its production composition land, current callers continue to
+receive the existing companion handoff.
+
 If the package directory lists that path, the ranged selection adds it as an
 exact entry. It does not make the PDB a block anchor and does not widen the
 implementation assembly's aligned block. If the directory does not list the
@@ -244,9 +280,96 @@ existing ranged plan exactly. An unnamed implementation realization already
 reads the implementation folder whole, so a listed adjacent PDB is already
 retained without an additional exact entry.
 
+### Exact Library realization
+
+A host that needs one exact selected package Library calls
+`PackageLibraryRealization`. Its request names one exact or version-selecting
+package demand, target framework, Library selector, required depth, optional
+selected-Library companion demand, and `Realize` operation. Its plan contains
+the host-provided authority-scoped store, limits, transfer policy, diagnostics,
+ranged size cut, and optional Package Version Service plan for selecting
+demands.
+
+The operation:
+
+1. creates one compile `Realize` request with selected-Library handoffs;
+2. uses `SurfaceAndImplementation` without a named implementation for
+   selection-depth work, or adds one named implementation for
+   implementation-depth work;
+3. executes cache-first, size-first ranged realization;
+4. resolves exactly one selector-issued compile handoff while preserving its
+   PackageHouse settlement and content generation; and
+5. returns typed realized, unsettled, unrealized, missing, or ambiguous status.
+
+Selectors are typed as an opaque compile asset ID, an exact package-relative
+asset path, or a query. Query selection first honors an exact asset ID, then
+matches a qualified path against the API or implementation asset, or an
+unqualified assembly name against either role. Zero and several matches remain
+visible typed outcomes; the operation never chooses another Library.
+
+Implementation depth derives one file name before acquisition so named
+implementation demand reaches the ranged read. The request permits that name
+to be satisfied by a selected API asset only when its selector-issued
+correspondence has no implementation counterpart. Every other unmatched
+implementation name remains a visible realization failure. Selection depth
+preserves the selector-issued API-to-implementation correspondence and
+therefore retains the selected implementation set. Both depths permit a
+reference-only Library with no implementation counterpart. Portable PDB
+companion demand requires implementation depth and remains optional as
+described above.
+
+Hosts bind package-source authorization, stores, version-settlement policy,
+deadlines, cancellation, and the consumer operation. They do not independently
+assemble the House request, choose asset demand, derive named implementation
+demand, execute realization, or resolve one handoff.
+
+Three production consumers adopt this operation:
+
+- package-backed CLI `library address` uses implementation depth and requests
+  a Portable PDB only for source-location evidence;
+- CLI package documentation enrichment uses selection depth for compiled XML
+  and implementation depth plus Portable PDB demand when authored-source
+  documentation is authorized; and
+- Browser/Wasm member documentation uses implementation plus Portable PDB
+  demand with its Cache Storage-backed package-entry store.
+
+Package-wide Browser Root realization remains package-shaped and does not use
+this operation. Existing inspections that already consume one owner-issued
+exact Library occurrence also remain downstream of realization rather than
+reacquiring the package.
+
+### Semantic exact-entry expansion
+
+The semantic Files terminal and selected content of
+`GetLibraryAndInventoryForTarget` carry exact package-entry references issued
+from the query's validated central-directory snapshot. When PackageHouse
+chooses ranged execution, the read demand adds exactly those entries:
+
+- it does not add the package root folder;
+- it does not add sibling entries from a named entry's folder;
+- it does not expand a folder prefix; and
+- a missing, ambiguous, or outside-narrowing reference fails visibly.
+
+Without a namespace, the target composite names only its selected Library
+entry. Namespace selection may name each candidate assembly required to prove
+the first exact match. Detached inventory rows name no content until a later
+Files query presents their exact references.
+
+A complete-transfer or ranged-then-complete plan may download and retain the
+whole archive because PackageHouse owns transfer planning. That execution path
+does not enlarge the semantic result: only the exact selected entries are
+published as materialized content. The transfer receipt discloses complete
+acquisition.
+
+This expansion is a successor arm of the read-demand owner. It does not change
+`PackageLibraryRealization` or the current `PackageFileDemand` behavior below.
+The #8994 implementation slice adds it with its first production caller and
+retires folder-expanded direct file acquisition route by route.
+
 ### Exact file demand
 
-A consumer that needs package files rather than assets names them directly:
+A current compatibility consumer that needs package files rather than assets
+names them directly:
 `PackageFileDemand` is a set of exact entry paths and folder prefixes.
 Paths are validated as entry names are: relative, `/`-separated, and without
 an empty, `.`, or `..` segment, a root, `\`, or `:`. They are compared
@@ -323,13 +446,15 @@ vocabularies:
   Cache Storage, so a warm read after store recreation makes no package request
   ([cache policy adoption step 5](package-cache-policy.md#adoption)).
 
-### Per-command demand
+### Current demand adoption
 
 | Command | Demand | Access at this head |
 | --- | --- | --- |
 | `find` member search, `implements`, `extensions`, `depends`, with one `--package ID@VERSION` and `--tfm` | `Surface` | ranged, size first |
 | `library address` with one exact package Library and non-JSON output | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB when source location is selected | ranged, size first |
 | `library address --json` | `SurfaceAndImplementation` plus the established complete Library JSON metadata | complete |
+| CLI package documentation for one exact Library | `SurfaceAndImplementation`; one named implementation and a listed adjacent Portable PDB are added for authored source | ranged, size first |
+| Browser member documentation for one exact Library | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB | ranged, size first |
 | `type`, `member`, and other `library` operations | `SurfaceAndImplementation` | complete |
 | `graph` | `SurfaceAndImplementation` | complete |
 | `package` | the whole archive | complete |
@@ -337,10 +462,10 @@ vocabularies:
 | `diff --history`, Metadata cells (API findings) | `Surface` | ranged, size first |
 | `diff --history`, Analysis cells (IL-body findings) | `SurfaceAndImplementation` | ranged, size first |
 
-The first two command families and the last three rows adopt ranged access,
-except that `library address --json` retains complete acquisition. The others
-keep their current complete acquisition until they adopt ranged access (see
-[Adoption](#adoption)).
+At this head, callers still carry transitional ranged or complete access
+choices. [#8994](https://github.com/richlander/dotnet-inspect/issues/8994)
+removes those choices one adopter at a time. The table records semantic need,
+not transfer policy; new callers must not copy the transitional access split.
 
 ## Pathological cases and gates
 
@@ -368,10 +493,13 @@ All gates run in Release.
 | 18. The same history twice from a credential-free HTTP feed | the second makes no package request | case 16's gate; in Debug hosts, `DiffHistoryEvidenceEnvelope_RangedCellsRecordTheirReads` shows each cold cell's size probe, tail, and entry spans, and each warm cell's `EntryCache` path with no request |
 | 19. A named implementation Library requests its listed adjacent Portable PDB | the implementation DLL remains a block anchor, the PDB is retained as an exact entry, and its neighboring entry is not materialized | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandRetainsExactCompanion`, using the real `System.Text.Json` implementation assembly in a boundary archive |
 | 20. The requested adjacent Portable PDB is absent | realization and the selected Library handoff still settle without a PDB entry | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandAllowsAbsentCompanion` |
-| 21. A selected reference Library has no implementation counterpart | companion demand invents neither an implementation asset nor a PDB; the reference-only handoff settles | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandDoesNotInventImplementation` |
-| 22. CLI Address selects an exact Library from a pinned or latest configured package | both version policies use PackageHouse and render the same Member context | `ConfiguredPayloadAcquisitionTests.LibraryAddressCommand_ConfiguredPackageUsesHouseSelection` |
+| 21. A selected reference Library has no implementation counterpart | companion demand invents neither an implementation asset nor a PDB; House and the high-level exact-Library operation settle the reference-only handoff, and Browser documentation retains compiled XML while authored source is unavailable | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandDoesNotInventImplementation`, `PackageLibraryRealization_ImplementationDepthAllowsReferenceOnlyHandoff`, and `BrowserEngineBoundaryTests.QueryMemberDocumentation_ReferenceOnlyLibraryRetainsCompiledDocumentation` |
+| 22. CLI Address selects an exact Library from a pinned or latest configured package | both version policies use PackageHouse and render the same Member context; a repeated latest request uses the Package Version Service prior and entry cache when discovery is unavailable | `ConfiguredPayloadAcquisitionTests.LibraryAddressCommand_ConfiguredPackageUsesHouseSelection` and `LibraryAddressCommand_SelectedPackageUsesVersionPriorAndEntryCache` |
 | 23. CLI Address selects an exact Library from a local archive and requests source location | the exact archive is admitted by its embedded identity and the adjacent Portable PDB supplies source evidence | `CommandExecutionTests.LibraryAddressCommand_PackageSourceLocationUsesAdjacentPortablePdb` |
 | 24. A local archive lacks embedded package identity | exact-source admission fails visibly before Address inspection | `CommandExecutionTests.LibraryAddressCommand_LocalArchiveRequiresEmbeddedPackageIdentity` |
+| 25. One high-level exact-Library request is cold, warm, or missing | cold execution uses ranged acquisition, warm execution uses the entry cache without a package request, and a missing selector is a typed result | `PackageRangedRealizationTests.PackageLibraryRealization_ColdWarmAndMissing_AreOrchestrated`, real asset `PCLStorage` 1.0.2 |
+| 26. Exact-Library depth and selection are pathological | implementation depth reads fewer implementation entries than selection depth, while an ambiguous query remains a typed result | `PackageRangedRealizationTests.PackageLibraryRealization_DepthReachesRangedAcquisition` and `PackageLibraryRealization_QueryAmbiguityIsTyped`, real asset `Avalonia` 12.1.2 plus an ambiguity fixture |
+| 27. Browser member documentation reads one implementation and its PDB from an archive above the cut | cold execution uses ranges and skips an unrelated 2 MiB implementation plus 2 MiB padding; after store recreation, the same authored documentation makes no package request | `BrowserEngineBoundaryTests.QueryMemberDocumentation_UsesRangeAndWarmEntryCache` |
 
 ## Adoption
 
@@ -379,34 +507,44 @@ All gates run in Release.
    exact-package search Root realized with `Surface`.
 2. Named implementation demand and aligned blocks in the House and the
    acquisition step, with gates 6 to 10.
-3. `library address` adopts ranged access with
+3. `library address` declares
    `SurfaceAndImplementation`, one named implementation, selected Library
    handoffs, and source-sensitive companion demand for non-JSON output. JSON
    retains the complete path until the shared Address result owns its existing
    Library metadata schema.
-4. `type`, `member`, and the remaining `library` operations adopt ranged
+4. Exact Library realization centralizes House request construction, one
+   handoff selection, and typed failure for CLI Address, CLI package
+   documentation, and Browser member documentation. Documentation selects
+   selection or implementation depth from its authored-source demand.
+5. `type`, `member`, and the remaining `library` operations adopt ranged
    access, naming the assemblies that define what they inspect and reusing the
    folders a surface search cached.
-5. `graph` adopts ranged access with `SurfaceAndImplementation`.
-6. Runtime packs are realized with named implementation demand once the
+6. `graph` adopts ranged access with `SurfaceAndImplementation`.
+7. Runtime packs are realized with named implementation demand once the
    [package-backed platform source](package-backed-platform-realization.md)
    no longer reads every member's identity at realization. That change belongs
    to its owner.
-7. File demand and pull reads over ranged content, composed by
+8. File demand and pull reads over ranged content, composed by
    `PackageFileAcquisition`. Exact `package --content` requests for a root
    `README.md` or `skills/**/SKILL.md` path call its desktop adapter, including
    separator, raw, JSONL, and `--out` projections. The Browser/Wasm document
    viewer calls the same operation for root `README.md`, root `PACKAGE.md`, and
    `skills/**/*.md`. Other Inspect Web package operations retain their existing
    acquisition paths.
-8. `diff --history` realizes each version cell with ranged access: Metadata
+9. `diff --history` realizes each version cell with ranged access: Metadata
    cells with `Surface`, whose package Root prepares no implementation role,
    and Analysis cells with `SurfaceAndImplementation`. A history over the
-   versions of a large package then reads each version's surface folder, or
-   its surface and implementation folders, instead of its whole archive, and
-   a repeated history reads nothing it already holds.
+   versions of a large package permits the House to select only each version's
+   surface folder, or its surface and implementation folders, and a repeated
+   history may read nothing it already holds.
 
-`package` keeps complete acquisition, except its document export (step 7).
+`package` keeps complete acquisition, except its document export (step 8).
+
+[#8994](https://github.com/richlander/dotnet-inspect/issues/8994) moves access
+planning into PackageHouse after these demand semantics are preserved. Its
+semantic Files and `GetLibraryAndInventoryForTarget` adopters add the
+exact-entry arm above, then retire current folder-expanded direct file
+acquisition route by route.
 
 ## Non-claims
 
@@ -415,6 +553,6 @@ This document does not:
 - change size first, the entry cache, or the durable identity of HTTP
   authorities, which the [package cache policy](package-cache-policy.md)
   owns;
-- change which assets a realization selects, only which entries a ranged read
-  of them fetches;
-- change complete acquisition for any command.
+- change which assets a realization selects, only which entries a House-planned
+  ranged read of them fetches; or
+- decide whether a semantic demand uses ranged or complete acquisition.

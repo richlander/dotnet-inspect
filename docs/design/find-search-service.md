@@ -20,7 +20,10 @@ queries, and Metadata facts. `WorkspaceDeclarationLocator` owns resident reverse
 admitted declaration contexts; `AssemblyContextTypeInventoryQuery` remains the
 compatibility inventory for source producers not yet adopted by that
 Workspace path. `ILInspector.Metadata.TypeMatcher` owns the type matching
-grammar and similarity calculation. [Output shapes](output-shapes.md) and
+grammar and similarity calculation. [Type Find population
+selection](type-find-population-selection.md) owns host-neutral Prefix,
+Substring, and Partial settlement over one complete ordered population.
+[Output shapes](output-shapes.md) and
 [progressive disclosure](progressive-disclosure.md) own projection, formatting,
 and presentation limits.
 
@@ -334,9 +337,11 @@ Find ranks one pattern's candidates into ordered match tiers. The tier
 ladder is the product's single Type-name ranking:
 `ILInspector.Metadata.TypeNameMatchRanking`, beside `TypeMatcher`, owns the
 per-candidate Prefix, Substring, and namespace-Path predicates and the
-within-tier order, and every Type-name search host consumes it.
-This service owns which tiers a Find pattern evaluates, when a tier settles
-the pattern, and how rows reach `TypeFindResult`.
+within-tier order, and every Type-name search host consumes it. [Type Find
+population selection](type-find-population-selection.md) owns first-nonempty
+Prefix, Substring, and Partial settlement over the complete ordered census.
+This service owns how those broadened results compose after Direct and exact
+namespace settlement, beside the Member band, and reach `TypeFindResult`.
 
 ### Motivation
 
@@ -367,8 +372,9 @@ A pattern evaluates these tiers in order:
 2. **Exact namespace.** Unchanged: a non-wildcard dotted pattern with at least
    one proper dotted namesake-Library candidate selects public definitions
    whose namespace equals the pattern ordinally, with `Namespace` match kind.
-3. **Prefix.** A non-wildcard pattern without explicit generic notation
-   matches `<pattern>*`. A dotted pattern keeps the established
+3. **Prefix.** The host-neutral population selector admits a non-wildcard
+   pattern without explicit generic notation and matches `<pattern>*`. A
+   dotted pattern keeps the established
    namespace-prefix meaning, including its visible stderr note and effective
    `Pattern`; an undotted pattern matches simple Type names. Rows carry the
    `Prefix` match kind.
@@ -379,13 +385,15 @@ A pattern evaluates these tiers in order:
      [Member Find](find-member-search-service.md) `Direct` grammar over the
      same authorized source request. Member rows remain `MemberFindResult`
      rows; this service does not convert a member into a Type row.
-   - **Substring.** Simple Type names containing the pattern, with the
+   - **Substring.** The population selector returns simple Type names
+     containing the pattern, with the
      `Substring` match kind. A dotted pattern matches full
      names containing it. Find does not evaluate the ranker's undotted Path
      tier, which would admit every Type in a namespace that contains the
      text; incremental Spotlight ranking may.
-5. **Partial.** Unchanged similarity fallback, reached only when tiers 1-4 are
-   all empty: up to five `Partial` suggestions with similarity at least `0.5`.
+5. **Partial.** The population selector's unchanged similarity fallback,
+   reached only when tiers 1-4 are all empty: up to five `Partial`
+   suggestions with similarity at least `0.5`.
 6. **Miss.** Unchanged `NotFound` outcome.
 
 Tiers 1-3 keep the established settlement rule: the first non-empty tier is
@@ -402,15 +410,16 @@ successful results, not diagnostics, so they add no stderr note; the `Match`
 classification carries the tier. Only the established dotted
 namespace-prefix note remains.
 
-Rows within the Prefix and Substring tiers order by simple-name length, then
-simple name ordinal-ignore-case, then collected source and inventory order.
+The host-neutral selector orders rows within the Prefix and Substring tiers by
+simple-name length, then simple name ordinal-ignore-case, then collected source
+and inventory order.
 The shortest completion is the most likely intent (`JsonSerializer` before
 `JsonSerializerOptions`). Partial rows order by descending similarity, then the
 same keys, which closes the prior known gap where they were emitted in
 collected order. Direct, Namespace, and Member rows keep source and inventory
-order. Duplicate full names within Prefix, Substring, and Partial collapse to
-the first source-ranked candidate, as the namespace-prefix and similarity
-rungs already did.
+order. The selector collapses duplicate full names within Prefix, Substring,
+and Partial to the first source-ranked exact candidate association, as the
+namespace-prefix and similarity rungs already did.
 
 Multiple patterns classify independently, and their groups keep the
 established input-pattern ordering. Consumers still use `Pattern`, `Match`,

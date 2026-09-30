@@ -139,14 +139,20 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryLibraryApiDiff"),
     queryMemberDeclaration: () =>
       unexpected("queryMemberDeclaration"),
+    queryMemberDocument: () =>
+      unexpected("queryMemberDocument"),
     queryMemberGroupDocument: () =>
       unexpected("queryMemberGroupDocument"),
     queryTypeMemberPopulation: () =>
       unexpected("queryTypeMemberPopulation"),
     queryPlatformMemberDeclaration: () =>
       unexpected("queryPlatformMemberDeclaration"),
+    queryPlatformMemberDocument: () =>
+      unexpected("queryPlatformMemberDocument"),
     queryPlatformMemberGroupDocument: () =>
       unexpected("queryPlatformMemberGroupDocument"),
+    queryUploadedLibraryMemberDocument: () =>
+      unexpected("queryUploadedLibraryMemberDocument"),
     queryPlatformTypeMemberPopulation: () =>
       unexpected("queryPlatformTypeMemberPopulation"),
     queryUploadedLibraryMemberGroupDocument: () =>
@@ -464,11 +470,13 @@ test("uploaded Library input uses a bounded structured-clone byte tuple", () => 
   }
 });
 
-test("uploaded Library MemberGroup queries use the retained exact image", async () => {
+test("uploaded Library Member document queries use the retained exact image", async () => {
   const content = [0x4d, 0x5a, 0x00, 0x01];
   const identity = `sha256:${"a".repeat(64)}`;
   let received:
     [string, number[], string, string] | undefined;
+  let exactReceived:
+    [string, number[], string, string, number, string] | undefined;
   let receivedPopulation:
     [string, number[], string, string, string] | undefined;
   const state = fixture({
@@ -503,6 +511,39 @@ test("uploaded Library MemberGroup queries use the retained exact image", async 
       },
     },
     metadata: {
+      async queryUploadedLibraryMemberDocument(
+        declaredName,
+        bytes,
+        typeIdentity,
+        memberName,
+        baselineOrdinal,
+        fingerprintPrefix,
+      ) {
+        exactReceived = [
+          declaredName,
+          bytes,
+          typeIdentity,
+          memberName,
+          baselineOrdinal,
+          fingerprintPrefix,
+        ];
+        return {
+          outcome: "Available",
+          detail: null,
+          document: {
+            typeIdentity,
+            memberName,
+            metadataToken: 0x06000001,
+            baselineOrdinal,
+            displaySignature: "void Run()",
+            canonicalSignature: "M:Example.Widget.Run",
+            fingerprint: "abc123",
+            accessibility: "Public",
+            receiver: "This",
+          },
+          diagnostics: [],
+        };
+      },
       async queryUploadedLibraryMemberGroupDocument(
         declaredName,
         bytes,
@@ -589,6 +630,25 @@ test("uploaded Library MemberGroup queries use the retained exact image", async 
     "Example.Widget",
     "metadata",
     "private",
+  ]);
+
+  const exact =
+    state.client.metadata.queryUploadedLibraryMemberDocument(
+      identity,
+      "Example.Widget",
+      "Run",
+      1,
+      "",
+    );
+  await state.environment.flushAsync();
+  assert.equal((await exact).outcome, "Available");
+  assert.deepEqual(exactReceived, [
+    "Uploaded.dll",
+    content,
+    "Example.Widget",
+    "Run",
+    1,
+    "",
   ]);
 
   const mismatched =
@@ -1204,12 +1264,17 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   const libraryDiff = state.client.metadata.queryLibraryApiDiff(
     "operation-1",
     {
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
       targetFramework: "net11.0",
       compileAssetId: "lib/net11.0/Example.dll",
+      surface: "Library",
+      analyses: ["api"],
+      views: "Changes",
+      typeNames: [],
+      memberTargetIdentities: [],
     },
   );
   const libraryDiffCancellation =
@@ -1298,12 +1363,17 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(libraryDiffArguments, [
     "operation-1",
     {
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
       targetFramework: "net11.0",
       compileAssetId: "lib/net11.0/Example.dll",
+      surface: "Library",
+      analyses: ["api"],
+      views: "Changes",
+      typeNames: [],
+      memberTargetIdentities: [],
     },
   ]);
   assert.deepEqual(libraryDiffCancelArguments, [
@@ -2158,9 +2228,11 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryLibraryApiDiff",
       "queryGraphMemberSurface",
       "queryMemberDeclaration",
+      "queryMemberDocument",
       "queryMemberGroupDocument",
       "queryTypeMemberPopulation",
       "queryPlatformMemberDeclaration",
+      "queryPlatformMemberDocument",
       "queryPlatformMemberGroupDocument",
       "queryPlatformTypeMemberPopulation",
       "queryPackageHeapEntries",
@@ -2170,6 +2242,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMetadata",
       "queryPlatformMetadataTable",
       "queryTypeProjection",
+      "queryUploadedLibraryMemberDocument",
       "queryUploadedLibraryMemberGroupDocument",
       "queryUploadedLibraryTypeMemberPopulation",
     ],
@@ -2246,7 +2319,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 99);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 102);
 
   const state = fixture();
   const groups = [

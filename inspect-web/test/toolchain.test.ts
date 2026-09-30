@@ -3157,6 +3157,29 @@ test("the site artifact rejects a missing Vite output", (context) => {
     join(site, "index.html"),
     '<base href="/">'
       + '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html is missing the import map/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<base href="/">'
+      + '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<script type="importmap">{}</script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html places Vite entry 'assets\/index\.js' before the import map/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<base href="/">'
+      + '<link rel="preload" href="/_framework/dotnet.js">'
       + '<script type="importmap">{}</script>'
       + '<script type="module" src="/assets/index.js"></script>'
       + '<link rel="stylesheet" href="/assets/index.css">',

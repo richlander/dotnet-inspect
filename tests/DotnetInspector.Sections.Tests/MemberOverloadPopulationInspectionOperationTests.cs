@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -395,6 +396,183 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         Assert.Equal(
             Enumerable.Range(1, count.Value),
             rows.Items.Select(static row => row.BaselineOrdinal));
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealSerialize_MemberDocumentSelectsOneBoundExactDeclaration()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        MemberGroupDocument group =
+            Assert.IsType<MemberGroupDocumentInspectionOutcome.Available>(
+                    ExecuteDocument(library, "Serialize").Content)
+                .Document;
+        MemberOverloadShape expected =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    group.Overloads.Rows)
+                .Items[5];
+
+        MemberDocument ordinal =
+            Assert.IsType<MemberDocumentInspectionOutcome.Available>(
+                    ExecuteMemberDocument(
+                            library,
+                            "Serialize",
+                            new(baselineOrdinal: expected.BaselineOrdinal))
+                        .Content)
+                .Document;
+        MemberDocument fingerprint =
+            Assert.IsType<MemberDocumentInspectionOutcome.Available>(
+                    ExecuteMemberDocument(
+                            library,
+                            "Serialize",
+                            new(
+                                fingerprintPrefix:
+                                    expected.Fingerprint.ToString()))
+                        .Content)
+                .Document;
+
+        Assert.Equal(expected.MetadataToken, ordinal.Subject.MetadataToken);
+        Assert.Equal(
+            expected.BaselineOrdinal,
+            ordinal.Subject.BaselineOrdinal);
+        Assert.Equal(expected.Fingerprint, ordinal.Subject.Fingerprint);
+        Assert.Equal(expected.Binding, ordinal.Subject.Population);
+        Assert.Equal(expected.DisplaySignature, ordinal.DisplaySignature);
+        Assert.Equal(expected.CanonicalSignature, ordinal.CanonicalSignature);
+        Assert.Equal(ordinal, fingerprint);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        MemberDocumentRejectsOutOfRangeAndAmbiguousSelectors()
+    {
+        byte[] content =
+            BuildMethodGroupImage(
+                "Selectors",
+                new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+                overloadCount: 20);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        MetadataTypeDefinitionName declaringType = Name("N", "C");
+        MemberOverloadPopulationContent population =
+            Available(
+                Execute(
+                    library,
+                    "M",
+                    count: false,
+                    new(maximumRows: 20),
+                    declaringType: declaringType));
+        ImmutableArray<MemberOverloadShape> rows =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    population.Overloads.Rows)
+                .Items;
+        string ambiguousPrefix =
+            Assert.Single(
+                    rows.GroupBy(
+                            static row =>
+                                row.Fingerprint.ToString()[..1],
+                            StringComparer.Ordinal)
+                        .Where(static group => group.Count() > 1)
+                        .Take(1))
+                .Key;
+
+        var outOfRange =
+            Assert.IsType<MemberDocumentInspectionOutcome.Rejected>(
+                ExecuteMemberDocument(
+                        library,
+                        "M",
+                        new(baselineOrdinal: 21),
+                        declaringType)
+                    .Content);
+        var ambiguous =
+            Assert.IsType<MemberDocumentInspectionOutcome.Rejected>(
+                ExecuteMemberDocument(
+                        library,
+                        "M",
+                        new(fingerprintPrefix: ambiguousPrefix),
+                        declaringType)
+                    .Content);
+
+        Assert.Equal(
+            MemberDocumentInspectionRejection.BaselineOrdinalOutOfRange,
+            outOfRange.Reason);
+        Assert.Equal(
+            MemberDocumentInspectionRejection.FingerprintAmbiguous,
+            ambiguous.Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        MemberDocumentOrdinalMaterializesOnlyThroughSelectedRow()
+    {
+        byte[] content =
+            BuildMethodGroupImage(
+                "Selectors",
+                new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+                overloadCount: 20);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        MetadataTypeDefinitionName declaringType = Name("N", "C");
+        MemberOverloadShape first =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    Available(
+                            Execute(
+                                library,
+                                "M",
+                                count: false,
+                                new(maximumRows: 1),
+                                declaringType: declaringType))
+                        .Overloads.Rows)
+                .Items[0];
+        ApiSurfaceExtractionBounds oneRowBounds =
+            Bounds(
+                first.DisplaySignature.Length
+                + first.CanonicalSignature.Length
+                + first.Fingerprint.Length
+                + first.Accessibility.Length);
+
+        MemberDocument exact =
+            Assert.IsType<MemberDocumentInspectionOutcome.Available>(
+                    ExecuteMemberDocument(
+                            library,
+                            "M",
+                            new(baselineOrdinal: 1),
+                            declaringType,
+                            oneRowBounds)
+                        .Content)
+                .Document;
+        var fingerprint =
+            Assert.IsType<MemberDocumentInspectionOutcome.Incomplete>(
+                ExecuteMemberDocument(
+                        library,
+                        "M",
+                        new(
+                            fingerprintPrefix:
+                                first.Fingerprint.ToString()),
+                        declaringType,
+                        oneRowBounds)
+                    .Content);
+
+        Assert.Equal(first.MetadataToken, exact.Subject.MetadataToken);
+        Assert.Equal(
+            MemberOverloadPopulationBound.RetainedTextCharacters,
+            fingerprint.Bound);
 
         await library.RetireAsync();
     }
@@ -1331,6 +1509,28 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                         MemberOverloadReceiverFilter.All,
                         includeHidden: false),
                     s_bounds)),
+            library.IssueOperation(),
+            TestContext.Current.CancellationToken);
+
+    private static InspectionEnvelope<
+        MemberDocumentInspectionOutcome> ExecuteMemberDocument(
+            LibraryInspectionTestLibrary library,
+            string methodName,
+            MemberDocumentSelector selector,
+            MetadataTypeDefinitionName? declaringType = null,
+            ApiSurfaceExtractionBounds? bounds = null) =>
+        MemberDocumentInspectionOperation.Execute(
+            new(
+                library.Reference,
+                new(
+                    new(
+                        declaringType
+                            ?? Name(
+                                "System.Text.Json",
+                                "JsonSerializer"),
+                        methodName),
+                    selector,
+                    bounds ?? s_bounds)),
             library.IssueOperation(),
             TestContext.Current.CancellationToken);
 

@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
@@ -694,6 +695,95 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        Member_ExactMethodSelector_DefaultUsesOneMemberDocument()
+    {
+        var ordinal = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Serialize:6",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+        Match digest =
+            Regex.Match(
+                ordinal.Output,
+                @"\|\s+`(?<digest>[0-9a-f]{10})`\s+\|");
+        Assert.True(digest.Success, ordinal.Output);
+        var fingerprint = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Serialize~"
+                + digest.Groups["digest"].Value,
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, ordinal.Exit);
+        Assert.Equal(ordinal, fingerprint);
+        Assert.StartsWith("## Signature", ordinal.Output);
+        Assert.Contains(
+            "| Signature | Digest | Canonical Signature |",
+            ordinal.Output);
+        Assert.DoesNotContain("Description", ordinal.Output);
+        Assert.DoesNotContain("overloads)", ordinal.Output);
+        Assert.Empty(ordinal.Error);
+    }
+
+    [Fact]
+    public async Task
+        Member_SingleMethodExactSelectorDoesNotCollapseBareGroup()
+    {
+        string typeName = typeof(MemberCallGraphFixture).FullName!;
+        var group = await RunAppAsync(
+            "member",
+            typeName,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--library",
+            TestAssemblyPath,
+            "--tips",
+            "q");
+        var exact = await RunAppAsync(
+            "member",
+            typeName,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--library",
+            TestAssemblyPath,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, group.Exit);
+        Assert.Equal(0, exact.Exit);
+        Assert.StartsWith(
+            $"method {typeName}.{nameof(MemberCallGraphFixture.RootCall)} "
+                + "(1 overload)",
+            group.Output);
+        Assert.StartsWith("## Signature", exact.Output);
+        Assert.DoesNotContain("(1 overload)", exact.Output);
+        Assert.Empty(exact.Error);
+    }
+
+    [Fact]
+    public async Task Member_ExactMethodSelector_RejectsNativeTree()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--library",
+            TestAssemblyPath,
+            "--tree",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--tree requires exactly one selected tree shape",
+            error);
+    }
+
+    [Fact]
     public async Task Member_NonMethodGroup_RejectsTreePresentation()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -919,7 +1009,10 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signature", output);
-        Assert.Contains("| Signature | Digest | Canonical Signature | Description |", output);
+        Assert.Contains(
+            "| Signature | Digest | Canonical Signature |",
+            output);
+        Assert.DoesNotContain("Description", output);
         Assert.Contains("M:System.Text.Json.JsonSerializer.Serialize", output);
         Assert.Empty(error);
     }
@@ -1596,8 +1689,14 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signature", output);
-        Assert.Contains("public static System.Text.Json.JsonElement SerializeToElement<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)", output);
-        Assert.Contains("Type: System.Text.Json.JsonSerializer", output);
+        Assert.Contains(
+            "public static System.Text.Json.JsonElement "
+                + "SerializeToElement<TValue>(TValue value, "
+                + "System.Text.Json.JsonSerializerOptions options = null)",
+            output);
+        Assert.DoesNotContain(
+            "Type: System.Text.Json.JsonSerializer",
+            output);
         Assert.DoesNotContain("## Methods", output);
         Assert.DoesNotContain("## Decompiled Source", output);
         Assert.DoesNotContain("## PDB Source", output);

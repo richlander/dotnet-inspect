@@ -156,12 +156,17 @@ function createRequest(
   input: LibraryApiDiffOperationInput,
 ): BrowserLibraryApiDiffRequest {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     packageId: input.packageId,
     currentVersion: input.currentVersion,
     targetVersion: input.targetVersion,
     targetFramework: input.targetFramework,
     compileAssetId: input.compileAssetId,
+    surface: "Library",
+    analyses: ["api"],
+    views: "Changes",
+    typeNames: [],
+    memberTargetIdentities: [],
   };
 }
 
@@ -189,11 +194,23 @@ function requireInteger(value: unknown, description: string): void {
 }
 
 function requireNullableString(value: unknown, description: string): void {
-  if (value !== null) requireString(value, description);
+  if (value !== null && value !== undefined)
+    requireString(value, description);
 }
 
 function requireNullableInteger(value: unknown, description: string): void {
-  if (value !== null) requireInteger(value, description);
+  if (value !== null && value !== undefined)
+    requireInteger(value, description);
+}
+
+function requireStringArray(value: unknown, description: string): string[] {
+  if (!Array.isArray(value))
+    throw new Error(`${description} must be an array of strings.`);
+
+  const items: unknown[] = value;
+  if (!items.every((item): item is string => typeof item === "string"))
+    throw new Error(`${description} must be an array of strings.`);
+  return items;
 }
 
 function requireNullableEnum(
@@ -201,7 +218,8 @@ function requireNullableEnum(
   description: string,
   values: readonly string[],
 ): void {
-  if (value !== null) requireEnum(value, description, values);
+  if (value !== null && value !== undefined)
+    requireEnum(value, description, values);
 }
 
 function requireEnum(
@@ -670,14 +688,63 @@ function validateInspection(
     inspection.content,
     "Library API Diff inspection Content",
   );
-  if (content.outcome !== expectedOutcome)
+  const comparison = requireRecord(
+    content.comparison,
+    "Library API Diff comparison context",
+  );
+  requireString(comparison.name, "Library API Diff comparison name");
+  requireString(
+    comparison.beforeVersion,
+    "Library API Diff comparison before version",
+  );
+  requireString(
+    comparison.afterVersion,
+    "Library API Diff comparison after version",
+  );
+  requireEnum(comparison.surface, "Library API Diff comparison surface", [
+    "Library",
+    "Type",
+    "Member",
+  ]);
+  requireString(comparison.views, "Library API Diff comparison views");
+  requireStringArray(
+    comparison.analyses,
+    "Library API Diff comparison analyses",
+  );
+  if (!Array.isArray(content.outcomes))
+    throw new Error("Library API Diff analysis outcomes must be an array.");
+  for (const item of content.outcomes) {
+    const outcome = requireRecord(item, "Library API Diff analysis outcome");
+    requireString(outcome.analysis, "Library API Diff analysis identity");
+    requireEnum(outcome.kind, "Library API Diff analysis outcome kind", [
+      "Compared",
+      "Unavailable",
+      "Failed",
+    ]);
+    requireStringArray(
+      outcome.findings,
+      "Library API Diff analysis findings",
+    );
+    requireNullableString(
+      outcome.detail,
+      "Library API Diff analysis outcome detail",
+    );
+  }
+  const libraryApi = requireRecord(
+    content.libraryApi,
+    "Library API Diff portable presentation",
+  );
+  if (libraryApi.outcome !== expectedOutcome)
     throw new Error("Library API Diff inspection contradicts its result.");
   if (expectedOutcome === "available") {
-    requireRecord(content.document, "Library API Diff Content document");
+    requireRecord(
+      libraryApi.document,
+      "Library API Diff Content document",
+    );
   } else {
-    requireInteger(content.kind, "Library API Diff Content kind");
-    requireRecord(content.before, "Library API Diff Content Before");
-    requireRecord(content.after, "Library API Diff Content After");
+    requireInteger(libraryApi.kind, "Library API Diff Content kind");
+    requireRecord(libraryApi.before, "Library API Diff Content Before");
+    requireRecord(libraryApi.after, "Library API Diff Content After");
   }
   const share = requireRecord(inspection.share, "Library API Diff Share");
   requireEnum(share.kind, "Library API Diff Share kind", [
@@ -715,18 +782,38 @@ function validateResult(
   input: LibraryApiDiffOperationInput,
 ): asserts result is BrowserLibraryApiDiffResult {
   const record = requireRecord(result, "Library API Diff result");
-  if (record.schemaVersion !== 1)
+  if (record.schemaVersion !== 2)
     throw new Error("Unsupported Library API Diff result schema.");
   const request = requireRecord(
     record.request,
     "Library API Diff result request",
   );
-  if (request.schemaVersion !== 1
+  if (request.schemaVersion !== 2
     || request.packageId !== input.packageId
     || request.currentVersion !== input.currentVersion
     || request.targetVersion !== input.targetVersion
     || request.targetFramework !== input.targetFramework
-    || request.compileAssetId !== input.compileAssetId) {
+    || request.compileAssetId !== input.compileAssetId
+    || request.surface !== "Library"
+    || request.views !== "Changes") {
+    throw new Error("Library API Diff result does not match its request.");
+  }
+  const analyses = requireStringArray(
+    request.analyses,
+    "Library API Diff request analyses",
+  );
+  const typeNames = requireStringArray(
+    request.typeNames,
+    "Library API Diff request Type names",
+  );
+  const memberTargetIdentities = requireStringArray(
+    request.memberTargetIdentities,
+    "Library API Diff request Member targets",
+  );
+  if (analyses.length !== 1
+    || analyses[0] !== "api"
+    || typeNames.length !== 0
+    || memberTargetIdentities.length !== 0) {
     throw new Error("Library API Diff result does not match its request.");
   }
   switch (record.kind) {

@@ -3034,6 +3034,12 @@ internal static class LibraryMetadataService
                 inspection.UnsafeEvidencePresenceError = null;
                 break;
 
+            case UnsafeEvidencePresenceResult.ExecutionIncomplete incomplete:
+                inspection.UnsafeEvidencePresent = null;
+                inspection.UnsafeEvidencePresenceError =
+                    incomplete.Error;
+                break;
+
             case UnsafeEvidencePresenceResult.Failed failed:
                 inspection.UnsafeEvidencePresent = null;
                 inspection.UnsafeEvidencePresenceError =
