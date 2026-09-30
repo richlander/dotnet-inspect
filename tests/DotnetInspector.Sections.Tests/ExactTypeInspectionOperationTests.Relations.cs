@@ -302,7 +302,8 @@ public sealed partial class ExactTypeInspectionOperationTests
     public async Task RelationRowsContinueAcrossTheCapturedPopulation()
     {
         var store = await CachedStoreAsync(
-            ("lib/net11.0/Hierarchy.dll", BuildHierarchyAssembly()));
+            ("lib/net11.0/Hierarchy.dll",
+                BuildHierarchyAssembly("Zulu", "Alpha")));
         using var client = new HttpClient(new FailingHandler());
         var input = new WorkspaceContextInput
         {
@@ -398,12 +399,130 @@ public sealed partial class ExactTypeInspectionOperationTests
         Assert.Equal(2, second.Relations.CandidateCount);
         Assert.Single(second.Relations.Rows);
         Assert.Single(second.Candidates);
-        Assert.NotEqual(
-            first.Candidates[0].Candidate,
-            second.Candidates[0].Candidate);
+        Assert.Equal(
+            "Relations.Alpha",
+            CandidateName(first.Candidates[0]));
+        Assert.Equal(
+            "Relations.Zulu",
+            CandidateName(second.Candidates[0]));
+
+        WorkspaceTypeRelationsInspectionResult complete =
+            WorkspaceTypeRelationsInspectionOperation.Execute(
+                workspace,
+                population,
+                focus,
+                plan,
+                rows: new SubjectRelationPopulationRowsRequest(
+                    int.MaxValue),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(
+            ["Relations.Alpha", "Relations.Zulu"],
+            complete.Candidates.Select(CandidateName));
     }
 
-    static byte[] BuildHierarchyAssembly()
+    [Fact]
+    public async Task FailedCandidateContextPreventsExactRelationCount()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Hierarchy.dll", BuildHierarchyAssembly()));
+        using var client = new HttpClient(new NotFoundHandler());
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceContextInput healthyInput = Input();
+        WorkspaceDeclarationContext healthy =
+            await WorkspaceContextLoader.LoadDeclarationContextAsync(
+                workspace,
+                healthyInput,
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+        WorkspaceDeclarationContext failed =
+            await WorkspaceContextLoader.LoadDeclarationContextAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package(
+                            "missing.package",
+                            Version,
+                            Framework),
+                    ],
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+        WorkspaceDeclarationPopulation population =
+            Assert.IsType<
+                WorkspaceDeclarationPopulationCapture.Captured>(
+                    workspace.CaptureDeclarationPopulation(
+                        [healthy, failed]))
+                .Population;
+        WorkspaceDeclarationMember healthyMember =
+            Assert.Single(population.Receipt.Members);
+        var focus = Assert.IsType<WorkspaceExactTypeFocusOutcome.Found>(
+            WorkspaceExactTypeFocusQuery.Execute(
+                population,
+                "Relations.IContract",
+                library: healthyMember.Coordinate,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        SubjectRelationsQueryPlan plan = Assert.IsType<
+            SubjectRelationsQueryPlanResult.Accepted>(
+                SubjectRelationsQuery.ResolveIntent(
+                    SubjectRelationsRouteKind.Type,
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                SubjectRelationsQuery.DirectionTermKey,
+                                PortableQueryOperator.Equal,
+                                "incoming"),
+                            new(
+                                SubjectRelationsQuery.FormTermKey,
+                                PortableQueryOperator.Equal,
+                                "interface"),
+                        ],
+                        [],
+                        [],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+
+        WorkspaceTypeRelationsInspectionResult result =
+            WorkspaceTypeRelationsInspectionOperation.Execute(
+                workspace,
+                population,
+                focus,
+                plan,
+                count: new SubjectRelationPopulationCountRequest(),
+                rows: new SubjectRelationPopulationRowsRequest(10),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.False(population.Receipt.IsRealizationComplete);
+        Assert.False(result.Relations.Evidence.IsComplete);
+        Assert.True(result.Relations.Evidence.HasUsableRows);
+        Assert.IsType<SubjectRelationPopulationCountOutcome.Incomplete>(
+            result.Population.Count);
+        Assert.Equal(
+            2,
+            Assert.IsType<SubjectRelationPopulationRowsOutcome.Read>(
+                result.Population.Rows).Items.Length);
+        Assert.Contains(
+            result.Relations.Evidence.Producers,
+            producer =>
+                producer.Producer
+                    == WorkspaceTypeHierarchyRelationsQuery.Definition
+                && producer.Disposition
+                    == SubjectRelationProducerDisposition.Partial);
+    }
+
+    static string CandidateName(
+        WorkspaceTypeRelationCandidateRow candidate) =>
+        ((InspectionGraphTypeIdentity.AcquiredDefinition)
+            candidate.Candidate.Identity).Type.ToMetadataFullName();
+
+    static byte[] BuildHierarchyAssembly(
+        string firstName = "First",
+        string secondName = "Second")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -440,7 +559,7 @@ public sealed partial class ExactTypeInspectionOperationTests
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
                 metadata.GetOrAddString("Relations"),
-                metadata.GetOrAddString("First"),
+                metadata.GetOrAddString(firstName),
                 baseType: default,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(1));
@@ -448,7 +567,7 @@ public sealed partial class ExactTypeInspectionOperationTests
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
                 metadata.GetOrAddString("Relations"),
-                metadata.GetOrAddString("Second"),
+                metadata.GetOrAddString(secondName),
                 baseType: default,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(1));

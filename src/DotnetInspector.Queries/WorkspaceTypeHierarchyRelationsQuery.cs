@@ -22,12 +22,14 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
         bool materializeRows,
         int startOrdinal,
         int maximumRows,
-        int? stopAfterCandidateCount)
+        int? stopAfterCandidateCount,
+        bool canonicalOrder)
     {
         MaterializeRows = materializeRows;
         StartOrdinal = startOrdinal;
         MaximumRows = maximumRows;
         StopAfterCandidateCount = stopAfterCandidateCount;
+        CanonicalOrder = canonicalOrder;
     }
 
     public bool MaterializeRows { get; }
@@ -37,6 +39,8 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
     public int MaximumRows { get; }
 
     public int? StopAfterCandidateCount { get; }
+
+    public bool CanonicalOrder { get; }
 
     public static WorkspaceTypeHierarchyRelationExecutionPlan Exhaustive(
         bool materializeRows = true,
@@ -49,7 +53,8 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
             materializeRows,
             startOrdinal,
             maximumRows,
-            stopAfterCandidateCount: null);
+            stopAfterCandidateCount: null,
+            canonicalOrder: false);
     }
 
     public static WorkspaceTypeHierarchyRelationExecutionPlan ForwardRows(
@@ -66,7 +71,22 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
             materializeRows: true,
             startOrdinal,
             maximumRows,
-            stopAfterCandidateCount);
+            stopAfterCandidateCount,
+            canonicalOrder: false);
+    }
+
+    public static WorkspaceTypeHierarchyRelationExecutionPlan CanonicalRows(
+        int startOrdinal,
+        int maximumRows)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumRows, 1);
+        return new(
+            materializeRows: true,
+            startOrdinal,
+            maximumRows,
+            stopAfterCandidateCount: null,
+            canonicalOrder: true);
     }
 }
 
@@ -162,6 +182,11 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             AssemblyContextGroup Group,
             ResolvedAssemblyReference Assembly)[] accesses =
             [.. population.ReadAccesses()];
+        WorkspaceDeclarationContextReceipt[] unavailableContexts =
+        [
+            .. population.Receipt.Contexts.Where(
+                static context => !context.IsRealized),
+        ];
         var scans = new List<ParticipantScan>();
         var observedCandidates = new HashSet<CandidateIdentity>();
         bool stopped = false;
@@ -210,7 +235,10 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         SubjectRelationProducerOutcome metadata =
             AggregateMetadata(scans, stopped);
         SubjectRelationProducerOutcome correspondence =
-            AggregateCorrespondence(scans, stopped);
+            AggregateCorrespondence(
+                scans,
+                unavailableContexts,
+                stopped);
         var evidence = new SubjectRelationPopulationEvidence(
             populationAuthority,
             [metadata, correspondence]);
@@ -248,7 +276,9 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 ? []
                 :
                 [
-                    .. candidateGroups
+                    .. CandidateSequence(
+                            candidateGroups,
+                            executionPlan.CanonicalOrder)
                         .Skip(executionPlan.StartOrdinal)
                         .Take(executionPlan.MaximumRows),
                 ];
@@ -309,6 +339,26 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                     .Select(static group => group.First()),
             ]);
     }
+
+    private static IEnumerable<
+        IGrouping<CandidateIdentity, ResolvedMatch>> CandidateSequence(
+            IEnumerable<IGrouping<CandidateIdentity, ResolvedMatch>>
+                candidates,
+            bool canonicalOrder) =>
+        canonicalOrder
+            ? candidates
+                .OrderBy(
+                    static candidate => candidate.Key.Form)
+                .ThenBy(
+                    static candidate =>
+                        MetadataTypeNameFormatter.FormatFullName(
+                            ((InspectionGraphTypeIdentity
+                                .AcquiredDefinition)
+                                ((InspectionGraphSubject.TypeSubject)
+                                    candidate.Key.Source).Identity)
+                            .Type),
+                    StringComparer.Ordinal)
+            : candidates;
 
     private static IEnumerable<ParticipantScan> ScanContext(
         AssemblyContextGroup group,
@@ -712,11 +762,17 @@ public static class WorkspaceTypeHierarchyRelationsQuery
 
     private static SubjectRelationProducerOutcome AggregateCorrespondence(
         IEnumerable<ParticipantScan> scans,
+        IReadOnlyCollection<WorkspaceDeclarationContextReceipt>
+            unavailableContexts,
         bool stopped)
     {
-        int considered = scans.Sum(static scan => scan.Considered);
+        int considered = checked(
+            scans.Sum(static scan => scan.Considered)
+                + unavailableContexts.Count);
         int examined = scans.Sum(static scan => scan.Examined);
-        int unavailable = scans.Sum(static scan => scan.Unavailable);
+        int unavailable = checked(
+            scans.Sum(static scan => scan.Unavailable)
+                + unavailableContexts.Count);
         return new(
             Definition,
             unavailable == 0 && stopped
@@ -741,7 +797,35 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 .Select(scan =>
                     SubjectRelationProducerDiagnostic.Create(
                         SubjectRelationProducerDiagnosticKind.Failure,
-                        scan.RetentionFailure!)));
+                        scan.RetentionFailure!))
+                .Concat(
+                    UnavailableContextDiagnostics(
+                        unavailableContexts)));
+    }
+
+    private static IEnumerable<SubjectRelationProducerDiagnostic>
+        UnavailableContextDiagnostics(
+            IEnumerable<WorkspaceDeclarationContextReceipt> contexts)
+    {
+        foreach (WorkspaceDeclarationContextReceipt context in contexts)
+        {
+            if (context.Failures.IsEmpty)
+            {
+                yield return SubjectRelationProducerDiagnostic.Create(
+                    SubjectRelationProducerDiagnosticKind.Failure,
+                    WorkspaceDeclarationPopulationFailure
+                        .ContextUnavailable);
+                continue;
+            }
+
+            foreach (WorkspaceDeclarationFailure failure
+                in context.Failures)
+            {
+                yield return SubjectRelationProducerDiagnostic.Create(
+                    SubjectRelationProducerDiagnosticKind.Failure,
+                    failure);
+            }
+        }
     }
 
     private static SubjectRelationCoverage SumCoverage(

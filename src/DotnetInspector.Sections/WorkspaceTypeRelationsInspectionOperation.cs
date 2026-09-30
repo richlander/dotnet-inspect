@@ -128,8 +128,8 @@ public static class WorkspaceTypeRelationsInspectionOperation
             && producerCandidatePopulation
             && !appliesRowSelection;
         WorkspaceTypeHierarchyRelationExecutionPlan executionPlan =
-            producerShapesRows && count is null
-                ? WorkspaceTypeHierarchyRelationExecutionPlan.ForwardRows(
+            producerShapesRows
+                ? WorkspaceTypeHierarchyRelationExecutionPlan.CanonicalRows(
                     producerStart,
                     rows!.MaximumRows)
                 : WorkspaceTypeHierarchyRelationExecutionPlan.Exhaustive(

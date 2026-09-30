@@ -380,16 +380,20 @@ derives a typed forward plan for Exists, Head(N), and supported strict forward
 windows; the result retains that exact plan and reports whether production
 stopped after satisfying it. A zero-finding answer still exhausts the source.
 
-Production Rows derives its typed forward plan from the resolved Subject
-Relations request. It stops only after exact Workspace assembly correspondence
-has established the requested segment plus one lookahead candidate. The
-lookahead proves that a continuation exists without claiming an exact total;
-the producer outcome is `Stopped`, distinct from incomplete or failed work.
-Within one participant, Metadata and correspondence still finish together: a
-Metadata name match alone cannot establish that an identically named target
-belongs to the focused assembly. Exact Count, residual selection, and
-unsupported plan shapes retain exhaustive execution rather than acquiring ad
-hoc source semantics.
+Production Rows derives its typed plan from the resolved Subject Relations
+request. An order-preserving path may stop only after exact Workspace assembly
+correspondence has established the requested segment plus one lookahead
+candidate. The lookahead proves that a continuation exists without claiming an
+exact total; the producer outcome is `Stopped`, distinct from incomplete or
+failed work. Type relation sections use canonical per-form candidate-name
+ordering, which cannot be proven from the Metadata encounter-order prefix.
+Their bounded Rows therefore exhaust candidate discovery, establish canonical
+identity order, and select the requested segment before constructing canonical
+rows. Within one participant, Metadata and correspondence still finish
+together: a Metadata name match alone cannot establish that an identically
+named target belongs to the focused assembly. Exact Count, canonical-order
+Rows, residual selection, and unsupported plan shapes retain exhaustive
+execution rather than acquiring ad hoc source semantics.
 
 The fast definition matcher is fidelity-bearing for canonical TypeDef, TypeRef,
 and generic TypeSpec shapes emitted by Roslyn. Untrusted and malformed metadata
