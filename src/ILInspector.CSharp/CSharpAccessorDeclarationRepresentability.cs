@@ -102,6 +102,8 @@ public enum CSharpAccessorDeclarationRefusalReason
     MissingTargetBody,
     UnsupportedRootAttributes,
     UnsupportedAccessorSignature,
+    UnsupportedAccessorCorrespondence,
+    UnsupportedAccessorMultiplicity,
 }
 
 public enum CSharpAccessorDeclarationUnavailableReason
@@ -318,6 +320,49 @@ public static class CSharpAccessorDeclarationRepresentability
                     .RequestMismatch);
         }
 
+        foreach (MetadataAccessorSemanticsOccurrence accessor
+            in aggregate.Accessors)
+        {
+            if (!IsConventionalAccessorRole(
+                    aggregate.Root,
+                    accessor.Role))
+            {
+                continue;
+            }
+            if (accessor.Correspondence.OrdinaryCallable
+                != MetadataAccessorOrdinaryCallableStatus.Ordinary)
+            {
+                return Refuse(
+                    CSharpAccessorDeclarationRefusalReason
+                        .UnsupportedAccessorSignature);
+            }
+            if (accessor.Correspondence.Role.Status
+                != MetadataAccessorRoleCorrespondenceStatus.Exact)
+            {
+                return Refuse(
+                    CSharpAccessorDeclarationRefusalReason
+                        .UnsupportedAccessorCorrespondence);
+            }
+        }
+        if (aggregate.Root
+                is MetadataAccessorRootDeclarationEvidence.Property
+            && aggregate.Correspondence.PropertyMultiplicity
+                != MetadataPropertyAccessorMultiplicityStatus.Conventional)
+        {
+            return Refuse(
+                CSharpAccessorDeclarationRefusalReason
+                    .UnsupportedAccessorMultiplicity);
+        }
+        if (aggregate.Root
+                is MetadataAccessorRootDeclarationEvidence.Event
+            && aggregate.Correspondence.EventAddRemoveStaticnessMatches
+                != true)
+        {
+            return Refuse(
+                CSharpAccessorDeclarationRefusalReason
+                    .UnsupportedAccessorCorrespondence);
+        }
+
         if (aggregate.Accessors.Any(accessor =>
                 accessor.Role is
                     MetadataAccessorSemanticsRole.Fire
@@ -405,6 +450,20 @@ public static class CSharpAccessorDeclarationRepresentability
                     .OutsideInitialBoundary),
         };
     }
+
+    static bool IsConventionalAccessorRole(
+        MetadataAccessorRootDeclarationEvidence root,
+        MetadataAccessorSemanticsRole role) =>
+        root switch
+        {
+            MetadataAccessorRootDeclarationEvidence.Property =>
+                role is MetadataAccessorSemanticsRole.Getter
+                    or MetadataAccessorSemanticsRole.Setter,
+            MetadataAccessorRootDeclarationEvidence.Event =>
+                role is MetadataAccessorSemanticsRole.AddOn
+                    or MetadataAccessorSemanticsRole.RemoveOn,
+            _ => false,
+        };
 
     static CSharpAccessorDeclarationRepresentabilityResult DecideProperty(
         CSharpAccessorDeclarationPost post,
