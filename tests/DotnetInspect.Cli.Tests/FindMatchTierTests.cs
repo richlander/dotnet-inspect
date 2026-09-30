@@ -43,6 +43,37 @@ public class FindMatchTierTests
     }
 
     [Fact]
+    public async Task
+        FindTypesAsync_LimitOrdersOnlyThePopulationFoundBeforeTheLimit()
+    {
+        using var httpClient = new HttpClient();
+        const string pattern = "FindFoundPopulationOrder";
+        FindSearchResult<TypeFindResult> search =
+            await TypeSearchService.FindTypesAsync(
+                new FindOptions
+                {
+                    Pattern = pattern,
+                    Assemblies =
+                    [
+                        typeof(
+                            FindFoundPopulationOrderMuchLonger)
+                            .Assembly.Location,
+                    ],
+                    Limit = 1,
+                },
+                [pattern],
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        TypeFindResult row = Assert.Single(search.Rows);
+        Assert.Equal(
+            typeof(FindFoundPopulationOrderMuchLonger).FullName,
+            row.FullName);
+        Assert.Equal(TypeFindMatchKind.Prefix, row.Match);
+    }
+
+    [Fact]
     public async Task FindTypesAsync_DottedPrefixKeepsEffectiveWildcard()
     {
         List<TypeFindResult> rows =
@@ -276,4 +307,12 @@ public class FindMatchTierTests
         Assert.False(search.HasFailures);
         return search.Rows;
     }
+}
+
+public sealed class FindFoundPopulationOrderMuchLonger
+{
+}
+
+public sealed class FindFoundPopulationOrderZ
+{
 }
