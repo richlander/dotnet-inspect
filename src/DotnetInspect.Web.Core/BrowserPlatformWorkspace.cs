@@ -1631,7 +1631,9 @@ internal static class BrowserPlatformWorkspace
                         host,
                         deadline,
                         packageLeases,
-                        selection.Identity).ConfigureAwait(false);
+                        ExactAcquisitionIdentity(
+                            state,
+                            selection.Identity)).ConfigureAwait(false);
                 if (declared.Failure is not null)
                     throw Failure(declared.Failure);
                 RealizedMemberCoordinate.Platform realized =
@@ -1787,7 +1789,9 @@ internal static class BrowserPlatformWorkspace
                 host,
                 deadline,
                 packageLeases,
-                identity).ConfigureAwait(false)
+                ExactAcquisitionIdentity(
+                    state,
+                    identity)).ConfigureAwait(false)
             : await LoadRealizedAttemptAsync(
                 [
                     new RealizedMemberCoordinate.Platform(
@@ -1800,13 +1804,12 @@ internal static class BrowserPlatformWorkspace
                 host,
                 deadline,
                 packageLeases,
-                identity is null
-                    || !state.ExactPackageRealization
+                ExactAcquisitionIdentity(state, identity) is not { } exact
                     ? null
                     : new Dictionary<string, AssemblyReferenceIdentity>(
                         StringComparer.OrdinalIgnoreCase)
                     {
-                        [assembly] = identity,
+                        [assembly] = exact,
                     }).ConfigureAwait(false);
         return (
             attempt.Scope is { } scope
@@ -1840,6 +1843,14 @@ internal static class BrowserPlatformWorkspace
         AddSelectionIdentities(identities, selections);
         return identities.Count == 0 ? null : identities;
     }
+
+    static AssemblyReferenceIdentity? ExactAcquisitionIdentity(
+        TargetState state,
+        AssemblyReferenceIdentity? identity) =>
+        state.Coordinates.IsEmpty
+        || state.ExactPackageRealization
+            ? identity
+            : null;
 
     static IReadOnlyDictionary<string, AssemblyReferenceIdentity>?
         ExactIdentities(

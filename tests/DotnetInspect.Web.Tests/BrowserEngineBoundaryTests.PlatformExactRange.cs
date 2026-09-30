@@ -498,6 +498,88 @@ public sealed partial class BrowserEngineBoundaryTests
             reopened.Participant.Participant.Assembly.Identity.Name);
     }
 
+    [Theory]
+    [InlineData("netcore.app", "11.0.7389")]
+    [InlineData("", "11.0.7390")]
+    public async Task PlatformWorkspace_CompleteScopeAddsExactOtherFamily(
+        string pack,
+        string version)
+    {
+        const string runtimePackage =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string aspNetPackage =
+            "microsoft.aspnetcore.app.runtime.linux-x64";
+        byte[] runtimeArchive = await File.ReadAllBytesAsync(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "PlatformForwarderActivation",
+                "runtime.nupkg"),
+            TestContext.Current.CancellationToken);
+        AssemblyReferenceIdentity json = Identity(
+            ReadRuntimeAssembly(runtimeArchive, "System.Text.Json.dll"));
+        byte[] aspNetAssembly = await File.ReadAllBytesAsync(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var handler = new ExactPlatformRangeHandler(
+            version,
+            new Dictionary<string, byte[]>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                [runtimePackage] = runtimeArchive,
+                [aspNetPackage] = AspNetPackage(
+                    version,
+                    "DotnetInspect.Web.Tests.dll",
+                    aspNetAssembly),
+            });
+        using IPackageSourceClient packageClient =
+            BrowserPackageWorkspace.CreateGallerySource(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromSeconds(30),
+                    OperationTimeout = TimeSpan.FromSeconds(30),
+                });
+        using var client =
+            new HttpClient(handler, disposeHandler: false);
+        IPackageSourceAuthorization sourceAuthorization =
+            BrowserPackageWorkspace.SourceAuthorizationFor(packageClient);
+
+        await using (BrowserPlatformScopeResolution complete =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0",
+                version,
+                "DotnetInspect.Web.Tests.dll",
+                "aspnetcore.app",
+                client,
+                packageClient,
+                sourceAuthorization,
+                acquireCompletePopulation: true,
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken))
+        {
+            Assert.False(complete.Scope.ExactPackageRealization);
+        }
+
+        await using BrowserPlatformScopeResolution runtime =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0",
+                version,
+                json,
+                pack,
+                client,
+                packageClient,
+                sourceAuthorization,
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(runtime.Scope.ExactPackageRealization);
+        Assert.Equal(2, runtime.Scope.Members.Length);
+        Assert.Equal(
+            "System.Text.Json",
+            runtime.Participant.Participant.Assembly.Identity.Name);
+    }
+
     [Fact]
     public async Task PlatformWorkspace_EvictedExactScopeReentersDocumentation()
     {
