@@ -361,12 +361,26 @@ public static class PackageLibraryRealization
             StringComparison.OrdinalIgnoreCase)
             is true;
 
-    private static bool NameMatches(string assetName, string query) =>
-        assetName.Equals(
+    private static bool NameMatches(string assetName, string query)
+    {
+        if (assetName.Equals(
             query,
-            StringComparison.OrdinalIgnoreCase)
-        || Path.GetFileNameWithoutExtension(assetName)
-            .Equals(
-                Path.GetFileNameWithoutExtension(query),
-                StringComparison.OrdinalIgnoreCase);
+            StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        ReadOnlySpan<char> assetAssemblyName =
+            WithoutDllExtension(assetName);
+        ReadOnlySpan<char> queryAssemblyName =
+            WithoutDllExtension(query);
+        return assetAssemblyName.Equals(
+            queryAssemblyName,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static ReadOnlySpan<char> WithoutDllExtension(string value) =>
+        value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? value.AsSpan(0, value.Length - ".dll".Length)
+            : value;
 }

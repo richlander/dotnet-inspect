@@ -211,7 +211,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
     [Fact]
     public async Task
-        QueryMemberDocumentation_UsesSharedPackageDocumentationContract()
+        QueryMemberDocumentation_DottedAssemblyNameUsesSharedContract()
     {
         const string packageId = "System.Text.Json";
         const string version = "10.0.0";
@@ -235,7 +235,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     packageId,
                     version,
                     "net10.0",
-                    "System.Text.Json.dll",
+                    "System.Text.Json",
                     "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonDocument,System.Text.Json.JsonSerializerOptions)");
         DocumentationQueryOutcome outcome =
             Assert.IsAssignableFrom<DocumentationQueryOutcome>(
