@@ -8,6 +8,55 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
+internal enum AnalysisLibraryBodyUseTerminalDisposition
+{
+    Settled,
+    Complete,
+    Qualified,
+    Partial,
+}
+
+internal sealed record AnalysisLibraryBodyUseTerminalEvidence(
+    AnalysisLibraryBodyUseReceipt Receipt,
+    AnalysisLibraryBodyUseTerminalDisposition Disposition,
+    AnalysisLibraryBodyUseCoverage Coverage,
+    ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics);
+
+internal abstract record AnalysisLibraryBodyUseAnswer
+{
+    private protected AnalysisLibraryBodyUseAnswer()
+    {
+    }
+
+    internal sealed record Exists(
+        bool Value,
+        AnalysisLibraryBodyUseTerminalEvidence Evidence)
+        : AnalysisLibraryBodyUseAnswer;
+
+    internal sealed record Count(
+        int Value,
+        AnalysisLibraryBodyUseTerminalEvidence Evidence)
+        : AnalysisLibraryBodyUseAnswer;
+
+    internal sealed record Rows(AnalysisLibraryBodyUseResult Result)
+        : AnalysisLibraryBodyUseAnswer;
+}
+
+internal abstract record AnalysisLibraryBodyUseQueryOutcome
+{
+    private protected AnalysisLibraryBodyUseQueryOutcome()
+    {
+    }
+
+    internal sealed record Available(AnalysisLibraryBodyUseAnswer Answer)
+        : AnalysisLibraryBodyUseQueryOutcome;
+
+    internal sealed record Rejected(
+        AnalysisLibraryBodyUseRejectionKind Kind,
+        string Detail)
+        : AnalysisLibraryBodyUseQueryOutcome;
+}
+
 /// <summary>
 /// Produces qualified whole-Library Type uses from managed method bodies.
 /// </summary>
@@ -28,9 +77,8 @@ public static class AnalysisLibraryBodyUseService
             Query(
                 path,
                 image,
-                new(
-                    AnalysisLibraryBodyUseClosing.Rows,
-                    request.Limits),
+                ProducerTerminal.Rows,
+                request.Limits,
                 cancellationToken));
     }
 
@@ -53,30 +101,16 @@ public static class AnalysisLibraryBodyUseService
             Query(
                 sourceName,
                 reader,
-                new(
-                    AnalysisLibraryBodyUseClosing.Rows,
-                    request.Limits),
+                ProducerTerminal.Rows,
+                request.Limits,
                 cancellationToken));
     }
 
-    public static AnalysisLibraryBodyUseQueryOutcome QueryPath(
-        string path,
-        AnalysisLibraryBodyUseQuestion question,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        ArgumentNullException.ThrowIfNull(question);
-        using FileStream stream = File.OpenRead(path);
-        using var image = new PEReader(
-            stream,
-            PEStreamOptions.PrefetchEntireImage);
-        return Query(path, image, question, cancellationToken);
-    }
-
-    public static AnalysisLibraryBodyUseQueryOutcome QueryImage(
+    internal static AnalysisLibraryBodyUseQueryOutcome ExecuteTerminalImage(
         string sourceName,
         ImmutableArray<byte> image,
-        AnalysisLibraryBodyUseQuestion question,
+        ProducerTerminal terminal,
+        AnalysisLibraryBodyUseLimits limits,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
@@ -86,27 +120,30 @@ public static class AnalysisLibraryBodyUseService
                 "A prefetched PE image is required.",
                 nameof(image));
         }
-        ArgumentNullException.ThrowIfNull(question);
+        ArgumentNullException.ThrowIfNull(limits);
+        limits.Validate();
         using var reader = new PEReader(image);
         return Query(
             sourceName,
             reader,
-            question,
+            terminal,
+            limits,
             cancellationToken);
     }
 
     static AnalysisLibraryBodyUseQueryOutcome Query(
         string sourceName,
         PEReader image,
-        AnalysisLibraryBodyUseQuestion question,
+        ProducerTerminal terminal,
+        AnalysisLibraryBodyUseLimits limits,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         AssemblyTypeDeclarationInventoryOutcome inventoryOutcome =
             AssemblyTypeDeclarationInventoryReader.Read(
                 image,
-                question.Limits.MaximumTypeDefinitions,
-                question.Limits.MaximumRetainedTextCharacters);
+                limits.MaximumTypeDefinitions,
+                limits.MaximumRetainedTextCharacters);
         if (inventoryOutcome
             is AssemblyTypeDeclarationInventoryOutcome.Incomplete incomplete)
         {
@@ -146,13 +183,13 @@ public static class AnalysisLibraryBodyUseService
 
             var producer =
                 new AnalysisLibraryBodyUseProducer(
-                    question.Limits,
+                    limits,
                     cancellationToken);
             ProducerPlanResult plan =
                 ProducerPlanner.Plan(
                     [new ProducerRequest(
                         producer,
-                        Terminal(question.Closing))]);
+                        terminal)]);
             if (plan is not ProducerPlanResult.Accepted accepted)
             {
                 return new AnalysisLibraryBodyUseQueryOutcome.Rejected(
@@ -190,7 +227,7 @@ public static class AnalysisLibraryBodyUseService
                     execution.Receipt);
             return new AnalysisLibraryBodyUseQueryOutcome.Available(
                 Answer(
-                    question.Closing,
+                    terminal,
                     metadata,
                     inventory,
                     receipt,
@@ -208,14 +245,14 @@ public static class AnalysisLibraryBodyUseService
     }
 
     static AnalysisLibraryBodyUseAnswer Answer(
-        AnalysisLibraryBodyUseClosing closing,
+        ProducerTerminal terminal,
         MetadataReader metadata,
         AssemblyTypeDeclarationInventory inventory,
         AnalysisLibraryBodyUseReceipt receipt,
         ProducerResult<AnalysisLibraryBodyUseProducer.Result> result,
         AnalysisLibraryBodyUseProducer.Result value)
     {
-        if (closing == AnalysisLibraryBodyUseClosing.Rows)
+        if (terminal == ProducerTerminal.Rows)
         {
             AnalysisLibraryBodyUseProjection projection = Project(
                 metadata,
@@ -239,7 +276,7 @@ public static class AnalysisLibraryBodyUseService
                 result.Outcome == ProducerOutcome.Stopped),
             value.Coverage,
             value.Diagnostics);
-        return closing == AnalysisLibraryBodyUseClosing.Count
+        return terminal == ProducerTerminal.Complete
             ? new AnalysisLibraryBodyUseAnswer.Count(
                 value.OccurrenceCount,
                 evidence)
@@ -247,19 +284,6 @@ public static class AnalysisLibraryBodyUseService
                 value.OccurrenceCount != 0,
                 evidence);
     }
-
-    static ProducerTerminal Terminal(
-        AnalysisLibraryBodyUseClosing closing) =>
-        closing switch
-        {
-            AnalysisLibraryBodyUseClosing.Exists =>
-                ProducerTerminal.Exists,
-            AnalysisLibraryBodyUseClosing.Count =>
-                ProducerTerminal.Complete,
-            AnalysisLibraryBodyUseClosing.Rows =>
-                ProducerTerminal.Rows,
-            _ => throw new ArgumentOutOfRangeException(nameof(closing)),
-        };
 
     internal static AnalysisLibraryBodyUseTerminalDisposition
         TerminalDisposition(

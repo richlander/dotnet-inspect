@@ -124,23 +124,33 @@ internal sealed class AnalysisLibraryBodyUseProducer
         int _operandsLimited;
         bool _occurrenceLimitReported;
 
-        internal void Add(VisitFact visit)
+        internal ImmutableArray<BodyTypeUseOccurrence> Add(
+            VisitFact visit) =>
+            Add(
+                visit,
+                retainOccurrences:
+                    visit.Terminal == ProducerTerminal.Rows,
+                retainBodies:
+                    visit.Terminal == ProducerTerminal.Rows);
+
+        internal ImmutableArray<BodyTypeUseOccurrence> Add(
+            VisitFact visit,
+            bool retainOccurrences,
+            bool retainBodies)
         {
             if (visit.Body is not { } body)
-                return;
+                return [];
 
-            bool retainRows = visit.Terminal == ProducerTerminal.Rows;
-            if (retainRows)
-            {
+            if (retainOccurrences)
                 _occurrences ??= [];
+            if (retainBodies)
                 _bodies ??= [];
-            }
             _bodiesConsidered++;
             _operandsConsidered += body.OperandsConsidered;
             _operandsExamined += body.OperandsExamined;
             _operandsUnavailable += body.OperandsUnavailable;
             _diagnostics.AddRange(body.Diagnostics);
-            if (retainRows)
+            if (retainBodies)
             {
                 _bodies!.Add(
                     new(
@@ -157,7 +167,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
                     body.OperandsConsidered
                         - body.OperandsExamined
                         - body.OperandsUnavailable);
-                return;
+                return [];
             }
 
             bool unavailable = body.Diagnostics.Any(
@@ -168,7 +178,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
             if (unavailable)
             {
                 _bodiesUnavailable++;
-                return;
+                return [];
             }
 
             long attempted = checked(
@@ -189,7 +199,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
                             attempted));
                     _occurrenceLimitReported = true;
                 }
-                return;
+                return [];
             }
 
             if (body.Fidelity
@@ -201,20 +211,56 @@ internal sealed class AnalysisLibraryBodyUseProducer
             {
                 _bodiesExamined++;
                 _occurrenceCount += body.Occurrences.Length;
-                if (retainRows)
+                if (retainOccurrences)
                     _occurrences!.AddRange(body.Occurrences);
+                return body.Occurrences;
             }
+
+            return [];
         }
 
         internal Result Complete(bool retainRows) =>
-            new(
+            Create(
                 _occurrenceCount,
                 retainRows
                     ? [.. _occurrences ?? []]
                     : default,
                 retainRows
                     ? [.. _bodies ?? []]
-                    : default,
+                    : default);
+
+        internal Result CompleteCount(int occurrenceCount)
+        {
+            if (occurrenceCount != _occurrenceCount)
+            {
+                throw new InvalidOperationException(
+                    "The Count terminal disagreed with admitted occurrence rows.");
+            }
+            return Create(occurrenceCount, default, default);
+        }
+
+        internal Result CompleteRows(
+            ImmutableArray<BodyTypeUseOccurrence> occurrences)
+        {
+            if (occurrences.Length != _occurrenceCount)
+            {
+                throw new InvalidOperationException(
+                    "The Rows terminal disagreed with admitted occurrence rows.");
+            }
+            return Create(
+                occurrences.Length,
+                occurrences,
+                [.. _bodies ?? []]);
+        }
+
+        Result Create(
+            int occurrenceCount,
+            ImmutableArray<BodyTypeUseOccurrence> occurrences,
+            ImmutableArray<BodyTypeUsePhysicalFact> bodies) =>
+            new(
+                occurrenceCount,
+                occurrences,
+                bodies,
                 [.. _diagnostics],
                 new(
                     _bodiesConsidered,

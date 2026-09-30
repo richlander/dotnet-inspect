@@ -202,8 +202,12 @@ The work is declared through
 [Producer Planning](producer-planning.md), not another
 `LibraryBodyAnalysisFeatures` path or `LibraryBodyIndex` projection.
 
-The body-use producer is a method-definition producer closed with the Rows
-terminal. It declares the smallest applicable combination of:
+The body-use producer is a method-definition producer. Its shipping consumer
+closes it with the Rows terminal. The scorecard also exercises its internal
+Exists and Complete terminals as performance oracles; exposing those questions
+to additional product consumers requires QuerySpace adoption rather than a
+parallel public query API. The producer declares the smallest applicable
+combination of:
 
 - declaration metadata;
 - managed body;
@@ -311,8 +315,8 @@ baseline. Provider-backed acquisition remains Stage 8.
 
 The producer's semantic row unit is one retained logical body-use occurrence:
 one declared source Type, one local target Type, and one typed operand
-occurrence with its physical coordinates. It supports three production
-closings over that exact row population:
+occurrence with its physical coordinates. The scorecard exercises three
+Producer closings over that exact row population:
 
 - **Exists** stops after the first retained logical occurrence. A settled true
   answer carries prefix coverage and diagnostics with `Settled` disposition.
@@ -328,11 +332,13 @@ closings over that exact row population:
 Every closing performs the same bounded root Type-inventory admission and the
 same per-body fidelity and containment work it reaches. Count and false Exists
 therefore cannot turn unavailable, qualified, limited, or malformed evidence
-into a success-shaped scalar. Head, Tail, and Window remain unsupported; later
-QuerySpace adoption owns those selection closings and provider-backed demand.
+into a success-shaped scalar. These scalar closings are internal scorecard
+questions, not a public product query surface. QuerySpace adoption owns their
+future product exposure plus Head, Tail, Window, selection, and provider-backed
+demand.
 
-The performance scorecard asks all three production questions. Every column
-constructs the same product-owned answer for the selected closing. The
+The performance scorecard asks all three internal terminal questions. Every
+column constructs the same product-owned answer for the selected closing. The
 scorecard excludes only the Planner execution receipt: an oracle cannot
 truthfully manufacture Producer Planning participation and work without
 invoking the Planner itself.
@@ -340,11 +346,13 @@ invoking the Planner itself.
 The scorecard runs four columns:
 
 - **Direct** is the existing explicit MethodDef traversal.
-- **LINQ** is an idiomatic streaming `System.Linq` traversal and aggregation.
-- **NLinq** uses the pinned NLinq MethodDef source, selection, projection, and
-  fold.
-- **Planner** is the shipping
-  `AnalysisLibraryBodyUseService.QueryImage` operation.
+- **LINQ** is an idiomatic streaming `System.Linq` traversal: `Any` for Exists,
+  `Count` over admitted occurrence rows, and collection materialization for
+  Rows.
+- **NLinq** uses the pinned NLinq MethodDef source and closes the admitted
+  occurrence rows with `Any`, `CountFold`, or `ToList`.
+- **Planner** executes the product-owned producer under Producer Planning with
+  the selected terminal.
 
 Direct, LINQ, and NLinq independently traverse the MethodDef population. They
 share the Analysis-owned per-method body-use kernel because its instruction
@@ -353,10 +361,12 @@ question being composed, not alternative query machinery. They do not invoke
 Producer Planning or consume Planner output. Every column performs bounded
 Type-inventory admission, uses the same body, occurrence, and
 method-signature limits, and feeds the product-owned terminal-aware
-accumulator. Exists stops at the first settling fact, Count retains no
-occurrence rows, and Rows calls the product-owned public projection. The
-scorecard checks every public scalar, disposition, coverage field, diagnostic,
-and, for Rows, projected array in order before timing.
+accumulator for admission, qualification, and diagnostics. Each comparator
+then owns its terminal: Exists stops at the first settling fact, Count counts
+the admitted occurrence-row stream, and Rows materializes that stream before
+calling the product-owned public projection. The scorecard checks every public
+scalar, disposition, coverage field, diagnostic, and, for Rows, projected
+array in order before timing.
 Comparator traversal also preserves the production completion boundary:
 cancellation is observed before and during population traversal, recoverable
 body-acquisition failure becomes per-method unavailable evidence, and a

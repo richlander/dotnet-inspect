@@ -94,30 +94,38 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
-    public void QueryPath_ClosesLogicalOccurrenceRows()
+    public void ExecuteTerminalImage_ClosesLogicalOccurrenceRows()
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
+        ImmutableArray<byte> image =
+            [.. File.ReadAllBytes(FixturePath)];
         AnalysisLibraryBodyUseAnswer.Rows rows = Assert.IsType<
             AnalysisLibraryBodyUseAnswer.Rows>(
                 QueryAvailable(
-                    AnalysisLibraryBodyUseService.QueryPath(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
                         FixturePath,
-                        new(AnalysisLibraryBodyUseClosing.Rows),
+                        image,
+                        ProducerTerminal.Rows,
+                        new(),
                         cancellationToken)).Answer);
         AnalysisLibraryBodyUseAnswer.Count count = Assert.IsType<
             AnalysisLibraryBodyUseAnswer.Count>(
                 QueryAvailable(
-                    AnalysisLibraryBodyUseService.QueryPath(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
                         FixturePath,
-                        new(AnalysisLibraryBodyUseClosing.Count),
+                        image,
+                        ProducerTerminal.Complete,
+                        new(),
                         cancellationToken)).Answer);
         AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
             AnalysisLibraryBodyUseAnswer.Exists>(
                 QueryAvailable(
-                    AnalysisLibraryBodyUseService.QueryPath(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
                         FixturePath,
-                        new(AnalysisLibraryBodyUseClosing.Exists),
+                        image,
+                        ProducerTerminal.Exists,
+                        new(),
                         cancellationToken)).Answer);
 
         Assert.Equal(rows.Result.Occurrences.Length, count.Value);
@@ -140,7 +148,7 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
-    public void QueryImage_EmptyLogicalOccurrencePopulationCompletes()
+    public void ExecuteTerminalImage_EmptyLogicalOccurrencePopulationCompletes()
     {
         ImmutableArray<byte> image =
             BuildIndependentImage([(byte)ILOpCode.Ret]);
@@ -149,18 +157,20 @@ public sealed class AnalysisLibraryBodyUseTests
         AnalysisLibraryBodyUseAnswer.Count count = Assert.IsType<
             AnalysisLibraryBodyUseAnswer.Count>(
                 QueryAvailable(
-                    AnalysisLibraryBodyUseService.QueryImage(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
                         "Empty.dll",
                         image,
-                        new(AnalysisLibraryBodyUseClosing.Count),
+                        ProducerTerminal.Complete,
+                        new(),
                         cancellationToken)).Answer);
         AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
             AnalysisLibraryBodyUseAnswer.Exists>(
                 QueryAvailable(
-                    AnalysisLibraryBodyUseService.QueryImage(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
                         "Empty.dll",
                         image,
-                        new(AnalysisLibraryBodyUseClosing.Exists),
+                        ProducerTerminal.Exists,
+                        new(),
                         cancellationToken)).Answer);
 
         Assert.Equal(0, count.Value);
@@ -179,7 +189,7 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
-    public void QueryImage_ExistsDoesNotSettleOnRejectedOccurrenceBatch()
+    public void ExecuteTerminalImage_ExistsDoesNotSettleOnRejectedOccurrenceBatch()
     {
         ImmutableArray<byte> image =
             BuildIndependentImage(
@@ -197,18 +207,20 @@ public sealed class AnalysisLibraryBodyUseTests
         AnalysisLibraryBodyUseAnswer.Count count = Assert.IsType<
             AnalysisLibraryBodyUseAnswer.Count>(
                 QueryAvailable(
-                    AnalysisLibraryBodyUseService.QueryImage(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
                         "OccurrenceLimit.dll",
                         image,
-                        new(AnalysisLibraryBodyUseClosing.Count, limits),
+                        ProducerTerminal.Complete,
+                        limits,
                         TestContext.Current.CancellationToken)).Answer);
         AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
             AnalysisLibraryBodyUseAnswer.Exists>(
                 QueryAvailable(
-                    AnalysisLibraryBodyUseService.QueryImage(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
                         "OccurrenceLimit.dll",
                         image,
-                        new(AnalysisLibraryBodyUseClosing.Exists, limits),
+                        ProducerTerminal.Exists,
+                        limits,
                         TestContext.Current.CancellationToken)).Answer);
 
         Assert.Equal(0, count.Value);
@@ -739,8 +751,8 @@ public sealed class AnalysisLibraryBodyUseTests
             BuildIndependentImage(
                 [0x2A],
                 bodylessOnly: true));
-        foreach (AnalysisLibraryBodyUseClosing closing
-            in Enum.GetValues<AnalysisLibraryBodyUseClosing>())
+        foreach (BodyUseScorecardClosing closing
+            in Enum.GetValues<BodyUseScorecardClosing>())
         {
             foreach (BodyUseScorecardColumn column
                 in Enum.GetValues<BodyUseScorecardColumn>())
@@ -756,7 +768,7 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
-    public void Scorecard_ChecksEveryProductionClosing()
+    public void Scorecard_ChecksEveryClosing()
     {
         BodyUseScorecardCheck check = BodyUseScorecard.Check(
             [
@@ -771,7 +783,7 @@ public sealed class AnalysisLibraryBodyUseTests
         Assert.True(check.Agrees);
         Assert.Equal(9, check.Compared);
         Assert.Equal(
-            Enum.GetValues<AnalysisLibraryBodyUseClosing>(),
+            Enum.GetValues<BodyUseScorecardClosing>(),
             check.AnswerHashes.Select(static answer => answer.Closing));
     }
 
@@ -1660,8 +1672,8 @@ public sealed class AnalysisLibraryBodyUseTests
             TestContext.Current.CancellationToken);
         Assert.NotNull(planner.Rejection);
         Assert.Equal(expectedKind, planner.Rejection.Kind);
-        foreach (AnalysisLibraryBodyUseClosing closing
-            in Enum.GetValues<AnalysisLibraryBodyUseClosing>())
+        foreach (BodyUseScorecardClosing closing
+            in Enum.GetValues<BodyUseScorecardClosing>())
         {
             foreach (BodyUseScorecardColumn column
                 in Enum.GetValues<BodyUseScorecardColumn>())
