@@ -535,6 +535,14 @@ export interface TypeNavOptions {
   typeLibraryLabel: (item: TypeInventoryRow) => string;
   kindIcon: (kind: string) => string;
   typeLeverageCue?: (item: TypeInventoryRow) => TypeNavLeverageCue | null;
+  namespaceLeverageCue?: (
+    exactNamespace: string,
+  ) => TypeNavNamespaceLeverageCue | null;
+}
+
+export interface TypeNavNamespaceLeverageCue {
+  topLeverage: boolean;
+  description: string;
 }
 
 export interface TypeNavLeverageCue {
@@ -554,6 +562,8 @@ export function renderTypeNav(options: TypeNavOptions): string {
     typeDisplayName, typeLibraryLabel, kindIcon, statusHtml = "",
   } = options;
   const typeLeverageCue = options.typeLeverageCue ?? (() => null);
+  const namespaceLeverageCue =
+    options.namespaceLeverageCue ?? (() => null);
   return `
     <aside id="content-navigation-pane" class="type-browser" aria-label="Public types">
       <div class="browser-head">
@@ -595,11 +605,21 @@ export function renderTypeNav(options: TypeNavOptions): string {
       </details>
       ${statusHtml}
       <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
-        ${[...typeGroups].map(([namespace, types]) => `
-          <section class="type-group">
+        ${[...typeGroups].map(([namespace, types]) => {
+          const namespaceLeverage = types.some(
+            type => !isForwardedType(type),
+          )
+            ? namespaceLeverageCue(namespace)
+            : null;
+          const namespaceLeverageHtml = namespaceLeverage?.topLeverage
+            ? `<span class="namespace-leverage-cue" role="img" aria-label="${escapeHtml(namespaceLeverage.description)}" title="${escapeHtml(namespaceLeverage.description)}">◆</span>`
+            : "";
+          return `
+          <section class="type-group${namespaceLeverage?.topLeverage ? " top-leverage" : ""}">
             <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
               <span class="chevron">⌄</span>
               <span>${escapeHtml(namespace)}</span>
+              ${namespaceLeverageHtml}
               <small>${types.length}</small>
             </button>
             ${types.map(item => {
@@ -610,10 +630,9 @@ export function renderTypeNav(options: TypeNavOptions): string {
                 ? `${leverage.seaLevel ? " sea-level" : ""}${leverage.mountainPeak ? " mountain-peak" : ""}`
                 : "";
               const leverageHtml = leverage
-                ? `<span class="type-leverage-cues${leverageClasses}" title="${escapeHtml(leverage.description)}">
+                ? `<span class="type-leverage-cues${leverageClasses}" role="img" aria-label="${escapeHtml(leverage.description)}" title="${escapeHtml(leverage.description)}">
                     ${leverage.seaLevel ? `<span class="type-leverage-sea" style="--type-leverage-strength:${leverage.seaLevelStrength ?? 1}" aria-hidden="true"></span>` : ""}
                     ${leverage.mountainPeak ? `<span class="type-leverage-peak" style="--type-leverage-strength:${leverage.mountainPeakStrength ?? 1}" aria-hidden="true"></span>` : ""}
-                    <span class="sr-only">${escapeHtml(leverage.description)}</span>
                   </span>`
                 : "";
               return `<button class="type-row ${selected ? "selected" : ""}${leverageClasses}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
@@ -625,7 +644,8 @@ export function renderTypeNav(options: TypeNavOptions): string {
                   : `<small title="${item.members} ${item.members === 1 ? "member" : "members"}">${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${item.members}</small>`}
               </button>`;
             }).join("")}
-          </section>`).join("") || '<div class="empty-list">No public types match this filter.</div>'}
+          </section>`;
+        }).join("") || '<div class="empty-list">No public types match this filter.</div>'}
       </div>
       <footer class="pane-footer"><span>↑↓ types</span><span>←→ lens</span><span>↵ open</span></footer>
     </aside>`;

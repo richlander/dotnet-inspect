@@ -904,11 +904,22 @@ public class MetricSectionTests
                         .ValueKind);
             });
 
-        JsonElement leverage =
-            root.GetProperty("typeLeverage");
+        JsonElement salience =
+            root.GetProperty("structuralSalience");
+        Assert.NotEmpty(
+            salience.GetProperty("namespaceIndex")
+                .GetProperty("rows")
+                .EnumerateArray());
+        JsonElement[] leverageShards =
+        [
+            .. salience.GetProperty("typeLeverageShards")
+                .EnumerateArray(),
+        ];
+        Assert.NotEmpty(leverageShards);
         JsonElement[] leverageRows =
         [
-            .. leverage.GetProperty("rows").EnumerateArray(),
+            .. leverageShards.SelectMany(
+                shard => shard.GetProperty("rows").EnumerateArray()),
         ];
         Assert.NotEmpty(leverageRows);
         Assert.All(
@@ -927,36 +938,36 @@ public class MetricSectionTests
                     row.GetProperty("signatureOutgoingDegree")
                         .ValueKind);
             });
-        Assert.NotEmpty(
-            leverage.GetProperty("seaLevel")
-                .GetProperty("types")
-                .EnumerateArray());
-        Assert.NotEmpty(
-            leverage.GetProperty("mountainPeak")
-                .GetProperty("types")
-                .EnumerateArray());
-        Assert.Equal(
-            JsonValueKind.Object,
-            leverage.GetProperty("signatureUse")
-                .GetProperty("receipt")
-                .ValueKind);
-        Assert.False(leverage.TryGetProperty("bodyUse", out _));
-        JsonElement graphWork = leverage.GetProperty("graphWork");
-        string[] graphQueries =
-        [
-            "signatureIncomingDegree",
-            "signatureOutgoingDegree",
-        ];
         Assert.All(
-            graphQueries,
-            query =>
+            leverageShards,
+            leverage =>
             {
-                JsonElement receipt = graphWork.GetProperty(query);
                 Assert.Equal(
-                    "graph-document-1",
-                    receipt.GetProperty("sourceDocument").GetString());
-                Assert.True(
-                    receipt.GetProperty("terminalSettled").GetBoolean());
+                    JsonValueKind.Object,
+                    leverage.GetProperty("signatureUse")
+                        .GetProperty("receipt")
+                        .ValueKind);
+                Assert.False(leverage.TryGetProperty("bodyUse", out _));
+                JsonElement graphWork = leverage.GetProperty("graphWork");
+                string[] graphQueries =
+                [
+                    "signatureIncomingDegree",
+                    "signatureOutgoingDegree",
+                ];
+                Assert.All(
+                    graphQueries,
+                    query =>
+                    {
+                        JsonElement receipt =
+                            graphWork.GetProperty(query);
+                        Assert.StartsWith(
+                            "graph-document-",
+                            receipt.GetProperty("sourceDocument")
+                                .GetString());
+                        Assert.True(
+                            receipt.GetProperty("terminalSettled")
+                                .GetBoolean());
+                    });
             });
     }
 

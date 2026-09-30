@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { BrowserLibrarySurfaceLeverage } from "../src/facades/inspect-web-analysis.d.ts";
+import type {
+  BrowserCompileLibraryAvailability,
+  BrowserLibraryNamespaceLeverage,
+  BrowserLibraryTypeLeverageShard,
+} from "../src/facades/inspect-web-analysis.d.ts";
 import {
   createTypeLeverageCoordinator,
   projectTypeLeverage,
@@ -9,10 +13,17 @@ import {
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 import type { TypeLeverageLoadState } from "../src/type-leverage.ts";
 
-const result: BrowserLibrarySurfaceLeverage = {
+const compileLibrary: BrowserCompileLibraryAvailability = {
+  status: "Selected",
+  targetFramework: "net11.0",
+  message: null,
+};
+
+const index: BrowserLibraryNamespaceLeverage = {
   schemaVersion: 1,
   outcome: "available",
-  methodologyVersion: "type-leverage.v2",
+  methodologyVersion: "structural-salience.v1",
+  evidenceMode: "signature",
   disposition: "complete",
   coverage: {
     considered: 8,
@@ -20,138 +31,131 @@ const result: BrowserLibrarySurfaceLeverage = {
     unavailable: 0,
     limited: 0,
   },
-  types: [
+  namespaces: [
     {
-      typeDefinitionId: "Example.Sea",
-      typeDisplay: "Example.Sea",
-      rankingEligible: true,
-      signatureIncomingDegree: 8,
-      signatureOutgoingDegree: 1,
-      role: "foundation",
+      namespace: "Example.Core",
+      typeCount: 4,
+      externalIncomingSourceTypeCount: 8,
+      topLeverage: true,
     },
     {
-      typeDefinitionId: "Example.Both",
-      typeDisplay: "Example.Both",
-      rankingEligible: true,
-      signatureIncomingDegree: 4,
-      signatureOutgoingDegree: 6,
-      role: "hub",
+      namespace: "Example.Tools",
+      typeCount: 2,
+      externalIncomingSourceTypeCount: 3,
+      topLeverage: false,
     },
-    {
-      typeDefinitionId: "Example.Peak",
-      typeDisplay: "Example.Peak",
-      rankingEligible: true,
-      signatureIncomingDegree: 1,
-      signatureOutgoingDegree: 10,
-      role: "orchestrator",
-    },
-    {
-      typeDefinitionId: "Example.Noise",
-      typeDisplay: "Example.Noise",
-      rankingEligible: true,
-      signatureIncomingDegree: 3,
-      signatureOutgoingDegree: 4,
-      role: "hub",
-    },
-  ],
-  seaLevelOrder: [
-    "Example.Sea",
-    "Example.Both",
-    "Example.Noise",
-    "Example.Peak",
-  ],
-  mountainPeakOrder: [
-    "Example.Peak",
-    "Example.Both",
-    "Example.Noise",
-    "Example.Sea",
   ],
   diagnostics: [],
   failure: null,
-  compileLibrary: {
-    status: "Selected",
-    targetFramework: "net11.0",
-    message: null,
-  },
+  compileLibrary,
 };
 
-test("relative categories preserve overlap and suppress sub-half noise", () => {
-  const projection = projectTypeLeverage(result);
-  const sea = projection.byType.get("Example.Sea");
-  const both = projection.byType.get("Example.Both");
+const shard: BrowserLibraryTypeLeverageShard = {
+  schemaVersion: 1,
+  outcome: "available",
+  methodologyVersion: "structural-salience.v1",
+  evidenceMode: "signature",
+  namespace: "Example.Core",
+  disposition: "complete",
+  coverage: {
+    considered: 4,
+    examined: 4,
+    unavailable: 0,
+    limited: 0,
+  },
+  types: [
+    {
+      typeDefinitionId: "Example.Core.Sea",
+      typeDisplay: "Example.Core.Sea",
+      designationEligible: true,
+      signatureIncomingDegree: 8,
+      signatureOutgoingDegree: 1,
+      role: "foundation",
+      seaLevel: true,
+      mountainPeak: false,
+    },
+    {
+      typeDefinitionId: "Example.Core.Both",
+      typeDisplay: "Example.Core.Both",
+      designationEligible: true,
+      signatureIncomingDegree: 8,
+      signatureOutgoingDegree: 10,
+      role: "hub",
+      seaLevel: true,
+      mountainPeak: true,
+    },
+    {
+      typeDefinitionId: "Example.Core.Noise",
+      typeDisplay: "Example.Core.Noise",
+      designationEligible: true,
+      signatureIncomingDegree: 7,
+      signatureOutgoingDegree: 9,
+      role: "hub",
+      seaLevel: false,
+      mountainPeak: false,
+    },
+  ],
+  seaLevelOrder: [
+    "Example.Core.Sea",
+    "Example.Core.Both",
+    "Example.Core.Noise",
+  ],
+  mountainPeakOrder: [
+    "Example.Core.Both",
+    "Example.Core.Noise",
+    "Example.Core.Sea",
+  ],
+  diagnostics: [],
+  failure: null,
+  compileLibrary,
+};
 
+test("owner-issued namespace and Type designations drive presentation", () => {
+  const projection = projectTypeLeverage(index, [shard]);
+  const sea = projection.byType.get("Example.Core.Sea");
+  const both = projection.byType.get("Example.Core.Both");
+
+  assert.equal(projection.byNamespace.get("Example.Core")?.topLeverage, true);
+  assert.equal(projection.byNamespace.get("Example.Tools")?.topLeverage, false);
   assert.equal(projection.seaLevelCount, 2);
-  assert.equal(projection.mountainPeakCount, 2);
+  assert.equal(projection.mountainPeakCount, 1);
   assert.equal(sea?.seaLevel, true);
   assert.equal(sea?.mountainPeak, false);
   assert.equal(both?.seaLevel, true);
   assert.equal(both?.mountainPeak, true);
-  assert.equal(projection.byType.has("Example.Noise"), false);
-  assert.equal(
-    typeLeverageMatchesFilter(both, "sea-level"),
-    true,
-  );
-  assert.equal(
-    typeLeverageMatchesFilter(sea, "mountain-peak"),
-    false,
-  );
+  assert.equal(projection.byType.has("Example.Core.Noise"), false);
+  assert.equal(typeLeverageMatchesFilter(both, "sea-level"), true);
+  assert.equal(typeLeverageMatchesFilter(sea, "mountain-peak"), false);
 });
 
-test("zero-degree orders do not create presentation categories", () => {
-  const projection = projectTypeLeverage({
-    ...result,
-    types: [{
-      ...result.types[0]!,
-      signatureIncomingDegree: 0,
-      signatureOutgoingDegree: 0,
-    }],
-    seaLevelOrder: ["Example.Sea"],
-    mountainPeakOrder: ["Example.Sea"],
-  });
+test("the Browser does not derive relative categories from scores", () => {
+  const projection = projectTypeLeverage(index, [{
+    ...shard,
+    types: shard.types.map(row => ({
+      ...row,
+      seaLevel: false,
+      mountainPeak: false,
+    })),
+  }]);
 
   assert.equal(projection.byType.size, 0);
   assert.equal(projection.seaLevelCount, 0);
   assert.equal(projection.mountainPeakCount, 0);
 });
 
-test("presentation categories include ranking-ineligible canonical rows", () => {
-  const ineligible = {
-    ...result.types[0]!,
-    typeDefinitionId: "Example.Attribute",
-    typeDisplay: "Example.Attribute",
-    rankingEligible: false,
-    signatureIncomingDegree: 20,
-    signatureOutgoingDegree: 0,
-  };
-  const projection = projectTypeLeverage({
-    ...result,
-    types: [
-      ...result.types,
-      ineligible,
-    ],
-  });
-
-  assert.equal(projection.seaLevelCount, 1);
-  assert.equal(
-    projection.byType.get(ineligible.typeDefinitionId)?.seaLevel,
-    true,
-  );
-  assert.equal(projection.byType.has("Example.Sea"), false);
-});
-
 test("malformed exact-identity orders fail visibly", () => {
   assert.throws(
-    () => projectTypeLeverage({
-      ...result,
-      seaLevelOrder: ["Example.Missing"],
-    }),
-    /ineligible Type 'Example\.Missing'/,
+    () => projectTypeLeverage(index, [{
+      ...shard,
+      seaLevelOrder: ["Example.Core.Missing"],
+    }]),
+    /ineligible Type 'Example\.Core\.Missing'/,
   );
 });
 
-test("qualified evidence and diagnostics remain visible to presentation", () => {
+test("qualified index and shard evidence remain visible", () => {
   const projection = projectTypeLeverage({
-    ...result,
+    ...index,
     disposition: "Qualified",
     coverage: {
       considered: 8,
@@ -159,76 +163,94 @@ test("qualified evidence and diagnostics remain visible to presentation", () => 
       unavailable: 1,
       limited: 1,
     },
-    diagnostics: ["SIG001: two signatures were unavailable"],
-  });
+    diagnostics: ["SIG001: index evidence was unavailable"],
+  }, [{
+    ...shard,
+    diagnostics: ["SIG002: shard evidence was limited"],
+  }]);
 
   assert.equal(projection.disposition, "Qualified");
   assert.deepEqual(projection.coverage, {
-    considered: 8,
-    examined: 6,
+    considered: 12,
+    examined: 10,
     unavailable: 1,
     limited: 1,
   });
-  assert.deepEqual(
-    projection.diagnostics,
-    ["SIG001: two signatures were unavailable"],
-  );
+  assert.deepEqual(projection.diagnostics, [
+    "SIG001: index evidence was unavailable",
+    "SIG002: shard evidence was limited",
+  ]);
 });
 
-test("operation authority suppresses stale publication and retains its cache", async () => {
+test("operation authority suppresses stale publication and retains caches", async () => {
   interface Request {
     readonly key: string;
+    readonly library: string;
   }
   const pending = new Map<
     string,
-    (value: BrowserLibrarySurfaceLeverage) => void
+    (value: BrowserLibraryNamespaceLeverage) => void
   >();
   const published: TypeLeverageLoadState[] = [];
   let current = "A";
+  let shardQueries = 0;
   const coordinator = createTypeLeverageCoordinator<Request>({
     operationAuthority: createOperationAuthorityPage(),
     key: request => request.key,
-    query: request => new Promise(resolve => pending.set(request.key, resolve)),
+    libraryKey: request => request.library,
+    queryIndex: request =>
+      new Promise(resolve => pending.set(request.key, resolve)),
+    selectNamespaces: () => ["Example.Core"],
+    queryShard: async () => {
+      shardQueries++;
+      return shard;
+    },
     isCurrent: request => request.key === current,
     describeError: error => String(error),
     reportOperationDiagnostic: () => undefined,
     publish: state => published.push(state),
   });
 
-  coordinator.request({ key: "A" });
+  coordinator.request({ key: "A", library: "A" });
   current = "B";
-  coordinator.request({ key: "B" });
-  pending.get("A")?.(result);
-  await Promise.resolve();
-  pending.get("B")?.(result);
-  await Promise.resolve();
+  coordinator.request({ key: "B", library: "B" });
+  pending.get("A")?.(index);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  pending.get("B")?.(index);
+  await new Promise(resolve => setTimeout(resolve, 0));
 
   assert.deepEqual(
     published.map(state => `${state.status}:${state.key}`),
     ["loading:A", "loading:B", "ready:B"],
   );
+  assert.equal(shardQueries, 2);
 
   current = "A";
-  coordinator.request({ key: "A" });
+  coordinator.request({ key: "A", library: "A" });
   assert.equal(published.at(-1)?.status, "ready");
   assert.equal(published.at(-1)?.key, "A");
 });
 
-test("retry bypasses a cached qualified result", async () => {
+test("retry invalidates the index and namespace-shard caches", async () => {
   interface Request {
     readonly key: string;
+    readonly library: string;
   }
-  let queryCount = 0;
+  let indexQueries = 0;
+  let shardQueries = 0;
   const published: TypeLeverageLoadState[] = [];
   const coordinator = createTypeLeverageCoordinator<Request>({
     operationAuthority: createOperationAuthorityPage(),
     key: request => request.key,
-    query: async () => {
-      queryCount++;
-      return {
-        ...result,
-        disposition: "Qualified",
-      };
+    libraryKey: request => request.library,
+    queryIndex: async () => {
+      indexQueries++;
+      return index;
+    },
+    selectNamespaces: () => ["Example.Core"],
+    queryShard: async () => {
+      shardQueries++;
+      return shard;
     },
     isCurrent: () => true,
     describeError: error => String(error),
@@ -236,13 +258,19 @@ test("retry bypasses a cached qualified result", async () => {
     publish: state => published.push(state),
   });
 
-  coordinator.request({ key: "A" });
-  await Promise.resolve();
-  coordinator.request({ key: "A" });
-  assert.equal(queryCount, 1);
+  coordinator.request({ key: "A", library: "library" });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  coordinator.request({ key: "A", library: "library" });
+  coordinator.request({ key: "B", library: "library" });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.notEqual(coordinator.presentation("B"), null);
+  assert.equal(indexQueries, 1);
+  assert.equal(shardQueries, 1);
 
-  coordinator.retry({ key: "A" });
-  await Promise.resolve();
-  assert.equal(queryCount, 2);
+  coordinator.retry({ key: "A", library: "library" });
+  assert.equal(coordinator.presentation("B"), null);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(indexQueries, 2);
+  assert.equal(shardQueries, 2);
   assert.equal(published.at(-1)?.status, "ready");
 });

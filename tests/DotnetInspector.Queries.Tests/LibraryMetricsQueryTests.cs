@@ -87,7 +87,7 @@ public sealed class LibraryMetricsQueryTests
     }
 
     [Fact]
-    public void Execute_EvidenceCompleteInputsPublishTypeLeverage()
+    public void Execute_EvidenceCompleteInputsPublishStructuralSalience()
     {
         string path =
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
@@ -104,10 +104,33 @@ public sealed class LibraryMetricsQueryTests
                 session.LibrarySignatureUses(
                     new(MetadataOperationPolicy.Unbounded),
                     TestContext.Current.CancellationToken));
+        LibraryStructuralNamespaceLeverageIndex namespaceIndex =
+            LibraryStructuralReport.CreateNamespaceLeverageIndex(
+                signatureAvailable.Result);
+        LibraryStructuralTypeLeverageShard[] shards =
+        [
+            .. namespaceIndex.Rows.Select(row =>
+            {
+                var shardAvailable =
+                    Assert.IsType<
+                        MetadataLibrarySignatureUseOutcome.Available>(
+                        session.LibrarySignatureUses(
+                            new(
+                                MetadataOperationPolicy.Unbounded,
+                                row.Namespace),
+                            TestContext.Current.CancellationToken));
+                return LibraryStructuralReport.CreateTypeLeverageShard(
+                    shardAvailable.Result);
+            }),
+        ];
+        LibraryStructuralSalienceDocument structuralSalience =
+            LibraryStructuralReport.CreateStructuralSalience(
+                namespaceIndex,
+                shards);
         LibraryMetricsResult result =
             LibraryMetricsQuery.Execute(
                 analysis,
-                signatureAvailable.Result);
+                structuralSalience);
 
         var available =
             Assert.IsType<LibraryMetricsResult.Available>(result);
@@ -117,17 +140,21 @@ public sealed class LibraryMetricsQueryTests
         Assert.Equal(
             LibraryStructuralReport.CurrentMethodologyVersion,
             available.Document.MethodologyVersion);
-        LibraryStructuralTypeLeverageDocument leverage =
-            Assert.IsType<LibraryStructuralTypeLeverageDocument>(
-                available.Document.TypeLeverage);
-        Assert.NotEmpty(leverage.Rows);
-        Assert.NotEmpty(leverage.SeaLevel.Types);
-        Assert.NotEmpty(leverage.MountainPeak.Types);
+        LibraryStructuralSalienceDocument salience =
+            Assert.IsType<LibraryStructuralSalienceDocument>(
+                available.Document.StructuralSalience);
+        Assert.NotEmpty(salience.NamespaceIndex.Rows);
+        Assert.Equal(
+            salience.NamespaceIndex.Rows.Length,
+            salience.TypeLeverageShards.Length);
+        Assert.Contains(
+            salience.TypeLeverageShards,
+            static shard => !shard.Rows.IsEmpty);
         Assert.Equal(
             analysis.Receipt.ModuleIdentity.ModuleVersionId,
-            leverage.SignatureUse.Receipt.ModuleVersionId);
+            salience.NamespaceIndex.SignatureUse.Receipt.ModuleVersionId);
         Assert.Equal(
             LibraryStructuralEvidenceDisposition.Complete,
-            leverage.MountainPeak.Disposition);
+            salience.NamespaceIndex.Disposition);
     }
 }

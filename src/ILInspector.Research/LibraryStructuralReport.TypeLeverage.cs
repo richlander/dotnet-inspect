@@ -42,13 +42,190 @@ public static partial class LibraryStructuralReport
         GraphDistinctNeighborDegreeResult SignatureIncoming,
         GraphDistinctNeighborDegreeResult SignatureOutgoing);
 
-    public static LibraryStructuralTypeLeverageDocument CreateTypeLeverage(
-        MetadataLibrarySignatureUseResult signatureUse)
+    public static LibraryStructuralNamespaceLeverageIndex
+        CreateNamespaceLeverageIndex(
+            MetadataLibrarySignatureUseResult signatureUse)
     {
         ArgumentNullException.ThrowIfNull(signatureUse);
-        return ProjectTypeLeverage(
+        if (signatureUse.Receipt.ExactNamespace is not null)
+        {
+            throw new ArgumentException(
+                "Namespace leverage requires a whole-Library "
+                    + "signature-use population.",
+                nameof(signatureUse));
+        }
+
+        var externalSources =
+            new Dictionary<
+                string,
+                HashSet<MetadataTypeDefinitionAddress>>(
+                    StringComparer.Ordinal);
+        foreach (MetadataLibrarySignatureUseOccurrence occurrence
+            in signatureUse.Occurrences)
+        {
+            if (StringComparer.Ordinal.Equals(
+                    occurrence.SourceType.Namespace,
+                    occurrence.TargetType.Namespace))
+            {
+                continue;
+            }
+
+            if (!externalSources.TryGetValue(
+                    occurrence.TargetType.Namespace,
+                    out HashSet<
+                        MetadataTypeDefinitionAddress>? sources))
+            {
+                sources = [];
+                externalSources.Add(
+                    occurrence.TargetType.Namespace,
+                    sources);
+            }
+            sources.Add(occurrence.Source);
+        }
+
+        var populations =
+            signatureUse.Types
+                .GroupBy(
+                    static type => type.Name.Namespace,
+                    StringComparer.Ordinal)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.Count(),
+                    StringComparer.Ordinal);
+        int maximum =
+            populations.Keys
+                .Select(@namespace =>
+                    externalSources.TryGetValue(
+                        @namespace,
+                        out HashSet<
+                            MetadataTypeDefinitionAddress>? sources)
+                        ? sources.Count
+                        : 0)
+                .DefaultIfEmpty()
+                .Max();
+        LibraryStructuralNamespaceLeverageRow[] rows =
+        [
+            .. populations
+                .Select(pair =>
+                {
+                    int score =
+                        externalSources.TryGetValue(
+                            pair.Key,
+                            out HashSet<
+                                MetadataTypeDefinitionAddress>? sources)
+                            ? sources.Count
+                            : 0;
+                    return new LibraryStructuralNamespaceLeverageRow(
+                        pair.Key,
+                        pair.Value,
+                        score,
+                        maximum > 0 && score == maximum);
+                })
+                .OrderByDescending(
+                    static row =>
+                        row.ExternalIncomingSourceTypeCount)
+                .ThenBy(
+                    static row => row.Namespace,
+                    StringComparer.Ordinal),
+        ];
+        LibraryStructuralEvidenceDisposition disposition =
+            Disposition(signatureUse);
+        return new(
+            LibraryStructuralSalience.CurrentMethodologyVersion,
+            LibraryStructuralSalienceEvidenceMode.Signature,
+            disposition,
+            [.. rows],
+            Qualification(signatureUse));
+    }
+
+    public static LibraryStructuralTypeLeverageShard
+        CreateTypeLeverageShard(
+            MetadataLibrarySignatureUseResult signatureUse)
+    {
+        ArgumentNullException.ThrowIfNull(signatureUse);
+        string @namespace =
+            signatureUse.Receipt.ExactNamespace
+            ?? throw new ArgumentException(
+                "A Type-leverage shard requires an exact-namespace "
+                    + "signature-use population.",
+                nameof(signatureUse));
+        if (signatureUse.Types.Any(type =>
+                !StringComparer.Ordinal.Equals(
+                    type.Name.Namespace,
+                    @namespace))
+            || signatureUse.Occurrences.Any(occurrence =>
+                !StringComparer.Ordinal.Equals(
+                    occurrence.SourceType.Namespace,
+                    @namespace)
+                || !StringComparer.Ordinal.Equals(
+                    occurrence.TargetType.Namespace,
+                    @namespace)))
+        {
+            throw new ArgumentException(
+                "The signature-use population contains evidence outside "
+                    + "its exact namespace.",
+                nameof(signatureUse));
+        }
+
+        return ProjectTypeLeverageShard(
             signatureUse,
             ExecuteTypeLeverageGraph(signatureUse));
+    }
+
+    public static LibraryStructuralSalienceDocument
+        CreateStructuralSalience(
+            LibraryStructuralNamespaceLeverageIndex namespaceIndex,
+            IEnumerable<LibraryStructuralTypeLeverageShard> shards)
+    {
+        ArgumentNullException.ThrowIfNull(namespaceIndex);
+        ArgumentNullException.ThrowIfNull(shards);
+        LibraryStructuralTypeLeverageShard[] materialized = [.. shards];
+        if (namespaceIndex.MethodologyVersion
+                != LibraryStructuralSalience.CurrentMethodologyVersion
+            || namespaceIndex.EvidenceMode
+                != LibraryStructuralSalienceEvidenceMode.Signature)
+        {
+            throw new ArgumentException(
+                "The namespace index does not use the current structural "
+                    + "salience methodology.",
+                nameof(namespaceIndex));
+        }
+        if (materialized.Length != namespaceIndex.Rows.Length)
+        {
+            throw new ArgumentException(
+                "Exhaustive structural salience requires exactly one "
+                    + "Type-leverage shard per namespace.",
+                nameof(shards));
+        }
+
+        for (var index = 0; index < materialized.Length; index++)
+        {
+            LibraryStructuralTypeLeverageShard shard =
+                materialized[index];
+            if (shard.MethodologyVersion
+                    != namespaceIndex.MethodologyVersion
+                || shard.EvidenceMode != namespaceIndex.EvidenceMode
+                || !StringComparer.Ordinal.Equals(
+                    shard.Namespace,
+                    namespaceIndex.Rows[index].Namespace)
+                || shard.SignatureUse.Receipt.ModuleVersionId
+                    != namespaceIndex.SignatureUse.Receipt.ModuleVersionId
+                || !Equals(
+                    shard.SignatureUse.Receipt.Assembly,
+                    namespaceIndex.SignatureUse.Receipt.Assembly))
+            {
+                throw new ArgumentException(
+                    "A Type-leverage shard does not correspond to the "
+                        + "namespace index.",
+                    nameof(shards));
+            }
+        }
+
+        return new(
+            LibraryStructuralSalience.CurrentMethodologyVersion,
+            LibraryStructuralSalienceEvidenceMode.Signature,
+            namespaceIndex,
+            [.. materialized]);
     }
 
     internal static TypeLeverageGraphExecution ExecuteTypeLeverageGraph(
@@ -131,12 +308,18 @@ public static partial class LibraryStructuralReport
             signatureOutgoing);
     }
 
-    internal static LibraryStructuralTypeLeverageDocument ProjectTypeLeverage(
-        MetadataLibrarySignatureUseResult signatureUse,
-        TypeLeverageGraphExecution execution)
+    internal static LibraryStructuralTypeLeverageShard
+        ProjectTypeLeverageShard(
+            MetadataLibrarySignatureUseResult signatureUse,
+            TypeLeverageGraphExecution execution)
     {
         ArgumentNullException.ThrowIfNull(signatureUse);
         ArgumentNullException.ThrowIfNull(execution);
+        string @namespace =
+            signatureUse.Receipt.ExactNamespace
+            ?? throw new ArgumentException(
+                "A Type-leverage shard requires an exact namespace.",
+                nameof(signatureUse));
 
         LibraryStructuralTypeLeverageRow[] rows =
         [
@@ -151,29 +334,54 @@ public static partial class LibraryStructuralReport
                 .Where(static item =>
                     item.SignatureIncoming + item.SignatureOutgoing > 0)
                 .Select(static item =>
-                {
-                    bool eligible = IsRankingEligible(
-                        item.Type.Classification);
-                    return new LibraryStructuralTypeLeverageRow(
+                    new LibraryStructuralTypeLeverageRow(
                         item.Type.Type,
                         item.Type.Name,
                         item.Type.Classification,
-                        eligible,
+                        IsDesignationEligible(
+                            item.Type.Classification),
                         item.SignatureIncoming,
                         item.SignatureOutgoing,
                         Role(
                             item.SignatureIncoming,
-                            item.SignatureOutgoing));
-                }),
+                            item.SignatureOutgoing),
+                        SeaLevel: false,
+                        MountainPeak: false)),
+        ];
+        int seaLevelMaximum =
+            EligibleMaximum(
+                rows,
+                static row => row.SignatureIncomingDegree);
+        int mountainPeakMaximum =
+            EligibleMaximum(
+                rows,
+                static row => row.SignatureOutgoingDegree);
+        rows =
+        [
+            .. rows.Select(row => row with
+            {
+                SeaLevel =
+                    seaLevelMaximum
+                        >= LibraryStructuralSalience
+                            .MinimumDesignationDegree
+                    && row.DesignationEligible
+                    && row.SignatureIncomingDegree == seaLevelMaximum,
+                MountainPeak =
+                    mountainPeakMaximum
+                        >= LibraryStructuralSalience
+                            .MinimumDesignationDegree
+                    && row.DesignationEligible
+                    && row.SignatureOutgoingDegree
+                        == mountainPeakMaximum,
+            }),
         ];
 
         LibraryStructuralEvidenceDisposition disposition =
-            signatureUse.Disposition
-                == MetadataLibrarySignatureUseDisposition.Complete
-                    ? LibraryStructuralEvidenceDisposition.Complete
-                    : LibraryStructuralEvidenceDisposition.Qualified;
-
+            Disposition(signatureUse);
         return new(
+            LibraryStructuralSalience.CurrentMethodologyVersion,
+            LibraryStructuralSalienceEvidenceMode.Signature,
+            @namespace,
             [.. rows.OrderBy(static row => row.Type.Definition.Value)],
             new(
                 disposition,
@@ -186,16 +394,36 @@ public static partial class LibraryStructuralReport
                     rows,
                     static row => row.SignatureOutgoingDegree)),
             disposition,
-            new(
-                signatureUse.Receipt,
-                signatureUse.Disposition,
-                signatureUse.Coverage,
-                signatureUse.Occurrences.Length,
-                signatureUse.Diagnostics),
+            Qualification(signatureUse),
             new(
                 execution.SignatureIncoming.Receipt,
                 execution.SignatureOutgoing.Receipt));
     }
+
+    private static LibraryStructuralSignatureUseQualification Qualification(
+        MetadataLibrarySignatureUseResult signatureUse) =>
+        new(
+            signatureUse.Receipt,
+            signatureUse.Disposition,
+            signatureUse.Coverage,
+            signatureUse.Occurrences.Length,
+            signatureUse.Diagnostics);
+
+    private static LibraryStructuralEvidenceDisposition Disposition(
+        MetadataLibrarySignatureUseResult signatureUse) =>
+        signatureUse.Disposition
+            == MetadataLibrarySignatureUseDisposition.Complete
+                ? LibraryStructuralEvidenceDisposition.Complete
+                : LibraryStructuralEvidenceDisposition.Qualified;
+
+    private static int EligibleMaximum(
+        IEnumerable<LibraryStructuralTypeLeverageRow> rows,
+        Func<LibraryStructuralTypeLeverageRow, int> degree) =>
+        rows
+            .Where(static row => row.DesignationEligible)
+            .Select(degree)
+            .DefaultIfEmpty()
+            .Max();
 
     private static void AddSignatureOccurrences(
         ImmutableArray<MetadataLibrarySignatureUseOccurrence> source,
@@ -251,13 +479,13 @@ public static partial class LibraryStructuralReport
         Func<LibraryStructuralTypeLeverageRow, int> degree) =>
     [
         .. rows
-            .Where(static row => row.RankingEligible)
+            .Where(static row => row.DesignationEligible)
             .OrderByDescending(degree)
             .ThenBy(static row => row.Type.Definition.Value)
             .Select(static row => row.Type),
     ];
 
-    private static bool IsRankingEligible(
+    private static bool IsDesignationEligible(
         MetadataLibraryTypeClassification classification) =>
         (classification
             & (MetadataLibraryTypeClassification.UniversalBase

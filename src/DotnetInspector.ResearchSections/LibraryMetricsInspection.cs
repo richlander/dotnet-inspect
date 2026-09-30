@@ -70,9 +70,9 @@ public static class LibraryMetricsInspectionJson
             WriteRelationship(writer, relationship);
         }
         writer.WriteEndArray();
-        writer.WritePropertyName("typeLeverage");
-        if (document.TypeLeverage is { } typeLeverage)
-            WriteTypeLeverage(writer, typeLeverage);
+        writer.WritePropertyName("structuralSalience");
+        if (document.StructuralSalience is { } structuralSalience)
+            WriteStructuralSalience(writer, structuralSalience);
         else
             writer.WriteNullValue();
         writer.WritePropertyName("diagnostics");
@@ -389,14 +389,85 @@ public static class LibraryMetricsInspectionJson
         AnalysisIdentityJson.WriteType(writer, type);
     }
 
-    private static void WriteTypeLeverage(
+    private static void WriteStructuralSalience(
         Utf8JsonWriter writer,
-        LibraryStructuralTypeLeverageDocument leverage)
+        LibraryStructuralSalienceDocument salience)
     {
         var graphDocuments =
             new Dictionary<GraphDocumentIdentity, string>(
                 ReferenceEqualityComparer.Instance);
         writer.WriteStartObject();
+        writer.WriteString(
+            "methodologyVersion",
+            salience.MethodologyVersion);
+        writer.WriteString(
+            "evidenceMode",
+            salience.EvidenceMode.ToString());
+        writer.WritePropertyName("namespaceIndex");
+        WriteNamespaceIndex(writer, salience.NamespaceIndex);
+        writer.WritePropertyName("typeLeverageShards");
+        writer.WriteStartArray();
+        foreach (LibraryStructuralTypeLeverageShard shard
+            in salience.TypeLeverageShards)
+        {
+            WriteTypeLeverageShard(
+                writer,
+                shard,
+                graphDocuments);
+        }
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+    }
+
+    private static void WriteNamespaceIndex(
+        Utf8JsonWriter writer,
+        LibraryStructuralNamespaceLeverageIndex index)
+    {
+        writer.WriteStartObject();
+        writer.WriteString(
+            "methodologyVersion",
+            index.MethodologyVersion);
+        writer.WriteString(
+            "evidenceMode",
+            index.EvidenceMode.ToString());
+        writer.WriteString(
+            "disposition",
+            index.Disposition.ToString());
+        writer.WritePropertyName("rows");
+        writer.WriteStartArray();
+        foreach (LibraryStructuralNamespaceLeverageRow row
+            in index.Rows)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("namespace", row.Namespace);
+            writer.WriteNumber("typeCount", row.TypeCount);
+            writer.WriteNumber(
+                "externalIncomingSourceTypeCount",
+                row.ExternalIncomingSourceTypeCount);
+            writer.WriteBoolean(
+                "topLeverage",
+                row.TopLeverage);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WritePropertyName("signatureUse");
+        WriteSignatureUseQualification(writer, index.SignatureUse);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteTypeLeverageShard(
+        Utf8JsonWriter writer,
+        LibraryStructuralTypeLeverageShard leverage,
+        Dictionary<GraphDocumentIdentity, string> graphDocuments)
+    {
+        writer.WriteStartObject();
+        writer.WriteString(
+            "methodologyVersion",
+            leverage.MethodologyVersion);
+        writer.WriteString(
+            "evidenceMode",
+            leverage.EvidenceMode.ToString());
+        writer.WriteString("namespace", leverage.Namespace);
         writer.WritePropertyName("rows");
         writer.WriteStartArray();
         foreach (LibraryStructuralTypeLeverageRow row in leverage.Rows)
@@ -413,8 +484,8 @@ public static class LibraryMetricsInspectionJson
                 "classificationMask",
                 (int)row.Classification);
             writer.WriteBoolean(
-                "rankingEligible",
-                row.RankingEligible);
+                "designationEligible",
+                row.DesignationEligible);
             writer.WriteNumber(
                 "signatureIncomingDegree",
                 row.SignatureIncomingDegree);
@@ -422,6 +493,10 @@ public static class LibraryMetricsInspectionJson
                 "signatureOutgoingDegree",
                 row.SignatureOutgoingDegree);
             writer.WriteString("role", row.Role.ToString());
+            writer.WriteBoolean("seaLevel", row.SeaLevel);
+            writer.WriteBoolean(
+                "mountainPeak",
+                row.MountainPeak);
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
@@ -482,6 +557,16 @@ public static class LibraryMetricsInspectionJson
         WriteAssemblyIdentity(
             writer,
             qualification.Receipt.Assembly);
+        if (qualification.Receipt.ExactNamespace is { } exactNamespace)
+        {
+            writer.WriteString(
+                "exactNamespace",
+                exactNamespace);
+        }
+        else
+        {
+            writer.WriteNull("exactNamespace");
+        }
         writer.WritePropertyName("counters");
         WriteMetadataCounters(
             writer,

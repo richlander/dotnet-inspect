@@ -793,6 +793,14 @@ test("the type nav renders independent accessible leverage cues", () => {
       typeDisplayName,
       typeLibraryLabel: noTypeLibraryLabel,
       kindIcon,
+      namespaceLeverageCue: namespace =>
+        namespace === "System.Text.Json"
+          ? {
+              topLeverage: true,
+              description:
+                "8 external source Types; top-leverage namespace",
+            }
+          : null,
       typeLeverageCue: item => item.id === jsonSerializer.id
         ? {
             seaLevel: true,
@@ -810,7 +818,16 @@ test("the type nav renders independent accessible leverage cues", () => {
     assert.match(html, /type-row selected sea-level mountain-peak/);
     assert.match(html, /class="type-leverage-sea"/);
     assert.match(html, /class="type-leverage-peak"/);
-    assert.match(html, /8 incoming Type peers; 6 outgoing Type peers/);
+    assert.match(
+      html,
+      /role="img" aria-label="8 incoming Type peers; 6 outgoing Type peers/,
+    );
+    assert.doesNotMatch(html, /class="sr-only"/);
+    assert.match(html, /class="namespace-leverage-cue"/);
+    assert.match(
+      html,
+      /aria-label="8 external source Types; top-leverage namespace"/,
+    );
     assert.doesNotMatch(
       html.match(/data-type="System\.Text\.Json\.JsonDocument"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? "",
       /type-leverage-cues/,

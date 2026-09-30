@@ -242,10 +242,10 @@ summaries. Whole-library dependency communities require a separate Research
 contract over the complete admitted graph and are tracked by
 [#8406](https://github.com/richlander/dotnet-inspect/issues/8406).
 
-### Type structural leverage
+### Namespace and Type structural leverage
 
-The first extension consumes one directed relationship kind over exact Type
-definition identities in the selected Library:
+The structural-salience extension consumes one directed relationship kind over
+exact Type-definition identities in the selected Library:
 
 - **Signature use:** `A -> B` means an admitted declaration owned by Type `A`
   refers to Type `B` through its base Type, implemented interfaces, generic
@@ -254,64 +254,120 @@ definition identities in the selected Library:
 Constructed generic Types lower to their owner-issued generic definition.
 Both endpoints must belong to the selected Library generation. External Types
 are outside this Library-scoped population. Accessibility does not alter
-topology, canonical-row retention, or either default order: public API
-foundations and internal declaration orchestrators are both product evidence.
+topology: public API foundations and internal declaration orchestrators are
+both product evidence.
 
-A relationship from a Type to itself is not a peer relationship and contributes
-to no degree. Parallel occurrences remain evidence, but each selected Graph
-degree counts the opposite Type once. Research admits one immutable Graph
-document containing signature-use relationships and requests two directed
-distinct-neighbor views:
+Research partitions the same owner-issued relationships by exact metadata
+namespace. It does not infer hierarchy from dotted namespace text.
 
-1. incoming degree for the **sea-level** ranking; and
-2. outgoing degree for the **mountain-peak** ranking.
+```text
+same exact namespace:
+    contributes A -> B to that namespace's induced Type graph
+
+different exact namespaces:
+    contributes source Type A once to target namespace Namespace(B)
+```
+
+#### Namespace leverage
+
+The assembly-wide namespace index measures incoming use. A namespace's score is
+the number of distinct external source Types that refer to at least one Type in
+that namespace. One source Type contributes at most once to one target
+namespace, regardless of target-Type count or occurrence count. Same-namespace
+relationships do not contribute.
+
+The index retains every exact namespace, including the empty metadata
+namespace, with its raw score. Its deterministic order sorts descending by
+score and then by namespace using ordinal comparison. Every namespace tied at
+the nonzero maximum receives the **top-leverage** designation. A zero maximum
+produces no designation.
+
+#### Namespace Type-leverage shard
+
+Type leverage is evaluated independently inside one exact namespace. Every
+Type defined in that namespace is a graph node. Only relationships whose
+source and target are both in that exact namespace enter the induced graph. A
+self relationship contributes to no peer degree. Parallel occurrences remain
+producer evidence, but each selected Graph degree counts the opposite Type
+once.
+
+Research requests two directed distinct-neighbor views:
+
+1. incoming degree for the **sea-level** order; and
+2. outgoing degree for the **mountain-peak** order.
 
 The role denominator is signature incoming plus signature outgoing degree. A
 connected Type is a **foundation** when its incoming share is at least `0.7`,
 an **orchestrator** when that share is at most `0.3`, and a **hub** otherwise.
-An isolated Type has no role and enters neither ranking.
+An isolated Type has no role and enters neither order.
 
-The report retains one canonical leverage row per connected Type. Each row
+The shard retains one canonical leverage row per connected Type. Each row
 contains exact Type identity, signature incoming and outgoing degree, and role.
-Research also publishes the complete sea-level and mountain-peak orders. Each
-order sorts descending by its named degree, then by exact metadata Type
+Each order sorts descending by its named degree, then by exact metadata Type
 identity; a displayed name never breaks a tie.
 
-Ranking eligibility is separate from structural population. Universal base
+Designation eligibility is separate from graph population. Universal base
 Types and Types whose owner-issued metadata classification is enum, attribute,
-exception, or delegate remain in the graph as peer evidence but do not enter
-either ordered ranking. Removing them from topology would silently change the
-degree and role of otherwise eligible Types. Helper-looking names such as
+exception, or delegate remain in topology as peer evidence but cannot establish
+a designation cutoff or receive a designation. Helper-looking names such as
 `SR` or `ThrowHelper` are not an identity or classification contract and do
-not justify exclusion. A future owner-issued implementation-helper
-characteristic may extend ranking eligibility without changing Graph degree.
+not justify exclusion.
 
-Ranking eligibility is local to these two degree-ordered views. It is not a
-low-value classification and cannot suppress the canonical leverage row or
-transfer to another query. A low-degree or ranking-ineligible Type may still
-be a call-graph bridge, an async blocking boundary, the only unsafe or native
-operation carrier, a reflection or serialization activation point, or a
-meaningful exception, attribute, delegate, or protocol state. Those questions
-retain their own relationship populations and owners.
+Among eligible Types, every Type tied at the namespace's named nonzero maximum
+is sea level or mountain peak when that maximum is at least three distinct
+peers. The three-peer floor requires evidence of leverage across a group and
+prevents one- and two-edge ties from turning sparse adjacency into a
+high-value designation. Raw scores and complete orders remain available when
+no Type qualifies.
 
-An available report may retain healthy rows when the signature population is
-incomplete, but both rankings and role remain visibly qualified by the
-producer receipt and failures. Missing or failed evidence does not become a
-zero-degree success.
+Eligibility is local to these two degree-ordered views. It is not a low-value
+classification and cannot suppress a canonical row or transfer to another
+query. A low-degree or ineligible Type may still be a call-graph bridge, an
+async blocking boundary, the only unsafe or native operation carrier, a
+reflection or serialization activation point, or a meaningful exception,
+attribute, delegate, or protocol state.
+
+#### Sharding and exhaustive composition
+
+The exact namespace is the Type-leverage unit of semantic analysis, demand,
+transport, and cache identity. A namespace shard carries exact assembly
+identity, methodology version, admitted-evidence mode, exact namespace,
+producer qualification, Graph work receipts, rows, orders, and designations.
+
+An exhaustive assembly result contains the namespace index and the complete
+set of exact namespace shards in namespace-index order. It invokes and
+composes the same shard producer used by an exact namespace request; it is not
+a second whole-Library Type algorithm. For the same assembly generation,
+evidence mode, policy, and bounds, one shard requested alone and that shard in
+an exhaustive result have identical facts, ordering, qualification, and work
+semantics.
+
+The tool owns authoritative composition identity, expected namespace coverage,
+deduplication, ordering, completion, and diagnostics. A host may union loaded
+shards only as explicitly partial presentation state and cannot call that
+union an exhaustive assembly result. The derived conjunction “top-leverage
+namespace and sea-level or mountain-peak Type” remains a consumer-side join
+over exact namespace identity unless repeated consumers establish a separate
+shared contract.
+
+An available index or shard may retain healthy facts when signature evidence
+is incomplete, but its orders, designations, and roles remain visibly qualified
+by the applicable producer receipt and failures. Missing or failed evidence
+does not become a zero-degree success.
 
 Graph owns relationship selection, direction, selected adjacency,
 distinct-neighbor counting, self-loop treatment, deterministic structural
-results, and its work receipts. Research owns which producer-issued
-relationships enter each plan, ranking eligibility, the two orders, role
-meaning, and qualification in the Library report. Neither host recomputes a
-degree, rank, role, or exclusion.
+results, and its work receipts. Research owns relationship partitioning,
+namespace roll-up, designation eligibility and policy, orders, role meaning,
+shard composition, and qualification. Neither CLI nor Browser recomputes a
+degree, score, order, role, designation, or exclusion.
 
-Body-use evidence is a later, separately costed depth mode over the same two
-directional questions. It will define both body incoming and body outgoing
-degree rather than silently assigning one producer to sea level and another to
+Body-use evidence is a later, separately costed depth mode over the same
+namespace and Type questions. It defines both incoming and outgoing degree
+rather than silently assigning one producer to sea level and another to
 mountain peak. Adding that mode requires its own acquisition, qualification,
-and Browser cost evidence; it does not change the meaning of this
-signature-level surface mode.
+cache identity, and Browser/Wasm cost evidence; it does not change the meaning
+of signature-level surface mode.
 
 ## Interpretation boundary
 
@@ -349,29 +405,31 @@ coverage receipt from
 and Metadata define how their respective inputs are constructed and qualified;
 Graph defines how the admitted closed document is structurally evaluated;
 Research defines how the report preserves that evidence and derives
-report-local distributions, type summaries, leverage rows, rankings, roles,
-and the bounded relationship projection. No host rebuilds coverage,
-completeness, topology, or a statistic from display text.
+report-local distributions, type summaries, the namespace index, namespace
+Type-leverage shards, roles, designations, and the bounded relationship
+projection. No host rebuilds coverage, completeness, topology, or a statistic
+from display text.
 
 This closed-document composition separates Graph optimization from QuerySpace
 optimization. QuerySpace and its providers can reduce which domain facts must
 be acquired and admitted; Graph answers the requested structural question over
 the admitted population with only the necessary topology and traversal state.
-The first leverage implementation still acquires complete producer-owned
-relationship populations before Graph executes. Its typed Graph plans make a
-later provider-backed demand path possible but do not themselves claim
-acquisition pushdown. In short: QuerySpace gets Graph the smallest relevant
-domain population; Graph answers the structural question with the smallest
-necessary topology and state.
+The namespace index requires the complete Library relationship population.
+An exact Type-leverage shard pushes its exact source namespace into Metadata
+acquisition before Graph executes. Exhaustive composition invokes those same
+shard plans rather than materializing one whole-Library Type graph. In short:
+QuerySpace gets Graph the smallest relevant domain population; Graph answers
+the structural question with the smallest necessary topology and state.
 
 The resource-free Research document is the structured rendering input. The CLI
 adoption owns the exact-name-only `Library Metrics` section and its `Markout`
 lowering. That section renders population receipt rows, distribution rows,
-maximum evidence, async disposition, sea-level rows, mountain-peak rows, and
-diagnostic rows without changing their Research-owned meaning. The two
+maximum evidence, async disposition, namespace-leverage rows, namespace-keyed
+sea-level rows, namespace-keyed mountain-peak rows, and diagnostic rows without
+changing their Research-owned meaning. The namespace score and two Type
 rankings remain separately named and ordered; the CLI does not blend them into
 one score. Markout's existing Markdown, table, TSV, JSONL, and projected-JSON
-lowerings remain format mechanics; numeric measures, role, ranking
+lowerings remain format mechanics; numeric measures, role, designation,
 disposition, and coverage states stay typed until that boundary.
 
 Browser/Wasm deliberately bypasses Markout for its interactive Library-detail
@@ -389,34 +447,37 @@ implementation volume. Relationship Crossing renders every endpoint and edge
 in Research's bounded relationship projection; the Browser performs no second
 topology selection.
 
-The existing Metrics lens adds a `Type Leverage` view rather than new
-persistent workspace chrome. It presents separate sea-level and mountain-peak
-lists in their Research-issued order. Each visible row discloses its named
+The existing Metrics lens adds a structural-salience view rather than new
+persistent workspace chrome. It presents the Research-issued namespace order
+and, for a selected namespace, separate sea-level and mountain-peak Type lists
+in their Research-issued order. Each visible Type row discloses its named
 degree and structural role and activates the exact metadata Type key. A
-presentation limit may take a prefix of each issued order, but Browser does not
-sort, merge, exclude, or recompute the rows. Relationship Crossing may decorate
-an already selected exact Type with its report-issued role; it does not infer
-role from the bounded call projection.
+presentation limit may take a prefix of an issued order, but Browser does not
+sort, merge, exclude, or recompute rows. Relationship Crossing may decorate an
+already selected exact Type with its report-issued role; it does not infer role
+from the bounded call projection.
 
-The Type Browser adds an explicit `Type leverage` action inside its existing
-filter disclosure. Activating it runs a dedicated Library-scoped surface query
-that acquires only the exact Type inventory and signature-use population before
-Graph execution. It does not run implementation profiles, body-use analysis,
-the call graph, or the rest of Library Metrics. Package and platform Libraries
-use the same managed query and Browser contract. The result is cached by exact
-Library identity and workspace generation; operation authority prevents a
-stale result from publishing into a replacement workspace. Loading, qualified,
-unavailable, and failed outcomes remain visible and retryable.
+The Type Browser adds an explicit `Structural salience` action inside its
+existing filter disclosure. Activating it requests the Library namespace index
+and the exact shards for every top-leverage namespace. Selecting an exact
+namespace adds that namespace's shard to the partial presentation. Types in
+other namespaces remain undecorated until their namespace is selected; Browser
+does not eagerly turn activation into exhaustive assembly processing. It does
+not run implementation profiles, body-use analysis, the call graph, exhaustive
+Type-shard composition, or the rest of Library Metrics. Package and platform
+Libraries use the same managed queries and Browser contracts.
 
-Browser presentation uses the complete Research-issued rows and orders. A Type
-enters the sea-level presentation category when its signature incoming degree
-is at least `0.5` of the maximum signature incoming degree in that Library. It
-enters the mountain-peak category under the same rule for signature outgoing
-degree. Zero never qualifies. This Library-relative threshold is presentation,
-not a Research ranking exclusion or a new structural role. A Type may belong
-to both categories; the Browser preserves that overlap with two independent
-non-text cues and accessible evidence text rather than forcing one category to
-win.
+The namespace index is cached by exact Library identity, methodology version,
+evidence mode, and workspace generation. A Type shard adds exact namespace to
+that key. Operation authority prevents stale results from publishing into a
+replacement workspace. Loading, qualified, unavailable, and failed outcomes
+remain visible and retryable.
+
+Browser presentation consumes Research-issued top-leverage, sea-level, and
+mountain-peak designations. It does not apply a second percentage, rank, or
+threshold. A Type may belong to both categories; Browser preserves that
+overlap with two independent non-text cues and accessible evidence text rather
+than forcing one category to win.
 
 Sea-level and mountain-peak filters select their respective presentation
 categories and intersect with the existing text, namespace, kind, Library, and

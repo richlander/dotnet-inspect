@@ -58,12 +58,24 @@ public sealed record MetadataLibrarySignatureUseRequest
         Policy = policy;
     }
 
+    public MetadataLibrarySignatureUseRequest(
+        MetadataOperationPolicy policy,
+        string exactNamespace)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(exactNamespace);
+        Policy = policy;
+        ExactNamespace = exactNamespace;
+    }
+
     public MetadataOperationPolicy Policy { get; }
+    public string? ExactNamespace { get; }
 }
 
 public sealed record MetadataLibrarySignatureUseReceipt(
     Guid ModuleVersionId,
     AssemblyReferenceIdentity Assembly,
+    string? ExactNamespace,
     MetadataOperationCounters Counters);
 
 public sealed record MetadataLibrarySignatureType(

@@ -1093,7 +1093,7 @@ kbd {
 .namespace-row {
   height: 28px;
   display: grid;
-  grid-template-columns: 17px 1fr auto;
+  grid-template-columns: 17px 1fr auto auto;
   align-items: center;
   padding: 0 12px;
   color: var(--muted);
@@ -1101,6 +1101,11 @@ kbd {
 }
 .namespace-row:hover { background: rgba(255,255,255,.018); }
 .namespace-row small { color: var(--dim); }
+.namespace-leverage-cue {
+  color: var(--accent);
+  font-size: 9px;
+  line-height: 1;
+}
 .chevron { color: var(--dim); }
 .type-row {
   height: 30px;

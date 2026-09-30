@@ -866,12 +866,16 @@ let inspectPackagePerformance:
   EngineClient["analysis"]["queryPackagePerformance"];
 let inspectPackageLibraryMetrics:
   EngineClient["analysis"]["queryPackageLibraryMetrics"];
-let inspectPackageLibrarySurfaceLeverage:
-  EngineClient["analysis"]["queryPackageLibrarySurfaceLeverage"];
+let inspectPackageLibraryNamespaceLeverage:
+  EngineClient["analysis"]["queryPackageLibraryNamespaceLeverage"];
+let inspectPackageNamespaceTypeLeverage:
+  EngineClient["analysis"]["queryPackageNamespaceTypeLeverage"];
 let inspectPlatformLibraryMetrics:
   EngineClient["analysis"]["queryPlatformLibraryMetrics"];
-let inspectPlatformLibrarySurfaceLeverage:
-  EngineClient["analysis"]["queryPlatformLibrarySurfaceLeverage"];
+let inspectPlatformLibraryNamespaceLeverage:
+  EngineClient["analysis"]["queryPlatformLibraryNamespaceLeverage"];
+let inspectPlatformNamespaceTypeLeverage:
+  EngineClient["analysis"]["queryPlatformNamespaceTypeLeverage"];
 let inspectPackageTypeImplementationHeat:
   EngineClient["analysis"]["queryPackageTypeImplementationHeat"];
 let inspectPlatformTypeImplementationHeat:
@@ -1045,15 +1049,19 @@ async function loadEngineModule() {
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
-      queryPackageLibrarySurfaceLeverage:
-        inspectPackageLibrarySurfaceLeverage,
+      queryPackageLibraryNamespaceLeverage:
+        inspectPackageLibraryNamespaceLeverage,
+      queryPackageNamespaceTypeLeverage:
+        inspectPackageNamespaceTypeLeverage,
       queryPackageTypeImplementationHeat:
         inspectPackageTypeImplementationHeat,
       queryPlatformTypeImplementationHeat:
         inspectPlatformTypeImplementationHeat,
       queryPlatformLibraryMetrics: inspectPlatformLibraryMetrics,
-      queryPlatformLibrarySurfaceLeverage:
-        inspectPlatformLibrarySurfaceLeverage,
+      queryPlatformLibraryNamespaceLeverage:
+        inspectPlatformLibraryNamespaceLeverage,
+      queryPlatformNamespaceTypeLeverage:
+        inspectPlatformNamespaceTypeLeverage,
       queryPlatformIntegrations: inspectPlatformIntegrations,
       queryPlatformOpportunities: inspectPlatformOpportunities,
       queryPlatformPerformance: inspectPlatformPerformance,
@@ -3300,7 +3308,16 @@ const typeLeverageWorkspaceGenerations =
 const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
   operationAuthority,
   key: target => target.key,
-  query: target => target.query(),
+  libraryKey: target => target.libraryKey,
+  queryIndex: target => target.queryIndex(),
+  selectNamespaces: (target, index) => [
+    ...index.namespaces
+      .filter(row => row.topLeverage)
+      .map(row => row.namespace),
+    ...target.requestedNamespaces,
+  ],
+  queryShard: (target, exactNamespace) =>
+    target.queryShard(exactNamespace),
   isCurrent: target =>
     state.typeLeverageEnabled
     && currentTypeLeverageKey() === target.key,
@@ -4899,8 +4916,13 @@ function filteredTypes() {
 
 interface TypeLeverageTarget {
   readonly key: string;
-  readonly query: () => ReturnType<
-    typeof inspectPackageLibrarySurfaceLeverage
+  readonly libraryKey: string;
+  readonly requestedNamespaces: readonly string[];
+  readonly queryIndex: () => ReturnType<
+    typeof inspectPackageLibraryNamespaceLeverage
+  >;
+  readonly queryShard: (exactNamespace: string) => ReturnType<
+    typeof inspectPackageNamespaceTypeLeverage
   >;
 }
 
@@ -4925,8 +4947,10 @@ function typeLeverageTarget(): TypeLeverageTarget | null {
   if (pkg.isRuntimePack) {
     const row = platformLibraryForRequest(pkg, library.id);
     const assemblyFileName = platformAssemblyRequest(row);
-    const key = JSON.stringify([
-      "library-surface-leverage",
+    const salienceLibraryKey = JSON.stringify([
+      "library-structural-salience",
+      "structural-salience.v1",
+      "signature",
       generation,
       "platform",
       pkg.activeFramework,
@@ -4934,19 +4958,33 @@ function typeLeverageTarget(): TypeLeverageTarget | null {
       row.pack,
       assemblyFileName,
     ]);
+    const requestedNamespaces = state.namespaceFilter
+      ? [state.namespaceFilter]
+      : [];
     return {
-      key,
-      query: () => inspectPlatformLibrarySurfaceLeverage(
+      libraryKey: salienceLibraryKey,
+      requestedNamespaces,
+      key: JSON.stringify([salienceLibraryKey, requestedNamespaces]),
+      queryIndex: () => inspectPlatformLibraryNamespaceLeverage(
         pkg.activeFramework,
         pkg.version,
         assemblyFileName,
         row.pack,
       ),
+      queryShard: exactNamespace => inspectPlatformNamespaceTypeLeverage(
+        pkg.activeFramework,
+        pkg.version,
+        assemblyFileName,
+        row.pack,
+        exactNamespace,
+      ),
     };
   }
 
-  const key = JSON.stringify([
-    "library-surface-leverage",
+  const salienceLibraryKey = JSON.stringify([
+    "library-structural-salience",
+    "structural-salience.v1",
+    "signature",
     generation,
     "package",
     pkg.id,
@@ -4954,13 +4992,25 @@ function typeLeverageTarget(): TypeLeverageTarget | null {
     pkg.activeFramework,
     library.id,
   ]);
+  const requestedNamespaces = state.namespaceFilter
+    ? [state.namespaceFilter]
+    : [];
   return {
-    key,
-    query: () => inspectPackageLibrarySurfaceLeverage(
+    libraryKey: salienceLibraryKey,
+    requestedNamespaces,
+    key: JSON.stringify([salienceLibraryKey, requestedNamespaces]),
+    queryIndex: () => inspectPackageLibraryNamespaceLeverage(
       pkg.id,
       pkg.version,
       pkg.activeFramework,
       library.id,
+    ),
+    queryShard: exactNamespace => inspectPackageNamespaceTypeLeverage(
+      pkg.id,
+      pkg.version,
+      pkg.activeFramework,
+      library.id,
+      exactNamespace,
     ),
   };
 }
@@ -4997,6 +5047,8 @@ function loadTypeLeverage(retry = false) {
   state.typeLeverageError = "";
   if (retry) typeLeverage.retry(target);
   else typeLeverage.request(target);
+}
+
 function platformForwarderKey(
   framework: string, version: string, library: string, pack: string | null,
 ) {
@@ -6004,13 +6056,13 @@ function typeLeverageControl() {
   const current = state.typeLeverageKey === target.key;
   if (!state.typeLeverageEnabled || !current) {
     return `<div class="type-leverage-control">
-      <button type="button" class="tiny-button" data-type-leverage-activate>Color by Type leverage</button>
+      <button type="button" class="tiny-button" data-type-leverage-activate>Show structural salience</button>
       <small>signature surface</small>
     </div>`;
   }
   if (state.typeLeverageLoading) {
     return `<div class="type-leverage-control" aria-live="polite">
-      <span class="loader"></span><small>Measuring Type leverage…</small>
+      <span class="loader"></span><small>Measuring structural salience…</small>
     </div>`;
   }
   if (state.typeLeverageError) {
@@ -6021,6 +6073,10 @@ function typeLeverageControl() {
   }
   const presentation = currentTypeLeveragePresentation();
   if (!presentation) return "";
+  const shardStatus = presentation.loadedNamespaces.length
+    === presentation.byNamespace.size
+    ? `${presentation.loadedNamespaces.length} namespace shards`
+    : `${presentation.loadedNamespaces.length}/${presentation.byNamespace.size} namespace shards loaded`;
   const qualified =
     presentation.disposition.toLowerCase() !== "complete";
   const qualification = qualified || presentation.diagnostics.length > 0
@@ -6035,14 +6091,15 @@ function typeLeverageControl() {
     ? '<button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>'
     : "";
   return `<div class="type-leverage-control">
-    <div class="namespace-chips leverage-chips" aria-label="Type leverage filters">
+    <div class="namespace-chips leverage-chips" aria-label="Structural salience filters">
       <button class="${!state.typeLeverageFilter ? "active" : ""}" data-type-leverage-filter="">all types</button>
       <button class="${state.typeLeverageFilter === "sea-level" ? "active" : ""}" data-type-leverage-filter="sea-level">sea level · ${presentation.seaLevelCount}</button>
       <button class="${state.typeLeverageFilter === "mountain-peak" ? "active" : ""}" data-type-leverage-filter="mountain-peak">mountain peaks · ${presentation.mountainPeakCount}</button>
     </div>
+    <small>${shardStatus}</small>
     ${qualification}
     ${retry}
-    <button type="button" class="tiny-button" data-type-leverage-activate>Hide colors</button>
+    <button type="button" class="tiny-button" data-type-leverage-activate>Hide salience</button>
   </div>`;
 }
 
@@ -8434,10 +8491,14 @@ function renderTypeNavPane(
     typeDisplayName,
     typeLibraryLabel: item => definingLibraries.get(item.id) ?? "",
     kindIcon,
-    typeLeverageCue: item =>
-      currentTypeLeveragePresentation()?.byType.get(
-        item.definitionId ?? item.id,
-      ) ?? null,
+    namespaceLeverageCue: namespace =>
+      currentTypeLeveragePresentation()?.byNamespace.get(namespace)
+      ?? null,
+    typeLeverageCue: item => isForwardedType(item)
+      ? null
+      : currentTypeLeveragePresentation()?.byType.get(
+          item.definitionId ?? item.id,
+        ) ?? null,
     statusHtml: platformForwarderInventoryStatus(),
   });
 }
@@ -10956,7 +11017,8 @@ const packageViewActions: PackageViewBindingActions = {
     state.typeCursor = 0;
     const first = filteredTypeRows()[0];
     if (first) state.selectedTypeId = first.id;
-    render();
+    if (state.typeLeverageEnabled) loadTypeLeverage();
+    else render();
   },
   onLibraryScopeSelect: (library, kind) => {
     if (!library) return;
@@ -10980,7 +11042,8 @@ const packageViewActions: PackageViewBindingActions = {
     state.typeCursor = 0;
     const first = filteredTypeRows()[0];
     if (first) state.selectedTypeId = first.id;
-    render();
+    if (state.typeLeverageEnabled) loadTypeLeverage();
+    else render();
   },
   onPerformanceMemberSelect: target => {
     drillToPerfMember(
@@ -11282,7 +11345,8 @@ function bindTypePanelEvents() {
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       resetMemberFilters();
-      renderPreservingMemberFocus();
+      if (state.typeLeverageEnabled) loadTypeLeverage();
+      else renderPreservingMemberFocus();
     },
     onTypeLeverageActivate: () => {
       const current = currentTypeLeveragePresentation();
@@ -11423,7 +11487,8 @@ function bindTypePanelEvents() {
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       resetMemberFilters();
-      renderPreservingMemberFocus();
+      if (state.typeLeverageEnabled) loadTypeLeverage();
+      else renderPreservingMemberFocus();
     },
     onOverloadSelect: index => {
       const group = selectedMember(selectedType());

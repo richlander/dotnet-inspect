@@ -5,6 +5,7 @@ using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using Inspector.Findings;
 
 namespace DotnetInspect.Cli.Sections;
@@ -529,9 +530,52 @@ public static class LibrarySections
                     _ => throw new InvalidOperationException(
                         "Unknown Library Metrics signature-use outcome."),
                 };
+            LibraryStructuralNamespaceLeverageIndex namespaceIndex =
+                LibraryStructuralReport.CreateNamespaceLeverageIndex(
+                    signatureUse);
+            var typeLeverageShards =
+                new List<LibraryStructuralTypeLeverageShard>(
+                    namespaceIndex.Rows.Length);
+            foreach (LibraryStructuralNamespaceLeverageRow row
+                in namespaceIndex.Rows)
+            {
+                MetadataLibrarySignatureUseOutcome shardOutcome =
+                    context.Query(
+                        session => session.LibrarySignatureUses(
+                            new(
+                                s_libraryMetricsSignatureUsePolicy,
+                                row.Namespace)),
+                        error => throw new InvalidOperationException(
+                            "Library Metrics could not acquire its exact "
+                                + "namespace metadata session.",
+                            error));
+                MetadataLibrarySignatureUseResult shard =
+                    shardOutcome switch
+                    {
+                        MetadataLibrarySignatureUseOutcome.Available
+                            available => available.Result,
+                        MetadataLibrarySignatureUseOutcome.Rejected
+                            rejected =>
+                            throw new InvalidOperationException(
+                                "Library Metrics namespace signature-use "
+                                    + "acquisition was rejected "
+                                    + $"({rejected.Kind}): "
+                                    + rejected.Detail),
+                        _ => throw new InvalidOperationException(
+                            "Unknown Library Metrics namespace "
+                                + "signature-use outcome."),
+                    };
+                typeLeverageShards.Add(
+                    LibraryStructuralReport.CreateTypeLeverageShard(
+                        shard));
+            }
+            LibraryStructuralSalienceDocument structuralSalience =
+                LibraryStructuralReport.CreateStructuralSalience(
+                    namespaceIndex,
+                    typeLeverageShards);
             return LibraryMetricsQuery.Execute(
                 analysis,
-                signatureUse);
+                structuralSalience);
         }
         catch (CostDeclarationException)
         {

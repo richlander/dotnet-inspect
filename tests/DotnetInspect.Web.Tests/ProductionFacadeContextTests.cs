@@ -126,14 +126,16 @@ public sealed class ProductionFacadeContextTests
             "QueryPackageImplementationProfiles",
             "QueryPackageIntegrations",
             "QueryPackageLibraryMetrics",
-            "QueryPackageLibrarySurfaceLeverage",
+            "QueryPackageLibraryNamespaceLeverage",
+            "QueryPackageNamespaceTypeLeverage",
             "QueryPackageOpportunities",
             "QueryPackagePerformance",
             "QueryPackageTypeImplementationHeat",
             "QueryPlatformImplementationProfiles",
             "QueryPlatformIntegrations",
             "QueryPlatformLibraryMetrics",
-            "QueryPlatformLibrarySurfaceLeverage",
+            "QueryPlatformLibraryNamespaceLeverage",
+            "QueryPlatformNamespaceTypeLeverage",
             "QueryPlatformOpportunities",
             "QueryPlatformPerformance",
             "QueryPlatformTypeImplementationHeat",
@@ -237,7 +239,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(119, everyExport.Length);
+        Assert.Equal(121, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

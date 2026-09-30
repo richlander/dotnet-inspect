@@ -441,8 +441,13 @@ public sealed class ExactLibraryWorkspaceRouteTests
                 .GetString());
         JsonElement content = root.GetProperty("content");
         Assert.NotEmpty(
-            content.GetProperty("typeLeverage")
+            content.GetProperty("structuralSalience")
+                .GetProperty("namespaceIndex")
                 .GetProperty("rows")
+                .EnumerateArray());
+        Assert.NotEmpty(
+            content.GetProperty("structuralSalience")
+                .GetProperty("typeLeverageShards")
                 .EnumerateArray());
         JsonElement[] summaries =
         [

@@ -314,32 +314,54 @@ public sealed record BrowserLibraryMetricsRelationship(
     int SourceDegree,
     int TargetDegree);
 
-public sealed record BrowserLibrarySurfaceLeverage(
+public sealed record BrowserLibraryNamespaceLeverage(
     int SchemaVersion,
     string Outcome,
     string? MethodologyVersion,
+    string? EvidenceMode,
     string? Disposition,
-    BrowserLibrarySurfaceLeverageCoverage? Coverage,
-    BrowserLibrarySurfaceLeverageType[] Types,
+    BrowserLibrarySignatureUseCoverage? Coverage,
+    BrowserLibraryNamespaceLeverageRow[] Namespaces,
+    string[] Diagnostics,
+    string? Failure,
+    BrowserCompileLibraryAvailability CompileLibrary);
+
+public sealed record BrowserLibraryNamespaceLeverageRow(
+    string Namespace,
+    int TypeCount,
+    int ExternalIncomingSourceTypeCount,
+    bool TopLeverage);
+
+public sealed record BrowserLibraryTypeLeverageShard(
+    int SchemaVersion,
+    string Outcome,
+    string? MethodologyVersion,
+    string? EvidenceMode,
+    string? Namespace,
+    string? Disposition,
+    BrowserLibrarySignatureUseCoverage? Coverage,
+    BrowserLibraryTypeLeverageRow[] Types,
     string[] SeaLevelOrder,
     string[] MountainPeakOrder,
     string[] Diagnostics,
     string? Failure,
     BrowserCompileLibraryAvailability CompileLibrary);
 
-public sealed record BrowserLibrarySurfaceLeverageCoverage(
+public sealed record BrowserLibrarySignatureUseCoverage(
     int Considered,
     int Examined,
     int Unavailable,
     int Limited);
 
-public sealed record BrowserLibrarySurfaceLeverageType(
+public sealed record BrowserLibraryTypeLeverageRow(
     string TypeDefinitionId,
     string TypeDisplay,
-    bool RankingEligible,
+    bool DesignationEligible,
     int SignatureIncomingDegree,
     int SignatureOutgoingDegree,
-    string Role);
+    string Role,
+    bool SeaLevel,
+    bool MountainPeak);
 
 public sealed record BrowserPerformanceMember(
     string Assembly,
@@ -478,7 +500,8 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserLibraryMetrics))]
-[JsonSerializable(typeof(BrowserLibrarySurfaceLeverage))]
+[JsonSerializable(typeof(BrowserLibraryNamespaceLeverage))]
+[JsonSerializable(typeof(BrowserLibraryTypeLeverageShard))]
 [JsonSerializable(typeof(BrowserImplementationProfiles))]
 [JsonSerializable(typeof(BrowserTypeImplementationHeat))]
 [JsonSerializable(typeof(BrowserAnalysisInspectionEnvelope))]
