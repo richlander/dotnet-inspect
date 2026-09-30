@@ -69,7 +69,7 @@
       Link="RealAssets\LibraryApiDiff\microsoft.azure.signalr.1.33.1.nupkg"
       CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)newtonsoft.json\13.0.4\newtonsoft.json.13.0.4.nupkg"
-      Link="RealAssets\DocumentDemand\newtonsoft.json.13.0.4.nupkg"
+      Link="RealAssets\FileDemand\newtonsoft.json.13.0.4.nupkg"
       CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
