@@ -6,6 +6,61 @@ namespace DotnetInspector.Packages;
 public sealed partial class DesktopPackageSourceComposition
 {
     /// <summary>
+    /// Acquires and resolves one exact file from a caller-pinned coordinate.
+    /// Cache selection, size-first ranged access, manifest resolution, and
+    /// generation-bound reading are owned by <see cref="PackageFileAcquisition"/>.
+    /// </summary>
+    public Task<PackageFileAcquisitionResult> AcquireFileAsync(
+        PackageSourceCoordinate coordinate,
+        string path,
+        PackageStoreProvider createStore,
+        NuGetSourceOptions? sourceOptions = null,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default,
+        PackagePayloadLimits? limits = null,
+        IPackagePayloadTransferPolicy? transferPolicy = null,
+        string? requiredProducerKey = null,
+        long rangedSizeCut = PackageRangedRead.DefaultSizeCut)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(createStore);
+        var request = new PackageFileAcquisitionRequest(
+            coordinate,
+            path,
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire,
+                _options.RequestTimeout,
+                _options.OperationTimeout));
+        PackageSourceOperationLease? sourceOperation =
+            IssueHouseOperation(cancellationToken);
+        try
+        {
+            IPackageSourceAuthorization authorization =
+                AuthorizeHouseSources(
+                    coordinate.PackageId,
+                    sourceOptions,
+                    requiredProducerKey);
+            Task<PackageFileAcquisitionResult> execution =
+                PackageFileAcquisition.ExecuteAsync(
+                    request,
+                    authorization,
+                    new PackageFileAcquisitionPlan(
+                        createStore,
+                        limits,
+                        transferPolicy,
+                        log,
+                        rangedSizeCut),
+                    sourceOperation);
+            sourceOperation = null;
+            return execution;
+        }
+        finally
+        {
+            sourceOperation?.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Acquires a caller-pinned coordinate from its eligible authorities.
     /// The store factory must return a store scoped to the supplied authority.
     /// An external operation remains caller-owned through payload consumption.
@@ -26,30 +81,30 @@ public sealed partial class DesktopPackageSourceComposition
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
         IEnumerable<string>? implementationNames = null,
-        PackageDocumentDemand? documentDemand = null,
+        PackageFileDemand? fileDemand = null,
         PackageHouseLibraryHandoffMode libraryHandoff =
             PackageHouseLibraryHandoffMode.PackageOnly,
         PackageHouseLibraryCompanionDemand libraryCompanionDemand =
             PackageHouseLibraryCompanionDemand.None)
     {
         ArgumentNullException.ThrowIfNull(createStore);
-        if ((compileTargetContext is not null || documentDemand is not null)
+        if ((compileTargetContext is not null || fileDemand is not null)
             && operationContext is not null)
         {
             throw new ArgumentException(
-                "PackageHouse compile realization and document demand cannot use a legacy operation context.",
+                "PackageHouse compile realization and file demand cannot use a legacy operation context.",
                 nameof(operationContext));
         }
-        if (documentDemand is not null && compileTargetContext is not null)
+        if (fileDemand is not null && compileTargetContext is not null)
         {
             throw new ArgumentException(
-                "A document demand is carried by an Acquire operation, not a compile realization.",
-                nameof(documentDemand));
+                "A file demand is carried by an Acquire operation, not a compile realization.",
+                nameof(fileDemand));
         }
         RequireRealizationForRangedAccess(
             access,
             compileTargetContext,
-            documentDemand);
+            fileDemand);
         if (implementationNames is not null && compileTargetContext is null)
         {
             throw new ArgumentException(
@@ -107,7 +162,7 @@ public sealed partial class DesktopPackageSourceComposition
                     access,
                     assetDemand,
                     implementationNames,
-                    documentDemand,
+                    fileDemand,
                     libraryHandoff,
                     libraryCompanionDemand);
             sourceOperation = null;

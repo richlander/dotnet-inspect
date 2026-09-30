@@ -158,10 +158,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// CrestApps.AgentSkills.Mcp.OrchardCore 1.2.0 package (a Skill folder
     /// with a <c>references/</c> subfolder beside other Skills), padded above
     /// the size cut because that package is under it: the export reads the
-    /// root folder and that Skill's folder only, subfolder included.
+    /// root folder and the exact Skill's direct folder only.
     /// </summary>
     [Fact]
-    public async Task PackageCommand_SkillExport_ReadsTheRootAndSkillFoldersOnly()
+    public async Task PackageCommand_SkillExport_ReadsTheRootAndExactSkillFolderOnly()
     {
         string id = $"Documents.Skill.{Guid.NewGuid():N}";
         const string Skill = """
@@ -193,9 +193,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Equal(Skill.Trim(), result.Output.Trim());
-        // The nuspec and README (root), and the Skill with its reference;
-        // neither the other Skill nor the filler.
-        Assert.Contains("4 of 6 entries", result.Error, StringComparison.Ordinal);
+        // The nuspec and README (root), and the exact Skill's direct folder;
+        // neither its reference subfolder, the other Skill, nor the filler.
+        Assert.Contains("3 of 6 entries", result.Error, StringComparison.Ordinal);
         Assert.Equal(1, feed.FullPackageResponses);
         Assert.True(
             feed.PackageBytesServed < 128 * 1024,
@@ -247,7 +247,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             Path.Combine(
                 AppContext.BaseDirectory,
                 "RealAssets",
-                "DocumentDemand",
+                "FileDemand",
                 "newtonsoft.json.13.0.4.nupkg"),
             TestContext.Current.CancellationToken);
         Assert.Equal(
