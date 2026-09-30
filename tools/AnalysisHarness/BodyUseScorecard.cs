@@ -593,10 +593,35 @@ public static class BodyUseScorecard
                 new LibraryMethodAnalysisRunner(builder),
                 limits,
                 cancellationToken);
-            AnalysisLibraryBodyUseProducer.Result result =
-                execute(
+            AnalysisLibraryBodyUseProducer.Result result;
+            try
+            {
+                result = execute(
                     context,
                     Terminal(closing));
+            }
+            catch (ProducerAbortException abort)
+            {
+                return new(
+                    column,
+                    closing,
+                    null,
+                    new(
+                        AnalysisLibraryBodyUseRejectionKind.Limit,
+                        abort.Failure.Message));
+            }
+            catch (Exception exception)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(exception))
+            {
+                return new(
+                    column,
+                    closing,
+                    null,
+                    new(
+                        AnalysisLibraryBodyUseRejectionKind.Execution,
+                        ProducerFailure.Describe(exception)));
+            }
             BodyUseScorecardAnswer answer =
                 Normalize(
                     closing,
@@ -604,16 +629,6 @@ public static class BodyUseScorecard
                     inventory,
                     result);
             return new(column, closing, answer, null);
-        }
-        catch (ProducerAbortException abort)
-        {
-            return new(
-                column,
-                closing,
-                null,
-                new(
-                    AnalysisLibraryBodyUseRejectionKind.Limit,
-                    abort.Failure.Message));
         }
         catch (Exception exception)
             when (LibraryMethodAnalysisRunner

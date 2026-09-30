@@ -815,6 +815,20 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void Scorecard_PreservesMethodVisitRejection()
+    {
+        AssertScorecardRejection(
+            new(
+                "malformed-method-list",
+                "MalformedMethodList.dll",
+                BuildIndependentImage(
+                    [0x2A],
+                    malformedMethodList: true)),
+            new(),
+            AnalysisLibraryBodyUseRejectionKind.Execution);
+    }
+
+    [Fact]
     public void ExecuteImage_ContainsMalformedBodyAndRetainsHealthyBody()
     {
         ImmutableArray<byte> image =
@@ -1700,7 +1714,8 @@ public sealed class AnalysisLibraryBodyUseTests
         int largeTruncatedParameters = 0,
         bool unreadableMemberName = false,
         bool bodylessOnly = false,
-        bool duplicateTypeDefinition = false)
+        bool duplicateTypeDefinition = false,
+        bool malformedMethodList = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1747,6 +1762,27 @@ public sealed class AnalysisLibraryBodyUseTests
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(2));
+        }
+        if (malformedMethodList)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("MalformedMethodRange"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("MalformedMethodRangeEnd"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(3));
         }
         if (missingCurrentModuleTypeReference)
         {
