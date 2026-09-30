@@ -412,6 +412,105 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             "netcore.app",
             ordinary.Scope.PlatformPackForAssembly("System.Linq"));
+        Assert.Equal(
+            ["System.Linq", "System.Text.Json"],
+            ordinary.Scope.Members
+                .Select(member =>
+                    member.Participant.Assembly.Identity.Name)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+    }
+
+    [Theory]
+    [InlineData("aspnetcore.app", "11.0.7391")]
+    [InlineData("", "11.0.7392")]
+    public async Task PlatformWorkspace_ExactScopePromotesAcrossFamily(
+        string pack,
+        string version)
+    {
+        const string runtimePackage =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string aspNetPackage =
+            "microsoft.aspnetcore.app.runtime.linux-x64";
+        byte[] runtimeArchive = await File.ReadAllBytesAsync(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "PlatformForwarderActivation",
+                "runtime.nupkg"),
+            TestContext.Current.CancellationToken);
+        AssemblyReferenceIdentity json = Identity(
+            ReadRuntimeAssembly(runtimeArchive, "System.Text.Json.dll"));
+        byte[] aspNetAssembly = await File.ReadAllBytesAsync(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var handler = new ExactPlatformRangeHandler(
+            version,
+            new Dictionary<string, byte[]>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                [runtimePackage] = runtimeArchive,
+                [aspNetPackage] = AspNetPackage(
+                    version,
+                    "DotnetInspect.Web.Tests.dll",
+                    aspNetAssembly),
+            });
+        using IPackageSourceClient packageClient =
+            BrowserPackageWorkspace.CreateGallerySource(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromSeconds(30),
+                    OperationTimeout = TimeSpan.FromSeconds(30),
+                });
+        using var client =
+            new HttpClient(handler, disposeHandler: false);
+        IPackageSourceAuthorization sourceAuthorization =
+            BrowserPackageWorkspace.SourceAuthorizationFor(packageClient);
+
+        await using (BrowserPlatformScopeResolution exact =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0",
+                version,
+                json,
+                "netcore.app",
+                client,
+                packageClient,
+                sourceAuthorization,
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken))
+        {
+            Assert.True(exact.Scope.ExactPackageRealization);
+        }
+
+        await using BrowserPlatformScopeResolution ordinary =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0",
+                version,
+                "DotnetInspect.Web.Tests.dll",
+                pack,
+                client,
+                packageClient,
+                sourceAuthorization,
+                acquireCompletePopulation: true,
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(ordinary.Scope.ExactPackageRealization);
+        Assert.Equal(
+            ["DotnetInspect.Web.Tests", "System.Text.Json"],
+            ordinary.Scope.Members
+                .Select(member =>
+                    member.Participant.Assembly.Identity.Name)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+        Assert.Equal(
+            "netcore.app",
+            ordinary.Scope.PlatformPackForAssembly("System.Text.Json"));
+        Assert.Equal(
+            "aspnetcore.app",
+            ordinary.Scope.PlatformPackForAssembly(
+                "DotnetInspect.Web.Tests"));
     }
 
     [Theory]

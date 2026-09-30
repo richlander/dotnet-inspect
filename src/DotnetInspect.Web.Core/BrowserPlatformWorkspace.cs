@@ -1466,6 +1466,27 @@ internal static class BrowserPlatformWorkspace
             && selections.Any(selection =>
                 selection.Identity is null
                 && !IsKnownExactSelection(state, selection));
+        if (transitionToComplete)
+        {
+            ImmutableArray<PlatformSelection> promotionRequested = selections;
+            selections =
+            [
+                .. state.Coordinates
+                    .Where(coordinate =>
+                        !promotionRequested.Any(selection =>
+                            string.Equals(
+                                coordinate.Assembly,
+                                selection.Assembly,
+                                StringComparison.OrdinalIgnoreCase)))
+                    .Select(coordinate =>
+                        new PlatformSelection(
+                            coordinate.Family,
+                            coordinate.Assembly
+                                ?? throw new InvalidOperationException(
+                                    "Retained Platform coordinate must name an assembly."))),
+                .. promotionRequested,
+            ];
+        }
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates =
             transitionToComplete ? [] : state.Coordinates;
         if (state.ExactPackageRealization
