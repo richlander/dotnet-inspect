@@ -283,6 +283,35 @@ public sealed class PackageHouseRequest
             PackageHouseEvidenceDemand.None,
         PackageHouseLibraryCompanionDemand libraryCompanionDemand =
             PackageHouseLibraryCompanionDemand.None)
+        : this(
+            demand,
+            operation,
+            targetContext,
+            assetSelection,
+            libraryHandoff,
+            association,
+            assetDemand,
+            implementationNames,
+            fileDemand,
+            evidenceDemand,
+            libraryCompanionDemand,
+            allowReferenceOnlyImplementationNames: false)
+    {
+    }
+
+    internal PackageHouseRequest(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext? targetContext,
+        PackageHouseAssetSelectionKind? assetSelection,
+        PackageHouseLibraryHandoffMode libraryHandoff,
+        PackageHouseRequestAssociation? association,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string>? implementationNames,
+        PackageFileDemand? fileDemand,
+        PackageHouseEvidenceDemand evidenceDemand,
+        PackageHouseLibraryCompanionDemand libraryCompanionDemand,
+        bool allowReferenceOnlyImplementationNames)
     {
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(operation);
@@ -332,6 +361,17 @@ public sealed class PackageHouseRequest
                     nameof(implementationNames));
             }
         }
+        if (allowReferenceOnlyImplementationNames
+            && (implementationNames is null
+                || assetSelection
+                    != PackageHouseAssetSelectionKind.Compile
+                || libraryHandoff
+                    != PackageHouseLibraryHandoffMode.SelectedLibraries))
+        {
+            throw new ArgumentException(
+                "Reference-only implementation names require named compile implementation demand with selected Library handoffs.",
+                nameof(allowReferenceOnlyImplementationNames));
+        }
 
         if (fileDemand is not null
             && operation.Profile != PackageHouseOperationProfile.Acquire)
@@ -374,6 +414,8 @@ public sealed class PackageHouseRequest
         FileDemand = fileDemand;
         EvidenceDemand = evidenceDemand;
         LibraryCompanionDemand = libraryCompanionDemand;
+        AllowReferenceOnlyImplementationNames =
+            allowReferenceOnlyImplementationNames;
         ImplementationNames = implementationNames is null
             ? null
             : PackageImplementationNames.Create(
@@ -407,6 +449,14 @@ public sealed class PackageHouseRequest
     /// (docs/design/package-read-demand.md).
     /// </summary>
     public PackageImplementationNames? ImplementationNames { get; }
+
+    /// <summary>
+    /// Whether a named implementation demand is satisfied when the same name
+    /// selects an API asset whose owner-issued correspondence has no
+    /// implementation counterpart. Other unmatched names remain a visible
+    /// realization failure.
+    /// </summary>
+    internal bool AllowReferenceOnlyImplementationNames { get; }
 
     /// <summary>
     /// The package files an Acquire operation reads, or

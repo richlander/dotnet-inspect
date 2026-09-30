@@ -75,9 +75,11 @@ type MetadataOperationName =
   | "queryLibraryApiDiff"
   | "queryTypeProjection"
   | "queryMemberDeclaration"
+  | "queryMemberDocument"
   | "queryMemberGroupDocument"
   | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
+  | "queryPlatformMemberDocument"
   | "queryPlatformMemberGroupDocument"
   | "queryPlatformTypeMemberPopulation"
   | "queryPackageMetadataTable"
@@ -90,6 +92,7 @@ type MetadataOperationName =
 
 type MetadataFacadeOperationName =
   | MetadataOperationName
+  | "queryUploadedLibraryMemberDocument"
   | "queryUploadedLibraryMemberGroupDocument"
   | "queryUploadedLibraryTypeMemberPopulation";
 
@@ -173,6 +176,15 @@ type SourceWorkerClient =
 
 type MetadataWorkerClient =
   AsyncFacadeGroup<MetadataFacade, MetadataOperationName> & {
+    readonly queryUploadedLibraryMemberDocument: (
+      libraryIdentity: string,
+      typeIdentity: string,
+      memberName: string,
+      baselineOrdinal: number,
+      fingerprintPrefix: string,
+    ) => Promise<Awaited<ReturnType<
+      MetadataFacade["queryUploadedLibraryMemberDocument"]
+    >>>;
     readonly queryUploadedLibraryMemberGroupDocument: (
       libraryIdentity: string,
       typeIdentity: string,
@@ -1229,6 +1241,16 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["queryMemberDeclaration"]>
       ) => facades.metadata.queryMemberDeclaration(...args),
     ),
+    queryMemberDocument: valueOperation(
+      "ordinary-metadata-query-member-document",
+      8,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryMemberDocument"]
+        >
+      ) => facades.metadata.queryMemberDocument(...args),
+    ),
     queryMemberGroupDocument: valueOperation(
       "ordinary-metadata-query-member-group-document",
       6,
@@ -1259,6 +1281,16 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.metadata.queryPlatformMemberDeclaration(...args),
     ),
+    queryPlatformMemberDocument: valueOperation(
+      "ordinary-metadata-query-platform-member-document",
+      8,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryPlatformMemberDocument"]
+        >
+      ) => facades.metadata.queryPlatformMemberDocument(...args),
+    ),
     queryPlatformMemberGroupDocument: valueOperation(
       "ordinary-metadata-query-platform-member-group-document",
       6,
@@ -1268,6 +1300,39 @@ export const engineWorkerOrdinaryOperations = {
           MetadataFacade["queryPlatformMemberGroupDocument"]
         >
       ) => facades.metadata.queryPlatformMemberGroupDocument(...args),
+    ),
+    queryUploadedLibraryMemberDocument: valueOperation(
+      "ordinary-metadata-query-uploaded-library-member-document",
+      5,
+      (
+        facades,
+        libraryIdentity: string,
+        typeIdentity: string,
+        memberName: string,
+        baselineOrdinal: number,
+        fingerprintPrefix: string,
+      ) => {
+        const retained = retainedUploadedLibraries.get(facades);
+        if (!retained) {
+          throw new Error(
+            "No uploaded Library image is retained in this Worker epoch.",
+          );
+        }
+        if (retained.identity !== libraryIdentity) {
+          throw new Error(
+            "The requested uploaded Library is not the image retained "
+              + "in this Worker epoch.",
+          );
+        }
+        return facades.metadata.queryUploadedLibraryMemberDocument(
+          retained.declaredName,
+          retained.content,
+          typeIdentity,
+          memberName,
+          baselineOrdinal,
+          fingerprintPrefix,
+        );
+      },
     ),
     queryPlatformTypeMemberPopulation: valueOperation(
       "ordinary-metadata-query-platform-type-member-population",
@@ -2109,6 +2174,9 @@ export function bindEngineWorkerOrdinaryClient(
       queryMemberDeclaration: bind(
         engineWorkerOrdinaryOperations.metadata.queryMemberDeclaration,
       ),
+      queryMemberDocument: bind(
+        engineWorkerOrdinaryOperations.metadata.queryMemberDocument,
+      ),
       queryMemberGroupDocument: bind(
         engineWorkerOrdinaryOperations.metadata.queryMemberGroupDocument,
       ),
@@ -2119,9 +2187,17 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.metadata
           .queryPlatformMemberDeclaration,
       ),
+      queryPlatformMemberDocument: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryPlatformMemberDocument,
+      ),
       queryPlatformMemberGroupDocument: bind(
         engineWorkerOrdinaryOperations.metadata
           .queryPlatformMemberGroupDocument,
+      ),
+      queryUploadedLibraryMemberDocument: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryUploadedLibraryMemberDocument,
       ),
       queryPlatformTypeMemberPopulation: bind(
         engineWorkerOrdinaryOperations.metadata
