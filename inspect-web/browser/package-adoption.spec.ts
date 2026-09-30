@@ -1023,11 +1023,13 @@ test.describe("Package Query website over real Wasm", () => {
       ),
       { timeout: 180_000 },
     );
-    await expect(page.locator("[data-navigation-order]"))
-      .toContainText(literalCoordinate.packageId.toLowerCase());
-    await expect(page.locator("[data-navigation-order]"))
+    const overview = page.locator(".package-overview-surface");
+    await expect(overview).toBeVisible();
+    await expect(overview.locator("h1")).toHaveText(
+      literalCoordinate.packageId.toLowerCase(),
+    );
+    await expect(overview.locator(".overview-surface-footer"))
       .toContainText(literalCoordinate.version);
-    await expect(page.locator(".package-overview-surface")).toBeVisible();
   });
 
   test("qualifies package Results by decoded library literal and opens the exact Root", async ({
