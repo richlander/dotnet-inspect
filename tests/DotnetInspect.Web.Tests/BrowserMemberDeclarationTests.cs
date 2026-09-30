@@ -312,6 +312,9 @@ public sealed class BrowserMemberDeclarationTests
             group => group.Name == "Examine");
         Assert.Equal(5, examine.Members.Length);
         Assert.Equal(5, examine.CompleteCount);
+        Assert.Equal<int?>(
+            [1, 2, 3, 4, 5],
+            examine.Members.Select(member => member.BaselineOrdinal));
 
         BrowserMemberGroupDocumentInspection missingGroup =
             MemberGroupDocument(

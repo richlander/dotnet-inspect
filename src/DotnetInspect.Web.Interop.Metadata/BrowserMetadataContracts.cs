@@ -400,7 +400,8 @@ public sealed record BrowserMemberSurface(
     string AnchorTypeFullName,
     string? DeclaringTypeDefinitionId,
     string GraphSelectorKey,
-    BrowserMemberBodySelector[] BodySelectors);
+    BrowserMemberBodySelector[] BodySelectors,
+    int? BaselineOrdinal = null);
 
 public sealed record BrowserMemberBodySelector(
     int Token,

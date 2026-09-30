@@ -7109,6 +7109,20 @@ function ordinaryMethodGroup(
     && group.overloads.every(overload => !overload.graphOnly);
 }
 
+function completeMemberGroupHasBaselineOrdinals(
+  group: {
+    readonly completeCountStatus?: string;
+    readonly overloads: readonly {
+      readonly baselineOrdinal?: number | null;
+    }[];
+  } | null | undefined,
+) {
+  return group?.completeCountStatus === "available"
+    && group.overloads.every(overload =>
+      Number.isInteger(overload.baselineOrdinal)
+      && (overload.baselineOrdinal ?? 0) > 0);
+}
+
 async function loadSelectedMemberOverview(): Promise<void> {
   if (state.memberDocumentFingerprint
       && !state.memberDocumentKey) {
@@ -7263,11 +7277,17 @@ function memberDocumentOrdinalForOverload(
       readonly graphOnly?: boolean;
       readonly declarationMetadataToken?: number | null;
       readonly metadataToken?: number | null;
+      readonly baselineOrdinal?: number | null;
     }[];
   },
   index: number,
 ) {
   if (!ordinaryMethodGroup(group)) return null;
+  const overload = group.overloads[index];
+  if (Number.isInteger(overload?.baselineOrdinal)
+      && (overload?.baselineOrdinal ?? 0) > 0) {
+    return overload?.baselineOrdinal ?? null;
+  }
   const type = selectedType();
   const selectedGroup = selectedMember(type);
   if (!selectedGroup || selectedGroup.key !== group.key) return null;
@@ -7277,7 +7297,6 @@ function memberDocumentOrdinalForOverload(
       && state.memberGroupDocument?.outcome === "Available"
       ? state.memberGroupDocument.document
       : null;
-  const overload = group.overloads[index];
   const metadataToken =
     overload?.declarationMetadataToken
       ?? overload?.metadataToken
@@ -10748,6 +10767,8 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     && !hasSelectedOverload) {
     if (member.completeCountStatus === "available") {
       const count = member.overloads.length;
+      const exactOrdinals =
+        completeMemberGroupHasBaselineOrdinals(member);
       return `
         <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
           <header class="api-surface-head member-surface-head">
@@ -10756,12 +10777,17 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
           </header>
           <div class="member-surface-scroll">
             <div class="api-list api-surface-list member-surface-list">
-              ${member.overloads.map((overload, index) =>
-                `<button class="api-row overload-row" data-overload="${index}">
-                  <span class="member-icon">${index + 1}</span>
+              ${member.overloads.map((overload, index) => {
+                const selector =
+                  exactOrdinals ? overload.baselineOrdinal : index;
+                const label =
+                  exactOrdinals ? overload.baselineOrdinal : index + 1;
+                return `<button class="api-row overload-row" data-overload="${selector}">
+                  <span class="member-icon">${label}</span>
                   <code>${highlight(overload.signature)}</code>
                   <small>open →</small>
-                </button>`).join("")}
+                </button>`;
+              }).join("")}
             </div>
           </div>
         </section>`;
@@ -11649,7 +11675,15 @@ function bindTypePanelEvents() {
       normalizeMemberSelection();
       renderMemberFilterAndRestoreFocus();
     },
-    onMemberOverloadOpen: openMemberDocument,
+    onMemberOverloadOpen: selector => {
+      const member = selectedMember(selectedType());
+      if (member?.completeCountStatus === "available"
+          && !completeMemberGroupHasBaselineOrdinals(member)) {
+        openOverload(selector);
+      } else {
+        openMemberDocument(selector);
+      }
+    },
     onMemberSelect: memberKey => {
       const group = memberGroups(selectedType())
         .find(item => item.key === memberKey);

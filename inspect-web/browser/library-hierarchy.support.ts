@@ -1075,7 +1075,10 @@ async function installFacades(
             completeCount: completeCounts.get(key) ?? 0,
             members: [],
           };
-          group.members.push(populationMember(member));
+          group.members.push({
+            ...populationMember(member),
+            baselineOrdinal: group.members.length + 1,
+          });
           groups.set(key, group);
         }
         return {
