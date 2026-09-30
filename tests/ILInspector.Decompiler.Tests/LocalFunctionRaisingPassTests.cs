@@ -221,7 +221,14 @@ public class LocalFunctionRaisingPassTests
             result.Output);
         Assert.DoesNotContain("___c__DisplayClass117_0", result.Output);
         Assert.Contains(
+            "bool isConditionalAccessInstancePresentInChildren(",
+            result.Output);
+        Assert.Contains("checkInvalidChildren(", result.Output);
+        Assert.DoesNotContain(
             "__VisitConditionalAccess_g__isConditionalAccessInstancePresentInChildren_117_1",
+            result.Output);
+        Assert.DoesNotContain(
+            "__VisitConditionalAccess_g__checkInvalidChildren_117_2",
             result.Output);
         function!.CheckInvariant(includeSemantics: true);
     }
@@ -583,6 +590,64 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void MutuallyRecursiveStaticLocalFunctions_RaiseAtomically()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.MutuallyRecursiveStaticLocalFunctions));
+
+        Assert.Contains("static bool IsEven(int current)", output);
+        Assert.Contains("static bool IsOdd(int current)", output);
+        Assert.Contains("IsOdd(current - 1)", output);
+        Assert.Contains("IsEven(current - 1)", output);
+        Assert.DoesNotContain("__MutuallyRecursiveStaticLocalFunctions_g__", output);
+    }
+
+    [Fact]
+    public void MutuallyRecursiveStaticLocalFunctionsOnGenericOwner_RaiseAtomically()
+    {
+        string output = PrintRaised(
+            nameof(GenericLocalFunctionComponentSamples<int>.Cycle),
+            fixtureType: typeof(GenericLocalFunctionComponentSamples<>));
+
+        Assert.Contains("static T First(T item, int remaining)", output);
+        Assert.Contains("static T Second(T item, int remaining)", output);
+        Assert.Contains("Second(item, remaining - 1)", output);
+        Assert.Contains("First(item, remaining - 1)", output);
+        Assert.DoesNotContain("__Cycle_g__", output);
+    }
+
+    [Theory]
+    [InlineData("<Cycle>g__First|0_0", "__Cycle_g__Second_0_1")]
+    [InlineData("<Cycle>g__Second|0_1", "__Cycle_g__First_0_0")]
+    public void DirectlyDecompiledGenericOwnerMember_DoesNotNestItsComponent(
+        string methodName,
+        string survivingCall)
+    {
+        string output = PrintRaised(
+            methodName,
+            fixtureType: typeof(GenericLocalFunctionComponentSamples<>));
+
+        Assert.Contains(survivingCall, output);
+        Assert.DoesNotContain("static T First(", output);
+        Assert.DoesNotContain("static T Second(", output);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void MutuallyRecursiveStaticLocalFunctions_CompileBackExactly()
+    {
+        var type = typeof(CfgSampleClass);
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            type.Assembly.Location,
+            candidate => candidate == type.FullName,
+            method => method.Method
+                == nameof(CfgSampleClass.MutuallyRecursiveStaticLocalFunctions)));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status}: {result.Detail}");
+    }
+
+    [Fact]
     public void CapturingAfterMutation_StaysLowered()
     {
         // The captured local is mutated, so the environment field is written from a
@@ -826,6 +891,103 @@ public class LocalFunctionRaisingPassTests
             function.Descendants.OfType<Call>(),
             call => call.Callee with { LocalFunctionRaise = LocalFunctionRaiseState.None } == first);
         Assert.Equal(LocalFunctionRaiseState.Declined, survivor.Callee.LocalFunctionRaise);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void MutuallyRecursiveComponentWithMethodGroup_StaysLoweredAtomically()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var first = new MethodRef(
+            owner,
+            "<M>g__First|0_0",
+            s_int,
+            [s_int],
+            HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+        var second = new MethodRef(
+            owner,
+            "<M>g__Second|0_1",
+            s_int,
+            [s_int],
+            HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+        var function = FunctionReturningCall(first, s_int);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method =>
+            {
+                if (method == first)
+                    return LocalFunctionBodyCalling(first, second);
+                if (method == second)
+                    return LocalFunctionBodyCreatingMethodGroup(second, first);
+                return null;
+            });
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Single(function.Descendants.OfType<Call>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void MutuallyRecursiveComponentWithExternalDependency_StaysLoweredAtomically()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var first = LocalFunctionMethod(owner, "<M>g__First|0_0");
+        var second = LocalFunctionMethod(owner, "<M>g__Second|0_1");
+        var external = LocalFunctionMethod(owner, "<M>g__External|0_2");
+        var function = FunctionReturningCall(first, s_int);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method =>
+            {
+                if (method == first)
+                    return LocalFunctionBodyCalling(first, second);
+                if (method == second)
+                    return LocalFunctionBodyCallingTwo(second, first, external);
+                if (method == external)
+                    return LocalFunctionBody(external, s_int);
+                return null;
+            });
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Single(function.Descendants.OfType<Call>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectlyDecompiledMutuallyRecursiveMember_DoesNotNestItsComponent()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var first = LocalFunctionMethod(owner, "<M>g__First|0_0");
+        var second = LocalFunctionMethod(owner, "<M>g__Second|0_1");
+        var function = LocalFunctionBodyCalling(first, second);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method =>
+            {
+                if (method == first)
+                    return LocalFunctionBodyCalling(first, second);
+                if (method == second)
+                    return LocalFunctionBodyCalling(second, first);
+                return null;
+            });
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Single(function.Descendants.OfType<Call>());
         function.CheckInvariant();
     }
 
@@ -1233,6 +1395,70 @@ public class LocalFunctionRaisingPassTests
             localMethod.Name,
             localMethod.DeclaringType,
             new MethodSignature(s_int, [new Parameter("x", s_int)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static MethodRef LocalFunctionMethod(TypeRef owner, string name)
+        => new(
+            owner,
+            name,
+            s_int,
+            [s_int],
+            HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+
+    static IrFunction LocalFunctionBodyCallingTwo(
+        MethodRef localMethod,
+        MethodRef firstCalledMethod,
+        MethodRef secondCalledMethod)
+    {
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(
+            firstCalledMethod,
+            isVirtual: false,
+            [new LoadArgument(0, "x", s_int)])));
+        block.Add(new Return(new Call(
+            secondCalledMethod,
+            isVirtual: false,
+            [new LoadArgument(0, "x", s_int)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            localMethod.Name,
+            localMethod.DeclaringType,
+            new MethodSignature(
+                s_int,
+                [new Parameter("x", s_int)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction LocalFunctionBodyCreatingMethodGroup(
+        MethodRef localMethod,
+        MethodRef referencedMethod)
+    {
+        var block = new Block();
+        block.Add(new ExpressionStatement(new DelegateCreation(
+            s_func,
+            referencedMethod,
+            isVirtual: false,
+            new Constant(null, TypeRef.CoreLib("System", "Object")))));
+        block.Add(new Return(new LoadArgument(0, "x", s_int)));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            localMethod.Name,
+            localMethod.DeclaringType,
+            new MethodSignature(
+                s_int,
+                [new Parameter("x", s_int)],
+                HasThis: false,
+                GenericParameterCount: 0),
             [],
             body);
     }

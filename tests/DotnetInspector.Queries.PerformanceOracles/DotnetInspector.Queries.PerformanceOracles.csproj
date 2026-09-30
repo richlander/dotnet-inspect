@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Queries-owned performance-oracle projections for Type Find population
+    settlement. This stays in tests so comparison implementations do not enter
+    the product API or the generic scorecard fixture's dependency graph.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>DotnetInspector.PerformanceOracles</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PerformanceOracles\DotnetInspector.PerformanceOracles.csproj" />
+  </ItemGroup>
+
+</Project>
