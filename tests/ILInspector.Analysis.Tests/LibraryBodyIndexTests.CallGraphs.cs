@@ -51,6 +51,7 @@ public partial class LibraryBodyIndexTests
             DirectCallIncidence.ByEvidenceMethod(
                 [first, second, third]);
 
+        Assert.Empty(DirectCallIncidence.ByEvidenceMethod([]));
         Assert.Equal(
             [first, second],
             incidence[firstMethod.MetadataToken]);
