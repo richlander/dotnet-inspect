@@ -307,6 +307,58 @@ records Analysis work and participation.
 This is a same-head implementation comparison and a richer-producer cost
 baseline. Provider-backed acquisition remains Stage 8.
 
+### LINQ and NLinq scorecard
+
+The performance scorecard asks the producer's current production question:
+the Rows terminal over the complete whole-Library population. Its normalized
+answer contains the Type, body, and typed-operand completion counts plus every
+ordered canonical occurrence. It does not manufacture Exists, Count, Head,
+Tail, or Window acquisition behavior that the producer does not support.
+Later QuerySpace adoption owns a standard multi-closing scorecard when those
+questions reach body-use production.
+
+The scorecard runs four columns:
+
+- **Direct** is the existing explicit MethodDef traversal.
+- **LINQ** is an idiomatic streaming `System.Linq` traversal and aggregation.
+- **NLinq** uses the pinned NLinq MethodDef source, selection, projection, and
+  fold.
+- **Planner** is the shipping
+  `AnalysisLibraryBodyUseService.ExecuteImage` operation.
+
+Direct, LINQ, and NLinq independently traverse the MethodDef population. They
+share the Analysis-owned per-method body-use kernel because its instruction
+decode, logical ownership, operand binding, fidelity, and containment are the
+question being composed, not alternative query machinery. They do not invoke
+Producer Planning or consume Planner output. Every column performs bounded
+Type-inventory admission, uses the same body, occurrence, and
+method-signature limits, and constructs the same normalized answer. The
+scorecard checks exact answers before timing.
+
+NativeAOT is the only accepted timing. The report identifies the exact
+candidate, assets, source locations, pinned NLinq provenance, invocation,
+answer hashes, absolute medians, allocation, and ratios to NLinq. It runs the
+Roslyn fidelity assets and the body-use ECMA safety fixtures. A faster fair
+oracle is evidence for Planner improvement; the oracle is not burdened with
+unconsumed Planner work.
+
+The four implementations and report live in
+[`BodyUseScorecard.cs`](../../tools/AnalysisHarness/BodyUseScorecard.cs).
+NLinq traverses the shared
+[`MethodDefinitionRows`](../../tests/DotnetInspector.PerformanceOracles/MethodDefinitionRows.cs)
+source. Its exact upstream pin and checksums remain in
+[`PROVENANCE.md`](../../tests/NLinq.Oracle/PROVENANCE.md).
+
+Publish and run the scorecard for the target RID:
+
+```bash
+dotnet publish tools/BodyUseScorecard -c Release -r <rid> \
+  -o artifacts/body-use-scorecard
+artifacts/body-use-scorecard/analysis-harness check <assembly>...
+artifacts/body-use-scorecard/analysis-harness time \
+  --rounds 6 --budget-ms 2000 --tsv <path> <assembly>...
+```
+
 ## Required evidence
 
 Release gates prove:
