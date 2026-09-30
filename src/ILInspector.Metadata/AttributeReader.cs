@@ -82,6 +82,8 @@ public static partial class AttributeReader
         "System.Text.Json.Serialization.JsonObjectCreationHandling";
     private const string JsonExtensionDataAttributeName =
         "System.Text.Json.Serialization.JsonExtensionDataAttribute";
+    private const string JsonRequiredAttributeName =
+        "System.Text.Json.Serialization.JsonRequiredAttribute";
     private const string JsonKnownNamingPolicyTypeName =
         "System.Text.Json.Serialization.JsonKnownNamingPolicy";
     private static readonly IReadOnlyDictionary<string, PrimitiveTypeCode>
@@ -684,6 +686,11 @@ public static partial class AttributeReader
             reader,
             attributes,
             JsonExtensionDataAttributeName,
+            beforeMaterialize)
+        || HasFrameworkAttribute(
+            reader,
+            attributes,
+            JsonRequiredAttributeName,
             beforeMaterialize);
 
     public static ApiJsonPolymorphismEvidence? ReadJsonPolymorphism(
@@ -3258,7 +3265,10 @@ public static partial class AttributeReader
             "Converters" or "TypeClassifiers" => true,
             "IgnoreReadOnlyFields"
                 or "IgnoreReadOnlyProperties"
-                or "IncludeFields" =>
+                or "IncludeFields"
+                or "PropertyNameCaseInsensitive"
+                or "RespectNullableAnnotations"
+                or "RespectRequiredConstructorParameters" =>
                 option.Value is not false,
             "DefaultIgnoreCondition" =>
                 !TryReadInt32(option.Value, out int ignoreCondition)
@@ -3268,7 +3278,8 @@ public static partial class AttributeReader
             "DictionaryKeyPolicy"
                 or "NumberHandling"
                 or "PreferredObjectCreationHandling"
-                or "ReferenceHandler" =>
+                or "ReferenceHandler"
+                or "UnmappedMemberHandling" =>
                 !TryReadInt32(option.Value, out int value) || value != 0,
             _ => false,
         };

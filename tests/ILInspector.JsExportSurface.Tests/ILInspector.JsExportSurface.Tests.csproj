@@ -55,6 +55,7 @@
     <ProjectReference
       Include="../../fixtures/js-export/TsJsExport.ContextFixtures.WrongContract/TsJsExport.ContextFixtures.WrongContract.csproj"
       Aliases="WrongContractFixture" />
+    <ProjectReference Include="../../src/DotnetInspector.JsonSchema/DotnetInspector.JsonSchema.csproj" />
   </ItemGroup>
 
   <Target Name="CopyRuntimeAsyncFixture" AfterTargets="Build">

@@ -1,6 +1,9 @@
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using DotnetInspector.JsonSchema;
+using DotnetInspector.Vocabulary;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
@@ -286,6 +289,364 @@ public sealed class TypeScriptFacadeEmitterTests
             "WidgetDtoOutput",
             source,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void JsonSchema_UsesTheSharedDirectionalDeclarationPlan()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+        ApiType dto = Assert.Single(
+            surface.Records,
+            type => type.Name == "DirectionalServerNoteDto");
+        JsonWireDeclarationPlan plan =
+            JsonWireDeclarationPlan.Create(surface);
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonSchemaVocabularyDescriptor input = BuildDescriptor(
+            JsonWireDirection.Deserialize);
+        JsonSchemaVocabularyDescriptor output = BuildDescriptor(
+            JsonWireDirection.Serialize);
+
+        JsonElement inputDefinition =
+            input.Schema.GetProperty("$defs")
+                .GetProperty("DirectionalServerNoteDtoInput");
+        Assert.True(
+            inputDefinition.GetProperty("properties")
+                .TryGetProperty("name", out _));
+        Assert.False(
+            inputDefinition.GetProperty("properties")
+                .TryGetProperty("serverNote", out _));
+        Assert.True(
+            inputDefinition.GetProperty("additionalProperties")
+                .GetBoolean());
+
+        JsonElement outputDefinition =
+            output.Schema.GetProperty("$defs")
+                .GetProperty("DirectionalServerNoteDtoOutput");
+        Assert.True(
+            outputDefinition.GetProperty("properties")
+                .TryGetProperty("name", out _));
+        Assert.True(
+            outputDefinition.GetProperty("properties")
+                .TryGetProperty("serverNote", out _));
+        Assert.False(
+            outputDefinition.GetProperty("additionalProperties")
+                .GetBoolean());
+        Assert.Equal(
+            ["name", "serverNote"],
+            outputDefinition.GetProperty("required")
+                .EnumerateArray()
+                .Select(value => value.GetString())
+                .ToArray());
+
+        JsonSchemaVocabularyDescriptor BuildDescriptor(
+            JsonWireDirection direction) =>
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                plan,
+                new(
+                    new("directional-server-note"),
+                    direction,
+                    new JsonSchemaContractRoot.Object(dto)),
+                snapshot,
+                snapshot.Identity);
+    }
+
+    [Fact]
+    public void JsonSchema_EscapesBoundPropertyLocationsAsJsonPointers()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+        ApiType dto = Assert.Single(
+            surface.Records,
+            type => type.Name == "DirectionalServerNoteDto");
+        ApiMember member = Assert.Single(
+            dto.Members,
+            candidate => candidate.Name == "ServerNote");
+        member.JsonPropertyName = "server~/note";
+        VocabularyCatalogIdentity catalog = new("test");
+        VocabularyIdentity vocabulary = new(catalog, "properties");
+        VocabularyTermIdentity term = new(vocabulary, "server-note");
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            catalog,
+            [
+                new(
+                    vocabulary,
+                    "Properties",
+                    null,
+                    maps: null,
+                    [new(term, "Server note", null)]),
+            ]);
+
+        JsonSchemaVocabularyDescriptor descriptor =
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new("directional-server-note"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Object(dto),
+                    [
+                        new(
+                            new JsonSchemaBindingTarget.ObjectMember(
+                                dto,
+                                member),
+                            term),
+                    ]),
+                snapshot,
+                snapshot.Identity);
+
+        JsonSchemaVocabularyBinding binding =
+            Assert.Single(descriptor.Bindings);
+        Assert.Equal(
+            "/$defs/DirectionalServerNoteDtoOutput"
+                + "/properties/server~0~1note",
+            binding.SchemaLocation);
+        Assert.True(
+            descriptor.Schema.GetProperty("$defs")
+                .GetProperty("DirectionalServerNoteDtoOutput")
+                .GetProperty("properties")
+                .TryGetProperty("server~/note", out _));
+    }
+
+    [Fact]
+    public void JsonSchema_LowersDirectionalContainersGenericsAndRecursion()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+        ApiType envelope = Assert.Single(
+            surface.Records,
+            type => type.Name == "DirectionalEnvelopeDto");
+        JsonWireDeclarationPlan plan =
+            JsonWireDeclarationPlan.Create(surface);
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonSchemaVocabularyDescriptor input = BuildDescriptor(
+            JsonWireDirection.Deserialize);
+        JsonSchemaVocabularyDescriptor output = BuildDescriptor(
+            JsonWireDirection.Serialize);
+
+        AssertEnvelope(
+            input.Schema,
+            "DirectionalEnvelopeDtoInput",
+            "DirectionalServerNoteDtoInput",
+            hasServerNote: false);
+        AssertEnvelope(
+            output.Schema,
+            "DirectionalEnvelopeDtoOutput",
+            "DirectionalServerNoteDtoOutput",
+            hasServerNote: true);
+
+        JsonSchemaVocabularyDescriptor BuildDescriptor(
+            JsonWireDirection direction) =>
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                plan,
+                new(
+                    new("directional-envelope"),
+                    direction,
+                    new JsonSchemaContractRoot.Object(envelope)),
+                snapshot,
+                snapshot.Identity);
+
+        static void AssertEnvelope(
+            JsonElement schema,
+            string envelopeDefinitionName,
+            string noteDefinitionName,
+            bool hasServerNote)
+        {
+            JsonElement definitions = schema.GetProperty("$defs");
+            Assert.Equal(
+                $"#/$defs/{envelopeDefinitionName}",
+                schema.GetProperty("$ref").GetString());
+            JsonElement properties = definitions
+                .GetProperty(envelopeDefinitionName)
+                .GetProperty("properties");
+
+            Assert.Equal(
+                $"#/$defs/{noteDefinitionName}",
+                NonNull(properties.GetProperty("direct"))
+                    .GetProperty("$ref").GetString());
+            Assert.Equal(
+                $"#/$defs/{noteDefinitionName}",
+                NonNull(
+                    NonNull(properties.GetProperty("items"))
+                    .GetProperty("items")
+                )
+                    .GetProperty("$ref").GetString());
+            Assert.Equal(
+                $"#/$defs/{noteDefinitionName}",
+                NonNull(
+                    NonNull(properties.GetProperty("lookup"))
+                    .GetProperty("additionalProperties")
+                )
+                    .GetProperty("$ref").GetString());
+
+            string boxReference =
+                NonNull(properties.GetProperty("box"))
+                .GetProperty("$ref").GetString()!;
+            string boxDefinitionName =
+                boxReference["#/$defs/".Length..];
+            Assert.Equal(
+                $"#/$defs/{noteDefinitionName}",
+                NonNull(
+                    definitions.GetProperty(boxDefinitionName)
+                    .GetProperty("properties")
+                    .GetProperty("value")
+                )
+                    .GetProperty("$ref").GetString());
+
+            JsonElement recursiveAlternatives =
+                properties.GetProperty("next")
+                    .GetProperty("anyOf");
+            Assert.Equal(
+                $"#/$defs/{envelopeDefinitionName}",
+                recursiveAlternatives[0]
+                    .GetProperty("$ref").GetString());
+            Assert.Equal(
+                "null",
+                recursiveAlternatives[1]
+                    .GetProperty("type").GetString());
+
+            JsonElement noteProperties = definitions
+                .GetProperty(noteDefinitionName)
+                .GetProperty("properties");
+            Assert.True(noteProperties.TryGetProperty("name", out _));
+            Assert.Equal(
+                hasServerNote,
+                noteProperties.TryGetProperty("serverNote", out _));
+
+            static JsonElement NonNull(JsonElement value)
+            {
+                if (!value.TryGetProperty(
+                        "anyOf",
+                        out JsonElement alternatives))
+                {
+                    return value;
+                }
+                return Assert.Single(
+                    alternatives.EnumerateArray(),
+                    candidate =>
+                        !candidate.TryGetProperty(
+                            "type",
+                            out JsonElement type)
+                        || type.GetString() != "null");
+            }
+        }
+    }
+
+    [Fact]
+    public void JsonSchema_LowersClosedUnionCases()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+        ApiType choice = Assert.Single(
+            surface.Unions,
+            union => union.Definition.Name == "DirectionalChoice")
+            .Definition;
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonSchemaVocabularyDescriptor descriptor =
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new("directional-choice"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Object(choice)),
+                snapshot,
+                snapshot.Identity);
+
+        string definitionName =
+            descriptor.Schema.GetProperty("$ref")
+                .GetString()!["#/$defs/".Length..];
+        JsonElement alternatives =
+            descriptor.Schema.GetProperty("$defs")
+                .GetProperty(definitionName)
+                .GetProperty("anyOf");
+        Assert.Collection(
+            alternatives.EnumerateArray(),
+            note => Assert.Equal(
+                "#/$defs/DirectionalServerNoteDtoOutput",
+                note.GetProperty("$ref").GetString()),
+            text => Assert.Equal(
+                "string",
+                text.GetProperty("type").GetString()),
+            nullValue => Assert.Equal(
+                "null",
+                nullValue.GetProperty("type").GetString()));
+    }
+
+    [Fact]
+    public void JsonSchema_DistinguishesConditionalAbsenceFromPresentNull()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+        ApiType dto = Assert.Single(
+            surface.Records,
+            type => type.Name == "ConditionalOutputDto");
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonSchemaVocabularyDescriptor descriptor =
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new("conditional-output"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Object(dto)),
+                snapshot,
+                snapshot.Identity);
+
+        JsonElement definition =
+            descriptor.Schema.GetProperty("$defs")
+                .GetProperty("ConditionalOutputDto");
+        JsonElement properties =
+            definition.GetProperty("properties");
+        JsonElement required =
+            definition.GetProperty("required");
+        Assert.True(
+            properties.GetProperty("alwaysNullable")
+                .TryGetProperty("anyOf", out _));
+        Assert.Contains(
+            "alwaysNullable",
+            required.EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.False(
+            properties.GetProperty("nullHidden")
+                .TryGetProperty("anyOf", out _));
+        Assert.DoesNotContain(
+            "nullHidden",
+            required.EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
+            "string",
+            properties.GetProperty("nullHidden")
+                .GetProperty("type").GetString());
     }
 
     [Fact]

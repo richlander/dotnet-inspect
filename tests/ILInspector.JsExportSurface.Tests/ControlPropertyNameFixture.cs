@@ -116,7 +116,7 @@ internal sealed class ConverterControlledAccessibleEnumFixture
             JsonStringEnumConverter<
                 ConverterControlledAccessibleEnum>))]
     public ConverterControlledAccessibleEnum ConvertedField
-        { get; set; } =
+    { get; set; } =
         ConverterControlledAccessibleEnum.One;
 }
 
@@ -206,6 +206,12 @@ internal sealed partial class ValidWhenWritingNullArrayFieldJsonContext
     ReadCommentHandling = JsonCommentHandling.Skip)]
 [JsonSerializable(typeof(string))]
 internal sealed partial class AdditionalOptionsJsonContext
+    : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
+[JsonSerializable(typeof(string))]
+internal sealed partial class UnsupportedUnmappedMembersJsonContext
     : JsonSerializerContext;
 
 internal sealed class MemberJsonConverterFixture
@@ -306,4 +312,10 @@ internal sealed class ExtensionDataWireFixture
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement> Extra { get; set; } = [];
+}
+
+internal sealed class JsonRequiredWireFixture
+{
+    [JsonRequired]
+    public string Name { get; set; } = "";
 }

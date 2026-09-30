@@ -491,12 +491,8 @@ static class DtsEmitter
             allocatedTypeNames,
         TypeScriptGenerationDiagnostics? diagnostics)
     {
-        ApiType root = union.Definition;
         string discriminatorPropertyName =
             union.TypeDiscriminatorPropertyName!;
-        JsonWireNamingPolicy namingPolicy =
-            root.JsonPropertyNamingPolicy
-                ?? JsonWireNamingPolicy.None;
 
         foreach (JsExportPolymorphicCase @case in union.Cases.OrderBy(
             @case => AllocatedTypeName(
@@ -507,14 +503,11 @@ static class DtsEmitter
             StringComparer.Ordinal))
         {
             ApiType caseType = @case.Definition;
-            IReadOnlyList<(ApiMember Member, string ResolvedName)> members =
+            IReadOnlyList<JsonWirePolymorphicMember> members =
                 GetPolymorphicCaseMembers(
                     surface,
-                    root,
-                    caseType,
-                    discriminatorPropertyName,
-                    namingPolicy,
-                    assemblyIdentity,
+                    union,
+                    @case,
                     declaredTypesByScopedIdentity);
             ApiMember? unsupportedMember = members
                 .Select(item => item.Member)
@@ -548,8 +541,10 @@ static class DtsEmitter
                 .Append(EscapeString(@case.TypeDiscriminator))
                 .Append("\";\n");
 
-            foreach ((ApiMember member, string resolvedName) in members)
+            foreach (JsonWirePolymorphicMember item in members)
             {
+                ApiMember member = item.Member;
+                string resolvedName = item.PropertyName;
                 string location =
                     $"{caseType.FullName}.{member.Name}";
                 JsonWireMemberPresence presence =
@@ -572,7 +567,8 @@ static class DtsEmitter
                         ?? "unknown";
                 string tsType;
                 if (member.JsonConverterAttributeCount > 0
-                    && !HasApprovedInertStringConverter(member))
+                    && !JsonWireContractRules
+                        .HasApprovedInertStringConverter(member))
                 {
                     ReportUnsupportedJsonConverter(
                         location,
@@ -629,7 +625,7 @@ static class DtsEmitter
         sb.Append("export type ")
             .Append(AllocatedTypeName(
                 declarationPlan.Resolve(
-                    root,
+                    union.Definition,
                     JsonWireDirection.Serialize),
                 allocatedTypeNames))
             .Append(" = ")
@@ -644,97 +640,29 @@ static class DtsEmitter
             .Append(";\n\n");
     }
 
-    static IReadOnlyList<(ApiMember Member, string ResolvedName)>
+    static IReadOnlyList<JsonWirePolymorphicMember>
         GetPolymorphicCaseMembers(
             ILInspector.JsExportSurface.JsExportSurface surface,
-            ApiType root,
-            ApiType caseType,
-            string discriminatorPropertyName,
-            JsonWireNamingPolicy namingPolicy,
-            ApiAssemblyIdentity? assemblyIdentity,
+            JsExportPolymorphicUnion union,
+            JsExportPolymorphicCase @case,
             IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
                 declaredTypesByScopedIdentity)
     {
-        if (caseType.JsonPropertyNamingPolicy != root.JsonPropertyNamingPolicy)
+        try
+        {
+            return JsonWireContractRules.GetPolymorphicCaseMembers(
+                surface,
+                union,
+                @case,
+                JsonWireDirection.Serialize,
+                declaredTypesByScopedIdentity);
+        }
+        catch (UnsupportedJsExportSurfaceException exception)
         {
             throw new UnsupportedWireContractException(
-                caseType.FullName,
-                "polymorphic root and case naming policies differ");
+                exception.Location,
+                exception.Reason);
         }
-        JsonWireContextDefaultIgnoreCondition rootDefaultIgnoreCondition =
-            JsonWireMemberRules.GetContextDefaultIgnoreCondition(
-                surface,
-                root);
-        JsonWireContextDefaultIgnoreCondition caseDefaultIgnoreCondition =
-            JsonWireMemberRules.GetContextDefaultIgnoreCondition(
-                surface,
-                caseType);
-        if (rootDefaultIgnoreCondition
-                == JsonWireContextDefaultIgnoreCondition.Unsupported
-            || caseDefaultIgnoreCondition
-                == JsonWireContextDefaultIgnoreCondition.Unsupported
-            || caseDefaultIgnoreCondition != rootDefaultIgnoreCondition
-            || caseType.JsonUseStringEnumConverter
-                != root.JsonUseStringEnumConverter)
-        {
-            throw new UnsupportedWireContractException(
-                caseType.FullName,
-                "polymorphic root and case serializer options differ");
-        }
-
-        var members = new List<(ApiMember Member, string ResolvedName)>();
-        var resolvedNames = new HashSet<string>(StringComparer.Ordinal)
-        {
-            discriminatorPropertyName,
-        };
-        foreach (ApiType declaringType in new[] { root, caseType })
-        {
-            foreach (ApiMember member in declaringType.Members.Where(
-                member => JsonWireMemberRules.ParticipatesInWireContract(
-                    member,
-                    JsonWireDirection.Serialize,
-                    assemblyIdentity,
-                    declaredTypesByScopedIdentity)))
-            {
-                int overriddenIndex = -1;
-                if (ReferenceEquals(declaringType, caseType)
-                    && member.IsOverride)
-                {
-                    overriddenIndex = members.FindIndex(
-                        candidate => candidate.Member.Name.Equals(
-                            member.Name,
-                            StringComparison.Ordinal));
-                    if (overriddenIndex >= 0)
-                    {
-                        resolvedNames.Remove(
-                            members[overriddenIndex].ResolvedName);
-                        members.RemoveAt(overriddenIndex);
-                    }
-                }
-
-                string resolvedName = member.JsonPropertyName
-                    ?? ApplyNamingPolicy(member.Name, namingPolicy);
-                string location =
-                    $"{declaringType.FullName}.{member.Name}";
-                ValidatePropertyName(location, resolvedName);
-                if (!resolvedNames.Add(resolvedName))
-                {
-                    throw new UnsupportedWireContractException(
-                        location,
-                        resolvedName == discriminatorPropertyName
-                            ? "serialized member collides with the "
-                                + "polymorphic discriminator property"
-                            : "inherited and declared members resolve "
-                                + "to the same JSON property name");
-                }
-                if (overriddenIndex >= 0)
-                    members.Insert(overriddenIndex, (member, resolvedName));
-                else
-                    members.Add((member, resolvedName));
-            }
-        }
-
-        return members;
     }
 
     static TypeScriptFunctionSignature GetFunctionSignature(
@@ -1318,7 +1246,7 @@ static class DtsEmitter
             EmitBlockedType(sb, declarationName);
             return;
         }
-        if (HasUnsupportedJsonConverter(enumType))
+        if (JsonWireContractRules.HasUnsupportedJsonConverter(enumType))
         {
             ReportUnsupportedJsonConverter(enumType.Name, diagnostics);
             EmitBlockedType(sb, declarationName);
@@ -1383,13 +1311,13 @@ static class DtsEmitter
             EmitBlockedType(sb, declarationName);
             return;
         }
-        if (HasUnsupportedJsonConverter(record))
+        if (JsonWireContractRules.HasUnsupportedJsonConverter(record))
         {
             ReportUnsupportedJsonConverter(record.Name, diagnostics);
             EmitBlockedType(sb, declarationName);
             return;
         }
-        if (HasUnsupportedRecordWireShape(
+        if (JsonWireContractRules.HasUnsupportedRecordWireShape(
                 record,
                 assemblyIdentity,
                 declaredTypesByScopedIdentity))
@@ -1466,8 +1394,10 @@ static class DtsEmitter
                     activeDirection,
                     assemblyIdentity,
                     declaredTypesByScopedIdentity),
-                ResolvedName: member.JsonPropertyName
-                    ?? ApplyNamingPolicy(member.Name, namingPolicy)))
+                ResolvedName:
+                    JsonWireContractRules.ResolvePropertyName(
+                        record,
+                        member)))
             .Where(item =>
                 item.Presence != JsonWireMemberPresence.Absent)
             .ToArray();
@@ -1500,7 +1430,8 @@ static class DtsEmitter
             string location = $"{record.Name}.{member.Name}";
             string tsType;
             if (member.JsonConverterAttributeCount > 0
-                && !HasApprovedInertStringConverter(member))
+                && !JsonWireContractRules
+                    .HasApprovedInertStringConverter(member))
             {
                 ReportUnsupportedJsonConverter(location, diagnostics);
                 tsType = "unknown";
@@ -1692,7 +1623,7 @@ static class DtsEmitter
             if (type.HasUnionAttribute == true)
                 continue;
             bool converterControlled =
-                HasUnsupportedJsonConverter(type);
+                JsonWireContractRules.HasUnsupportedJsonConverter(type);
             foreach (ApiMember member in type.Members)
             {
                 ValidatePropertyNameAttributes(
@@ -1770,8 +1701,10 @@ static class DtsEmitter
                         assemblyIdentity,
                         declaredTypesByScopedIdentity)))
             {
-                string resolvedName = member.JsonPropertyName
-                    ?? ApplyNamingPolicy(member.Name, namingPolicy);
+                string resolvedName =
+                    JsonWireContractRules.ResolvePropertyName(
+                        type,
+                        member);
                 string location = FormatMemberLocation(type, member);
                 ValidatePropertyName(location, resolvedName);
                 if (!resolvedNames.Add(resolvedName))
@@ -2036,19 +1969,8 @@ static class DtsEmitter
             $"{type.Name} JsonSerializerContext options",
             "unsupported wire-shaping options");
 
-    static bool HasUnsupportedJsonConverter(ApiType type) =>
-        type.JsonConverterAttributeCount > 0
-        && (type.Kind != "enum"
-            || !UsesStringEnumConverter(type)
-            || type.JsonConverterAttributeCount != 1);
-
     static bool UsesStringEnumConverter(ApiType type) =>
-        type.HasJsonStringEnumConverter
-        || type.JsonUseStringEnumConverter;
-
-    static bool HasApprovedInertStringConverter(ApiMember member) =>
-        member.JsonConverterAttributeCount == 1
-        && InertStringIdentities(member.SignatureModel?.ReturnTypeShape).Any();
+        JsonWireContractRules.UsesStringEnumConverter(type);
 
     static IEnumerable<ApiTypeReferenceIdentity> InertStringIdentities(
         ApiTypeShape? type)
@@ -2093,7 +2015,8 @@ static class DtsEmitter
                             member,
                             directions));
                 })
-                .Where(HasApprovedInertStringConverter)
+                .Where(JsonWireContractRules
+                    .HasApprovedInertStringConverter)
                 .SelectMany(member => InertStringIdentities(
                     member.SignatureModel?.ReturnTypeShape))
                 .Distinct(),
@@ -2242,8 +2165,10 @@ static class DtsEmitter
                     JsonWireDirection.Both);
             if (type.JsonPropertyNamingPolicy
                     == JsonWireNamingPolicy.Unsupported
-                || HasUnsupportedJsonConverter(type)
-                || HasUnsupportedRecordWireShape(
+                || JsonWireContractRules
+                    .HasUnsupportedJsonConverter(type)
+                || JsonWireContractRules
+                    .HasUnsupportedRecordWireShape(
                     type,
                     surface.AssemblyIdentity,
                     declaredTypesByScopedIdentity)
@@ -2283,20 +2208,11 @@ static class DtsEmitter
                 declarationPlan.Contains(union.Definition))
             .Any(union =>
             {
-                ApiType root = union.Definition;
-                string discriminatorPropertyName =
-                    union.TypeDiscriminatorPropertyName!;
-                JsonWireNamingPolicy namingPolicy =
-                    root.JsonPropertyNamingPolicy
-                        ?? JsonWireNamingPolicy.None;
                 return union.Cases.Any(@case =>
                     GetPolymorphicCaseMembers(
                         surface,
-                        root,
-                        @case.Definition,
-                        discriminatorPropertyName,
-                        namingPolicy,
-                        surface.AssemblyIdentity,
+                        union,
+                        @case,
                         declaredTypesByScopedIdentity)
                     .Any(item => MemberUsesJsonValue(
                         surface,
@@ -2325,7 +2241,8 @@ static class DtsEmitter
             declaredTypesByScopedIdentity)
             == JsonWireMemberPresence.Conditional
         && (member.JsonConverterAttributeCount == 0
-            || HasApprovedInertStringConverter(member))
+            || JsonWireContractRules
+                .HasApprovedInertStringConverter(member))
         && !TryGetConditionalParameter(
             member.SignatureModel,
             declaringType.TypeParameters,
@@ -2358,37 +2275,6 @@ static class DtsEmitter
         ApiTypeReferenceIdentity identity) =>
         identity.FullName == TsTypeMapper.InertStringFullName
         && identity.Assembly.Name == "InertText";
-
-    static bool HasUnsupportedRecordWireShape(
-        ApiType type,
-        ApiAssemblyIdentity? assemblyIdentity,
-        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
-            declaredTypesByScopedIdentity)
-    {
-        if (type.HasUnsupportedJsonWireAttributes
-            || type.Members.Any(member =>
-                member.HasUnsupportedJsonWireAttributes
-                && !HasApprovedInertStringConverter(member)
-                && JsonWireMemberRules.ParticipatesInWireContract(
-                    member,
-                    JsonWireDirection.Both,
-                    assemblyIdentity,
-                    declaredTypesByScopedIdentity)))
-        {
-            return true;
-        }
-
-        if (type.BaseType is null)
-            return false;
-        string expectedBaseType = type.Kind == "struct"
-            ? "System.ValueType"
-            : "System.Object";
-        if (type.BaseType != expectedBaseType)
-            return true;
-        return type.BaseTypeReference is { } reference
-            && !PlatformKeys.IsPlatform(
-                reference.Assembly.PublicKeyToken);
-    }
 
     static void ReportUnsupportedJsonWireShape(
         string location,
@@ -2682,17 +2568,6 @@ static class DtsEmitter
         int dot = typeName.LastIndexOf('.');
         return dot >= 0 ? typeName[(dot + 1)..] : typeName;
     }
-
-    static string ApplyNamingPolicy(string name, JsonWireNamingPolicy namingPolicy) => namingPolicy switch
-    {
-        JsonWireNamingPolicy.None => name,
-        JsonWireNamingPolicy.CamelCase => CamelCase.FromPascalCase(name),
-        JsonWireNamingPolicy.SnakeCaseLower => JsonNamingPolicies.SnakeCaseLower(name),
-        JsonWireNamingPolicy.SnakeCaseUpper => JsonNamingPolicies.SnakeCaseUpper(name),
-        JsonWireNamingPolicy.KebabCaseLower => JsonNamingPolicies.KebabCaseLower(name),
-        JsonWireNamingPolicy.KebabCaseUpper => JsonNamingPolicies.KebabCaseUpper(name),
-        _ => name,
-    };
 
     static string FormatPropertyKey(string name) =>
         TypeScriptIdentifier.IsIdentifierName(name)
