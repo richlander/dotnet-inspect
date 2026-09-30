@@ -60,6 +60,12 @@ public static class FixtureIds
         "metadata.api-correspondence.v2";
     public const string MetadataMemorySafety = "metadata.memory-safety";
     public const string MetadataEnablements = "metadata.enablements";
+    public const string MetadataSourceProvenance =
+        "metadata.source-provenance";
+    public const string MetadataSourceProvenanceLookalike =
+        "metadata.source-provenance.lookalike";
+    public const string MetadataSourceProvenanceNetStandard =
+        "metadata.source-provenance.netstandard";
     public const string MetadataInterfaceImplContracts =
         "metadata.interfaceimpl.contracts";
     public const string MetadataInterfaceImplFixtures =
@@ -344,6 +350,37 @@ public static class FixtureCatalog
         "ILInspector.Metadata.EnablementFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "metadata", "enablements", "runtime-async");
+
+    public static readonly FixtureDefinition MetadataSourceProvenance =
+        Fixture(
+            FixtureIds.MetadataSourceProvenance,
+            "ILInspector.Metadata.SourceProvenanceFixtures",
+            "ILInspector.Metadata.SourceProvenanceFixtures.dll",
+            Boundaries(
+                FixtureBoundary.CompilerLowering,
+                FixtureBoundary.CrossAssemblyBoundary),
+            "metadata", "pdb", "source-provenance");
+
+    public static readonly FixtureDefinition MetadataSourceProvenanceLookalike =
+        Fixture(
+            FixtureIds.MetadataSourceProvenanceLookalike,
+            "ILInspector.Metadata.SourceProvenanceLookalike",
+            "ILInspector.Metadata.SourceProvenanceLookalike.dll",
+            Boundaries(
+                FixtureBoundary.AssemblyIdentity,
+                FixtureBoundary.CrossAssemblyBoundary),
+            "metadata", "pdb", "source-provenance", "lookalike");
+
+    public static readonly FixtureDefinition
+        MetadataSourceProvenanceNetStandard =
+            Fixture(
+                FixtureIds.MetadataSourceProvenanceNetStandard,
+                "ILInspector.Metadata.SourceProvenanceNetStandard",
+                "ILInspector.Metadata.SourceProvenanceNetStandard.dll",
+                Boundaries(
+                    FixtureBoundary.FrameworkReference,
+                    FixtureBoundary.TargetFramework),
+                "metadata", "pdb", "source-provenance", "netstandard");
 
     public static readonly FixtureDefinition MetadataInterfaceImplContracts =
         Fixture(
@@ -1113,6 +1150,9 @@ public static class FixtureCatalog
         MetadataApiCorrespondenceV2,
         MetadataMemorySafety,
         MetadataEnablements,
+        MetadataSourceProvenance,
+        MetadataSourceProvenanceLookalike,
+        MetadataSourceProvenanceNetStandard,
         MetadataInterfaceImplContracts,
         MetadataInterfaceImplFixtures,
         MetadataMethodImplContracts,
@@ -1542,6 +1582,12 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
             "ILInspector.Metadata.EnablementFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.EnablementFixtures",
+            "ILInspector.Metadata.SourceProvenanceFixtures" =>
+                "fixtures/metadata/ILInspector.Metadata.SourceProvenanceFixtures",
+            "ILInspector.Metadata.SourceProvenanceLookalike" =>
+                "fixtures/metadata/ILInspector.Metadata.SourceProvenanceLookalike",
+            "ILInspector.Metadata.SourceProvenanceNetStandard" =>
+                "fixtures/metadata/ILInspector.Metadata.SourceProvenanceNetStandard",
             "ILInspector.Metadata.InterfaceImplContracts" =>
                 "fixtures/metadata/ILInspector.Metadata.InterfaceImplContracts",
             "ILInspector.Metadata.InterfaceImplFixtures" =>
