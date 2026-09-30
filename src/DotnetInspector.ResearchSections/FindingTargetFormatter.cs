@@ -1,9 +1,9 @@
 using ILInspector.Analysis;
 using Inspector.Findings;
 
-namespace DotnetInspect.Cli.Output;
+namespace DotnetInspector.ResearchSections;
 
-internal static class FindingTargetFormatter
+public static class FindingTargetFormatter
 {
     public static string Format(Finding<AllocationOccurrence> finding)
         => Format(finding.Subject.Display, finding);
@@ -33,7 +33,8 @@ internal static class FindingTargetFormatter
 
         var typeArguments = callee.TypeArguments.IsDefaultOrEmpty
             ? ""
-            : $"<{string.Join(", ", callee.TypeArguments.Select(type => type.ToQualifiedDisplayString()))}>";
+            : $"<{string.Join(", ", callee.TypeArguments.Select(
+                type => type.ToQualifiedDisplayString()))}>";
         var parameters = string.Join(
             ", ",
             callee.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
