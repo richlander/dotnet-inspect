@@ -6,6 +6,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using AnalysisBodyUseFixtures;
+using ILInspector.AnalysisHarness;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
@@ -824,6 +825,23 @@ public sealed class AnalysisLibraryBodyUseTests
                         .UnresolvedOperand));
         // One decode allocates about 2 MB; one per call would be about 600 MB.
         Assert.InRange(allocated, 0, 32 * 1024 * 1024);
+
+        BodyUseScorecardCheck scorecard = BodyUseScorecard.Check(
+            [
+                new(
+                    "repeated-malformed-signature",
+                    "IndependentEcma335.dll",
+                    image),
+            ],
+            cancellationToken:
+                TestContext.Current.CancellationToken);
+        Assert.True(
+            scorecard.Agrees,
+            string.Join(
+                Environment.NewLine,
+                scorecard.Mismatches.Select(static mismatch =>
+                    $"{mismatch.Column}: {mismatch.Answer}; "
+                        + $"oracle {mismatch.OracleAnswer}")));
     }
 
     [Fact]
