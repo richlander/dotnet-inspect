@@ -286,10 +286,10 @@ realization under the Workspace target remains Issue #6424's contract.
 
 The implementation already passes the `WorkspacePlan` product-default or
 configured value directly, which preserves the required pre-realization
-authority. Its current product default is incorrectly `net12.0`. Matching
-Platform correspondence and the corrected `net11.0` default remain
-unimplemented; this section records the corrected contract rather than
-claiming shipped behavior.
+authority. The product default is `net11.0`, and the generated Browser Platform
+catalog projects the same product-owned release line. Realization-time matching
+of Platform evidence to the Workspace target remains unimplemented; this
+section does not claim that later composition behavior.
 
 ### Declaration evidence and Platform-pruned composition
 
