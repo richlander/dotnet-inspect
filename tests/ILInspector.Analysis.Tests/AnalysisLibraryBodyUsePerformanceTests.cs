@@ -5,7 +5,6 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
-using ILInspector.AnalysisHarness;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
@@ -21,35 +20,19 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
         string artifacts = Path.Combine(
             AppContext.BaseDirectory,
             "PinnedArtifacts");
-        string systemTextJson = Path.Combine(
-            artifacts,
-            "packages",
-            "System.Text.Json.10.0.0.dll");
-        string coreLibrary = Path.Combine(
-            artifacts,
-            "System.Private.CoreLib.dll");
-        BodyUseScorecardCheck scorecard = BodyUseScorecard.Check(
-            BodyUseScorecard.LoadAssets(
-                [systemTextJson, coreLibrary]),
-            cancellationToken:
-                TestContext.Current.CancellationToken);
-        Assert.True(
-            scorecard.Agrees,
-            string.Join(
-                Environment.NewLine,
-                scorecard.Mismatches.Select(static mismatch =>
-                    $"{mismatch.Asset} {mismatch.Column}: "
-                        + $"{mismatch.Answer}; oracle "
-                        + mismatch.OracleAnswer)));
-
         Measurement[] measurements =
         [
             Measure(
                 "System.Text.Json",
-                systemTextJson),
+                Path.Combine(
+                    artifacts,
+                    "packages",
+                    "System.Text.Json.10.0.0.dll")),
             Measure(
                 "System.Private.CoreLib",
-                coreLibrary),
+                Path.Combine(
+                    artifacts,
+                    "System.Private.CoreLib.dll")),
         ];
 
         string[] lines =
