@@ -191,6 +191,65 @@ public sealed class AnalysisParticipationRegistrationTests
         Assert.All(result.Outcomes, outcome => Assert.IsType<DiffAnalysisOutcome.Compared>(outcome));
     }
 
+    [Theory]
+    [InlineData(
+        AnalysisReportSurfaceKind.Type,
+        "api-attribute",
+        DiffAnalysisDocumentViews.Changes,
+        DiffAnalysisViewRejectionReason.ChangesRequireApi)]
+    [InlineData(
+        AnalysisReportSurfaceKind.Library,
+        "api",
+        DiffAnalysisDocumentViews.Transitions,
+        DiffAnalysisViewRejectionReason.TransitionsRequireTypeOrMember)]
+    public void DiffAnalysisViews_RejectUnsupportedCombinations(
+        AnalysisReportSurfaceKind surface,
+        string analysis,
+        DiffAnalysisDocumentViews views,
+        DiffAnalysisViewRejectionReason expected)
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                surface,
+                targetCount: 1,
+                [analysis]));
+
+        Assert.Equal(
+            expected,
+            DiffAnalysisViewAdmission.Validate(accepted, views));
+    }
+
+    [Theory]
+    [InlineData(
+        AnalysisReportSurfaceKind.Library,
+        "api",
+        DiffAnalysisDocumentViews.Changes)]
+    [InlineData(
+        AnalysisReportSurfaceKind.Type,
+        "api-attribute",
+        DiffAnalysisDocumentViews.Transitions)]
+    [InlineData(
+        AnalysisReportSurfaceKind.Member,
+        "allocation",
+        DiffAnalysisDocumentViews.Summary)]
+    public void DiffAnalysisViews_AcceptSupportedCombinations(
+        AnalysisReportSurfaceKind surface,
+        string analysis,
+        DiffAnalysisDocumentViews views)
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                surface,
+                targetCount: 1,
+                [analysis]));
+
+        Assert.Null(DiffAnalysisViewAdmission.Validate(accepted, views));
+    }
+
     [Fact]
     public void AnalysisSet_TargetFailureIsRequestFailureBeforeAnyProducerOutcome()
     {
