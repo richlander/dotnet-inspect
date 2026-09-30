@@ -250,11 +250,19 @@ public static partial class MetadataExports
                             group.Kind,
                             group.CompleteCount,
                             [
-                                .. group.Members.Select(member =>
+                                .. group.Members.Select((member, index) =>
                                     BrowserMetadataWireProjection.Project(
                                         BrowserSurfaceProjection.Member(
                                             population.Subject,
-                                            member))),
+                                            member)) with
+                                    {
+                                        BaselineOrdinal =
+                                            population.Accessibility
+                                                == MetadataMethodAccessibilityFilter
+                                                    .Public
+                                                    ? index + 1
+                                                    : null,
+                                    }),
                             ])),
                 ]),
             diagnostics);

@@ -692,6 +692,26 @@ public class CfgSampleClass
         return x => { int y = x + z; return y * y; };
     }
 
+    public static System.Func<string, IEnumerable<int>> CapturingParameterWithNestedLambda(
+        int offset)
+        => text => text.Select(character => character + 1).Append(offset);
+
+    public static int CapturingLocalWithNestedLambdaInBranch(
+        IReadOnlyList<string> items,
+        int maxWidth)
+    {
+        int firstColumnMaxWidth = maxWidth / 2;
+        if (items.Count > firstColumnMaxWidth)
+        {
+            return items
+                .SelectMany(text => text
+                    .Select(character => character + 1)
+                    .Append(firstColumnMaxWidth))
+                .Max();
+        }
+        return firstColumnMaxWidth;
+    }
+
     // Multi-statement lambda block body returned from inside a nested `if`, so
     // the enclosing `return` statement sits one indent level deeper than the
     // method body — exercises that the expanded block's braces track the

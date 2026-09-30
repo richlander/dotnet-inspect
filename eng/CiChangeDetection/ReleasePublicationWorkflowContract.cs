@@ -9,6 +9,8 @@ internal static class ReleasePublicationWorkflowContract
         "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c";
     private const string AzureAction =
         "Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9";
+    private const string SetupNodeAction =
+        "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
 
     internal static void AssertMutations(string repository)
     {
@@ -35,6 +37,12 @@ internal static class ReleasePublicationWorkflowContract
             "          name: dotnet-inspect-release-candidate\n",
             Validate,
             "Release workflow contract accepted artifact selection by name.");
+        AssertMutationRejectedAll(
+            workflow,
+            "          node-version: '24'\n",
+            "          node-version: '20'\n",
+            Validate,
+            "Release workflow contract accepted a Node runtime that cannot execute the artifact verifier.");
         AssertMutationRejectedAll(
             workflow,
             "          digest-mismatch: error\n",
@@ -209,12 +217,31 @@ internal static class ReleasePublicationWorkflowContract
     {
         int revalidateIndex = FindStepIndex(steps, "Revalidate selected candidate");
         int downloadIndex = FindStepIndex(steps, "Download selected candidate");
+        int setupNodeIndex = FindStepIndex(steps, "Setup Node");
         int verifyIndex = FindStepIndex(steps, "Verify retained candidate bytes");
-        if (!(revalidateIndex < downloadIndex && downloadIndex < verifyIndex))
+        if (!(setupNodeIndex < verifyIndex
+            && revalidateIndex < downloadIndex
+            && downloadIndex < verifyIndex))
         {
             throw new InvalidOperationException(
-                $"{context} must revalidate, download, then verify the candidate.");
+                $"{context} must select Node 24, revalidate, download, then verify the candidate.");
         }
+
+        YamlMappingNode setupNode =
+            RequireMapping(steps.Children[setupNodeIndex], $"{context} Node setup");
+        RequireExactKeys(setupNode, ["name", "uses", "with"], $"{context} Node setup");
+        RequireScalarValue(
+            setupNode,
+            "uses",
+            SetupNodeAction,
+            $"{context} Node setup");
+        RequireExactScalarValues(
+            GetRequiredMapping(setupNode, "with", $"{context} Node setup"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["node-version"] = "24",
+            },
+            $"{context} Node setup inputs");
 
         YamlMappingNode revalidate =
             RequireMapping(steps.Children[revalidateIndex], $"{context} revalidation");
