@@ -623,6 +623,40 @@ internal static class BrowserPlatformWorkspace
 
     internal static Task<BrowserPlatformScopeResolution> OpenAssemblyAsync(
         string targetFramework,
+        string? platformVersion,
+        string assemblyFileName,
+        string pack,
+        HttpClient client,
+        IPackageSourceClient packageClient,
+        IPackageSourceAuthorization sourceAuthorization,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(packageClient);
+        var host = new Host(
+            client,
+            sourceAuthorization,
+            packageClient);
+        return string.IsNullOrWhiteSpace(pack)
+            ? OpenUnattributedAsync(
+                targetFramework,
+                platformVersion,
+                AssemblySimpleName(assemblyFileName),
+                host,
+                operationTimeout,
+                cancellationToken)
+            : OpenAsync(
+                targetFramework,
+                platformVersion,
+                Family(pack),
+                AssemblySimpleName(assemblyFileName),
+                host,
+                operationTimeout,
+                cancellationToken);
+    }
+
+    internal static Task<BrowserPlatformScopeResolution> OpenAssemblyAsync(
+        string targetFramework,
         string platformVersion,
         AssemblyReferenceIdentity assemblyIdentity,
         string pack,
@@ -1219,22 +1253,37 @@ internal static class BrowserPlatformWorkspace
         deadline.Token.ThrowIfCancellationRequested();
         using var packageLeases =
             new BrowserPackageWorkspace.PackageLeaseSet();
-        if (ReferenceEquals(host, ProductionHost)
-            && platformVersion is not null
-            && selections.Any(static selection => selection.Identity is null))
-        {
-            foreach (string family in selections.Select(selection => selection.Family).Distinct())
-            {
-                BrowserPackage package = await BrowserPlatformCatalog.AcquireRuntimeAsync(
-                    targetFramework, family, platformVersion,
-                    deadline.Remaining, deadline.Token).ConfigureAwait(false);
-                packageLeases.Lease(package.CacheKey);
-            }
-        }
         Targets.TryGetValue(targetKey, out TargetState? state);
         state ??= new TargetState();
         await using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
             LeaseRetainedScope(state);
+        bool reuseExact =
+            state.ExactPackageRealization
+            && selections
+                .Where(static selection => selection.Identity is null)
+                .All(selection =>
+                    IsKnownExactSelection(state, selection));
+        if (host.PackageClient is { } packageClient
+            && platformVersion is not null
+            && selections.Any(
+                static selection => selection.Identity is null)
+            && !reuseExact)
+        {
+            foreach (string family in selections
+                .Select(selection => selection.Family)
+                .Distinct())
+            {
+                BrowserPackage package =
+                    await BrowserPlatformCatalog.AcquireRuntimeAsync(
+                        targetFramework,
+                        family,
+                        platformVersion,
+                        packageClient,
+                        deadline.Remaining,
+                        deadline.Token).ConfigureAwait(false);
+                packageLeases.Lease(package.CacheKey);
+            }
+        }
         return await OpenCoreAsync(
             targetKey,
             targetFramework,

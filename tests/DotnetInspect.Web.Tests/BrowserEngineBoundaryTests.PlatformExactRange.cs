@@ -320,10 +320,21 @@ public sealed partial class BrowserEngineBoundaryTests
             TestContext.Current.CancellationToken);
         AssemblyReferenceIdentity json = Identity(
             ReadRuntimeAssembly(archive, "System.Text.Json.dll"));
+        byte[] aspNetArchive =
+            PlatformPackage(
+                ("DotnetInspect.Web.Tests.dll",
+                    File.ReadAllBytes(
+                        typeof(BrowserEngineBoundaryTests)
+                            .Assembly.Location)));
         var exactHandler = new ExactPlatformRangeHandler(
-            packageId,
             version,
-            archive);
+            new Dictionary<string, byte[]>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                [packageId] = archive,
+                ["microsoft.aspnetcore.app.runtime.linux-x64"] =
+                    aspNetArchive,
+            });
         using IPackageSourceClient packageClient =
             BrowserPackageWorkspace.CreateGallerySource(
                 exactHandler,
@@ -354,27 +365,15 @@ public sealed partial class BrowserEngineBoundaryTests
             exactScope = exact.Scope;
         }
 
-        var completeHandler = new MultiplePlatformVersionHandler(
-            version,
-            new Dictionary<string, byte[]>(
-                StringComparer.OrdinalIgnoreCase)
-            {
-                [packageId] = archive,
-                ["microsoft.aspnetcore.app.runtime.linux-x64"] =
-                    PlatformPackage(
-                        ("DotnetInspect.Web.Tests.dll",
-                            File.ReadAllBytes(
-                                typeof(BrowserEngineBoundaryTests)
-                                    .Assembly.Location))),
-            });
-        using var completeClient = new HttpClient(completeHandler);
+        int completeRequests = exactHandler.CompleteGetRequests;
         await using (BrowserPlatformScopeResolution same =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 "net11.0",
                 version,
                 "System.Text.Json.dll",
-                "netcore.app",
-                completeClient,
+                pack,
+                exactClient,
+                packageClient,
                 sourceAuthorization,
                 TimeSpan.FromSeconds(30),
                 TestContext.Current.CancellationToken))
@@ -382,6 +381,9 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Same(exactScope, same.Scope);
             Assert.True(same.Scope.ExactPackageRealization);
         }
+        Assert.Equal(
+            completeRequests,
+            exactHandler.CompleteGetRequests);
 
         await using BrowserPlatformScopeResolution ordinary =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
@@ -389,12 +391,15 @@ public sealed partial class BrowserEngineBoundaryTests
                 version,
                 "System.Linq.dll",
                 pack,
-                completeClient,
+                exactClient,
+                packageClient,
                 sourceAuthorization,
                 TimeSpan.FromSeconds(30),
                 TestContext.Current.CancellationToken);
 
         Assert.False(ordinary.Scope.ExactPackageRealization);
+        Assert.True(
+            exactHandler.CompleteGetRequests > completeRequests);
         Assert.Equal(
             "System.Linq",
             ordinary.Participant.Participant.Assembly.Identity.Name);
