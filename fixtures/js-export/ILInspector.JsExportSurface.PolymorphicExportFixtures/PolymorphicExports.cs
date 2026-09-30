@@ -22,4 +22,10 @@ public static partial class PolymorphicExports
             outcome,
             PolymorphicJsonContext.Default.PackageDocumentationOutcome);
     }
+
+    [JSExport]
+    public static string GetNumberStringOutcome() =>
+        JsonSerializer.Serialize<NumberStringOutcome>(
+            new NumberStringOutcome.Value(42),
+            PolymorphicJsonContext.Default.NumberStringOutcome);
 }
