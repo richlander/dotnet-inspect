@@ -1318,8 +1318,12 @@ internal static class BrowserPlatformWorkspace
         await using ScopeReservation reservation =
             await BrowserPackageWorkspace.ReserveScopeAsync(deadline.Token)
                 .ConfigureAwait(false);
+        TargetState probeState =
+            identity is null && state.ExactPackageRealization
+                ? new TargetState()
+                : state;
         var runtime = await ProbeFamilyAsync(
-            state,
+            probeState,
             targetFramework,
             platformVersion,
             RuntimeFamily,
@@ -1339,7 +1343,7 @@ internal static class BrowserPlatformWorkspace
             WorkspaceContextLoadOutcome.Failed? Failure) aspNetCore =
             runtime.Coordinate is null || identity is null
                 ? await ProbeFamilyAsync(
-                    state,
+                    probeState,
                     targetFramework,
                     platformVersion,
                     AspNetCoreFamily,
@@ -1403,8 +1407,36 @@ internal static class BrowserPlatformWorkspace
         deadline.Token.ThrowIfCancellationRequested();
         state.LastAccess = ++_targetClock;
 
+        bool transitionToComplete =
+            state.ExactPackageRealization
+            && selections.Any(selection =>
+                selection.Identity is null
+                && !IsKnownExactSelection(state, selection));
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates =
-            state.Coordinates;
+            transitionToComplete ? [] : state.Coordinates;
+        if (state.ExactPackageRealization
+            && state.Scope is { } exactScope
+            && BrowserPackageWorkspace.IsScopeRetained(exactScope)
+            && coordinates.FirstOrDefault() is { } template)
+        {
+            foreach (PlatformSelection selection in selections)
+            {
+                if (selection.Identity is null
+                    && !coordinates.Any(coordinate =>
+                        SameSelection(coordinate, selection))
+                    && IsKnownExactSelection(state, selection))
+                {
+                    coordinates = coordinates.Add(
+                        new RealizedMemberCoordinate.Platform(
+                            selection.Family,
+                            template.Version,
+                            template.Producer,
+                            template.Framework,
+                            selection.Assembly));
+                }
+            }
+        }
+
         if (selections.Length == 1)
         {
             PlatformSelection selection = selections[0];
@@ -1554,7 +1586,7 @@ internal static class BrowserPlatformWorkspace
                         selection.Family,
                         selection.Assembly);
                 coordinates = coordinates.Add(realized);
-                if (state.Coordinates.IsEmpty
+                if ((state.Coordinates.IsEmpty || transitionToComplete)
                     && selections.Length == 1)
                 {
                     candidate = declared.ReleaseScope();
@@ -1639,6 +1671,40 @@ internal static class BrowserPlatformWorkspace
             requested,
             lease);
     }
+
+    static bool IsKnownExactSelection(
+        TargetState state,
+        PlatformSelection selection)
+    {
+        if (state.Coordinates.Any(coordinate =>
+                SameSelection(coordinate, selection)))
+        {
+            return true;
+        }
+
+        if (state.Scope is not { } scope
+            || !BrowserPackageWorkspace.IsScopeRetained(scope)
+            || scope.PlatformPackForAssembly(selection.Assembly) is not
+                { } pack)
+        {
+            return false;
+        }
+
+        return Family(pack).Equals(
+            selection.Family,
+            StringComparison.Ordinal);
+    }
+
+    static bool SameSelection(
+        RealizedMemberCoordinate.Platform coordinate,
+        PlatformSelection selection) =>
+        coordinate.Family.Equals(
+            selection.Family,
+            StringComparison.Ordinal)
+        && string.Equals(
+            coordinate.Assembly,
+            selection.Assembly,
+            StringComparison.OrdinalIgnoreCase);
 
     static async Task<(
         RealizedMemberCoordinate.Platform? Coordinate,

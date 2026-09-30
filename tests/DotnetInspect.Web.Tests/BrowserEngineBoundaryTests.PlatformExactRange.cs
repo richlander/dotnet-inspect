@@ -302,6 +302,110 @@ public sealed partial class BrowserEngineBoundaryTests
         await BrowserPackageWorkspace.RemoveScopeAsync(reopened.Scope);
     }
 
+    [Theory]
+    [InlineData("netcore.app", "11.0.7384")]
+    [InlineData("", "11.0.7385")]
+    public async Task PlatformWorkspace_ExactScopeTransitionsToOrdinaryNavigation(
+        string pack,
+        string version)
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        byte[] archive = await File.ReadAllBytesAsync(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "PlatformForwarderActivation",
+                "runtime.nupkg"),
+            TestContext.Current.CancellationToken);
+        AssemblyReferenceIdentity json = Identity(
+            ReadRuntimeAssembly(archive, "System.Text.Json.dll"));
+        var exactHandler = new ExactPlatformRangeHandler(
+            packageId,
+            version,
+            archive);
+        using IPackageSourceClient packageClient =
+            BrowserPackageWorkspace.CreateGallerySource(
+                exactHandler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromSeconds(30),
+                    OperationTimeout = TimeSpan.FromSeconds(30),
+                });
+        using var exactClient =
+            new HttpClient(exactHandler, disposeHandler: false);
+        IPackageSourceAuthorization sourceAuthorization =
+            BrowserPackageWorkspace.SourceAuthorizationFor(packageClient);
+
+        BrowserPlatformScope exactScope;
+        {
+            await using BrowserPlatformScopeResolution exact =
+                await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    "net11.0",
+                    version,
+                    json,
+                    "netcore.app",
+                    exactClient,
+                    packageClient,
+                    sourceAuthorization,
+                    TimeSpan.FromSeconds(30),
+                    TestContext.Current.CancellationToken);
+            Assert.True(exact.Scope.ExactPackageRealization);
+            exactScope = exact.Scope;
+        }
+
+        var completeHandler = new MultiplePlatformVersionHandler(
+            version,
+            new Dictionary<string, byte[]>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                [packageId] = archive,
+                ["microsoft.aspnetcore.app.runtime.linux-x64"] =
+                    PlatformPackage(
+                        ("DotnetInspect.Web.Tests.dll",
+                            File.ReadAllBytes(
+                                typeof(BrowserEngineBoundaryTests)
+                                    .Assembly.Location))),
+            });
+        using var completeClient = new HttpClient(completeHandler);
+        await using (BrowserPlatformScopeResolution same =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0",
+                version,
+                "System.Text.Json.dll",
+                "netcore.app",
+                completeClient,
+                sourceAuthorization,
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken))
+        {
+            Assert.Same(exactScope, same.Scope);
+            Assert.True(same.Scope.ExactPackageRealization);
+        }
+
+        await using BrowserPlatformScopeResolution ordinary =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0",
+                version,
+                "System.Linq.dll",
+                pack,
+                completeClient,
+                sourceAuthorization,
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(ordinary.Scope.ExactPackageRealization);
+        Assert.Equal(
+            "System.Linq",
+            ordinary.Participant.Participant.Assembly.Identity.Name);
+        Assert.Equal(
+            "netcore.app",
+            ordinary.Scope.PlatformPackForAssembly("System.Text.Json"));
+        Assert.Equal(
+            "netcore.app",
+            ordinary.Scope.PlatformPackForAssembly("System.Linq"));
+    }
+
     [Fact]
     public async Task PlatformWorkspace_UnattributedRuntimeSettlesBeforeAspNetSupport()
     {
