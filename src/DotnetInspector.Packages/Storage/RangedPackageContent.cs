@@ -14,7 +14,7 @@ namespace DotnetInspector.Packages;
 /// <see cref="TryOpenArchive"/> returns <c>false</c>. It serves the House's
 /// pull-based payload reads for its materialized entries, whose bytes the
 /// archive reader has already checked against the directory's declared
-/// length and CRC (docs/design/package-read-demand.md#document-demand).
+/// length and CRC (docs/design/package-read-demand.md#exact-file-demand).
 /// </summary>
 public sealed class RangedPackageContent :
     IPackageContent,
