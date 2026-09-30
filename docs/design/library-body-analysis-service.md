@@ -6,6 +6,15 @@ This document is the normative owner for stateless library-body Analysis
 execution, tracked by
 [#7553](https://github.com/richlander/dotnet-inspect/issues/7553).
 
+The target
+[Assembly Analysis Operation](assembly-analysis-operation.md) contract now
+owns the resource-free operation, stateless service, owner-issued source
+binding, and detached execution composition used to retire this service's
+closed producer hubs. This document remains authoritative for the current
+implementation and its focused result semantics during that migration. New
+producer coordination adopts the target contract rather than extending the
+feature, plan, runner, aggregate, or compatibility-index hubs described here.
+
 The selective implementation-metric extension is tracked by
 [#8450](https://github.com/richlander/dotnet-inspect/issues/8450) as the
 Analysis-owned second step of
@@ -232,11 +241,12 @@ land only with a production consumer that can preserve its distinctions
 end-to-end; this design does not add an unused result algebra ahead of that
 consumer.
 
-Cancellation also remains with the current consumer contracts. Workspace
-queries check caller cancellation around synchronous execution, and an
-owner-issued resolver may preserve its own cancellation behavior. Adding
-cooperative cancellation inside CPU producers requires a focused Analysis
-execution change with producer-owned evidence.
+Cancellation remains with the operation orchestrator. Workspace queries check
+caller cancellation around synchronous execution; the target
+`AssemblyAnalysisService` may preserve that policy at coarse operation
+boundaries. CPU producers do not accept or poll cancellation per Method,
+body, instruction, or evidence item. Existing producer-local cancellation is
+migration debt, not a compatibility contract for the target service.
 
 ## Selective implementation metric Analysis
 
@@ -915,9 +925,11 @@ The first sequence-5 slice moves member Research fact production from
 allocation occurrences, safety evidence and occurrences, call evidence and
 signals, and leverage. `MemberProjectionAnalysisInput` validates that all four
 carry the same receipt and provides only the member-projection joins over those
-results. Path-backed compatibility production and immutable-image L1
-production each execute Analysis once; only the L1 query retains a
-compatibility index for its separate callee-evidence composition.
+results. Path-backed production and immutable-image L1 production each execute
+Analysis once. `ResearchAssemblyContext` now derives its residual callee-
+evidence joins from that focused input; the L1 query retains a separate
+compatibility index only for its later call-relationship, invocation-
+destination, and local-throw migration.
 
 The next sequence-5 slice moves `ILOffsetProjectionProducer` to allocation,
 safety, and call-graph results from one exact receipt. CLI single-coordinate

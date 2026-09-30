@@ -46,9 +46,20 @@ public sealed partial class MethodBodySource : IOperandNameResolver
     readonly Action _ensureAlive;
 
     internal MethodBodySource(PEReader peReader, Action ensureAlive)
+        : this(
+            peReader,
+            MetadataFormatAdmission.GetMetadataReader(peReader),
+            ensureAlive)
+    {
+    }
+
+    internal MethodBodySource(
+        PEReader peReader,
+        MetadataReader reader,
+        Action ensureAlive)
     {
         _peReader = peReader;
-        _reader = MetadataFormatAdmission.GetMetadataReader(peReader);
+        _reader = reader;
         _resolver = new MetadataOperandNameResolver(_reader);
         _ensureAlive = ensureAlive;
     }

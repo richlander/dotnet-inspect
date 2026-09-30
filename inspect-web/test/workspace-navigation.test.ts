@@ -902,13 +902,16 @@ test("malformed courtesy package routes become typed failures", () => {
 
 test("valid courtesy package routes continue to decode normally", () => {
   const parsed = parseWorkspaceLocation(locationSnapshot(
-    "https://inspect.example/packages/Example%2EPackage/1.0.0%2Bbuild#source"),
+    "https://inspect.example/packages/Example%2EPackage/1.0.0%2Bbuild#package"),
   () => {
     throw new Error("unexpected packet decode");
   });
 
   assert.equal(parsed.package, "Example.Package");
   assert.equal(parsed.version, "1.0.0+build");
+  assert.equal(parsed.atPackageRoot, true);
+  assert.equal(parsed.workspaceSubjectOpen, false);
+  assert.equal(parsed.packageLens, "overview");
   assert.equal(parsed.routeFailure, null);
 });
 
