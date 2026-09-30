@@ -41,7 +41,13 @@ IReadOnlyList<BodyUseScorecardCell> cells =
 if (options.TsvPath is { } tsvPath)
 {
     using StreamWriter tsv = File.CreateText(tsvPath);
-    BodyUseScorecard.WriteTsv(cells, tsv);
+    BodyUseScorecard.WriteTsv(
+        cells,
+        check.WorkShapes,
+        tsv);
 }
-Console.Write(BodyUseScorecard.Report(cells));
+Console.Write(
+    BodyUseScorecard.Report(
+        cells,
+        check.WorkShapes));
 return 0;

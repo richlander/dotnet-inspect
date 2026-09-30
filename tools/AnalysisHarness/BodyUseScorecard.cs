@@ -101,10 +101,18 @@ public sealed record BodyUseScorecardAnswerHash(
     BodyUseScorecardClosing Closing,
     string Hash);
 
+public sealed record BodyUseScorecardWorkShape(
+    string Asset,
+    BodyUseScorecardClosing Closing,
+    int TerminalValue,
+    BodyUseScorecardDisposition Disposition,
+    AnalysisLibraryBodyUseCoverage Coverage);
+
 public sealed record BodyUseScorecardCheck(
     int Compared,
     IReadOnlyList<BodyUseScorecardMismatch> Mismatches,
-    IReadOnlyList<BodyUseScorecardAnswerHash> AnswerHashes)
+    IReadOnlyList<BodyUseScorecardAnswerHash> AnswerHashes,
+    IReadOnlyList<BodyUseScorecardWorkShape> WorkShapes)
 {
     public bool Agrees => Mismatches.Count == 0;
 }
@@ -188,6 +196,7 @@ public static class BodyUseScorecard
     {
         var mismatches = new List<BodyUseScorecardMismatch>();
         var hashes = new List<BodyUseScorecardAnswerHash>();
+        var workShapes = new List<BodyUseScorecardWorkShape>();
         int compared = 0;
         foreach (BodyUseScorecardAsset asset in assets)
         {
@@ -204,6 +213,14 @@ public static class BodyUseScorecard
                         asset.Name,
                         closing,
                         AnswerHash(oracle)));
+                if (oracle.Answer is { } answer)
+                {
+                    workShapes.Add(
+                        WorkShape(
+                            asset.Name,
+                            closing,
+                            answer));
+                }
                 foreach (BodyUseScorecardColumn column in Columns)
                 {
                     if (column == BodyUseScorecardColumn.NLinq)
@@ -228,7 +245,7 @@ public static class BodyUseScorecard
                 }
             }
         }
-        return new(compared, mismatches, hashes);
+        return new(compared, mismatches, hashes, workShapes);
     }
 
     public static BodyUseScorecardExecution Execute(
@@ -381,11 +398,46 @@ public static class BodyUseScorecard
     }
 
     public static string Report(
-        IReadOnlyList<BodyUseScorecardCell> cells)
+        IReadOnlyList<BodyUseScorecardCell> cells,
+        IReadOnlyList<BodyUseScorecardWorkShape> workShapes)
     {
         var text = new StringBuilder();
         text.AppendLine(
-            "Terminal ratios to NLinq: geometric mean across assets "
+            "End-to-end work shape. Timings include Type-inventory admission, "
+                + "method traversal, body decoding, logical-owner attribution, "
+                + "operand binding, occurrence admission, diagnostics, and "
+                + "terminal closing.");
+        text.AppendLine();
+        text.AppendLine(
+            "| Asset | Terminal | Result | Disposition "
+                + "| Bodies considered | Operands considered |");
+        text.AppendLine(
+            "| --- | --- | ---: | --- | ---: | ---: |");
+        foreach (BodyUseScorecardWorkShape shape in workShapes)
+        {
+            text.Append("| ")
+                .Append(shape.Asset)
+                .Append(" | ")
+                .Append(shape.Closing)
+                .Append(" | ")
+                .Append(FormatTerminalValue(shape))
+                .Append(" | ")
+                .Append(shape.Disposition)
+                .Append(" | ")
+                .Append(
+                    shape.Coverage.BodiesConsidered.ToString(
+                        "N0",
+                        CultureInfo.InvariantCulture))
+                .Append(" | ")
+                .Append(
+                    shape.Coverage.OperandsConsidered.ToString(
+                        "N0",
+                        CultureInfo.InvariantCulture))
+                .AppendLine(" |");
+        }
+        text.AppendLine();
+        text.AppendLine(
+            "End-to-end ratios to NLinq: geometric mean across assets "
                 + "(min-max); lower is faster.");
         text.AppendLine();
         text.AppendLine(
@@ -408,7 +460,44 @@ public static class BodyUseScorecard
                 static cell => cell.MedianAllocatedBytes);
         }
         text.AppendLine();
-        text.AppendLine("Absolute medians.");
+        text.AppendLine(
+            "Absolute end-to-end deltas from NLinq; positive values are "
+                + "slower or allocate more.");
+        text.AppendLine();
+        text.AppendLine(
+            "| Asset | Terminal | Column | Time delta (us) "
+                + "| Allocation delta (bytes) |");
+        text.AppendLine("| --- | --- | --- | ---: | ---: |");
+        foreach (BodyUseScorecardCell cell in cells)
+        {
+            if (cell.Column == BodyUseScorecardColumn.NLinq)
+                continue;
+            BodyUseScorecardCell oracle =
+                cells.Single(candidate =>
+                    candidate.AssetIndex == cell.AssetIndex
+                    && candidate.Closing == cell.Closing
+                    && candidate.Column
+                        == BodyUseScorecardColumn.NLinq);
+            text.Append("| ")
+                .Append(cell.Asset)
+                .Append(" | ")
+                .Append(cell.Closing)
+                .Append(" | ")
+                .Append(Name(cell.Column))
+                .Append(" | ")
+                .Append(
+                    FormatSigned(
+                        cell.MedianMicroseconds
+                            - oracle.MedianMicroseconds))
+                .Append(" | ")
+                .Append(
+                    FormatSigned(
+                        cell.MedianAllocatedBytes
+                            - oracle.MedianAllocatedBytes))
+                .AppendLine(" |");
+        }
+        text.AppendLine();
+        text.AppendLine("Absolute end-to-end medians.");
         text.AppendLine();
         text.AppendLine(
             "| Asset | Terminal | Column | Time (us) | Allocated bytes |");
@@ -438,13 +527,20 @@ public static class BodyUseScorecard
 
     public static void WriteTsv(
         IReadOnlyList<BodyUseScorecardCell> cells,
+        IReadOnlyList<BodyUseScorecardWorkShape> workShapes,
         TextWriter writer)
     {
         writer.WriteLine(
             "asset\tterminal\tcolumn\tmedian_us\tallocated_bytes"
+                + "\tterminal_value\tdisposition"
+                + "\tbodies_considered\toperands_considered"
                 + "\tround_medians_us\tround_allocated_bytes");
         foreach (BodyUseScorecardCell cell in cells)
         {
+            BodyUseScorecardWorkShape shape =
+                workShapes.Single(candidate =>
+                    candidate.Asset == cell.Asset
+                    && candidate.Closing == cell.Closing);
             writer.Write(cell.Asset);
             writer.Write('\t');
             writer.Write(cell.Closing);
@@ -458,6 +554,20 @@ public static class BodyUseScorecard
             writer.Write('\t');
             writer.Write(
                 cell.MedianAllocatedBytes.ToString(
+                    CultureInfo.InvariantCulture));
+            writer.Write('\t');
+            writer.Write(
+                shape.TerminalValue.ToString(
+                    CultureInfo.InvariantCulture));
+            writer.Write('\t');
+            writer.Write(shape.Disposition);
+            writer.Write('\t');
+            writer.Write(
+                shape.Coverage.BodiesConsidered.ToString(
+                    CultureInfo.InvariantCulture));
+            writer.Write('\t');
+            writer.Write(
+                shape.Coverage.OperandsConsidered.ToString(
                     CultureInfo.InvariantCulture));
             writer.Write('\t');
             writer.Write(
@@ -761,6 +871,20 @@ public static class BodyUseScorecard
             AnalysisLibraryBodyUseTerminalDisposition.Qualified =>
                 BodyUseScorecardDisposition.Qualified,
             AnalysisLibraryBodyUseTerminalDisposition.Partial =>
+                BodyUseScorecardDisposition.Partial,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(disposition)),
+        };
+
+    static BodyUseScorecardDisposition Normalize(
+        AnalysisLibraryBodyUseDisposition disposition) =>
+        disposition switch
+        {
+            AnalysisLibraryBodyUseDisposition.Complete =>
+                BodyUseScorecardDisposition.Complete,
+            AnalysisLibraryBodyUseDisposition.Qualified =>
+                BodyUseScorecardDisposition.Qualified,
+            AnalysisLibraryBodyUseDisposition.Partial =>
                 BodyUseScorecardDisposition.Partial,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(disposition)),
@@ -1081,6 +1205,59 @@ public static class BodyUseScorecard
         }
         text.AppendLine();
     }
+
+    static BodyUseScorecardWorkShape WorkShape(
+        string asset,
+        BodyUseScorecardClosing closing,
+        BodyUseScorecardAnswer answer) =>
+        answer switch
+        {
+            BodyUseScorecardAnswer.Exists exists =>
+                new(
+                    asset,
+                    closing,
+                    exists.Value ? 1 : 0,
+                    exists.Evidence.Disposition,
+                    exists.Evidence.Coverage),
+            BodyUseScorecardAnswer.Count count =>
+                new(
+                    asset,
+                    closing,
+                    count.Value,
+                    count.Evidence.Disposition,
+                    count.Evidence.Coverage),
+            BodyUseScorecardAnswer.Rows rows =>
+                new(
+                    asset,
+                    closing,
+                    rows.Occurrences.Length,
+                    Normalize(rows.Disposition),
+                    rows.Coverage),
+            _ => throw new InvalidOperationException(
+                "The scorecard returned an unknown answer."),
+        };
+
+    static string FormatTerminalValue(
+        BodyUseScorecardWorkShape shape) =>
+        shape.Closing == BodyUseScorecardClosing.Exists
+            ? (shape.TerminalValue != 0).ToString()
+            : shape.TerminalValue.ToString(
+                "N0",
+                CultureInfo.InvariantCulture);
+
+    static string FormatSigned(double value) =>
+        value.ToString(
+            "+#,0.0;-#,0.0;0.0",
+            CultureInfo.InvariantCulture);
+
+    static string FormatSigned(long value) =>
+        value > 0
+            ? "+" + value.ToString(
+                "N0",
+                CultureInfo.InvariantCulture)
+            : value.ToString(
+                "N0",
+                CultureInfo.InvariantCulture);
 
     static ProducerTerminal Terminal(
         BodyUseScorecardClosing closing) =>
