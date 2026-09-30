@@ -143,6 +143,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryMemberDocument"),
     queryMemberGroupDocument: () =>
       unexpected("queryMemberGroupDocument"),
+    queryTypeMemberPopulation: () =>
+      unexpected("queryTypeMemberPopulation"),
     queryPlatformMemberDeclaration: () =>
       unexpected("queryPlatformMemberDeclaration"),
     queryPlatformMemberDocument: () =>
@@ -151,8 +153,12 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberGroupDocument"),
     queryUploadedLibraryMemberDocument: () =>
       unexpected("queryUploadedLibraryMemberDocument"),
+    queryPlatformTypeMemberPopulation: () =>
+      unexpected("queryPlatformTypeMemberPopulation"),
     queryUploadedLibraryMemberGroupDocument: () =>
       unexpected("queryUploadedLibraryMemberGroupDocument"),
+    queryUploadedLibraryTypeMemberPopulation: () =>
+      unexpected("queryUploadedLibraryTypeMemberPopulation"),
     queryTypeProjection: () => unexpected("queryTypeProjection"),
     queryPackageMetadataTable: () =>
       unexpected("queryPackageMetadataTable"),
@@ -471,6 +477,8 @@ test("uploaded Library Member document queries use the retained exact image", as
     [string, number[], string, string] | undefined;
   let exactReceived:
     [string, number[], string, string, number, string] | undefined;
+  let receivedPopulation:
+    [string, number[], string, string, string] | undefined;
   const state = fixture({
     library: {
       async openUploadedLibrary(declaredName, bytes) {
@@ -563,6 +571,27 @@ test("uploaded Library Member document queries use the retained exact image", as
           diagnostics: [],
         };
       },
+      async queryUploadedLibraryTypeMemberPopulation(
+        declaredName,
+        bytes,
+        typeIdentity,
+        spelling,
+        accessibility,
+      ) {
+        receivedPopulation = [
+          declaredName,
+          bytes,
+          typeIdentity,
+          spelling,
+          accessibility,
+        ];
+        return {
+          outcome: "Failed",
+          detail: "probe",
+          population: null,
+          diagnostics: [],
+        };
+      },
     },
   });
 
@@ -585,6 +614,22 @@ test("uploaded Library Member document queries use the retained exact image", as
     content,
     "Example.Widget",
     "Run",
+  ]);
+  const population =
+    state.client.metadata.queryUploadedLibraryTypeMemberPopulation(
+      identity,
+      "Example.Widget",
+      "metadata",
+      "private",
+    );
+  await state.environment.flushAsync();
+  assert.equal((await population).detail, "probe");
+  assert.deepEqual(receivedPopulation, [
+    "Uploaded.dll",
+    content,
+    "Example.Widget",
+    "metadata",
+    "private",
   ]);
 
   const exact =
@@ -2175,9 +2220,11 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberDeclaration",
       "queryMemberDocument",
       "queryMemberGroupDocument",
+      "queryTypeMemberPopulation",
       "queryPlatformMemberDeclaration",
       "queryPlatformMemberDocument",
       "queryPlatformMemberGroupDocument",
+      "queryPlatformTypeMemberPopulation",
       "queryPackageHeapEntries",
       "queryPackageMetadata",
       "queryPackageMetadataTable",
@@ -2187,6 +2234,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryTypeProjection",
       "queryUploadedLibraryMemberDocument",
       "queryUploadedLibraryMemberGroupDocument",
+      "queryUploadedLibraryTypeMemberPopulation",
     ],
     analysis: [
       "queryCloneCandidates",
@@ -2261,7 +2309,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 99);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 102);
 
   const state = fixture();
   const groups = [

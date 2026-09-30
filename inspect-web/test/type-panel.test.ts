@@ -325,6 +325,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     },
     onMemberAccessibilityFilterSelect: value =>
       calls.push(`member-access:${value}`),
+    onMemberSpellingSelect: value =>
+      calls.push(`member-spelling:${value}`),
     onMemberBack: () => calls.push("member-back"),
     onMemberCompositionAccessibilitySelect: value =>
       calls.push(`member-jump-access:${value}`),
@@ -364,6 +366,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
     new FakeElement({ memberAccessFilter: "all" });
   const accessibility =
     new FakeElement({ memberAccessFilter: "protected" });
+  const spelling = new FakeElement({ memberSpelling: "metadata" });
   const allTraits = new FakeElement({ memberTraitFilter: "all" });
   const trait = new FakeElement({ memberTraitFilter: "isStatic" });
   root.addAll("[data-member-kind-filter]", allKinds, kind);
@@ -371,6 +374,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "[data-member-access-filter]",
     allAccessibilities,
     accessibility);
+  root.addAll("[data-member-spelling]", spelling);
   root.addAll("[data-member-trait-filter]", allTraits, trait);
   const filter = root.add("#member-filter", new FakeElement());
   filter.value = "parse";
@@ -390,10 +394,17 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-kind:method",
     "member-access:protected",
   ]);
+  spelling.dispatch("click");
+  assert.deepEqual(calls, [
+    "member-kind:method",
+    "member-access:protected",
+    "member-spelling:metadata",
+  ]);
   trait.dispatch("click");
   assert.deepEqual(calls, [
     "member-kind:method",
     "member-access:protected",
+    "member-spelling:metadata",
     "member-trait:isStatic",
   ]);
   filter.dispatch("input");
@@ -405,6 +416,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
   assert.deepEqual(calls, [
     "member-kind:method",
     "member-access:protected",
+    "member-spelling:metadata",
     "member-trait:isStatic",
     "member-filter:parse",
     "member-filter-disclosure:true",
@@ -928,6 +940,110 @@ test("only an overload family's row takes the family color", () => {
   assert.match(html, /<span class="family-count">2×<\/span>/);
   assert.equal(html.match(/family-name/g)?.length, 1);
   assert.equal(html.match(/family-count/g)?.length, 1);
+});
+
+test("member families show product-issued out-of-view counts", () => {
+  const group = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    completeCount: 7,
+    overloads: [
+      { signature: "JsonDocument Parse(string json)" },
+      { signature: "JsonDocument Parse(Stream utf8Json)" },
+      { signature: "JsonDocument Parse(ReadOnlyMemory<byte> utf8Json)" },
+      { signature: "JsonDocument Parse(ReadOnlySequence<byte> utf8Json)" },
+      { signature: "JsonDocument ParseValue(ref Utf8JsonReader reader)" },
+    ],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 5,
+    visibleMemberCount: 5,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    selectedAccessibility: "public",
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(html, /<span class="family-count">5×<\/span>/);
+  assert.match(html, />\+2<\/span>/);
+  assert.match(
+    html,
+    /aria-label="2 more overloads are outside the public view\."/);
+});
+
+test("member families disclose unavailable out-of-view counts", () => {
+  const group = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    completeCount: 2,
+    completeCountStatus: "failed" as const,
+    overloads: [
+      { signature: "JsonDocument Parse(string json)" },
+      { signature: "JsonDocument Parse(Stream utf8Json)" },
+    ],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 2,
+    visibleMemberCount: 2,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    selectedAccessibility: "public",
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(html, /class="family-outside-count unavailable"/);
+  assert.match(html, />\+\?<\/span>/);
+  assert.match(
+    html,
+    /aria-label="The out-of-view overload count is unavailable for the public view\."/);
+});
+
+test("member families do not guess out-of-view counts while loading", () => {
+  const group = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    completeCount: 2,
+    completeCountStatus: "pending" as const,
+    overloads: [
+      { signature: "JsonDocument Parse(string json)" },
+      { signature: "JsonDocument Parse(Stream utf8Json)" },
+    ],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 2,
+    visibleMemberCount: 2,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    selectedAccessibility: "public",
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.doesNotMatch(html, /family-outside-count/);
+  assert.doesNotMatch(html, /\+\?/);
 });
 
 test("the member nav does not advertise sections without a selected member", () => {

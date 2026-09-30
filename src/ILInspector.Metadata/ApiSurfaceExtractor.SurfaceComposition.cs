@@ -85,6 +85,7 @@ public static partial class ApiSurfaceExtractor
                 {
                     Name = extension.Name,
                     Kind = "extension-method",
+                    IsHidden = extension.IsHidden || declaringType.IsHidden,
                     Accessibility = attachedAccessibility,
                     DeclaredAccessibility =
                         attachedAccessibility == extension.Accessibility

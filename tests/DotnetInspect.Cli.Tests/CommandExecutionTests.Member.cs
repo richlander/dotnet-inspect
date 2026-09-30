@@ -1070,7 +1070,10 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signature", output);
-        Assert.Contains("| Signature | Digest | Canonical Signature | Description |", output);
+        Assert.Contains(
+            "| Signature | Digest | Canonical Signature |",
+            output);
+        Assert.DoesNotContain("Description", output);
         Assert.Contains("M:System.Text.Json.JsonSerializer.Serialize", output);
         Assert.Empty(error);
     }
@@ -1771,8 +1774,14 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signature", output);
-        Assert.Contains("public static System.Text.Json.JsonElement SerializeToElement<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)", output);
-        Assert.Contains("Type: System.Text.Json.JsonSerializer", output);
+        Assert.Contains(
+            "public static System.Text.Json.JsonElement "
+                + "SerializeToElement<TValue>(TValue value, "
+                + "System.Text.Json.JsonSerializerOptions options = null)",
+            output);
+        Assert.DoesNotContain(
+            "Type: System.Text.Json.JsonSerializer",
+            output);
         Assert.DoesNotContain("## Methods", output);
         Assert.DoesNotContain("## Decompiled Source", output);
         Assert.DoesNotContain("## PDB Source", output);

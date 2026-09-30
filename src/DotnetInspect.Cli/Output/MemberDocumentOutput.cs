@@ -60,6 +60,7 @@ internal static class MemberDocumentOutput
             || options.DocsExplicitlySet && options.ShowDocs
             || options.ShareFormat is not null
             || options.EffectiveDiscovery
+            || options.UserVerbosity >= Verbosity.Detailed
             || options.Fields is { Length: > 0 }
             || options.Columns is { Length: > 0 }
             || options.Tree

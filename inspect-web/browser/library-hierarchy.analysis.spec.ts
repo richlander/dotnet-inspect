@@ -271,8 +271,137 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
   await expect(familyOverload).toBeVisible();
   await expect(page.locator(".member-surface-head p"))
     .toContainText("1 overload");
-  await expect(page.locator("html"))
-    .toHaveAttribute("data-member-group-document-request", /Run/);
+  expect(await page.locator("html").getAttribute(
+    "data-member-group-document-request",
+  )).toBeNull();
+});
+
+test("ranked Analysis members replace sticky private Type population intent", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]',
+  ).click();
+  await page.locator("#member-filter-summary").click();
+  await expect(page.locator('[data-member-access-filter="public"]'))
+    .toContainText("|");
+  await page.locator('[data-member-access-filter="private"]').click();
+  await expect(page.locator('[data-member-access-filter="private"]'))
+    .toHaveAttribute("aria-pressed", "true");
+
+  await chooseSubject(page, "library", "Library");
+  await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-member-access-filter="public"]'))
+    .toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Runs the widget.",
+  );
+});
+
+test("ranked Analysis activation does not outlive newer metadata spelling", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { deferTypeMemberPopulation: true },
+  );
+  await openAnalysis(page);
+
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"csharp","public"\]$/,
+  );
+  await page.locator("#member-filter-summary").click();
+  await page.locator('[data-member-spelling="metadata"]').click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"metadata","public"\]$/,
+  );
+
+  await releaseFacade(page, "finish-type-member-population");
+
+  await expect(page.locator('[data-member-spelling="metadata"]'))
+    .toHaveAttribute("aria-pressed", "true");
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "false");
+});
+
+test("ranked Analysis activation does not outlive A to B to A Type navigation", async ({
+  page,
+}) => {
+  const secondNeighbor = type("Example.SecondNeighbor", other);
+  await installFacades(
+    page,
+    {
+      ...surface,
+      types: [...surface.types, secondNeighbor],
+      accessibility: surface.accessibility.map(bucket =>
+        bucket.id === "public" ? { ...bucket, count: 3 } : bucket),
+      totalMembers: 3,
+    },
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { deferTypeMemberPopulation: true },
+  );
+  await page.goto(root);
+  await selectLibrary(page, other.id);
+  await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+  await expect(inspectorTab(page, "data-library-lens", "analysis"))
+    .toHaveAttribute("aria-selected", "true");
+
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"Example.Neighbor","csharp","public"\]$/,
+  );
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+
+  await page.locator(
+    '#type-list [data-type="asset:other:Example.SecondNeighbor"]',
+  ).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"Example.SecondNeighbor","csharp","public"\]$/,
+  );
+  await page.locator(
+    '#type-list [data-type="asset:other:Example.Neighbor"]',
+  ).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"Example.Neighbor","csharp","public"\]$/,
+  );
+
+  await releaseFacade(page, "finish-type-member-population");
+
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "false");
 });
 
 test("different family navigation leaves exact Facts for the shared document", async ({
@@ -363,8 +492,9 @@ test("different family navigation leaves exact Facts for the shared document", a
     .toContainText("2 overloads");
   await expect(page.locator(".member-surface-list .overload-row"))
     .toHaveCount(2);
-  await expect(page.locator("html"))
-    .toHaveAttribute("data-member-group-document-request", /Stop/);
+  expect(await page.locator("html").getAttribute(
+    "data-member-group-document-request",
+  )).toBeNull();
 
   await page.locator(".member-surface-list .overload-row").first().click();
   await page.keyboard.press("Backspace");

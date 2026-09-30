@@ -272,6 +272,47 @@ public sealed class BrowserMemberDeclarationTests
             uploadedDocument.Rows,
             static row => Assert.Equal("Extension", row.Receiver));
 
+        BrowserTypeMemberPopulationInspection packagePopulation =
+            TypeMemberPopulation(
+                await MetadataExports.QueryTypeMemberPopulation(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "csharp",
+                    "public"));
+        Assert.Equal(
+            BrowserTypeMemberPopulationOutcome.Available,
+            packagePopulation.Outcome);
+        BrowserTypeMemberPopulation packageMembers =
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                packagePopulation.Population);
+        Assert.Equal(
+            packageMembers.Composition.Public,
+            packageMembers.Groups.Sum(group => group.Members.Length));
+
+        BrowserTypeMemberPopulationInspection uploadedPopulation =
+            TypeMemberPopulation(
+                await MetadataExports
+                    .QueryUploadedLibraryTypeMemberPopulation(
+                        AssemblyFileName,
+                        image,
+                        ExtensionType,
+                        "csharp",
+                        "public"));
+        Assert.Equal(
+            BrowserTypeMemberPopulationOutcome.Available,
+            uploadedPopulation.Outcome);
+        BrowserTypeMemberPopulation uploadedMembers =
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                uploadedPopulation.Population);
+        BrowserTypeMemberPopulationGroup examine = Assert.Single(
+            uploadedMembers.Groups,
+            group => group.Name == "Examine");
+        Assert.Equal(5, examine.Members.Length);
+        Assert.Equal(5, examine.CompleteCount);
+
         BrowserMemberGroupDocumentInspection missingGroup =
             MemberGroupDocument(
                 await MetadataExports.QueryMemberGroupDocument(
@@ -559,6 +600,27 @@ public sealed class BrowserMemberDeclarationTests
             Assert.All(
                 document.Rows,
                 static row => Assert.Equal("Extension", row.Receiver));
+
+            BrowserTypeMemberPopulationInspection population =
+                TypeMemberPopulation(
+                    await MetadataExports
+                        .QueryPlatformTypeMemberPopulation(
+                            framework,
+                            version,
+                            AssemblyFileName,
+                            "netcore.app",
+                            SpellingType,
+                            "csharp",
+                            "public"));
+            Assert.Equal(
+                BrowserTypeMemberPopulationOutcome.Available,
+                population.Outcome);
+            BrowserTypeMemberPopulation members =
+                Assert.IsType<BrowserTypeMemberPopulation>(
+                    population.Population);
+            Assert.Equal(
+                members.Composition.Public,
+                members.Groups.Sum(candidate => candidate.Members.Length));
             Assert.Equal(requests, handler.Requests);
         }
         finally
@@ -941,6 +1003,15 @@ public sealed class BrowserMemberDeclarationTests
                 .BrowserMemberDocumentInspection)
         ?? throw new InvalidOperationException(
             "The browser Member export returned null.");
+
+    static BrowserTypeMemberPopulationInspection TypeMemberPopulation(
+        string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            BrowserMetadataJsonContext.Default
+                .BrowserTypeMemberPopulationInspection)
+        ?? throw new InvalidOperationException(
+            "The browser Type Member population export returned null.");
 
     static byte[] PackagePair(byte[] image)
     {

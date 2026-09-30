@@ -1820,13 +1820,13 @@ test("call graph request coordination stays outside the composition root", () =>
 test("typeless member lookup and request guards stay empty", () => {
   assert.match(
     appSource,
-    /function memberGroups\([\s\S]*type: AppTypeSurface \| null \| undefined,[\s\S]*for \(const member of type\?\.api \?\? \[\]\)/);
+    /function memberGroups\([\s\S]*type: AppTypeSurface \| null \| undefined,[\s\S]*if \(!type\) return \[\];[\s\S]*partitionGraphMembers\(type\.api\)/);
   assert.match(
     appSource,
     /function memberRequestIsCurrent\([\s\S]*const type = selectedType\(\);\s*if \(!type\) return false;\s*const member = selectedMember\(type\)/);
 });
 
-test("history validates saved type and member identity before restoring Member state", () => {
+test("history restores population intent before validating saved Member identity", () => {
   const applyView =
     appSource.match(/function applyView\(view: WorkspaceView\) \{[\s\S]*?\n}\n\nconst navigationHistory/)?.[0]
     ?? "";
@@ -1839,16 +1839,28 @@ test("history validates saved type and member identity before restoring Member s
     /if \(view\.rootKind !== "platform" && view\.platform\) \{[\s\S]*state\.platformIndex\?\.target\([\s\S]*if \(!target\) return false;\s*retainPlatformPackageForTarget\(target\);/);
   assert.match(
     applyView,
-    /const memberHistory = restoreMemberHistoryState\(\s*view,\s*type,\s*member/);
+    /state\.selectedTypeId = type\?\.id \?\? forwarder\?\.id \?\? defaultVisibleTypeId\(pkg\);[\s\S]*state\.memberAccessibilityFilter = isMemberAccessibility\(requestedAccessibility\)[\s\S]*const member = type\s*\? memberGroups\(type\)\.find/);
   assert.match(
     applyView,
-    /state\.selectedTypeId = type\?\.id \?\? forwarder\?\.id \?\? defaultVisibleTypeId\(pkg\);[\s\S]*state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*state\.memberAccessibilityFilter = memberHistory\.memberAccessibilityFilter;[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
+    /const deferOrdinaryMemberRestore = Boolean\([\s\S]*view\.memberBrowseTypeId === type\.id[\s\S]*!historyGraphTarget[\s\S]*!member\)/);
   assert.match(
     applyView,
     /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*clearMemberDocumentCache\(\);[\s\S]*state\.memberDocumentFingerprint =[\s\S]*view\.memberDocumentFingerprint[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
   assert.match(
     applyView,
-    /navigationHistory\.normalizeCurrent\(\);[\s\S]*loadMemberSectionContent\(state\.memberSection\)[\s\S]*else \{\s*render\(\)/);
+    /state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*state\.memberAccessibilityFilter = isMemberAccessibility\([\s\S]*memberHistory\.memberAccessibilityFilter\)[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
+  assert.match(
+    applyView,
+    /const memberHistory = deferOrdinaryMemberRestore\s*\? \{[\s\S]*selectedMemberKey: view\.selectedMemberKey[\s\S]*memberAccessibilityFilter: state\.memberAccessibilityFilter[\s\S]*: restoreMemberHistoryState\(/);
+  assert.match(
+    applyView,
+    /if \(deferOrdinaryMemberRestore && type\) \{[\s\S]*render\(\);[\s\S]*restoreOrdinaryMemberHistory\([\s\S]*navigationSequence\.current\(\),[\s\S]*typeMemberPopulationKey\(type\),[\s\S]*viewSignature\(\)/);
+  assert.match(
+    applyView,
+    /async function restoreOrdinaryMemberHistory\([\s\S]*sourceView: string[\s\S]*await loadSelectedTypeMemberPopulation\(\)[\s\S]*viewSignature\(\) !== sourceView[\s\S]*const member = memberGroups\(type\)[\s\S]*const restored = restoreMemberHistoryState\([\s\S]*loadMemberSectionContent\(state\.memberSection\)/);
+  assert.match(
+    applyView,
+    /state\.selectedMemberKey && member\) \{\s*loadCurrentSelectionData\("Restoring a Member from navigation history"\)/);
   assert.match(
     appSource,
     /const navigationHistory = createNavigationHistory\(\{\s*capture: captureView,\s*signature: workspaceViewSignature,\s*apply: applyView/);
@@ -1919,16 +1931,10 @@ test("Metadata composition excludes graph-projected implementation members", () 
     ?? "";
   assert.match(
     composition,
-    /const \{ publicMembers \} = partitionGraphMembers\(type\.api\);/);
-  assert.match(
-    composition,
-    /memberKinds\(publicSurface\)/);
-  assert.match(
-    composition,
-    /memberAccessibilities\(publicSurface\)/);
-  assert.match(
-    composition,
-    /availableMemberTraits\(publicSurface\)/);
+    /const groups = selectedMemberGroups\(type\);[\s\S]*groups\.flatMap\(group => group\.overloads\)/);
+  assert.match(composition, /memberKinds\(type\)/);
+  assert.match(composition, /memberAccessibilities\(type\)/);
+  assert.match(composition, /availableMemberTraits\(type\)/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {
