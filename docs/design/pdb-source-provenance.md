@@ -135,6 +135,10 @@ standalone Portable PDB requires a matching Portable CodeView identity from the
 PE; successful decoding without that positive identity is unavailable, not a
 matching result.
 
+Loading a standalone replacement updates the retained PDB reader and its
+correspondence state atomically. A rejected replacement reports its typed load
+status but does not invalidate or replace a previously retained matching PDB.
+
 An absent, rejected, unsupported, identity-mismatched, malformed, bounded, or
 failed PDB produces a typed unavailable or failed outcome. It does not produce
 an available document whose Types are all unknown. A matching loaded PDB may
@@ -389,6 +393,9 @@ A global enumeration or resource-bound failure returns typed incomplete
 output and no available complete document. Per-row malformed or ambiguous
 untrusted evidence becomes an unknown row when the producer can still prove
 complete bounded enumeration.
+
+Each authenticated generation-marker row consumes the remaining global marker
+budget before its value is decoded or its evidence record is materialized.
 
 The producer uses state-advancing bounded UTF-8 decoding to preflight compressed
 Portable PDB document-name components against the remaining total

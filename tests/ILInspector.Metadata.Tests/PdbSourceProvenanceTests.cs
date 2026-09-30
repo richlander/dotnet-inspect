@@ -217,6 +217,47 @@ public class PdbSourceProvenanceTests
         }
     }
 
+    [Theory]
+    [InlineData("unsupported", PdbLoadStatus.UnsupportedFormat)]
+    [InlineData("malformed", PdbLoadStatus.Malformed)]
+    [InlineData("mismatch", PdbLoadStatus.IdentityMismatch)]
+    public void RejectedReplacementPreservesLoadedPdbCorrespondence(
+        string replacementKind,
+        PdbLoadStatus expectedStatus)
+    {
+        (byte[] image, byte[] pdb) = BuildMarkerMetadata();
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+        context.LoadPdbFromStream(
+            new MemoryStream(pdb, writable: false));
+        PdbSourceProvenanceBinding initial =
+            Assert.IsType<PdbSourceProvenanceOutcome.Available>(
+                context.InspectSourceProvenance()).Result.Binding;
+        byte[] replacement = replacementKind switch
+        {
+            "unsupported" => [1, 2, 3, 4],
+            "malformed" =>
+                [(byte)'B', (byte)'S', (byte)'J', (byte)'B', 0],
+            "mismatch" => BuildMarkerMetadata(
+                portablePdbGuid: Guid.NewGuid()).Pdb,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(replacementKind)),
+        };
+
+        context.LoadPdbFromStream(
+            new MemoryStream(replacement, writable: false));
+
+        Assert.True(context.HasPdb);
+        Assert.Equal(expectedStatus, context.LastPdbLoadStatus);
+        Assert.True(context.GetPortablePdbImage()!.Value.SequenceEqual(pdb));
+        PdbSourceProvenanceBinding retained =
+            Assert.IsType<PdbSourceProvenanceOutcome.Available>(
+                context.InspectSourceProvenance()).Result.Binding;
+        Assert.Equal(initial.PortablePdbContentId, retained.PortablePdbContentId);
+        Assert.Equal(initial.PdbGeneration, retained.PdbGeneration);
+    }
+
     [Fact]
     public void TypeBound_ReturnsIncompleteInsteadOfPartialSuccess()
     {
@@ -271,6 +312,34 @@ public class PdbSourceProvenanceTests
                     context.InspectSourceProvenance(limits: limits));
             Assert.Equal(expected, incomplete.Reason);
         }
+    }
+
+    [Fact]
+    public void RepeatedLongMarkersStopBeforeAllocationAmplification()
+    {
+        (byte[] image, byte[] pdb) = BuildMarkerMetadata(
+            repeatedGeneratedMarkerCount: 4096,
+            generatedToolLength: 1024);
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+        context.LoadPdbFromStream(
+            new MemoryStream(pdb, writable: false));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        var incomplete =
+            Assert.IsType<PdbSourceProvenanceOutcome.Incomplete>(
+                context.InspectSourceProvenance(
+                    limits: new(maxMarkerRows: 1)));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            PdbSourceProvenanceIncompleteReason.MarkerLimitExceeded,
+            incomplete.Reason);
+        Assert.True(
+            allocated < 1024 * 1024,
+            $"bounded provenance allocated {allocated:N0} bytes");
     }
 
     [Fact]
@@ -904,7 +973,10 @@ public class PdbSourceProvenanceTests
         bool appendInvalidDocumentNameComponent = false,
         byte documentNameSeparator = (byte)'/',
         int methodDebugInformationRowCount = 2,
-        NestingShape nestingShape = NestingShape.OutOfRange)
+        NestingShape nestingShape = NestingShape.OutOfRange,
+        int repeatedGeneratedMarkerCount = 2,
+        int generatedToolLength = 0,
+        Guid? portablePdbGuid = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1087,15 +1159,20 @@ public class PdbSourceProvenanceTests
                 MetadataTokens.MethodDefinitionHandle(3));
 
         BlobHandle toolA = metadata.GetOrAddBlob(
-            GeneratedCodeValue("ToolA", "1.0"));
-        metadata.AddCustomAttribute(
-            directMarkers,
-            generatedConstructor,
-            toolA);
-        metadata.AddCustomAttribute(
-            directMarkers,
-            generatedConstructor,
-            toolA);
+            GeneratedCodeValue(
+                generatedToolLength == 0
+                    ? "ToolA"
+                    : new string('x', generatedToolLength),
+                "1.0"));
+        for (int index = 0;
+             index < repeatedGeneratedMarkerCount;
+             index++)
+        {
+            metadata.AddCustomAttribute(
+                directMarkers,
+                generatedConstructor,
+                toolA);
+        }
         metadata.AddCustomAttribute(
             directMarkers,
             generatedConstructor,
@@ -1136,7 +1213,8 @@ public class PdbSourceProvenanceTests
         rowCounts[(int)TableIndex.TypeDef] = 7;
         rowCounts[(int)TableIndex.MethodDef] = 2;
         rowCounts[(int)TableIndex.MemberRef] = 4;
-        rowCounts[(int)TableIndex.CustomAttribute] = 10;
+        rowCounts[(int)TableIndex.CustomAttribute] =
+            8 + repeatedGeneratedMarkerCount;
         rowCounts[(int)TableIndex.Assembly] = 1;
         rowCounts[(int)TableIndex.AssemblyRef] = 3;
         rowCounts[(int)TableIndex.NestedClass] =
@@ -1175,7 +1253,8 @@ public class PdbSourceProvenanceTests
             pdbMetadata.AddMethodDebugInformation(default, default);
         }
         var contentId = new BlobContentId(
-            new Guid("412BF724-7DCC-453A-A77B-A4875C15B86E"),
+            portablePdbGuid
+                ?? new Guid("412BF724-7DCC-453A-A77B-A4875C15B86E"),
             0x12345678);
         var pdbBuilder = new PortablePdbBuilder(
             pdbMetadata,

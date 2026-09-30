@@ -775,8 +775,8 @@ public partial class PdbContext
             ImmutableArray<PdbGenerationMarkerEvidence> markers =
                 AttributeReader.ReadSourceProvenanceMarkers(
                     metadata,
-                    type.GetCustomAttributes());
-            AddMarkers(markers);
+                    type.GetCustomAttributes(),
+                    ChargeMarker);
             typeMarkers.Add(handle, markers);
         }
 
@@ -893,8 +893,8 @@ public partial class PdbContext
                 ImmutableArray<PdbGenerationMarkerEvidence> methodMarkers =
                     AttributeReader.ReadSourceProvenanceMarkers(
                         metadata,
-                        method.GetCustomAttributes());
-                AddMarkers(methodMarkers);
+                        method.GetCustomAttributes(),
+                        ChargeMarker);
                 foreach (PdbGenerationMarkerEvidence marker
                     in methodMarkers)
                 {
@@ -1047,10 +1047,9 @@ public partial class PdbContext
         return new PdbSourceProvenanceOutcome.Available(
             new(binding, detachedDocuments, detachedTypes, receipt));
 
-        void AddMarkers(
-            ImmutableArray<PdbGenerationMarkerEvidence> markers)
+        void ChargeMarker()
         {
-            markerRows = checked(markerRows + markers.Length);
+            markerRows = checked(markerRows + 1);
             if (markerRows > limits.MaxMarkerRows)
             {
                 throw Limit(

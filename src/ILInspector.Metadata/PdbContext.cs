@@ -827,7 +827,6 @@ public partial class PdbContext : IDisposable
         ArgumentNullException.ThrowIfNull(pdbStream);
         LastPdbLoadStatus = PdbLoadStatus.NotAttempted;
         LastPdbLoadError = null;
-        _pdbCorrespondenceEstablished = false;
 
         MetadataReaderProvider? provider = null;
         bool retained = false;

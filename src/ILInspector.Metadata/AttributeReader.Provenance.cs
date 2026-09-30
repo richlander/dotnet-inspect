@@ -9,7 +9,8 @@ public static partial class AttributeReader
     internal static ImmutableArray<PdbGenerationMarkerEvidence>
         ReadSourceProvenanceMarkers(
             MetadataReader reader,
-            CustomAttributeHandleCollection attributes)
+            CustomAttributeHandleCollection attributes,
+            Action beforeMarkerMaterialize)
     {
         ImmutableArray<PdbGenerationMarkerEvidence>.Builder rows =
             ImmutableArray.CreateBuilder<PdbGenerationMarkerEvidence>();
@@ -24,6 +25,7 @@ public static partial class AttributeReader
                     PdbGenerationMarkerKind.GeneratedCode,
                     beforeMaterialize: null))
             {
+                beforeMarkerMaterialize();
                 if (HasExpectedConstructor(
                         reader,
                         attribute.Constructor,
@@ -62,33 +64,32 @@ public static partial class AttributeReader
                 continue;
             }
 
-            if (!IsSourceProvenanceFrameworkAttribute(
+            if (IsSourceProvenanceFrameworkAttribute(
                     reader,
                     attribute.Constructor,
                     KnownAttributeNames.CompilerGeneratedAttribute,
                     PdbGenerationMarkerKind.CompilerGenerated,
                     beforeMaterialize: null))
             {
-                continue;
+                beforeMarkerMaterialize();
+                rows.Add(
+                    HasExpectedConstructor(
+                            reader,
+                            attribute.Constructor,
+                            FrameworkConstructorKind.Marker,
+                            beforeMaterialize: null)
+                        && HasMarkerValueBlob(reader, attribute)
+                        ? new(
+                            PdbGenerationMarkerKind.CompilerGenerated,
+                            PdbGenerationMarkerDisposition.Valid,
+                            null,
+                            null)
+                        : new(
+                            PdbGenerationMarkerKind.CompilerGenerated,
+                            PdbGenerationMarkerDisposition.Malformed,
+                            null,
+                            null));
             }
-
-            rows.Add(
-                HasExpectedConstructor(
-                        reader,
-                        attribute.Constructor,
-                        FrameworkConstructorKind.Marker,
-                        beforeMaterialize: null)
-                    && HasMarkerValueBlob(reader, attribute)
-                    ? new(
-                        PdbGenerationMarkerKind.CompilerGenerated,
-                        PdbGenerationMarkerDisposition.Valid,
-                        null,
-                        null)
-                    : new(
-                        PdbGenerationMarkerKind.CompilerGenerated,
-                        PdbGenerationMarkerDisposition.Malformed,
-                        null,
-                        null));
         }
 
         return rows.ToImmutable();
