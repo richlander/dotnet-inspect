@@ -1788,6 +1788,44 @@ public partial class CommandExecutionTests
             Assert.Contains("Member", output);
             Assert.DoesNotContain("Context: Instruction", output);
             Assert.DoesNotContain("## IL Coordinates", output);
+
+            var (localCountExit, localCountOutput, localCountError) =
+                await RunAppAsync(
+                    "library",
+                    "address",
+                    "--file",
+                    coordinatePath,
+                    "--library",
+                    TestAssemblyPath,
+                    "-D",
+                    "Context: Member",
+                    "--effective",
+                    "--count",
+                    "--tips",
+                    "q");
+            var (packageCountExit, packageCountOutput, packageCountError) =
+                await RunAppAsync(
+                    "library",
+                    "address",
+                    "--file",
+                    coordinatePath,
+                    "--package",
+                    packagePath,
+                    "--library",
+                    "lib/net11.0/Coordinate.Package.dll",
+                    "-D",
+                    "Context: Member",
+                    "--effective",
+                    "--count",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, localCountExit);
+            Assert.Empty(localCountError);
+            Assert.Equal(0, packageCountExit);
+            Assert.Empty(packageCountError);
+            Assert.Equal(localCountOutput, packageCountOutput);
+            Assert.NotEqual("1", packageCountOutput.Trim());
         }
         finally
         {

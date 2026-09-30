@@ -216,7 +216,7 @@ public partial class LibraryCommand
                 : options.AddressRowSelection
                     ?? RowSelectionIntent<string>.Empty;
         QuerySpaceTerminalRequirement terminal =
-            !options.Count
+            options.Discover is not null || !options.Count
                 ? QuerySpaceTerminalRequirement.Rows
                 : IsSingleHeadOne(rows)
                     ? QuerySpaceTerminalRequirement.Exists
