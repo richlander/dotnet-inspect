@@ -1,5 +1,5 @@
 using System.Collections.Immutable;
-using DotnetInspect.Cli.Output;
+using DotnetInspector.ResearchSections;
 using ILInspector.Analysis;
 using Inspector.Findings;
 
