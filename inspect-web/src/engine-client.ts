@@ -97,6 +97,8 @@ type SourceOperations =
   | "queryPlatformTypeSource"
   | "queryMethodBodyComparison"
   | "queryMethodBodyComparisonTargets"
+  | "queryRetainedMethodBodyComparison"
+  | "queryRetainedMethodBodyComparisonTargets"
   | "queryTypeExplorer"
   | "queryTypeMemberSource"
   | "queryTypeSource";

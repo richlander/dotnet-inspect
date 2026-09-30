@@ -130,6 +130,7 @@ internal sealed record BrowserRetainedWorkspacePackagePresentation(
     string NavigationId,
     int ContextIndex,
     string ConsumerPackageSubjectId,
+    CompleteRestorationPackageInventory Inventory,
     BrowserPackageSurfaceInfo Surface);
 
 internal sealed record BrowserRetainedWorkspacePlatformPresentation(
@@ -284,6 +285,22 @@ internal abstract record BrowserRetainedWorkspaceAdmissionResult<T>
 
     internal sealed record Unavailable(string Message)
         : BrowserRetainedWorkspaceAdmissionResult<T>;
+}
+
+internal abstract record BrowserRetainedWorkspacePackageOperationAdmission
+{
+    private protected BrowserRetainedWorkspacePackageOperationAdmission() { }
+
+    internal sealed record Admitted(
+        WorkspaceRealizationOperationLease Operation,
+        BrowserRetainedWorkspacePackagePresentation Presentation)
+        : BrowserRetainedWorkspacePackageOperationAdmission;
+
+    internal sealed record Superseded
+        : BrowserRetainedWorkspacePackageOperationAdmission;
+
+    internal sealed record Unavailable(string Message)
+        : BrowserRetainedWorkspacePackageOperationAdmission;
 }
 
 internal sealed record BrowserRetainedWorkspaceCleanupEvidence(string Message);
@@ -503,6 +520,7 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
                             package.NavigationId,
                             package.ContextIndex,
                             readyPackages[package.NavigationId].ConsumerPackageSubjectId,
+                            package,
                             BrowserPackageSurfaceProjection.Project(
                                 package,
                                 BrowserPackage.ProjectIcon(
@@ -1250,6 +1268,58 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
             static (active, id) => active.Packages.FirstOrDefault(
                 candidate => candidate.NavigationId == id),
             cancellationToken);
+
+    internal async ValueTask<BrowserRetainedWorkspacePackageOperationAdmission>
+        EnterPackageOperationAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(realizationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(navigationId);
+        WorkspaceRealizationOperationAdmission admission =
+            await EnterOperationAsync(
+                retainedDefinitionId,
+                cancellationToken).ConfigureAwait(false);
+        if (admission
+            is not WorkspaceRealizationOperationAdmission.Admitted admitted)
+        {
+            return new BrowserRetainedWorkspacePackageOperationAdmission
+                .Superseded();
+        }
+
+        lock (_gate)
+        {
+            if (_active is not { } active
+                || active.RetainedDefinitionId != retainedDefinitionId
+                || active.RealizationId != realizationId
+                || !ReferenceEquals(
+                    active.Realization,
+                    admitted.Lease.Realization))
+            {
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePackageOperationAdmission
+                    .Superseded();
+            }
+
+            BrowserRetainedWorkspacePackagePresentation? presentation =
+                active.Packages.FirstOrDefault(
+                    candidate => candidate.NavigationId == navigationId);
+            if (presentation is null)
+            {
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePackageOperationAdmission
+                    .Unavailable(
+                        $"Navigation row '{navigationId}' is not a Package "
+                            + "in the active Workspace.");
+            }
+
+            return new BrowserRetainedWorkspacePackageOperationAdmission
+                .Admitted(admitted.Lease, presentation);
+        }
+    }
 
     internal Task<BrowserRetainedWorkspaceAdmissionResult<BrowserRetainedWorkspacePlatformPresentation>>
         AdmitPlatformAsync(
