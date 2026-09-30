@@ -92,7 +92,7 @@ public class LadderRung4GateTests
         Assert.DoesNotContain("DisplayClass", capturingLocal);
 
         var localBodyCapture = Body("LocalFunctionCapturingWithLocal");
-        Assert.Equal(DecompilationFidelity.Partial, Fidelity("LocalFunctionCapturingWithLocal"));
+        Assert.Equal(DecompilationFidelity.Full, Fidelity("LocalFunctionCapturingWithLocal"));
         Assert.Contains("return AddSquare(3);", localBodyCapture);
         Assert.Contains("int AddSquare(int item)", localBodyCapture);
         Assert.DoesNotContain("DisplayClass", localBodyCapture);
