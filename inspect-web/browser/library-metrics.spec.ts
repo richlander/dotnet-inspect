@@ -50,6 +50,17 @@ test("structural salience preserves issued orders and exact interactions", async
     .toHaveText("Example.Tools");
 });
 
+test("a sole zero-leverage namespace can trigger exact shard demand", async ({
+  page,
+}) => {
+  await page.goto("/browser/library-metrics.html?zero-top");
+  const select = page.locator("[data-metrics-salience-namespace]");
+  await expect(select).toHaveValue("__choose_namespace__");
+  await select.selectOption("Only");
+  await expect(page.locator("#metrics-selected-namespace"))
+    .toHaveText("Only");
+});
+
 test("reciprocal relationship evidence remains independently reachable", async ({
   page,
 }) => {

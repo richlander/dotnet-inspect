@@ -189,6 +189,53 @@ test("structural salience remains available when body metrics fail", () => {
   assert.match(html, /Body metrics failed\./);
 });
 
+test("a sole zero-leverage namespace remains explicitly selectable", () => {
+  const zeroLeverageIndex = {
+    schemaVersion: 1,
+    outcome: "available",
+    methodologyVersion: "structural-salience.v1",
+    evidenceMode: "signature",
+    disposition: "complete",
+    coverage: { considered: 4, examined: 4, unavailable: 0, limited: 0 },
+    namespaces: [{
+      namespace: "Only",
+      typeCount: 4,
+      externalIncomingSourceTypeCount: 0,
+      topLeverage: false,
+    }],
+    diagnostics: [],
+    failure: null,
+    compileLibrary: data.compileLibrary,
+  } as const;
+  const salience = projectTypeLeverage(zeroLeverageIndex, []);
+  const html = render({
+    salienceLoading: false,
+    salience,
+  });
+
+  assert.match(
+    html,
+    /<option value="__choose_namespace__" selected disabled>Choose a namespace<\/option><option value="Only">/,
+  );
+  assert.match(html, /Choose an exact namespace to load its Type orders\./);
+  assert.doesNotMatch(html, /Loading the exact namespace shard/);
+
+  const globalHtml = render({
+    salienceLoading: false,
+    salience: projectTypeLeverage({
+      ...zeroLeverageIndex,
+      namespaces: [{
+        ...zeroLeverageIndex.namespaces[0],
+        namespace: "",
+      }],
+    }, []),
+  });
+  assert.match(
+    globalHtml,
+    /selected disabled>Choose a namespace<\/option><option value="">\(global namespace\)/,
+  );
+});
+
 test("keeps detailed distributions out of the website presentation", () => {
   const html = render();
 

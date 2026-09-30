@@ -121,6 +121,26 @@ const salience = projectTypeLeverage({
   failure: null,
   compileLibrary: data.compileLibrary,
 }]);
+const zeroTopSalience = projectTypeLeverage({
+  schemaVersion: 1,
+  outcome: "available",
+  methodologyVersion: "structural-salience.v1",
+  evidenceMode: "signature",
+  disposition: "complete",
+  coverage: { considered: 4, examined: 4, unavailable: 0, limited: 0 },
+  namespaces: [{
+    namespace: "Only",
+    typeCount: 4,
+    externalIncomingSourceTypeCount: 0,
+    topLeverage: false,
+  }],
+  diagnostics: [],
+  failure: null,
+  compileLibrary: data.compileLibrary,
+}, []);
+const renderedSalience = new URLSearchParams(location.search).has("zero-top")
+  ? zeroTopSalience
+  : salience;
 
 const app = document.querySelector("#app");
 if (!(app instanceof HTMLElement))
@@ -139,7 +159,7 @@ app.innerHTML = renderLibraryMetricsSurface({
   data,
   salienceLoading: false,
   salienceError: "",
-  salience,
+  salience: renderedSalience,
   selectedSalienceNamespace: null,
   escapeHtml: value => String(value).replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;").replaceAll(">", "&gt;")

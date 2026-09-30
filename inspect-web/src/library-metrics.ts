@@ -127,9 +127,12 @@ function renderStructuralSalience(
   const shard = exactNamespace === null
     ? null
     : salience.shardsByNamespace.get(exactNamespace) ?? null;
-  const optionsHtml = salience.namespaceOrder.map(row =>
+  const namespaceOptions = salience.namespaceOrder.map(row =>
     `<option value="${escapeHtml(row.namespace)}"${row.namespace === exactNamespace ? " selected" : ""}>${escapeHtml(namespaceDisplay(row.namespace))} · ${formatCount(row.externalIncomingSourceTypeCount, "external source Type")}${row.topLeverage ? " · top leverage" : ""}</option>`)
     .join("");
+  const optionsHtml = exactNamespace === null
+    ? `<option value="__choose_namespace__" selected disabled>Choose a namespace</option>${namespaceOptions}`
+    : namespaceOptions;
   const qualification = salience.disposition.toLowerCase() === "complete"
     ? ""
     : `<div class="metadata-warning"><strong>Structural salience is qualified</strong><p>${escapeHtml(salience.disposition)} · ${formatNumber(salience.coverage.examined)} of ${formatNumber(salience.coverage.considered)} signature sites examined.</p>${salience.diagnostics.length ? `<ul>${salience.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul>` : ""}</div>`;
@@ -138,7 +141,7 @@ function renderStructuralSalience(
         ${renderSalienceOrder("Sea level", shard.seaLevelOrder, "signatureIncomingDegree", escapeHtml)}
         ${renderSalienceOrder("Mountain peaks", shard.mountainPeakOrder, "signatureOutgoingDegree", escapeHtml)}
       </div>`
-    : `<p class="metrics-salience-loading"><span class="loader"></span> Loading the exact namespace shard&hellip;</p>`;
+    : `<p class="metrics-salience-loading">Choose an exact namespace to load its Type orders.</p>`;
   return `<section class="document-section metrics-salience-section">
     <div class="metrics-visual-copy"><h2>Structural Salience</h2><p>Namespace leverage identifies important areas. The two Type orders expose same-namespace foundations and orchestrators without blending their scores.</p></div>
     <label class="metrics-salience-namespace"><span>Namespace</span><select data-metrics-salience-namespace>${optionsHtml}</select></label>
