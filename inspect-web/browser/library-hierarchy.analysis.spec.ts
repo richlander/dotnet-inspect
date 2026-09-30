@@ -404,68 +404,6 @@ test("ranked Analysis activation does not outlive A to B to A Type navigation", 
     .toHaveAttribute("aria-selected", "false");
 });
 
-test("ranked Analysis activation does not outlive A to B to A Type navigation", async ({
-  page,
-}) => {
-  const neighbor = type("Example.Neighbor", core);
-  await installFacades(page, {
-    ...surface,
-    assemblies: surface.assemblies.map(assembly => {
-      if (assembly.id === core.id) {
-        return { ...assembly, publicTypes: 2, publicMembers: 2 };
-      }
-      if (assembly.id === other.id) {
-        return { ...assembly, publicTypes: 0, publicMembers: 0 };
-      }
-      return assembly;
-    }),
-    types: surface.types.map(candidate =>
-      candidate.definitionId === neighbor.definitionId
-        ? neighbor
-        : candidate),
-  });
-  await openAnalysis(page);
-  await page.evaluate(() => {
-    document.documentElement.dataset.typeMemberPopulationGate = "closed";
-  });
-
-  await page.locator(".library-analysis-surface .perf-row").first().click();
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-type-member-population-request",
-    /"Example.Widget"/,
-  );
-  await chooseSubject(page, "type", "Type");
-  await page.locator(
-    '#type-list [data-type="asset:core:Example.Neighbor"]',
-  ).click();
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-type-member-population-request",
-    /"Example.Neighbor"/,
-  );
-  await page.locator(
-    '#type-list [data-type="asset:core:Example.Widget"]',
-  ).click();
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-type-member-population-request",
-    /"Example.Widget"/,
-  );
-
-  await page.evaluate(() => {
-    document.documentElement.dataset.typeMemberPopulationGate = "open";
-    document.dispatchEvent(new Event("finish-type-member-population"));
-  });
-
-  await expect(subjectTab(page, "type"))
-    .toHaveAttribute("aria-selected", "true");
-  await expect(page.locator(
-    '#type-list [data-type="asset:core:Example.Widget"]',
-  )).toHaveAttribute("aria-selected", "true");
-  await expect(
-    page.getByRole("region", { name: "Members" })
-      .getByRole("heading", { name: "Members" }),
-  ).toBeVisible();
-});
-
 test("different family navigation leaves exact Facts for the shared document", async ({
   page,
 }) => {

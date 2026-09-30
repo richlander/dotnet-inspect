@@ -9965,8 +9965,6 @@ async function selectPerformanceMember(
     || !populationReceipt
     || typeMemberPopulationReceipt !== populationReceipt
     || typeMemberPopulationIntentGeneration !== expectedPopulationIntent
-    || typeMemberPopulationOperationGeneration
-      !== expectedPopulationOperation
     || typeMemberPopulationKey(type) !== expectedPopulationKey
     || state.typeMemberPopulationKey !== expectedPopulationKey) {
     return;
@@ -18463,7 +18461,6 @@ let typeMemberPopulationLoad: TypeMemberPopulationLoad | null = null;
 let typeMemberPopulationReceipt: TypeMemberPopulationReceipt | null = null;
 let typeMemberPopulationGeneration = 0;
 let typeMemberPopulationIntentGeneration = 0;
-let typeMemberPopulationOperationGeneration = 0;
 
 function loadSelectedTypeMemberPopulation():
   Promise<TypeMemberPopulationReceipt | null> {
@@ -18507,7 +18504,6 @@ function loadSelectedTypeMemberPopulation():
     receipt,
     promise: Promise.resolve(receipt),
   };
-  typeMemberPopulationOperationGeneration++;
   typeMemberPopulationLoad = load;
   typeMemberPopulationReceipt = receipt;
   load.promise = (async () => {
