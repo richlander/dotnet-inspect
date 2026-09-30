@@ -148,7 +148,30 @@ public sealed class AssemblyInspectionSession :
     /// <c>BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed</c>.
     /// </summary>
     public static AssemblyInspectionSession Borrow(PdbContext context)
-        => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
+        => new(
+            AssemblyImage.Borrow(
+                context.BorrowedPEReader,
+                context.EnsureAliveForBorrower,
+                context.ArtifactIdentity));
+
+    /// <summary>
+    /// Exact acquisition-issued artifact identity retained by this image, when
+    /// the session was opened or borrowed from an artifact-backed descriptor.
+    /// </summary>
+    public AssemblyArtifactIdentity? ArtifactIdentity =>
+        _image.ArtifactIdentity;
+
+    /// <summary>
+    /// Whether this session and <paramref name="assembly"/> retain the same
+    /// acquisition-issued artifact identity.
+    /// </summary>
+    public bool IsSameArtifact(ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return ArtifactIdentity is { } sessionArtifact
+            && assembly.Registration.ArtifactIdentity is { } assemblyArtifact
+            && sessionArtifact == assemblyArtifact;
+    }
 
     public MetadataDeclarationSession CreateDeclarationSession(
         MetadataOperationContext operationContext)

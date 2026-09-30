@@ -7212,6 +7212,7 @@ function completeMemberGroupHasBaselineOrdinals(
   group: {
     readonly completeCountStatus?: string;
     readonly overloads: readonly {
+      readonly signature: string;
       readonly baselineOrdinal?: number | null;
     }[];
   } | null | undefined,
@@ -7220,6 +7221,13 @@ function completeMemberGroupHasBaselineOrdinals(
     && group.overloads.every(overload =>
       Number.isInteger(overload.baselineOrdinal)
       && (overload.baselineOrdinal ?? 0) > 0);
+}
+
+function completeMemberGroupUsesLegacyOverloadRoute(
+  group: Parameters<typeof completeMemberGroupHasBaselineOrdinals>[0],
+) {
+  return group?.completeCountStatus === "available"
+    && !completeMemberGroupHasBaselineOrdinals(group);
 }
 
 async function loadSelectedMemberOverview(): Promise<void> {
@@ -7478,7 +7486,8 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
       memberDocumentOrdinalForOverload(entry.group, entry.index);
     if (baselineOrdinal !== null) {
       openMemberDocument(baselineOrdinal);
-    } else if (!ordinaryMethodGroup(entry.group)) {
+    } else if (!ordinaryMethodGroup(entry.group)
+        || completeMemberGroupUsesLegacyOverloadRoute(entry.group)) {
       openOverload(entry.index);
     }
   }
@@ -7622,6 +7631,9 @@ function drillIn() {
       if (baselineOrdinal !== null) {
         showContentDetailAfterRender();
         openMemberDocument(baselineOrdinal);
+      } else if (completeMemberGroupUsesLegacyOverloadRoute(member)) {
+        showContentDetailAfterRender();
+        openOverload(0);
       }
     } else if (contentFrameUsesPush() && contentFrameMedia.matches) {
       showContentDetail();
@@ -11776,8 +11788,7 @@ function bindTypePanelEvents() {
     },
     onMemberOverloadOpen: selector => {
       const member = selectedMember(selectedType());
-      if (member?.completeCountStatus === "available"
-          && !completeMemberGroupHasBaselineOrdinals(member)) {
+      if (completeMemberGroupUsesLegacyOverloadRoute(member)) {
         openOverload(selector);
       } else {
         openMemberDocument(selector);
