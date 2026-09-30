@@ -102,6 +102,7 @@ fixtures/queries/DotnetInspector.RestoredProjectFixtures
 fixtures/queries/DotnetInspector.RestoredRidFixtures
 fixtures/queries/DotnetInspector.SourceDiff.V1
 fixtures/queries/DotnetInspector.SourceDiff.V2
+fixtures/research/ILInspector.Research.NameFamilyFixtures
 fixtures/research/ILInspector.Research.TargetFixtures
 fixtures/research/ResearchTargetCorrespondenceFixtures.V1
 fixtures/research/ResearchTargetCorrespondenceFixtures.V2
