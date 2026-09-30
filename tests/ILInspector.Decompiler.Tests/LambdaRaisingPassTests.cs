@@ -86,14 +86,20 @@ public class LambdaRaisingPassTests
             "Microsoft.CodeAnalysis.Compilation",
             "CreateDebugDocuments");
         Assert.NotNull(function);
+        Assert.Equal(DecompilerSymbolSource.Sidecar, source.Symbols);
+        Assert.Contains(
+            function!.LocalNames
+                .Where(name => name is not null)
+                .GroupBy(name => name, StringComparer.Ordinal),
+            group => group.Skip(1).Any());
 
         var result = CSharpPrinter.PrintRaised(
-            function!,
+            function,
             method => IrImporter.Import(source, method));
 
         Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
         Assert.Contains("=>", result.Output);
-        function!.CheckInvariant();
+        function.CheckInvariant();
     }
 
     [Theory]
