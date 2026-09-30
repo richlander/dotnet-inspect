@@ -215,6 +215,129 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
     }
 
     [Fact]
+    public void CDR015_PropertyRoleMismatchIsUnrepresentable()
+    {
+        using AuthoredAccessorFixture fixture =
+            AuthoredAccessorFixture.CreatePropertyWithGetterReturnMismatch();
+        CSharpAccessorDeclarationPost post = fixture.Capture();
+        var posted = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                post.Declaration);
+        Assert.Contains(
+            posted.Evidence.Accessors,
+            accessor => accessor.Correspondence.Role.Status
+                == MetadataAccessorRoleCorrespondenceStatus.Mismatch);
+
+        var refused = Assert.IsType<
+            CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable>(
+                CSharpAccessorDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp14)));
+        Assert.Equal(
+            CSharpAccessorDeclarationRefusalReason
+                .UnsupportedAccessorCorrespondence,
+            refused.Reason);
+    }
+
+    [Fact]
+    public void CDR015_DuplicateGetterIsUnrepresentable()
+    {
+        using AuthoredAccessorFixture fixture =
+            AuthoredAccessorFixture.CreatePropertyWithDuplicateGetter();
+        CSharpAccessorDeclarationPost post = fixture.Capture();
+        var posted = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                post.Declaration);
+        Assert.Equal(
+            MetadataPropertyAccessorMultiplicityStatus.NonConventional,
+            posted.Evidence.Correspondence.PropertyMultiplicity);
+
+        var refused = Assert.IsType<
+            CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable>(
+                CSharpAccessorDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp14)));
+        Assert.Equal(
+            CSharpAccessorDeclarationRefusalReason
+                .UnsupportedAccessorMultiplicity,
+            refused.Reason);
+    }
+
+    [Fact]
+    public void CDR015_NonOrdinaryGetterIsUnrepresentable()
+    {
+        using AuthoredAccessorFixture fixture =
+            AuthoredAccessorFixture.CreatePropertyWithVarargGetter();
+        CSharpAccessorDeclarationPost post = fixture.Capture();
+        var posted = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                post.Declaration);
+        Assert.Equal(
+            MetadataAccessorOrdinaryCallableStatus.NonOrdinary,
+            Assert.Single(posted.Evidence.Accessors)
+                .Correspondence.OrdinaryCallable);
+
+        var refused = Assert.IsType<
+            CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable>(
+                CSharpAccessorDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp14)));
+        Assert.Equal(
+            CSharpAccessorDeclarationRefusalReason
+                .UnsupportedAccessorSignature,
+            refused.Reason);
+    }
+
+    [Fact]
+    public void CDR015_EventRoleMismatchIsUnrepresentable()
+    {
+        using AuthoredAccessorFixture fixture =
+            AuthoredAccessorFixture.CreateEventWithAddParameterMismatch();
+        CSharpAccessorDeclarationPost post = fixture.Capture();
+        var posted = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                post.Declaration);
+        Assert.Contains(
+            posted.Evidence.Accessors,
+            accessor => accessor.Correspondence.Role.Status
+                == MetadataAccessorRoleCorrespondenceStatus.Mismatch);
+
+        var refused = Assert.IsType<
+            CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable>(
+                CSharpAccessorDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp14)));
+        Assert.Equal(
+            CSharpAccessorDeclarationRefusalReason
+                .UnsupportedAccessorCorrespondence,
+            refused.Reason);
+    }
+
+    [Fact]
+    public void CDR015_EventStaticnessMismatchIsUnrepresentable()
+    {
+        using AuthoredAccessorFixture fixture =
+            AuthoredAccessorFixture.CreateEventWithStaticnessMismatch();
+        CSharpAccessorDeclarationPost post = fixture.Capture();
+        var posted = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                post.Declaration);
+        Assert.False(
+            posted.Evidence.Correspondence
+                .EventAddRemoveStaticnessMatches);
+
+        var refused = Assert.IsType<
+            CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable>(
+                CSharpAccessorDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp14)));
+        Assert.Equal(
+            CSharpAccessorDeclarationRefusalReason
+                .UnsupportedAccessorCorrespondence,
+            refused.Reason);
+    }
+
+    [Fact]
     public void CDR010_FireAndOtherProduceAtomicLanguageRefusal()
     {
         using AuthoredAccessorFixture fixture =
@@ -757,12 +880,34 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
                 rootName: "Value",
                 EventAttributes.SpecialName);
 
+        internal static AuthoredAccessorFixture
+            CreateEventWithAddParameterMismatch()
+            => CreateEvent(
+                includeRemove: true,
+                includeFireAndOther: false,
+                duplicateAdd: false,
+                rootName: "Value",
+                EventAttributes.None,
+                mismatchedAddParameter: true);
+
+        internal static AuthoredAccessorFixture
+            CreateEventWithStaticnessMismatch()
+            => CreateEvent(
+                includeRemove: true,
+                includeFireAndOther: false,
+                duplicateAdd: false,
+                rootName: "Value",
+                EventAttributes.None,
+                mismatchedStaticness: true);
+
         static AuthoredAccessorFixture CreateEvent(
             bool includeRemove,
             bool includeFireAndOther,
             bool duplicateAdd,
             string rootName,
-            EventAttributes rootAttributes)
+            EventAttributes rootAttributes,
+            bool mismatchedAddParameter = false,
+            bool mismatchedStaticness = false)
         {
             var metadata = new MetadataBuilder();
             metadata.AddModule(
@@ -794,11 +939,13 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
             MethodDefinitionHandle add = AddEventMethod(
                 metadata,
                 "add_Value",
-                eventType);
+                eventType,
+                mismatchedParameter: mismatchedAddParameter);
             MethodDefinitionHandle remove = AddEventMethod(
                 metadata,
                 "remove_Value",
-                eventType);
+                eventType,
+                isStatic: mismatchedStaticness);
             MethodDefinitionHandle secondAdd = duplicateAdd
                 ? AddEventMethod(
                     metadata,
@@ -1019,6 +1166,149 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
                 MetadataMethodAddress.Create(reader, getter));
         }
 
+        internal static AuthoredAccessorFixture
+            CreatePropertyWithGetterReturnMismatch()
+            => CreatePropertyCorrespondenceFixture(
+                getterReturnsString: true);
+
+        internal static AuthoredAccessorFixture
+            CreatePropertyWithDuplicateGetter()
+            => CreatePropertyCorrespondenceFixture(
+                duplicateGetter: true);
+
+        internal static AuthoredAccessorFixture
+            CreatePropertyWithVarargGetter()
+            => CreatePropertyCorrespondenceFixture(
+                varargGetter: true);
+
+        static AuthoredAccessorFixture CreatePropertyCorrespondenceFixture(
+            bool getterReturnsString = false,
+            bool duplicateGetter = false,
+            bool varargGetter = false)
+        {
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("AccessorFixture.dll"),
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("AccessorFixture"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+
+            MethodDefinitionHandle getter;
+            if (varargGetter)
+            {
+                getter = AddRawMethod(
+                    metadata,
+                    "get_Value",
+                    [0x25, 0x00, 0x08]);
+            }
+            else
+            {
+                var getterSignature = new BlobBuilder();
+                new BlobEncoder(getterSignature)
+                    .MethodSignature(isInstanceMethod: true)
+                    .Parameters(
+                        0,
+                        returnType =>
+                        {
+                            if (getterReturnsString)
+                                returnType.Type().String();
+                            else
+                                returnType.Type().Int32();
+                        },
+                        _ => { });
+                getter = AddMethod(
+                    metadata,
+                    "get_Value",
+                    getterSignature);
+            }
+            MethodDefinitionHandle secondGetter = duplicateGetter
+                ? AddMethod(
+                    metadata,
+                    "get_Value_2",
+                    CreateIntGetterSignature())
+                : default;
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                getter);
+            TypeDefinitionHandle owner = metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Abstract,
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString("Target"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                getter);
+            var propertySignature = new BlobBuilder();
+            new BlobEncoder(propertySignature)
+                .PropertySignature(isInstanceProperty: true)
+                .Parameters(
+                    0,
+                    returnType => returnType.Type().Int32(),
+                    _ => { });
+            PropertyDefinitionHandle property = metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(propertySignature));
+            metadata.AddPropertyMap(owner, property);
+            metadata.AddMethodSemantics(
+                property,
+                MethodSemanticsAttributes.Getter,
+                getter);
+            if (!secondGetter.IsNil)
+            {
+                metadata.AddMethodSemantics(
+                    property,
+                    MethodSemanticsAttributes.Getter,
+                    secondGetter);
+            }
+
+            var image = new BlobBuilder();
+            new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                new BlobBuilder(),
+                flags: CorFlags.ILOnly)
+                .Serialize(image);
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"csharp-accessor-{Guid.NewGuid():N}.dll");
+            File.WriteAllBytes(path, image.ToArray());
+            using var stream = File.OpenRead(path);
+            using var pe = new PEReader(stream);
+            MetadataReader reader = pe.GetMetadataReader();
+            return new(
+                path,
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    owner),
+                MetadataMethodAddress.Create(reader, getter));
+
+            static BlobBuilder CreateIntGetterSignature()
+            {
+                var signature = new BlobBuilder();
+                new BlobEncoder(signature)
+                    .MethodSignature(isInstanceMethod: true)
+                    .Parameters(
+                        0,
+                        returnType => returnType.Type().Int32(),
+                        _ => { });
+                return signature;
+            }
+        }
+
         internal CSharpAccessorDeclarationPost Capture() =>
             CSharpAccessorDeclarationRepresentabilityTests.Capture(
                 Path,
@@ -1031,20 +1321,32 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
         static MethodDefinitionHandle AddEventMethod(
             MetadataBuilder metadata,
             string name,
-            TypeReferenceHandle eventType)
+            TypeReferenceHandle eventType,
+            bool mismatchedParameter = false,
+            bool isStatic = false)
         {
             var signature = new BlobBuilder();
             new BlobEncoder(signature)
-                .MethodSignature(isInstanceMethod: true)
+                .MethodSignature(isInstanceMethod: !isStatic)
                 .Parameters(
                     1,
                     returnType => returnType.Void(),
-                    parameters => parameters.AddParameter()
-                        .Type()
-                        .Type(
-                            eventType,
-                            isValueType: false));
-            return AddMethod(metadata, name, signature);
+                    parameters =>
+                    {
+                        SignatureTypeEncoder parameter =
+                            parameters.AddParameter().Type();
+                        if (mismatchedParameter)
+                            parameter.String();
+                        else
+                            parameter.Type(
+                                eventType,
+                                isValueType: false);
+                    });
+            return AddMethod(
+                metadata,
+                name,
+                signature,
+                isStatic ? MethodAttributes.Static : 0);
         }
 
         static MethodDefinitionHandle AddVoidMethod(
@@ -1064,18 +1366,31 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
         static MethodDefinitionHandle AddMethod(
             MetadataBuilder metadata,
             string name,
-            BlobBuilder signature) =>
+            BlobBuilder signature,
+            MethodAttributes additionalAttributes = 0) =>
             metadata.AddMethodDefinition(
                 MethodAttributes.Public
                     | MethodAttributes.Abstract
                     | MethodAttributes.Virtual
                     | MethodAttributes.HideBySig
-                    | MethodAttributes.SpecialName,
+                    | MethodAttributes.SpecialName
+                    | additionalAttributes,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(name),
                 metadata.GetOrAddBlob(signature),
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1));
+
+        static MethodDefinitionHandle AddRawMethod(
+            MetadataBuilder metadata,
+            string name,
+            byte[] signatureBytes)
+        {
+            var signature = new BlobBuilder();
+            foreach (byte value in signatureBytes)
+                signature.WriteByte(value);
+            return AddMethod(metadata, name, signature);
+        }
     }
 }
 
