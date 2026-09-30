@@ -7,6 +7,7 @@ import {
   selectLibrary,
   library,
   createType as type,
+  run,
   core,
   other,
   empty,
@@ -557,6 +558,93 @@ test("aggregate Library remains active through Member entry and return", async (
     .toHaveText("All libraries");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(2);
   await expect(page.locator("#type-list")).toContainText("Neighbor");
+});
+
+test("metadata accessors retain their established overload detail route", async ({
+  page,
+}) => {
+  const accessor = {
+    ...run,
+    name: "get_Value",
+    signature: "public int get_Value()",
+    returnType: "int",
+    stableSelector: "get_Value",
+    anchorDigest: "widget-get-value",
+    canonicalSignature: "int Example.Widget.get_Value()",
+    graphSelectorKey: "get_Value",
+    metadataAccessor: true,
+  };
+  const widget = {
+    ...type("Example.Widget", core),
+    api: [accessor],
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [widget],
+    totalMembers: 1,
+  });
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]').click();
+  await page.locator("#member-filter-summary").click();
+  await page.locator('[data-member-spelling="metadata"]').click();
+  await chooseSubject(page, "member", "Member");
+  await page.locator(".member-surface-list .overload-row").click();
+
+  expect(await page.locator("html").getAttribute(
+    "data-member-document-request",
+  )).toBeNull();
+  await expect(page.locator("#member-surface-title"))
+    .toHaveText("get_Value");
+  await expect(page.locator(".member-surface"))
+    .toContainText("int Example.Widget.get_Value()");
+});
+
+test("non-public overload navigation retains its established detail route", async ({
+  page,
+}) => {
+  const hidden = [1, 2].map(index => ({
+    ...run,
+    signature: `private void Hidden(int value${index})`,
+    name: "Hidden",
+    accessibility: "private",
+    stableSelector: `Hidden:${index}`,
+    anchorDigest: `widget-hidden-${index}`,
+    canonicalSignature: `void Example.Widget.Hidden(int value${index})`,
+    graphSelectorKey: `Hidden:${index}`,
+  }));
+  const widget = {
+    ...type("Example.Widget", core),
+    members: hidden.length,
+    api: hidden,
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [widget],
+    accessibility: [
+      { id: "private", label: "Private", order: 3, isDefault: false, count: 2 },
+    ],
+    totalMembers: hidden.length,
+  });
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]').click();
+  await page.locator("#member-filter-summary").click();
+  await page.locator('[data-member-access-filter="private"]').click();
+  await chooseSubject(page, "member", "Member");
+  await page.locator('[data-nav-overload="1"]').click();
+
+  expect(await page.locator("html").getAttribute(
+    "data-member-document-request",
+  )).toBeNull();
+  await expect(page.locator('[data-nav-overload="1"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".member-surface"))
+    .toContainText("void Example.Widget.Hidden(int value2)");
 });
 
 test("aggregate Library remains active through Spotlight Type and Member results", async ({ page }) => {
