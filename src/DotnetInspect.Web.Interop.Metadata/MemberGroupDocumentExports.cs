@@ -174,12 +174,13 @@ public static partial class MetadataExports
                 await AssemblyContextLibraryInspection.ExecuteAsync(
                         materialization,
                         (reference, owner) =>
-                            owner.IssueOperationLease(reference)
-                                is LibraryOperationLeaseIssueOutcome.Issued issued
-                                ? MemberGroupDocumentInspectionOperation.Execute(
-                                    new(reference, plan),
-                                    issued.Lease)
-                                : null)
+                            AssemblyContextLibraryInspection.ExecuteOperation(
+                                reference,
+                                owner,
+                                lease =>
+                                    MemberGroupDocumentInspectionOperation.Execute(
+                                        new(reference, plan),
+                                        lease)))
                     .ConfigureAwait(false);
         if (run.Failure is { } failure)
         {
