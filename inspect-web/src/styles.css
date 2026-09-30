@@ -2021,8 +2021,9 @@ kbd {
 .member-diff-source-summary { display: flex; min-width: 0; flex-wrap: wrap; gap: 5px 12px; padding: 8px 10px; border: 1px solid var(--line); border-bottom: 0; color: var(--muted); font: 10px var(--mono); }
 .member-diff-source-diff { min-width: 0; max-width: 100%; overflow-x: auto; border: 1px solid var(--line); background: var(--code-bg); font: 12px/1.55 var(--mono); }
 .member-diff-source-line { display: grid; min-width: max-content; grid-template-columns: 44px 44px 18px minmax(0, 1fr); }
-.member-diff-source-line-before { background: color-mix(in srgb, var(--red) 9%, transparent); }
-.member-diff-source-line-after { background: color-mix(in srgb, var(--green) 9%, transparent); }
+.member-diff-source-line-context { background: transparent; }
+.member-diff-source-line-removal { background: color-mix(in srgb, var(--red) 9%, transparent); }
+.member-diff-source-line-addition { background: color-mix(in srgb, var(--green) 9%, transparent); }
 .member-diff-source-relation { border-block-start: 1px solid var(--line); }
 .member-diff-source-relation:first-child { border-block-start: 0; }
 .member-diff-source-relation-label { padding: 3px 10px; background: var(--panel-raised); color: var(--muted); font-size: 10px; }
@@ -2034,6 +2035,20 @@ kbd {
 .member-diff-source-terminators { color: var(--muted); font: 10px var(--mono); }
 .member-diff-source-evidence { color: var(--muted); font: 11px/1.5 var(--mono); }
 .member-diff-source-evidence summary { cursor: pointer; color: var(--text); }
+.member-diff-inline-source { margin-top: 18px; }
+.member-diff-source-prompt { color: var(--muted); }
+.diff-analysis-presentation { padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--chrome); }
+.diff-analysis-presentation > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.diff-analysis-presentation h2 { margin: 0; font-size: 12px; }
+.diff-analysis-views { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+.diff-analysis-view { padding: 2px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font: 9px var(--mono); }
+.diff-analysis-outcomes { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.diff-analysis-outcome { display: grid; grid-template-columns: auto auto; gap: 2px 8px; min-width: 150px; padding: 6px 8px; border: 1px solid var(--line); background: var(--panel); font: 10px/1.35 var(--mono); }
+.diff-analysis-outcome > span:last-child { grid-column: 1 / -1; color: var(--muted); }
+.diff-analysis-outcome-compared strong { color: var(--green); }
+.diff-analysis-outcome-unavailable strong { color: var(--yellow); }
+.diff-analysis-outcome-failed strong { color: var(--red); }
+.diff-analysis-name { color: var(--text); }
 @media (max-width: 720px) {
   .member-diff-explorer-header { gap: 9px; padding: 10px; }
   .member-diff-explorer-header h1 { font-size: 14px; }

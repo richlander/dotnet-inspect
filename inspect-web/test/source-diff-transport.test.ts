@@ -167,12 +167,20 @@ void describe("Source diff transport decoder", () => {
         placement: "Stable",
       }]);
       set(candidate, ["value", "diff", "changes"],
-        Array.from({ length: 2_048 }, (_, index) => ({
-        before: { start: index % 1_024, count: 1 },
-        after: { start: 0, count: 0 },
-        innerMappings: [],
-        annotations: [],
-        })));
+        Array.from({ length: 1_024 }, (_, index) => [
+          {
+            before: { start: index, count: 1 },
+            after: { start: index, count: 0 },
+            innerMappings: [],
+            annotations: [],
+          },
+          {
+            before: { start: index + 1, count: 0 },
+            after: { start: index, count: 1 },
+            innerMappings: [],
+            annotations: [],
+          },
+        ]).flat());
     });
     assert.equal(decode(encoded(value)).kind, "decoded");
   });

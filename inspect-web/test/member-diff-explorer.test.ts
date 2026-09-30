@@ -13,6 +13,7 @@ import {
   createMemberDiffExplorer,
   memberDiffSourceRequest,
   renderMemberDiffExplorer,
+  renderInlineMemberSourceDiff,
   renderMemberSourceDiff,
   type MemberDiffExplorerSourceState,
 } from "../src/member-diff-explorer.ts";
@@ -323,18 +324,63 @@ test("Member Diff Explore renders all three evidence panes from typed evidence",
   assert.match(html, /Final line terminators: Before Present; After Absent/);
 });
 
-test("unified Source rendering uses transported relations and mappings", () => {
+test("unified Source rendering walks mapped changes in positional order", () => {
   const html = renderMemberSourceDiff(sourceDiff(), String);
 
-  assert.match(html, /data-side="before" data-line="0"/);
-  assert.match(html, /data-side="after" data-line="0"/);
-  assert.match(html, /Unchanged correspondence · Stable · 1 Before line ↔ 1 After line/);
+  assert.match(html, /data-row-kind="removal" data-before-line="0"/);
+  assert.match(html, /data-row-kind="addition" data-before-line="" data-after-line="0"/);
+  assert.match(html, /data-row-kind="context" data-before-line="1" data-after-line="1"/);
   assert.match(html, /Mapped change evidence/);
   assert.match(html, /Before 0:1 → After 0:1/);
   assert.match(html, /Warning/);
 });
 
-test("decoded N:M moved correspondence remains one relation with independent populations", () => {
+test("a middle insertion renders once between its surrounding context", () => {
+  const diff: BrowserSourceDiff = {
+    version: 1,
+    before: {
+      label: "Before",
+      lines: ["a", "c"],
+      finalLineTerminator: "Present",
+    },
+    after: {
+      label: "After",
+      lines: ["a", "b", "c"],
+      finalLineTerminator: "Present",
+    },
+    relations: [],
+    statistics: {
+      added: 1,
+      removed: 0,
+      changedBefore: 0,
+      changedAfter: 0,
+      movedBefore: 0,
+      movedAfter: 0,
+    },
+    changes: [{
+      before: { start: 1, count: 0 },
+      after: { start: 1, count: 1 },
+      innerMappings: [],
+      annotations: [],
+    }],
+  };
+  const html = renderMemberSourceDiff(diff, String);
+  const first = html.indexOf(
+    'data-row-kind="context" data-before-line="0" data-after-line="0"',
+  );
+  const insertion = html.indexOf(
+    'data-row-kind="addition" data-before-line="" data-after-line="1"',
+  );
+  const last = html.indexOf(
+    'data-row-kind="context" data-before-line="1" data-after-line="2"',
+  );
+  assert.ok(first >= 0 && first < insertion && insertion < last);
+  assert.equal((html.match(/<code>a<\/code>/g) ?? []).length, 1);
+  assert.equal((html.match(/<code>b<\/code>/g) ?? []).length, 1);
+  assert.equal((html.match(/<code>c<\/code>/g) ?? []).length, 1);
+});
+
+test("decoded N:M correspondence cannot override mapped presentation order", () => {
   const value = context();
   const asymmetric: BrowserSourceDiff = {
     version: 1,
@@ -356,14 +402,19 @@ test("decoded N:M moved correspondence remains one relation with independent pop
       placement: "Moved",
     }],
     statistics: {
-      added: 0,
-      removed: 0,
-      changedBefore: 0,
-      changedAfter: 0,
+      added: 1,
+      removed: 2,
+      changedBefore: 2,
+      changedAfter: 1,
       movedBefore: 2,
       movedAfter: 1,
     },
-    changes: [],
+    changes: [{
+      before: { start: 0, count: 2 },
+      after: { start: 0, count: 1 },
+      innerMappings: [],
+      annotations: [],
+    }],
   };
   const decoded = sourceDiffPayloadDecoder.decode(JSON.stringify(
     sourceResult(value, asymmetric),
@@ -376,18 +427,65 @@ test("decoded N:M moved correspondence remains one relation with independent pop
   }
 
   const html = renderMemberSourceDiff(decoded.value.value.diff, String);
-  assert.equal(
-    (html.match(/class="member-diff-source-relation"/g) ?? []).length,
-    1,
-  );
-  assert.match(
-    html,
-    /Unchanged correspondence · Moved · 2 Before lines ↔ 1 After line/,
-  );
-  assert.equal((html.match(/data-side="before"/g) ?? []).length, 2);
-  assert.equal((html.match(/data-side="after"/g) ?? []).length, 1);
+  assert.equal((html.match(/data-row-kind="removal"/g) ?? []).length, 2);
+  assert.equal((html.match(/data-row-kind="addition"/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /correspondence|Moved/);
   assert.match(html, /2 Before moved/);
   assert.match(html, /1 After moved/);
+});
+
+test("inline Member Diff keeps source work explicit", () => {
+  const html = renderInlineMemberSourceDiff(
+    context(),
+    { status: "idle" },
+    String,
+  );
+  assert.match(html, /Authored Source/);
+  assert.match(html, /Show authored Source diff/);
+  assert.doesNotMatch(html, /Loading authored Source/);
+});
+
+test("inline Member Diff starts the shared comparison only on request", () => {
+  const dom = dialogHarness();
+  const value = context();
+  let queries = 0;
+  let renders = 0;
+  const showHandlers: EventListener[] = [];
+  const controller = createMemberDiffExplorer({
+    document: dom.document,
+    operationAuthority: createOperationAuthorityPage(),
+    query: () => {
+      queries++;
+      return new Promise<BrowserSourceComparisonResult>(() => undefined);
+    },
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    escapeHtml: String,
+    reportOperationDiagnostic: () => undefined,
+    renderPage: () => renders++,
+  });
+  controller.reconcile(value);
+  const showButton = fakeDom.htmlElement({
+    addEventListener: (
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+    ) => {
+      if (type === "click" && typeof listener === "function")
+        showHandlers.push(listener);
+    },
+  });
+  controller.bindInline(fakeDom.parentNode({
+    querySelector: (selector: string) =>
+      selector === "[data-member-diff-source-show]"
+      ? showButton
+      : null,
+  }));
+
+  assert.equal(queries, 0);
+  showHandlers[0]?.(fakeDom.event());
+  assert.equal(queries, 1);
+  assert.equal(renders, 1);
+  controller.dispose();
 });
 
 test("identical Source does not upgrade a soft Member correspondence", () => {
@@ -670,6 +768,7 @@ test("non-Tab keys preserve native dialog button activation", () => {
     describeError: error => error instanceof Error ? error.message : String(error),
     escapeHtml: String,
     reportOperationDiagnostic: () => undefined,
+    renderPage: () => undefined,
   });
   controller.open(context(), fakeDom.htmlElement({
     isConnected: true,
@@ -713,6 +812,7 @@ test("retry transition keeps focus inside the dialog", async () => {
     describeError: error => error instanceof Error ? error.message : String(error),
     escapeHtml: String,
     reportOperationDiagnostic: () => undefined,
+    renderPage: () => undefined,
   });
   controller.open(context(), fakeDom.htmlElement({
     isConnected: true,
@@ -734,6 +834,38 @@ test("retry transition keeps focus inside the dialog", async () => {
   controller.dispose();
 });
 
+test("closing Explore keeps a pending inline Source comparison alive", async () => {
+  const dom = dialogHarness();
+  const value = context();
+  const pending = deferred<BrowserSourceComparisonResult>();
+  const cancellations: string[] = [];
+  const controller = createMemberDiffExplorer({
+    document: dom.document,
+    operationAuthority: createOperationAuthorityPage(),
+    query: () => pending.promise,
+    cancel: (_operationId, reason) => cancellations.push(reason),
+    describeError: error => error instanceof Error ? error.message : String(error),
+    escapeHtml: String,
+    reportOperationDiagnostic: () => undefined,
+    renderPage: () => undefined,
+  });
+  controller.open(value, fakeDom.htmlElement({
+    isConnected: true,
+    focus: () => undefined,
+  }));
+
+  const close = dom.dialogs[0]?.closeHandlers.at(-1);
+  if (close === undefined) throw new Error("Expected a Close binding.");
+  close(fakeDom.event());
+  assert.deepEqual(cancellations, []);
+
+  pending.resolve(sourceResult(value));
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.match(controller.renderInline(value), /Authored Source changed/);
+  controller.dispose();
+});
+
 test("replacement cancels pending Source and suppresses its late result", async () => {
   const dom = dialogHarness();
   const pending = deferred<BrowserSourceComparisonResult>();
@@ -751,6 +883,7 @@ test("replacement cancels pending Source and suppresses its late result", async 
     describeError: error => error instanceof Error ? error.message : String(error),
     escapeHtml: String,
     reportOperationDiagnostic: () => undefined,
+    renderPage: () => undefined,
   });
 
   controller.open(context(), fakeDom.htmlElement({
@@ -791,6 +924,7 @@ test("a settled non-failed Source result is retained for the same exact context"
     describeError: error => error instanceof Error ? error.message : String(error),
     escapeHtml: String,
     reportOperationDiagnostic: () => undefined,
+    renderPage: () => undefined,
   });
   const invoker = fakeDom.htmlElement({
     isConnected: true,
@@ -806,7 +940,17 @@ test("a settled non-failed Source result is retained for the same exact context"
   close(fakeDom.event());
   assert.equal(invokerFocus, 1);
 
-  controller.open(value, invoker);
+  const replacement: LibraryApiDiffMemberExploreContext = {
+    ...value,
+    result: { ...value.result },
+    member: { ...value.member },
+    destination: {
+      ...value.destination,
+      target: { ...value.destination.target },
+      current: { ...value.destination.current },
+    },
+  };
+  controller.open(replacement, invoker);
   assert.equal(queries, 1);
   assert.match(dom.dialogs[1]?.innerHTML ?? "", /Authored Source changed/);
   controller.dispose();

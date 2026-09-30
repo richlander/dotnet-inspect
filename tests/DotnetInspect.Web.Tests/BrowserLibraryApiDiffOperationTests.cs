@@ -292,7 +292,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
     }
 
     [Fact]
-    public async Task MemberBodyAnalysesRemainCatalogVisibleAsTypedUnavailable()
+    public async Task MemberUiSelectionCombinesApiWithTypedBodyUnavailability()
     {
         await using Fixture fixture = await Fixture.Open();
         BrowserLibraryApiDiffRequest request = fixture.Request() with
@@ -300,13 +300,17 @@ public sealed class BrowserLibraryApiDiffOperationTests
             Surface = BrowserDiffAnalysisSurface.Member,
             Analyses =
             [
+                "api",
                 "allocation",
                 "call-site",
                 "unsafety",
                 "csharp",
                 "il",
             ],
-            Views = BrowserDiffAnalysisViews.Summary,
+            Views =
+                BrowserDiffAnalysisViews.Changes
+                | BrowserDiffAnalysisViews.Summary
+                | BrowserDiffAnalysisViews.Transitions,
             TypeNames = ["LibraryApiDiffFixture.ChangedType"],
             MemberTargetIdentities = ["M:LibraryApiDiffFixture.ChangedType.Run"],
         };
@@ -327,8 +331,11 @@ public sealed class BrowserLibraryApiDiffOperationTests
         ];
         Assert.Equal(request.Analyses, outcomes.Select(outcome =>
             outcome.GetProperty("analysis").GetString()));
+        JsonElement api = outcomes[0];
+        Assert.Equal("api", api.GetProperty("analysis").GetString());
+        Assert.Equal("Compared", api.GetProperty("kind").GetString());
         Assert.All(
-            outcomes,
+            outcomes[1..],
             outcome =>
             {
                 Assert.Equal(
@@ -340,20 +347,23 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     StringComparison.Ordinal);
             });
         Assert.Equal(
-            request.Analyses.Length,
+            request.Analyses.Length - 1,
             result.Inspection!.Diagnostics.Count(diagnostic =>
                 diagnostic.Code == "diff-analysis.unavailable"));
     }
 
     [Fact]
-    public async Task TypeApiAttributeAnalysisExecutesInBrowser()
+    public async Task TypeUiSelectionExecutesApiAndApiAttributeInBrowser()
     {
         await using Fixture fixture = await Fixture.Open();
         BrowserLibraryApiDiffRequest request = fixture.Request() with
         {
             Surface = BrowserDiffAnalysisSurface.Type,
-            Analyses = ["api-attribute"],
-            Views = BrowserDiffAnalysisViews.Transitions,
+            Analyses = ["api", "api-attribute"],
+            Views =
+                BrowserDiffAnalysisViews.Changes
+                | BrowserDiffAnalysisViews.Summary
+                | BrowserDiffAnalysisViews.Transitions,
             TypeNames = ["LibraryApiDiffFixture.ChangedType"],
         };
 
@@ -364,10 +374,17 @@ public sealed class BrowserLibraryApiDiffOperationTests
             result.Kind);
         JsonElement content = Assert.IsType<
             InspectionEnvelope<JsonElement>>(result.Inspection).Content;
-        JsonElement outcome = Assert.Single(
-            content.GetProperty("outcomes").EnumerateArray());
-        Assert.Equal("api-attribute", outcome.GetProperty("analysis").GetString());
-        Assert.Equal("Compared", outcome.GetProperty("kind").GetString());
+        JsonElement[] outcomes =
+        [
+            .. content.GetProperty("outcomes").EnumerateArray(),
+        ];
+        Assert.Equal(request.Analyses, outcomes.Select(outcome =>
+            outcome.GetProperty("analysis").GetString()));
+        Assert.All(
+            outcomes,
+            outcome => Assert.Equal(
+                "Compared",
+                outcome.GetProperty("kind").GetString()));
         Assert.DoesNotContain(
             result.Inspection!.Diagnostics,
             diagnostic => diagnostic.Code == "diff-analysis.unavailable");
