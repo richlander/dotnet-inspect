@@ -923,7 +923,7 @@ test("same-key Type population consumers join one current operation", () => {
     /state\.typeMemberPopulationLoading[\s\S]*state\.typeMemberPopulationKey === key[\s\S]*typeMemberPopulationLoad\?\.key === key[\s\S]*return typeMemberPopulationLoad\.promise/);
   assert.match(
     populationLoad,
-    /const load: TypeMemberPopulationLoad = \{[\s\S]*typeMemberPopulationLoad = load;[\s\S]*load\.promise = \(async \(\) => \{/);
+    /let typeMemberPopulationOperationGeneration = 0;[\s\S]*const load: TypeMemberPopulationLoad = \{[\s\S]*typeMemberPopulationOperationGeneration\+\+;[\s\S]*typeMemberPopulationLoad = load;[\s\S]*load\.promise = \(async \(\) => \{/);
   assert.match(
     populationLoad,
     /if \(typeMemberPopulationLoad !== load[\s\S]*state\.typeMemberPopulationKey !== key\)[\s\S]*return;/);

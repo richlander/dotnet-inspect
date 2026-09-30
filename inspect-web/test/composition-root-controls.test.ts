@@ -687,7 +687,7 @@ test("typed package view owns package navigation bindings", () => {
     ?? "";
   assert.match(
     selectPerformanceMember,
-    /await loadSelectedTypeMemberPopulation\(\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*await loadSelectedMemberDocumentation\(\)/);
+    /const populationLoad = loadSelectedTypeMemberPopulation\(\);[\s\S]*const expectedPopulationOperation =[\s\S]*typeMemberPopulationOperationGeneration;[\s\S]*await populationLoad;[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationOperationGeneration[\s\S]*!== expectedPopulationOperation[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*await loadSelectedMemberDocumentation\(\)/);
   assert.doesNotMatch(
     drillToPerfMember,
     /group\.overloads\.length > 1/);

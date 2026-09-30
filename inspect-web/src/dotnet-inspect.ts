@@ -9958,11 +9958,16 @@ async function selectPerformanceMember(
   expectedPopulationKey: string,
   expectedPopulationIntent: number,
 ) {
-  await loadSelectedTypeMemberPopulation();
+  const populationLoad = loadSelectedTypeMemberPopulation();
+  const expectedPopulationOperation =
+    typeMemberPopulationOperationGeneration;
+  await populationLoad;
   if (viewSignature() !== expectedView) return;
   const type = selectedType();
   if (!type
     || typeMemberPopulationIntentGeneration !== expectedPopulationIntent
+    || typeMemberPopulationOperationGeneration
+      !== expectedPopulationOperation
     || typeMemberPopulationKey(type) !== expectedPopulationKey
     || state.typeMemberPopulationKey !== expectedPopulationKey) {
     return;
@@ -18451,6 +18456,7 @@ interface TypeMemberPopulationLoad {
 
 let typeMemberPopulationLoad: TypeMemberPopulationLoad | null = null;
 let typeMemberPopulationIntentGeneration = 0;
+let typeMemberPopulationOperationGeneration = 0;
 
 function loadSelectedTypeMemberPopulation(): Promise<void> {
   const type = selectedType();
@@ -18488,6 +18494,7 @@ function loadSelectedTypeMemberPopulation(): Promise<void> {
     key,
     promise: Promise.resolve(),
   };
+  typeMemberPopulationOperationGeneration++;
   typeMemberPopulationLoad = load;
   load.promise = (async () => {
     try {
