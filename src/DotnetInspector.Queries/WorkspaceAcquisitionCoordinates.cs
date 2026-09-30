@@ -939,6 +939,27 @@ public sealed class WorkspacePlatformAssemblyAdmission
     }
 }
 
+/// <summary>
+/// The typed result of discovering one exact Platform implementation-pack
+/// version without acquiring its payload.
+/// </summary>
+public abstract record WorkspacePlatformVersionDiscoveryOutcome
+{
+    private protected WorkspacePlatformVersionDiscoveryOutcome()
+    {
+    }
+
+    /// <summary>The latest listed version in the target framework's release line.</summary>
+    public sealed record Resolved(string Version)
+        : WorkspacePlatformVersionDiscoveryOutcome;
+
+    /// <summary>Version discovery did not identify an eligible exact version.</summary>
+    public sealed record Failed(
+        WorkspaceContextLoadFailureKind Kind,
+        string Message)
+        : WorkspacePlatformVersionDiscoveryOutcome;
+}
+
 /// <summary>The typed result of realizing one workspace context.</summary>
 public abstract record WorkspaceContextLoadOutcome
 {

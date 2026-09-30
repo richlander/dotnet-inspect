@@ -105,8 +105,8 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Theory]
-    [InlineData("", "net11.0", "11.0.7393")]
-    [InlineData("latest", "net10.0", "10.0.7393")]
+    [InlineData("", "net12.0", "12.0.7393")]
+    [InlineData("latest", "net5.0", "5.0.7393")]
     public async Task PlatformWorkspace_FloatingExactUnattributedVersionSettles(
         string platformVersion,
         string targetFramework,
@@ -158,6 +158,9 @@ public sealed partial class BrowserEngineBoundaryTests
                 sourceAuthorization,
                 TimeSpan.FromSeconds(30),
                 TestContext.Current.CancellationToken);
+        Assert.False(
+            handler.CompleteBodyReadBeforeRange,
+            "Consumed a non-Range package response body before the first Range request.");
         Assert.Equal(version, resolution.Coordinate.Version);
         Assert.True(resolution.Scope.ExactPackageRealization);
         Assert.True(handler.RangeRequests >= 1);
@@ -1124,6 +1127,7 @@ public sealed partial class BrowserEngineBoundaryTests
         int _packageRequests;
         int _rangeRequests;
         int _completeGetRequests;
+        int _completeBodyReadBeforeRange;
 
         internal ExactPlatformRangeHandler(
             string packageId,
@@ -1174,6 +1178,9 @@ public sealed partial class BrowserEngineBoundaryTests
         internal int CompleteGetRequests =>
             Volatile.Read(ref _completeGetRequests);
 
+        internal bool CompleteBodyReadBeforeRange =>
+            Volatile.Read(ref _completeBodyReadBeforeRange) != 0;
+
         internal int PackageRequestsFor(string packageId) =>
             _requests.GetValueOrDefault(packageId);
 
@@ -1216,11 +1223,24 @@ public sealed partial class BrowserEngineBoundaryTests
             if (range is null)
             {
                 Interlocked.Increment(ref _completeGetRequests);
-                return Task.FromResult(new HttpResponseMessage(
-                    HttpStatusCode.OK)
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new ByteArrayContent(archive),
-                });
+                    Content = new StreamContent(new TrackingPayloadStream(
+                        archive,
+                        onDispose: static () => { },
+                        onRead: read =>
+                        {
+                            if (read > 0
+                                && Volatile.Read(ref _rangeRequests) == 0)
+                            {
+                                Interlocked.Exchange(
+                                    ref _completeBodyReadBeforeRange,
+                                    1);
+                            }
+                        })),
+                };
+                response.Content.Headers.ContentLength = archive.LongLength;
+                return Task.FromResult(response);
             }
 
             long start = range.From

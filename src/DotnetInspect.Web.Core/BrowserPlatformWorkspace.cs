@@ -2140,9 +2140,32 @@ internal static class BrowserPlatformWorkspace
         AssemblyReferenceIdentity? identity = null)
     {
         if (identity is not null
-            && platformVersion is not null
             && host.PackageClient is not null)
         {
+            if (platformVersion is null)
+            {
+                var discoveryStore =
+                    new TrackingPackageStore(packageLeases);
+                WorkspacePlatformVersionDiscoveryOutcome discovery =
+                    await WorkspaceContextLoader
+                        .DiscoverPlatformVersionAsync(
+                            family,
+                            targetFramework,
+                            Options(discoveryStore, host, deadline),
+                            deadline.Token)
+                        .ConfigureAwait(false);
+                platformVersion = discovery switch
+                {
+                    WorkspacePlatformVersionDiscoveryOutcome.Resolved resolved =>
+                        resolved.Version,
+                    WorkspacePlatformVersionDiscoveryOutcome.Failed failed =>
+                        throw new InvalidOperationException(
+                            $"{failed.Kind}: {failed.Message}"),
+                    _ => throw new InvalidOperationException(
+                        "Platform version discovery returned an unknown outcome."),
+                };
+            }
+
             return await LoadExactAttemptAsync(
                     [
                         new ExactPlatformDemand(

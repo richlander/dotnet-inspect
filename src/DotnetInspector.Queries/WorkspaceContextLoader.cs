@@ -184,6 +184,55 @@ public static class WorkspaceContextLoader
     const string PlatformResolverSource = "NuGet implementation pack";
 
     /// <summary>
+    /// Discovers the latest listed Platform implementation-pack version in the
+    /// target framework's release line without acquiring package payloads.
+    /// </summary>
+    public static async Task<WorkspacePlatformVersionDiscoveryOutcome>
+        DiscoverPlatformVersionAsync(
+        string family,
+        string framework,
+        WorkspaceContextLoadOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(family);
+        ArgumentException.ThrowIfNullOrWhiteSpace(framework);
+        ArgumentNullException.ThrowIfNull(options);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!RealizedMemberCoordinate.IsCanonicalPlatformFamily(family))
+        {
+            return new WorkspacePlatformVersionDiscoveryOutcome.Failed(
+                WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                $"Platform family '{family}' is not supported.");
+        }
+        if (!TryGetPlatformTarget(framework, out Version target))
+        {
+            return new WorkspacePlatformVersionDiscoveryOutcome.Failed(
+                WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                $"Platform family '{family}' requires a modern .NET or .NET Core target framework.");
+        }
+
+        PlatformVersionSelectionOutcome selection =
+            await DiscoverPlatformVersionCoreAsync(
+                family,
+                framework,
+                target,
+                options,
+                cancellationToken).ConfigureAwait(false);
+        return selection switch
+        {
+            PlatformVersionSelectionOutcome.Resolved resolved =>
+                new WorkspacePlatformVersionDiscoveryOutcome.Resolved(
+                    resolved.Version),
+            PlatformVersionSelectionOutcome.Failed failed =>
+                new WorkspacePlatformVersionDiscoveryOutcome.Failed(
+                    failed.Kind,
+                    failed.Message),
+            _ => throw new InvalidOperationException(
+                "Platform version discovery returned an unknown outcome."),
+        };
+    }
+
+    /// <summary>
     /// Admits an already-realized exact Platform assembly population without
     /// reacquiring or enumerating its implementation packs.
     /// </summary>
@@ -1507,79 +1556,50 @@ public static class WorkspaceContextLoader
                     $"Platform family '{family}' version '{member.Version}' does not match target framework '{framework}'."));
         }
 
-        PackageSourceAuthorization authorization =
-            options.SourceAuthorization.AuthorizeSourcesFor(packageId);
-        if (authorization.Sources.Count == 0)
-        {
-            LogPlatformDetail(
-                options,
-                family,
-                authorization.DenialReason);
-            return new MemberRealization(
-                Failure(
-                    WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
-                    member,
-                    $"No source is authorized to provide platform family '{family}'."));
-        }
-
         string version;
-        IReadOnlyList<PackageSource> acquisitionSources =
-            authorization.Sources;
+        IReadOnlyList<PackageSource> acquisitionSources;
         if (pinnedVersion is not null)
         {
+            PackageSourceAuthorization authorization =
+                options.SourceAuthorization.AuthorizeSourcesFor(packageId);
+            if (authorization.Sources.Count == 0)
+            {
+                LogPlatformDetail(
+                    options,
+                    family,
+                    authorization.DenialReason);
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+                        member,
+                        $"No source is authorized to provide platform family '{family}'."));
+            }
+
             version = pinnedVersion;
+            acquisitionSources = authorization.Sources;
         }
         else
         {
-            PackageVersionListingResult listing =
-                await PackageCoordinateResolver.ListVersionsAsync(
-                    options.HttpClient,
-                    packageId,
-                    authorization.Sources,
-                    options.Log,
-                    options.IncludePrerelease,
-                    options.UseVersionCache,
+            PlatformVersionSelectionOutcome discovery =
+                await DiscoverPlatformVersionCoreAsync(
+                    family,
+                    framework,
+                    target,
+                    options,
                     cancellationToken).ConfigureAwait(false);
-            if (listing is not PackageVersionListingResult.Available available)
-            {
-                string? detail = listing switch
-                {
-                    PackageVersionListingResult.Invalid invalid =>
-                        invalid.Message,
-                    PackageVersionListingResult.Unavailable unavailable =>
-                        unavailable.Message,
-                    _ => null,
-                };
-                LogPlatformDetail(options, family, detail);
-                return new MemberRealization(
-                    Failure(
-                        WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
-                        member,
-                        $"No authoritative version listing is available for platform family '{family}'."));
-            }
-
-            PackageVersionListingResult.Candidate? selectedCandidate =
-                available.Candidates
-                .Where(candidate =>
-                    MatchesTarget(
-                        NuGetVersion.Parse(candidate.Version),
-                        target))
-                .OrderBy(candidate =>
-                    NuGetVersion.Parse(candidate.Version))
-                .LastOrDefault();
-            if (selectedCandidate is null)
+            if (discovery is PlatformVersionSelectionOutcome.Failed failed)
             {
                 return new MemberRealization(
                     Failure(
-                        WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+                        failed.Kind,
                         member,
-                        $"No published version of platform family '{family}' matches target framework '{framework}'."));
+                        failed.Message));
             }
 
-            version = NuGetVersion.Parse(selectedCandidate.Version)
-                .ToNormalizedString()
-                .ToLowerInvariant();
-            acquisitionSources = selectedCandidate.ReportingSources;
+            var selected =
+                (PlatformVersionSelectionOutcome.Resolved)discovery;
+            version = selected.Version;
+            acquisitionSources = selected.AcquisitionSources;
         }
 
         PackageCoordinateResolution resolution =
@@ -2067,6 +2087,76 @@ public static class WorkspaceContextLoader
         package.Major == target.Major
         && package.Minor == target.Minor;
 
+    static async Task<PlatformVersionSelectionOutcome>
+        DiscoverPlatformVersionCoreAsync(
+        string family,
+        string framework,
+        Version target,
+        WorkspaceContextLoadOptions options,
+        CancellationToken cancellationToken)
+    {
+        string packageId = PlatformPackageId(family);
+        PackageSourceAuthorization authorization =
+            options.SourceAuthorization.AuthorizeSourcesFor(packageId);
+        if (authorization.Sources.Count == 0)
+        {
+            LogPlatformDetail(
+                options,
+                family,
+                authorization.DenialReason);
+            return new PlatformVersionSelectionOutcome.Failed(
+                WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+                $"No source is authorized to provide platform family '{family}'.");
+        }
+
+        PackageVersionListingResult listing =
+            await PackageCoordinateResolver.ListVersionsAsync(
+                options.HttpClient,
+                packageId,
+                authorization.Sources,
+                options.Log,
+                options.IncludePrerelease,
+                options.UseVersionCache,
+                cancellationToken).ConfigureAwait(false);
+        if (listing is not PackageVersionListingResult.Available available)
+        {
+            string? detail = listing switch
+            {
+                PackageVersionListingResult.Invalid invalid =>
+                    invalid.Message,
+                PackageVersionListingResult.Unavailable unavailable =>
+                    unavailable.Message,
+                _ => null,
+            };
+            LogPlatformDetail(options, family, detail);
+            return new PlatformVersionSelectionOutcome.Failed(
+                WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+                $"No authoritative version listing is available for platform family '{family}'.");
+        }
+
+        PackageVersionListingResult.Candidate? selectedCandidate =
+            available.Candidates
+                .Where(candidate =>
+                    MatchesTarget(
+                        NuGetVersion.Parse(candidate.Version),
+                        target))
+                .OrderBy(candidate =>
+                    NuGetVersion.Parse(candidate.Version))
+                .LastOrDefault();
+        if (selectedCandidate is null)
+        {
+            return new PlatformVersionSelectionOutcome.Failed(
+                WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+                $"No published version of platform family '{family}' matches target framework '{framework}'.");
+        }
+
+        return new PlatformVersionSelectionOutcome.Resolved(
+            NuGetVersion.Parse(selectedCandidate.Version)
+                .ToNormalizedString()
+                .ToLowerInvariant(),
+            selectedCandidate.ReportingSources);
+    }
+
     static string PlatformPackageId(string family) =>
         family.ToLowerInvariant() switch
         {
@@ -2074,6 +2164,19 @@ public static class WorkspaceContextLoader
             "aspnetcore" => AspNetCorePackPackageId,
             _ => throw new ArgumentOutOfRangeException(nameof(family)),
         };
+
+    abstract record PlatformVersionSelectionOutcome
+    {
+        internal sealed record Resolved(
+            string Version,
+            IReadOnlyList<PackageSource> AcquisitionSources)
+            : PlatformVersionSelectionOutcome;
+
+        internal sealed record Failed(
+            WorkspaceContextLoadFailureKind Kind,
+            string Message)
+            : PlatformVersionSelectionOutcome;
+    }
 
     static async Task<MemberRealization> RealizePackageAsync(
         WorkspaceMemberCoordinate.PackageMember member,

@@ -19,6 +19,29 @@ namespace DotnetInspector.Queries.Tests;
 public sealed partial class WorkspaceContextLoaderTests
 {
     [Fact]
+    public async Task PlatformVersionDiscovery_SelectsFrameworkLineWithoutPayload()
+    {
+        using var client = new HttpClient(
+            new PlatformListingHandler(
+                "9.0.9",
+                "10.0.0",
+                RuntimePackVersion,
+                "11.0.0"));
+
+        WorkspacePlatformVersionDiscoveryOutcome outcome =
+            await WorkspaceContextLoader.DiscoverPlatformVersionAsync(
+                "runtime",
+                Framework,
+                Options(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken);
+
+        var resolved =
+            Assert.IsType<WorkspacePlatformVersionDiscoveryOutcome.Resolved>(
+                outcome);
+        Assert.Equal(RuntimePackVersion, resolved.Version);
+    }
+
+    [Fact]
     public async Task PlatformMember_ResolvesFrameworkMatchedVersionAndRealizesContentParticipants()
     {
         await using var workspace = new InspectionWorkspace();
