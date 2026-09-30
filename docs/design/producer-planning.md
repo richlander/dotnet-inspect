@@ -20,12 +20,14 @@ reorder, collapse, and parallelize it without changing its meaning.
 
 Library Body Analysis Execution
 ([Library body Analysis service](library-body-analysis-service.md)) is the
-first adopter: unsafe-evidence presence declares one method-definition
-producer, plans it with Exists, executes it through the serial reference
-executor, and publishes its typed result and receipt. Its production query now
-forms that closing through QuerySpace. Research remains the intended second
-adopter. The adoption sequence, the `LibraryBodyIndex` drain evidence, and the
-producer census are kept in #8568, not here.
+first production adopter of this work-description contract: unsafe-evidence
+presence declares one method-definition producer, plans it with Exists,
+executes it through the serial reference executor, and publishes its typed
+result and receipt. Its production query now forms that closing through
+QuerySpace. The hub remains interim; [Assembly Analysis Operation](assembly-analysis-operation.md)
+is the target composition that retires it. Research remains the intended
+second adopter. The adoption sequence, the `LibraryBodyIndex` drain evidence,
+and the producer census are kept in #8568, not here.
 
 The unsafe-evidence gates listed by its adopting design are verified in
 Release. Properties not exercised by that slice remain **unverified** until
@@ -323,13 +325,15 @@ passes: they "communicate through the tree, never side-channel state".
 **Rule.** A producer is given units. No producer loops over the subject
 itself.
 
-*Lets the lower levels:* cancel and bound work at unit boundaries, yield on
+*Lets the lower levels:* bound and settle work at unit boundaries, yield on
 single-threaded Browser/Wasm, report progress, attribute time per producer,
-and schedule in parallel, all without producer changes.
+and schedule in parallel, all without producer changes. Cancellation, when an
+operation exposes it, remains a coarser orchestrator decision and does not
+enter producer visits or per-unit callbacks.
 
 *Lesson:* Roslyn's operation callbacks and Go's shared `inspect` traversal give
 N analyzers one walk. Analyses that walk the program themselves cannot be
-interrupted, parallelized, or fused.
+bounded, parallelized, or fused.
 
 ### Scope is declared on the edge, not tested inside the visit
 
