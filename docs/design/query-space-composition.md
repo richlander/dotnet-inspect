@@ -395,6 +395,24 @@ affects only that request and its declared dependents. No failure becomes an
 empty Rows result, zero Count, false Exists, omitted association, planner
 decline, or silent retry.
 
+### Plan lifetime and fixed-cost boundary
+
+Request-set planning composes resolved, owner-issued source plans. It does not
+open the subject or rebuild an adjacent owner's internal plan merely because
+that plan enters a request set. A source owner may retain and reuse its
+resource-free plan for an invariant request.
+
+Reuse of a resolved request-set plan is narrower. Every association identity,
+resource identity, source binding, resolved query, result contract, residual,
+and completion requirement must be identical. Reuse never transfers subject
+authority, completion, or a result to another resource or request set.
+
+A singleton execution group preserves its request's resolved source plan. It
+may add typed association and result routing, but it does not broaden source
+work or replace a preplanned source operation with repeated internal planning.
+A runtime-authored or changed request set is planned anew. This distinction is
+plan reuse, not result caching, timed batching, retention, or memoization.
+
 ### Model boundary
 
 Request-set construction, validation, partitioning, and result association are
@@ -435,6 +453,14 @@ issue #8965. No adopter is complete when it wraps
 afterward, or adds an Analysis-owned request union beside Query Space.
 Rendering does not change: the CLI continues through its existing Markout
 lowering and the Browser through its existing typed projection.
+
+The reference planner and first production adopters record exact base/head
+NativeAOT evidence for singleton request-set routing against direct execution
+of the same owner-issued plan, for first and repeated use of an invariant
+request set, and for independent versus collapsed execution. Reports separate
+fixed setup and allocation from source units visited, cover every supported
+terminal, and preserve stable result identity and cardinality. Fewer execution
+groups or source traversals alone is not a performance result.
 
 ### Request-set pathological cases
 
@@ -1050,6 +1076,7 @@ slices:
 | `QuerySpacePreservesExistsClosing` | The unsafe-evidence descriptor advertises only Exists, its owner-issued request retains the method-definition row set and result contract, and request resolution lowers that closing to the Producer Planning Exists terminal before image acquisition. The production borrowed-context gate verifies successful early-stop execution publishes the corresponding producer receipt without prefetched image access; the incomplete-before-evidence gate verifies a failed execution preserves its typed producer outcome and receipt while pre-execution failures remain distinct. |
 | `RequestSetRejectsInvalidAssociationsWithoutWork` | Duplicate association identities, absent resource identities, unresolved requests, source bindings inconsistent with their resource associations, and result-contract mismatches reject the complete set before acquisition. |
 | `CollapsePreservesIndependentReferenceResults` | Source-native, shared-read, singleton, and deliberately unshared plans publish the same per-request values, outcomes, failure units, completion, and evidence as independent reference executions. |
+| `RequestSetPreservesOwnerPlanLifetime` | Planning reads no subject and a singleton group retains its resolved owner-issued source plan without rebuilding that owner's internal plan. Reuse requires identical association and resource identities, source binding, resolved query, result contract, residual, and completion requirement; changing any one forms a new plan. |
 | `SettledRequestSurvivesLaterSharedFailure` | An Exists request settled before a later Rows failure retains its result and settlement evidence; the failed request remains visibly failed and no settled request is charged for later units. |
 | `CoveringReadRequiresOwnerIdentityAndAcceptedCompletion` | Equal display paths with different owner-issued resource identities never group, and no handoff or native answer satisfies a request without its exact accepted completion requirement. |
 | `RequestSetPublishesEveryAssociationExactlyOnce` | Duplicate semantic queries may share work, but the detached result set retains one typed entry per caller-issued association in request-set order, with no missing or multiply assigned entry. |
