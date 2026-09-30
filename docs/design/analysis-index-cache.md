@@ -75,28 +75,24 @@ assembly snapshots intentionally remain until the owner is released so index
 eviction cannot erase generation identity. These policies do not transfer
 identity or authority to another owner.
 
-The returned index may outlive the cache when a caller retains it directly or
-through `ResearchAssemblyContext`. That caller becomes responsible for the
-remaining lifetime. The cache does not require `IDisposable` because it owns no
-terminal resource; dropping its references is the complete release operation.
+The returned index may outlive the cache when a caller retains it directly.
+`ResearchAssemblyContext` no longer accepts or retains an index; it retains
+only receipt-associated focused Analysis results. A direct index holder becomes
+responsible for the remaining lifetime. The cache does not require
+`IDisposable` because it owns no terminal resource; dropping its references is
+the complete release operation.
 
 ## Production composition
 
-`ResearchViews` and `ILOffsetProjectionProducer` construct a fresh cache inside
-one request. Each request may reuse one index across the facts or semantic
-contexts it computes, but a later request starts with no inherited Analysis
-state. The Decompiler annotation corpus creates one
-`ResearchAssemblyContext` per assembly sweep and passes it to each member
-projection, avoiding repeated whole-assembly Analysis while keeping that
-retention inside the sweep.
+Path-backed member production constructs a fresh cache inside one request,
+obtains one `LibraryBodyAnalysisExecution`, and builds
+`MemberProjectionAnalysisInput` from its receipt-associated focused results. A
+later request starts with no inherited Analysis state. Immutable-image
+Workspace composition supplies the same focused input without routing through
+this cache.
 
-Callers that already possess a `ResearchAssemblyContext` continue to supply it
-directly. They do not reopen or rediscover its index through this cache.
-
-`ResearchAssemblyContextCache` is a separate downstream memoization owner,
-tracked by #6755. This slice proves only that `AnalysisIndexCache` adds no
-process root. Until #6755 lands, the current Research memoizer can still retain
-an index reached through the production projection path.
+`ResearchAssemblyContext` derives request-local lazy joins from that focused
+input. It neither reopens Analysis nor independently memoizes an index.
 
 ## Evidence
 
