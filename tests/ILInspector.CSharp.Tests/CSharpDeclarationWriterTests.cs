@@ -84,6 +84,62 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void StructuredTypePlan_UnqualifiedExplicitAccessorKeepsOrdinaryPropertyShape()
+    {
+        var type = new ApiType
+        {
+            Name = "VbImplementation",
+            Kind = "class",
+        };
+        var property = new ApiMember
+        {
+            Name = "PrivateImplementsLocalInternalProperty",
+            Kind = "property",
+            Accessibility = "private",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "PrivateImplementsLocalInternalProperty",
+                ReturnType = "int",
+                Accessors =
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "get",
+                        Name = "get_PrivateImplementsLocalInternalProperty",
+                        IsExplicitInterfaceImplementation = true,
+                    },
+                ],
+            },
+        };
+        type.Members.Add(property);
+
+        CSharpStructuredTypePlan plan =
+            CSharpStructuredTypePlanProducer.Produce(
+                new(
+                    type,
+                    [
+                        new(
+                            property,
+                            CSharpBodyPolicy.Skeleton,
+                            Body: null,
+                            Bodies:
+                            [
+                                new(
+                                    0x06000001,
+                                    CSharpStructuredBodyRole.Getter),
+                            ]),
+                    ]));
+
+        CSharpStructuredDeclarationPlan declaration =
+            Assert.Single(plan.Declarations);
+        Assert.Equal("property", declaration.Member.Kind);
+        Assert.Contains(
+            "private int PrivateImplementsLocalInternalProperty",
+            string.Concat(declaration.Parts.Select(static part => part.FullText)),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TypeDeclaration_PreservesRecordModifiers()
     {
         var abstractType = new ApiType
