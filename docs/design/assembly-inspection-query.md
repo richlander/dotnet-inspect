@@ -1900,7 +1900,7 @@ interface IResearchFactProducer {
     IReadOnlyList<Annotation> Produce(ResearchFactContext context);
 }
 // ResearchFactRegistry holds the producers and Collect()s them;
-// ResearchAssemblyContext.Create(LibraryBodyIndex) builds the shared inputs once.
+// MemberProjectionAnalysisInput joins focused results from one execution.
 ```
 
 The mapping to this spec is nearly 1:1:
@@ -1908,7 +1908,7 @@ The mapping to this spec is nearly 1:1:
 | This spec | Research API |
 | --- | --- |
 | **facet** (one owner) | a producer's `Produces` set — one producer per fact id |
-| **shared PE-owner, parsed once** | `ResearchAssemblyContext.Create(index)` — built once, read by all producers |
+| **shared evidence input** | `MemberProjectionAnalysisInput` — exact focused results from one Analysis execution |
 | **session / hub** | `ResearchFactRegistry` — holds producers, `Collect`s over the shared context |
 | **facet dependencies** | producer `DependsOn` |
 | **CLI selects + renders; service produces** | Research's own contract: *"Producers contribute projection-neutral facts; presenters render the merged set."* |
