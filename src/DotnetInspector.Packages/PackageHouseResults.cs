@@ -522,6 +522,45 @@ public abstract class PackageHouseRealizationReceipt
             ? names.Unmatched(implementationPaths)
             : [];
 
+    private static IReadOnlyList<string> UnmatchedCompile(
+        PackageHouseAcquisitionReceipt acquisition,
+        PackageCompileAssetSelection selection)
+    {
+        PackageImplementationNames? names =
+            acquisition.Decision.Request.ImplementationNames;
+        if (names is null
+            || selection.Status
+                is not (
+                    PackageCompileAssetSelectionStatus.Selected
+                    or PackageCompileAssetSelectionStatus.EmptyCompileGroup))
+        {
+            return [];
+        }
+
+        IReadOnlyList<string> unmatched =
+            names.Unmatched(
+                selection.ImplementationAssets.Select(
+                    static asset => asset.Path));
+        if (!acquisition.Decision.Request
+                .AllowReferenceOnlyImplementationNames
+            || unmatched.Count == 0)
+        {
+            return unmatched;
+        }
+
+        var referenceOnlyNames = new HashSet<string>(
+            selection.Assets
+                .Where(asset =>
+                    selection.FindImplementationAsset(asset) is null)
+                .Select(asset => Path.GetFileName(asset.Path)),
+            StringComparer.OrdinalIgnoreCase);
+        return
+        [
+            .. unmatched.Where(name =>
+                !referenceOnlyNames.Contains(name)),
+        ];
+    }
+
     public abstract ImmutableArray<PackageHouseLibraryHandoff>
         LibraryHandoffs { get; }
 
@@ -539,13 +578,9 @@ public abstract class PackageHouseRealizationReceipt
             PackageHouseRequest request = acquisition.Decision.Request;
 
             Receipt = receipt;
-            UnmatchedImplementationNames = Unmatched(
+            UnmatchedImplementationNames = UnmatchedCompile(
                 acquisition,
-                receipt.Selection.Status
-                    is PackageCompileAssetSelectionStatus.Selected
-                    or PackageCompileAssetSelectionStatus.EmptyCompileGroup,
-                receipt.Selection.ImplementationAssets.Select(
-                    static asset => asset.Path));
+                receipt.Selection);
             Completion = receipt.Selection.Status switch
             {
                 _ when UnmatchedImplementationNames.Count > 0 =>

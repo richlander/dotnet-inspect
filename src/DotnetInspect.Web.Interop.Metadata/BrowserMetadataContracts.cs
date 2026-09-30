@@ -286,6 +286,15 @@ public sealed record BrowserMemberGroupDocumentDiagnostic(
     string Summary,
     string? Correspondence);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserMemberDocumentOutcome>))]
+public enum BrowserMemberDocumentOutcome
+{
+    Available,
+    Rejected,
+    Incomplete,
+    Failed,
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeMemberPopulationOutcome>))]
 public enum BrowserTypeMemberPopulationOutcome
 {
@@ -294,6 +303,23 @@ public enum BrowserTypeMemberPopulationOutcome
     Incomplete,
     Failed,
 }
+
+public sealed record BrowserMemberDocumentInspection(
+    BrowserMemberDocumentOutcome Outcome,
+    string? Detail,
+    BrowserMemberDocument? Document,
+    BrowserMemberGroupDocumentDiagnostic[] Diagnostics);
+
+public sealed record BrowserMemberDocument(
+    string TypeIdentity,
+    string MemberName,
+    int MetadataToken,
+    int BaselineOrdinal,
+    string DisplaySignature,
+    string CanonicalSignature,
+    string Fingerprint,
+    string Accessibility,
+    string Receiver);
 
 public sealed record BrowserTypeMemberPopulationInspection(
     BrowserTypeMemberPopulationOutcome Outcome,
@@ -374,7 +400,8 @@ public sealed record BrowserMemberSurface(
     string AnchorTypeFullName,
     string? DeclaringTypeDefinitionId,
     string GraphSelectorKey,
-    BrowserMemberBodySelector[] BodySelectors);
+    BrowserMemberBodySelector[] BodySelectors,
+    int? BaselineOrdinal = null);
 
 public sealed record BrowserMemberBodySelector(
     int Token,
@@ -407,6 +434,7 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserGraphMemberSurface))]
 [JsonSerializable(typeof(BrowserMemberDeclaration))]
 [JsonSerializable(typeof(BrowserMemberGroupDocumentInspection))]
+[JsonSerializable(typeof(BrowserMemberDocumentInspection))]
 [JsonSerializable(typeof(BrowserTypeMemberPopulationInspection))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(
