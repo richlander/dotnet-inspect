@@ -1577,7 +1577,7 @@ public partial class CommandExecutionTests
     [Fact]
     [Trait("Speed", "Slow")]
     public async Task
-        Find_DefaultExactNamespaceUsesPlatformWorkspace()
+        Find_DefaultExactNamespaceKeepsNaturalBroaderCandidates()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
@@ -1591,21 +1591,47 @@ public partial class CommandExecutionTests
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
             [.. document.RootElement.EnumerateArray()];
-        Assert.Equal(5, rows.Length);
+        Assert.Equal(
+            [
+                "System.Reflection.Emit.OpCodes",
+                "System.Text.Json.Nodes.JsonArray",
+                "System.Text.Json.Nodes.JsonNode",
+                "System.Text.Json.Nodes.JsonNodeOptions",
+                "System.Text.Json.Nodes.JsonObject",
+                "System.Text.Json.Nodes.JsonValue",
+                "System.Xml.Linq.XNode",
+            ],
+            rows.Select(
+                static row =>
+                    row.GetProperty("full_name").GetString()));
+        Assert.Equal(
+            [
+                "Partial",
+                "Namespace",
+                "Namespace",
+                "Namespace",
+                "Namespace",
+                "Namespace",
+                "Partial",
+            ],
+            rows.Select(
+                static row =>
+                    row.GetProperty("match").GetString()));
         Assert.All(
             rows,
             static row =>
-            {
                 Assert.Equal(
                     "runtime",
-                    row.GetProperty("source").GetString());
-                Assert.Equal(
-                    "Namespace",
-                    row.GetProperty("match").GetString());
+                    row.GetProperty("source").GetString()));
+        Assert.All(
+            rows.Where(
+                static row =>
+                    row.GetProperty("match").GetString()
+                        == "Namespace"),
+            static row =>
                 Assert.Equal(
                     "System.Text.Json.Nodes",
-                    row.GetProperty("namespace").GetString());
-            });
+                    row.GetProperty("namespace").GetString()));
         Assert.DoesNotContain(
             rows,
             static row =>
@@ -1793,7 +1819,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task Find_DefaultNamespaceAppliesSemanticRowSelection()
+    public async Task Find_DefaultNamespaceHeadSelectsDiscoveryPrefix()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
@@ -1809,15 +1835,23 @@ public partial class CommandExecutionTests
         using JsonDocument document = JsonDocument.Parse(output);
         Assert.Equal(
             [
+                "System.Reflection.Emit.OpCodes",
                 "System.Text.Json.Nodes.JsonArray",
                 "System.Text.Json.Nodes.JsonNode",
-                "System.Text.Json.Nodes.JsonNodeOptions",
             ],
             document.RootElement
                 .EnumerateArray()
                 .Select(
                     static row =>
                         row.GetProperty("full_name").GetString()!)
+                .ToArray());
+        Assert.Equal(
+            ["Partial", "Namespace", "Namespace"],
+            document.RootElement
+                .EnumerateArray()
+                .Select(
+                    static row =>
+                        row.GetProperty("match").GetString())
                 .ToArray());
     }
 
