@@ -417,6 +417,7 @@ export interface BrowserMemberSurface {
   readonly declaringTypeDefinitionId: string | null;
   readonly graphSelectorKey: string;
   readonly bodySelectors: ReadonlyArray<BrowserMemberBodySelector>;
+  readonly baselineOrdinal: number | null;
 }
 
 export interface BrowserMetadataCell {
