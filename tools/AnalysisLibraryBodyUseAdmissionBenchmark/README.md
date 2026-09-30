@@ -20,7 +20,8 @@ artifacts/body-use-admission/analysis-library-body-use-admission-benchmark \
   --rounds 15
 ```
 
-The harness warms each asset, verifies that every repetition has an identical
-full-result SHA-256 fingerprint, and reports median elapsed time, p95 elapsed
-time, and median allocated bytes. Compare the fingerprints and result columns
-before comparing timings from two commits built with the same SDK and command.
+The harness warms each asset, measures five operations per sample, verifies
+that every repetition has an identical full-result SHA-256 fingerprint, and
+reports median elapsed time, p95 elapsed time, median CPU time, and median
+allocated bytes. Compare the fingerprints and result columns before comparing
+timings from two commits built with the same SDK and command.
