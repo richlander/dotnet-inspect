@@ -1,5 +1,7 @@
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Packages;
+using DotnetInspector.Packages;
+using DotnetInspector.Libraries;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
 using NuGetFetch;
@@ -8,6 +10,674 @@ namespace DotnetInspector.PlatformHouse.Packages.Tests;
 
 public sealed class PackagePlatformAssemblyReferenceResolverTests
 {
+    [Fact]
+    public async Task
+        CanonicalBindingContinuesToExactImplementation()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            ContinuationEnvironment(image);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        AssemblyReferenceIdentity targetIdentity =
+            PackagePlatformTestData.Identity(image);
+        AssemblyReferenceIdentity sourceIdentity =
+            targetIdentity with { Version = new Version(8, 0, 0, 0) };
+        PlatformHouseRequest request =
+            ContinuationRequest(
+                adapter,
+                sourceIdentity,
+                cancellationToken);
+
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var binding = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PackagePlatformAssemblyReferenceResolver
+                    .ResolveAsync(
+                        request,
+                        reference,
+                        Consumed(reference.Value)));
+
+        var completed = Assert.IsType<
+            PackagePlatformAssemblyReferenceImplementationResult.Completed>(
+                await PackagePlatformAssemblyReferenceImplementation
+                    .ContinueAsync(
+                        request,
+                        binding,
+                        PlatformHouseRequestIdentity.Create(
+                            "package-binding-implementation"),
+                        adapter,
+                        "linux-x64",
+                        (implementationRequest, remaining) =>
+                            environment.IssueOperation(
+                                implementationRequest.CancellationToken,
+                                operationTimeout:
+                                    remaining.MaxDuration)));
+
+        var resolved = Assert.IsType<
+            AssemblyBindingDecision.Resolved>(binding.Value);
+        var demand = Assert.IsType<PlatformLibraryDemand.Assembly>(
+            Assert.IsType<PlatformPopulationDemand.Library>(
+                    Assert.IsType<PlatformHouseOperation.Realize>(
+                            completed.ImplementationRequest.Operation)
+                        .Population)
+                .Value);
+        Assert.Equal(targetIdentity, resolved.Candidate.Identity);
+        Assert.Equal(targetIdentity, demand.Identity);
+        PackageImplementationLibrary sourceLibrary =
+            Assert.Single(completed.Source.Value.Libraries);
+        Assert.Equal(targetIdentity, sourceLibrary.Identity);
+
+        PlatformLibraryReference certificate =
+            completed.Implementation.Library.Value;
+        var implementationAssembly =
+            certificate.Library.ImplementationAssembly;
+        Assert.NotNull(implementationAssembly);
+        Assert.NotNull(implementationAssembly!.AssemblyIdentity);
+        Assert.Equal(
+            targetIdentity,
+            implementationAssembly.AssemblyIdentity!.Identity);
+        Assert.Same(
+            completed.Implementation.Library.Value,
+            completed.Implementation.Library.Receipt.RealizedLibrary);
+        Assert.Same(
+            completed.Implementation.Library.Value.Library,
+            completed.Implementation.Library.Owner.Reference);
+        Assert.Equal(2, completed.ConsumedWork!.SourceOperations);
+        Assert.Equal(2, completed.ConsumedWork.Assemblies);
+        Assert.Equal(
+            binding.Receipt.ConsumedWork.Bytes
+                + completed.Implementation.Library.Receipt
+                    .HouseReceipt.ConsumedWork.Bytes,
+            completed.ConsumedWork.Bytes);
+
+        await completed.Implementation.Library.Owner.DisposeAsync();
+        await completed.Implementation.Artifacts.DisposeAsync();
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        CanonicalBindingUsesNamedRangedImplementationAcquisition()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        byte[] referenceArchive = PackagePlatformTestData.Archive(
+            [
+                PackagePlatformTestData.Entry(
+                    "ref/net11.0/System.Text.Json.dll",
+                    image),
+            ]);
+        byte[] implementationArchive =
+            PackagePlatformTestData.Archive(
+                PackagePlatformTestData.RuntimePackEntries(
+                    "Microsoft.NETCore.App",
+                    PackagePlatformTestData.RuntimeConfiguration(),
+                    PackagePlatformTestData.DependencyManifest(
+                        "System.Text.Json.dll"),
+                    ("System.Text.Json.dll", image)));
+        var feed = new PackagePlatformRangeFeed(
+            (
+                PackagePlatformTestEnvironment.RuntimePackageId,
+                PackagePlatformTestEnvironment.Version,
+                referenceArchive),
+            (
+                PackagePlatformTestEnvironment
+                    .RuntimeImplementationPackageId,
+                PackagePlatformTestEnvironment.Version,
+                implementationArchive));
+        PackageSourceAuthorization sources =
+            PackageSourceAuthorization.Authorize(
+                [PackageSource.NuGetOrg]);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.CreateGallery(
+                sources.Authorities[0].Association,
+                feed);
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var store = new InMemoryPackageStore();
+        var source = new PackagePlatformSource(
+            new TestAuthorization(sources),
+            new PackagePayloadAcquisitionPlan(
+                (_, _) => store,
+                rangedSizeCut: 0));
+        var adapter = new PackagePlatformHouseAdapter(
+            source,
+            "package-binding-range");
+        PlatformHouseRequest request =
+            ContinuationRequest(
+                adapter,
+                PackagePlatformTestData.Identity(image) with
+                {
+                    Version = new Version(8, 0, 0, 0),
+                },
+                cancellationToken);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        root.IssueOperationLease(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var binding = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PackagePlatformAssemblyReferenceResolver
+                    .ResolveAsync(
+                        request,
+                        reference,
+                        Consumed(reference.Value)));
+
+        var completed = Assert.IsType<
+            PackagePlatformAssemblyReferenceImplementationResult.Completed>(
+                await PackagePlatformAssemblyReferenceImplementation
+                    .ContinueAsync(
+                        request,
+                        binding,
+                        PlatformHouseRequestIdentity.Create(
+                            "package-binding-range-implementation"),
+                        adapter,
+                        "linux-x64",
+                        (implementationRequest, remaining) =>
+                            root.IssueOperationLease(
+                                implementationRequest.CancellationToken,
+                                operationTimeout:
+                                    remaining.MaxDuration)));
+
+        Assert.Equal(
+            PackagePayloadOrigin.Ranged,
+            Assert.Single(completed.Source.Value.Frameworks).Origin);
+        Assert.True(feed.RangedRequests >= 1);
+        Assert.Null(
+            store.TryGetCached(
+                PackagePlatformTestEnvironment
+                    .RuntimeImplementationPackageId,
+                PackagePlatformTestEnvironment.Version,
+                null));
+        await completed.Implementation.Library.Owner.DisposeAsync();
+        await completed.Implementation.Artifacts.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task
+        ExhaustedBindingWorkDoesNotIssueImplementationOperation()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            ContinuationEnvironment(image);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request =
+            ContinuationRequest(
+                adapter,
+                PackagePlatformTestData.Identity(image) with
+                {
+                    Version = new Version(8, 0, 0, 0),
+                },
+                cancellationToken);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var binding = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PackagePlatformAssemblyReferenceResolver
+                    .ResolveAsync(
+                        request,
+                        reference,
+                        Consumed(
+                            reference.Value,
+                            request.Work.MaxDuration)));
+        int issued = 0;
+
+        var incomplete = Assert.IsType<
+            PackagePlatformAssemblyReferenceImplementationResult
+                .WorkIncomplete>(
+                    await PackagePlatformAssemblyReferenceImplementation
+                        .ContinueAsync(
+                            request,
+                            binding,
+                            PlatformHouseRequestIdentity.Create(
+                                "package-binding-work-incomplete"),
+                            adapter,
+                            "linux-x64",
+                            (_, _) =>
+                            {
+                                issued++;
+                                return environment.IssueOperation(
+                                    cancellationToken,
+                                    operationTimeout:
+                                        TimeSpan.FromSeconds(1));
+                            }));
+
+        Assert.Equal(0, issued);
+        Assert.Equal(
+            TimeSpan.Zero,
+            incomplete.ImplementationRequest.Work.MaxDuration);
+        Assert.Same(
+            binding.Receipt.ConsumedWork,
+            incomplete.ConsumedWork);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        MissingBindingDoesNotIssueImplementationOperation()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            ContinuationEnvironment(image);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        AssemblyReferenceIdentity sourceIdentity =
+            PackagePlatformTestData.Identity(image) with
+            {
+                Version = new Version(8, 0, 0, 0),
+                PublicKeyToken = "0000000000000000",
+            };
+        PlatformHouseRequest request =
+            ContinuationRequest(
+                adapter,
+                sourceIdentity,
+                cancellationToken);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        PlatformHouseOutcome<AssemblyBindingDecision> binding =
+            await PackagePlatformAssemblyReferenceResolver.ResolveAsync(
+                request,
+                reference,
+                Consumed(reference.Value));
+        Assert.IsType<AssemblyBindingDecision.Missing>(
+            Assert.IsType<
+                    PlatformHouseOutcome<
+                        AssemblyBindingDecision>.Completed>(binding)
+                .Value);
+        int issued = 0;
+
+        var notContinued = Assert.IsType<
+            PackagePlatformAssemblyReferenceImplementationResult
+                .NotContinued>(
+                    await PackagePlatformAssemblyReferenceImplementation
+                        .ContinueAsync(
+                            request,
+                            binding,
+                            PlatformHouseRequestIdentity.Create(
+                                "package-binding-not-continued"),
+                            adapter,
+                            "linux-x64",
+                            (_, _) =>
+                            {
+                                issued++;
+                                return environment.IssueOperation(
+                                    cancellationToken,
+                                    operationTimeout:
+                                        request.Work.MaxDuration);
+                            }));
+
+        Assert.Same(binding, notContinued.Binding);
+        Assert.Equal(0, issued);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        MissingNamesakeDoesNotIssueImplementationOperation()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            ContinuationEnvironment(image);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        byte[] missingImage =
+            PackagePlatformTestData.Assembly(
+                "Missing.Platform.Library",
+                new Version(8, 0, 0, 0));
+        AssemblyReferenceIdentity sourceIdentity =
+            PackagePlatformTestData.Identity(missingImage);
+        PlatformHouseRequest request =
+            ContinuationRequest(
+                adapter,
+                sourceIdentity,
+                cancellationToken);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.NotSucceeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        PlatformHouseOutcome<AssemblyBindingDecision> binding =
+            await PackagePlatformAssemblyReferenceResolver.ResolveAsync(
+                request,
+                reference,
+                TerminalConsumed(
+                    PackageSourceTerminalCase.Unavailable));
+        Assert.IsType<AssemblyBindingDecision.Missing>(
+            Assert.IsType<
+                    PlatformHouseOutcome<
+                        AssemblyBindingDecision>.Completed>(binding)
+                .Value);
+        int issued = 0;
+
+        Assert.IsType<
+            PackagePlatformAssemblyReferenceImplementationResult
+                .NotContinued>(
+                    await PackagePlatformAssemblyReferenceImplementation
+                        .ContinueAsync(
+                            request,
+                            binding,
+                            PlatformHouseRequestIdentity.Create(
+                                "package-binding-missing"),
+                            adapter,
+                            "linux-x64",
+                            (_, _) =>
+                            {
+                                issued++;
+                                return environment.IssueOperation(
+                                    cancellationToken,
+                                    operationTimeout:
+                                        request.Work.MaxDuration);
+                            }));
+
+        Assert.Equal(0, issued);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        IdentityMismatchedImplementationRemainsTerminal()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] referenceImage = Image();
+        byte[] implementationImage =
+            PackagePlatformTestData.Assembly(
+                "System.Text.Json",
+                new Version(10, 0, 0, 0));
+        await using PackagePlatformTestEnvironment environment =
+            ContinuationEnvironment(
+                referenceImage,
+                implementationImage);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request =
+            ContinuationRequest(
+                adapter,
+                PackagePlatformTestData.Identity(referenceImage) with
+                {
+                    Version = new Version(8, 0, 0, 0),
+                },
+                cancellationToken);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var binding = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PackagePlatformAssemblyReferenceResolver
+                    .ResolveAsync(
+                        request,
+                        reference,
+                        Consumed(reference.Value)));
+
+        var terminal = Assert.IsType<
+            PackagePlatformAssemblyReferenceImplementationResult
+                .SourceTerminal>(
+                    await PackagePlatformAssemblyReferenceImplementation
+                        .ContinueAsync(
+                            request,
+                            binding,
+                            PlatformHouseRequestIdentity.Create(
+                                "package-binding-identity-mismatch"),
+                            adapter,
+                            "linux-x64",
+                            (implementationRequest, remaining) =>
+                                environment.IssueOperation(
+                                    implementationRequest.CancellationToken,
+                                    operationTimeout:
+                                        remaining.MaxDuration)));
+
+        Assert.Equal(
+            PackagePlatformSourceDiagnosticKind.AssemblyIdentityMismatch,
+            terminal.Source.Diagnostic.Kind);
+        Assert.Null(terminal.ConsumedWork);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        MeasuredImplementationTerminalChargesInvocationAndElapsedTime()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            MissingImplementationEnvironment(image);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request =
+            ContinuationRequest(
+                adapter,
+                PackagePlatformTestData.Identity(image) with
+                {
+                    Version = new Version(8, 0, 0, 0),
+                },
+                cancellationToken);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var binding = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PackagePlatformAssemblyReferenceResolver
+                    .ResolveAsync(
+                        request,
+                        reference,
+                        Consumed(reference.Value)));
+
+        var terminal = Assert.IsType<
+            PackagePlatformAssemblyReferenceImplementationResult
+                .SourceTerminal>(
+                    await PackagePlatformAssemblyReferenceImplementation
+                        .ContinueAsync(
+                            request,
+                            binding,
+                            PlatformHouseRequestIdentity.Create(
+                                "package-binding-missing-implementation"),
+                            adapter,
+                            "linux-x64",
+                            (implementationRequest, remaining) =>
+                                environment.IssueOperation(
+                                    implementationRequest.CancellationToken,
+                                    operationTimeout:
+                                        remaining.MaxDuration)));
+
+        Assert.Equal(
+            PackagePlatformSourceDiagnosticKind.MemberUnavailable,
+            terminal.Source.Diagnostic.Kind);
+        Assert.NotNull(terminal.Source.SourceWork);
+        Assert.NotNull(terminal.ConsumedWork);
+        Assert.Equal(2, terminal.ConsumedWork!.SourceOperations);
+        Assert.True(terminal.ConsumedWork.Elapsed > TimeSpan.Zero);
+        Assert.Equal(
+            binding.Receipt.ConsumedWork.Bytes
+                + terminal.Source.SourceWork!.Bytes,
+            terminal.ConsumedWork.Bytes);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        MaterializationDurationExhaustionTransfersNoAuthority()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            ContinuationEnvironment(image);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request =
+            ContinuationRequest(
+                adapter,
+                PackagePlatformTestData.Identity(image) with
+                {
+                    Version = new Version(8, 0, 0, 0),
+                },
+                cancellationToken);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        TimeSpan remaining = TimeSpan.FromSeconds(1);
+        TimeSpan bindingElapsed =
+            request.Work.MaxDuration - remaining;
+        var binding = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PackagePlatformAssemblyReferenceResolver
+                    .ResolveAsync(
+                        request,
+                        reference,
+                        Consumed(
+                            reference.Value,
+                            bindingElapsed)));
+        var timeProvider = new SequenceTimeProvider(
+            TimeSpan.Zero,
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromMilliseconds(1_500));
+
+        var terminal = Assert.IsType<
+            PackagePlatformAssemblyReferenceImplementationResult
+                .MaterializationTerminal>(
+                    await ContinueWithTimeProviderAsync(
+                        request,
+                        binding,
+                        PlatformHouseRequestIdentity.Create(
+                            "package-binding-materialization-timeout"),
+                        adapter,
+                        "linux-x64",
+                        (implementationRequest, remainingWork) =>
+                            environment.IssueOperation(
+                                implementationRequest.CancellationToken,
+                                operationTimeout:
+                                    remainingWork.MaxDuration),
+                        timeProvider));
+
+        var incomplete = Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformLibraryReference>.Incomplete>(
+                    terminal.Materialization.TerminalRealization.Outcome);
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(1_500),
+            incomplete.Receipt.ConsumedWork.Elapsed);
+        Assert.Equal(
+            bindingElapsed + TimeSpan.FromMilliseconds(1_500),
+            terminal.ConsumedWork!.Elapsed);
+        Assert.Null(
+            terminal.Materialization.TerminalRealization
+                .Receipt.RealizedLibrary);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        CancellationBetweenBindingAndImplementationTransfersNoAuthority()
+    {
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            ContinuationEnvironment(image);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request =
+            ContinuationRequest(
+                adapter,
+                PackagePlatformTestData.Identity(image) with
+                {
+                    Version = new Version(8, 0, 0, 0),
+                },
+                cancellation.Token);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellation.Token,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var binding = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PackagePlatformAssemblyReferenceResolver
+                    .ResolveAsync(
+                        request,
+                        reference,
+                        Consumed(reference.Value)));
+        cancellation.Cancel();
+
+        OperationCanceledException exception =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => PackagePlatformAssemblyReferenceImplementation
+                    .ContinueAsync(
+                        request,
+                        binding,
+                        PlatformHouseRequestIdentity.Create(
+                            "package-binding-cancelled"),
+                        adapter,
+                        "linux-x64",
+                        (implementationRequest, remaining) =>
+                            environment.IssueOperation(
+                                implementationRequest.CancellationToken,
+                                operationTimeout:
+                                    remaining.MaxDuration))
+                    .AsTask());
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        await environment.AssertSettledAsync();
+    }
+
     [Fact]
     public async Task
         AdapterProducesNamesakeBindingContributionAfterPackageSettlement()
@@ -601,6 +1271,60 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
                     ]),
             ]);
 
+    static PackagePlatformTestEnvironment ContinuationEnvironment(
+        byte[] image) =>
+        ContinuationEnvironment(image, image);
+
+    static PackagePlatformTestEnvironment ContinuationEnvironment(
+        byte[] referenceImage,
+        byte[] implementationImage) =>
+        PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.CreatePackages(
+                    (
+                        PackagePlatformTestEnvironment.RuntimePackageId,
+                        PackagePlatformTestEnvironment.Version,
+                        [
+                            PackagePlatformTestData.Entry(
+                                "ref/net11.0/System.Text.Json.dll",
+                                referenceImage),
+                        ]),
+                    (
+                        PackagePlatformTestEnvironment
+                            .RuntimeImplementationPackageId,
+                        PackagePlatformTestEnvironment.Version,
+                        PackagePlatformTestData.RuntimePackEntries(
+                            "Microsoft.NETCore.App",
+                            PackagePlatformTestData.RuntimeConfiguration(),
+                            PackagePlatformTestData.DependencyManifest(
+                                "System.Text.Json.dll"),
+                            ("System.Text.Json.dll",
+                                implementationImage))))
+            ]);
+
+    static PackagePlatformTestEnvironment MissingImplementationEnvironment(
+        byte[] referenceImage) =>
+        PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.CreatePackages(
+                    (
+                        PackagePlatformTestEnvironment.RuntimePackageId,
+                        PackagePlatformTestEnvironment.Version,
+                        [
+                            PackagePlatformTestData.Entry(
+                                "ref/net11.0/System.Text.Json.dll",
+                                referenceImage),
+                        ]),
+                    (
+                        PackagePlatformTestEnvironment
+                            .RuntimeImplementationPackageId,
+                        PackagePlatformTestEnvironment.Version,
+                        PackagePlatformTestData.RuntimePackEntries(
+                            "Microsoft.NETCore.App",
+                            PackagePlatformTestData.RuntimeConfiguration(),
+                            PackagePlatformTestData.DependencyManifest())))
+            ]);
+
     static PackagePlatformHouseAdapter Adapter(
         PackagePlatformTestEnvironment environment) =>
         new(environment.CreateSource(), "package-binding");
@@ -671,8 +1395,51 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
             cancellationToken);
     }
 
+    static PlatformHouseRequest ContinuationRequest(
+        PackagePlatformHouseAdapter adapter,
+        AssemblyReferenceIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        PlatformHouseRequest request = Request(
+            adapter,
+            identity,
+            cancellationToken,
+            maxSourceOperations: 4);
+        var sources = new PlatformSourcePlan(
+            request.Sources.Identity,
+            request.Sources.Generation,
+            [
+                new PlatformSourceSelection(
+                    PlatformSourceFacet.Reference,
+                    PlatformSourceSelectionMode.Precedence,
+                    [adapter.ReferenceRealization]),
+                new PlatformSourceSelection(
+                    PlatformSourceFacet.Implementation,
+                    PlatformSourceSelectionMode.Precedence,
+                    [adapter.ImplementationRealization]),
+            ]);
+        return new PlatformHouseRequest(
+            request.Identity,
+            request.Target,
+            request.Origin,
+            request.Operation,
+            sources,
+            new PlatformHouseWorkBudget(
+                request.Work.MaxSourceOperations,
+                request.Work.MaxTargetCandidates,
+                maxAssemblies: 4,
+                request.Work.MaxXmlDocuments,
+                request.Work.MaxPortablePdbs,
+                request.Work.MaxSourceDocuments,
+                maxBytes: 32 * 1024 * 1024,
+                request.Work.MaxForwardingHops,
+                request.Work.MaxDuration),
+            cancellationToken);
+    }
+
     static PlatformHouseConsumedWork Consumed(
-        PackageReferenceRealization reference)
+        PackageReferenceRealization reference,
+        TimeSpan? elapsed = null)
     {
         PackageReferenceLibrary library =
             Assert.Single(reference.Libraries);
@@ -686,7 +1453,7 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
             bytes: library.ContentLength,
             forwardingHops: 0,
             targetComparisons: 0,
-            elapsed: TimeSpan.Zero);
+            elapsed: elapsed ?? TimeSpan.Zero);
     }
 
     static PackagePlatformTestEnvironment TerminalEnvironment(
@@ -755,6 +1522,46 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
             targetComparisons: 0,
             elapsed: TimeSpan.Zero);
 
+    static ValueTask<
+        PackagePlatformAssemblyReferenceImplementationResult>
+        ContinueWithTimeProviderAsync(
+            PlatformHouseRequest bindingRequest,
+            PlatformHouseOutcome<AssemblyBindingDecision> binding,
+            PlatformHouseRequestIdentity implementationRequestIdentity,
+            PackagePlatformHouseAdapter adapter,
+            string runtimeIdentifier,
+            Func<
+                PlatformHouseRequest,
+                PlatformHouseWorkBudget,
+                PackageSourceOperationLease> issueOperation,
+            TimeProvider timeProvider)
+    {
+        // Keep the production clock seam internal while exercising its
+        // deterministic deadline boundary.
+        System.Reflection.MethodInfo method =
+            typeof(PackagePlatformAssemblyReferenceImplementation)
+                .GetMethods(
+                    System.Reflection.BindingFlags.Static
+                    | System.Reflection.BindingFlags.NonPublic)
+                .Single(
+                    static method =>
+                        method.Name == "ContinueAsync"
+                        && method.GetParameters().Length == 7);
+        return (ValueTask<
+            PackagePlatformAssemblyReferenceImplementationResult>)
+                method.Invoke(
+                    null,
+                    [
+                        bindingRequest,
+                        binding,
+                        implementationRequestIdentity,
+                        adapter,
+                        runtimeIdentifier,
+                        issueOperation,
+                        timeProvider,
+                    ])!;
+    }
+
     static PackagePlatformSourceDiagnosticKind ExpectedDiagnostic(
         PackageSourceTerminalCase terminalCase) =>
         terminalCase switch
@@ -793,5 +1600,21 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
         Rejected,
         Incomplete,
         Failed,
+    }
+
+    sealed class SequenceTimeProvider(
+        params TimeSpan[] timestamps) : TimeProvider
+    {
+        private int _index = -1;
+
+        public override long TimestampFrequency =>
+            TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp()
+        {
+            int index = Interlocked.Increment(ref _index);
+            return timestamps[Math.Min(index, timestamps.Length - 1)]
+                .Ticks;
+        }
     }
 }
