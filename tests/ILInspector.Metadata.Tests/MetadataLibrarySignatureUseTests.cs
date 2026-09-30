@@ -77,6 +77,145 @@ public sealed class MetadataLibrarySignatureUseTests
     }
 
     [Fact]
+    public void ExactNamespaceBatchMatchesIndependentResults()
+    {
+        string[] exactNamespaces =
+        [
+            "ILInspector.Metadata.SignatureUseFixtures.ShardA",
+            "ILInspector.Metadata.SignatureUseFixtures.ShardB",
+            "",
+        ];
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                typeof(FixtureAnchor).Assembly.Location);
+
+        MetadataLibrarySignatureUseResult[] independent =
+        [
+            .. exactNamespaces.Select(exactNamespace =>
+                Available(
+                    session.LibrarySignatureUses(
+                        new(
+                            MetadataOperationPolicy.Unbounded,
+                            exactNamespace),
+                        TestContext.Current.CancellationToken))),
+        ];
+        MetadataLibrarySignatureUseBatchResult batch =
+            Available(
+                session.LibrarySignatureUseBatch(
+                    new(
+                        MetadataOperationPolicy.Unbounded,
+                        exactNamespaces),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(exactNamespaces, batch.Results.Select(
+            static result => result.Receipt.ExactNamespace));
+        for (var index = 0; index < independent.Length; index++)
+        {
+            Assert.Equivalent(
+                independent[index],
+                batch.Results[index],
+                strict: true);
+        }
+        Assert.Equal(
+            independent[0].Receipt.ModuleVersionId,
+            batch.Receipt.ModuleVersionId);
+        Assert.Equal(
+            independent[0].Receipt.Assembly,
+            batch.Receipt.Assembly);
+        Assert.Equal(
+            independent[0].Receipt.Counters.MetadataRows,
+            batch.Receipt.PhysicalCounters.MetadataRows);
+        Assert.True(
+            batch.Receipt.PhysicalCounters.MetadataRows
+                < independent.Sum(
+                    static result =>
+                        result.Receipt.Counters.MetadataRows));
+        Assert.Equal(
+            independent.Sum(
+                static result =>
+                    result.Receipt.Counters.DeclarationCandidates),
+            batch.Receipt.PhysicalCounters.DeclarationCandidates);
+        Assert.Equal(
+            independent.Sum(
+                static result =>
+                    result.Receipt.Counters.RelationshipEdges),
+            batch.Receipt.PhysicalCounters.RelationshipEdges);
+        Assert.Equal(
+            independent.Sum(
+                static result => result.Receipt.Counters.SignatureBytes),
+            batch.Receipt.PhysicalCounters.SignatureBytes);
+    }
+
+    [Fact]
+    public void ExactNamespaceBatchKeepsLimitsIndependent()
+    {
+        const string busyNamespace =
+            "ILInspector.Metadata.SignatureUseFixtures.ShardA";
+        const string healthyNamespace =
+            "ILInspector.Metadata.SignatureUseFixtures.ShardB";
+        var policy = new MetadataOperationPolicy(
+            long.MaxValue,
+            maxDeclarationCandidates: 3);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                typeof(FixtureAnchor).Assembly.Location);
+
+        MetadataLibrarySignatureUseResult busy =
+            Available(
+                session.LibrarySignatureUses(
+                    new(policy, busyNamespace),
+                    TestContext.Current.CancellationToken));
+        MetadataLibrarySignatureUseResult healthy =
+            Available(
+                session.LibrarySignatureUses(
+                    new(policy, healthyNamespace),
+                    TestContext.Current.CancellationToken));
+        MetadataLibrarySignatureUseBatchResult batch =
+            Available(
+                session.LibrarySignatureUseBatch(
+                    new(policy, [busyNamespace, healthyNamespace]),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataLibrarySignatureUseDisposition.Partial,
+            busy.Disposition);
+        Assert.Equal(
+            MetadataLibrarySignatureUseDisposition.Complete,
+            healthy.Disposition);
+        Assert.Equivalent(busy, batch.Results[0], strict: true);
+        Assert.Equivalent(healthy, batch.Results[1], strict: true);
+    }
+
+    [Fact]
+    public void ExactNamespaceBatchRejectsInvalidSetAndSharedImageLimit()
+    {
+        Assert.Throws<ArgumentException>(
+            () => new MetadataLibrarySignatureUseBatchRequest(
+                MetadataOperationPolicy.Unbounded,
+                []));
+        Assert.Throws<ArgumentException>(
+            () => new MetadataLibrarySignatureUseBatchRequest(
+                MetadataOperationPolicy.Unbounded,
+                ["Same", "Same"]));
+
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                typeof(FixtureAnchor).Assembly.Location);
+        var rejected =
+            Assert.IsType<
+                MetadataLibrarySignatureUseBatchOutcome.Rejected>(
+                    session.LibrarySignatureUseBatch(
+                        new(
+                            new MetadataOperationPolicy(maxMetadataRows: 0),
+                            ["ShardA", "ShardB"]),
+                        TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataLibrarySignatureUseRejectionKind.Limit,
+            rejected.Kind);
+    }
+
+    [Fact]
     public void CompletePopulationRetainsEveryDeclarationSiteAndExactEndpoint()
     {
         using AssemblyInspectionSession session =
@@ -829,6 +968,11 @@ public sealed class MetadataLibrarySignatureUseTests
         MetadataLibrarySignatureUseOutcome outcome) =>
         Assert.IsType<
             MetadataLibrarySignatureUseOutcome.Available>(outcome).Result;
+
+    private static MetadataLibrarySignatureUseBatchResult Available(
+        MetadataLibrarySignatureUseBatchOutcome outcome) =>
+        Assert.IsType<
+            MetadataLibrarySignatureUseBatchOutcome.Available>(outcome).Result;
 
     private static MetadataLibrarySignatureType Type(
         MetadataLibrarySignatureUseResult result,

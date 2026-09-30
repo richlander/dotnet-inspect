@@ -72,11 +72,59 @@ public sealed record MetadataLibrarySignatureUseRequest
     public string? ExactNamespace { get; }
 }
 
+public sealed record MetadataLibrarySignatureUseBatchRequest
+{
+    public MetadataLibrarySignatureUseBatchRequest(
+        MetadataOperationPolicy policy,
+        IReadOnlyList<string> exactNamespaces)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(exactNamespaces);
+        if (exactNamespaces.Count == 0)
+        {
+            throw new ArgumentException(
+                "A signature-use batch requires at least one exact namespace.",
+                nameof(exactNamespaces));
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var namespaces =
+            ImmutableArray.CreateBuilder<string>(exactNamespaces.Count);
+        foreach (string? exactNamespace in exactNamespaces)
+        {
+            if (exactNamespace is null)
+            {
+                throw new ArgumentException(
+                    "A signature-use batch cannot contain a null namespace.",
+                    nameof(exactNamespaces));
+            }
+            if (!seen.Add(exactNamespace))
+            {
+                throw new ArgumentException(
+                    "A signature-use batch requires unique exact namespaces.",
+                    nameof(exactNamespaces));
+            }
+            namespaces.Add(exactNamespace);
+        }
+
+        Policy = policy;
+        ExactNamespaces = namespaces.MoveToImmutable();
+    }
+
+    public MetadataOperationPolicy Policy { get; }
+    public ImmutableArray<string> ExactNamespaces { get; }
+}
+
 public sealed record MetadataLibrarySignatureUseReceipt(
     Guid ModuleVersionId,
     AssemblyReferenceIdentity Assembly,
     string? ExactNamespace,
     MetadataOperationCounters Counters);
+
+public sealed record MetadataLibrarySignatureUseBatchReceipt(
+    Guid ModuleVersionId,
+    AssemblyReferenceIdentity Assembly,
+    MetadataOperationCounters PhysicalCounters);
 
 public sealed record MetadataLibrarySignatureType(
     MetadataTypeDefinitionAddress Type,
@@ -155,4 +203,26 @@ public abstract record MetadataLibrarySignatureUseOutcome
         MetadataImageFormatResult? Format = null,
         MetadataOperationCounters? Counters = null)
         : MetadataLibrarySignatureUseOutcome;
+}
+
+public sealed record MetadataLibrarySignatureUseBatchResult(
+    MetadataLibrarySignatureUseBatchReceipt Receipt,
+    ImmutableArray<MetadataLibrarySignatureUseResult> Results);
+
+public abstract record MetadataLibrarySignatureUseBatchOutcome
+{
+    private protected MetadataLibrarySignatureUseBatchOutcome()
+    {
+    }
+
+    public sealed record Available(
+        MetadataLibrarySignatureUseBatchResult Result)
+        : MetadataLibrarySignatureUseBatchOutcome;
+
+    public sealed record Rejected(
+        MetadataLibrarySignatureUseRejectionKind Kind,
+        string Detail,
+        MetadataImageFormatResult? Format = null,
+        MetadataOperationCounters? Counters = null)
+        : MetadataLibrarySignatureUseBatchOutcome;
 }
