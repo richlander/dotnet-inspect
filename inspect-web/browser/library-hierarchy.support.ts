@@ -1075,7 +1075,10 @@ async function installFacades(
             completeCount: completeCounts.get(key) ?? 0,
             members: [],
           };
-          group.members.push(populationMember(member));
+          group.members.push({
+            ...populationMember(member),
+            baselineOrdinal: group.members.length + 1,
+          });
           groups.set(key, group);
         }
         return {
@@ -1558,7 +1561,9 @@ async function installFacades(
         [0x06000100]: 98,
         [0x06000101]: 5,
         [0x06000102]: 40,
-        [0x06000103]: 36
+        [0x06000103]: 36,
+        [0x06000104]: 70,
+        [0x06000105]: 12
       };
       async function typeImplementationHeat(
         surface,
@@ -1581,37 +1586,55 @@ async function installFacades(
           throw new Error("Type implementation-heat query unavailable.");
         const type = surface.types.find(item =>
           item.definitionId === typeDefinitionId);
-        const byName = new Map();
+        const publicByName = new Map();
         for (const member of type?.api ?? []) {
-          if (!byName.has(member.name)) byName.set(member.name, []);
-          byName.get(member.name).push(member);
+          if ((member.accessibility ?? "public") !== "public") continue;
+          if (!publicByName.has(member.name)) publicByName.set(member.name, []);
+          publicByName.get(member.name).push(member);
         }
-        const families = [...byName.entries()]
+        const families = [...publicByName.entries()]
           .filter(([, members]) => members.length > 1)
-          .map(([name, members]) => ({
-            member: name,
-            roster: members.map(member => ({
-              typeDefinitionId,
-              stableSelector: member.stableSelector,
-              metadataToken: member.metadataToken
-            })),
-            methods: members.map(member => ({
-              metadataToken: member.metadataToken,
-              isRosterMember: true,
-              hasBody: true,
-              size: typeHeatSizes[member.metadataToken] ?? 10,
-              isTrivial: false,
-              isComplete: true
-            })),
-            relationships: name === "Run" && members.length === 2
-              ? [{
-                  callerToken: members[0].metadataToken,
-                  calleeToken: members[1].metadataToken
-                }]
-              : [],
-            unavailableBodies: [],
-            analysisDiagnostics: []
-          }));
+          .map(([name, roster]) => {
+            const methods = (type?.api ?? [])
+              .filter(member => member.name === name);
+            const rosterTokens = new Set(
+              roster.map(member => member.metadataToken));
+            return {
+              member: name,
+              roster: roster.map(member => ({
+                typeDefinitionId,
+                stableSelector: member.stableSelector,
+                metadataToken: member.metadataToken
+              })),
+              methods: methods.map(member => ({
+                metadataToken: member.metadataToken,
+                isRosterMember: rosterTokens.has(member.metadataToken),
+                hasBody: true,
+                size: typeHeatSizes[member.metadataToken] ?? 10,
+                isTrivial: false,
+                isComplete: true
+              })),
+              relationships: name === "Run" && roster.length === 2
+                ? [
+                    {
+                      callerToken: roster[0].metadataToken,
+                      calleeToken: roster[1].metadataToken
+                    },
+                    ...(methods.some(member =>
+                      member.metadataToken === 0x06000104)
+                      && methods.some(member =>
+                        member.metadataToken === 0x06000105)
+                      ? [{
+                          callerToken: 0x06000104,
+                          calleeToken: 0x06000105
+                        }]
+                      : [])
+                  ]
+                : [],
+              unavailableBodies: [],
+              analysisDiagnostics: []
+            };
+          });
         return {
           schemaVersion: 1,
           outcome: "available",

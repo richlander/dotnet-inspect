@@ -520,7 +520,7 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
     }
 
     [Fact]
-    public void CDR011_ExplicitInterfacePropertyRemainsOutsideBoundary()
+    public void CDR016_ExplicitInterfacePropertyComposesOwnerAndAggregate()
     {
         PropertyInfo property = typeof(ExplicitPropertyFixture)
             .GetProperties(
@@ -531,15 +531,200 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
             MetadataAccessorSemanticsRole.Getter,
             property.GetMethod!);
 
-        var unavailable = Assert.IsType<
-            CSharpAccessorDeclarationRepresentabilityResult.Unavailable>(
+        var represented = Assert.IsType<
+            CSharpAccessorDeclarationRepresentabilityResult.Representable>(
+                CSharpAccessorDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp14)));
+
+        Assert.NotNull(represented.Request.ExplicitInterfaceIdentity);
+        Assert.NotNull(represented.Request.ExplicitInterface);
+        Assert.NotNull(represented.Request.ExplicitInterfaceAggregate);
+        CSharpAcceptedAccessorBinding getter =
+            Assert.Single(represented.Request.Accessors);
+        Assert.NotNull(getter.ExplicitInterface);
+        Assert.Equal(
+            "int global::ILInspector.CSharp.Tests."
+                + "IExplicitPropertyFixture.Value "
+                + "{ get => throw null; }",
+            CSharpAcceptedAccessorDeclarationRenderer.RenderStub(
+                represented.Request));
+    }
+
+    [Fact]
+    public void CDR016_ExplicitInterfaceIndexerRetainsSelectedBodyAndSibling()
+    {
+        PropertyInfo indexer = typeof(ExplicitIndexerFixture)
+            .GetProperties(
+                BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single();
+        CSharpAccessorDeclarationPost post = Capture(
+            indexer,
+            MetadataAccessorSemanticsRole.Getter,
+            indexer.GetMethod!);
+
+        var represented = Assert.IsType<
+            CSharpAccessorDeclarationRepresentabilityResult.Representable>(
+                CSharpAccessorDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp14)));
+
+        Assert.Equal(
+            [
+                CSharpAccessorBodyPolicy.SelectedBody,
+                CSharpAccessorBodyPolicy.SiblingStub,
+            ],
+            represented.Request.Accessors
+                .Select(accessor => accessor.BodyPolicy)
+                .ToArray());
+        Assert.All(
+            represented.Request.Accessors,
+            accessor => Assert.NotNull(accessor.ExplicitInterface));
+        Assert.Equal(
+            "int global::ILInspector.CSharp.Tests."
+                + "IExplicitIndexerFixture.this[int index] "
+                + "{ get => throw null; set => throw null; }",
+            CSharpAcceptedAccessorDeclarationRenderer.RenderStub(
+                represented.Request));
+    }
+
+    [Fact]
+    public void CDR016_ExplicitInterfaceEventRetainsAddAndRemove()
+    {
+        EventInfo @event = typeof(ExplicitEventFixture)
+            .GetEvents(
+                BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single();
+        CSharpAccessorDeclarationPost post = Capture(
+            @event,
+            MetadataAccessorSemanticsRole.AddOn,
+            @event.AddMethod!);
+
+        var represented = Assert.IsType<
+            CSharpAccessorDeclarationRepresentabilityResult.Representable>(
+                CSharpAccessorDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp14)));
+
+        Assert.All(
+            represented.Request.Accessors,
+            accessor => Assert.NotNull(accessor.ExplicitInterface));
+        Assert.Equal(
+            "event global::System.Action "
+                + "global::ILInspector.CSharp.Tests."
+                + "IExplicitEventFixture.Changed "
+                + "{ add => throw null; remove => throw null; }",
+            CSharpAcceptedAccessorDeclarationRenderer.RenderStub(
+                represented.Request));
+    }
+
+    [Fact]
+    public void CDR016_MismatchedSiblingInterfaceAggregatesRefuseAtomically()
+    {
+        using AuthoredExplicitAccessorFixture fixture =
+            AuthoredExplicitAccessorFixture.Create(
+                splitInterfaceOwners: true);
+        CSharpAccessorDeclarationPost post = fixture.Capture();
+        Assert.Equal(
+            2,
+            post.Implementations
+                .Select(implementation =>
+                    Assert.Single(
+                        Assert.IsType<
+                            MetadataMethodImplementationResult.Related>(
+                                implementation.Method.Implementations)
+                            .Relationships)
+                        .DeclarationOwner)
+                .Distinct()
+                .Count());
+
+        var refused = Assert.IsType<
+            CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable>(
                 CSharpAccessorDeclarationRepresentability.Decide(
                     post,
                     new(CSharpLanguageVersion.CSharp14)));
         Assert.Equal(
-            CSharpAccessorDeclarationUnavailableReason
-                .OutsideInitialBoundary,
-            unavailable.Reason);
+            CSharpAccessorDeclarationRefusalReason
+                .UnsupportedExplicitInterfaceComposition,
+            refused.Reason);
+    }
+
+    [Fact]
+    public void CDR016_DuplicateMethodImplRefusesMultiplicity()
+    {
+        using AuthoredExplicitAccessorFixture fixture =
+            AuthoredExplicitAccessorFixture.Create(
+                duplicateGetterImplementation: true);
+        CSharpAccessorDeclarationPost post = fixture.Capture();
+        Assert.Equal(
+            2,
+            Assert.IsType<MetadataMethodImplementationResult.Related>(
+                    post.Implementations[0].Method.Implementations)
+                .Relationships
+                .Length);
+
+        var refused = Assert.IsType<
+            CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable>(
+                CSharpAccessorDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp14)));
+        Assert.Equal(
+            CSharpAccessorDeclarationRefusalReason
+                .UnsupportedExplicitInterfaceMultiplicity,
+            refused.Reason);
+    }
+
+    [Fact]
+    public void CDR016_DeclarationPropertyRoleMismatchIsUnrepresentable()
+    {
+        using AuthoredExplicitAccessorFixture fixture =
+            AuthoredExplicitAccessorFixture.Create(
+                mismatchedDeclarationPropertySignature: true);
+        CSharpAccessorDeclarationPost post = fixture.Capture();
+        var declaration = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                Assert.Single(post.Implementations[0].Declarations)
+                    .Declaration);
+        Assert.Contains(
+            declaration.Evidence.Accessors,
+            accessor => accessor.Correspondence.Role.Status
+                == MetadataAccessorRoleCorrespondenceStatus.Mismatch);
+
+        var refused = Assert.IsType<
+            CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable>(
+                CSharpAccessorDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp14)));
+        Assert.Equal(
+            CSharpAccessorDeclarationRefusalReason
+                .UnsupportedAccessorCorrespondence,
+            refused.Reason);
+    }
+
+    [Fact]
+    public void CDR016_DeclarationPropertyMultiplicityIsUnrepresentable()
+    {
+        using AuthoredExplicitAccessorFixture fixture =
+            AuthoredExplicitAccessorFixture.Create(
+                duplicateDeclarationGetter: true);
+        CSharpAccessorDeclarationPost post = fixture.Capture();
+        var declaration = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                Assert.Single(post.Implementations[0].Declarations)
+                    .Declaration);
+        Assert.Equal(
+            MetadataPropertyAccessorMultiplicityStatus.NonConventional,
+            declaration.Evidence.Correspondence.PropertyMultiplicity);
+
+        var refused = Assert.IsType<
+            CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable>(
+                CSharpAccessorDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp14)));
+        Assert.Equal(
+            CSharpAccessorDeclarationRefusalReason
+                .UnsupportedAccessorMultiplicity,
+            refused.Reason);
     }
 
     [Fact]
@@ -626,6 +811,17 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
         Assert.Empty(
             typeof(CSharpAcceptedAccessorBinding).GetConstructors(
                 BindingFlags.Instance | BindingFlags.Public));
+        Assert.Empty(
+            typeof(CSharpAccessorImplementationPost).GetConstructors(
+                BindingFlags.Instance | BindingFlags.Public));
+        Assert.Empty(
+            typeof(CSharpAccessorDeclarationRelationshipPost)
+                .GetConstructors(
+                    BindingFlags.Instance | BindingFlags.Public));
+        Assert.Empty(
+            typeof(CSharpAcceptedExplicitAccessorRelationship)
+                .GetConstructors(
+                    BindingFlags.Instance | BindingFlags.Public));
         Assert.Empty(
             typeof(CSharpAcceptedAccessorDeclarationRequest)
                 .GetConstructors(
@@ -1392,6 +1588,331 @@ public sealed class CSharpAccessorDeclarationRepresentabilityTests
             return AddMethod(metadata, name, signature);
         }
     }
+
+    sealed class AuthoredExplicitAccessorFixture : IDisposable
+    {
+        AuthoredExplicitAccessorFixture(
+            string path,
+            MetadataTypeDefinitionAddress type,
+            MetadataMethodAddress method)
+        {
+            Path = path;
+            Type = type;
+            Method = method;
+        }
+
+        string Path { get; }
+
+        MetadataTypeDefinitionAddress Type { get; }
+
+        MetadataMethodAddress Method { get; }
+
+        internal static AuthoredExplicitAccessorFixture Create(
+            bool splitInterfaceOwners = false,
+            bool duplicateGetterImplementation = false,
+            bool mismatchedDeclarationPropertySignature = false,
+            bool duplicateDeclarationGetter = false)
+        {
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("ExplicitAccessorFixture.dll"),
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("ExplicitAccessorFixture"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+
+            BlobHandle getterSignature =
+                metadata.GetOrAddBlob(CreateGetterSignature());
+            BlobHandle setterSignature =
+                metadata.GetOrAddBlob(CreateSetterSignature());
+            MethodDefinitionHandle declarationGetter =
+                AddDeclarationMethod(
+                    metadata,
+                    "get_Value",
+                    getterSignature);
+            MethodDefinitionHandle declarationSetter =
+                AddDeclarationMethod(
+                    metadata,
+                    "set_Value",
+                    setterSignature);
+            MethodDefinitionHandle secondDeclarationGetter =
+                duplicateDeclarationGetter
+                    ? AddDeclarationMethod(
+                        metadata,
+                        "get_Value_2",
+                        getterSignature)
+                    : default;
+
+            var methodBodies = new BlobBuilder();
+            var bodyEncoder = new MethodBodyStreamEncoder(methodBodies);
+            var getterInstructions = new BlobBuilder();
+            getterInstructions.WriteByte((byte)ILOpCode.Ldc_i4_0);
+            getterInstructions.WriteByte((byte)ILOpCode.Ret);
+            int getterBodyOffset =
+                bodyEncoder.AddMethodBody(
+                    new InstructionEncoder(getterInstructions),
+                    maxStack: 1);
+            var setterInstructions = new BlobBuilder();
+            setterInstructions.WriteByte((byte)ILOpCode.Ret);
+            int setterBodyOffset =
+                bodyEncoder.AddMethodBody(
+                    new InstructionEncoder(setterInstructions),
+                    maxStack: 0);
+            MethodDefinitionHandle bodyGetter = AddBodyMethod(
+                metadata,
+                "IValue.get_Value",
+                getterSignature,
+                getterBodyOffset);
+            MethodDefinitionHandle bodySetter = AddBodyMethod(
+                metadata,
+                "IValue.set_Value",
+                setterSignature,
+                setterBodyOffset);
+
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                declarationGetter);
+            TypeDefinitionHandle firstInterface =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public
+                        | TypeAttributes.Interface
+                        | TypeAttributes.Abstract,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString(
+                        splitInterfaceOwners
+                            ? "IGetter"
+                            : "IValue"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    declarationGetter);
+            TypeDefinitionHandle secondInterface = default;
+            if (splitInterfaceOwners)
+            {
+                secondInterface = metadata.AddTypeDefinition(
+                    TypeAttributes.Public
+                        | TypeAttributes.Interface
+                        | TypeAttributes.Abstract,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("ISetter"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    declarationSetter);
+            }
+            TypeDefinitionHandle target = metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Sealed,
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString("Target"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                bodyGetter);
+
+            PropertyDefinitionHandle firstProperty = metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(
+                    CreatePropertySignature(
+                        returnsString:
+                            mismatchedDeclarationPropertySignature)));
+            metadata.AddPropertyMap(firstInterface, firstProperty);
+            metadata.AddMethodSemantics(
+                firstProperty,
+                MethodSemanticsAttributes.Getter,
+                declarationGetter);
+            if (duplicateDeclarationGetter)
+            {
+                metadata.AddMethodSemantics(
+                    firstProperty,
+                    MethodSemanticsAttributes.Getter,
+                    secondDeclarationGetter);
+            }
+            if (!splitInterfaceOwners)
+            {
+                metadata.AddMethodSemantics(
+                    firstProperty,
+                    MethodSemanticsAttributes.Setter,
+                    declarationSetter);
+            }
+
+            if (splitInterfaceOwners)
+            {
+                PropertyDefinitionHandle secondProperty =
+                    metadata.AddProperty(
+                        PropertyAttributes.None,
+                        metadata.GetOrAddString("Value"),
+                        metadata.GetOrAddBlob(
+                            CreatePropertySignature()));
+                metadata.AddPropertyMap(
+                    secondInterface,
+                    secondProperty);
+                metadata.AddMethodSemantics(
+                    secondProperty,
+                    MethodSemanticsAttributes.Setter,
+                    declarationSetter);
+            }
+
+            PropertyDefinitionHandle bodyProperty = metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("IValue.Value"),
+                metadata.GetOrAddBlob(CreatePropertySignature()));
+            metadata.AddPropertyMap(target, bodyProperty);
+            metadata.AddMethodSemantics(
+                bodyProperty,
+                MethodSemanticsAttributes.Getter,
+                bodyGetter);
+            metadata.AddMethodSemantics(
+                bodyProperty,
+                MethodSemanticsAttributes.Setter,
+                bodySetter);
+
+            metadata.AddInterfaceImplementation(
+                target,
+                firstInterface);
+            if (splitInterfaceOwners)
+            {
+                metadata.AddInterfaceImplementation(
+                    target,
+                    secondInterface);
+            }
+            metadata.AddMethodImplementation(
+                target,
+                bodyGetter,
+                declarationGetter);
+            if (duplicateGetterImplementation)
+            {
+                metadata.AddMethodImplementation(
+                    target,
+                    bodyGetter,
+                    declarationGetter);
+            }
+            metadata.AddMethodImplementation(
+                target,
+                bodySetter,
+                declarationSetter);
+
+            var image = new BlobBuilder();
+            new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                methodBodies,
+                flags: CorFlags.ILOnly)
+                .Serialize(image);
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"csharp-explicit-accessor-{Guid.NewGuid():N}.dll");
+            File.WriteAllBytes(path, image.ToArray());
+            using var stream = File.OpenRead(path);
+            using var pe = new PEReader(stream);
+            MetadataReader reader = pe.GetMetadataReader();
+            return new(
+                path,
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    target),
+                MetadataMethodAddress.Create(reader, bodyGetter));
+        }
+
+        internal CSharpAccessorDeclarationPost Capture() =>
+            CSharpAccessorDeclarationRepresentabilityTests.Capture(
+                Path,
+                Type,
+                Method,
+                MetadataOperationPolicy.Unbounded);
+
+        public void Dispose() => File.Delete(Path);
+
+        static MethodDefinitionHandle AddDeclarationMethod(
+            MetadataBuilder metadata,
+            string name,
+            BlobHandle signature) =>
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.HideBySig
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.SpecialName,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(name),
+                signature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+
+        static MethodDefinitionHandle AddBodyMethod(
+            MetadataBuilder metadata,
+            string name,
+            BlobHandle signature,
+            int bodyOffset) =>
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.HideBySig
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.SpecialName,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(name),
+                signature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+
+        static BlobBuilder CreateGetterSignature()
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(isInstanceMethod: true)
+                .Parameters(
+                    0,
+                    returnType => returnType.Type().Int32(),
+                    _ => { });
+            return signature;
+        }
+
+        static BlobBuilder CreateSetterSignature()
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(isInstanceMethod: true)
+                .Parameters(
+                    1,
+                    returnType => returnType.Void(),
+                    parameters =>
+                        parameters.AddParameter().Type().Int32());
+            return signature;
+        }
+
+        static BlobBuilder CreatePropertySignature(
+            bool returnsString = false)
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .PropertySignature(isInstanceProperty: true)
+                .Parameters(
+                    0,
+                    returnType =>
+                    {
+                        SignatureTypeEncoder type = returnType.Type();
+                        if (returnsString)
+                            type.String();
+                        else
+                            type.Int32();
+                    },
+                    _ => { });
+            return signature;
+        }
+    }
 }
 
 interface IExplicitPropertyFixture
@@ -1402,4 +1923,32 @@ interface IExplicitPropertyFixture
 sealed class ExplicitPropertyFixture : IExplicitPropertyFixture
 {
     int IExplicitPropertyFixture.Value => 42;
+}
+
+interface IExplicitIndexerFixture
+{
+    int this[int index] { get; set; }
+}
+
+sealed class ExplicitIndexerFixture : IExplicitIndexerFixture
+{
+    int IExplicitIndexerFixture.this[int index]
+    {
+        get => index;
+        set { }
+    }
+}
+
+interface IExplicitEventFixture
+{
+    event Action Changed;
+}
+
+sealed class ExplicitEventFixture : IExplicitEventFixture
+{
+    event Action IExplicitEventFixture.Changed
+    {
+        add { }
+        remove { }
+    }
 }

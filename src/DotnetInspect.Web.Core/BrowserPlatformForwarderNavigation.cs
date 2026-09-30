@@ -45,6 +45,7 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
 {
     readonly Lock _gate = new();
     readonly HttpClient _networkClient;
+    readonly IPackageSourceClient _packageClient;
     readonly IPackageSourceAuthorization _authorization;
     readonly BrowserPlatformForwarderSource _source;
     readonly TimeSpan _timeout;
@@ -59,6 +60,7 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
         TimeSpan timeout)
     {
         _networkClient = networkClient;
+        _packageClient = packageClient;
         _authorization = authorization;
         _source = new(packageClient, authorization, timeout);
         _timeout = timeout;
@@ -164,9 +166,10 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
                 throw new BrowserPlatformForwarderOperationException(
                     "refused", "The destination Library does not match the resolved module.");
             }
-            // Workspace coordinates still use the cache spelling of the selected configured authority.
-            string expectedProducer = NuGetCache.GetSourceKey(destination.Framework.Authority.Source.Url);
-            if (prepared.Coordinate.Producer != expectedProducer)
+            if (!BrowserPackageWorkspace.MatchesConfiguredProducer(
+                    _packageClient,
+                    destination.Framework.Authority.Source.Url,
+                    prepared.Coordinate.Producer))
             {
                 throw new BrowserPlatformForwarderOperationException(
                     "refused",
@@ -223,7 +226,12 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
         await using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 framework, version, assembly, pack,
-                _networkClient, _authorization, _timeout, cancellationToken);
+                _networkClient,
+                _packageClient,
+                _authorization,
+                acquireCompletePopulation: false,
+                _timeout,
+                cancellationToken);
         LibraryDocument document = await BrowserPlatformSurfaceProjection.ReadForwardersAsync(
             resolution.Scope, resolution.Participant, cleanupFailures, cancellationToken);
         LibraryTypePopulationRowsOutcome? rows = document.Types?.Rows;
