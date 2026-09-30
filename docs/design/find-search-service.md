@@ -266,8 +266,8 @@ The real platform `System.Action` family demonstrates the boundary:
 - one or more non-empty, trimmed patterns;
 - an explicit source scope, after applying the platform default when the user
   supplied none;
-- the all-known ecosystem Workspace plan or an exact caller-ordered
-  `--ecosystem` selection;
+- an empty Workspace plan for ordinary explicit selectors, or an exact
+  caller-ordered `--ecosystem` selection;
 - source and network authorization in `FindOptions`;
 - the visibility choice represented by `IncludeAll`;
 - the operation result limit, when present; and
@@ -306,11 +306,20 @@ does not reproduce. Floating, `@latest`, wildcard version selectors, and the
 other unsupported source shapes remain on the legacy route so this adoption
 does not redefine their selection semantics.
 
-Unsupported source shapes retain an ephemeral
-`AssemblySetInspectionWorkspace`. Each admitted assembly executes the same
-inventory query, and the service projects its type name, namespace, full name,
-kind, library file base name, source, and source version into the internal
-`TypeSearchResult` currency. The library value on this route is path
+Unsupported source shapes retain one invocation-owned empty Workspace and
+acquire each ordered source at most once. Direct, namespace, broadened, and
+similarity passes reuse those resolved assembly sets; a result limit still
+acquires sources lazily in established order and stops before later sources.
+The command owns that lifetime across both Type classification and the
+broadened Member tier.
+This slice's result limit is the trusted `FindOptions.Limit` compatibility
+input. CLI semantic row selection, including `-n`, remains post-classification
+until the stacked row-limit-pushdown successor establishes where the first
+presented row is already determined.
+Each admitted assembly executes the same inventory query, and the service
+projects its type name, namespace, full name, kind, library file base name,
+source, and source version into the internal `TypeSearchResult` currency. The
+library value on this route is path
 provenance, not metadata assembly identity. Locator-backed Package rows derive
 the same published value from the retained selected implementation asset path;
 the attached observation keeps metadata assembly identity separate. Neither
