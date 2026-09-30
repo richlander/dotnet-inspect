@@ -39,7 +39,9 @@ internal static class FindSourceCollector
         FindOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        return options.Ecosystems is null
+        return options.UsesImplicitPlatform
+            ? EcosystemPackCatalog.CreatePlatformWorkspacePlan()
+            : options.Ecosystems is null
             ? EcosystemPackCatalog.CreateWorkspacePlan()
             : EcosystemPackCatalog.CreateWorkspacePlan(
                 options.Ecosystems);
