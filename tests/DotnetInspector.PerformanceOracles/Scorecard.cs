@@ -221,23 +221,26 @@ public static class Scorecard
     }
 
     /// <summary>
-    /// Compares every column's answer with the oracle's, and records each asset
-    /// whose strict window failed in the oracle. A column that succeeds where
-    /// the oracle failed, or fails where it succeeded, is a mismatch.
+    /// Compares every column's answer with the oracle's for the selected
+    /// closings, and records each asset whose strict window failed in the
+    /// oracle. A column that succeeds where the oracle failed, or fails where
+    /// it succeeded, is a mismatch.
     /// </summary>
     public static ScorecardCheck Check<TAsset, TRow>(
         IReadOnlyList<ScorecardAsset<TAsset>> assets,
         ScorecardColumn<TAsset, TRow> oracle,
         IReadOnlyList<ScorecardColumn<TAsset, TRow>> columns,
         Func<TRow, string> rowText,
-        IEqualityComparer<TRow>? rowComparer = null)
+        IEqualityComparer<TRow>? rowComparer = null,
+        IReadOnlyList<ScorecardClosing>? closings = null)
     {
+        closings = RequireClosings(closings);
         var mismatches = new List<ScorecardMismatch>();
         var windowFailures = new List<string>();
         int compared = 0;
         foreach (ScorecardAsset<TAsset> asset in assets)
         {
-            foreach (ScorecardClosing closing in Closings)
+            foreach (ScorecardClosing closing in closings)
             {
                 ScorecardAnswer<TRow> expected = oracle.Answer(closing, asset.Asset);
                 if (closing == ScorecardClosing.Window && expected.WindowFailed)
@@ -258,17 +261,19 @@ public static class Scorecard
     }
 
     /// <summary>
-    /// Times every column on every closing and asset. Each round visits the
-    /// columns in a rotated order; a cell is the median of its round medians.
-    /// A strict window that fails for an asset is recorded as a failed cell
-    /// with no timing.
+    /// Times every column on every selected closing and asset. Each round
+    /// visits the columns in a rotated order; a cell is the median of its
+    /// round medians. A strict window that fails for an asset is recorded as
+    /// a failed cell with no timing.
     /// </summary>
     public static IReadOnlyList<ScorecardCell> Measure<TAsset, TRow>(
         IReadOnlyList<ScorecardAsset<TAsset>> assets,
         IReadOnlyList<ScorecardColumn<TAsset, TRow>> columns,
         ScorecardTiming timing,
-        Action<string>? progress = null)
+        Action<string>? progress = null,
+        IReadOnlyList<ScorecardClosing>? closings = null)
     {
+        closings = RequireClosings(closings);
         var rounds = new Dictionary<(int, ScorecardClosing, string), List<double>>();
         var failed = new HashSet<(int, ScorecardClosing, string)>();
         for (int round = 0; round < timing.Rounds; round++)
@@ -276,7 +281,7 @@ public static class Scorecard
             for (int a = 0; a < assets.Count; a++)
             {
                 ScorecardAsset<TAsset> asset = assets[a];
-                foreach (ScorecardClosing closing in Closings)
+                foreach (ScorecardClosing closing in closings)
                 {
                     for (int i = 0; i < columns.Count; i++)
                     {
@@ -305,7 +310,7 @@ public static class Scorecard
         for (int a = 0; a < assets.Count; a++)
         {
             ScorecardAsset<TAsset> asset = assets[a];
-            foreach (ScorecardClosing closing in Closings)
+            foreach (ScorecardClosing closing in closings)
             {
                 foreach (ScorecardColumn<TAsset, TRow> column in columns)
                 {
@@ -332,7 +337,9 @@ public static class Scorecard
         var byKey = cells.ToDictionary(c => (c.AssetIndex, c.Closing, c.Column));
         string[] columns = [.. cells.Select(c => c.Column).Distinct()];
         int[] assets = [.. cells.Select(c => c.AssetIndex).Distinct()];
-        foreach (ScorecardClosing closing in Closings)
+        ScorecardClosing[] closings =
+            [.. cells.Select(c => c.Closing).Distinct()];
+        foreach (ScorecardClosing closing in closings)
         {
             foreach (string column in columns)
             {
@@ -370,6 +377,8 @@ public static class Scorecard
         IReadOnlyList<ScorecardSummary> summary = Summarize(cells, oracle);
         string[] columns = [.. cells.Select(c => c.Column).Distinct()];
         (int Index, string Name)[] assets = [.. cells.Select(c => (c.AssetIndex, c.Asset)).Distinct()];
+        ScorecardClosing[] closings =
+            [.. cells.Select(c => c.Closing).Distinct()];
         var text = new StringBuilder();
 
         text.Append("Ratios to ").Append(oracle).AppendLine(": geometric mean across assets (min–max); lower is faster.").AppendLine();
@@ -380,7 +389,7 @@ public static class Scorecard
         foreach (string _ in columns)
             text.Append(" ---: |");
         text.AppendLine();
-        foreach (ScorecardClosing closing in Closings)
+        foreach (ScorecardClosing closing in closings)
         {
             ScorecardSummary scored = summary.First(s => s.Closing == closing && s.Column == oracle);
             text.Append("| ").Append(shape.Label(closing)).Append(" | ")
@@ -409,7 +418,7 @@ public static class Scorecard
         var byKey = cells.ToDictionary(c => (c.AssetIndex, c.Closing, c.Column));
         foreach ((int index, string name) in assets)
         {
-            foreach (ScorecardClosing closing in Closings)
+            foreach (ScorecardClosing closing in closings)
             {
                 text.Append("| ").Append(name).Append(" | ").Append(shape.Label(closing)).Append(" |");
                 foreach (string column in columns)
@@ -471,6 +480,26 @@ public static class Scorecard
     }
 
     static long s_sink;
+
+    static IReadOnlyList<ScorecardClosing> RequireClosings(
+        IReadOnlyList<ScorecardClosing>? closings)
+    {
+        if (closings is null)
+            return Closings;
+        if (closings.Count == 0)
+        {
+            throw new ArgumentException(
+                "A scorecard must select at least one closing.",
+                nameof(closings));
+        }
+        if (closings.Distinct().Count() != closings.Count)
+        {
+            throw new ArgumentException(
+                "A scorecard cannot select the same closing more than once.",
+                nameof(closings));
+        }
+        return closings;
+    }
 
     // Consumes every answer without allocating, so no column's work is dead.
     static void Keep<TRow>(ScorecardAnswer<TRow> answer) =>

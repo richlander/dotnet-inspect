@@ -61,10 +61,11 @@ public sealed record MemberGroupScorecardResult(
     MemberGroupScorecardCheck Check,
     IReadOnlyList<MemberGroupScorecardCell> Cells);
 
-public static class MemberGroupPopulation
+public static partial class MemberGroupPopulation
 {
     public static IReadOnlyList<MemberGroupScorecardScenario>
-        Scenarios { get; } =
+        Scenarios
+    { get; } =
         [
             new(
                 "Deserialize public/all",
@@ -252,9 +253,10 @@ public static class MemberGroupPopulation
             return writer.ToString();
 
         writer.WriteLine(
-            "| Scenario | Terminal | Phase | LINQ | NLinq | Planner | Planner alloc |");
+            "| Scenario | Terminal | Phase | LINQ | NLinq | Planner | "
+                + "LINQ alloc | NLinq alloc | Planner alloc |");
         writer.WriteLine(
-            "| --- | --- | --- | ---: | ---: | ---: | ---: |");
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |");
         foreach (MemberGroupScorecardScenario scenario
             in Scenarios)
         {
@@ -267,19 +269,24 @@ public static class MemberGroupPopulation
                             cell.Scenario == scenario.Name
                             && cell.Terminal == terminal
                             && cell.Phase == phase)];
-                    double oracle =
+                    MemberGroupScorecardCell linq =
                         selected.Single(cell =>
-                                cell.Column == "NLinq")
-                            .Microseconds;
+                            cell.Column == "LINQ");
+                    MemberGroupScorecardCell nlinq =
+                        selected.Single(cell =>
+                            cell.Column == "NLinq");
                     MemberGroupScorecardCell planner =
                         selected.Single(cell =>
                             cell.Column == "Planner");
                     writer.WriteLine(
                         $"| {scenario.Name} | {terminal} | {phase} | "
-                            + $"{Ratio(selected, "LINQ", oracle):F2}x | "
-                            + $"1.00x ({oracle:F3} us) | "
-                            + $"{planner.Microseconds / oracle:F2}x "
+                            + $"{linq.Microseconds / nlinq.Microseconds:F2}x "
+                            + $"({linq.Microseconds:F3} us) | "
+                            + $"1.00x ({nlinq.Microseconds:F3} us) | "
+                            + $"{planner.Microseconds / nlinq.Microseconds:F2}x "
                             + $"({planner.Microseconds:F3} us) | "
+                            + $"{linq.AllocatedBytes:N0} B | "
+                            + $"{nlinq.AllocatedBytes:N0} B | "
                             + $"{planner.AllocatedBytes:N0} B |");
                 }
             }
@@ -680,14 +687,6 @@ public static class MemberGroupPopulation
         return values[values.Count / 2];
     }
 
-    private static double Ratio(
-        MemberGroupScorecardCell[] cells,
-        string column,
-        double oracle) =>
-        cells.Single(cell => cell.Column == column)
-            .Microseconds
-            / oracle;
-
     private static double GeometricRatio(
         MemberGroupScorecardCell[] cells,
         string column)
@@ -792,7 +791,8 @@ public static class MemberGroupPopulation
 
         internal MetadataReader Reader { get; }
         internal MetadataMethodSemanticsAssociationResult
-            MethodSemantics { get; }
+            MethodSemantics
+        { get; }
 
         internal static Asset Open(string path)
         {
