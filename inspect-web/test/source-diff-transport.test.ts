@@ -227,6 +227,62 @@ void describe("Source diff transport decoder", () => {
         annotations: [],
       }]);
     }],
+    ["overlapping mapped changes", (value: unknown) => {
+      set(value, ["value", "diff", "before", "lines"], ["a", "b", "c"]);
+      set(value, ["value", "diff", "after", "lines"], ["a", "b", "c"]);
+      set(value, ["value", "diff", "changes"], [
+        {
+          before: { start: 0, count: 2 },
+          after: { start: 0, count: 2 },
+          innerMappings: [],
+          annotations: [],
+        },
+        {
+          before: { start: 1, count: 1 },
+          after: { start: 1, count: 1 },
+          innerMappings: [],
+          annotations: [],
+        },
+      ]);
+    }],
+    ["reordered mapped changes", (value: unknown) => {
+      set(value, ["value", "diff", "before", "lines"], ["a", "b", "c"]);
+      set(value, ["value", "diff", "after", "lines"], ["a", "b", "c"]);
+      set(value, ["value", "diff", "changes"], [
+        {
+          before: { start: 2, count: 0 },
+          after: { start: 2, count: 1 },
+          innerMappings: [],
+          annotations: [],
+        },
+        {
+          before: { start: 1, count: 1 },
+          after: { start: 1, count: 0 },
+          innerMappings: [],
+          annotations: [],
+        },
+      ]);
+    }],
+    ["unequal unchanged gaps", (value: unknown) => {
+      set(value, ["value", "diff", "before", "lines"], ["a", "b"]);
+      set(value, ["value", "diff", "after", "lines"], ["a", "b", "c"]);
+      set(value, ["value", "diff", "changes"], [{
+        before: { start: 1, count: 1 },
+        after: { start: 2, count: 1 },
+        innerMappings: [],
+        annotations: [],
+      }]);
+    }],
+    ["unequal trailing unchanged ranges", (value: unknown) => {
+      set(value, ["value", "diff", "before", "lines"], ["a", "b"]);
+      set(value, ["value", "diff", "after", "lines"], ["a", "b", "c"]);
+      set(value, ["value", "diff", "changes"], [{
+        before: { start: 0, count: 1 },
+        after: { start: 0, count: 1 },
+        innerMappings: [],
+        annotations: [],
+      }]);
+    }],
     ["empty inner mapping", (value: unknown) => {
       set(value, ["value", "diff", "changes"], [{
         before: { start: 0, count: 1 },

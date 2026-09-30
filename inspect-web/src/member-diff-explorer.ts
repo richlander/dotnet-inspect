@@ -585,6 +585,16 @@ function isRetainable(result: BrowserSourceComparisonResult): boolean {
     && result.value.status !== "Failed";
 }
 
+function retriesOnActivation(source: MemberDiffExplorerSourceState): boolean {
+  return source.status === "failed"
+    || source.status === "canceled"
+    || (source.status === "ready"
+      && (source.result.kind === "Failed"
+        || source.result.kind === "Canceled"
+        || (source.result.kind === "Succeeded"
+          && source.result.value?.status === "Failed")));
+}
+
 export function createMemberDiffExplorer(
   dependencies: MemberDiffExplorerDependencies,
 ): MemberDiffExplorerController {
@@ -815,6 +825,7 @@ export function createMemberDiffExplorer(
           : { status: "idle" };
       } else {
         context = nextContext;
+        if (retriesOnActivation(source)) source = { status: "idle" };
       }
       invoker = nextInvoker;
       const nextDialog = dependencies.document.createElement("dialog");

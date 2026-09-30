@@ -601,6 +601,28 @@ test("application admission closes on every non-Compare route", () => {
   }
 });
 
+test("application generic Diff selection uses producer-owned identities", () => {
+  assert.match(
+    appSource,
+    /function typeQueryIdentifierOf\(type: AppTypeSurface\): string \{\s*return type\.queryId \?\? type\.id;\s*}/,
+  );
+  const selectionSource = appSource.match(
+    /function currentLibraryApiDiffSelection\(\)[\s\S]*?\n}\n\nfunction cloneScopePackages/,
+  )?.[0] ?? "";
+  assert.match(
+    selectionSource,
+    /case "type":[\s\S]*?typeNames: \[typeQueryIdentifierOf\(subject\.type\)\]/,
+  );
+  assert.match(
+    selectionSource,
+    /case "member":[\s\S]*?typeNames: \[overload\.anchorTypeFullName\],[\s\S]*?memberTargetIdentities: \[overload\.stableSelector\]/,
+  );
+  assert.doesNotMatch(
+    selectionSource,
+    /memberTargetIdentities: \[[^\]]*anchorDigest/,
+  );
+});
+
 test("successful rendering preserves producer order and exact nullable Type identities", () => {
   const html = renderLibraryApiDiff({
     status: "ready",
@@ -713,9 +735,18 @@ test("unavailable rendering discloses retained endpoint failure evidence", () =>
   const result: BrowserLibraryApiDiffResult = {
     ...succeeded("1.0.0"),
     kind: "Unavailable",
-    inspection: inspection({
-      outcome: "unavailable", kind: 0, before: {}, after: {},
-    }),
+    inspection: inspection(
+      { outcome: "unavailable", kind: 0, before: {}, after: {} },
+      {
+        analyses: ["api"],
+        outcomes: [{
+          analysis: "api",
+          kind: "Unavailable",
+          findings: ["metadata.type", "metadata.member"],
+          detail: "The target API surface is incomplete.",
+        }],
+      },
+    ),
     value: null,
     unavailable: {
       kind: "TargetIncomplete",
@@ -761,6 +792,8 @@ test("unavailable rendering discloses retained endpoint failure evidence", () =>
     result,
   }, String);
 
+  assert.match(html, /data-diff-analysis="api"[\s\S]*Unavailable/);
+  assert.match(html, /The target API surface is incomplete\./);
   assert.match(html, /Target endpoint evidence/);
   assert.match(html, /generic-constraint at 0x02000001/);
   assert.match(html, /MalformedSignature/);

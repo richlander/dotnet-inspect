@@ -6535,6 +6535,10 @@ function typeIdentifierOf(type: AppTypeSurface): string {
   return type.definitionId ?? type.id;
 }
 
+function typeQueryIdentifierOf(type: AppTypeSurface): string {
+  return type.queryId ?? type.id;
+}
+
 function typeFullDisplay(type: AppTypeSurface): string {
   const name = typeDisplayName(type);
   return type.namespace ? `${type.namespace}.${name}` : name;
@@ -6554,7 +6558,10 @@ function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
   const subject = currentCompareSubject();
   if (!subject || currentCompareMode() !== "diff") return null;
   if (subject.kind === "member"
-    && (!subject.overload || !subject.overload.anchorDigest)) {
+    && (!subject.overload
+      || !subject.overload.anchorDigest
+      || !subject.overload.stableSelector
+      || !subject.overload.anchorTypeFullName)) {
     return null;
   }
   const { pkg, library } = subject;
@@ -6579,14 +6586,16 @@ function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
             surface: "Type",
             analyses: ["api", "api-attribute"],
             views: "Changes, Summary, Transitions",
-            typeNames: [typeIdentifierOf(subject.type)],
+            typeNames: [typeQueryIdentifierOf(subject.type)],
             memberTargetIdentities: [],
           };
         case "member": {
-          const memberTargetIdentity = subject.overload?.anchorDigest;
-          if (!memberTargetIdentity) {
+          const overload = subject.overload;
+          if (!overload?.anchorDigest
+            || !overload.stableSelector
+            || !overload.anchorTypeFullName) {
             throw new Error(
-              "Member Diff requires one exact owner-issued Member identity.",
+              "Member Diff requires one complete owner-issued Member identity.",
             );
           }
           return {
@@ -6600,8 +6609,8 @@ function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
               "il",
             ],
             views: "Changes, Summary, Transitions",
-            typeNames: [typeIdentifierOf(subject.type)],
-            memberTargetIdentities: [memberTargetIdentity],
+            typeNames: [overload.anchorTypeFullName],
+            memberTargetIdentities: [overload.stableSelector],
           };
         }
         default:

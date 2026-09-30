@@ -834,6 +834,57 @@ test("retry transition keeps focus inside the dialog", async () => {
   controller.dispose();
 });
 
+test("reopening Explore retries a failed Source comparison", async () => {
+  const dom = dialogHarness();
+  const value = context();
+  const pending = deferred<BrowserSourceComparisonResult>();
+  let queries = 0;
+  const controller = createMemberDiffExplorer({
+    document: dom.document,
+    operationAuthority: createOperationAuthorityPage(),
+    query: () => {
+      queries++;
+      return queries === 1
+        ? Promise.resolve({
+            version: 1,
+            kind: "Failed",
+            value: null,
+            failureKind: "Expected",
+            error: "Source was unavailable.",
+            diagnostic: null,
+            reason: null,
+            capacity: null,
+          })
+        : pending.promise;
+    },
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    escapeHtml: String,
+    reportOperationDiagnostic: () => undefined,
+    renderPage: () => undefined,
+  });
+  const invoker = fakeDom.htmlElement({
+    isConnected: true,
+    focus: () => undefined,
+  });
+
+  controller.open(value, invoker);
+  await Promise.resolve();
+  await Promise.resolve();
+  const close = dom.dialogs[0]?.closeHandlers.at(-1);
+  if (close === undefined) throw new Error("Expected a Close binding.");
+  close(fakeDom.event());
+
+  controller.open(value, invoker);
+  assert.equal(queries, 2);
+
+  pending.resolve(sourceResult(value));
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.match(dom.dialogs[1]?.innerHTML ?? "", /Authored Source changed/);
+  controller.dispose();
+});
+
 test("closing Explore keeps a pending inline Source comparison alive", async () => {
   const dom = dialogHarness();
   const value = context();

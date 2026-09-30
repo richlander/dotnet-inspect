@@ -1679,12 +1679,13 @@ function renderDiffAnalysisPresentation(
   }).join("");
   const views = content.views.map(view =>
     `<span class="diff-analysis-view">${escapeHtml(view)}</span>`).join("");
-  const specialized = diffPresentationRegistry.some(registration =>
+  const hasRegisteredPresentation = diffPresentationRegistry.some(registration =>
       registration.kind === "library-api"
       && content.views.includes(registration.view)
       && content.outcomes.some(outcome =>
         outcome.analysis === registration.analysis
-        && outcome.kind === "Compared"))
+        && outcome.kind === "Compared"));
+  const specialized = result.kind !== "Succeeded" || hasRegisteredPresentation
     ? specializedContent
     : "";
   return `<section class="diff-analysis-presentation" aria-labelledby="diff-analysis-title">

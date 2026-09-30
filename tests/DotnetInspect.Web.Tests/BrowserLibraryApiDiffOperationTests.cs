@@ -295,6 +295,20 @@ public sealed class BrowserLibraryApiDiffOperationTests
     public async Task MemberUiSelectionCombinesApiWithTypedBodyUnavailability()
     {
         await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffResult library =
+            await fixture.Query(fixture.Request());
+        BrowserLibraryApiDiffSucceeded libraryValue =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(library.Value);
+        BrowserLibraryApiDiffType changedType = Assert.Single(
+            libraryValue.Types,
+            type => type.Display
+                == "LibraryApiDiffFixture.ProjectionReceiver");
+        BrowserLibraryApiDiffMember changedMember = Assert.Single(
+            changedType.Members,
+            member => member.Role
+                == BrowserLibraryApiDiffMemberRelationRole.After);
+        BrowserLibraryApiDiffMemberIdentity selectedMember =
+            changedMember.After ?? changedMember.Before!;
         BrowserLibraryApiDiffRequest request = fixture.Request() with
         {
             Surface = BrowserDiffAnalysisSurface.Member,
@@ -311,8 +325,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 BrowserDiffAnalysisViews.Changes
                 | BrowserDiffAnalysisViews.Summary
                 | BrowserDiffAnalysisViews.Transitions,
-            TypeNames = ["LibraryApiDiffFixture.ChangedType"],
-            MemberTargetIdentities = ["M:LibraryApiDiffFixture.ChangedType.Run"],
+            TypeNames = [selectedMember.DeclaringTypeIdentifier],
+            MemberTargetIdentities = [selectedMember.StableSelector],
         };
 
         BrowserLibraryApiDiffResult result = await fixture.Query(request);
@@ -350,12 +364,22 @@ public sealed class BrowserLibraryApiDiffOperationTests
             request.Analyses.Length - 1,
             result.Inspection!.Diagnostics.Count(diagnostic =>
                 diagnostic.Code == "diff-analysis.unavailable"));
+        Assert.NotEmpty(
+            content.GetProperty("changes").GetProperty("types").EnumerateArray());
     }
 
     [Fact]
     public async Task TypeUiSelectionExecutesApiAndApiAttributeInBrowser()
     {
         await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffResult library =
+            await fixture.Query(fixture.Request());
+        BrowserLibraryApiDiffSucceeded libraryValue =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(library.Value);
+        BrowserLibraryApiDiffType changedType = Assert.Single(
+            libraryValue.Types,
+            type => type.Display
+                == "LibraryApiDiffFixture.ProjectionReceiver");
         BrowserLibraryApiDiffRequest request = fixture.Request() with
         {
             Surface = BrowserDiffAnalysisSurface.Type,
@@ -364,7 +388,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 BrowserDiffAnalysisViews.Changes
                 | BrowserDiffAnalysisViews.Summary
                 | BrowserDiffAnalysisViews.Transitions,
-            TypeNames = ["LibraryApiDiffFixture.ChangedType"],
+            TypeNames = [changedType.After!.Identifier],
         };
 
         BrowserLibraryApiDiffResult result = await fixture.Query(request);
