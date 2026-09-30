@@ -225,11 +225,11 @@ than an inspected artifact:
 - `tests/NLinq.Oracle` is the pinned NLinq copy, with its provenance in
   `PROVENANCE.md`.
 - `tests/DotnetInspector.PerformanceOracles` adds the operators NLinq lacks
-  (`Take`, `Skip`, `TryTakeExactly` for a strict window, and `TakeLast`), the
-  method-definition source, and the `Scorecard` harness that checks answers
-  and times rotated rounds. `MethodPopulation<TSelection>` supplies the LINQ
-  and NLinq columns for any method selection; an enablement registers its Old
-  and Planner columns beside them.
+  (`Take`, `Skip`, stable `OrderBy`, `TryTakeExactly` for a strict window, and
+  `TakeLast`), the method-definition source, and the `Scorecard` harness that
+  checks answers and times rotated rounds. `MethodPopulation<TSelection>`
+  supplies the LINQ and NLinq columns for any method selection; an enablement
+  registers its Old and Planner columns beside them.
 - `tests/ILInspector.Metadata.PerformanceOracles.Tests` owns the privileged
   Metadata test projection. `MemberGroupPopulation` projects Metadata's
   prepared exact-overload model through LINQ, NLinq, and the shipping Planner

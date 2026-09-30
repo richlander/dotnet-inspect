@@ -197,13 +197,18 @@ public static class TypeFindPopulationScorecard
         if (rows.Count == 0)
             return null;
 
-        rows.Sort(new StableCandidateComparer(rows));
+        ListEnumerator<TypeFindPopulationCandidate<int>> ordered =
+            OracleOperators.OrderBy<
+                ListEnumerator<TypeFindPopulationCandidate<int>>,
+                TypeFindPopulationCandidate<int>>(
+                    rows.AsNLinq(),
+                    TypeFindPopulationCandidateComparer.Instance);
         var projected = NLinqExtensions.Select<
             ListEnumerator<TypeFindPopulationCandidate<int>>,
             TypeFindPopulationCandidate<int>,
             TypeFindPopulationMatch<int>,
             CandidateExactMatch>(
-                rows.AsNLinq(),
+                ordered,
                 new CandidateExactMatch());
         List<TypeFindPopulationMatch<int>> result = projected.ToList();
         return new(effectivePattern, selectionTier, [.. result]);
@@ -245,7 +250,37 @@ public static class TypeFindPopulationScorecard
                 minSimilarity: 0.5,
                 maxResults: 5),
         ];
-        return ProjectPartial(candidates, pattern, closest);
+        if (closest.Count == 0)
+            return null;
+
+        Dictionary<string, double> similarities = Similarities(closest);
+        var candidatesSource = candidates.AsNLinq();
+        var selected = NLinqExtensions.Where<
+            ReadOnlyListEnumerator<TypeFindPopulationCandidate<int>>,
+            TypeFindPopulationCandidate<int>,
+            HasSimilarity>(
+                candidatesSource,
+                new HasSimilarity(similarities));
+        ListEnumerator<TypeFindPopulationCandidate<int>> ordered =
+            OracleOperators.OrderBy<
+                Filter<
+                    TypeFindPopulationCandidate<int>,
+                    ReadOnlyListEnumerator<TypeFindPopulationCandidate<int>>,
+                    HasSimilarity>,
+                TypeFindPopulationCandidate<int>>(
+                    selected,
+                    new PartialCandidateComparer(similarities));
+        var projected = NLinqExtensions.Select<
+            ListEnumerator<TypeFindPopulationCandidate<int>>,
+            TypeFindPopulationCandidate<int>,
+            TypeFindPopulationMatch<int>,
+            CandidatePartialMatch>(
+                ordered,
+                new CandidatePartialMatch(similarities));
+        return new(
+            pattern,
+            TypeFindPopulationTier.Partial,
+            [.. projected.ToList()]);
     }
 
     static TypeFindPopulationSelection<int>? ProjectPartial(
@@ -256,10 +291,7 @@ public static class TypeFindPopulationScorecard
         if (closest.Count == 0)
             return null;
 
-        Dictionary<string, double> similarities = closest.ToDictionary(
-            static match => match.Name,
-            static match => match.Similarity,
-            StringComparer.Ordinal);
+        Dictionary<string, double> similarities = Similarities(closest);
         return new(
             pattern,
             TypeFindPopulationTier.Partial,
@@ -275,6 +307,13 @@ public static class TypeFindPopulationScorecard
                         similarities[candidate.FullName])),
             ]);
     }
+
+    static Dictionary<string, double> Similarities(
+        IReadOnlyList<(string Name, double Similarity)> closest) =>
+        closest.ToDictionary(
+            static match => match.Name,
+            static match => match.Similarity,
+            StringComparer.Ordinal);
 
     static IReadOnlyList<TypeFindPopulationScorecardRow> Normalize(
         TypeFindPopulationSelection<int>? selection) =>
@@ -327,29 +366,6 @@ public static class TypeFindPopulationScorecard
             TypeNameMatchRanking.CompareWithinTier(left!.FullName, right!.FullName);
     }
 
-    sealed class StableCandidateComparer : IComparer<TypeFindPopulationCandidate<int>>
-    {
-        readonly Dictionary<string, int> _order;
-
-        public StableCandidateComparer(IReadOnlyList<TypeFindPopulationCandidate<int>> candidates)
-        {
-            _order = new(candidates.Count, StringComparer.Ordinal);
-            for (int i = 0; i < candidates.Count; i++)
-                _order.Add(candidates[i].FullName, i);
-        }
-
-        public int Compare(
-            TypeFindPopulationCandidate<int>? left,
-            TypeFindPopulationCandidate<int>? right)
-        {
-            int comparison =
-                TypeNameMatchRanking.CompareWithinTier(left!.FullName, right!.FullName);
-            return comparison != 0
-                ? comparison
-                : _order[left.FullName].CompareTo(_order[right.FullName]);
-        }
-    }
-
     sealed class WithinTierStringComparer : IComparer<string>
     {
         public static WithinTierStringComparer Instance { get; } = new();
@@ -395,5 +411,37 @@ public static class TypeFindPopulationScorecard
     readonly struct CandidateName : IFunc<TypeFindPopulationCandidate<int>, string>
     {
         public string Invoke(TypeFindPopulationCandidate<int> candidate) => candidate.FullName;
+    }
+
+    readonly struct HasSimilarity(Dictionary<string, double> similarities) :
+        IFunc<TypeFindPopulationCandidate<int>, bool>
+    {
+        public bool Invoke(TypeFindPopulationCandidate<int> candidate) =>
+            similarities.ContainsKey(candidate.FullName);
+    }
+
+    sealed class PartialCandidateComparer(Dictionary<string, double> similarities) :
+        IComparer<TypeFindPopulationCandidate<int>>
+    {
+        public int Compare(
+            TypeFindPopulationCandidate<int>? left,
+            TypeFindPopulationCandidate<int>? right)
+        {
+            int comparison = similarities[right!.FullName].CompareTo(
+                similarities[left!.FullName]);
+            return comparison != 0
+                ? comparison
+                : TypeNameMatchRanking.CompareWithinTier(
+                    left.FullName,
+                    right.FullName);
+        }
+    }
+
+    readonly struct CandidatePartialMatch(Dictionary<string, double> similarities) :
+        IFunc<TypeFindPopulationCandidate<int>, TypeFindPopulationMatch<int>>
+    {
+        public TypeFindPopulationMatch<int> Invoke(
+            TypeFindPopulationCandidate<int> candidate) =>
+            new(candidate, similarities[candidate.FullName]);
     }
 }

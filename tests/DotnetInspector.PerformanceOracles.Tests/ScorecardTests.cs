@@ -50,6 +50,29 @@ public sealed class ScorecardTests
     }
 
     [Fact]
+    public void OracleOrderBy_IsStable()
+    {
+        (string Key, int Id)[] input =
+        [
+            ("b", 1),
+            ("a", 2),
+            ("b", 3),
+            ("a", 4),
+        ];
+        var source = input.AsNLinq();
+        ListEnumerator<(string Key, int Id)> ordered =
+            OracleOperators.OrderBy<
+                ArrayEnumerator<(string Key, int Id)>,
+                (string Key, int Id)>(
+                    source,
+                    StableRowComparer.Instance);
+
+        Assert.Equal(
+            [2, 4, 1, 3],
+            ordered.ToList().Select(static row => row.Id));
+    }
+
+    [Fact]
     public void PublicMethods_NLinqAndLinqColumnsAgreeOnRealAssemblies()
     {
         // System.Reflection.Metadata has far more than 110 selected methods, so
@@ -158,6 +181,16 @@ public sealed class ScorecardTests
         public readonly bool IsSelected(MetadataReader reader, TypeDefinition type, MethodDefinition method) =>
             default(PublicMethodSelection).IsSelected(reader, type, method)
             && (method.Attributes & System.Reflection.MethodAttributes.Static) != 0;
+    }
+
+    sealed class StableRowComparer : IComparer<(string Key, int Id)>
+    {
+        public static StableRowComparer Instance { get; } = new();
+
+        public int Compare(
+            (string Key, int Id) left,
+            (string Key, int Id) right) =>
+            StringComparer.Ordinal.Compare(left.Key, right.Key);
     }
 
     [Fact]

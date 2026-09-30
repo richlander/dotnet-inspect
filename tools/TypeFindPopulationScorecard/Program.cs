@@ -32,19 +32,24 @@ ScorecardColumn<TypeFindPopulationScorecardAsset, TypeFindPopulationScorecardRow
     TypeFindPopulationScorecard.SelectorColumn(shape),
 ];
 
+ScorecardCheck check = Scorecard.Check(
+    assets,
+    oracle,
+    columns,
+    TypeFindPopulationScorecard.RowText);
+if (!check.Agrees)
+{
+    foreach (ScorecardMismatch mismatch in check.Mismatches)
+        Console.Error.WriteLine(mismatch);
+    return 1;
+}
+
 if (options.Command == ScorecardCommand.Check)
 {
-    ScorecardCheck check = Scorecard.Check(
-        assets,
-        oracle,
-        columns,
-        TypeFindPopulationScorecard.RowText);
     Console.WriteLine(
         $"checked {check.Compared} answers; "
         + $"window failures: {(check.WindowFailures.Count == 0 ? "none" : string.Join(", ", check.WindowFailures))}");
-    foreach (ScorecardMismatch mismatch in check.Mismatches)
-        Console.Error.WriteLine(mismatch);
-    return check.Agrees ? 0 : 1;
+    return 0;
 }
 
 IReadOnlyList<ScorecardCell> cells = Scorecard.Measure(
