@@ -915,9 +915,11 @@ The first sequence-5 slice moves member Research fact production from
 allocation occurrences, safety evidence and occurrences, call evidence and
 signals, and leverage. `MemberProjectionAnalysisInput` validates that all four
 carry the same receipt and provides only the member-projection joins over those
-results. Path-backed compatibility production and immutable-image L1
-production each execute Analysis once; only the L1 query retains a
-compatibility index for its separate callee-evidence composition.
+results. Path-backed production and immutable-image L1 production each execute
+Analysis once. `ResearchAssemblyContext` now derives its residual callee-
+evidence joins from that focused input; the L1 query retains a separate
+compatibility index only for its later call-relationship, invocation-
+destination, and local-throw migration.
 
 The next sequence-5 slice moves `ILOffsetProjectionProducer` to allocation,
 safety, and call-graph results from one exact receipt. CLI single-coordinate
