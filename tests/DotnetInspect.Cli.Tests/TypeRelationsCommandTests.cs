@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspect.Cli;
+using DotnetInspector.Cache;
 using DotnetInspector.Services;
 
 namespace DotnetInspect.Cli.Tests;
@@ -11,6 +12,9 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public sealed class TypeRelationsCommandTests
 {
+    public TypeRelationsCommandTests() =>
+        PersistentCache.Initialize("dotnet-inspect-test");
+
     [Theory]
     [InlineData("System.IDisposable", "Implementers")]
     [InlineData("System.IO.Stream", "Derived Types")]

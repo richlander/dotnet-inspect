@@ -112,15 +112,25 @@ public static class PackagePlatformSelectedLibraryRealization
                 long started = Stopwatch.GetTimestamp();
                 PackagePlatformHouseResult<
                     PackageImplementationRealization> result =
-                    await adapter.RealizeSelectedImplementationAsync(
-                            request,
-                            target,
-                            remainingWork,
-                            runtimeIdentifier,
-                            issueOperation(
-                                request,
-                                remainingWork))
-                        .ConfigureAwait(false);
+                    request.Target is PlatformTargetDemand.Exact exact
+                        && exact.Target == target
+                            ? await adapter.RealizeImplementationAsync(
+                                    request,
+                                    runtimeIdentifier,
+                                    issueOperation(
+                                        request,
+                                        remainingWork))
+                                .ConfigureAwait(false)
+                            : await adapter
+                                .RealizeSelectedImplementationAsync(
+                                    request,
+                                    target,
+                                    remainingWork,
+                                    runtimeIdentifier,
+                                    issueOperation(
+                                        request,
+                                        remainingWork))
+                                .ConfigureAwait(false);
                 return PrepareImplementation(
                     request,
                     target,

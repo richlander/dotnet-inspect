@@ -85,6 +85,18 @@ public abstract class PackageImplementationPopulationDemand
         public AssemblyReferenceIdentity Identity { get; }
     }
 
+    public sealed class AssemblyReferenceBinding :
+        PackageImplementationPopulationDemand
+    {
+        public AssemblyReferenceBinding(AssemblyReferenceIdentity identity)
+        {
+            ArgumentNullException.ThrowIfNull(identity);
+            Identity = identity;
+        }
+
+        public AssemblyReferenceIdentity Identity { get; }
+    }
+
     public sealed class CompletePopulation :
         PackageImplementationPopulationDemand;
 }

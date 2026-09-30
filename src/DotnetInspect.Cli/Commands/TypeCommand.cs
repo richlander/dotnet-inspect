@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -9,6 +10,8 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformHouse;
+using DotnetInspector.PlatformHouse.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
@@ -1284,8 +1287,32 @@ public static class TypeCommand
         }
 
         ExactTypeRelationsInspectionOutcome outcome;
+        PlatformLibraryRealizationSource? platformImplementationSource = null;
+        DesktopPlatformPackageSourceRuntime? platformRuntime = null;
         try
         {
+            if (request.Inspection.Context.Members.Count == 1
+                && request.Inspection.Context.Members[0]
+                    is WorkspaceMemberCoordinate.PlatformMember)
+            {
+                var context = new CommandContext(options.Verbose);
+                platformRuntime =
+                    new DesktopPlatformPackageSourceRuntime(
+                        context.CreatePackageSourceComposition,
+                        options.SourceOptions,
+                        "inspect-cli-type-relations-platform");
+                PackagePlatformHouseAdapter adapter =
+                    platformRuntime.CreateAdapter(
+                        "cli-type-relations-platform-package");
+                platformImplementationSource =
+                    PackagePlatformSelectedLibraryRealization
+                        .CreateImplementationSource(
+                            adapter,
+                            RuntimeInformation.RuntimeIdentifier,
+                            platformRuntime.IssueOperation,
+                            PlatformHouseCandidateIdentity.Create(
+                                "cli-type-relations-platform-implementation"));
+            }
             outcome = await ExactTypeRelationsInspectionOperation
                 .ExecuteAsync(
                     request.Inspection,
@@ -1307,6 +1334,8 @@ public static class TypeCommand
                                     : int.MaxValue),
                         rowSelection: options.TypeRelationsRowSelection,
                         includeNonPublic: options.IncludeAll,
+                        platformImplementationSource:
+                            platformImplementationSource,
                         cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -1331,6 +1360,13 @@ public static class TypeCommand
         {
             CommandError.Write(ex);
             return 1;
+        }
+        finally
+        {
+            if (platformRuntime is not null)
+            {
+                await platformRuntime.DisposeAsync().ConfigureAwait(false);
+            }
         }
         if (outcome
             is not ExactTypeRelationsInspectionOutcome.Available available)

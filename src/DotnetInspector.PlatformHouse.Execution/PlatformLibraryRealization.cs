@@ -1053,7 +1053,7 @@ public static class PlatformHouseLibraryRealizer
             new PlatformLibraryRealizationReceipt(receipt));
     }
 
-    static PlatformLibraryRealizationResult Unavailable(
+    internal static PlatformLibraryRealizationResult Unavailable(
         PlatformHouseRequest request,
         PlatformHouseConsumedWork consumedWork,
         PlatformSourceContribution contribution,

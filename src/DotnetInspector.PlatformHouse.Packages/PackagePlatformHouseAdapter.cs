@@ -500,6 +500,14 @@ public sealed class PackagePlatformHouseAdapter
                         { Value: PlatformLibraryDemand.Assembly assembly } =>
                         new PackageImplementationPopulationDemand.Assembly(
                             assembly.Identity),
+                    PlatformPopulationDemand.Library
+                        {
+                            Value:
+                                PlatformLibraryDemand
+                                    .AssemblyReferenceBinding binding,
+                        } =>
+                        new PackageImplementationPopulationDemand
+                            .AssemblyReferenceBinding(binding.Identity),
                     PlatformPopulationDemand.CompletePopulation =>
                         new PackageImplementationPopulationDemand
                             .CompletePopulation(),

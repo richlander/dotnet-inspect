@@ -8,6 +8,68 @@ namespace DotnetInspector.PlatformHouse.Tests;
 public sealed class PlatformSelectedLibraryExecutorTests
 {
     [Fact]
+    public async Task ExactImplementationRealizesWithoutTargetDiscovery()
+    {
+        Harness context = await CreateContextAsync(
+            PlatformViewDemand.ReferenceAndImplementation);
+        PlatformHouseRequest request = new(
+            PlatformHouseRequestIdentity.Create(
+                "exact-implementation-request"),
+            new PlatformTargetDemand.Exact(context.Target),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create("standalone")),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.AssemblyReferenceBinding(
+                        new AssemblyReferenceIdentity(
+                            context.Identity.Name,
+                            Version: null,
+                            Culture: null,
+                            PublicKeyToken: null))),
+                PlatformViewDemand.Implementation),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create(
+                    "exact-implementation-sources"),
+                PlatformSourcePolicyGeneration.Create("generation-1"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Implementation,
+                        PlatformSourceSelectionMode.Precedence,
+                        [context.PackageImplementation]),
+                ]),
+            context.Request.Work,
+            TestContext.Current.CancellationToken);
+        PlatformLibraryRealizationSource source =
+            Success(
+                context,
+                context.PackageImplementation,
+                PlatformSourceFacet.Implementation);
+
+        PlatformLibraryArtifactMaterializationOutcome outcome =
+            await PlatformHouseExactImplementationLibraryExecutor
+                .ExecuteAsync(
+                    request,
+                    source,
+                    "exact-implementation-test");
+
+        var completed = Assert.IsType<
+            PlatformLibraryArtifactMaterializationOutcome.Completed>(
+                outcome);
+        Assert.IsType<PlatformTargetSettlement.Exact>(
+            completed.Library.Outcome.Receipt.TargetSettlement);
+        Assert.Equal(
+            PlatformHouseSettlementKind.Completed,
+            completed.Library.Outcome.Receipt.SettlementKind);
+        Assert.Collection(
+            completed.Library.Outcome.Receipt.SourceSettlements,
+            settlement => Assert.Equal(
+                PlatformSourceSettlementDisposition.Selected,
+                settlement.Disposition));
+
+        await RetireAsync(completed);
+    }
+
+    [Fact]
     public async Task InstalledSelectionSuppressesPackageWork()
     {
         Harness context = await CreateContextAsync(

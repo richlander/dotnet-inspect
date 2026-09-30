@@ -522,10 +522,13 @@ public static class PackagePlatformLibraryMaterializer
                 Population:
                     PlatformPopulationDemand.Library
                 {
-                    Value:
-                            PlatformLibraryDemand.Assembly assembly,
+                    Value: var demand,
                 },
             }
+            || demand
+                is not PlatformLibraryDemand.Assembly
+                    and not PlatformLibraryDemand
+                        .AssemblyReferenceBinding
             || !ValidContribution(
                 request,
                 target,
@@ -535,10 +538,19 @@ public static class PackagePlatformLibraryMaterializer
             || implementation.Value.Coordinate.Target != target
             || !TrySingle(
                 implementation.Value.Libraries,
-                library =>
-                    AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                        assembly.Identity,
-                        library.Identity),
+                library => demand switch
+                {
+                    PlatformLibraryDemand.Assembly assembly =>
+                        AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                            assembly.Identity,
+                            library.Identity),
+                    PlatformLibraryDemand.AssemblyReferenceBinding binding =>
+                        PlatformAssemblyReferenceBindingPolicy
+                            .MatchesCandidate(
+                                binding,
+                                library.Identity),
+                    _ => false,
+                },
                 out PackageImplementationLibrary? library)
             || !string.Equals(
                 library!.Framework.RuntimeIdentifier,

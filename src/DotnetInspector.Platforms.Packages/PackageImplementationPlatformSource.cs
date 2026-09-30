@@ -521,8 +521,16 @@ public sealed partial class PackagePlatformSource
         private PackageRangedRead? CreateRangedRead(
             PlatformFamily family)
         {
-            if (_population
-                is not PackageImplementationPopulationDemand.Assembly assembly)
+            AssemblyReferenceIdentity? identity = _population switch
+            {
+                PackageImplementationPopulationDemand.Assembly assembly =>
+                    assembly.Identity,
+                PackageImplementationPopulationDemand
+                    .AssemblyReferenceBinding binding =>
+                    binding.Identity,
+                _ => null,
+            };
+            if (identity is null)
             {
                 return null;
             }
@@ -536,7 +544,7 @@ public sealed partial class PackagePlatformSource
             string dependencyManifest =
                 prefix + manifestBase + ".deps.json";
             string requestedAssembly =
-                assembly.Identity.Name + ".dll";
+                identity.Name + ".dll";
             return new PackageRangedRead(
                 directory =>
                 {
@@ -715,6 +723,9 @@ public sealed partial class PackagePlatformSource
                                     .Select(asset => (framework, asset)))],
                     PackageImplementationPopulationDemand.Assembly assembly =>
                         SelectExactAssembly(frameworks, assembly.Identity),
+                    PackageImplementationPopulationDemand
+                        .AssemblyReferenceBinding binding =>
+                        SelectExactAssembly(frameworks, binding.Identity),
                     _ => throw new ArgumentOutOfRangeException(
                         nameof(population)),
                 };
@@ -766,6 +777,18 @@ public sealed partial class PackagePlatformSource
                         PackagePlatformSourceDiagnosticKind
                             .AssemblyIdentityMismatch,
                         "The requested implementation member does not match its exact assembly identity.");
+                }
+                if (population
+                        is PackageImplementationPopulationDemand
+                            .AssemblyReferenceBinding binding
+                    && !binding.Identity.MatchesCandidate(
+                        identity,
+                        ignoreVersion: true))
+                {
+                    throw Reject(
+                        PackagePlatformSourceDiagnosticKind
+                            .AssemblyIdentityMismatch,
+                        "The requested implementation member does not satisfy the assembly reference binding.");
                 }
                 PackagePlatformContentDigest digest =
                     PackagePlatformContentDigest.FromBytes(content);

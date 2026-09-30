@@ -4,8 +4,10 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformHouse;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using Inspector.Artifacts;
 using NuGetFetch;
 using QuerySpace;
 using QuerySpace.Operations;
@@ -56,6 +58,11 @@ public sealed partial class ExactTypeInspectionOperationTests
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
+        if (outcome
+            is ExactTypeRelationsInspectionOutcome.Unavailable unavailable)
+        {
+            Assert.Fail(unavailable.Detail);
+        }
         var available = Assert.IsType<
             ExactTypeRelationsInspectionOutcome.Available>(outcome);
         Assert.Equal(
@@ -79,8 +86,6 @@ public sealed partial class ExactTypeInspectionOperationTests
     [Fact]
     public async Task PlatformForwarderLoadsOnlyItsTerminalFocusContext()
     {
-        const string runtimePackageId =
-            "microsoft.netcore.app.runtime.linux-x64";
         const string runtimeVersion = "11.0.0";
         const string facade = "Facade";
         const string terminal = "Terminal";
@@ -89,29 +94,78 @@ public sealed partial class ExactTypeInspectionOperationTests
             new Version(1, 0, 0, 0),
             Culture: null,
             PublicKeyToken: null);
-        byte[] package = Archive(
-            ($"runtimes/linux-x64/lib/{Framework}/{facade}.dll",
-                BuildMetadataAssembly(
-                    facade,
-                    Guid.NewGuid(),
-                    definesType: false,
-                    "Relations",
-                    "IContract",
-                    terminalIdentity)),
-            ($"runtimes/linux-x64/lib/{Framework}/{terminal}.dll",
-                BuildMetadataAssembly(
-                    terminal,
-                    Guid.NewGuid(),
-                    definesType: true,
-                    "Relations",
-                    "IContract")));
+        byte[] facadeAssembly = BuildMetadataAssembly(
+            facade,
+            Guid.NewGuid(),
+            definesType: false,
+            "Relations",
+            "IContract",
+            terminalIdentity);
+        byte[] terminalAssembly = BuildMetadataAssembly(
+            terminal,
+            Guid.NewGuid(),
+            definesType: true,
+            "Relations",
+            "IContract");
+        var requestedAssemblies = new List<string>();
+        PlatformSourceCapabilityIdentity capability =
+            PlatformSourceCapabilityIdentity.Create(
+                "test-platform-implementation");
+        var platformSource = new PlatformLibraryRealizationSource(
+            capability,
+            PlatformSourceFacet.Implementation,
+            (request, target, _, association) =>
+            {
+                Assert.Null(association);
+                var binding = Assert.IsType<
+                    PlatformLibraryDemand.AssemblyReferenceBinding>(
+                        Assert.IsType<PlatformPopulationDemand.Library>(
+                            ((PlatformHouseOperation.Realize)
+                                request.Operation).Population).Value);
+                requestedAssemblies.Add(binding.Identity.Name);
+                byte[] content = binding.Identity.Name switch
+                {
+                    facade => facadeAssembly,
+                    terminal => terminalAssembly,
+                    _ => throw new InvalidOperationException(),
+                };
+                using var pe = new PEReader(
+                    new MemoryStream(content, writable: false));
+                AssemblyReferenceIdentity identity =
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(
+                        pe.GetMetadataReader());
+                var contribution =
+                    new PlatformSourceContribution.Realization(
+                        PlatformSourceFacet.Implementation,
+                        capability,
+                        request.Snapshot,
+                        PlatformSourceGeneration.Create("generation-1"),
+                        target,
+                        PlatformSourceCoordinateIdentity.Create(
+                            binding.Identity.Name),
+                        ((PlatformHouseOperation.Realize)
+                            request.Operation).Population,
+                        PlatformSourceContributionCompleteness
+                            .Authoritative);
+                var item =
+                    new PlatformLibraryArtifactMaterializationItem(
+                        contribution,
+                        new TestArtifactProvenance(
+                            binding.Identity.Name),
+                        identity,
+                        content.LongLength,
+                        _ => new MemoryStream(
+                            content,
+                            writable: false));
+                PlatformLibraryRealizationSourceAttempt attempt =
+                    new PlatformLibraryRealizationSourceAttempt.Succeeded(
+                        contribution,
+                        PlatformHouseCandidateIdentity.Create(
+                            binding.Identity.Name),
+                        item);
+                return ValueTask.FromResult(attempt);
+            });
         var store = new InMemoryPackageStore();
-        await store.CommitAsync(
-            runtimePackageId,
-            runtimeVersion,
-            NuGetCache.GetSourceKey(SourceUrl),
-            new MemoryStream(package),
-            TestContext.Current.CancellationToken);
         using var client = new HttpClient(new FailingHandler());
         SubjectRelationsQueryPlan plan = Assert.IsType<
             SubjectRelationsQueryPlanResult.Accepted>(
@@ -153,9 +207,18 @@ public sealed partial class ExactTypeInspectionOperationTests
                 LoadOptions(client, store),
                 plan,
                 count: new SubjectRelationPopulationCountRequest(),
+                platformImplementationSource: platformSource,
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
+        if (outcome
+            is ExactTypeRelationsInspectionOutcome.Unavailable unavailable)
+        {
+            Assert.Fail(
+                unavailable.Detail
+                    + " Requested: "
+                    + string.Join(", ", requestedAssemblies));
+        }
         var available = Assert.IsType<
             ExactTypeRelationsInspectionOutcome.Available>(outcome);
         Assert.Equal(
@@ -173,6 +236,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         Assert.Equal(
             terminal,
             focus.Library.Identity.Assembly.Name);
+        Assert.Equal([facade, terminal], requestedAssemblies);
     }
 
     [Fact]
@@ -881,4 +945,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         builder.Serialize(image);
         return image.ToArray();
     }
+
+    private sealed record TestArtifactProvenance(string Name) :
+        IArtifactProvenance;
 }

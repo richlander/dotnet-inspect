@@ -1,6 +1,7 @@
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Packages;
+using ILInspector.Metadata;
 using NuGetFetch;
 
 namespace DotnetInspector.PlatformHouse.Packages.Tests;
@@ -553,10 +554,11 @@ public sealed class PackageImplementationPlatformSourceTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
     public async Task RangedCapableFeedSelectsAccessByPopulation(
-        bool exact)
+        int mode)
     {
         byte[] runtime =
             PackagePlatformTestData.Assembly("System.Runtime");
@@ -594,11 +596,20 @@ public sealed class PackageImplementationPlatformSourceTests
                 rangedSizeCut: 0));
 
         PackageImplementationPopulationDemand population =
-            exact
-                ? new PackageImplementationPopulationDemand.Assembly(
-                    PackagePlatformTestData.Identity(json))
-                : new PackageImplementationPopulationDemand
-                    .CompletePopulation();
+            mode switch
+            {
+                1 => new PackageImplementationPopulationDemand.Assembly(
+                    PackagePlatformTestData.Identity(json)),
+                2 => new PackageImplementationPopulationDemand
+                    .AssemblyReferenceBinding(
+                        new AssemblyReferenceIdentity(
+                            "System.Text.Json",
+                            Version: null,
+                            Culture: null,
+                            PublicKeyToken: null)),
+                _ => new PackageImplementationPopulationDemand
+                    .CompletePopulation(),
+            };
         var succeeded = Assert.IsType<
             PackagePlatformSourceOutcome<
                 PackageImplementationRealization>.Succeeded>(
@@ -612,15 +623,15 @@ public sealed class PackageImplementationPlatformSourceTests
                             TimeSpan.FromSeconds(30))));
 
         Assert.Equal(
-            exact
+            mode != 0
                 ? PackagePayloadOrigin.Ranged
                 : PackagePayloadOrigin.Download,
             Assert.Single(succeeded.Value.Frameworks).Origin);
         Assert.Equal(
-            exact ? 1 : 2,
+            mode != 0 ? 1 : 2,
             succeeded.Value.Libraries.Length);
         Assert.Equal(1, feed.FullRequests);
-        if (exact)
+        if (mode != 0)
         {
             Assert.Equal(
                 "System.Text.Json",
