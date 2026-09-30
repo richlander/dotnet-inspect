@@ -446,7 +446,8 @@ public static class CSharpAccessorDeclarationRepresentability
 
         bool isIndexer =
             !property.Signature.IndexParameterTypes.IsEmpty;
-        string metadataName = property.Name.ToString();
+        string metadataName =
+            MetadataDeclarationText.RenderDeclarationName(property);
         string name;
         if (isIndexer)
         {
@@ -679,7 +680,8 @@ public static class CSharpAccessorDeclarationRepresentability
                     .UnsupportedRootAttributes);
         }
 
-        string metadataName = @event.Name.ToString();
+        string metadataName =
+            MetadataDeclarationText.RenderDeclarationName(@event);
         if (!CSharpDeclarationRepresentability
                 .IsCompilerPreservedIdentifier(metadataName))
         {
