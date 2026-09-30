@@ -1380,7 +1380,10 @@ internal static class BrowserPlatformWorkspace
         var runtime = await ProbeFamilyAsync(
             probeState,
             targetFramework,
-            platformVersion,
+            SettledVersion(
+                state,
+                RuntimeFamily,
+                platformVersion),
             RuntimeFamily,
             assembly,
             host,
@@ -1400,7 +1403,10 @@ internal static class BrowserPlatformWorkspace
                 ? await ProbeFamilyAsync(
                     probeState,
                     targetFramework,
-                    platformVersion,
+                    SettledVersion(
+                        state,
+                        AspNetCoreFamily,
+                        platformVersion),
                     AspNetCoreFamily,
                     assembly,
                     host,
@@ -1647,7 +1653,12 @@ internal static class BrowserPlatformWorkspace
                 await using PlatformLoadAttempt declared =
                     await LoadDeclaredAttemptAsync(
                         targetFramework,
-                        platformVersion,
+                        transitionToComplete
+                            ? SettledVersion(
+                                state,
+                                selection.Family,
+                                platformVersion)
+                            : platformVersion,
                         selection.Family,
                         selection.Assembly,
                         host,
@@ -2629,6 +2640,30 @@ internal static class BrowserPlatformWorkspace
             StringComparison.OrdinalIgnoreCase)
             ? null
             : platformVersion;
+
+    static string? SettledVersion(
+        TargetState state,
+        string family,
+        string? requestedVersion)
+    {
+        string[] versions =
+        [
+            .. state.Coordinates
+                .Where(coordinate =>
+                    coordinate.Family.Equals(
+                        family,
+                        StringComparison.Ordinal))
+                .Select(coordinate => coordinate.Version)
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+        return versions.Length switch
+        {
+            0 => requestedVersion,
+            1 => versions[0],
+            _ => throw new InvalidOperationException(
+                $"Platform family '{family}' has more than one settled version."),
+        };
+    }
 
     static string TargetKey(
         string targetFramework,

@@ -20,6 +20,97 @@ public sealed partial class BrowserEngineBoundaryTests
         ExactPlatformPersistence = new();
     static int _exactPlatformPersistenceConfigured;
 
+    [Theory]
+    [InlineData("", "netcore.app", "net21.0")]
+    [InlineData("", "", "net22.0")]
+    [InlineData("latest", "netcore.app", "net23.0")]
+    [InlineData("latest", "", "net24.0")]
+    public async Task PlatformWorkspace_FloatingExactPromotionPreservesSettledVersion(
+        string selector,
+        string promotionPack,
+        string framework)
+    {
+        string originalVersion = $"{framework[3..]}.7394";
+        string newerVersion = $"{framework[3..]}.7395";
+        byte[] json = File.ReadAllBytes(
+            typeof(System.Text.Json.JsonSerializer).Assembly.Location);
+        var packages = new Dictionary<string, byte[]>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            ["microsoft.netcore.app.runtime.linux-x64"] =
+                PlatformPackage(
+                    framework,
+                    ("System.Text.Json.dll", json),
+                    ("System.Linq.dll",
+                        File.ReadAllBytes(typeof(Enumerable).Assembly.Location))),
+            ["microsoft.aspnetcore.app.runtime.linux-x64"] =
+                PlatformPackage(
+                    framework,
+                    ("InspectWeb.MethodBodyFixtures.dll",
+                        File.ReadAllBytes(
+                            FixtureCatalog.InspectWebMethodBodies.AssemblyPath()))),
+        };
+        var handler = new ExactPlatformRangeHandler(
+            originalVersion,
+            packages);
+        using IPackageSourceClient packageClient =
+            BrowserPackageWorkspace.CreateGallerySource(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromSeconds(30),
+                    OperationTimeout = TimeSpan.FromSeconds(30),
+                });
+        using var client = new HttpClient(handler, disposeHandler: false);
+        IPackageSourceAuthorization authorization =
+            BrowserPackageWorkspace.SourceAuthorizationFor(packageClient);
+
+        await using (BrowserPlatformScopeResolution exact =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                framework,
+                selector,
+                Identity(json),
+                "netcore.app",
+                client,
+                packageClient,
+                authorization,
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken))
+        {
+            Assert.True(exact.Scope.ExactPackageRealization);
+            Assert.Equal(originalVersion, exact.Coordinate.Version);
+        }
+
+        handler.PublishVersion(newerVersion, packages);
+
+        await using BrowserPlatformScopeResolution promoted =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                framework,
+                selector,
+                "System.Linq.dll",
+                promotionPack,
+                client,
+                packageClient,
+                authorization,
+                acquireCompletePopulation: true,
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(promoted.Scope.ExactPackageRealization);
+        Assert.Equal(
+            "System.Linq",
+            promoted.Participant.Participant.Assembly.Identity.Name);
+        Assert.Equal(
+            ["System.Linq", "System.Text.Json"],
+            promoted.Scope.Members
+                .Select(member => member.Participant.Assembly.Identity.Name)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+        Assert.All(
+            promoted.Scope.Coordinates,
+            coordinate => Assert.Equal(originalVersion, coordinate.Version));
+    }
+
     [Fact]
     public async Task PlatformWorkspace_ExactAssemblyUsesRangeAndReusesEntryCache()
     {
@@ -1121,6 +1212,8 @@ public sealed partial class BrowserEngineBoundaryTests
             _packages = new(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, string> _documents =
             new(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, List<string>> _versions =
+            new(StringComparer.OrdinalIgnoreCase);
         readonly ConcurrentDictionary<string, int> _requests =
             new(StringComparer.OrdinalIgnoreCase);
         long _packageBytesServed;
@@ -1145,19 +1238,33 @@ public sealed partial class BrowserEngineBoundaryTests
 
         internal ExactPlatformRangeHandler(
             string version,
+            IReadOnlyDictionary<string, byte[]> packages) =>
+            PublishVersion(version, packages);
+
+        internal void PublishVersion(
+            string version,
             IReadOnlyDictionary<string, byte[]> packages)
         {
             foreach ((string packageId, byte[] archive) in packages)
             {
                 string package = packageId.ToLowerInvariant();
+                if (!_versions.TryGetValue(package, out List<string>? versions))
+                {
+                    versions = [];
+                    _versions.Add(package, versions);
+                }
+                versions.Add(version);
                 _documents[
                     $"/v3-flatcontainer/{package}/index.json"] =
-                    $$"""{"versions":["{{version}}"]}""";
+                    "{\"versions\":[\"" + string.Join("\",\"", versions) + "\"]}";
                 _documents[
                     $"/v3/registration5-gz-semver2/{package}/index.json"] =
-                    "{\"items\":[{\"items\":[{\"catalogEntry\":{\"version\":\""
-                    + version
-                    + "\",\"listed\":true}}]}]}";
+                    "{\"items\":[{\"items\":["
+                    + string.Join(",", versions.Select(candidate =>
+                        "{\"catalogEntry\":{\"version\":\""
+                        + candidate
+                        + "\",\"listed\":true}}"))
+                    + "]}]}";
                 var item = (packageId, archive);
                 _packages[$"/packages/{package}.{version}.nupkg"] = item;
                 _packages[
