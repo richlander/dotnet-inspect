@@ -92,7 +92,7 @@ public sealed class LibraryBodyAnalysisRequest
             ImplementationMetricAnalysisRequest
                 .CompleteProfileCompatibility());
 
-    internal static LibraryBodyAnalysisRequest
+    public static LibraryBodyAnalysisRequest
         CreateImplementationMetrics(
             ImplementationMetricKind metrics,
             ImplementationMetricWorkLimits limits,
@@ -102,6 +102,14 @@ public sealed class LibraryBodyAnalysisRequest
     {
         ArgumentNullException.ThrowIfNull(limits);
         ArgumentNullException.ThrowIfNull(bodyScope);
+        if (metrics == ImplementationMetricKind.None
+            || (metrics & ~ImplementationMetricKind.All) != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(metrics),
+                metrics,
+                "A known non-empty implementation metric selection is required.");
+        }
         if (bodyScope.Count == 0)
         {
             throw new ArgumentException(

@@ -261,7 +261,7 @@ public sealed class LibraryBodyAnalysisExecution
         ImplementationProfiles
     { get; }
 
-    internal LibraryImplementationMetricAnalysisResult
+    public LibraryImplementationMetricAnalysisResult
         ImplementationMetrics
     { get; }
 
@@ -286,7 +286,7 @@ public sealed class LibraryBodyAnalysisExecution
     public LibraryResourceLifecycleAnalysisResult ResourceLifecycle
     { get; }
 
-    internal ImplementationMetricWorkBudgetSnapshot?
+    public ImplementationMetricWorkBudgetSnapshot?
         ImplementationMetricWork =>
         _analysis.ImplementationMetricWork;
 
@@ -332,12 +332,12 @@ public sealed class LibraryBodyAnalysisExecution
         {
             return new(
                 receipt,
-                WasRequested: false,
-                Participation: null,
+                wasRequested: false,
+                participation: null,
                 analysis.Methods.DeclaredMethods,
                 analysis.Methods.Methods,
                 [],
-                SiblingRelationships: null,
+                siblingRelationships: null,
                 metricDiagnostics);
         }
 
@@ -380,7 +380,7 @@ public sealed class LibraryBodyAnalysisExecution
 
         return new(
             receipt,
-            WasRequested: true,
+            wasRequested: true,
             new(
                 metricPlan.RequestedMetrics,
                 metricPlan.RequiredFacts,

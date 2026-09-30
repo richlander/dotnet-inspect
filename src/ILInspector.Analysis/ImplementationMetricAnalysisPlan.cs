@@ -1,7 +1,7 @@
 namespace ILInspector.Analysis;
 
 [Flags]
-internal enum ImplementationMetricKind
+public enum ImplementationMetricKind
 {
     None = 0,
     BodySize = 1 << 0,
@@ -33,7 +33,7 @@ internal enum ImplementationMetricKind
 }
 
 [Flags]
-internal enum ImplementationMetricFactKind
+public enum ImplementationMetricFactKind
 {
     None = 0,
     SourceAttribution = 1 << 0,
@@ -57,7 +57,7 @@ internal enum ImplementationMetricFactKind
 }
 
 [Flags]
-internal enum ImplementationMetricWorkStage
+public enum ImplementationMetricWorkStage
 {
     None = 0,
     SourceAttribution = 1 << 0,
@@ -80,9 +80,9 @@ internal enum ImplementationMetricRequestOrigin
     LegacyFeatureCompatibility,
 }
 
-internal sealed record ImplementationMetricWorkLimits
+public sealed record ImplementationMetricWorkLimits
 {
-    internal ImplementationMetricWorkLimits(
+    public ImplementationMetricWorkLimits(
         int maximumPhysicalBodies,
         long maximumEncodedIlBytes,
         int maximumAttributionProbeBodies,
@@ -125,13 +125,13 @@ internal sealed record ImplementationMetricWorkLimits
         IsLegacyUnbounded = isLegacyUnbounded;
     }
 
-    internal int MaximumPhysicalBodies { get; }
+    public int MaximumPhysicalBodies { get; }
 
-    internal long MaximumEncodedIlBytes { get; }
+    public long MaximumEncodedIlBytes { get; }
 
-    internal int MaximumAttributionProbeBodies { get; }
+    public int MaximumAttributionProbeBodies { get; }
 
-    internal long MaximumAttributionProbeIlBytes { get; }
+    public long MaximumAttributionProbeIlBytes { get; }
 
     internal bool IsLegacyUnbounded { get; }
 

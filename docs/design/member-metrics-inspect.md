@@ -2,26 +2,27 @@
 
 ## Status and scope
 
-This document is the proposed normative design for
-**MemberMetricsInspect**, tracked by
+This document is the normative design for **MemberMetricsInspect**, tracked by
 [#8445](https://github.com/richlander/dotnet-inspect/issues/8445).
 
-The current product already has:
+The first host-neutral production substrate implements the compact body-size
+and sibling-relationship slice:
 
-- the proposed resource-free `MemberInspect` subject and `Overloads`
-  population contract;
-- objective physical implementation profiles and exact sibling-overload call
-  relationships;
-- a bounded exact-family query used by CLI and Inspect Web;
-- QuerySpace operation, row, selection, projection, Rows, and Count contracts;
-  and
-- explicit Analysis feature selection with prerequisite normalization.
+- `MemberMetricsInspectionOperation` consumes one completed
+  `MemberGroupDocument` and complete `Overloads` Rows population;
+- `MemberMetricsQuery` exposes Rows and Count over largest physical IL bytes,
+  incoming sibling callers, and outgoing sibling targets;
+- `LibraryBodyAnalysisRequest.CreateImplementationMetrics` publishes focused
+  Analysis results, prerequisite participation, and bounded-work receipts
+  without materializing `LibraryBodyIndex`; and
+- the completed envelope retains exact logical rows, physical body identities,
+  coverage, completion, and diagnostics.
 
-The current exact-family operation acquires the complete implementation-profile
-result. This design adds the narrower inspection boundary required when a
-consumer needs only a small decoration over the already-rendered Member rows.
-It does not redefine the existing metric evidence or make Analysis part of
-ordinary `MemberInspect` completion.
+The compact operation currently requires the API and implementation roles to
+name the same Library content. A Library with separate reference and
+implementation images is rejected until an owner-issued correspondence maps
+their exact Member identities. Broader metric vocabulary, CLI and Inspect Web
+adoption, and measured NativeAOT performance remain later focused slices.
 
 ## Owner and exact claim
 
@@ -680,8 +681,10 @@ Inspected names, signatures, diagnostics, and evidence strings remain inert
 data under their producing owners. Display text cannot recover subject,
 population, logical, physical, or relationship identity.
 
-These implementation properties are **unverified** until the gates named by
-[#8445](https://github.com/richlander/dotnet-inspect/issues/8445) exist and pass.
+The compact body-size and sibling-relationship contract is gated by
+`MemberMetricsInspectionOperationTests`. Browser/Wasm execution and exact
+NativeAOT performance remain **unverified** until their adoption slices add the
+required gates.
 
 ## Pathological cases
 
@@ -796,7 +799,12 @@ relationship scope. Harnesses invoke product-owned Member population,
 QuerySpace, and Analysis planning rather than constructing a repaired metrics
 aggregate.
 
-All properties remain **unverified** in this design-only slice.
+The compact v1 gates verify no-evidence rejection, exact-row preservation,
+body-size minimal work, relationship prerequisite separation, bodyless and
+bounded-incomplete states, default largest-body ranking, Rows/Count agreement,
+stale binding rejection, and the explicit separate-image boundary. The
+remaining broader-vocabulary, host-adoption, and performance properties above
+remain **unverified**.
 
 ## Non-claims
 

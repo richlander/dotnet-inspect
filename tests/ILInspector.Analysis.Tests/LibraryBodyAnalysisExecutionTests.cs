@@ -1911,6 +1911,18 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     limits,
                     ImplementationMetricRequestOrigin.Explicit)));
         Assert.Throws<ArgumentOutOfRangeException>(
+            () => LibraryBodyAnalysisRequest
+                .CreateImplementationMetrics(
+                    ImplementationMetricKind.None,
+                    limits,
+                    new HashSet<int> { 0x06000001 }));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => LibraryBodyAnalysisRequest
+                .CreateImplementationMetrics(
+                    (ImplementationMetricKind)(1 << 20),
+                    limits,
+                    new HashSet<int> { 0x06000001 }));
+        Assert.Throws<ArgumentOutOfRangeException>(
             () => new ImplementationMetricWorkLimits(
                 maximumPhysicalBodies: 0,
                 maximumEncodedIlBytes: 1,

@@ -1,6 +1,6 @@
 namespace ILInspector.Analysis;
 
-internal enum ImplementationMetricWorkLimitKind
+public enum ImplementationMetricWorkLimitKind
 {
     PhysicalBodies,
     EncodedIlBytes,
@@ -8,7 +8,7 @@ internal enum ImplementationMetricWorkLimitKind
     AttributionProbeIlBytes,
 }
 
-internal sealed record ImplementationMetricWorkBudgetSnapshot(
+public sealed record ImplementationMetricWorkBudgetSnapshot(
     ImplementationMetricWorkLimits Limits,
     int AttributionProbeBodies,
     long AttributionProbeIlBytes,

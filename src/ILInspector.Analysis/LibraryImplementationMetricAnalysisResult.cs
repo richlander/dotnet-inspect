@@ -2,24 +2,24 @@ using System.Collections.Immutable;
 
 namespace ILInspector.Analysis;
 
-internal sealed record ImplementationMetricExceptionRegionCounts(
+public sealed record ImplementationMetricExceptionRegionCounts(
     int CatchCount,
     int FilterCount,
     int FinallyCount,
     int FaultCount);
 
-internal sealed record ImplementationMetricLocalEvidence(
+public sealed record ImplementationMetricLocalEvidence(
     int DeclaredCount,
     string? IncompleteReason)
 {
-    internal bool IsComplete => IncompleteReason is null;
+    public bool IsComplete => IncompleteReason is null;
 }
 
-internal sealed record ImplementationMetricInstructionShape(
+public sealed record ImplementationMetricInstructionShape(
     int InstructionCount,
     int DistinctOpcodeCount);
 
-internal sealed record ImplementationMetricControlFlow(
+public sealed record ImplementationMetricControlFlow(
     int BasicBlockCount,
     int BranchCount,
     int ConditionalBranchCount,
@@ -27,26 +27,26 @@ internal sealed record ImplementationMetricControlFlow(
     int SwitchTargetCount,
     int LoopCount)
 {
-    internal int NormalFlowCyclomaticComplexity =>
+    public int NormalFlowCyclomaticComplexity =>
         1 + ConditionalBranchCount - SwitchCount + SwitchTargetCount;
 }
 
-internal sealed record ImplementationMetricDirectCalls(
+public sealed record ImplementationMetricDirectCalls(
     int InvocationCount,
     int DistinctTargetCount,
     string? IncompleteReason)
 {
-    internal bool IsComplete => IncompleteReason is null;
+    public bool IsComplete => IncompleteReason is null;
 }
 
-internal sealed record ImplementationMetricSiblingRelationships(
+public sealed record ImplementationMetricSiblingRelationships(
     ImmutableArray<OverloadCallRelationship> Relationships,
     ImmutableArray<AnalysisDiagnostic> Diagnostics)
 {
-    internal bool IsComplete => Diagnostics.IsEmpty;
+    public bool IsComplete => Diagnostics.IsEmpty;
 }
 
-internal sealed record MethodImplementationMetricEvidence(
+public sealed record MethodImplementationMetricEvidence(
     MethodIdentity Method,
     MethodIdentity EvidenceMethod,
     int? ILBytes,
@@ -61,7 +61,7 @@ internal sealed record MethodImplementationMetricEvidence(
     internal bool DirectCallCollectionComplete { get; init; }
 }
 
-internal sealed record ImplementationMetricStageParticipation(
+public sealed record ImplementationMetricStageParticipation(
     ImplementationMetricWorkStage Stage,
     ImplementationMetricKind MetricCauses,
     LibraryBodyAnalysisFeatures FeatureCauses,
@@ -69,7 +69,7 @@ internal sealed record ImplementationMetricStageParticipation(
     int CompletedBodies,
     int FailedBodies);
 
-internal sealed record ImplementationMetricParticipationReceipt(
+public sealed record ImplementationMetricParticipationReceipt(
     ImplementationMetricKind RequestedMetrics,
     ImplementationMetricFactKind RequiredFacts,
     ImplementationMetricWorkStage PlannedStages,
@@ -78,15 +78,48 @@ internal sealed record ImplementationMetricParticipationReceipt(
         ActualStages,
     ImplementationMetricWorkBudgetSnapshot? Work);
 
-internal sealed record LibraryImplementationMetricAnalysisResult(
-    LibraryBodyAnalysisReceipt Receipt,
-    bool WasRequested,
-    ImplementationMetricParticipationReceipt? Participation,
-    ImmutableArray<MethodIdentity> DeclaredMethods,
-    ImmutableArray<MethodIdentity> ManagedMethodBodies,
-    ImmutableArray<MethodImplementationMetricEvidence> Bodies,
-    ImplementationMetricSiblingRelationships? SiblingRelationships,
-    ImmutableArray<AnalysisDiagnostic> Diagnostics);
+public sealed class LibraryImplementationMetricAnalysisResult
+{
+    internal LibraryImplementationMetricAnalysisResult(
+        LibraryBodyAnalysisReceipt receipt,
+        bool wasRequested,
+        ImplementationMetricParticipationReceipt? participation,
+        ImmutableArray<MethodIdentity> declaredMethods,
+        ImmutableArray<MethodIdentity> managedMethodBodies,
+        ImmutableArray<MethodImplementationMetricEvidence> bodies,
+        ImplementationMetricSiblingRelationships? siblingRelationships,
+        ImmutableArray<AnalysisDiagnostic> diagnostics)
+    {
+        Receipt = receipt;
+        WasRequested = wasRequested;
+        Participation = participation;
+        DeclaredMethods = declaredMethods;
+        ManagedMethodBodies = managedMethodBodies;
+        Bodies = bodies;
+        SiblingRelationships = siblingRelationships;
+        Diagnostics = diagnostics;
+    }
+
+    public LibraryBodyAnalysisReceipt Receipt { get; }
+
+    public bool WasRequested { get; }
+
+    public ImplementationMetricParticipationReceipt? Participation
+    { get; }
+
+    public ImmutableArray<MethodIdentity> DeclaredMethods { get; }
+
+    public ImmutableArray<MethodIdentity> ManagedMethodBodies { get; }
+
+    public ImmutableArray<MethodImplementationMetricEvidence> Bodies
+    { get; }
+
+    public ImplementationMetricSiblingRelationships?
+        SiblingRelationships
+    { get; }
+
+    public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
+}
 
 internal sealed record ImplementationMetricStageParticipationSnapshot(
     ImmutableArray<ImplementationMetricStageParticipation> Stages);
