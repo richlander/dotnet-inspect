@@ -53,11 +53,13 @@ or charging it to the Method source.
 > Given one admitted assembly image and one resolved Method-source execution
 > group, the source visits exactly the physical MethodDefs selected by each
 > request's direct breadth plus its declared expansion, in deterministic
-> metadata order; acquires each demanded depth at most once per physical
-> MethodDef in that group; publishes terminal results and completion equal to
-> serial reference execution; records the actual definition, body, expansion,
-> lookup, and per-request settlement work; and retains no decoded per-method
-> working data after the last active visit for that method.
+> metadata order; acquires each terminal-demanded depth at most once per
+> physical MethodDef in that group; separately accounts any bounded body probes
+> required to determine generated breadth; publishes terminal results and
+> completion equal to serial reference execution; records the actual
+> definition, body, expansion, lookup, and per-request settlement work; and
+> retains no decoded per-method working data after the last active visit for
+> that method.
 
 This owner defines:
 
@@ -165,18 +167,43 @@ The initial relations are:
 
 - **Generated execution bodies.** From an authenticated declared source,
   include its async or iterator state-machine execution method and its
-  authenticated lifted local-function or lambda bodies. Relationship owners
-  define authentication; the Method source owns applying the requested
-  relation to breadth.
+  authenticated lifted local-function or lambda bodies. State-machine
+  relationships may be available from targeted metadata. Lifted ownership may
+  additionally require bounded instruction probes of the selected owner and
+  recursively reached candidate bodies. Relationship owners define
+  authentication; the Method source owns applying the requested relation to
+  breadth and accounting the discovery work.
 - **Same-image referenced bodies.** From decoded direct-call operands, include
   resolved same-image MethodDefs to an explicit maximum hop count and method
   count. This relation is absent unless requested. Token resolution alone does
   not widen breadth.
 
-Generated-body expansion is metadata work and settles before body traversal
-when the relationship owner can answer from targeted metadata. An
-implementation that scans every MethodDef to expand an exact-method seed must
-receipt that whole-table work and does not satisfy the sparse-breadth
+Generated-body expansion settles before terminal traversal so the complete
+first wave can be ordered by MethodDef row. It has two discovery paths:
+
+1. apply targeted metadata relationships, including authenticated
+   state-machine execution methods; and
+2. when lifted ownership requires body evidence, probe the selected owner
+   bodies, follow only the call and function-pointer references that the
+   relationship owner admits, and recursively probe reached candidates until
+   the authenticated closure or a declared bound settles.
+
+A generated-discovery probe is source work, not terminal producer execution.
+It acquires the body and decodes only the instruction operands required by the
+relationship owner. It publishes no producer fact, terminal result, canonical
+analysis context, or row projection. Probe body count, IL bytes, relationship
+nodes, failures, and resulting expansion origins are separately bounded and
+receipted.
+
+The source may reuse a probe's body or decoded instructions for terminal work
+only when doing so preserves the packet-lifetime bound. The serial reference
+does not retain every probed body until metadata-order traversal merely to
+avoid a second read. A later terminal acquisition of the same MethodDef is
+therefore distinct, visible work; the once-per-depth rule applies to terminal
+packets, while the receipt reports expansion probes separately.
+
+An implementation that scans every MethodDef to expand an exact-method seed
+must receipt that whole-table work and does not satisfy the sparse-breadth
 proportionality gate.
 
 Referenced-body expansion is discovery-dependent. Serial reference execution
@@ -225,6 +252,9 @@ Shared lookup support, such as same-image token resolution or authenticated
 state-machine relationships, is execution-scoped work rather than a fictitious
 layer repeated for every method. A source plan declares the support it needs,
 and the receipt records its actual construction and use separately.
+Body-dependent lifted discovery is likewise source support, but it has its own
+probe-body and probe-instruction accounting rather than being hidden inside
+Body or Instructions terminal demand.
 
 The current `MethodDefinitionLayers` maps into this vocabulary during
 migration:
@@ -248,6 +278,8 @@ Planning is resource-free. It validates:
 - terminal-specific projection remains absent when the terminal does not need
   it;
 - source-gate predicates declare only fields available before their decision;
+- body-dependent generated expansion declares probe-body, IL-byte, and
+  relationship-node bounds;
 - referenced-body expansion declares hop and method bounds; and
 - the closed Producer Planning description and source request have one exact
   association.
@@ -264,7 +296,9 @@ set is planned anew. Plan reuse transfers no subject authority or result.
 The normative executor is deterministic and sequential:
 
 1. Bind the exact source plan to the operation's admitted image access.
-2. Resolve direct breadth and metadata-only generated expansion.
+2. Resolve direct breadth and complete generated expansion through targeted
+   metadata and, when required by the relationship owner, bounded
+   body-instruction probes.
 3. Create the metadata-ordered first wave.
 4. Before each unit, remove requests and producers whose terminals have
    settled or whose prerequisites failed.
@@ -335,10 +369,11 @@ Count, false Exists, exhausted source, or planner decline.
 
 Bounds are part of the source plan. At minimum they cover candidate
 definitions examined, physical methods selected, generated expansions,
-referenced-callee hops and methods, body bytes, instructions, CFG nodes and
-edges, and source-support work. A critical safety bound aborts under Producer
-Planning's critical-failure contract. A consumer-selected completeness bound
-publishes source incomplete.
+generated-discovery probe bodies and IL bytes, referenced-callee hops and
+methods, terminal body bytes, instructions, CFG nodes and edges, and other
+source-support work. A critical safety bound aborts under Producer Planning's
+critical-failure contract. A consumer-selected completeness bound publishes
+source incomplete.
 
 Cancellation is optional operation policy. It is observed before source
 binding and at physical-unit boundaries, never inside a producer visit or
@@ -354,8 +389,10 @@ work or a cost estimate. It contains:
 - direct breadth, declared expansion, terminal, and demanded depth;
 - completion for every served request and its settlement position, when any;
 - exact MethodDef coverage for definitions examined, physical methods
-  selected, bodies acquired, and each deeper layer acquired;
+  selected, generated-discovery bodies probed, terminal bodies acquired, and
+  each deeper terminal layer acquired;
 - generated and referenced expansion origins;
+- generated-discovery probe bytes and relationship work;
 - shared lookup-support construction and use;
 - source bounds approached or reached; and
 - executor identity.
@@ -369,6 +406,8 @@ The receipt distinguishes:
 
 - a definition examined by a predicate from a physical method selected;
 - a selected bodyless method from a body acquired;
+- a body probed to authenticate generated breadth from a body acquired for
+  terminal producer work;
 - generated breadth from referenced-callee breadth;
 - body acquisition from instruction, CFG, call, and attribution work; and
 - shared source work from per-producer participation.
@@ -432,8 +471,9 @@ The contract is gated in Release:
 - `MethodQuerySource_ExactMethodBreadthVisitsOnlySelectedMethods`
 - `MethodQuerySource_ExactTypeBreadthVisitsOnlyDeclaredMethods`
 - `MethodQuerySource_GeneratedExpansionVisitsOnlyAuthenticatedBodies`
+- `MethodQuerySource_GeneratedExpansionAccountsBodyDependentDiscovery`
 - `MethodQuerySource_ReferencedExpansionIsBoundedDeduplicatedAndOrdered`
-- `MethodQuerySource_DeepestDemandedLayerIsAcquiredOncePerMethod`
+- `MethodQuerySource_DeepestTerminalLayerIsAcquiredOncePerMethod`
 - `MethodQuerySource_ReceiptSeparatesExaminedSelectedAndAcquiredWork`
 - `MethodQuerySource_SourceFailureDoesNotBecomeSuccessfulAbsence`
 - `MethodQuerySource_ReleasedExecutionRetainsNoSubjectAuthority`
@@ -452,7 +492,8 @@ and the complete Type, report:
 - source planning and first-use time;
 - definitions examined and selected;
 - generated and referenced expansions;
-- bodies, instructions, CFGs, calls, and attribution layers acquired;
+- generated-discovery probe bodies and IL bytes;
+- terminal bodies, instructions, CFGs, calls, and attribution layers acquired;
 - allocations and peak managed memory when available; and
 - public API extraction separately from Method-source execution.
 
