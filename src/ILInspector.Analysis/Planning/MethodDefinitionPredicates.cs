@@ -64,8 +64,48 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
         if (!AllowsKernel)
             return false;
 
-        bool exists = state.Terminal == ProducerTerminal.Exists;
-        int? rowLimit = state.RowLimit;
+        if (state.RowLimit is int rowLimit)
+        {
+            return RunKernelCore(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                new HeadKernelStop(rowLimit),
+                out unitsVisited);
+        }
+
+        return state.Terminal == ProducerTerminal.Exists
+            ? RunKernelCore(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                default(ExistsKernelStop),
+                out unitsVisited)
+            : RunKernelCore(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                default(ExhaustiveKernelStop),
+                out unitsVisited);
+    }
+
+    bool RunKernelCore<TStop>(
+        MethodDefinitionExecution.ProducerState state,
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
+        TStop stop,
+        out int unitsVisited)
+        where TStop : struct, IKernelStop
+    {
+        unitsVisited = 0;
         bool typeScoped = HasTypeScope;
         SourceGateGuard? sourceGate = SourceGate;
         TPredicate predicate = default;
@@ -153,9 +193,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
 
                     // Stop before advancing either enumerator once the
                     // requested closing is settled.
-                    if (exists
-                        || rowLimit is int limit
-                            && count >= limit)
+                    if (stop.ShouldStop(count))
                     {
                         state.Outcome = ProducerOutcome.Stopped;
                         state.IsActive = false;
@@ -305,7 +343,14 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         if (!AllowsKernel)
             return false;
         if (SourceGate is not { } sourceGate)
-            return RunKernelCore<UngatedKernel>(state, reader, peReader, lookup, gate, null!, out unitsVisited);
+            return RunKernelForStop<UngatedKernel>(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                null!,
+                out unitsVisited);
         return RunGatedKernel(state, reader, peReader, lookup, gate, sourceGate, out unitsVisited);
     }
 
@@ -322,15 +367,16 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         MethodRowGate gate,
         SourceGateGuard sourceGate,
         out int unitsVisited) =>
-        RunKernelCore<CachedGateKernel>(state, reader, peReader, lookup, gate, sourceGate, out unitsVisited);
+        RunKernelForStop<CachedGateKernel>(
+            state,
+            reader,
+            peReader,
+            lookup,
+            gate,
+            sourceGate,
+            out unitsVisited);
 
-    /// <summary>
-    /// The closed-query kernel: one loop specialized to the producer's gate,
-    /// predicate, and projection. The gate strategy decides only how scope
-    /// and class are tested; containment, early stop, and receipts are the
-    /// same for every strategy.
-    /// </summary>
-    private protected bool RunKernelCore<TGate>(
+    private protected bool RunKernelForStop<TGate>(
         MethodDefinitionExecution.ProducerState state,
         MetadataReader reader,
         PEReader peReader,
@@ -340,8 +386,58 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         out int unitsVisited)
         where TGate : struct, IKernelGate
     {
-        bool exists = state.Terminal == ProducerTerminal.Exists;
-        int? rowLimit = state.RowLimit;
+        if (state.RowLimit is int rowLimit)
+        {
+            return RunKernelCore<TGate, HeadKernelStop>(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                sourceGate,
+                new HeadKernelStop(rowLimit),
+                out unitsVisited);
+        }
+
+        return state.Terminal == ProducerTerminal.Exists
+            ? RunKernelCore<TGate, ExistsKernelStop>(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                sourceGate,
+                default,
+                out unitsVisited)
+            : RunKernelCore<TGate, ExhaustiveKernelStop>(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                sourceGate,
+                default,
+                out unitsVisited);
+    }
+
+    /// <summary>
+    /// The closed-query kernel: one loop specialized to the producer's gate,
+    /// predicate, and projection. The gate strategy decides only how scope
+    /// and class are tested; containment, early stop, and receipts are the
+    /// same for every strategy.
+    /// </summary>
+    private protected bool RunKernelCore<TGate, TStop>(
+        MethodDefinitionExecution.ProducerState state,
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
+        SourceGateGuard sourceGate,
+        TStop stop,
+        out int unitsVisited)
+        where TGate : struct, IKernelGate
+        where TStop : struct, IKernelStop
+    {
         bool rows = state.Terminal == ProducerTerminal.Rows;
         bool typeScoped = HasTypeScope;
         TPredicate predicate = default;
@@ -418,9 +514,7 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
 
                     // Stop before advancing either enumerator once the
                     // requested closing is settled.
-                    if (exists
-                        || rowLimit is int limit
-                            && accumulator.Count >= limit)
+                    if (stop.ShouldStop(accumulator.Count))
                     {
                         state.Outcome = ProducerOutcome.Stopped;
                         state.IsActive = false;
@@ -455,6 +549,26 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         state.Failure = new ProducerFailure(token, unit, $"{ex.GetType().Name}: {ex.Message}");
         state.IsActive = false;
     }
+}
+
+internal interface IKernelStop
+{
+    bool ShouldStop(int count);
+}
+
+internal readonly struct ExhaustiveKernelStop : IKernelStop
+{
+    public bool ShouldStop(int count) => false;
+}
+
+internal readonly struct ExistsKernelStop : IKernelStop
+{
+    public bool ShouldStop(int count) => true;
+}
+
+internal readonly struct HeadKernelStop(int limit) : IKernelStop
+{
+    public bool ShouldStop(int count) => count >= limit;
 }
 
 /// <summary>How a closed-query kernel tests its source gate.</summary>
@@ -587,6 +701,13 @@ public abstract class MethodDefinitionQueryProducer<TGate, TPredicate, TProjecti
         SourceGateGuard sourceGate,
         out int unitsVisited) =>
         ReferenceEquals(sourceGate.Classifier, GateClassifier)
-            ? RunKernelCore<TypedGateKernel<TGate>>(state, reader, peReader, lookup, gate, sourceGate, out unitsVisited)
+            ? RunKernelForStop<TypedGateKernel<TGate>>(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                sourceGate,
+                out unitsVisited)
             : base.RunGatedKernel(state, reader, peReader, lookup, gate, sourceGate, out unitsVisited);
 }
