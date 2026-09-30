@@ -135,7 +135,8 @@ survive in shared packets, and are not searched; `find --ecosystem aspire`
 therefore finds `AddProject` in `Aspire.Hosting` but not `AddRedis` in
 `Aspire.Hosting.Redis`.
 
-Searching prefix populations is the following slice, tracked by
+Searching prefix populations is the following
+[Ecosystem Find Search](ecosystem-find-search.md) slice, tracked by
 [#8811](https://github.com/richlander/dotnet-inspect/issues/8811): the cheap
 named-population answer is printed complete first, prefix packages follow as
 streamed TSV or JSONL rows, and blocking formats skip prefixes with a stderr
