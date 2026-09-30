@@ -58,6 +58,22 @@ internal interface ILibraryMethodAnalysisInfrastructure
         GenericScope scope,
         MethodIdentity caller);
 
+    IMethodCallResolver CreateCallResolver(
+        GenericScope scope,
+        MethodDefinitionHandle caller);
+
+    (TypeRef DeclaringType, ImmutableArray<TypeRef> TypeArguments)
+        ResolveMethodOwner(
+            int token,
+            GenericScope scope,
+            int maximumMethodSignatureBytes,
+            int unitToken);
+
+    MethodSignatureOutcome MethodSignature(
+        BlobHandle signature,
+        int maximumMethodSignatureBytes,
+        int unitToken);
+
     CallerUnsafeMode? ResolveSameImageCallerUnsafeMode(
         int operandToken,
         MemberRef member,
@@ -87,9 +103,6 @@ internal interface ILibraryMethodAnalysisInfrastructure
 
     bool HasGeneratedCodeAttribute(
         CustomAttributeHandleCollection attributes);
-
-    bool IsSourceGeneratedTypeOrEnclosing(
-        TypeDefinitionHandle typeHandle);
 
     bool TryResolveLocalTypeDefinition(
         TypeRef type,
@@ -146,16 +159,6 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition methodDefinition,
         MethodIdentity method,
         bool typeSourceGenerated,
-        out AuthenticatedSourceOwner? immediateOwner,
-        out AuthenticatedSourceOwner? ultimateOwner);
-
-    DeclaredOwnerResolution ResolveUltimateDeclaredMethod(
-        MethodDefinitionHandle methodHandle,
-        MethodDefinition methodDefinition,
-        MethodIdentity method,
-        bool typeSourceGenerated,
-        int maximumInstructionsPerAttributionBody,
-        CancellationToken cancellationToken,
         out AuthenticatedSourceOwner? immediateOwner,
         out AuthenticatedSourceOwner? ultimateOwner);
 
