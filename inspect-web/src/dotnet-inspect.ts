@@ -23671,6 +23671,7 @@ window.addEventListener("popstate", () => {
     return;
   }
   if (restoredActiveManagedWorkspace
+    && activeRetainedWorkspacePosting?.canonicalPacket !== null
     && activeRetainedWorkspacePosting?.canonicalLocation === location.href) {
     state.credits = false;
     state.home = false;
@@ -23788,7 +23789,9 @@ window.addEventListener("popstate", () => {
     });
     return;
   }
-  if (historyWorkspaceReferenced && !historyWorkspaceAvailable) {
+  if (historyWorkspaceReferenced
+    && !managedHistoryWorkspaceAvailable
+    && !historyWorkspaceAvailable) {
     observeAsync(
       restoreFreshWorkspaceFromHistory(loc, navigationSeq),
       "Restoring workspace history");
@@ -23822,8 +23825,17 @@ window.addEventListener("popstate", () => {
       "Restoring workspace history");
     return;
   }
+  const activeManagedTarget = restoredActiveManagedWorkspace
+    && state.package !== null
+    && loc.package !== null
+    && loc.version !== null
+    && loc.framework === null
+    && state.package.id.toLowerCase() === loc.package.toLowerCase()
+    && state.package.version.toLowerCase() === loc.version.toLowerCase()
+    ? state.package
+    : null;
   const target = loc.package
-    ? state.packages.find(candidate =>
+    ? activeManagedTarget ?? state.packages.find(candidate =>
       packageCoordinateMatchesLocation(candidate, loc))
     : null;
   if (loc.tabs?.length && !target) {
@@ -23836,7 +23848,8 @@ window.addEventListener("popstate", () => {
     activatePackage(target, { resetAccessibility: true });
   }
   state.home = false;
-  const samePackage = packageCoordinateMatchesLocation(state.package, loc);
+  const samePackage = state.package === target
+    || packageCoordinateMatchesLocation(state.package, loc);
   if (samePackage || !loc.package) {
     if (isRuntimePackId(state.package.id)) {
       applyLocationView(loc);

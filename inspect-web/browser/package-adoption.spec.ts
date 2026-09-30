@@ -69,6 +69,19 @@ function metadataInertString(value: string): InertString {
   return wireValue;
 }
 
+function currentHistoryWorkspaceId(page: Page): Promise<string | null> {
+  return page.evaluate<string | null>(() => {
+    const value: unknown = history.state;
+    if (typeof value !== "object" || value === null
+      || !("inspectWorkspaceId" in value)) {
+      return null;
+    }
+    return typeof value.inspectWorkspaceId === "string"
+      ? value.inspectWorkspaceId
+      : null;
+  });
+}
+
 const site = resolve(
   process.env.INSPECT_WEB_PACKAGE_ADOPTION_SITE
     ?? "../artifacts/inspect-web-publish/wwwroot",
@@ -1030,6 +1043,34 @@ test.describe("Package Query website over real Wasm", () => {
     );
     await expect(overview.locator(".overview-surface-footer"))
       .toContainText(literalCoordinate.version);
+    const packageUrl = page.url();
+    const retainedWorkspaceId = await currentHistoryWorkspaceId(page);
+    expect(retainedWorkspaceId).not.toBeNull();
+
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="workspace"]').click();
+    await expect(page.locator("[data-navigation-order]"))
+      .toHaveCount(1, { timeout: 180_000 });
+    const workspaceUrl = page.url();
+    expect(await currentHistoryWorkspaceId(page))
+      .toBe(retainedWorkspaceId);
+    await expect(page.locator(".workspace-list .workspace-row"))
+      .toHaveCount(1);
+
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(packageUrl);
+    await expect(overview).toBeVisible({ timeout: 180_000 });
+    expect(await currentHistoryWorkspaceId(page))
+      .toBe(retainedWorkspaceId);
+
+    await page.evaluate(() => history.forward());
+    await expect.poll(() => page.url()).toBe(workspaceUrl);
+    await expect(page.locator("[data-navigation-order]"))
+      .toHaveCount(1, { timeout: 180_000 });
+    expect(await currentHistoryWorkspaceId(page))
+      .toBe(retainedWorkspaceId);
+    await expect(page.locator(".workspace-list .workspace-row"))
+      .toHaveCount(1);
   });
 
   test("qualifies package Results by decoded library literal and opens the exact Root", async ({
@@ -2967,16 +3008,6 @@ test.describe("deterministic two-host Workspace demo", () => {
       await expect(overview.locator(".overview-surface-footer"))
         .toContainText(retainedWorkspace.version);
     };
-    const currentHistoryWorkspaceId = () => page.evaluate<string | null>(() => {
-      const value: unknown = history.state;
-      if (typeof value !== "object" || value === null
-        || !("inspectWorkspaceId" in value)) {
-        return null;
-      }
-      return typeof value.inspectWorkspaceId === "string"
-        ? value.inspectWorkspaceId
-        : null;
-    });
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
@@ -3084,7 +3115,7 @@ test.describe("deterministic two-host Workspace demo", () => {
     await expect(page.locator("[data-navigation-order]"))
       .toContainText(retainedWorkspace.version);
     const managedWorkspaceUrl = page.url();
-    const managedWorkspaceHistoryId = await currentHistoryWorkspaceId();
+    const managedWorkspaceHistoryId = await currentHistoryWorkspaceId(page);
     expect(managedWorkspaceHistoryId).not.toBeNull();
     await expect(page.locator(".workspace-row")
       .filter({ hasText: savedWorkspaceName })
@@ -3140,7 +3171,7 @@ test.describe("deterministic two-host Workspace demo", () => {
       .toHaveText("Package query");
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(managedUrl);
-    await expect.poll(currentHistoryWorkspaceId)
+    await expect.poll(() => currentHistoryWorkspaceId(page))
       .toBe(managedWorkspaceHistoryId);
     await expect(page.locator("[data-navigation-order]"))
       .toContainText(retainedWorkspace.packageId);
