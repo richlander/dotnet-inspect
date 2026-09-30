@@ -1020,6 +1020,20 @@ async function installFacades(
           if (value.includes("internal")) return "internal";
           return "private";
         }
+        function populationMember(member) {
+          if (spelling !== "csharp") return member;
+          const memberAccessibility = member.accessibility || "public";
+          if (member.signature.startsWith(memberAccessibility + " ")) {
+            return member;
+          }
+          const receiver = member.isExtension
+            ? "extension "
+            : member.isStatic ? "static " : "";
+          return {
+            ...member,
+            signature: memberAccessibility + " " + receiver + member.signature,
+          };
+        }
         const type = surface.types.find(item =>
           item.definitionId === typeIdentity || item.queryId === typeIdentity);
         if (!type) {
@@ -1060,7 +1074,7 @@ async function installFacades(
             completeCount: completeCounts.get(key) ?? 0,
             members: [],
           };
-          group.members.push(member);
+          group.members.push(populationMember(member));
           groups.set(key, group);
         }
         return {
