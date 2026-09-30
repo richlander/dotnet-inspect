@@ -110,14 +110,16 @@ internal static class MemberSearchService
         }
 
         await using var workspace =
-            new AssemblySetInspectionWorkspace(
-                FindSourceCollector.CreateWorkspacePlan(options));
+            new ExplicitFindSearchWorkspace(
+                options,
+                httpClient,
+                logger.Log,
+                cancellationToken);
         return new(
             await CollectMembersAsync(
                 options,
                 patterns,
                 logger,
-                httpClient,
                 workspace,
                 MarkFailure),
             hasFailures)
@@ -135,8 +137,7 @@ internal static class MemberSearchService
         FindOptions options,
         IReadOnlyList<string> patterns,
         VerboseLogger logger,
-        HttpClient httpClient,
-        AssemblySetInspectionWorkspace workspace,
+        ExplicitFindSearchWorkspace workspace,
         Action markFailure)
     {
         List<MemberFindResult> results = [];
@@ -148,49 +149,30 @@ internal static class MemberSearchService
             operationalLimit is int limit
             && results.Count >= limit;
 
-        async Task CollectAndScanAsync(AssemblySetRequest request)
-        {
-            using var assemblySet = await AssemblySetResolver.CollectAsync(httpClient, request, logger.Log);
-            AssemblySetDiagnosticWriter.Write(assemblySet);
-            if (assemblySet.Diagnostics.Count > 0)
+        await workspace.RunPerAssemblyAsync(
+            AssemblyContextMemberMatchesQuery.Definition,
+            group => AssemblyContextMemberMatchesQuery.Execute(
+                group,
+                patterns,
+                options.IncludeAll,
+                operationalLimit is int limit
+                    ? limit - results.Count
+                    : null),
+            (assembly, entry) => AddMembers(
+                results,
+                options.TypeFilter,
+                SearchAssemblySource.FromAssemblySet(assembly),
+                entry,
+                logger,
+                markFailure),
+            (assembly, failure) =>
+            {
                 markFailure();
-
-            workspace.RunPerAssembly(
-                assemblySet,
-                AssemblyContextMemberMatchesQuery.Definition,
-                group => AssemblyContextMemberMatchesQuery.Execute(
-                    group,
-                    patterns,
-                    options.IncludeAll,
-                    operationalLimit is int limit
-                        ? limit - results.Count
-                        : null),
-                (assembly, entry) => AddMembers(
-                    results,
-                    options.TypeFilter,
-                    SearchAssemblySource.FromAssemblySet(assembly),
-                    entry,
-                    logger,
-                    markFailure),
-                (assembly, failure) =>
-                {
-                    markFailure();
-                    CommandError.WriteWarning(
-                        $"Could not read {assembly.Path}: {failure}");
-                },
-                ReachedLimit);
-        }
-
-        if (operationalLimit is not null)
-        {
-            await FindSourceCollector.StreamSourcesAsync(
-                options,
-                ReachedLimit,
-                CollectAndScanAsync);
-            return results;
-        }
-
-        await CollectAndScanAsync(FindSourceCollector.BuildFindRequest(options));
+                CommandError.WriteWarning(
+                    $"Could not read {assembly.Path}: {failure}");
+            },
+            markFailure,
+            operationalLimit is not null ? ReachedLimit : null);
         if (options.Limit.HasValue
             && results.Count > options.Limit.Value)
         {
