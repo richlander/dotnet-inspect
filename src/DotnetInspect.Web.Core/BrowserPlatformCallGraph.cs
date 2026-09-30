@@ -626,8 +626,8 @@ internal static class BrowserPlatformCallGraph
                 continue;
             }
             ThrowIfIdentityConflict(identity, sameName);
-            if (scope.PlatformPackForAssembly(identity.Name)
-                    is null
+            if ((!scope.ExactPackageRealization
+                    && scope.PlatformPackForAssembly(identity.Name) is null)
                 || required.Any(candidate =>
                     candidate.IsEquivalentTo(identity)))
             {

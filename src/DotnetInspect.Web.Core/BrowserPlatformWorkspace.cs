@@ -1334,16 +1334,21 @@ internal static class BrowserPlatformWorkspace
             throw Failure(runtime.Failure);
         }
 
-        var aspNetCore = await ProbeFamilyAsync(
-            state,
-            targetFramework,
-            platformVersion,
-            AspNetCoreFamily,
-            assembly,
-            host,
-            deadline,
-            packageLeases,
-            identity).ConfigureAwait(false);
+        (
+            RealizedMemberCoordinate.Platform? Coordinate,
+            WorkspaceContextLoadOutcome.Failed? Failure) aspNetCore =
+            runtime.Coordinate is null || identity is null
+                ? await ProbeFamilyAsync(
+                    state,
+                    targetFramework,
+                    platformVersion,
+                    AspNetCoreFamily,
+                    assembly,
+                    host,
+                    deadline,
+                    packageLeases,
+                    identity).ConfigureAwait(false)
+                : (null, null);
         if (aspNetCore.Failure is not null
             && !IsAssemblyUnavailable(aspNetCore.Failure))
         {
@@ -1576,7 +1581,7 @@ internal static class BrowserPlatformWorkspace
                     host,
                     deadline,
                     packageLeases,
-                    ExactIdentities(state.Scope, selections))
+                    ExactIdentities(state, selections))
                 .ConfigureAwait(false);
         }
 
@@ -1605,6 +1610,20 @@ internal static class BrowserPlatformWorkspace
         BrowserPlatformScope? previous = state.Scope;
         state.Coordinates = coordinates;
         state.Scope = registered;
+        state.ExactPackageRealization =
+            registered.ExactPackageRealization;
+        state.ExactIdentities =
+            registered.ExactPackageRealization
+                ? registered.Members.ToImmutableDictionary(
+                    member =>
+                        member.Participant.Assembly.Identity.Name,
+                    member =>
+                        member.Participant.Assembly.Identity,
+                    StringComparer.OrdinalIgnoreCase)
+                : ImmutableDictionary<
+                    string,
+                    AssemblyReferenceIdentity>.Empty.WithComparers(
+                        StringComparer.OrdinalIgnoreCase);
         Targets[targetKey] = state;
         TrimTargetStates();
         if (previous is not null
@@ -1694,12 +1713,41 @@ internal static class BrowserPlatformWorkspace
                     member.Participant.Assembly.Identity);
             }
         }
+        AddSelectionIdentities(identities, selections);
+        return identities.Count == 0 ? null : identities;
+    }
+
+    static IReadOnlyDictionary<string, AssemblyReferenceIdentity>?
+        ExactIdentities(
+            TargetState state,
+            ImmutableArray<PlatformSelection> selections)
+    {
+        var identities = new Dictionary<
+            string,
+            AssemblyReferenceIdentity>(
+            StringComparer.OrdinalIgnoreCase);
+        if (state.ExactPackageRealization)
+        {
+            foreach ((
+                string assembly,
+                AssemblyReferenceIdentity identity) in state.ExactIdentities)
+            {
+                identities.TryAdd(assembly, identity);
+            }
+        }
+        AddSelectionIdentities(identities, selections);
+        return identities.Count == 0 ? null : identities;
+    }
+
+    static void AddSelectionIdentities(
+        Dictionary<string, AssemblyReferenceIdentity> identities,
+        ImmutableArray<PlatformSelection> selections)
+    {
         foreach (PlatformSelection selection in selections)
         {
             if (selection.Identity is not null)
                 identities[selection.Assembly] = selection.Identity;
         }
-        return identities.Count == 0 ? null : identities;
     }
 
     static bool TryCreateExactDemands(
@@ -2480,6 +2528,15 @@ internal static class BrowserPlatformWorkspace
             get;
             set;
         } = [];
+
+        internal bool ExactPackageRealization { get; set; }
+
+        internal ImmutableDictionary<string, AssemblyReferenceIdentity>
+            ExactIdentities { get; set; } =
+            ImmutableDictionary<
+                string,
+                AssemblyReferenceIdentity>.Empty.WithComparers(
+                    StringComparer.OrdinalIgnoreCase);
 
         internal BrowserPlatformScope? Scope { get; set; }
 
