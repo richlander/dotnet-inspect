@@ -281,6 +281,7 @@
     <Project Path="tests/DotnetInspector.PackageManifestCorpus/DotnetInspector.PackageManifestCorpus.csproj" />
     <Project Path="tests/DotnetInspector.Presentation.Tests/DotnetInspector.Presentation.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Queries.Consumer/DotnetInspector.Queries.Consumer.csproj" />
+    <Project Path="tests/DotnetInspector.Queries.PerformanceOracles/DotnetInspector.Queries.PerformanceOracles.csproj" />
     <Project Path="tests/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
     <Project Path="tests/DotnetInspector.PortableQueries.Tests/DotnetInspector.PortableQueries.Tests.csproj" />
     <Project Path="tests/DotnetInspector.PerformanceOracles/DotnetInspector.PerformanceOracles.csproj" />
@@ -305,6 +306,7 @@
     <Project Path="tools/PackageHouse.CliBenchmarks/PackageHouse.CliBenchmarks.csproj" />
     <Project Path="tools/MethodClassificationScorecard/MethodClassificationScorecard.csproj" />
     <Project Path="tools/QuerySpaceScorecard/QuerySpaceScorecard.csproj" />
+    <Project Path="tools/TypeFindPopulationScorecard/TypeFindPopulationScorecard.csproj" />
     <Project Path="tools/CSharpDiffHarness/CSharpDiffHarness.csproj" />
     <Project Path="tools/DecompilerHarness/DecompilerHarness.csproj" />
     <Project Path="tools/DiffHarnessCommon/DiffHarnessCommon.csproj" />
