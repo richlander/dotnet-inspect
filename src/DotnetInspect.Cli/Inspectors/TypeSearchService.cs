@@ -110,8 +110,8 @@ internal static class TypeSearchService
                     ? await FindSinglePatternAsync(
                         patterns[0],
                         options,
-                        pattern => CollectTypesAsync(
-                            options,
+                        (pattern, limit) => CollectTypesAsync(
+                            options with { Limit = limit },
                             pattern,
                             logger,
                             configured,
@@ -121,8 +121,8 @@ internal static class TypeSearchService
                     : await FindMultiPatternAsync(
                         patterns,
                         options,
-                        pattern => CollectTypesAsync(
-                            options,
+                        (pattern, limit) => CollectTypesAsync(
+                            options with { Limit = limit },
                             pattern,
                             logger,
                             configured,
@@ -1115,10 +1115,23 @@ internal static class TypeSearchService
         cancellationToken.ThrowIfCancellationRequested();
         List<TypeSearchResult>? completeInventory = null;
 
-        Task<List<TypeSearchResult>> Collect(string? pattern)
+        Task<List<TypeSearchResult>> Collect(
+            string? pattern,
+            int? resultLimit)
         {
             if (pattern is null && completeInventory is not null)
                 return Task.FromResult(completeInventory);
+            if (pattern is not null && completeInventory is not null)
+            {
+                IEnumerable<TypeSearchResult> selected =
+                    completeInventory.Where(candidate =>
+                        TypeMatcher.MatchesTypeFilter(
+                            candidate.FullName,
+                            pattern));
+                if (resultLimit is int limit)
+                    selected = selected.Take(limit);
+                return Task.FromResult(selected.ToList());
+            }
 
             List<TypeSearchResult> results = [];
             List<TypeSearchResult>? observedInventory =
@@ -1127,7 +1140,7 @@ internal static class TypeSearchService
                 pattern is null ? ["*"] : [pattern];
             bool ReachedLimit() =>
                 pattern is not null
-                && options.Limit is int limit
+                && resultLimit is int limit
                 && results.Count >= limit;
             bool complete = workspace.RunTypeInventories(
                 options.IncludeAll,
@@ -1141,7 +1154,7 @@ internal static class TypeSearchService
                     ReachedLimit,
                     MarkFailure,
                     observedInventory),
-                pattern is not null && options.Limit.HasValue
+                pattern is not null && resultLimit.HasValue
                     ? ReachedLimit
                     : null);
             if (pattern is null)
@@ -1214,9 +1227,11 @@ internal static class TypeSearchService
     {
         bool hasFailures = false;
         void MarkFailure() => hasFailures = true;
-        Task<List<TypeSearchResult>> Collect(string? pattern) =>
+        Task<List<TypeSearchResult>> Collect(
+            string? pattern,
+            int? resultLimit) =>
             CollectTypesAsync(
-                options,
+                options with { Limit = resultLimit },
                 pattern,
                 logger,
                 workspace,
@@ -1235,7 +1250,9 @@ internal static class TypeSearchService
                 options.PackagePrefixLimitReached);
         }
 
-        // Multi-pattern or tabular output: collect all types, then match each pattern
+        // An unbounded multi-pattern request shares one census. A bounded
+        // request evaluates pattern groups in order until its hit budget is
+        // satisfied.
         return CreateSearchResult(
             await FindMultiPatternAsync(
                 patterns,
@@ -1274,11 +1291,43 @@ internal static class TypeSearchService
     private static async Task<List<TypeFindResult>> FindMultiPatternAsync(
         string[] patterns,
         FindOptions options,
-        Func<string?, Task<List<TypeSearchResult>>> collect,
+        Func<string?, int?, Task<List<TypeSearchResult>>> collect,
         Func<string, Task<List<TypeFindResult>>>?
             inspectNamespace = null)
     {
-        var allTypes = await collect(null);
+        if (options.Limit is int limit)
+        {
+            var limited = new List<TypeFindResult>();
+            int matched = 0;
+            foreach (string pattern in patterns)
+            {
+                int remaining = limit - matched;
+                if (remaining <= 0)
+                    break;
+
+                List<TypeFindResult> rows =
+                    await FindSinglePatternAsync(
+                        pattern,
+                        options with { Limit = remaining },
+                        collect,
+                        inspectNamespace);
+                foreach (TypeFindResult row in rows)
+                {
+                    if (row.Match == TypeFindMatchKind.NotFound)
+                    {
+                        limited.Add(row);
+                        continue;
+                    }
+                    if (matched == limit)
+                        break;
+                    limited.Add(row);
+                    matched++;
+                }
+            }
+            return limited;
+        }
+
+        var allTypes = await collect(null, null);
 
         Dictionary<string, List<TypeSearchResult>> resultsByPattern = [];
         Dictionary<string, TypeFindMatchKind> kindByPattern =
@@ -1438,7 +1487,7 @@ internal static class TypeSearchService
     /// <summary>
     /// The broadened match of one pattern after the Direct and exact
     /// Namespace tiers miss: the first non-empty of Prefix, Substring, and
-    /// Partial, in the order owned by type-find-population-selection.md.
+    /// Partial, in the order owned by find-search-service.md#classification.
     /// </summary>
     private sealed record BroadenedMatch(
         string EffectivePattern,
@@ -1446,71 +1495,125 @@ internal static class TypeSearchService
         List<TypeSearchResult> Candidates,
         Dictionary<string, double>? Similarities);
 
+    private static readonly Comparer<string> WithinTierOrder =
+        Comparer<string>.Create(TypeNameMatchRanking.CompareWithinTier);
+
     /// <summary>
     /// Classifies a missed pattern over a census already in Find source order.
     /// Duplicate full names collapse to the first source-ranked candidate, and
-    /// the host-neutral population selector preserves each exact candidate
-    /// association while applying the shared tier order.
+    /// each tier orders by <see cref="TypeNameMatchRanking.CompareWithinTier"/>
+    /// with source order as the stable tie-break.
     /// </summary>
     private static BroadenedMatch? ClassifyBroadened(
         string pattern,
         IReadOnlyList<TypeSearchResult> census,
         int? limit)
     {
-        TypeFindPopulationSelection<TypeSearchResult>? selection =
-            TypeFindPopulationSelector.Select(
-                pattern,
-                [
-                    .. census.Select(candidate =>
-                        new TypeFindPopulationCandidate<TypeSearchResult>(
-                            candidate,
-                            candidate.FullName)),
-                ],
-                limit);
-        if (selection is null)
+        if (!IsCompatibilityFallbackEligible(pattern))
             return null;
 
-        TypeFindMatchKind kind = selection.Tier switch
+        // Explicit generic notation keeps only the similarity fallback: a
+        // prefix or substring cannot honor its arity.
+        List<TypeSearchResult> prefix = [];
+        List<TypeSearchResult> substring = [];
+        foreach (TypeSearchResult candidate
+            in TypeNameMatchRanking.IsBroadenable(pattern)
+                ? census.DistinctBy(static candidate => candidate.FullName)
+                : [])
         {
-            TypeFindPopulationTier.Prefix =>
-                TypeFindMatchKind.Prefix,
-            TypeFindPopulationTier.Substring =>
-                TypeFindMatchKind.Substring,
-            TypeFindPopulationTier.Partial =>
-                TypeFindMatchKind.Partial,
-            _ => throw new InvalidOperationException(
-                "Unknown Type Find population tier."),
-        };
-        if (kind == TypeFindMatchKind.Prefix
-            && !string.Equals(
-                selection.EffectivePattern,
-                pattern,
-                StringComparison.Ordinal))
-        {
-            CommandError.WriteNote(
-                $"No exact matches for '{pattern}'. Showing prefix "
-                + $"matches for '{selection.EffectivePattern}'.");
+            switch (TypeNameMatchRanking.Classify(candidate.FullName, pattern))
+            {
+                case TypeNameMatchTier.Prefix:
+                    prefix.Add(candidate);
+                    break;
+                case TypeNameMatchTier.Substring:
+                    substring.Add(candidate);
+                    break;
+            }
         }
 
+        if (prefix.Count > 0)
+        {
+            string effectivePattern = pattern;
+            if (LooksLikeNamespacePrefix(pattern))
+            {
+                effectivePattern = $"{pattern}*";
+                CommandError.WriteNote(
+                    $"No exact matches for '{pattern}'. Showing prefix "
+                    + $"matches for '{effectivePattern}'.");
+            }
+
+            return new(
+                effectivePattern,
+                TypeFindMatchKind.Prefix,
+                Ranked(prefix, limit),
+                null);
+        }
+
+        if (substring.Count > 0)
+        {
+            return new(
+                pattern,
+                TypeFindMatchKind.Substring,
+                Ranked(substring, limit),
+                null);
+        }
+
+        List<(string Name, double Similarity)> suggestions =
+            TypeMatcher.FindClosest(
+                    census
+                        .Select(static candidate => candidate.FullName)
+                        .Distinct(StringComparer.Ordinal),
+                    pattern,
+                    minSimilarity: 0.5,
+                    maxResults: 5)
+                .ToList();
+        if (suggestions.Count == 0)
+            return null;
+
+        Dictionary<string, double> similarities =
+            suggestions.ToDictionary(
+                static suggestion => suggestion.Name,
+                static suggestion => suggestion.Similarity,
+                StringComparer.Ordinal);
+        List<TypeSearchResult> partial =
+        [
+            .. census
+                .Where(candidate =>
+                    similarities.ContainsKey(candidate.FullName))
+                .DistinctBy(static candidate => candidate.FullName)
+                .OrderByDescending(candidate =>
+                    similarities[candidate.FullName])
+                .ThenBy(
+                    static candidate => candidate.FullName,
+                    WithinTierOrder),
+        ];
         return new(
-            selection.EffectivePattern,
-            kind,
+            pattern,
+            TypeFindMatchKind.Partial,
+            partial,
+            similarities);
+
+        static List<TypeSearchResult> Ranked(
+            List<TypeSearchResult> candidates,
+            int? limit)
+        {
+            IEnumerable<TypeSearchResult> found = candidates;
+            if (limit is { } count)
+                found = found.Take(count);
+            return
             [
-                .. selection.Matches.Select(
-                    static match => match.Candidate.Association),
-            ],
-            kind == TypeFindMatchKind.Partial
-                ? selection.Matches.ToDictionary(
-                    static match => match.Candidate.FullName,
-                    static match => match.Similarity,
-                    StringComparer.Ordinal)
-                : null);
+                .. found.OrderBy(
+                    static candidate => candidate.FullName,
+                    WithinTierOrder),
+            ];
+        }
     }
 
     private static async Task<List<TypeFindResult>> FindSinglePatternAsync(
         string pattern,
         FindOptions options,
-        Func<string?, Task<List<TypeSearchResult>>> collect,
+        Func<string?, int?, Task<List<TypeSearchResult>>> collect,
         Func<string, Task<List<TypeFindResult>>>? inspectNamespace = null)
     {
         if (TryGetNamespaceDescendantPattern(
@@ -1525,7 +1628,7 @@ internal static class TypeSearchService
                     return inspected;
             }
 
-            List<TypeSearchResult> allTypes = await collect(null);
+            List<TypeSearchResult> allTypes = await collect(null, null);
             List<TypeSearchResult> descendants =
             [
                 .. NamespaceCandidates(
@@ -1558,7 +1661,7 @@ internal static class TypeSearchService
                         StringComparer.Ordinal));
         }
 
-        var results = await collect(pattern);
+        var results = await collect(pattern, options.Limit);
 
         List<TypeSearchResult>? partialMatches = null;
         Dictionary<string, double>? partialSimilarities = null;
@@ -1573,7 +1676,7 @@ internal static class TypeSearchService
                     return namespaceRows;
             }
 
-            var allTypes = await collect(null);
+            var allTypes = await collect(null, null);
 
             List<TypeSearchResult> namespaceMatches =
             [

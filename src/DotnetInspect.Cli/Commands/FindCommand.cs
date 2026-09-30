@@ -76,7 +76,7 @@ public class FindCommand
                 return new(1, RowCount: null);
             }
             FindOptions searchOptions =
-                CreateSearchOptions(options, patterns);
+                CreateSearchOptions(options);
 
             PlatformFindSearchWorkspace? platformWorkspace = null;
             if (searchOptions.UsesImplicitPlatform)
@@ -225,11 +225,9 @@ public class FindCommand
     }
 
     private static FindOptions CreateSearchOptions(
-        FindOptions options,
-        IReadOnlyList<string> patterns)
+        FindOptions options)
     {
-        if (patterns.Count != 1
-            || options.QueryPlan?.ResultLimit is not int resultLimit)
+        if (options.QueryPlan?.ResultLimit is not int resultLimit)
         {
             return options;
         }
@@ -258,6 +256,17 @@ public class FindCommand
             PlatformFindSearchWorkspace? platformWorkspace,
             ExplicitFindSearchWorkspace? explicitWorkspace)
     {
+        int settledRowCount = typeRows.Count(static row =>
+            row.Match is TypeFindMatchKind.Direct
+                or TypeFindMatchKind.Glob
+                or TypeFindMatchKind.Namespace
+                or TypeFindMatchKind.Prefix);
+        if (options.Limit is int limit
+            && settledRowCount >= limit)
+        {
+            return null;
+        }
+
         HashSet<string> settled = new(
             typeRows
                 .Where(static row => row.Match is TypeFindMatchKind.Direct

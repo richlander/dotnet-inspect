@@ -838,22 +838,16 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Directory not found", error);
     }
 
-    [Theory]
-    [InlineData(
-        "CommandExecutionTests,DefinitelyAbsentFindMultiPattern",
-        false)]
-    [InlineData("CommandExecutionTests", true)]
-    public async Task Find_NonPrefixSelectionRemainsExhaustive(
-        string pattern,
-        bool tail)
+    [Fact]
+    public async Task Find_MultiPatternHeadStopsAfterFirstPatternGroup()
     {
         string missing = Path.Combine(
             Path.GetTempPath(),
-            $"DefinitelyAbsentFindExhaustive-{Guid.NewGuid():N}");
-        var args = new List<string>
-        {
+            $"DefinitelyAbsentFindMultiHead-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
             "find",
-            pattern,
+            "CommandExecutionTests,DefinitelyAbsentFindMultiPattern",
             "--library",
             TestAssemblyPath,
             "--bin",
@@ -862,12 +856,33 @@ public partial class CommandExecutionTests
             "1",
             "--json",
             "--tips",
-            "q",
-        };
-        if (tail)
-            args.Add("--tail");
+            "q");
 
-        var (exit, output, error) = await RunAppAsync([.. args]);
+        Assert.Equal(0, exit);
+        Assert.Contains(nameof(CommandExecutionTests), output);
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task Find_TailSelectionRemainsExhaustive()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindTail-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            nameof(CommandExecutionTests),
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "-n",
+            "1",
+            "--tail",
+            "--json",
+            "--tips",
+            "q");
 
         Assert.Equal(0, exit);
         Assert.Contains(nameof(CommandExecutionTests), output);

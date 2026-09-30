@@ -20,10 +20,7 @@ queries, and Metadata facts. `WorkspaceDeclarationLocator` owns resident reverse
 admitted declaration contexts; `AssemblyContextTypeInventoryQuery` remains the
 compatibility inventory for source producers not yet adopted by that
 Workspace path. `ILInspector.Metadata.TypeMatcher` owns the type matching
-grammar and similarity calculation. [Type Find population
-selection](type-find-population-selection.md) owns host-neutral Prefix,
-Substring, and Partial settlement over one complete ordered population.
-[Output shapes](output-shapes.md) and
+grammar and similarity calculation. [Output shapes](output-shapes.md) and
 [progressive disclosure](progressive-disclosure.md) own projection, formatting,
 and presentation limits.
 
@@ -313,13 +310,11 @@ similarity passes reuse those resolved assembly sets; a result limit still
 acquires sources lazily in established order and stops before later sources.
 The command owns that lifetime across both Type classification and the
 broadened Member tier.
-A pure CLI semantic Head plan supplies the same operational limit for one
-pattern. Direct Type or Member matching stops after that many ordered hits,
-including before acquisition of a later source. A miss still reaches the
-complete namespace, prefix, similarity, or broadened classification evidence
-needed to construct its answer. Multi-pattern requests, Tail, and Window do
-not supply an operational limit because their final prefix cannot be inferred
-from one shared collection budget.
+A pure CLI semantic Head plan supplies one operational limit across its
+patterns. Direct Type or Member matching stops after that many discovered
+hits, including before a later pattern group or source. A miss still reaches
+the classification evidence required by its tier. Tail and Window do not
+supply an operational limit.
 Each admitted assembly executes the same inventory query, and the service
 projects its type name, namespace, full name, kind, library file base name,
 source, and source version into the internal `TypeSearchResult` currency. The
@@ -349,11 +344,9 @@ Find ranks one pattern's candidates into ordered match tiers. The tier
 ladder is the product's single Type-name ranking:
 `ILInspector.Metadata.TypeNameMatchRanking`, beside `TypeMatcher`, owns the
 per-candidate Prefix, Substring, and namespace-Path predicates and the
-within-tier order, and every Type-name search host consumes it. [Type Find
-population selection](type-find-population-selection.md) owns first-nonempty
-Prefix, Substring, and Partial settlement over the complete ordered census.
-This service owns how those broadened results compose after Direct and exact
-namespace settlement, beside the Member band, and reach `TypeFindResult`.
+within-tier order, and every Type-name search host consumes it.
+This service owns which tiers a Find pattern evaluates, when a tier settles
+the pattern, and how rows reach `TypeFindResult`.
 
 ### Motivation
 
@@ -384,9 +377,8 @@ A pattern evaluates these tiers in order:
 2. **Exact namespace.** Unchanged: a non-wildcard dotted pattern with at least
    one proper dotted namesake-Library candidate selects public definitions
    whose namespace equals the pattern ordinally, with `Namespace` match kind.
-3. **Prefix.** The host-neutral population selector admits a non-wildcard
-   pattern without explicit generic notation and matches `<pattern>*`. A
-   dotted pattern keeps the established
+3. **Prefix.** A non-wildcard pattern without explicit generic notation
+   matches `<pattern>*`. A dotted pattern keeps the established
    namespace-prefix meaning, including its visible stderr note and effective
    `Pattern`; an undotted pattern matches simple Type names. Rows carry the
    `Prefix` match kind.
@@ -397,15 +389,13 @@ A pattern evaluates these tiers in order:
      [Member Find](find-member-search-service.md) `Direct` grammar over the
      same authorized source request. Member rows remain `MemberFindResult`
      rows; this service does not convert a member into a Type row.
-   - **Substring.** The population selector returns simple Type names
-     containing the pattern, with the
+   - **Substring.** Simple Type names containing the pattern, with the
      `Substring` match kind. A dotted pattern matches full
      names containing it. Find does not evaluate the ranker's undotted Path
      tier, which would admit every Type in a namespace that contains the
      text; incremental Spotlight ranking may.
-5. **Partial.** The population selector's unchanged similarity fallback,
-   reached only when tiers 1-4 are all empty: up to five `Partial`
-   suggestions with similarity at least `0.5`.
+5. **Partial.** Unchanged similarity fallback, reached only when tiers 1-4 are
+   all empty: up to five `Partial` suggestions with similarity at least `0.5`.
 6. **Miss.** Unchanged `NotFound` outcome.
 
 Tiers 1-3 keep the established settlement rule: the first non-empty tier is
@@ -422,19 +412,22 @@ successful results, not diagnostics, so they add no stderr note; the `Match`
 classification carries the tier. Only the established dotted
 namespace-prefix note remains.
 
-The host-neutral selector orders rows within the Prefix and Substring tiers by
-simple-name length, then simple name ordinal-ignore-case, then collected source
-and inventory order.
-The shortest completion is the most likely intent (`JsonSerializer` before
-`JsonSerializerOptions`). Partial rows order by descending similarity, then the
-same keys, which closes the prior known gap where they were emitted in
-collected order. Direct, Namespace, and Member rows keep source and inventory
-order. The selector collapses duplicate full names within Prefix, Substring,
-and Partial to the first source-ranked exact candidate association, as the
-namespace-prefix and similarity rungs already did.
+Find uses three ordering modes:
 
-Multiple patterns classify independently, and their groups keep the
-established input-pattern ordering. Consumers still use `Pattern`, `Match`,
+1. **No forced order.** Direct, Namespace, and Member rows retain source,
+   assembly, and inventory discovery order.
+2. **Whole-population order.** Partial similarity must observe the complete
+   eligible population before ranking by descending similarity and then the
+   shared within-tier comparer.
+3. **Found-population order.** Prefix and Substring apply the semantic hit
+   budget to discovery order first, then order only that found population by
+   simple-name length and ordinal-ignore-case name. Without a budget, the found
+   population is the whole tier.
+
+Multiple Type patterns classify in input order. A Head budget is shared across
+those groups, so a completed earlier group may prevent later patterns from
+running. Duplicate full names within Prefix, Substring, and Partial collapse
+to the first source-ranked candidate. Consumers still use `Pattern`, `Match`,
 and `Similarity` rather than list position to interpret quality.
 
 ### Result and presentation boundary
@@ -493,19 +486,16 @@ fallbacks. Browser Member discovery beyond loaded Types is outside this slice.
 
 ## Limits and work
 
-For direct, exact-namespace, and namespace-prefix matches, `Limit` is a
-per-pattern result cap.
-On the locator path it is applied after complete locator evaluation and cannot
-bound inventory reads or retained inventories. On the optimized legacy
-non-tabular single-pattern path it is also an acquisition bound: once enough
-direct matches have been collected, later sources are neither resolved nor
-diagnosed. For multiple patterns, or one pattern on the legacy census path,
-the service inspects the complete authorized source set before applying each
-pattern's cap.
+`Limit` is one shared hit budget across pattern groups. On the locator path it
+is applied after complete locator evaluation and cannot bound inventory reads
+or retained inventories. On compatibility and platform direct paths it is
+also an acquisition or participant bound: once enough hits have been
+collected, later patterns and sources are neither entered nor diagnosed.
 
-Similarity fallback has its own fixed cap of five candidate names. The current
-implementation does not additionally apply `Limit` to partial suggestions;
-whether the command limit should cap that rung is an unresolved contract gap.
+Prefix and Substring order only the population admitted by the budget.
+Similarity fallback has its own fixed census-derived ranking of up to five
+candidate names; it therefore completes the eligible population before the
+command applies the remaining Head selection.
 
 The non-tabular single-pattern compatibility path first performs filtered
 collection. If it finds no direct result, it performs a full census to evaluate
@@ -582,12 +572,13 @@ the command compatibility boundary:
   facade and its implementation.
 
 `FindMatchTierTests` gates the tier ladder over the real System.Text.Json
-assembly and .NET Platform: shortest-completion Prefix order for single and
-multiple patterns, dotted Prefix with its effective wildcard, Substring after
-an empty Prefix, Direct settlement before Prefix, similarity-ordered Partial
-rows, the Member tier's Markdown section, its visible `--json` omission and
-`--count` rejection, a Prefix Type answer that does not search members, and
-(Slow) the same tiers on the exact-Package locator path.
+assembly and .NET Platform: whole-tier Prefix order when unbounded,
+found-population Prefix order when limited, dotted Prefix with its effective
+wildcard, Substring after an empty Prefix, Direct settlement before Prefix,
+similarity-ordered Partial rows, the Member tier's Markdown section, its
+visible `--json` omission and `--count` rejection, a Prefix Type answer that
+does not search members, and (Slow) the same tiers on the exact-Package
+locator path.
 `TypeNameMatchRankingTests` gates the shared predicates and within-tier
 order, and `BrowserTypeSearchRankingTests` gates the Browser binding.
 `Find_LocatorSimilarityOrdersByScoreThenShortestName` pins Partial order on
