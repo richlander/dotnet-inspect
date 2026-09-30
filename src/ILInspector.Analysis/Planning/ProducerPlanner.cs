@@ -102,7 +102,7 @@ public sealed class WorkDescription
         ImmutableArray<ProducerDeclaration> producers,
         ImmutableArray<ProducerDeclaration> completionOrder,
         ImmutableDictionary<ProducerDeclaration, ProducerTerminal> terminals,
-        ImmutableDictionary<ProducerDeclaration, int?> rowLimits,
+        ImmutableDictionary<ProducerDeclaration, int>? rowLimits,
         ImmutableDictionary<ProducerDeclaration, int> visitPasses,
         ImmutableDictionary<ProducerDeclaration, int> completionPasses,
         ImmutableHashSet<ProducerDeclaration> requested)
@@ -129,14 +129,19 @@ public sealed class WorkDescription
             indices[producers[i]] = i;
 
         var terminalsByIndex = new ProducerTerminal[producers.Length];
-        var rowLimitsByIndex = new int?[producers.Length];
+        int?[]? rowLimitsByIndex =
+            rowLimits is null ? null : new int?[producers.Length];
         var dependencies = new ImmutableArray<int>[producers.Length];
         var unitFactRetention = new UnitFactRetention[producers.Length];
         for (int i = 0; i < producers.Length; i++)
         {
             ProducerDeclaration producer = producers[i];
             terminalsByIndex[i] = terminals[producer];
-            rowLimitsByIndex[i] = rowLimits[producer];
+            if (rowLimitsByIndex is not null
+                && rowLimits!.TryGetValue(producer, out int rowLimit))
+            {
+                rowLimitsByIndex[i] = rowLimit;
+            }
             ImmutableArray<ProducerDependency> declared = producer.Dependencies;
             var targets = ImmutableArray.CreateBuilder<int>(declared.Length);
             foreach (ProducerDependency dependency in declared)
@@ -188,7 +193,9 @@ public sealed class WorkDescription
 
         _indices = indices;
         TerminalByIndex = ImmutableArray.Create(terminalsByIndex);
-        RowLimitByIndex = ImmutableArray.Create(rowLimitsByIndex);
+        RowLimitByIndex = rowLimitsByIndex is null
+            ? default
+            : ImmutableArray.Create(rowLimitsByIndex);
         DependencyIndices = ImmutableArray.Create(dependencies);
         FactRetention = ImmutableArray.Create(unitFactRetention);
         CompletionIndices = completionIndices.ToImmutable();
@@ -197,7 +204,7 @@ public sealed class WorkDescription
 
     readonly ImmutableDictionary<ProducerDeclaration, ProducerTerminal>
         _terminals;
-    readonly ImmutableDictionary<ProducerDeclaration, int?> _rowLimits;
+    readonly ImmutableDictionary<ProducerDeclaration, int>? _rowLimits;
     readonly ImmutableDictionary<ProducerDeclaration, int> _visitPasses;
     readonly ImmutableDictionary<ProducerDeclaration, int>
         _completionPasses;
@@ -209,6 +216,9 @@ public sealed class WorkDescription
 
     /// <summary>Each producer's optional Rows limit, by index into <see cref="Producers"/>.</summary>
     internal ImmutableArray<int?> RowLimitByIndex { get; }
+
+    internal int? RowLimitAtIndex(int index) =>
+        RowLimitByIndex.IsDefault ? null : RowLimitByIndex[index];
 
     /// <summary>Each producer's dependency targets, by index, in declaration order.</summary>
     internal ImmutableArray<ImmutableArray<int>> DependencyIndices { get; }
@@ -253,7 +263,10 @@ public sealed class WorkDescription
         _terminals[producer];
 
     public int? RowLimitOf(ProducerDeclaration producer) =>
-        _rowLimits[producer];
+        _rowLimits is not null
+            && _rowLimits.TryGetValue(producer, out int rowLimit)
+                ? rowLimit
+                : null;
 
     public int VisitPassOf(ProducerDeclaration producer) =>
         _visitPasses[producer];
@@ -312,8 +325,7 @@ public static class ProducerPlanner
             ReferenceEqualityComparer.Instance);
         var terminals = new Dictionary<ProducerDeclaration, ProducerTerminal>(
             ReferenceEqualityComparer.Instance);
-        var rowLimits = new Dictionary<ProducerDeclaration, int?>(
-            ReferenceEqualityComparer.Instance);
+        Dictionary<ProducerDeclaration, int>? rowLimits = null;
         var requested = new HashSet<ProducerDeclaration>(
             ReferenceEqualityComparer.Instance);
 
@@ -327,16 +339,21 @@ public static class ProducerPlanner
             // duplicate is the same request.
             if (terminals.TryGetValue(request.Producer, out ProducerTerminal existing)
                 && (existing != request.Terminal
-                    || rowLimits[request.Producer] != request.RowLimit))
+                    || RowLimitOf(request.Producer) != request.RowLimit))
             {
                 throw DistinctClosings(
                     request.Producer,
-                    ClosingName(existing, rowLimits[request.Producer]),
+                    ClosingName(existing, RowLimitOf(request.Producer)),
                     ClosingName(request.Terminal, request.RowLimit));
             }
 
             terminals[request.Producer] = request.Terminal;
-            rowLimits[request.Producer] = request.RowLimit;
+            if (request.RowLimit is int rowLimit)
+            {
+                (rowLimits ??= new Dictionary<ProducerDeclaration, int>(
+                    ReferenceEqualityComparer.Instance))[request.Producer] =
+                    rowLimit;
+            }
         }
 
         // A dependency is needed in full by its dependent: that is the
@@ -345,10 +362,7 @@ public static class ProducerPlanner
         foreach (ProducerDeclaration producer in closure)
         {
             if (!requested.Contains(producer))
-            {
                 terminals[producer] = ProducerTerminal.Complete;
-                rowLimits[producer] = null;
-            }
         }
 
         foreach (ProducerDeclaration producer in closure)
@@ -361,7 +375,7 @@ public static class ProducerPlanner
                 {
                     throw DistinctClosings(
                         target,
-                        ClosingName(closing, rowLimits[target]),
+                        ClosingName(closing, RowLimitOf(target)),
                         ProducerTerminal.Complete.ToString());
                 }
             }
@@ -386,7 +400,7 @@ public static class ProducerPlanner
                 schedule.CompletionOrder,
                 terminals.ToImmutableDictionary<ProducerDeclaration, ProducerTerminal>(
                     ReferenceEqualityComparer.Instance),
-                rowLimits.ToImmutableDictionary<ProducerDeclaration, int?>(
+                rowLimits?.ToImmutableDictionary<ProducerDeclaration, int>(
                     ReferenceEqualityComparer.Instance),
                 schedule.VisitPasses.ToImmutableDictionary<ProducerDeclaration, int>(
                     ReferenceEqualityComparer.Instance),
@@ -394,6 +408,12 @@ public static class ProducerPlanner
                     ReferenceEqualityComparer.Instance),
                 requested.ToImmutableHashSet<ProducerDeclaration>(
                     ReferenceEqualityComparer.Instance)));
+
+        int? RowLimitOf(ProducerDeclaration producer) =>
+            rowLimits is not null
+            && rowLimits.TryGetValue(producer, out int rowLimit)
+                ? rowLimit
+                : null;
 
         void Close(ProducerDeclaration producer)
         {

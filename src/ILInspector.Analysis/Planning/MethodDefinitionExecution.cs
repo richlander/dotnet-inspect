@@ -60,7 +60,7 @@ public sealed class MethodDefinitionExecution
             execution._states[i] = declaration.CreateState(
                 execution,
                 description.TerminalByIndex[i],
-                description.RowLimitByIndex[i],
+                description.RowLimitAtIndex(i),
                 description.DependencyIndices[i],
                 description.FactRetention[i]);
         }
