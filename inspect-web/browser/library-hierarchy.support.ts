@@ -254,6 +254,7 @@ interface DiagnosticsFixture {
   cachePending?: boolean;
   libraryApiFailure?: boolean;
   libraryApiIncomplete?: boolean;
+  deferTypeMemberPopulation?: boolean;
 }
 
 interface PackageLoadingFixture {
@@ -1090,13 +1091,17 @@ async function installFacades(
           diagnostics: [],
         };
       }
+      let typeMemberPopulationReleased =
+        ${JSON.stringify(diagnostics.deferTypeMemberPopulation !== true)};
       async function waitForTypeMemberPopulationGate() {
-        if (document.documentElement.dataset.typeMemberPopulationGate !== "closed")
-          return;
+        if (typeMemberPopulationReleased) return;
         await new Promise(resolve =>
           document.addEventListener(
             "finish-type-member-population",
-            resolve,
+            () => {
+              typeMemberPopulationReleased = true;
+              resolve();
+            },
             { once: true }));
       }
       export async function queryTypeMemberPopulation(

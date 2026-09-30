@@ -9958,13 +9958,12 @@ async function selectPerformanceMember(
   expectedPopulationKey: string,
   expectedPopulationIntent: number,
 ) {
-  const populationLoad = loadSelectedTypeMemberPopulation();
-  const expectedPopulationOperation =
-    typeMemberPopulationOperationGeneration;
-  await populationLoad;
+  const populationReceipt = await loadSelectedTypeMemberPopulation();
   if (viewSignature() !== expectedView) return;
   const type = selectedType();
   if (!type
+    || !populationReceipt
+    || typeMemberPopulationReceipt !== populationReceipt
     || typeMemberPopulationIntentGeneration !== expectedPopulationIntent
     || typeMemberPopulationOperationGeneration
       !== expectedPopulationOperation
@@ -18451,23 +18450,32 @@ function memberGroupDocumentRequestKey(
 
 interface TypeMemberPopulationLoad {
   key: string;
-  promise: Promise<void>;
+  receipt: TypeMemberPopulationReceipt;
+  promise: Promise<TypeMemberPopulationReceipt>;
+}
+
+interface TypeMemberPopulationReceipt {
+  key: string;
+  generation: number;
 }
 
 let typeMemberPopulationLoad: TypeMemberPopulationLoad | null = null;
+let typeMemberPopulationReceipt: TypeMemberPopulationReceipt | null = null;
+let typeMemberPopulationGeneration = 0;
 let typeMemberPopulationIntentGeneration = 0;
 let typeMemberPopulationOperationGeneration = 0;
 
-function loadSelectedTypeMemberPopulation(): Promise<void> {
+function loadSelectedTypeMemberPopulation():
+  Promise<TypeMemberPopulationReceipt | null> {
   const type = selectedType();
   if (!type) {
     renderPreservingMemberFocus();
-    return Promise.resolve();
+    return Promise.resolve(null);
   }
   const key = typeMemberPopulationKey(type);
   if (!key) {
     renderPreservingMemberFocus();
-    return Promise.resolve();
+    return Promise.resolve(null);
   }
   if (state.typeMemberPopulationLoading
     && state.typeMemberPopulationKey === key) {
@@ -18481,7 +18489,7 @@ function loadSelectedTypeMemberPopulation(): Promise<void> {
   if (state.typeMemberPopulation
     && state.typeMemberPopulationKey === key) {
     renderPreservingMemberFocus();
-    return Promise.resolve();
+    return Promise.resolve(typeMemberPopulationReceipt);
   }
 
   state.typeMemberPopulation = null;
@@ -18490,12 +18498,18 @@ function loadSelectedTypeMemberPopulation(): Promise<void> {
   state.typeMemberPopulationKey = key;
   renderPreservingMemberFocus();
   const pkg = currentPackage();
+  const receipt: TypeMemberPopulationReceipt = {
+    key,
+    generation: ++typeMemberPopulationGeneration,
+  };
   const load: TypeMemberPopulationLoad = {
     key,
-    promise: Promise.resolve(),
+    receipt,
+    promise: Promise.resolve(receipt),
   };
   typeMemberPopulationOperationGeneration++;
   typeMemberPopulationLoad = load;
+  typeMemberPopulationReceipt = receipt;
   load.promise = (async () => {
     try {
       const result = state.rootKind === "library"
@@ -18527,7 +18541,7 @@ function loadSelectedTypeMemberPopulation(): Promise<void> {
       const inspection = await result;
       if (typeMemberPopulationLoad !== load
         || state.typeMemberPopulationKey !== key) {
-        return;
+        return receipt;
       }
       state.typeMemberPopulation = inspection;
       state.typeMemberPopulationError =
@@ -18538,7 +18552,7 @@ function loadSelectedTypeMemberPopulation(): Promise<void> {
     } catch (error) {
       if (typeMemberPopulationLoad !== load
         || state.typeMemberPopulationKey !== key) {
-        return;
+        return receipt;
       }
       state.typeMemberPopulationError = errorMessage(error);
     } finally {
@@ -18550,6 +18564,7 @@ function loadSelectedTypeMemberPopulation(): Promise<void> {
         renderPreservingMemberFocus();
       }
     }
+    return receipt;
   })();
   return load.promise;
 }
@@ -18562,6 +18577,7 @@ function setTypeMemberPopulationIntent(
   state.memberAccessibilityFilter = accessibility;
   state.memberSpelling = spelling;
   typeMemberPopulationLoad = null;
+  typeMemberPopulationReceipt = null;
   state.typeMemberPopulation = null;
   state.typeMemberPopulationLoading = false;
   state.typeMemberPopulationError = "";
