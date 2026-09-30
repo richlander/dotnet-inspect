@@ -182,10 +182,14 @@ format.
 `-n N` is also Find's maximum hit budget across its Type or Member patterns.
 For Type search, duplicate identity and per-candidate classification occur
 before the budget. Find keeps the Nth accepted candidate, then stops before
-the next Type, query participant, pattern group, or source. The current
-reverse-locator package route applies Head after its complete resident census;
-other compatibility and Platform routes stop metadata traversal directly.
-`--tail` and row windows remain exhaustive before selection.
+the next Type, query participant, pattern group, source, or implicit broadened
+Member fallback. Use a leading dot or `--members` when Member rows are the
+requested bounded answer. If Type rows do not fill the budget, implicit Member
+fallback may still contribute and its rows precede weak Type rows in the
+presented answer. The current reverse-locator package route applies Head after
+its complete resident census; other compatibility and Platform routes stop
+metadata traversal directly. `--tail` and row windows remain exhaustive before
+selection.
 
 ### Library namespace Type listings
 

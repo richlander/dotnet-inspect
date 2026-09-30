@@ -380,28 +380,32 @@ its own failures and completion. Default Markdown renders them as a `Members`
 section before `Results`, using the Member Find view. This section enters the
 default `-v:m` view only because it is the command's single high-value section
 when it appears: it is present only when no Exact, Direct, Namespace, or
-Prefix Type exists. Plain `--json` keeps its root `TypeFindResult` array, so a
-member-only broadened answer appears there as an empty array; machine
-consumers that want members keep using `--members` or the leading-dot
-shorthand. `--count` counts Type rows and rejects a broadened answer that
-contains member rows, or whose member source failed or was incomplete,
-rather than silently counting only one kind.
+Prefix Type exists. A pure semantic Head that fills its budget with Type rows
+settles before this implicit Member fallback; proving that no Member outranks a
+weak Type would require the complete fallback census that Head exists to avoid.
+Use `--members` or the leading-dot shorthand when Member rows are the requested
+bounded answer. Plain `--json` keeps its root `TypeFindResult` array, so a
+member-only broadened answer appears there as an empty array. `--count` counts
+Type rows and rejects a broadened answer that contains member rows, or whose
+member source failed or was incomplete, rather than silently counting only one
+kind.
 
 Semantic row selection (`-n`, `--tail`, `--rows`) selects from the whole
-answer in presented order: member rows first, then Type rows. `find Parse -n 2`
-therefore shows the first two `Parse` members and no Type rows, and a window
-that crosses the boundary keeps the tail of `Members` and the head of
-`Results`. Formats that omit member rows (plain `--json` and table formats)
-select over the Type rows they present. The reported row count is the number
-of selected rows presented.
+answer in presented order when implicit Member fallback runs: member rows
+first, then Type rows. A window that crosses the boundary keeps the tail of
+`Members` and the head of `Results`. A pure `-n N` that already settled on N
+Type rows has no Member component to reorder. Formats that omit member rows
+(plain `--json` and table formats) select over the Type rows they present. The
+reported row count is the number of selected rows presented.
 
 ## Limits and work
 
 `Limit` is one shared accepted-candidate budget across pattern groups. On
 compatibility and Platform paths it stops the current metadata Type traversal
 after the Nth accepted unique candidate, then avoids later participants,
-patterns, and sources. On the locator path it selects Head after the complete
-resident locator census and therefore makes no inventory-read reduction claim.
+patterns, sources, and implicit broadened Member fallback. On the locator path
+it selects Head after the complete resident locator census and therefore makes
+no inventory-read reduction claim.
 
 `FindSearchCompletion` records `ResultLimitReached` when Head settled,
 `Exhausted` when the source ended below N, and `Incomplete` when failure or
@@ -483,7 +487,8 @@ assembly and .NET Platform: mixed Prefix/Exact/Prefix discovery order,
 Substring and Partial coexistence, similarity rows that remain in discovery
 order despite different scores, typed exact-only filtering before Head,
 `ResultLimitReached` versus `Exhausted`, dotted Prefix spelling, Member
-composition, and the exact-Package locator path.
+composition, Type Head settlement before implicit Member fallback, and the
+exact-Package locator path.
 `AssemblyContextSearchQueryTests.TypeInventory_StopAvoidsLaterTypesInParticipant`
 gates the metadata boundary: after the stop predicate accepts a Type, the next
 Type is neither visited nor retained.

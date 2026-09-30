@@ -256,6 +256,12 @@ public class FindCommand
             PlatformFindSearchWorkspace? platformWorkspace,
             ExplicitFindSearchWorkspace? explicitWorkspace)
     {
+        if (options.Limit is int limit
+            && typeRows.Count >= limit)
+        {
+            return null;
+        }
+
         HashSet<string> settled = new(
             typeRows
                 .Where(static row => row.Match is TypeFindMatchKind.Exact

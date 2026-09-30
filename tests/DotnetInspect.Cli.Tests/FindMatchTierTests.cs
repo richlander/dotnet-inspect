@@ -232,7 +232,7 @@ public class FindMatchTierTests
     }
 
     [Fact]
-    public async Task Find_HeadStillLetsMemberNameOutrankWeakTypeEvidence()
+    public async Task Find_TypeHeadSettlesBeforeBroadenedMemberFallback()
     {
         var options = new FindOptions
         {
@@ -245,9 +245,9 @@ public class FindMatchTierTests
             () => FindCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Members", output);
-        Assert.Contains("System.Text.StringBuilder", output);
-        Assert.DoesNotContain("DateFormat", output);
+        Assert.DoesNotContain("## Members", output);
+        Assert.DoesNotContain("System.Text.StringBuilder", output);
+        Assert.Contains("DateFormat", output);
     }
 
     [Fact]
