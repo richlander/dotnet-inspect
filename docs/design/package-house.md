@@ -1236,6 +1236,16 @@ The House does not choose one assembly because its file name resembles the
 package ID unless the asset-selection owner explicitly defines that role.
 Shared Library inspection begins only after this handoff.
 
+`PackageLibraryRealization` is the host-neutral exact-Library operation above
+this handoff. It accepts one exact or version-selecting package demand, exact
+target framework, typed Library selector, selection or implementation depth,
+optional companion demand, source authorization, authority-scoped ranged
+store plan, and operation lease. It owns compile `Realize` request
+construction, cache-first and size-first execution, named implementation
+demand, and resolution of exactly one settlement-issued compile handoff.
+Hosts bind their environment and consume the typed result; they do not
+recreate those steps.
+
 ### Library Address operation composition
 
 [#8726](https://github.com/richlander/dotnet-inspect/issues/8726) composes one
