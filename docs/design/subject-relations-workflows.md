@@ -331,8 +331,9 @@ commands lower their gestures to the same typed population request. Type
 relation row selection and its Count terminal execute in the shared section
 operation over the canonical per-form candidate ordering; the CLI formats a
 typed semantic failure but does not order, select, or count a private copy of
-the candidate population. An exact single-form Count applies head, tail, and
-window stages to exact producer cardinality without constructing Rows.
+the candidate population. A producer-compatible Count applies head, tail, and
+window stages independently to each selected relation-form cohort without
+constructing Rows.
 Residual selection remains exhaustive when its ordering cannot be proven from
 a producer prefix.
 
