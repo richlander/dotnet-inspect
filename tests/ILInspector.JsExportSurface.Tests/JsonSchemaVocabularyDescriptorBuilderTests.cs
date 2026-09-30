@@ -294,6 +294,117 @@ public sealed class JsonSchemaVocabularyDescriptorBuilderTests
             actual["maximum"]!.GetValue<long>());
     }
 
+    [Fact]
+    public void Build_KeepsSameNamedDefinitionsFromDifferentAssembliesDistinct()
+    {
+        MetadataTypeDefinitionName definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contracts",
+                    ["Value"])).Name;
+        var leftIdentity = new ApiTypeReferenceIdentity(
+            new("LibraryA", new Version(1, 0), null, null),
+            "Contracts.Value",
+            definitionName);
+        var rightIdentity = new ApiTypeReferenceIdentity(
+            new("LibraryB", new Version(1, 0), null, null),
+            "Contracts.Value",
+            definitionName);
+        ApiType left = Record(
+            "Text",
+            ApiTypeShape.PrimitiveType(
+                ApiPrimitiveType.String));
+        ApiType right = Record(
+            "Count",
+            ApiTypeShape.PrimitiveType(
+                ApiPrimitiveType.Int32));
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                Records = [left, right],
+                ReferencedTypeDefinitions =
+                    new Dictionary<ApiTypeReferenceIdentity, ApiType>
+                    {
+                        [leftIdentity] = left,
+                        [rightIdentity] = right,
+                    },
+            };
+        var row = new JsonPositionalRowContract(
+            [
+                new(
+                    "left",
+                    ApiTypeShape.Named(
+                        leftIdentity,
+                        isValueType: false),
+                    allowsNull: false),
+                new(
+                    "right",
+                    ApiTypeShape.Named(
+                        rightIdentity,
+                        isValueType: false),
+                    allowsNull: false),
+            ]);
+        VocabularySnapshot snapshot = CreateSnapshot();
+
+        JsonSchemaVocabularyDescriptor descriptor =
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new("same-name-row"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Positional(row)),
+                snapshot,
+                snapshot.Identity);
+
+        JsonElement definitions =
+            descriptor.Schema.GetProperty("$defs");
+        JsonElement prefixItems =
+            descriptor.Schema.GetProperty("prefixItems");
+        string leftName = ReferenceName(prefixItems[0]);
+        string rightName = ReferenceName(prefixItems[1]);
+        Assert.NotEqual(leftName, rightName);
+        JsonElement leftProperties = definitions
+            .GetProperty(leftName)
+            .GetProperty("properties");
+        JsonElement rightProperties = definitions
+            .GetProperty(rightName)
+            .GetProperty("properties");
+        Assert.True(leftProperties.TryGetProperty("Text", out _));
+        Assert.False(leftProperties.TryGetProperty("Count", out _));
+        Assert.True(rightProperties.TryGetProperty("Count", out _));
+        Assert.False(rightProperties.TryGetProperty("Text", out _));
+
+        ApiType Record(
+            string memberName,
+            ApiTypeShape memberShape) =>
+            new()
+            {
+                Namespace = "Contracts",
+                Name = "Value",
+                DefinitionName = definitionName,
+                Kind = "class",
+                Members =
+                [
+                    new()
+                    {
+                        Name = memberName,
+                        Kind = "property",
+                        HasGetter = true,
+                        IndexParameterCount = 0,
+                        SignatureModel = new()
+                        {
+                            ReturnTypeShape = memberShape,
+                        },
+                    },
+                ],
+            };
+
+        static string ReferenceName(JsonElement schema) =>
+            schema.GetProperty("$ref")
+                .GetString()!["#/$defs/".Length..];
+    }
+
     static JsonSchemaVocabularyDescriptor Build(
         JsonSchemaContractDeclaration declaration,
         VocabularySnapshot snapshot,

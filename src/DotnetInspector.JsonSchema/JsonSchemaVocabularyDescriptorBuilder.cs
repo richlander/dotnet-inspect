@@ -258,13 +258,11 @@ public static class JsonSchemaVocabularyDescriptorBuilder
         readonly JsonWireDeclarationPlan _plan;
         readonly JsonWireDirection _direction;
         readonly JsonObject _definitions = [];
-        readonly Dictionary<string, string> _definitionNames =
-            new(StringComparer.Ordinal);
+        readonly Dictionary<DefinitionCacheKey, string>
+            _definitionNames = [];
         readonly Dictionary<
             JsonSchemaBindingTarget,
             List<(string Location, int Order)>> _bindingLocations = [];
-        readonly Dictionary<MetadataTypeDefinitionName, ApiType>
-            _typesByDefinitionName;
         int _locationOrder;
 
         public SchemaLowering(
@@ -275,13 +273,6 @@ public static class JsonSchemaVocabularyDescriptorBuilder
             _surface = surface;
             _plan = plan;
             _direction = direction;
-            _typesByDefinitionName = plan.Types
-                .Where(type => type.DefinitionName is not null)
-                .GroupBy(type => type.DefinitionName!)
-                .Where(group => group.Count() == 1)
-                .ToDictionary(
-                    group => group.Key,
-                    group => group.Single());
         }
 
         public JsonObject Schema { get; private set; } = [];
@@ -355,6 +346,7 @@ public static class JsonSchemaVocabularyDescriptorBuilder
                 ResolveDeclaration(type);
             return Reference(
                 EnsureDefinition(
+                    DefinitionIdentity(type),
                     declaration,
                     []));
         }
@@ -389,10 +381,12 @@ public static class JsonSchemaVocabularyDescriptorBuilder
         }
 
         string EnsureDefinition(
+            ApiTypeReferenceIdentity definitionIdentity,
             JsonWireDeclarationIdentity declaration,
             ImmutableArray<ApiTypeShape> typeArguments)
         {
-            string key = DefinitionKey(
+            var key = new DefinitionCacheKey(
+                definitionIdentity,
                 declaration,
                 typeArguments);
             if (_definitionNames.TryGetValue(
@@ -512,6 +506,7 @@ public static class JsonSchemaVocabularyDescriptorBuilder
                 JsonNode reference =
                     Reference(
                         EnsureDefinition(
+                            DefinitionIdentity(@case.Definition),
                             declaration,
                             typeArguments));
                 alternatives.Add(reference);
@@ -886,9 +881,11 @@ public static class JsonSchemaVocabularyDescriptorBuilder
             foreach (TypeRef caseType in union.CaseTypes)
             {
                 alternatives.Add(
-                    LowerTypeRef(
-                        caseType,
-                        typeArguments));
+                    LowerShape(
+                        TypeShapeFromTypeRef(caseType),
+                        typeArguments,
+                        allowNull: false,
+                        converterControlledString: false));
             }
             if (union.IncludesNull == true)
             {
@@ -1121,130 +1118,20 @@ public static class JsonSchemaVocabularyDescriptorBuilder
             }
             JsonWireDeclarationIdentity declaration =
                 ResolveDeclaration(localType);
+            ImmutableArray<ApiTypeShape> closedArguments =
+                shape.Kind == ApiTypeShapeKind.GenericInstance
+                    ? [
+                        .. shape.TypeArguments.Select(argument =>
+                            SubstituteShape(
+                                argument,
+                                typeArguments)),
+                    ]
+                    : [];
             return Reference(
                 EnsureDefinition(
+                    definition,
                     declaration,
-                    shape.Kind
-                        == ApiTypeShapeKind.GenericInstance
-                            ? shape.TypeArguments
-                            : []));
-        }
-
-        JsonNode LowerTypeRef(
-            TypeRef type,
-            ImmutableArray<ApiTypeShape> typeArguments)
-        {
-            if (type.Kind == TypeRefKind.GenericParameter)
-            {
-                if (type.GenericParameterIndex < 0
-                    || type.GenericParameterIndex
-                        >= typeArguments.Length)
-                {
-                    throw new JsonSchemaVocabularyException(
-                        "union generic parameter",
-                        "closed type-argument evidence is unavailable");
-                }
-                return LowerShape(
-                    typeArguments[type.GenericParameterIndex],
-                    [],
-                    allowNull: true,
-                    converterControlledString: false);
-            }
-            if (type.Kind == TypeRefKind.SzArray
-                && type.ElementType is { } element)
-            {
-                return new JsonObject
-                {
-                    ["type"] = "array",
-                    ["items"] = LowerTypeRef(
-                        element,
-                        typeArguments),
-                };
-            }
-            if (type.Kind == TypeRefKind.GenericInstance
-                && type.ElementType is { } genericDefinition)
-            {
-                string fullName = TypeFullName(genericDefinition);
-                if (fullName is "System.Nullable`1"
-                    && type.TypeArguments is [var nullable])
-                {
-                    return AddNull(
-                        LowerTypeRef(
-                            nullable,
-                            typeArguments));
-                }
-                if (IsCollection(fullName)
-                    && type.TypeArguments is [var collectionElement])
-                {
-                    return new JsonObject
-                    {
-                        ["type"] = "array",
-                        ["items"] = LowerTypeRef(
-                            collectionElement,
-                            typeArguments),
-                    };
-                }
-                if (IsDictionary(fullName)
-                    && type.TypeArguments is [var key, var value]
-                    && TypeFullName(key) == "System.String")
-                {
-                    return new JsonObject
-                    {
-                        ["type"] = "object",
-                        ["additionalProperties"] =
-                            LowerTypeRef(
-                                value,
-                                typeArguments),
-                    };
-                }
-                if (genericDefinition.Resolution?.Type
-                    is { } definitionName
-                    && _typesByDefinitionName.TryGetValue(
-                        definitionName,
-                        out ApiType? localGeneric))
-                {
-                    JsonWireDeclarationIdentity declaration =
-                        ResolveDeclaration(localGeneric);
-                    return Reference(
-                        EnsureDefinition(
-                            declaration,
-                            [.. type.TypeArguments.Select(
-                                TypeShapeFromTypeRef)]));
-                }
-            }
-            if (type.Kind == TypeRefKind.Definition)
-            {
-                string fullName = TypeFullName(type);
-                if (fullName == "System.String")
-                    return new JsonObject { ["type"] = "string" };
-                if (fullName == "System.Boolean")
-                    return new JsonObject { ["type"] = "boolean" };
-                if (fullName.StartsWith(
-                    "System.Int",
-                    StringComparison.Ordinal)
-                    || fullName.StartsWith(
-                        "System.UInt",
-                        StringComparison.Ordinal)
-                    || fullName is "System.Byte"
-                        or "System.SByte")
-                {
-                    return new JsonObject { ["type"] = "integer" };
-                }
-                if (type.Resolution?.Type is { } definitionName
-                    && _typesByDefinitionName.TryGetValue(
-                        definitionName,
-                        out ApiType? local))
-                {
-                    return Reference(
-                        EnsureDefinition(
-                            ResolveDeclaration(local),
-                            []));
-                }
-            }
-
-            throw new JsonSchemaVocabularyException(
-                TypeFullName(type),
-                "union case type is unsupported");
+                    closedArguments));
         }
 
         JsonWireDeclarationIdentity ResolveDeclaration(ApiType type)
@@ -1307,12 +1194,6 @@ public static class JsonSchemaVocabularyDescriptorBuilder
             return candidate;
         }
 
-        static string DefinitionKey(
-            JsonWireDeclarationIdentity declaration,
-            ImmutableArray<ApiTypeShape> typeArguments) =>
-            $"{declaration.Type.FullName}|{declaration.Direction}|"
-            + string.Join("|", typeArguments.Select(TypeShapeKey));
-
         static string TypeShapeKey(ApiTypeShape shape)
         {
             var value = new StringBuilder();
@@ -1324,6 +1205,10 @@ public static class JsonSchemaVocabularyDescriptorBuilder
                 value.Append((int)current.Kind).Append(':')
                     .Append(current.Primitive).Append(':')
                     .Append(current.Definition?.Assembly.Name).Append(':')
+                    .Append(current.Definition?.Assembly.Version).Append(':')
+                    .Append(current.Definition?.Assembly.Culture).Append(':')
+                    .Append(current.Definition?.Assembly.PublicKeyToken)
+                    .Append(':')
                     .Append(current.Definition?.FullName).Append(':')
                     .Append(current.GenericParameterIndex).Append('[');
                 if (current.ElementType is { } element)
@@ -1378,7 +1263,9 @@ public static class JsonSchemaVocabularyDescriptorBuilder
                 assembly,
                 definitionName.ToMetadataFullName(),
                 definitionName);
-            bool? isValueType = IsValueType(definition);
+            bool? isValueType = IsValueType(
+                definition,
+                identity);
             return type.Kind == TypeRefKind.GenericInstance
                 ? ApiTypeShape.GenericInstance(
                     identity,
@@ -1415,11 +1302,12 @@ public static class JsonSchemaVocabularyDescriptorBuilder
                 : _surface.AssemblyIdentity;
         }
 
-        bool? IsValueType(TypeRef type)
+        bool? IsValueType(
+            TypeRef type,
+            ApiTypeReferenceIdentity identity)
         {
-            if (type.Resolution?.Type is { } definitionName
-                && _typesByDefinitionName.TryGetValue(
-                    definitionName,
+            if (_plan.DeclaredTypesByScopedIdentity.TryGetValue(
+                    identity,
                     out ApiType? local))
             {
                 return local.Kind is "struct" or "enum";
@@ -1430,6 +1318,131 @@ public static class JsonSchemaVocabularyDescriptorBuilder
                 0x12 => false,
                 _ => null,
             };
+        }
+
+        ApiTypeReferenceIdentity DefinitionIdentity(ApiType type)
+        {
+            if (_surface.AssemblyIdentity is { } assembly)
+            {
+                var currentAssemblyIdentity =
+                    new ApiTypeReferenceIdentity(
+                        assembly,
+                        type.FullName,
+                        type.DefinitionName);
+                if (_plan.DeclaredTypesByScopedIdentity.TryGetValue(
+                        currentAssemblyIdentity,
+                        out ApiType? currentType)
+                    && ReferenceEquals(currentType, type))
+                {
+                    return currentAssemblyIdentity;
+                }
+            }
+
+            ApiTypeReferenceIdentity[] identities =
+            [
+                .. _plan.DeclaredTypesByScopedIdentity
+                    .Where(candidate =>
+                        ReferenceEquals(candidate.Value, type))
+                    .Select(candidate => candidate.Key)
+                    .Distinct(),
+            ];
+            if (identities.Length != 1)
+            {
+                throw new JsonSchemaVocabularyException(
+                    type.FullName,
+                    "exact declaration identity is unavailable");
+            }
+            return identities[0];
+        }
+
+        static ApiTypeShape SubstituteShape(
+            ApiTypeShape shape,
+            ImmutableArray<ApiTypeShape> typeArguments)
+        {
+            if (shape.Kind == ApiTypeShapeKind.GenericParameter)
+            {
+                if (shape.IsMethodGenericParameter
+                    || shape.GenericParameterIndex < 0
+                    || shape.GenericParameterIndex
+                        >= typeArguments.Length)
+                {
+                    throw new JsonSchemaVocabularyException(
+                        "generic parameter",
+                        "closed type-argument evidence is unavailable");
+                }
+                return typeArguments[shape.GenericParameterIndex];
+            }
+            if (shape.Kind == ApiTypeShapeKind.SzArray
+                && shape.ElementType is { } vectorElement)
+            {
+                return ApiTypeShape.SzArray(
+                    SubstituteShape(
+                        vectorElement,
+                        typeArguments));
+            }
+            if (shape.Kind == ApiTypeShapeKind.Array
+                && shape.ElementType is { } arrayElement)
+            {
+                return ApiTypeShape.Array(
+                    SubstituteShape(
+                        arrayElement,
+                        typeArguments),
+                    shape.ArrayRank,
+                    shape.ArraySizes,
+                    shape.ArrayLowerBounds);
+            }
+            if (shape.Kind == ApiTypeShapeKind.GenericInstance
+                && shape.Definition is { } definition)
+            {
+                return ApiTypeShape.GenericInstance(
+                    definition,
+                    [
+                        .. shape.TypeArguments.Select(argument =>
+                            SubstituteShape(
+                                argument,
+                                typeArguments)),
+                    ],
+                    shape.IsValueType);
+            }
+            return shape;
+        }
+
+        sealed class DefinitionCacheKey : IEquatable<DefinitionCacheKey>
+        {
+            readonly ApiTypeReferenceIdentity _identity;
+            readonly JsonWireDirection _direction;
+            readonly ImmutableArray<ApiTypeShape> _typeArguments;
+
+            public DefinitionCacheKey(
+                ApiTypeReferenceIdentity identity,
+                JsonWireDeclarationIdentity declaration,
+                ImmutableArray<ApiTypeShape> typeArguments)
+            {
+                _identity = identity;
+                _direction = declaration.Direction;
+                _typeArguments = typeArguments;
+            }
+
+            public bool Equals(DefinitionCacheKey? other) =>
+                other is not null
+                && _identity == other._identity
+                && _direction == other._direction
+                && _typeArguments.SequenceEqual(
+                    other._typeArguments);
+
+            public override bool Equals(object? obj) =>
+                obj is DefinitionCacheKey other
+                && Equals(other);
+
+            public override int GetHashCode()
+            {
+                var hash = new HashCode();
+                hash.Add(_identity);
+                hash.Add(_direction);
+                foreach (ApiTypeShape argument in _typeArguments)
+                    hash.Add(argument);
+                return hash.ToHashCode();
+            }
         }
 
         static bool TryGetPrimitive(

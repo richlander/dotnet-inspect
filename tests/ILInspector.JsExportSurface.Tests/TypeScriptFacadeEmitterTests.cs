@@ -7,6 +7,7 @@ using DotnetInspector.Vocabulary;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
+using ILInspector.JsExportSurface.TypeScriptFixtures;
 using ILInspector.Metadata;
 namespace ILInspector.JsExportSurface.Tests;
 
@@ -594,6 +595,223 @@ public sealed class TypeScriptFacadeEmitterTests
             nullValue => Assert.Equal(
                 "null",
                 nullValue.GetProperty("type").GetString()));
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("browser")]
+    public void JsonSchema_PreservesUnionCollectionAndScalarValueSemantics()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(TypeScriptFixtureExports).Assembly.Location);
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonSchemaVocabularyDescriptor collections = BuildUnion(
+            "CollectionSelection");
+        JsonElement collectionAlternatives = RootAlternatives(
+            collections);
+        JsonElement array = Assert.Single(
+            collectionAlternatives.EnumerateArray(),
+            alternative => alternative.TryGetProperty(
+                "type",
+                out JsonElement type)
+                && type.GetString() == "array");
+        Assert.Contains(
+            array.GetProperty("items")
+                .GetProperty("anyOf")
+                .EnumerateArray(),
+            alternative => alternative.TryGetProperty(
+                "type",
+                out JsonElement type)
+                && type.GetString() == "null");
+        JsonElement dictionary = Assert.Single(
+            collectionAlternatives.EnumerateArray(),
+            alternative => alternative.TryGetProperty(
+                "type",
+                out JsonElement type)
+                && type.GetString() == "object");
+        Assert.Contains(
+            dictionary.GetProperty("additionalProperties")
+                .GetProperty("anyOf")
+                .EnumerateArray(),
+            alternative => alternative.TryGetProperty(
+                "type",
+                out JsonElement type)
+                && type.GetString() == "null");
+
+        using JsonDocument arrayPayload = JsonDocument.Parse(
+            TypeScriptFixtureExports.GetCollectionSelection(0));
+        Assert.Equal(
+            JsonValueKind.Null,
+            arrayPayload.RootElement[1].ValueKind);
+        using JsonDocument dictionaryPayload = JsonDocument.Parse(
+            TypeScriptFixtureExports.GetCollectionSelection(1));
+        Assert.Equal(
+            JsonValueKind.Null,
+            dictionaryPayload.RootElement
+                .GetProperty("absent").ValueKind);
+
+        JsonSchemaVocabularyDescriptor timestamps = BuildUnion(
+            "TimestampSelection");
+        JsonElement timestampAlternatives = RootAlternatives(
+            timestamps);
+        Assert.Contains(
+            timestampAlternatives.EnumerateArray(),
+            alternative =>
+                alternative.TryGetProperty(
+                    "type",
+                    out JsonElement type)
+                && type.GetString() == "string"
+                && alternative.GetProperty("format").GetString()
+                    == "date-time");
+        JsonElement timestampArray = Assert.Single(
+            timestampAlternatives.EnumerateArray(),
+            alternative => alternative.TryGetProperty(
+                "type",
+                out JsonElement type)
+                && type.GetString() == "array");
+        Assert.Collection(
+            timestampArray.GetProperty("items")
+                .GetProperty("anyOf")
+                .EnumerateArray(),
+            date => Assert.Equal(
+                "date-time",
+                date.GetProperty("format").GetString()),
+            nullValue => Assert.Equal(
+                "null",
+                nullValue.GetProperty("type").GetString()));
+
+        JsonSchemaVocabularyDescriptor BuildUnion(string name)
+        {
+            ApiType union = Assert.Single(
+                surface.Unions,
+                candidate => candidate.Definition.Name == name)
+                .Definition;
+            return JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new($"fixture.{name}"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Object(union)),
+                snapshot,
+                snapshot.Identity);
+        }
+
+        static JsonElement RootAlternatives(
+            JsonSchemaVocabularyDescriptor descriptor)
+        {
+            string definitionName =
+                descriptor.Schema.GetProperty("$ref")
+                    .GetString()!["#/$defs/".Length..];
+            return descriptor.Schema.GetProperty("$defs")
+                .GetProperty(definitionName)
+                .GetProperty("anyOf");
+        }
+    }
+
+    [Theory]
+    [InlineData("GetGenericRecordIntAsync", "integer")]
+    [InlineData("GetGenericRecordWidgetAsync", "object")]
+    [System.Runtime.Versioning.SupportedOSPlatform("browser")]
+    public async Task
+        JsonSchema_SubstitutesEnclosingArgumentsIntoNestedGenerics(
+        string exportName,
+        string expectedValueKind)
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(TypeScriptFixtureExports).Assembly.Location);
+        ApiTypeShape shape = Assert.IsType<ApiTypeShape>(
+            Assert.Single(
+                surface.Functions,
+                function => function.Name == exportName)
+            .ReturnWireTypeShape);
+        var row = new JsonPositionalRowContract(
+            [new("value", shape, allowsNull: false)]);
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonSchemaVocabularyDescriptor descriptor =
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new($"fixture.{exportName}"),
+                    JsonWireDirection.Serialize,
+                    new JsonSchemaContractRoot.Positional(row)),
+                snapshot,
+                snapshot.Identity);
+
+        JsonElement definitions =
+            descriptor.Schema.GetProperty("$defs");
+        string recordName = ReferenceName(
+            descriptor.Schema.GetProperty("prefixItems")[0]);
+        JsonElement nestedProperty = definitions
+            .GetProperty(recordName)
+            .GetProperty("properties")
+            .GetProperty("nested");
+        string nestedName = ReferenceName(
+            NonNull(nestedProperty));
+        JsonElement value = NonNull(
+            definitions.GetProperty(nestedName)
+                .GetProperty("properties")
+                .GetProperty("value"));
+
+        if (expectedValueKind == "integer")
+        {
+            Assert.Equal(
+                "integer",
+                value.GetProperty("type").GetString());
+        }
+        else
+        {
+            string widgetName = ReferenceName(value);
+            JsonElement widgetProperties = definitions
+                .GetProperty(widgetName)
+                .GetProperty("properties");
+            Assert.True(widgetProperties.TryGetProperty("name", out _));
+            Assert.True(widgetProperties.TryGetProperty("count", out _));
+        }
+
+        using JsonDocument payload = JsonDocument.Parse(
+            exportName == "GetGenericRecordIntAsync"
+                ? await TypeScriptFixtureExports
+                    .GetGenericRecordIntAsync()
+                : await TypeScriptFixtureExports
+                    .GetGenericRecordWidgetAsync("sample"));
+        Assert.Equal(
+            expectedValueKind == "integer"
+                ? JsonValueKind.Number
+                : JsonValueKind.Object,
+            payload.RootElement.GetProperty("nested")
+                .GetProperty("value").ValueKind);
+
+        static string ReferenceName(JsonElement schema) =>
+            schema.GetProperty("$ref")
+                .GetString()!["#/$defs/".Length..];
+
+        static JsonElement NonNull(JsonElement schema)
+        {
+            if (!schema.TryGetProperty(
+                    "anyOf",
+                    out JsonElement alternatives))
+            {
+                return schema;
+            }
+            return Assert.Single(
+                alternatives.EnumerateArray(),
+                alternative =>
+                    !alternative.TryGetProperty(
+                        "type",
+                        out JsonElement type)
+                    || type.GetString() != "null");
+        }
     }
 
     [Fact]
