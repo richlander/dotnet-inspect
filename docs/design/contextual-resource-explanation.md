@@ -333,6 +333,11 @@ containment-aware renderer rather than concatenating one shell command string
 inside each registration. The copied presentation is a host gesture, not
 subject identity or a reusable inspection reference.
 
+The CLI lowers the bounded gesture rows through Markout's plain-text path on
+`stderr`. This is one host-specific, single-format projection rather than a
+broad rendering domain. Browser/Wasm binds the shared affordance identities to
+host-native interactions and does not parse or reproduce the CLI rendering.
+
 The host resolves, orders, bounds, contains, and materializes the complete
 gesture block before writing any of it. Candidate resolution, containment, or
 materialization failure therefore cannot leave a plausible partial block on
