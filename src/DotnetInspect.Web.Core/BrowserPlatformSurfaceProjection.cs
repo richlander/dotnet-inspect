@@ -57,20 +57,25 @@ internal static class BrowserPlatformSurfaceProjection
                                 BrowserInspectionScope.MaxRetainedImageBytes),
                             cancellationToken)),
                 (reference, owner) =>
-                    owner.IssueOperationLease(reference) is LibraryOperationLeaseIssueOutcome.Issued issued
-                        ? LibraryInspectionOperation.Execute(
-                            new(
-                                reference,
+                    AssemblyContextLibraryInspection.ExecuteOperation(
+                        reference,
+                        owner,
+                        lease =>
+                            LibraryInspectionOperation.Execute(
                                 new(
+                                    reference,
                                     new(
-                                        LibraryTypeAccessibility.Public,
-                                        count: null,
-                                        new(BrowserApiSurfacePolicy.MaxTypeForwarders),
-                                        LibraryTypeDeclarationSelection.Forwarders),
-                                    BrowserApiSurfacePolicy.ExtractionBounds)),
-                            issued.Lease,
-                            cancellationToken)
-                        : null,
+                                        new(
+                                            LibraryTypeAccessibility.Public,
+                                            count: null,
+                                            new(BrowserApiSurfacePolicy
+                                                .MaxTypeForwarders),
+                                            LibraryTypeDeclarationSelection
+                                                .Forwarders),
+                                        BrowserApiSurfacePolicy
+                                            .ExtractionBounds)),
+                                lease,
+                                cancellationToken)),
                 cleanupFailures);
         cancellationToken.ThrowIfCancellationRequested();
         if (run.Result?.Content is not LibraryInspectionOutcome.Available available)
