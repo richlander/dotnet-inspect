@@ -251,6 +251,51 @@ public sealed class JsonPolymorphicWireTests
     }
 
     [Fact]
+    public void JsonSchema_RejectsUnsupportedInheritedMemberWireAttributes()
+    {
+        var surface = Build(
+            nameof(PolymorphicExports.GetNumberStringOutcome));
+        JsExportPolymorphicUnion union = Assert.Single(
+            surface.PolymorphicUnions,
+            candidate => candidate.Definition.FullName
+                == typeof(NumberStringOutcome).FullName);
+        ApiMember count = Assert.Single(
+            union.Definition.Members,
+            member => member.Name == "Count");
+        Assert.True(count.HasUnsupportedJsonWireAttributes);
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonSchemaVocabularyException exception =
+            Assert.Throws<JsonSchemaVocabularyException>(() =>
+                JsonSchemaVocabularyDescriptorBuilder.Build(
+                    surface,
+                    JsonWireDeclarationPlan.Create(surface),
+                    new(
+                        new("number-string-outcome"),
+                        JsonWireDirection.Serialize,
+                        new JsonSchemaContractRoot.Object(
+                            union.Definition)),
+                    snapshot,
+                    snapshot.Identity));
+
+        Assert.Contains(
+            "Count",
+            exception.Location,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "wire-shaping attributes are unsupported",
+            exception.Reason);
+        using JsonDocument payload = JsonDocument.Parse(
+            PolymorphicExports.GetNumberStringOutcome());
+        Assert.Equal(
+            JsonValueKind.String,
+            payload.RootElement.GetProperty("count").ValueKind);
+    }
+
+    [Fact]
     public void Emit_RejectsNonStringPolymorphicDiscriminator()
     {
         string outputPath = Path.Combine(

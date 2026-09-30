@@ -214,6 +214,13 @@ internal sealed partial class AdditionalOptionsJsonContext
 internal sealed partial class UnsupportedUnmappedMembersJsonContext
     : JsonSerializerContext;
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed record StrictUnmappedInputFixture(string Name);
+
+[JsonSerializable(typeof(StrictUnmappedInputFixture))]
+internal sealed partial class StrictUnmappedInputJsonContext
+    : JsonSerializerContext;
+
 internal sealed class MemberJsonConverterFixture
 {
     [JsonConverter(typeof(JsonStringEnumConverter))]

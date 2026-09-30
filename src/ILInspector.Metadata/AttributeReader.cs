@@ -80,6 +80,10 @@ public static partial class AttributeReader
         "System.Text.Json.Serialization.JsonObjectCreationHandlingAttribute";
     private const string JsonObjectCreationHandlingTypeName =
         "System.Text.Json.Serialization.JsonObjectCreationHandling";
+    private const string JsonUnmappedMemberHandlingAttributeName =
+        "System.Text.Json.Serialization.JsonUnmappedMemberHandlingAttribute";
+    private const string JsonUnmappedMemberHandlingTypeName =
+        "System.Text.Json.Serialization.JsonUnmappedMemberHandling";
     private const string JsonExtensionDataAttributeName =
         "System.Text.Json.Serialization.JsonExtensionDataAttribute";
     private const string JsonRequiredAttributeName =
@@ -97,6 +101,8 @@ public static partial class AttributeReader
                 [JsonNumberHandlingTypeName] =
                     PrimitiveTypeCode.Int32,
                 [JsonObjectCreationHandlingTypeName] =
+                    PrimitiveTypeCode.Int32,
+                [JsonUnmappedMemberHandlingTypeName] =
                     PrimitiveTypeCode.Int32,
             };
     private const string RequiredMembersFeatureName = "RequiredMembers";
@@ -666,6 +672,10 @@ public static partial class AttributeReader
             attributes,
             beforeMaterialize)
         || HasUnsupportedJsonObjectCreationHandlingAttribute(
+            reader,
+            attributes,
+            beforeMaterialize)
+        || HasUnsupportedJsonUnmappedMemberHandlingAttribute(
             reader,
             attributes,
             beforeMaterialize);
@@ -2082,6 +2092,7 @@ public static partial class AttributeReader
         JsonSerializerDefaults,
         JsonNumberHandling,
         JsonObjectCreationHandling,
+        JsonUnmappedMemberHandling,
     }
 
     internal static bool HasExpectedMarkerConstructor(
@@ -2313,6 +2324,16 @@ public static partial class AttributeReader
                         type,
                         "System.Text.Json.Serialization",
                         "JsonObjectCreationHandling",
+                        IsSystemTextJsonAssembly),
+                FrameworkConstructorKind.JsonUnmappedMemberHandling =>
+                    signature.ParameterTypes is
+                    [
+                        NamedTypeNode type,
+                    ]
+                    && IsExpectedTopLevelSignatureType(
+                        type,
+                        "System.Text.Json.Serialization",
+                        "JsonUnmappedMemberHandling",
                         IsSystemTextJsonAssembly),
                 _ => false,
             };
@@ -2761,6 +2782,17 @@ public static partial class AttributeReader
             attributes,
             JsonObjectCreationHandlingAttributeName,
             FrameworkConstructorKind.JsonObjectCreationHandling,
+            beforeMaterialize);
+
+    static bool HasUnsupportedJsonUnmappedMemberHandlingAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize)
+        => HasUnsupportedJsonEnumAttribute(
+            reader,
+            attributes,
+            JsonUnmappedMemberHandlingAttributeName,
+            FrameworkConstructorKind.JsonUnmappedMemberHandling,
             beforeMaterialize);
 
     static bool HasUnsupportedJsonEnumAttribute(

@@ -815,6 +815,135 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("browser")]
+    public void JsonSchema_SubstitutesBeforeGenericContainerSpecialization()
+    {
+        string path = typeof(TypeScriptFixtureExports).Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface =
+            ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ApiAssemblyIdentity assembly = Assert.IsType<ApiAssemblyIdentity>(
+            apiSurface.AssemblyIdentity);
+        ApiType arrayBox = Assert.Single(
+            apiSurface.Types,
+            type => type.Name.StartsWith(
+                "ArrayBox",
+                StringComparison.Ordinal));
+        ApiType keyBox = Assert.Single(
+            apiSurface.Types,
+            type => type.Name.StartsWith(
+                "KeyBox",
+                StringComparison.Ordinal));
+        var arrayBoxIdentity = new ApiTypeReferenceIdentity(
+            assembly,
+            arrayBox.FullName,
+            arrayBox.DefinitionName);
+        var keyBoxIdentity = new ApiTypeReferenceIdentity(
+            assembly,
+            keyBox.FullName,
+            keyBox.DefinitionName);
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = assembly,
+                Records = [arrayBox, keyBox],
+                ReferencedTypeDefinitions =
+                    new Dictionary<ApiTypeReferenceIdentity, ApiType>
+                    {
+                        [arrayBoxIdentity] = arrayBox,
+                        [keyBoxIdentity] = keyBox,
+                    },
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [arrayBox] = JsonWireDirection.Serialize,
+                        [keyBox] = JsonWireDirection.Serialize,
+                    },
+            };
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            new("test"),
+            []);
+
+        JsonElement byteValues = NonNull(
+            ValuesSchema("GetByteArrayBox"));
+        Assert.Equal(
+            "string",
+            byteValues.GetProperty("type").GetString());
+        Assert.Equal(
+            "base64",
+            byteValues.GetProperty("contentEncoding").GetString());
+        Assert.Equal(
+            """{"values":"AQI="}""",
+            TypeScriptFixtureExports.GetByteArrayBox());
+
+        JsonElement keyValues = NonNull(
+            ValuesSchema("GetStringKeyBox"));
+        Assert.Equal(
+            "object",
+            keyValues.GetProperty("type").GetString());
+        Assert.Equal(
+            "integer",
+            NonNull(keyValues.GetProperty("additionalProperties"))
+                .GetProperty("type").GetString());
+        Assert.Equal(
+            """{"values":{"one":1}}""",
+            TypeScriptFixtureExports.GetStringKeyBox());
+
+        JsonElement ValuesSchema(string exportName)
+        {
+            ApiTypeShape shape = exportName switch
+            {
+                "GetByteArrayBox" => ApiTypeShape.GenericInstance(
+                    arrayBoxIdentity,
+                    [ApiTypeShape.PrimitiveType(ApiPrimitiveType.Byte)]),
+                "GetStringKeyBox" => ApiTypeShape.GenericInstance(
+                    keyBoxIdentity,
+                    [ApiTypeShape.PrimitiveType(ApiPrimitiveType.String)]),
+                _ => throw new InvalidOperationException(exportName),
+            };
+            var row = new JsonPositionalRowContract(
+                [new("value", shape, allowsNull: false)]);
+            JsonSchemaVocabularyDescriptor descriptor =
+                JsonSchemaVocabularyDescriptorBuilder.Build(
+                    surface,
+                    JsonWireDeclarationPlan.Create(surface),
+                    new(
+                        new($"fixture.{exportName}"),
+                        JsonWireDirection.Serialize,
+                        new JsonSchemaContractRoot.Positional(row)),
+                    snapshot,
+                    snapshot.Identity);
+            string definitionName =
+                descriptor.Schema.GetProperty("prefixItems")[0]
+                    .GetProperty("$ref")
+                    .GetString()!["#/$defs/".Length..];
+            JsonElement properties = descriptor.Schema.GetProperty("$defs")
+                .GetProperty(definitionName)
+                .GetProperty("properties");
+            return Assert.Single(properties.EnumerateObject()).Value;
+        }
+
+        static JsonElement NonNull(JsonElement schema)
+        {
+            if (!schema.TryGetProperty(
+                    "anyOf",
+                    out JsonElement alternatives))
+            {
+                return schema;
+            }
+            return Assert.Single(
+                alternatives.EnumerateArray(),
+                alternative =>
+                    !alternative.TryGetProperty(
+                        "type",
+                        out JsonElement type)
+                    || type.GetString() != "null");
+        }
+    }
+
+    [Fact]
     public void JsonSchema_DistinguishesConditionalAbsenceFromPresentNull()
     {
         global::ILInspector.JsExportSurface.JsExportSurface surface =

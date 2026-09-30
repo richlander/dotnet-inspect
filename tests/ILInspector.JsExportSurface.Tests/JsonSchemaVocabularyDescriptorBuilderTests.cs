@@ -1,3 +1,4 @@
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Schema;
@@ -403,6 +404,59 @@ public sealed class JsonSchemaVocabularyDescriptorBuilderTests
         static string ReferenceName(JsonElement schema) =>
             schema.GetProperty("$ref")
                 .GetString()!["#/$defs/".Length..];
+    }
+
+    [Fact]
+    public void Build_RejectsTypeLevelUnmappedMemberHandling()
+    {
+        string path = typeof(StrictUnmappedInputFixture)
+            .Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface =
+            ApiSurfaceExtractor.Extract(
+                peReader,
+                includeAll: true);
+        ApiType type = Assert.Single(
+            apiSurface.Types,
+            candidate => candidate.Name
+                == nameof(StrictUnmappedInputFixture));
+        Assert.True(type.HasUnsupportedJsonWireAttributes);
+        ApiAssemblyIdentity assembly = Assert.IsType<
+            ApiAssemblyIdentity>(apiSurface.AssemblyIdentity);
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = assembly,
+                Records = [type],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [type] = JsonWireDirection.Deserialize,
+                    },
+            };
+        VocabularySnapshot snapshot = CreateSnapshot();
+
+        JsonSchemaVocabularyException exception =
+            Assert.Throws<JsonSchemaVocabularyException>(() =>
+                JsonSchemaVocabularyDescriptorBuilder.Build(
+                    surface,
+                    JsonWireDeclarationPlan.Create(surface),
+                    new(
+                        new("strict-input"),
+                        JsonWireDirection.Deserialize,
+                        new JsonSchemaContractRoot.Object(type)),
+                    snapshot,
+                    snapshot.Identity));
+
+        Assert.Equal(
+            "wire-shaping attributes or inheritance are unsupported",
+            exception.Reason);
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize(
+                """{"Name":"ok","unexpected":1}""",
+                StrictUnmappedInputJsonContext.Default
+                    .StrictUnmappedInputFixture));
     }
 
     static JsonSchemaVocabularyDescriptor Build(

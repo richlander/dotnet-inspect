@@ -609,6 +609,14 @@ public static class JsonSchemaVocabularyDescriptorBuilder
                         $"{caseType.FullName}.{member.Name}",
                         "exact member type shape is unavailable");
                 }
+                if (member.HasUnsupportedJsonWireAttributes
+                    && !JsonWireContractRules
+                        .HasApprovedInertStringConverter(member))
+                {
+                    throw new JsonSchemaVocabularyException(
+                        $"{caseType.FullName}.{member.Name}",
+                        "wire-shaping attributes are unsupported");
+                }
                 if (member.JsonConverterAttributeCount > 0
                     && !JsonWireContractRules
                         .HasApprovedInertStringConverter(member))
@@ -904,6 +912,10 @@ public static class JsonSchemaVocabularyDescriptorBuilder
         {
             if (converterControlledString)
                 return new JsonObject { ["type"] = "string" };
+            shape = SubstituteShape(
+                shape,
+                typeArguments);
+            typeArguments = [];
             if (shape.Kind == ApiTypeShapeKind.GenericParameter)
             {
                 if (shape.IsMethodGenericParameter
@@ -1370,7 +1382,9 @@ public static class JsonSchemaVocabularyDescriptorBuilder
                         "generic parameter",
                         "closed type-argument evidence is unavailable");
                 }
-                return typeArguments[shape.GenericParameterIndex];
+                return SubstituteShape(
+                    typeArguments[shape.GenericParameterIndex],
+                    []);
             }
             if (shape.Kind == ApiTypeShapeKind.SzArray
                 && shape.ElementType is { } vectorElement)
