@@ -40,14 +40,17 @@ public abstract class PackagePlatformAssemblyReferenceImplementationResult
             PlatformHouseOutcome<AssemblyBindingDecision>.Completed binding,
             PlatformHouseRequest implementationRequest,
             PackagePlatformHouseResult<
-                PackageImplementationRealization>.NotSucceeded source)
+                PackageImplementationRealization>.NotSucceeded source,
+            TimeSpan elapsed)
             : base(
                 binding,
                 source.SourceWork is null
                     ? null
                     : Add(
                         binding.Receipt.ConsumedWork,
-                        source.SourceWork))
+                        InvokedSourceWork(
+                            source.SourceWork,
+                            elapsed)))
         {
             ImplementationRequest = implementationRequest;
             Source = source;
@@ -56,6 +59,18 @@ public abstract class PackagePlatformAssemblyReferenceImplementationResult
         public PlatformHouseRequest ImplementationRequest { get; }
         public PackagePlatformHouseResult<
             PackageImplementationRealization>.NotSucceeded Source { get; }
+    }
+
+    public sealed class WorkIncomplete :
+        PackagePlatformAssemblyReferenceImplementationResult
+    {
+        internal WorkIncomplete(
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed binding,
+            PlatformHouseRequest implementationRequest)
+            : base(binding, binding.Receipt.ConsumedWork) =>
+            ImplementationRequest = implementationRequest;
+
+        public PlatformHouseRequest ImplementationRequest { get; }
     }
 
     public sealed class MaterializationTerminal :
@@ -130,6 +145,21 @@ public abstract class PackagePlatformAssemblyReferenceImplementationResult
             checked(left.ForwardingHops + right.ForwardingHops),
             checked(left.TargetComparisons + right.TargetComparisons),
             left.Elapsed + right.Elapsed);
+
+    private static PlatformHouseConsumedWork InvokedSourceWork(
+        PlatformHouseConsumedWork observed,
+        TimeSpan elapsed) =>
+        new(
+            checked(observed.SourceOperations + 1),
+            observed.TargetCandidates,
+            observed.Assemblies,
+            observed.XmlDocuments,
+            observed.PortablePdbs,
+            observed.SourceDocuments,
+            observed.Bytes,
+            observed.ForwardingHops,
+            observed.TargetComparisons,
+            elapsed + observed.Elapsed);
 }
 
 /// <summary>
@@ -193,6 +223,15 @@ public static class PackagePlatformAssemblyReferenceImplementation
             remaining,
             bindingRequest.CancellationToken);
 
+        bindingRequest.CancellationToken.ThrowIfCancellationRequested();
+        if (!CanIssueImplementation(remaining))
+        {
+            return new PackagePlatformAssemblyReferenceImplementationResult
+                .WorkIncomplete(
+                    completed,
+                    implementationRequest);
+        }
+
         long started = Stopwatch.GetTimestamp();
         PackagePlatformHouseResult<PackageImplementationRealization>
             implementation =
@@ -211,7 +250,8 @@ public static class PackagePlatformAssemblyReferenceImplementation
                 .SourceTerminal(
                     completed,
                     implementationRequest,
-                    terminal);
+                    terminal,
+                    Stopwatch.GetElapsedTime(started));
         }
 
         var source = (PackagePlatformHouseResult<
@@ -247,6 +287,13 @@ public static class PackagePlatformAssemblyReferenceImplementation
                 "Unknown package-backed implementation materialization result."),
         };
     }
+
+    private static bool CanIssueImplementation(
+        PlatformHouseWorkBudget remaining) =>
+        remaining.MaxSourceOperations > 0
+        && remaining.MaxAssemblies > 0
+        && remaining.MaxBytes > 0
+        && remaining.MaxDuration > TimeSpan.Zero;
 
     private static PlatformHouseWorkBudget Remaining(
         PlatformHouseWorkBudget maximum,
