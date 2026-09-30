@@ -667,12 +667,25 @@ export interface BrowserTypeMemberPopulationInspection {
 
 export interface BrowserTypeMetadata {
   readonly exactTypeInspection: InspectionEnvelope<ExactTypeInspectionResult>;
-  readonly implementers: ReadonlyArray<string>;
-  readonly derivedTypes: ReadonlyArray<string>;
+  readonly implementers: ReadonlyArray<BrowserTypeRelationCandidate>;
+  readonly derivedTypes: ReadonlyArray<BrowserTypeRelationCandidate>;
   readonly graphNodes: ReadonlyArray<BrowserTypeGraphNode>;
   readonly graphEdges: ReadonlyArray<BrowserTypeGraphEdge>;
   readonly typeDependencyInspection: InspectionEnvelope<TypeDependencySectionResult>;
   readonly inspectionFailures: ReadonlyArray<string>;
+}
+
+export interface BrowserTypeRelationCandidate {
+  readonly typeQueryId: string;
+  readonly assemblyName: string;
+  readonly assemblyVersion: string | null;
+  readonly assemblyCulture: string | null;
+  readonly assemblyPublicKeyToken: string | null;
+  readonly packageId: string | null;
+  readonly packageVersion: string | null;
+  readonly targetFramework: string | null;
+  readonly runtimeIdentifier: string | null;
+  readonly assetPath: string | null;
 }
 
 export interface BrowserTypeSurface {

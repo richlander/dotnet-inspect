@@ -14,12 +14,18 @@ export interface PackagePerformanceTarget {
   typeId: string;
 }
 
+export interface PackageGraphTypeTarget {
+  typeId: string;
+  packageKey?: string | undefined;
+  assemblyId?: string | undefined;
+}
+
 export interface PackageViewBindingActions
   extends PackageDependencyBindingActions {
   onDependencyGroupSelect: (index: number) => void;
   onPruningEvaluate: () => void;
   onPruningFamilySelect: (family: string) => void;
-  onGraphTypeSelect: (typeId: string) => void;
+  onGraphTypeSelect: (target: PackageGraphTypeTarget) => void;
   onKindJump: (kind: string) => void;
   onLibraryScopeSelect: (
     library: string | undefined,
@@ -110,7 +116,11 @@ export function bindPackageView(
   root.querySelectorAll<HTMLElement>("[data-graph-type]").forEach(button =>
     button.addEventListener(
       "click",
-      () => actions.onGraphTypeSelect(button.dataset.graphType ?? "")));
+      () => actions.onGraphTypeSelect({
+        typeId: button.dataset.graphType ?? "",
+        packageKey: button.dataset.graphPackage,
+        assemblyId: button.dataset.graphAssembly,
+      })));
   root.querySelectorAll<HTMLElement>("[data-perf-selector]").forEach(button =>
     button.addEventListener("click", () => actions.onPerformanceMemberSelect({
       stableSelector: button.dataset.perfSelector ?? "",

@@ -90,12 +90,24 @@ public sealed record BrowserTypeFindResult(
 /// </summary>
 public sealed record BrowserTypeMetadata(
     InspectionEnvelope<ExactTypeInspectionResult> ExactTypeInspection,
-    string[] Implementers,
-    string[] DerivedTypes,
+    BrowserTypeRelationCandidate[] Implementers,
+    BrowserTypeRelationCandidate[] DerivedTypes,
     BrowserTypeGraphNode[] GraphNodes,
     BrowserTypeGraphEdge[] GraphEdges,
     InspectionEnvelope<TypeDependencySectionResult> TypeDependencyInspection,
     string[] InspectionFailures);
+
+public sealed record BrowserTypeRelationCandidate(
+    string TypeQueryId,
+    string AssemblyName,
+    string? AssemblyVersion,
+    string? AssemblyCulture,
+    string? AssemblyPublicKeyToken,
+    string? PackageId,
+    string? PackageVersion,
+    string? TargetFramework,
+    string? RuntimeIdentifier,
+    string? AssetPath);
 
 public sealed record BrowserTypeGraphNode(string Id, string DisplayName, string Role);
 

@@ -36,6 +36,7 @@ import {
   runtimeGraphTargetNavigationDisposition,
   searchableMemberGroups,
   uniqueTypeByQueryId,
+  uniqueWorkspaceTypeByCoordinate,
   uniqueWorkspaceTypeByQueryId,
 } from "../src/data.ts";
 import type {
@@ -2567,6 +2568,65 @@ test("relationship navigation resolves one exact type across loaded Workspace pa
       ],
       "N.T"),
     null);
+});
+
+test("relationship navigation retains an exact candidate library coordinate", () => {
+  const contracts = {
+    id: "Example",
+    version: "1.0.0",
+    activeFramework: "net11.0",
+    assemblies: [{
+      id: "contracts",
+      name: "Contracts",
+      version: "1.0.0.0",
+      culture: null,
+      publicKeyToken: null,
+      asset: "lib/net11.0/Contracts.dll",
+    }],
+    types: [{
+      id: "contracts-service",
+      queryId: "N.Service",
+      assemblyId: "contracts",
+    }],
+  };
+  const implementation = {
+    id: "Example",
+    version: "1.0.0",
+    activeFramework: "net11.0",
+    assemblies: [{
+      id: "implementation",
+      name: "Implementation",
+      version: "1.0.0.0",
+      culture: "neutral",
+      publicKeyToken: null,
+      asset: "lib/net11.0/Implementation.dll",
+    }],
+    types: [{
+      id: "implementation-service",
+      queryId: "N.Service",
+      assemblyId: "implementation",
+    }],
+  };
+
+  assert.deepEqual(
+    uniqueWorkspaceTypeByCoordinate(
+      [contracts, implementation],
+      {
+        typeQueryId: "N.Service",
+        assemblyName: "Implementation",
+        assemblyVersion: "1.0.0.0",
+        assemblyCulture: null,
+        assemblyPublicKeyToken: null,
+        packageId: "example",
+        packageVersion: "1.0.0",
+        targetFramework: "net11.0",
+        runtimeIdentifier: null,
+        assetPath: "lib/net11.0/Implementation.dll",
+      }),
+    {
+      pkg: implementation,
+      type: implementation.types[0],
+    });
 });
 
 // Same widening as `engineCallGraphTarget`: the engine's diagnostics payload also carries

@@ -237,8 +237,8 @@ export interface TypeParameterSummary {
 
 export interface TypeMetadata {
   exactTypeInspection?: BrowserTypeMetadata["exactTypeInspection"];
-  implementers?: readonly string[];
-  derivedTypes?: readonly string[];
+  implementers?: BrowserTypeMetadata["implementers"];
+  derivedTypes?: BrowserTypeMetadata["derivedTypes"];
   graphNodes?: readonly unknown[];
   inspectionFailures?: readonly string[];
 }
@@ -882,7 +882,9 @@ export interface RenderTypeMetadataOptions {
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
   escapeHtml: EscapeHtml;
-  relatedTypeChip: (name: string) => string;
+  relatedTypeChip: (
+    type: string | BrowserTypeMetadata["implementers"][number],
+  ) => string;
   factRows: (rows: readonly (readonly [string, string])[]) => string;
 }
 
@@ -1001,18 +1003,32 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     : "";
 
   const implementers = meta.implementers ?? [];
+  const relationSummary = (
+    candidates: BrowserTypeMetadata["implementers"],
+  ) => {
+    const locations = new Set(candidates.map(candidate =>
+      candidate.packageId
+        ? `${candidate.assemblyName} · ${candidate.packageId}@${candidate.packageVersion}`
+          + (candidate.targetFramework
+            ? `/${candidate.targetFramework}`
+            : "")
+        : candidate.assemblyName));
+    return locations.size === 1
+      ? `${candidates.length} in ${escapeHtml([...locations][0] ?? "")}`
+      : `${candidates.length} across ${locations.size} libraries`;
+  };
   const implementations = implementers.length
     ? `<section class="document-section">
-        <div class="section-title"><h2>Known implementers</h2><span>${implementers.length} in ${escapeHtml(exactAssembly || item.assembly)}</span></div>
-        <div class="type-chip-list">${implementers.map(name => relatedTypeChip(name)).join("")}</div>
+        <div class="section-title"><h2>Known implementers</h2><span>${relationSummary(implementers)}</span></div>
+        <div class="type-chip-list">${implementers.map(candidate => relatedTypeChip(candidate)).join("")}</div>
       </section>`
     : "";
 
   const derivedTypes = meta.derivedTypes ?? [];
   const derived = derivedTypes.length
     ? `<section class="document-section">
-        <div class="section-title"><h2>Known derived types</h2><span>${derivedTypes.length} in ${escapeHtml(exactAssembly || item.assembly)}</span></div>
-        <div class="type-chip-list">${derivedTypes.map(name => relatedTypeChip(name)).join("")}</div>
+        <div class="section-title"><h2>Known derived types</h2><span>${relationSummary(derivedTypes)}</span></div>
+        <div class="type-chip-list">${derivedTypes.map(candidate => relatedTypeChip(candidate)).join("")}</div>
       </section>`
     : "";
 

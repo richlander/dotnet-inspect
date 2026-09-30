@@ -16,6 +16,8 @@ using BrowserMetadataJsonSerialization =
     DotnetInspect.Web.Interop.Metadata.BrowserMetadataJsonSerialization;
 using BrowserTypeMetadata =
     DotnetInspect.Web.Interop.Metadata.BrowserTypeMetadata;
+using BrowserTypeRelationCandidate =
+    DotnetInspect.Web.Interop.Metadata.BrowserTypeRelationCandidate;
 
 namespace DotnetInspect.Web.Tests;
 
@@ -89,13 +91,82 @@ public sealed partial class BrowserEngineBoundaryTests
             ]
             """);
 
-        Assert.Equal([implementerName], metadata.Implementers);
+        BrowserTypeRelationCandidate implementer =
+            Assert.Single(metadata.Implementers);
+        Assert.Equal(implementerName, implementer.TypeQueryId);
+        Assert.Equal(packageId, implementer.AssemblyName);
+        Assert.Equal(packageId.ToLowerInvariant(), implementer.PackageId);
+        Assert.Equal("1.0.0", implementer.PackageVersion);
+        Assert.Equal("net11.0", implementer.TargetFramework);
+        Assert.Equal(
+            $"lib/net11.0/{packageId}.dll",
+            implementer.AssetPath);
         Assert.Empty(metadata.DerivedTypes);
         Assert.DoesNotContain(
             metadata.InspectionFailures,
             failure => failure.StartsWith(
                 "Subject Relations:",
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task
+        QueryTypeProjection_PreservesRelationCandidateLibraryIdentity()
+    {
+        const string packageId = "Browser.CrossLibraryTypeRelations";
+        const string contractsAssembly = "Browser.Relations.Contracts";
+        const string implementationAssembly =
+            "Browser.Relations.Implementation";
+        const string collisionAssembly = "Browser.Relations.Collision";
+        const string interfaceName =
+            "Browser.CrossLibraryTypeRelations.IService";
+        const string implementerName =
+            "Browser.CrossLibraryTypeRelations.Service";
+        (byte[] contracts, byte[] implementation) =
+            BuildCrossAssemblyInterfaceImplementationImages(
+                contractsAssembly,
+                implementationAssembly,
+                interfaceName,
+                implementerName);
+        _ = await Coordinate(
+            packageId,
+            PackageEntries(
+                ($"lib/net11.0/{contractsAssembly}.dll", contracts),
+                ($"lib/net11.0/{implementationAssembly}.dll",
+                    implementation),
+                ($"lib/net11.0/{collisionAssembly}.dll",
+                    BuildTypeDependencyImage(
+                        collisionAssembly,
+                        implementerName))));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{contractsAssembly}.dll",
+            interfaceName,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """);
+
+        BrowserTypeRelationCandidate implementer =
+            Assert.Single(metadata.Implementers);
+        Assert.Equal(implementerName, implementer.TypeQueryId);
+        Assert.Equal(
+            implementationAssembly,
+            implementer.AssemblyName);
+        Assert.Equal(
+            packageId.ToLowerInvariant(),
+            implementer.PackageId);
+        Assert.Equal("1.0.0", implementer.PackageVersion);
+        Assert.Equal("net11.0", implementer.TargetFramework);
+        Assert.Equal(
+            $"lib/net11.0/{implementationAssembly}.dll",
+            implementer.AssetPath);
     }
 
     [Fact]
@@ -133,7 +204,8 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Equal(
             [$"{outerName}.{nestedName}"],
-            metadata.Implementers);
+            metadata.Implementers.Select(
+                static candidate => candidate.TypeQueryId));
     }
 
     [Fact]
@@ -169,7 +241,8 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Equal(
             [$"{implementerName}`1"],
-            metadata.Implementers);
+            metadata.Implementers.Select(
+                static candidate => candidate.TypeQueryId));
     }
 
     [Fact]
@@ -1072,6 +1145,45 @@ public sealed partial class BrowserEngineBoundaryTests
         using var stream = new MemoryStream();
         assembly.Save(stream);
         return stream.ToArray();
+    }
+
+    static (byte[] Contracts, byte[] Implementation)
+        BuildCrossAssemblyInterfaceImplementationImages(
+            string contractsAssemblyName,
+            string implementationAssemblyName,
+            string interfaceName,
+            string implementerName)
+    {
+        var contracts = new PersistedAssemblyBuilder(
+            new AssemblyName(contractsAssemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder contractsModule =
+            contracts.DefineDynamicModule(contractsAssemblyName);
+        Type interfaceType = contractsModule.DefineType(
+                interfaceName,
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Interface)
+            .CreateType();
+        using var contractsStream = new MemoryStream();
+        contracts.Save(contractsStream);
+
+        var implementation = new PersistedAssemblyBuilder(
+            new AssemblyName(implementationAssemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder implementationModule =
+            implementation.DefineDynamicModule(
+                implementationAssemblyName);
+        TypeBuilder implementer = implementationModule.DefineType(
+            implementerName,
+            TypeAttributes.Public | TypeAttributes.Class);
+        implementer.AddInterfaceImplementation(interfaceType);
+        implementer.CreateType();
+        using var implementationStream = new MemoryStream();
+        implementation.Save(implementationStream);
+        return (
+            contractsStream.ToArray(),
+            implementationStream.ToArray());
     }
 
     static byte[] BuildNestedInterfaceImplementationImage(

@@ -60,6 +60,7 @@ import {
   type PackageIdentity,
   type PlatformPack,
   type WorkspaceCoordinate,
+  uniqueWorkspaceTypeByCoordinate,
   uniqueWorkspaceTypeByQueryId,
   workspaceCoordinatesMatch
 } from "./data.ts";
@@ -168,6 +169,7 @@ import {
   bindPackageDependencyList,
   bindPackageView,
   renderPackageNav,
+  type PackageGraphTypeTarget,
   type PackageViewBindingActions,
 } from "./package-view.ts";
 import {
@@ -11847,7 +11849,7 @@ const packageViewActions: PackageViewBindingActions = {
       openDependencyPackage(id, version),
       "Opening a dependency package"),
   onDependencyOpen: switchToPackageForDependencies,
-  onGraphTypeSelect: navigateToTypeByName,
+  onGraphTypeSelect: navigateToGraphType,
   onKindJump: kind => {
     state.atPackageRoot = false;
     state.atLibraryRoot = false;
@@ -20174,11 +20176,21 @@ async function renderTypeGraph() {
   }
 }
 
-function navigateToTypeByName(fullName: string) {
-  const candidate =
-    uniqueWorkspaceTypeByQueryId<AppTypeSurface, AppPackage>(
-      state.packages,
-      fullName);
+function navigateToGraphType(target: PackageGraphTypeTarget) {
+  const packages = target.packageKey
+    ? state.packages.filter(pkg =>
+      packageIdentityKey(pkg) === target.packageKey)
+    : state.packages;
+  const matches = packages.flatMap(pkg =>
+    (pkg.types ?? [])
+      .filter(type =>
+        (type.queryId ?? type.id) === target.typeId
+        && (!target.assemblyId
+          || type.assemblyId === target.assemblyId))
+      .map(type => ({ pkg, type })));
+  const candidate = matches.length === 1
+    ? matches[0] ?? null
+    : null;
   if (!candidate) return;
   navigateToWorkspaceType(candidate.pkg, candidate.type);
 }
@@ -20211,20 +20223,48 @@ function navigateToType(
 
 // A related type is openable only when one loaded Workspace surface owns its
 // exact query identity. Ambiguous or external relationships stay static.
-function typeIsNavigable(fullName: string) {
-  return uniqueWorkspaceTypeByQueryId<AppTypeSurface, AppPackage>(
-    state.packages,
-    fullName) !== null;
+type BrowserRelationCandidate =
+  BrowserTypeMetadata["implementers"][number];
+
+function relationCandidateTarget(candidate: BrowserRelationCandidate) {
+  return uniqueWorkspaceTypeByCoordinate<
+    AppTypeSurface,
+    AppPackage
+  >(state.packages, candidate);
 }
 
 // Render a related-type chip as an active button only for a unique loaded
 // Workspace type.
-function relatedTypeChip(name: string) {
+function relatedTypeChip(
+  relation: string | BrowserRelationCandidate,
+) {
+  const name = typeof relation === "string"
+    ? relation
+    : relation.typeQueryId;
   const short = escapeHtml(shortTypeName(name));
-  if (typeIsNavigable(name)) {
-    return `<button class="type-chip" data-graph-type="${escapeHtml(name)}" title="${escapeHtml(name)}">${short}</button>`;
+  const target = typeof relation === "string"
+    ? uniqueWorkspaceTypeByQueryId<AppTypeSurface, AppPackage>(
+      state.packages,
+      name)
+    : relationCandidateTarget(relation);
+  if (target) {
+    const title = typeof relation === "string"
+      ? name
+      : `${name} in ${relation.assemblyName} · ${relation.packageId}@${relation.packageVersion}`
+        + (relation.targetFramework
+          ? `/${relation.targetFramework}`
+          : "");
+    return `<button class="type-chip" data-graph-type="${escapeHtml(name)}" data-graph-package="${escapeHtml(packageIdentityKey(target.pkg))}" data-graph-assembly="${escapeHtml(target.type.assemblyId)}" title="${escapeHtml(title)}">${short}</button>`;
   }
-  return `<span class="type-chip is-static" title="${escapeHtml(name)} — not uniquely available in the loaded Workspace surfaces">${short}</span>`;
+  const location = typeof relation === "string"
+    ? ""
+    : ` in ${relation.assemblyName}${relation.packageId
+      ? ` · ${relation.packageId}@${relation.packageVersion}`
+        + (relation.targetFramework
+          ? `/${relation.targetFramework}`
+          : "")
+      : ""}`;
+  return `<span class="type-chip is-static" title="${escapeHtml(name + location)} — not uniquely available in the loaded Workspace surfaces">${short}</span>`;
 }
 
 // Projects the current package and its transitive dependency neighbourhood into a

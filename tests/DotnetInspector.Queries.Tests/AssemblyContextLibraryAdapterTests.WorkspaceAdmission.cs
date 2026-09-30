@@ -12,6 +12,136 @@ public sealed partial class AssemblyContextLibraryAdapterTests
 {
     [Fact]
     public async Task
+        TypeHierarchyRelations_ReportResidentLibraryParticipantUnavailable()
+    {
+        AssemblySource source =
+            AssemblySource.FromPathlessRuntimeImage();
+        await using var workspace = new InspectionWorkspace();
+        var participant =
+            new AssemblyContextParticipant(
+                source.Assembly,
+                new AcquisitionFreeTestBindingPolicy());
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+        var target = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net11.0"),
+            PlatformVersion.Parse("11.0.0"));
+        int order = workspace.BeginDeclarationContext();
+        var directMember = new WorkspaceDeclarationMember(
+            new(workspace.Identity, order, memberOrder: 0),
+            new ExactLibrarySourceCoordinate.Local(
+                new(participant.Assembly.Identity)),
+            participant.Assembly.Identity,
+            new WorkspaceDeclarationOrigin.PlatformPopulation(
+                target,
+                WorkspacePlatformPopulationMemberRole.Focus,
+                "assembly context test",
+                participant.Assembly.Identity.Name),
+            participant.Assembly.Provenance);
+        WorkspaceDeclarationContext directContext =
+            workspace.PublishDeclarationContext(
+                new(
+                    new(
+                        workspace.Identity,
+                        order,
+                        new WorkspaceDeclarationRequest
+                            .PlatformPopulation(target),
+                        isRealized: true,
+                        [directMember],
+                        []),
+                    group));
+        var completed = Assert.IsType<
+            AssemblyContextLibraryAdapterResult.Completed>(
+                await AssemblyContextLibraryAdapter.MaterializeAsync(
+                    group,
+                    participant,
+                    AssemblyContextLibraryRole.ApiOnly,
+                    Limits(source.Bytes.Length),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+        WorkspaceLibraryAdmissionReceipt receipt =
+            Assert.IsType<WorkspaceLibraryAdmissionOutcome.Accepted>(
+                    await workspace.AdmitLibraryBatchAsync(
+                        CurrentRegistrations(workspace),
+                        completed.Artifacts,
+                        [completed.Owner]))
+                .Receipt;
+        ManagedMetadataIdentity.Assembly identity =
+            Assert.IsType<ManagedMetadataIdentity.Assembly>(
+                completed.Owner.Reference.ApiAssembly.AssemblyIdentity);
+        WorkspaceLibraryDeclarationContextAdmissionOutcome admission =
+            WorkspaceLibraryDeclarationContextAdmission.Admit(
+                workspace,
+                receipt,
+                new WorkspaceDeclarationRequest.PlatformPopulation(target),
+                receipt.Occurrences.Select(
+                    _ => new WorkspaceLibraryDeclarationContextMember(
+                        new ExactLibrarySourceCoordinate.Local(identity),
+                        identity.Identity,
+                        new WorkspaceDeclarationOrigin.PlatformPopulation(
+                            target,
+                            WorkspacePlatformPopulationMemberRole.Focus,
+                            "resident test",
+                            identity.Identity.Name),
+                        AssemblyResolutionProvenance.Local(
+                            "resident test")))
+                    .ToArray(),
+                new LibraryTypeDeclarationInventoryInspectionBounds(
+                    source.Bytes.Length,
+                    maximumRetainedDeclarations: 100_000,
+                    maximumMetadataRows: 1_000_000,
+                    maximumRetainedTextCharacters: 10_000_000));
+        WorkspaceDeclarationContext residentContext =
+            Assert.IsType<
+                WorkspaceLibraryDeclarationContextAdmissionOutcome.Admitted>(
+                    admission).Context;
+        WorkspaceDeclarationPopulation population =
+            Assert.IsType<WorkspaceDeclarationPopulationCapture.Captured>(
+                workspace.CaptureDeclarationPopulation(
+                    [directContext, residentContext]))
+                .Population;
+        MetadataTypeDefinitionName focusType = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "System",
+                    ["IDisposable"])).Name;
+
+        WorkspaceTypeHierarchyRelationsResult result =
+            WorkspaceTypeHierarchyRelationsQuery.Execute(
+                workspace,
+                population,
+                new(
+                    participant.Assembly.Identity,
+                    directMember.Occurrence,
+                    focusType),
+                executionPlan:
+                    WorkspaceTypeHierarchyRelationExecutionPlan.Exhaustive(
+                        materializeRows: false),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.False(result.Evidence.IsComplete);
+        SubjectRelationProducerOutcome metadata = Assert.Single(
+            result.Evidence.Producers,
+            producer => producer.Producer
+                == MetadataRelationGraphAdapter.HierarchyQuery);
+        Assert.Equal(
+            SubjectRelationProducerDisposition.Partial,
+            metadata.Disposition);
+        Assert.Equal(1, metadata.Coverage.Unavailable);
+        SubjectRelationProducerOutcome correspondence = Assert.Single(
+            result.Evidence.Producers,
+            producer => producer.Producer
+                == WorkspaceTypeHierarchyRelationsQuery.Definition);
+        Assert.NotEqual(
+            SubjectRelationProducerDisposition.Complete,
+            correspondence.Disposition);
+        Assert.True(correspondence.Coverage.Unavailable >= 1);
+    }
+
+    [Fact]
+    public async Task
         WorkspaceAdmission_OwnsOperationsAndRetiresOwnersBeforeArtifacts()
     {
         AssemblySource source =
@@ -785,6 +915,25 @@ public sealed partial class AssemblyContextLibraryAdapterTests
                         queryLease),
                 ]);
         return (artifacts, owner);
+    }
+
+    sealed class AcquisitionFreeTestBindingPolicy :
+        IAcquisitionFreeAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } =
+            new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            return new(
+                Version,
+                AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind
+                            .CandidateUnavailable)));
+        }
     }
 
     sealed record AdmissionProvenance : IArtifactProvenance;

@@ -606,7 +606,7 @@ public sealed partial class ExactTypeInspectionOperationTests
                     1,
                     continuation: continuation),
                 continuationAuthority: Assert.IsType<
-                    SubjectRelationPopulationContinuationAuthority>(
+                    WorkspaceTypeRelationsContinuationAuthority>(
                         first.ContinuationAuthority),
                 cancellationToken:
                     TestContext.Current.CancellationToken);
@@ -626,6 +626,27 @@ public sealed partial class ExactTypeInspectionOperationTests
         Assert.Equal(
             "Relations.Second",
             CandidateName(second.Candidates[0]));
+        WorkspaceTypeRelationsInspectionResult incompatible =
+            WorkspaceTypeRelationsInspectionOperation.Execute(
+                workspace,
+                population,
+                focus,
+                plan,
+                rows: new SubjectRelationPopulationRowsRequest(
+                    1,
+                    continuation: continuation),
+                continuationAuthority: Assert.IsType<
+                    WorkspaceTypeRelationsContinuationAuthority>(
+                        first.ContinuationAuthority),
+                includeNonPublic: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(
+            SubjectRelationPopulationRowsRejection
+                .IncompatibleContinuation,
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Rejected>(
+                    incompatible.Population.Rows).Reason);
 
         static string CandidateName(
             WorkspaceTypeRelationCandidateRow candidate) =>

@@ -129,6 +129,7 @@ export interface AssemblyDescriptor {
   version?: string;
   culture?: string | null;
   publicKeyToken?: string | null;
+  asset?: string;
   publicMembers?: number;
   platformPack?: string | null;
 }
@@ -983,6 +984,87 @@ export function uniqueWorkspaceTypeByQueryId<
     (pkg.types ?? [])
       .filter(type => (type.queryId ?? type.id) === queryId)
       .map(type => ({ pkg, type })));
+  return matches.length === 1 ? matches[0] ?? null : null;
+}
+
+export interface WorkspaceTypeAssembly {
+  id: string;
+  name: string;
+  version: string;
+  culture?: string | null;
+  publicKeyToken?: string | null;
+  asset?: string;
+}
+
+export interface WorkspaceCoordinateType extends QueryIdentifiedType {
+  assemblyId?: string;
+}
+
+export interface WorkspaceCoordinateTypePackage<
+  TType extends WorkspaceCoordinateType,
+> extends QueryTypePackage<TType> {
+  id: string;
+  version: string;
+  activeFramework?: string;
+  runtimeIdentifier?: string | null;
+  assemblies: readonly WorkspaceTypeAssembly[];
+}
+
+export interface WorkspaceExactTypeCoordinate {
+  typeQueryId: string;
+  assemblyName: string;
+  assemblyVersion?: string | null;
+  assemblyCulture?: string | null;
+  assemblyPublicKeyToken?: string | null;
+  packageId?: string | null;
+  packageVersion?: string | null;
+  targetFramework?: string | null;
+  runtimeIdentifier?: string | null;
+  assetPath?: string | null;
+}
+
+export function uniqueWorkspaceTypeByCoordinate<
+  TType extends WorkspaceCoordinateType,
+  TPackage extends WorkspaceCoordinateTypePackage<TType>,
+>(
+  packages: readonly TPackage[],
+  coordinate: WorkspaceExactTypeCoordinate,
+): { pkg: TPackage; type: TType } | null {
+  if (!coordinate.packageId || !coordinate.packageVersion) return null;
+  const normalize = (value: string | null | undefined) =>
+    value?.toLowerCase() ?? "";
+  const normalizeCulture = (value: string | null | undefined) => {
+    const normalized = normalize(value);
+    return normalized === "neutral" ? "" : normalized;
+  };
+  const matches = packages
+    .filter(pkg =>
+      normalize(pkg.id) === normalize(coordinate.packageId)
+      && normalize(pkg.version) === normalize(coordinate.packageVersion)
+      && (!coordinate.targetFramework
+        || normalize(pkg.activeFramework)
+          === normalize(coordinate.targetFramework))
+      && (!coordinate.runtimeIdentifier
+        || normalize(pkg.runtimeIdentifier)
+          === normalize(coordinate.runtimeIdentifier)))
+    .flatMap(pkg =>
+      pkg.assemblies
+        .filter(assembly =>
+          normalize(assembly.name) === normalize(coordinate.assemblyName)
+          && assembly.version === (coordinate.assemblyVersion ?? "")
+          && normalizeCulture(assembly.culture)
+            === normalizeCulture(coordinate.assemblyCulture)
+          && normalize(assembly.publicKeyToken)
+            === normalize(coordinate.assemblyPublicKeyToken)
+          && (!coordinate.assetPath
+            || assembly.asset === coordinate.assetPath))
+        .flatMap(assembly =>
+          (pkg.types ?? [])
+            .filter(type =>
+              type.assemblyId === assembly.id
+              && (type.queryId ?? type.id)
+                === coordinate.typeQueryId)
+            .map(type => ({ pkg, type }))));
   return matches.length === 1 ? matches[0] ?? null : null;
 }
 

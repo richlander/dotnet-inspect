@@ -1460,8 +1460,31 @@ test("type metadata renders composition, interfaces, and derived types once load
             signature: null,
           }],
         }),
-        implementers: ["System.Text.Json.JsonSerializerContext"],
-        derivedTypes: ["System.Text.Json.MyJsonSerializer"],
+        implementers: [{
+          typeQueryId: "System.Text.Json.JsonSerializerContext",
+          assemblyName: "System.Text.Json.SourceGeneration",
+          assemblyVersion: "9.0.0.0",
+          assemblyCulture: null,
+          assemblyPublicKeyToken: "cc7b13ffcd2ddd51",
+          packageId: "system.text.json",
+          packageVersion: "9.0.0",
+          targetFramework: "net9.0",
+          runtimeIdentifier: null,
+          assetPath:
+            "lib/net9.0/System.Text.Json.SourceGeneration.dll",
+        }],
+        derivedTypes: [{
+          typeQueryId: "System.Text.Json.MyJsonSerializer",
+          assemblyName: "System.Text.Json",
+          assemblyVersion: "9.0.0.0",
+          assemblyCulture: null,
+          assemblyPublicKeyToken: "cc7b13ffcd2ddd51",
+          packageId: "system.text.json",
+          packageVersion: "9.0.0",
+          targetFramework: "net9.0",
+          runtimeIdentifier: null,
+          assetPath: "lib/net9.0/System.Text.Json.dll",
+        }],
       },
     },
     memberCompositionHtml: `
@@ -1469,7 +1492,12 @@ test("type metadata renders composition, interfaces, and derived types once load
         <button data-member-jump-kind="method"><strong>3</strong><span>method</span></button>
       </div>`,
     escapeHtml,
-    relatedTypeChip: name => `<button data-graph-type="${escapeHtml(name)}">${escapeHtml(name)}</button>`,
+    relatedTypeChip: relation => {
+      const name = typeof relation === "string"
+        ? relation
+        : relation.typeQueryId;
+      return `<button data-graph-type="${escapeHtml(name)}">${escapeHtml(name)}</button>`;
+    },
     factRows,
   });
 
@@ -1479,6 +1507,9 @@ test("type metadata renders composition, interfaces, and derived types once load
   assert.match(html, /Implements/);
   assert.match(html, /data-graph-type="System\.IDisposable"/);
   assert.match(html, /Known implementers/);
+  assert.match(
+    html,
+    /Known implementers[\s\S]*1 in System\.Text\.Json\.SourceGeneration · system\.text\.json@9\.0\.0\/net9\.0/);
   assert.match(
     html,
     /data-graph-type="System\.Text\.Json\.JsonSerializerContext"/);

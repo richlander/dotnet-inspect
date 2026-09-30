@@ -122,7 +122,18 @@ function metadata() {
     ],
     inspectionFailures: state === "partial" ? ["Fixture relationship could not be projected."] : [],
     implementers: [],
-    derivedTypes: ["Example.Derived"],
+    derivedTypes: [{
+      typeQueryId: "Example.Derived",
+      assemblyName: "Example",
+      assemblyVersion: "1.0.0.0",
+      assemblyCulture: null,
+      assemblyPublicKeyToken: null,
+      packageId: "example",
+      packageVersion: "1.0.0",
+      targetFramework: "net11.0",
+      runtimeIdentifier: null,
+      assetPath: "lib/net11.0/Example.dll",
+    }],
   };
 }
 

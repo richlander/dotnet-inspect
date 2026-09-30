@@ -181,6 +181,13 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             AssemblyContextGroup Group,
             ResolvedAssemblyReference Assembly)[] accesses =
             [.. population.ReadAccesses()];
+        HashSet<WorkspaceDeclarationMember> readableMembers =
+            accesses.Select(static access => access.Member).ToHashSet();
+        WorkspaceDeclarationMember[] unavailableMembers =
+        [
+            .. population.Receipt.Members.Where(
+                member => !readableMembers.Contains(member)),
+        ];
         WorkspaceDeclarationContextReceipt[] failedContexts =
         [
             .. population.Receipt.Contexts.Where(
@@ -210,9 +217,12 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         }
 
         SubjectRelationProducerOutcome metadata =
-            AggregateMetadata(scans, failedContexts);
+            AggregateMetadata(
+                scans,
+                unavailableMembers,
+                failedContexts);
         SubjectRelationProducerOutcome correspondence =
-            AggregateCorrespondence(scans);
+            AggregateCorrespondence(scans, unavailableMembers);
         var evidence = new SubjectRelationPopulationEvidence(
             populationAuthority,
             [metadata, correspondence]);
@@ -681,8 +691,11 @@ public static class WorkspaceTypeHierarchyRelationsQuery
 
     private static SubjectRelationProducerOutcome AggregateMetadata(
         IEnumerable<ParticipantScan> scans,
+        IEnumerable<WorkspaceDeclarationMember> unavailableMembers,
         IEnumerable<WorkspaceDeclarationContextReceipt> failedContexts)
     {
+        WorkspaceDeclarationMember[] unavailable =
+            [.. unavailableMembers];
         WorkspaceDeclarationContextReceipt[] contextFailures =
             [.. failedContexts];
         SubjectRelationProducerOutcome[] outcomes =
@@ -698,6 +711,9 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                         .Select(static _ =>
                             new SubjectRelationCoverage(1, 0, 0, 1, 0)))
                 .Concat(
+                    unavailable.Select(static _ =>
+                        new SubjectRelationCoverage(1, 0, 0, 1, 0)))
+                .Concat(
                     contextFailures.Select(static _ =>
                         new SubjectRelationCoverage(1, 0, 0, 1, 0))));
         return new(
@@ -709,6 +725,10 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                             .Select(static _ =>
                                 SubjectRelationProducerDisposition
                                     .Unavailable))
+                    .Concat(
+                        unavailable.Select(static _ =>
+                            SubjectRelationProducerDisposition
+                                .Unavailable))
                     .Concat(
                         contextFailures.Select(static _ =>
                             SubjectRelationProducerDisposition
@@ -728,6 +748,11 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                                     .Failure,
                                 scan.EntryFailure!)))
                 .Concat(
+                    unavailable.Select(member =>
+                        SubjectRelationProducerDiagnostic.Create(
+                            SubjectRelationProducerDiagnosticKind.Failure,
+                            member)))
+                .Concat(
                     contextFailures.Select(context =>
                         SubjectRelationProducerDiagnostic.Create(
                             SubjectRelationProducerDiagnosticKind.Failure,
@@ -735,11 +760,15 @@ public static class WorkspaceTypeHierarchyRelationsQuery
     }
 
     private static SubjectRelationProducerOutcome AggregateCorrespondence(
-        IEnumerable<ParticipantScan> scans)
+        IEnumerable<ParticipantScan> scans,
+        IEnumerable<WorkspaceDeclarationMember> unavailableMembers)
     {
+        int unavailableParticipants = unavailableMembers.Count();
         int considered = scans.Sum(static scan => scan.Considered);
         int examined = scans.Sum(static scan => scan.Examined);
-        int unavailable = scans.Sum(static scan => scan.Unavailable);
+        int unavailable = checked(
+            scans.Sum(static scan => scan.Unavailable)
+            + unavailableParticipants);
         return new(
             Definition,
             unavailable == 0
@@ -748,7 +777,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                     ? SubjectRelationProducerDisposition.Partial
                     : SubjectRelationProducerDisposition.Unavailable,
             new(
-                considered,
+                checked(considered + unavailableParticipants),
                 examined,
                 excluded: 0,
                 unavailable,

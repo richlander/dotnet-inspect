@@ -692,7 +692,7 @@ test("typed package view owns package navigation bindings", () => {
     /onDependencyGroupSelect: index => \{[\s\S]*state\.dependenciesGroupIndex === index[\s\S]*state\.dependenciesGroupIndex = index;[\s\S]*patchDependenciesGroup\(\)/);
   assert.match(
     binding,
-    /onDependencyLoad: \(id, version\) =>\s*observeAsync\(\s*openDependencyPackage\(id, version\),\s*"Opening a dependency package"\),\s*onDependencyOpen: switchToPackageForDependencies,\s*onGraphTypeSelect: navigateToTypeByName/);
+    /onDependencyLoad: \(id, version\) =>\s*observeAsync\(\s*openDependencyPackage\(id, version\),\s*"Opening a dependency package"\),\s*onDependencyOpen: switchToPackageForDependencies,\s*onGraphTypeSelect: navigateToGraphType/);
   const kindJump = actionSource("onKindJump");
   const libraryJump = actionSource("onLibraryScopeSelect");
   const namespaceJump = actionSource("onNamespaceJump");
@@ -1044,7 +1044,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
   const typeGraph =
-    appSource.match(/async function renderTypeGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction navigateToTypeByName)/)?.[0]
+    appSource.match(/async function renderTypeGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction navigateToGraphType)/)?.[0]
     ?? "";
   const annotatedRelationshipGraph =
     appSource.match(/async function renderAnnotatedRelationshipDiagram\(\) \{[\s\S]*?\n}(?=\n\n\/\/ Projects the neutral type-relationship)/)?.[0]

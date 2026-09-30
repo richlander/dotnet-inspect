@@ -199,7 +199,8 @@ public static partial class MetadataExports
                 root,
                 result.Dependencies,
                 projection.Identity.FullName);
-        (string[] implementers, string[] derivedTypes,
+        (BrowserTypeRelationCandidate[] implementers,
+            BrowserTypeRelationCandidate[] derivedTypes,
             string[] relationFailures) =
             ProjectHierarchyRelations(hierarchyRelations);
 
@@ -218,7 +219,10 @@ public static partial class MetadataExports
                 ]);
     }
 
-    static (string[] Implementers, string[] DerivedTypes, string[] Failures)
+    static (
+        BrowserTypeRelationCandidate[] Implementers,
+        BrowserTypeRelationCandidate[] DerivedTypes,
+        string[] Failures)
         ProjectHierarchyRelations(
             ExactTypeRelationsInspectionOutcome outcome)
     {
@@ -242,16 +246,48 @@ public static partial class MetadataExports
                 ["Subject Relations: hierarchy rows are unavailable."]);
         }
 
-        static string[] Names(
-            IEnumerable<WorkspaceTypeRelationCandidateRow> source) =>
+        Dictionary<
+            AssemblyAcquisitionRegistration,
+            WorkspaceTypeHierarchyRelationSource> sources =
+                available.Relations.Relations.Sources.ToDictionary(
+                    static source => source.Registration);
+        BrowserTypeRelationCandidate[] Candidates(
+            IEnumerable<WorkspaceTypeRelationCandidateRow> candidates) =>
         [
-            .. source
-                .Select(row =>
-                    (InspectionGraphTypeIdentity.AcquiredDefinition)
-                        row.Candidate
-                            .Identity)
-                .Select(identity => identity.Type.ToMetadataFullName())
-                .Order(StringComparer.Ordinal),
+            .. candidates.Select(row =>
+                {
+                    var identity =
+                        (InspectionGraphTypeIdentity.AcquiredDefinition)
+                            row.Candidate.Identity;
+                    WorkspaceTypeHierarchyRelationSource source =
+                        sources[identity.Registration];
+                    ExactLibrarySourceCoordinate.Package? package =
+                        source.Coordinate
+                            as ExactLibrarySourceCoordinate.Package;
+                    AssemblyResolutionProvenance.PackageAsset? provenance =
+                        source.Provenance
+                            as AssemblyResolutionProvenance.PackageAsset;
+                    return new BrowserTypeRelationCandidate(
+                        identity.Type.ToMetadataFullName(),
+                        source.Assembly.Name,
+                        source.Assembly.Version?.ToString(),
+                        source.Assembly.Culture,
+                        source.Assembly.PublicKeyToken,
+                        package?.PackageCoordinate.PackageId,
+                        package?.PackageCoordinate.Version,
+                        provenance?.Tfm,
+                        provenance?.Rid,
+                        provenance?.AssetPath);
+                })
+                .OrderBy(
+                    static candidate => candidate.TypeQueryId,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    static candidate => candidate.AssemblyName,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    static candidate => candidate.PackageId,
+                    StringComparer.Ordinal),
         ];
         string[] failures =
             available.Relations.Relations.Evidence.IsComplete
@@ -261,9 +297,9 @@ public static partial class MetadataExports
                     "Subject Relations: hierarchy evidence is incomplete.",
                 ];
         return (
-            Names(available.Relations.Candidates.Where(row =>
+            Candidates(available.Relations.Candidates.Where(row =>
                 row.Form == SubjectRelationForm.Interface)),
-            Names(available.Relations.Candidates.Where(row =>
+            Candidates(available.Relations.Candidates.Where(row =>
                 row.Form == SubjectRelationForm.BaseType)),
             failures);
     }

@@ -41,11 +41,38 @@ public sealed record WorkspaceTypeRelationCandidateRow
     internal SubjectRelationRow Representative => Evidence[0];
 }
 
+public sealed class WorkspaceTypeRelationsContinuationAuthority
+{
+    private WorkspaceTypeRelationsContinuationAuthority(
+        SubjectRelationPopulationContinuationAuthority population,
+        bool includeNonPublic)
+    {
+        PopulationAuthority = population
+            ?? throw new ArgumentNullException(nameof(population));
+        IncludeNonPublic = includeNonPublic;
+    }
+
+    internal SubjectRelationPopulationContinuationAuthority
+        PopulationAuthority { get; }
+
+    internal int NextOrdinal => PopulationAuthority.NextOrdinal;
+
+    public SubjectRelationPopulationContinuation Continuation =>
+        PopulationAuthority.Continuation;
+
+    public bool IncludeNonPublic { get; }
+
+    internal static WorkspaceTypeRelationsContinuationAuthority Capture(
+        SubjectRelationPopulationContinuationAuthority population,
+        bool includeNonPublic) =>
+        new(population, includeNonPublic);
+}
+
 public sealed record WorkspaceTypeRelationsInspectionResult(
     WorkspaceTypeHierarchyRelationsResult Relations,
     SubjectRelationPopulationResult Population,
     ImmutableArray<WorkspaceTypeRelationCandidateRow> Candidates,
-    SubjectRelationPopulationContinuationAuthority?
+    WorkspaceTypeRelationsContinuationAuthority?
         ContinuationAuthority);
 
 public sealed class WorkspaceTypeRelationRowSelectionException
@@ -80,7 +107,7 @@ public static class WorkspaceTypeRelationsInspectionOperation
         SubjectRelationsQueryPlan plan,
         SubjectRelationPopulationCountRequest? count = null,
         SubjectRelationPopulationRowsRequest? rows = null,
-        SubjectRelationPopulationContinuationAuthority?
+        WorkspaceTypeRelationsContinuationAuthority?
             continuationAuthority = null,
         RowSelectionIntent<string>? rowSelection = null,
         bool includeNonPublic = false,
@@ -234,24 +261,37 @@ public static class WorkspaceTypeRelationsInspectionOperation
                     : new SubjectRelationPopulationCountOutcome.Incomplete();
         SubjectRelationPopulationRowsOutcome? rowsOutcome = null;
         ImmutableArray<WorkspaceTypeRelationCandidateRow> candidateRows = [];
-        SubjectRelationPopulationContinuationAuthority?
+        WorkspaceTypeRelationsContinuationAuthority?
             nextContinuationAuthority = null;
         if (rows is not null)
         {
             int start = 0;
             if (rows.Continuation is not null)
             {
-                if (continuationAuthority is null
-                    || SubjectRelationsPopulationOperation
-                        .ContinuationRejection(
-                            inspectionRequest,
-                            continuationAuthority)
-                        is not null)
+                if (continuationAuthority is null)
                 {
                     rowsOutcome =
                         new SubjectRelationPopulationRowsOutcome.Rejected(
                             SubjectRelationPopulationRowsRejection
                                 .InvalidContinuation);
+                }
+                else if (continuationAuthority.IncludeNonPublic
+                    != includeNonPublic)
+                {
+                    rowsOutcome =
+                        new SubjectRelationPopulationRowsOutcome.Rejected(
+                            SubjectRelationPopulationRowsRejection
+                                .IncompatibleContinuation);
+                }
+                else if (SubjectRelationsPopulationOperation
+                    .ContinuationRejection(
+                        inspectionRequest,
+                        continuationAuthority.PopulationAuthority)
+                    is { } rejection)
+                {
+                    rowsOutcome =
+                        new SubjectRelationPopulationRowsOutcome.Rejected(
+                            rejection);
                 }
                 else
                 {
@@ -318,16 +358,22 @@ public static class WorkspaceTypeRelationsInspectionOperation
                             continuation);
                     if (continuation is not null)
                     {
+                        SubjectRelationPopulationContinuationAuthority
+                            populationContinuation =
+                                SubjectRelationPopulationContinuationAuthority
+                                    .Capture(
+                                        continuation,
+                                        relations.Focus,
+                                        relations.Population,
+                                        plan.Selection,
+                                        rows.Ordering,
+                                        rows.Projection,
+                                        next);
                         nextContinuationAuthority =
-                            SubjectRelationPopulationContinuationAuthority
+                            WorkspaceTypeRelationsContinuationAuthority
                                 .Capture(
-                                    continuation,
-                                    relations.Focus,
-                                    relations.Population,
-                                    plan.Selection,
-                                    rows.Ordering,
-                                    rows.Projection,
-                                    next);
+                                    populationContinuation,
+                                    includeNonPublic);
                     }
                 }
             }
@@ -341,7 +387,7 @@ public static class WorkspaceTypeRelationsInspectionOperation
                 rowsOutcome,
                 rowsOutcome
                     is SubjectRelationPopulationRowsOutcome.Read
-                    ? continuationAuthority
+                    ? continuationAuthority?.PopulationAuthority
                     : null);
         return new(
             relations,
