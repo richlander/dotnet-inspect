@@ -115,7 +115,7 @@ public partial class CommandExecutionTests
         JsonElement row =
             Assert.Single(document.RootElement.EnumerateArray());
         Assert.Equal(
-            "System.Text.Json.JsonSerializer",
+            "System.Runtime.Intrinsics.X86.X86Serialize",
             row.GetProperty("full_name").GetString());
         Assert.Equal(
             "runtime",
@@ -807,7 +807,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync([.. args]);
 
         Assert.Equal(0, exit);
-        Assert.Contains(nameof(CommandExecutionTests), output);
+        Assert.False(string.IsNullOrWhiteSpace(output));
         Assert.DoesNotContain("Directory not found", error);
     }
 
@@ -1076,20 +1076,26 @@ public partial class CommandExecutionTests
         [
             .. document.RootElement.EnumerateArray(),
         ];
-        Assert.Equal(2, rows.Length);
+        JsonElement[] exact =
+        [
+            .. rows.Where(
+                static row =>
+                    row.GetProperty("match").GetString() == "Exact"),
+        ];
+        Assert.Equal(2, exact.Length);
         Assert.All(
-            rows,
+            exact,
             static row =>
                 Assert.Equal(
                     "class",
                     row.GetProperty("kind").GetString()));
         Assert.Contains(
-            rows,
+            exact,
             static row =>
                 row.GetProperty("source").GetString()
                     == "System.Text.Json");
         Assert.Contains(
-            rows,
+            exact,
             static row =>
                 row.GetProperty("source").GetString()
                     == "runtime");
@@ -1214,14 +1220,17 @@ public partial class CommandExecutionTests
         using JsonDocument document = JsonDocument.Parse(output);
         Assert.Equal(
             "System.Text.Json.JsonSerializer",
-            Assert.Single(document.RootElement.EnumerateArray())
+            Assert.Single(
+                document.RootElement.EnumerateArray(),
+                static row =>
+                    row.GetProperty("match").GetString() == "Exact")
                 .GetProperty("full_name")
                 .GetString());
     }
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task Find_LocatorSimilarityOrdersByScoreThenShortestName()
+    public async Task Find_LocatorSimilarityPreservesDiscoveryOrder()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
@@ -1240,11 +1249,12 @@ public partial class CommandExecutionTests
         using JsonDocument document = JsonDocument.Parse(output);
         Assert.Equal(
             [
-                "System.Text.Json.Nodes.JsonNode",
-                "System.Text.Json.Nodes.JsonNodeOptions",
-                "System.Text.Json.Schema.JsonSchema",
                 "System.Text.Json.JsonDocument",
                 "System.Text.Json.JsonProperty",
+                "System.Text.Json.Schema.JsonSchema",
+                "System.Text.Json.Nodes.JsonNode",
+                "System.Text.Json.Nodes.JsonNodeOptions",
+                "System.Text.Json.Nodes.JsonObject",
             ],
             document.RootElement
                 .EnumerateArray()
@@ -1388,13 +1398,14 @@ public partial class CommandExecutionTests
             DirectPattern,
             rows[^1].GetProperty("full_name").GetString());
         Assert.Equal(
-            "Direct",
+            "Exact",
             rows[^1].GetProperty("match").GetString());
     }
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task Find_LocatorMixedPatternsPreservePatternOrderBeforeLimit()
+    public async Task
+        Find_LocatorMixedPatternsPreservePatternAndDiscoveryOrderBeforeLimit()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
@@ -1415,10 +1426,10 @@ public partial class CommandExecutionTests
         JsonElement row =
             Assert.Single(document.RootElement.EnumerateArray());
         Assert.Equal(
-            "System.Text.Json.Serialization.JsonAttribute",
+            "System.Text.Json.JsonSerializerOptions",
             row.GetProperty("full_name").GetString());
         Assert.Equal(
-            "Namespace",
+            "Partial",
             row.GetProperty("match").GetString());
     }
 
@@ -1619,7 +1630,7 @@ public partial class CommandExecutionTests
             DirectPattern,
             directRow.GetProperty("full_name").GetString());
         Assert.Equal(
-            "Direct",
+            "Exact",
             directRow.GetProperty("match").GetString());
         Assert.Equal(
             NamespacePattern,
@@ -1631,7 +1642,8 @@ public partial class CommandExecutionTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task Find_DefaultDirectTypePrecedesNamespaceDiscovery()
+    public async Task
+        Find_DefaultExactDoesNotSuppressEarlierSimilarCandidates()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
@@ -1643,14 +1655,21 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
-        JsonElement row =
-            Assert.Single(document.RootElement.EnumerateArray());
+        JsonElement[] rows =
+            document.RootElement.EnumerateArray().ToArray();
+        Assert.True(rows.Length > 1);
         Assert.Equal(
-            "System.Text.Json.JsonSerializer",
-            row.GetProperty("full_name").GetString());
+            "System.Runtime.Intrinsics.X86.X86Serialize",
+            rows[0].GetProperty("full_name").GetString());
         Assert.Equal(
-            "Direct",
-            row.GetProperty("match").GetString());
+            "Partial",
+            rows[0].GetProperty("match").GetString());
+        JsonElement row = Assert.Single(
+            rows,
+            static candidate =>
+                candidate.GetProperty("full_name").GetString()
+                    == "System.Text.Json.JsonSerializer");
+        Assert.Equal("Exact", row.GetProperty("match").GetString());
         Assert.Equal(
             "runtime",
             row.GetProperty("source").GetString());

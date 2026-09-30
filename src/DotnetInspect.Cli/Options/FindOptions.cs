@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Models;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -15,6 +16,8 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     internal SearchSourceSelection? SourceSelection { get; init; }
 
     internal bool PackagePrefixLimitReached { get; init; }
+
+    internal FindTypeMatchIntent TypeMatchIntent { get; init; }
 
     internal EcosystemPackId[]? Ecosystems { get; init; }
 

@@ -116,7 +116,8 @@ internal static class TypeSearchService
                             logger,
                             configured,
                             MarkFailure,
-                            cancellationToken),
+                            cancellationToken,
+                            findCandidates: true),
                         InspectConfiguredNamespaceAsync)
                     : await FindMultiPatternAsync(
                         patterns,
@@ -127,12 +128,14 @@ internal static class TypeSearchService
                             logger,
                             configured,
                             MarkFailure,
-                            cancellationToken),
+                            cancellationToken,
+                            findCandidates: true),
                         InspectConfiguredNamespaceAsync);
                 return CreateSearchResult(
                     configuredResults,
                     hasFailures || platformCatalogFailed,
-                    options.PackagePrefixLimitReached);
+                    options.PackagePrefixLimitReached,
+                    options.Limit);
             }
 
             Func<string, Task<List<TypeFindResult>>>?
@@ -269,7 +272,8 @@ internal static class TypeSearchService
                 CreateSearchResult(
                     located,
                     locatorHasFailures || platformCatalogFailed,
-                    options.PackagePrefixLimitReached);
+                    options.PackagePrefixLimitReached,
+                    options.Limit);
             return search with
             {
                 LocatorInspections = locatorInspections,
@@ -285,284 +289,32 @@ internal static class TypeSearchService
             ConfiguredDeclarationLocatorWorkspace workspace,
             CancellationToken cancellationToken)
     {
-        TypeDeclarationLocatorSectionResult directSection =
+        TypeDeclarationLocatorSectionResult censusSection =
             await workspace.LocateAsync(
-                patterns,
+                ["*"],
                 cancellationToken);
-        if (directSection
-            is not TypeDeclarationLocatorSectionResult.Evaluated direct)
+        if (censusSection
+            is not TypeDeclarationLocatorSectionResult.Evaluated census)
         {
             return [];
         }
 
-        var primaryResults =
-            new List<TypeFindResult>?[patterns.Length];
-        var deferredResults = new List<TypeFindResult>();
-        var misses =
-            new List<(
-                int Index,
-                string Pattern,
-                bool DirectComplete)>();
-        for (int index = 0; index < patterns.Length; index++)
-        {
-            string pattern = patterns[index];
-            List<TypeSearchResult> candidates =
-            [
-                .. InFindSourceOrder(
-                    ProjectCandidates(
-                        direct.Answers[index].Candidates,
-                        options.TypeFilter,
-                        options.IncludeAll,
-                        workspace)),
-            ];
-            if (TryGetNamespaceDescendantPattern(
-                    pattern,
-                    out NamespaceSearchPattern namespacePattern))
-            {
-                candidates =
-                [
-                    .. NamespaceCandidates(
-                        namespacePattern.Namespace,
-                        namespacePattern.Match,
-                        candidates),
-                ];
-                if (options.Limit is { } namespaceLimit
-                    && candidates.Count > namespaceLimit)
-                {
-                    candidates = [.. candidates.Take(namespaceLimit)];
-                }
-
-                if (candidates.Count == 0)
-                {
-                    misses.Add(
-                        (index, pattern, direct.Answers[index].IsComplete));
-                    continue;
-                }
-
-                var classifiedNamespace = new List<TypeFindResult>();
-                AddClassifiedResults(
-                    classifiedNamespace,
-                    pattern,
-                    TypeFindMatchKind.Namespace,
-                    candidates);
-                primaryResults[index] = classifiedNamespace;
-                continue;
-            }
-
-            if (options.Limit is { } directLimit
-                && candidates.Count > directLimit)
-            {
-                candidates = [.. candidates.Take(directLimit)];
-            }
-
-            if (candidates.Count == 0)
-            {
-                misses.Add(
-                    (index, pattern, direct.Answers[index].IsComplete));
-                continue;
-            }
-
-            var classified = new List<TypeFindResult>();
-            AddClassifiedResults(
-                classified,
-                pattern,
-                TypeMatcher.IsTypeGlobPattern(pattern)
-                    ? TypeFindMatchKind.Glob
-                    : TypeFindMatchKind.Direct,
-                candidates);
-            primaryResults[index] = classified;
-        }
-
-        var prefixRequests =
-            misses
-                .Where(static miss =>
-                    IsPrefixFallbackEligible(miss.Pattern))
-                .Select(static miss => $"{miss.Pattern}*")
-                .ToArray();
-        TypeDeclarationLocatorSectionResult.Evaluated? prefixSection = null;
-        if (prefixRequests.Length > 0)
-        {
-            prefixSection =
-                await workspace.LocateAsync(
-                    prefixRequests,
-                    cancellationToken)
-                as TypeDeclarationLocatorSectionResult.Evaluated;
-        }
-
-        var prefixes = new Dictionary<string, List<TypeSearchResult>>(
-            StringComparer.Ordinal);
-        var prefixCompletion = new Dictionary<string, bool>(
-            StringComparer.Ordinal);
-        if (prefixSection is not null)
-        {
-            for (int index = 0; index < prefixRequests.Length; index++)
-            {
-                prefixes[prefixRequests[index]] =
-                    ProjectCandidates(
-                        prefixSection.Answers[index].Candidates,
-                        options.TypeFilter,
-                        options.IncludeAll,
-                        workspace);
-                prefixCompletion[prefixRequests[index]] =
-                    prefixSection.Answers[index].IsComplete;
-            }
-        }
-
-        bool needsCensus =
-            misses.Any(
-                miss =>
-                    IsCompatibilityFallbackEligible(miss.Pattern)
-                    && (!LooksLikeNamespacePrefix(miss.Pattern)
-                        || !prefixes.TryGetValue(
-                            $"{miss.Pattern}*",
-                            out List<TypeSearchResult>? candidates)
-                        || candidates.Count == 0));
-        TypeDeclarationLocatorSectionResult.Evaluated? censusSection = null;
-        if (needsCensus)
-        {
-            censusSection =
-                await workspace.LocateAsync(
-                    ["*"],
-                    cancellationToken)
-                as TypeDeclarationLocatorSectionResult.Evaluated;
-        }
-
-        TypeDeclarationLocatorSectionAnswer? censusAnswer =
-            censusSection?.Answers[0];
-        List<TypeSearchResult> census =
-            censusAnswer is not null
-                ? ProjectCandidates(
-                    censusAnswer.Candidates,
+        TypeDeclarationLocatorSectionAnswer answer = census.Answers[0];
+        List<TypeSearchResult> candidates =
+        [
+            .. InFindSourceOrder(
+                ProjectCandidates(
+                    answer.Candidates,
                     options.TypeFilter,
                     options.IncludeAll,
-                    workspace)
-                : [];
-        List<TypeSearchResult> orderedCensus =
-            [.. InFindSourceOrder(census)];
-
-        foreach ((int patternIndex, string pattern, bool directComplete)
-            in misses)
-        {
-            bool usesPrefixFallback =
-                IsPrefixFallbackEligible(pattern);
-            if (usesPrefixFallback
-                && HasNamesakeLibraryCandidate(pattern)
-                && prefixes.TryGetValue(
-                    $"{pattern}*",
-                    out List<TypeSearchResult>? namespaceCandidates))
-            {
-                IEnumerable<TypeSearchResult> exactNamespace =
-                    NamespaceCandidates(
-                        pattern,
-                        MetadataNamespaceMatch.Exact,
-                        InFindSourceOrder(namespaceCandidates));
-                if (options.Limit is { } namespaceLimit)
-                    exactNamespace = exactNamespace.Take(namespaceLimit);
-                List<TypeSearchResult> selected =
-                    exactNamespace.ToList();
-                if (selected.Count > 0)
-                {
-                    var classified = new List<TypeFindResult>();
-                    AddClassifiedResults(
-                        classified,
-                        pattern,
-                        TypeFindMatchKind.Namespace,
-                        selected);
-                    primaryResults[patternIndex] = classified;
-                    continue;
-                }
-            }
-
-            BroadenedMatch? broadened = null;
-            if (usesPrefixFallback
-                && prefixes.TryGetValue(
-                    $"{pattern}*",
-                    out List<TypeSearchResult>? prefixCandidates)
-                && prefixCandidates.Count > 0)
-            {
-                broadened = ClassifyBroadened(
-                    pattern,
-                    [.. InFindSourceOrder(prefixCandidates)],
-                    options.Limit);
-            }
-            else if (IsCompatibilityFallbackEligible(pattern))
-            {
-                broadened = ClassifyBroadened(
-                    pattern,
-                    orderedCensus,
-                    options.Limit);
-            }
-
-            if (broadened is { Kind: TypeFindMatchKind.Partial })
-            {
-                foreach (TypeSearchResult candidate in broadened.Candidates)
-                {
-                    deferredResults.Add(
-                        ToFindResult(
-                            pattern,
-                            TypeFindMatchKind.Partial,
-                            broadened.Similarities![candidate.FullName],
-                            candidate));
-                }
-                continue;
-            }
-
-            if (broadened is not null)
-            {
-                var classified = new List<TypeFindResult>();
-                AddClassifiedResults(
-                    classified,
-                    broadened.EffectivePattern,
-                    broadened.Kind,
-                    broadened.Candidates);
-                primaryResults[patternIndex] = classified;
-                continue;
-            }
-
-            bool prefixIsComplete =
-                !usesPrefixFallback
-                || prefixCompletion.GetValueOrDefault(
-                    $"{pattern}*");
-            bool patternNeedsCensus =
-                IsCompatibilityFallbackEligible(pattern)
-                && (!LooksLikeNamespacePrefix(pattern)
-                    || !prefixes.TryGetValue(
-                        $"{pattern}*",
-                        out List<TypeSearchResult>? candidates)
-                    || candidates.Count == 0);
-            bool censusIsComplete =
-                !patternNeedsCensus
-                || censusAnswer?.IsComplete is true;
-            if (directComplete
-                && prefixIsComplete
-                && censusIsComplete)
-            {
-                deferredResults.Add(
-                    new TypeFindResult
-                    {
-                        Pattern = pattern,
-                        Match = TypeFindMatchKind.NotFound,
-                    });
-            }
-        }
-
-        var primaryResultsByEffectivePattern =
-            new Dictionary<string, List<TypeFindResult>>(
-                StringComparer.Ordinal);
-        foreach (List<TypeFindResult>? rows in primaryResults)
-        {
-            if (rows is null || rows.Count == 0)
-                continue;
-
-            primaryResultsByEffectivePattern[rows[0].Pattern] = rows;
-        }
-
-        return
-        [
-            .. primaryResultsByEffectivePattern.Values.SelectMany(
-                static rows => rows),
-            .. deferredResults,
+                    workspace)),
         ];
+        return ClassifyPatterns(
+            patterns,
+            candidates,
+            options.Limit,
+            answer.IsComplete,
+            options.TypeMatchIntent);
     }
 
     private static IOrderedEnumerable<TypeSearchResult>
@@ -1125,15 +877,26 @@ internal static class TypeSearchService
             {
                 IEnumerable<TypeSearchResult> selected =
                     completeInventory.Where(candidate =>
-                        TypeMatcher.MatchesTypeFilter(
-                            candidate.FullName,
-                            pattern));
+                            PrepareCandidateClassification(
+                                pattern,
+                                candidate,
+                                options.TypeMatchIntent))
+                        .DistinctBy(candidate =>
+                            (
+                                candidate.FullName,
+                                ExactNamespaceSourceIdentity(candidate)));
                 if (resultLimit is int limit)
                     selected = selected.Take(limit);
                 return Task.FromResult(selected.ToList());
             }
 
             List<TypeSearchResult> results = [];
+            HashSet<(
+                string FullName,
+                TypeCandidateSourceIdentity Source)>? identities =
+                pattern is null
+                    ? null
+                    : [];
             List<TypeSearchResult>? observedInventory =
                 pattern is null ? null : [];
             IReadOnlyList<string> searchPatterns =
@@ -1142,21 +905,43 @@ internal static class TypeSearchService
                 pattern is not null
                 && resultLimit is int limit
                 && results.Count >= limit;
+            TypeHeadStopper? headStopper =
+                pattern is not null
+                && resultLimit is int maximum
+                    ? new(
+                        pattern,
+                        maximum,
+                        options.TypeFilter,
+                        options.TypeMatchIntent,
+                        identities!,
+                        () => results.Count)
+                    : null;
             bool complete = workspace.RunTypeInventories(
                 options.IncludeAll,
-                entry => AddTypes(
-                    results,
-                    searchPatterns,
-                    options.TypeFilter,
-                    workspace.SourceFor(entry.Subject),
-                    entry,
-                    logger,
-                    ReachedLimit,
-                    MarkFailure,
-                    observedInventory),
+                entry =>
+                {
+                    AddTypes(
+                        results,
+                        searchPatterns,
+                        options.TypeFilter,
+                        workspace.SourceFor(entry.Subject),
+                        entry,
+                        logger,
+                        ReachedLimit,
+                        MarkFailure,
+                        observedInventory,
+                        findCandidates: pattern is not null,
+                        identities: identities,
+                        intent: options.TypeMatchIntent,
+                        headStopper: headStopper);
+                    headStopper?.Commit();
+                },
                 pattern is not null && resultLimit.HasValue
                     ? ReachedLimit
-                    : null);
+                    : null,
+                headStopper is null
+                    ? null
+                    : headStopper.Observe);
             if (pattern is null)
                 completeInventory = results;
             else if (complete)
@@ -1178,7 +963,8 @@ internal static class TypeSearchService
         return CreateSearchResult(
             results,
             hasFailures,
-            options.PackagePrefixLimitReached);
+            options.PackagePrefixLimitReached,
+            options.Limit);
     }
 
     private static async Task<FindSearchResult<TypeFindResult>>
@@ -1235,9 +1021,10 @@ internal static class TypeSearchService
                 pattern,
                 logger,
                 workspace,
-                MarkFailure);
+                MarkFailure,
+                findCandidates: true);
 
-        // Optimized single-pattern path: collect with filtering, then partial match if empty
+        // A bounded single pattern classifies during metadata traversal.
         if (patterns.Length == 1)
         {
             return CreateSearchResult(
@@ -1247,7 +1034,8 @@ internal static class TypeSearchService
                 Collect,
                 inspectNamespace),
                 hasFailures,
-                options.PackagePrefixLimitReached);
+                options.PackagePrefixLimitReached,
+                options.Limit);
         }
 
         // An unbounded multi-pattern request shares one census. A bounded
@@ -1260,13 +1048,15 @@ internal static class TypeSearchService
                 Collect,
                 inspectNamespace),
             hasFailures,
-            options.PackagePrefixLimitReached);
+            options.PackagePrefixLimitReached,
+            options.Limit);
     }
 
     private static FindSearchResult<TypeFindResult> CreateSearchResult(
         List<TypeFindResult> results,
         bool hasFailures,
-        bool sourceSelectionIncomplete)
+        bool sourceSelectionIncomplete,
+        int? resultLimit)
     {
         string[] unmatchedPatterns =
         [
@@ -1285,6 +1075,14 @@ internal static class TypeSearchService
         {
             SourceSelectionIncomplete =
                 sourceSelectionIncomplete,
+            Completion =
+                resultLimit is int limit
+                && results.Count(static result =>
+                    result.Match != TypeFindMatchKind.NotFound) >= limit
+                    ? FindSearchCompletion.ResultLimitReached
+                    : hasFailures || sourceSelectionIncomplete
+                        ? FindSearchCompletion.Incomplete
+                        : FindSearchCompletion.Exhausted,
         };
     }
 
@@ -1327,147 +1125,13 @@ internal static class TypeSearchService
             return limited;
         }
 
-        var allTypes = await collect(null, null);
-
-        Dictionary<string, List<TypeSearchResult>> resultsByPattern = [];
-        Dictionary<string, TypeFindMatchKind> kindByPattern =
-            new(StringComparer.Ordinal);
-        Dictionary<string, List<TypeSearchResult>> partialMatchesByPattern = [];
-        Dictionary<string, Dictionary<string, double>> similarityByPattern = [];
-        HashSet<string> namespacePatterns =
-            new(StringComparer.Ordinal);
-        List<string> notFoundPatterns = [];
-
-        foreach (var pattern in patterns)
-        {
-            if (TryGetNamespaceDescendantPattern(
-                    pattern,
-                    out NamespaceSearchPattern namespacePattern))
-            {
-                if (inspectNamespace is not null)
-                {
-                    List<TypeFindResult> inspected =
-                        await inspectNamespace(pattern);
-                    if (inspected.Count > 0)
-                    {
-                        IEnumerable<TypeFindResult> selected =
-                            inspected;
-                        if (options.Limit is { } inspectedLimit)
-                        {
-                            selected = selected.Take(inspectedLimit);
-                        }
-                        resultsByPattern[pattern] =
-                        [
-                            .. selected.Select(
-                                static result =>
-                                    ToSearchResult(result)),
-                        ];
-                        namespacePatterns.Add(pattern);
-                        continue;
-                    }
-                }
-
-                List<TypeSearchResult> namespaceMatches =
-                [
-                    .. NamespaceCandidates(
-                        namespacePattern.Namespace,
-                        namespacePattern.Match,
-                        allTypes),
-                ];
-                if (options.Limit.HasValue
-                    && namespaceMatches.Count > options.Limit.Value)
-                {
-                    namespaceMatches =
-                    [
-                        .. namespaceMatches.Take(options.Limit.Value),
-                    ];
-                }
-
-                if (namespaceMatches.Count > 0)
-                {
-                    resultsByPattern[pattern] = namespaceMatches;
-                    namespacePatterns.Add(pattern);
-                }
-                else
-                {
-                    notFoundPatterns.Add(pattern);
-                }
-                continue;
-            }
-
-            List<TypeSearchResult> matches = [];
-            foreach (var type in allTypes)
-            {
-                if (TypeMatcher.MatchesTypeFilter(type.FullName, pattern))
-                {
-                    matches.Add(type);
-                }
-            }
-
-            if (options.Limit.HasValue && matches.Count > options.Limit.Value)
-                matches = matches.Take(options.Limit.Value).ToList();
-
-            if (matches.Count > 0)
-            {
-                resultsByPattern[pattern] = matches;
-                kindByPattern.Remove(pattern);
-            }
-            else if (!pattern.Contains('*') && !pattern.Contains('?'))
-            {
-                List<TypeSearchResult> namespaceMatches =
-                [
-                    .. NamespaceCandidates(
-                        pattern,
-                        MetadataNamespaceMatch.Exact,
-                        allTypes),
-                ];
-                if (options.Limit.HasValue
-                    && namespaceMatches.Count > options.Limit.Value)
-                {
-                    namespaceMatches =
-                    [
-                        .. namespaceMatches.Take(options.Limit.Value),
-                    ];
-                }
-                if (namespaceMatches.Count > 0)
-                {
-                    resultsByPattern[pattern] = namespaceMatches;
-                    namespacePatterns.Add(pattern);
-                    continue;
-                }
-
-                BroadenedMatch? broadened =
-                    ClassifyBroadened(pattern, allTypes, options.Limit);
-                if (broadened is null)
-                {
-                    notFoundPatterns.Add(pattern);
-                }
-                else if (broadened.Kind == TypeFindMatchKind.Partial)
-                {
-                    similarityByPattern[pattern] = broadened.Similarities!;
-                    partialMatchesByPattern[pattern] = broadened.Candidates;
-                }
-                else
-                {
-                    resultsByPattern[broadened.EffectivePattern] =
-                        broadened.Candidates;
-                    kindByPattern[broadened.EffectivePattern] =
-                        broadened.Kind;
-                }
-            }
-            else
-            {
-                notFoundPatterns.Add(pattern);
-            }
-        }
-
-        return ConvertToFindResults(
-            resultsByPattern,
-            partialMatchesByPattern,
-            notFoundPatterns,
-            similarityByPattern,
-            namespacePatterns,
-            kindByPattern);
+        List<TypeSearchResult> allTypes = await collect(null, null);
+        return ClassifyPatterns(
+            patterns,
+            allTypes,
+            limit: null,
+            sourceComplete: true,
+            intent: options.TypeMatchIntent);
     }
 
     private static TypeSearchResult ToSearchResult(
@@ -1484,139 +1148,14 @@ internal static class TypeSearchService
             Location = result.Location,
         };
 
-    /// <summary>
-    /// The broadened match of one pattern after the Direct and exact
-    /// Namespace tiers miss: the first non-empty of Prefix, Substring, and
-    /// Partial, in the order owned by find-search-service.md#classification.
-    /// </summary>
-    private sealed record BroadenedMatch(
-        string EffectivePattern,
-        TypeFindMatchKind Kind,
-        List<TypeSearchResult> Candidates,
-        Dictionary<string, double>? Similarities);
-
-    private static readonly Comparer<string> WithinTierOrder =
-        Comparer<string>.Create(TypeNameMatchRanking.CompareWithinTier);
-
-    /// <summary>
-    /// Classifies a missed pattern over a census already in Find source order.
-    /// Duplicate full names collapse to the first source-ranked candidate, and
-    /// each tier orders by <see cref="TypeNameMatchRanking.CompareWithinTier"/>
-    /// with source order as the stable tie-break.
-    /// </summary>
-    private static BroadenedMatch? ClassifyBroadened(
-        string pattern,
-        IReadOnlyList<TypeSearchResult> census,
-        int? limit)
-    {
-        if (!IsCompatibilityFallbackEligible(pattern))
-            return null;
-
-        // Explicit generic notation keeps only the similarity fallback: a
-        // prefix or substring cannot honor its arity.
-        List<TypeSearchResult> prefix = [];
-        List<TypeSearchResult> substring = [];
-        foreach (TypeSearchResult candidate
-            in TypeNameMatchRanking.IsBroadenable(pattern)
-                ? census.DistinctBy(static candidate => candidate.FullName)
-                : [])
-        {
-            switch (TypeNameMatchRanking.Classify(candidate.FullName, pattern))
-            {
-                case TypeNameMatchTier.Prefix:
-                    prefix.Add(candidate);
-                    break;
-                case TypeNameMatchTier.Substring:
-                    substring.Add(candidate);
-                    break;
-            }
-        }
-
-        if (prefix.Count > 0)
-        {
-            string effectivePattern = pattern;
-            if (LooksLikeNamespacePrefix(pattern))
-            {
-                effectivePattern = $"{pattern}*";
-                CommandError.WriteNote(
-                    $"No exact matches for '{pattern}'. Showing prefix "
-                    + $"matches for '{effectivePattern}'.");
-            }
-
-            return new(
-                effectivePattern,
-                TypeFindMatchKind.Prefix,
-                Ranked(prefix, limit),
-                null);
-        }
-
-        if (substring.Count > 0)
-        {
-            return new(
-                pattern,
-                TypeFindMatchKind.Substring,
-                Ranked(substring, limit),
-                null);
-        }
-
-        List<(string Name, double Similarity)> suggestions =
-            TypeMatcher.FindClosest(
-                    census
-                        .Select(static candidate => candidate.FullName)
-                        .Distinct(StringComparer.Ordinal),
-                    pattern,
-                    minSimilarity: 0.5,
-                    maxResults: 5)
-                .ToList();
-        if (suggestions.Count == 0)
-            return null;
-
-        Dictionary<string, double> similarities =
-            suggestions.ToDictionary(
-                static suggestion => suggestion.Name,
-                static suggestion => suggestion.Similarity,
-                StringComparer.Ordinal);
-        List<TypeSearchResult> partial =
-        [
-            .. census
-                .Where(candidate =>
-                    similarities.ContainsKey(candidate.FullName))
-                .DistinctBy(static candidate => candidate.FullName)
-                .OrderByDescending(candidate =>
-                    similarities[candidate.FullName])
-                .ThenBy(
-                    static candidate => candidate.FullName,
-                    WithinTierOrder),
-        ];
-        return new(
-            pattern,
-            TypeFindMatchKind.Partial,
-            partial,
-            similarities);
-
-        static List<TypeSearchResult> Ranked(
-            List<TypeSearchResult> candidates,
-            int? limit)
-        {
-            IEnumerable<TypeSearchResult> found = candidates;
-            if (limit is { } count)
-                found = found.Take(count);
-            return
-            [
-                .. found.OrderBy(
-                    static candidate => candidate.FullName,
-                    WithinTierOrder),
-            ];
-        }
-    }
-
     private static async Task<List<TypeFindResult>> FindSinglePatternAsync(
         string pattern,
         FindOptions options,
         Func<string?, int?, Task<List<TypeSearchResult>>> collect,
         Func<string, Task<List<TypeFindResult>>>? inspectNamespace = null)
     {
-        if (TryGetNamespaceDescendantPattern(
+        if (options.TypeMatchIntent == FindTypeMatchIntent.Ordinary
+            && TryGetNamespaceDescendantPattern(
                 pattern,
                 out NamespaceSearchPattern descendantPattern))
         {
@@ -1661,96 +1200,227 @@ internal static class TypeSearchService
                         StringComparer.Ordinal));
         }
 
-        var results = await collect(pattern, options.Limit);
+        List<TypeSearchResult> candidates =
+            await collect(pattern, options.Limit);
+        return ClassifyPatterns(
+            [pattern],
+            candidates,
+            options.Limit,
+            sourceComplete: options.Limit is null
+                || candidates.Count < options.Limit.Value,
+            intent: options.TypeMatchIntent);
+    }
 
-        List<TypeSearchResult>? partialMatches = null;
-        Dictionary<string, double>? partialSimilarities = null;
-        if (results.Count == 0 && !pattern.Contains('*') && !pattern.Contains('?'))
+    private static List<TypeFindResult> ClassifyPatterns(
+        IReadOnlyList<string> patterns,
+        IReadOnlyList<TypeSearchResult> candidates,
+        int? limit,
+        bool sourceComplete,
+        FindTypeMatchIntent intent)
+    {
+        var results = new List<TypeFindResult>();
+        int accepted = 0;
+        foreach (string pattern in patterns)
         {
-            if (inspectNamespace is not null
-                && HasNamesakeLibraryCandidate(pattern))
-            {
-                List<TypeFindResult> namespaceRows =
-                    await inspectNamespace(pattern);
-                if (namespaceRows.Count > 0)
-                    return namespaceRows;
-            }
+            if (limit is int maximum && accepted >= maximum)
+                break;
 
-            var allTypes = await collect(null, null);
-
-            List<TypeSearchResult> namespaceMatches =
-            [
-                .. NamespaceCandidates(
+            int? remaining =
+                limit is int bounded
+                    ? bounded - accepted
+                    : null;
+            List<TypeFindResult> classified =
+                ClassifyCandidates(
                     pattern,
-                    MetadataNamespaceMatch.Exact,
-                    allTypes),
-            ];
-            if (options.Limit.HasValue
-                && namespaceMatches.Count > options.Limit.Value)
+                    candidates,
+                    remaining,
+                    intent);
+            if (classified.Count == 0)
             {
-                namespaceMatches =
-                [
-                    .. namespaceMatches.Take(options.Limit.Value),
-                ];
-            }
-            if (namespaceMatches.Count > 0)
-            {
-                return ConvertToFindResults(
-                    new Dictionary<string, List<TypeSearchResult>>
-                    {
-                        [pattern] = namespaceMatches,
-                    },
-                    [],
-                    [],
-                    namespacePatterns:
-                        new HashSet<string>(
-                            [pattern],
-                            StringComparer.Ordinal));
-            }
-
-            BroadenedMatch? broadened =
-                ClassifyBroadened(pattern, allTypes, options.Limit);
-            if (broadened is not null
-                && broadened.Kind != TypeFindMatchKind.Partial)
-            {
-                return ConvertToFindResults(
-                    new Dictionary<string, List<TypeSearchResult>>
-                    {
-                        [broadened.EffectivePattern] = broadened.Candidates,
-                    },
-                    [],
-                    [],
-                    kindByPattern:
-                        new Dictionary<string, TypeFindMatchKind>(
-                            StringComparer.Ordinal)
+                if (sourceComplete)
+                {
+                    results.Add(
+                        new TypeFindResult
                         {
-                            [broadened.EffectivePattern] = broadened.Kind,
+                            Pattern = pattern,
+                            Match = TypeFindMatchKind.NotFound,
                         });
+                }
+                continue;
             }
 
-            partialSimilarities = broadened?.Similarities;
-            partialMatches = broadened?.Candidates;
+            results.AddRange(classified);
+            accepted += classified.Count;
+        }
+        return results;
+    }
+
+    private static List<TypeFindResult> ClassifyCandidates(
+        string pattern,
+        IReadOnlyList<TypeSearchResult> candidates,
+        int? limit,
+        FindTypeMatchIntent intent)
+    {
+        var results = new List<TypeFindResult>();
+        var identities =
+            new HashSet<(
+                string FullName,
+                TypeCandidateSourceIdentity Source)>();
+        foreach (TypeSearchResult candidate in candidates)
+        {
+            TypeFindResult? classified =
+                CandidateClassification(
+                    pattern,
+                    candidate,
+                    intent);
+            if (classified is null
+                || !identities.Add(
+                    (
+                        candidate.FullName,
+                        ExactNamespaceSourceIdentity(candidate))))
+            {
+                continue;
+            }
+
+            results.Add(classified);
+            if (limit is int maximum
+                && results.Count >= maximum)
+            {
+                break;
+            }
+        }
+        return results;
+    }
+
+    private static TypeFindResult? ClassifyCandidate(
+        string pattern,
+        TypeSearchResult candidate,
+        FindTypeMatchIntent intent)
+    {
+        TypeFindMatchKind match;
+        double similarity = 1.0;
+        string effectivePattern = pattern;
+
+        if (IsExactCandidate(pattern, candidate))
+        {
+            match = TypeFindMatchKind.Exact;
+        }
+        else if (intent == FindTypeMatchIntent.ExactOnly)
+        {
+            return null;
+        }
+        else if (TypeMatcher.MatchesTypeFilter(
+                candidate.FullName,
+                pattern))
+        {
+            match = TypeMatcher.IsTypeGlobPattern(pattern)
+                ? TypeFindMatchKind.Glob
+                : TypeFindMatchKind.Direct;
+        }
+        else if (IsExactNamespaceCandidate(
+                     pattern,
+                     candidate))
+        {
+            match = TypeFindMatchKind.Namespace;
+        }
+        else
+        {
+            TypeNameMatchTier? tier =
+                TypeNameMatchRanking.Classify(
+                    candidate.FullName,
+                    pattern);
+            if (tier == TypeNameMatchTier.Prefix)
+            {
+                match = TypeFindMatchKind.Prefix;
+                if (LooksLikeNamespacePrefix(pattern))
+                    effectivePattern = $"{pattern}*";
+            }
+            else if (tier == TypeNameMatchTier.Substring)
+            {
+                match = TypeFindMatchKind.Substring;
+            }
+            else if (IsSimilarityEligible(pattern)
+                && TypeMatcher.NameSimilarity(
+                    candidate.FullName,
+                    pattern) is >= 0.5 and var score)
+            {
+                match = TypeFindMatchKind.Partial;
+                similarity = score;
+            }
+            else
+            {
+                return null;
+            }
         }
 
-        var similarityByPattern = partialSimilarities != null
-            ? new Dictionary<string, Dictionary<string, double>> { [pattern] = partialSimilarities }
-            : null;
-
-        return ConvertToFindResults(
-            new Dictionary<string, List<TypeSearchResult>> { [pattern] = results },
-            partialMatches != null ? new Dictionary<string, List<TypeSearchResult>> { [pattern] = partialMatches } : [],
-            [],
-            similarityByPattern);
+        return ToFindResult(
+            effectivePattern,
+            match,
+            similarity,
+            candidate);
     }
+
+    private static bool PrepareCandidateClassification(
+        string pattern,
+        TypeSearchResult candidate,
+        FindTypeMatchIntent intent)
+    {
+        candidate.ClassifiedPattern = pattern;
+        candidate.ClassifiedIntent = intent;
+        candidate.Classification =
+            ClassifyCandidate(pattern, candidate, intent);
+        return candidate.Classification is not null;
+    }
+
+    private static TypeFindResult? CandidateClassification(
+        string pattern,
+        TypeSearchResult candidate,
+        FindTypeMatchIntent intent) =>
+        string.Equals(
+            candidate.ClassifiedPattern,
+            pattern,
+            StringComparison.Ordinal)
+        && candidate.ClassifiedIntent == intent
+            ? candidate.Classification
+            : ClassifyCandidate(pattern, candidate, intent);
+
+    private static bool IsExactCandidate(
+        string pattern,
+        TypeSearchResult candidate) =>
+        !TypeMatcher.IsTypeGlobPattern(pattern)
+        && (string.Equals(
+                candidate.TypeName,
+                pattern,
+                StringComparison.Ordinal)
+            || string.Equals(
+                candidate.FullName,
+                pattern,
+                StringComparison.Ordinal));
+
+    private static bool IsExactNamespaceCandidate(
+        string pattern,
+        TypeSearchResult candidate) =>
+        IsExactNamespaceCandidate(
+            pattern,
+            candidate.Namespace);
+
+    private static bool IsExactNamespaceCandidate(
+        string pattern,
+        string? @namespace) =>
+        HasNamesakeLibraryCandidate(pattern)
+        && string.Equals(
+            @namespace,
+            pattern,
+            StringComparison.Ordinal);
 
     private static bool LooksLikeNamespacePrefix(string pattern)
         => pattern.Contains('.') && !pattern.Contains('<') && !pattern.Contains('`');
 
-    private static bool IsCompatibilityFallbackEligible(string pattern)
+    private static bool IsSimilarityEligible(string pattern)
         => !pattern.Contains('*') && !pattern.Contains('?');
 
-    private static bool IsPrefixFallbackEligible(string pattern)
-        => IsCompatibilityFallbackEligible(pattern)
+    private static bool IsNamespacePrefixEligible(string pattern)
+        => IsSimilarityEligible(pattern)
             && LooksLikeNamespacePrefix(pattern);
 
     private static bool HasNamesakeLibraryCandidate(string pattern) =>
@@ -1769,7 +1439,7 @@ internal static class TypeSearchService
             return true;
         }
 
-        if (IsPrefixFallbackEligible(pattern)
+        if (IsNamespacePrefixEligible(pattern)
             && HasNamesakeLibraryCandidate(pattern))
         {
             namespacePattern =
@@ -1863,19 +1533,109 @@ internal static class TypeSearchService
         };
     }
 
-    private static string ExactNamespaceSourceIdentity(
-        TypeSearchResult candidate) =>
-        candidate.Location?.Observation.Realization switch
+    private static TypeCandidateSourceIdentity
+        ExactNamespaceSourceIdentity(TypeSearchResult candidate) =>
+        candidate.Location is { } location
+            ? new(
+                location.ModuleVersionId,
+                null,
+                null)
+            : new(
+                Guid.Empty,
+                candidate.AcquisitionRegistration,
+                candidate.AcquisitionRegistration is null
+                    ? candidate.Source?.ToUpperInvariant()
+                    : null);
+
+    private readonly record struct TypeCandidateSourceIdentity(
+        Guid ModuleVersionId,
+        AssemblyAcquisitionRegistration? AcquisitionRegistration,
+        string? CompatibilitySource);
+
+    private sealed class TypeHeadStopper(
+        string pattern,
+        int limit,
+        string? typeFilter,
+        FindTypeMatchIntent intent,
+        IReadOnlySet<(
+            string FullName,
+            TypeCandidateSourceIdentity Source)> existingIdentities,
+        Func<int> acceptedCount)
+    {
+        readonly HashSet<(
+            string FullName,
+            TypeCandidateSourceIdentity Source)> _provisionalIdentities = [];
+        readonly Dictionary<
+            (string FullName, TypeCandidateSourceIdentity Source),
+            TypeFindResult?> _classifications = [];
+
+        internal bool Observe(
+            AssemblyContextSubject subject,
+            AssemblyTypeInventoryEntry type)
         {
-            TypeDeclarationLocatorRealization.PackageRealization package =>
-                $"package:{package.PackageId.ToUpperInvariant()}",
-            TypeDeclarationLocatorRealization.PlatformRealization platform =>
-                $"platform:{platform.Family}",
-            _ when candidate.Location is { } location =>
-                $"context:{location.Observation.ContextOrder}",
-            _ =>
-                $"compatibility:{candidate.Source?.ToUpperInvariant()}",
-        };
+            if (typeFilter is not null
+                && !TypeMatcher.MatchesTypeFilter(
+                    type.FullName,
+                    typeFilter))
+            {
+                return false;
+            }
+
+            var candidate = new TypeSearchResult
+            {
+                TypeName = type.TypeName,
+                Namespace = type.Namespace,
+                FullName = type.FullName,
+                Kind = type.Kind,
+                AcquisitionRegistration = subject.Registration,
+            };
+            var identity = (
+                candidate.FullName,
+                ExactNamespaceSourceIdentity(candidate));
+            bool accepted = PrepareCandidateClassification(
+                pattern,
+                candidate,
+                intent);
+            _classifications.TryAdd(
+                identity,
+                candidate.Classification);
+            if (!accepted
+                || existingIdentities.Contains(identity)
+                || !_provisionalIdentities.Add(identity))
+            {
+                return false;
+            }
+
+            return acceptedCount() + _provisionalIdentities.Count >= limit;
+        }
+
+        internal bool TryRestore(
+            TypeSearchResult candidate,
+            out bool accepted)
+        {
+            var identity = (
+                candidate.FullName,
+                ExactNamespaceSourceIdentity(candidate));
+            if (!_classifications.Remove(
+                    identity,
+                    out TypeFindResult? classification))
+            {
+                accepted = false;
+                return false;
+            }
+
+            candidate.ClassifiedPattern = pattern;
+            candidate.ClassifiedIntent = intent;
+            candidate.Classification = classification;
+            accepted = classification is not null;
+            return true;
+        }
+
+        internal void Commit()
+        {
+            _provisionalIdentities.Clear();
+        }
+    }
 
     private readonly record struct NamespaceSearchPattern(
         string Pattern,
@@ -1984,7 +1744,8 @@ internal static class TypeSearchService
             pattern,
             logger,
             workspace,
-            static () => { });
+            static () => { },
+            findCandidates: false);
     }
 
     private static async Task<List<TypeSearchResult>> CollectTypesAsync(
@@ -1992,9 +1753,16 @@ internal static class TypeSearchService
         string? pattern,
         VerboseLogger logger,
         ExplicitFindSearchWorkspace workspace,
-        Action markFailure)
+        Action markFailure,
+        bool findCandidates)
     {
         List<TypeSearchResult> results = [];
+        HashSet<(
+            string FullName,
+            TypeCandidateSourceIdentity Source)>? identities =
+            findCandidates
+                ? []
+                : null;
 
         // A specific pattern filters each typed inventory during collection; a
         // null pattern enumerates every type for callers that match later.
@@ -2003,21 +1771,53 @@ internal static class TypeSearchService
             pattern is not null
             && options.Limit.HasValue
             && results.Count >= options.Limit.Value;
+        TypeHeadStopper? headStopper =
+            findCandidates
+            && pattern is not null
+            && options.Limit is int limit
+                ? new(
+                    pattern,
+                    limit,
+                    options.TypeFilter,
+                    options.TypeMatchIntent,
+                    identities!,
+                    () => results.Count)
+                : null;
 
         await workspace.RunPerAssemblyAsync(
             AssemblyContextTypeInventoryQuery.Definition,
-            group => AssemblyContextTypeInventoryQuery.Execute(
-                group,
-                options.IncludeAll),
-            (assembly, entry) => AddTypes(
-                results,
-                searchPatterns,
-                options.TypeFilter,
-                SearchAssemblySource.FromAssemblySet(assembly),
-                entry,
-                logger,
-                ReachedLimit,
-                markFailure),
+            group =>
+            {
+                var entries = ImmutableArray.CreateBuilder<
+                    AssemblyContextEntry<AssemblyTypeInventory>>();
+                AssemblyContextTypeInventoryQuery.ExecuteEach(
+                    group,
+                    options.IncludeAll,
+                    entries.Add,
+                    stop: null,
+                    stopAfterType:
+                        headStopper is null
+                            ? null
+                            : headStopper.Observe);
+                return new(entries.ToImmutable());
+            },
+            (assembly, entry) =>
+            {
+                AddTypes(
+                    results,
+                    searchPatterns,
+                    options.TypeFilter,
+                    SearchAssemblySource.FromAssemblySet(assembly),
+                    entry,
+                    logger,
+                    ReachedLimit,
+                    markFailure,
+                    findCandidates: findCandidates,
+                    identities: identities,
+                    intent: options.TypeMatchIntent,
+                    headStopper: headStopper);
+                headStopper?.Commit();
+            },
             (assembly, failure) =>
             {
                 markFailure();
@@ -2037,18 +1837,49 @@ internal static class TypeSearchService
         VerboseLogger logger,
         ConfiguredPackageSearchWorkspace workspace,
         Action markFailure,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool findCandidates)
     {
         List<TypeSearchResult> results = [];
+        HashSet<(
+            string FullName,
+            TypeCandidateSourceIdentity Source)>? identities =
+            findCandidates
+                ? []
+                : null;
         IReadOnlyList<string> searchPatterns =
             pattern is null ? ["*"] : [pattern];
+        TypeHeadStopper? headStopper =
+            findCandidates
+            && pattern is not null
+            && options.Limit is int limit
+                ? new(
+                    pattern,
+                    limit,
+                    options.TypeFilter,
+                    options.TypeMatchIntent,
+                    identities!,
+                    static () => 0)
+                : null;
         ConfiguredPackageSearchQueryResult<
             AssemblyContextResult<AssemblyTypeInventory>>? execution =
                 await workspace.QuerySurfaceAsync(
                     context =>
-                        AssemblyContextTypeInventoryQuery.Execute(
+                    {
+                        var entries = ImmutableArray.CreateBuilder<
+                            AssemblyContextEntry<AssemblyTypeInventory>>();
+                        AssemblyContextTypeInventoryQuery.ExecuteEach(
                             context.Group,
-                            options.IncludeAll),
+                            options.IncludeAll,
+                            entries.Add,
+                            stopAfterType:
+                                headStopper is null
+                                    ? null
+                                    : headStopper.Observe);
+                        return new AssemblyContextResult<
+                            AssemblyTypeInventory>(
+                                entries.ToImmutable());
+                    },
                     cancellationToken);
         if (execution is null)
         {
@@ -2072,7 +1903,11 @@ internal static class TypeSearchService
                 entry,
                 logger,
                 static () => false,
-                markFailure);
+                markFailure,
+                findCandidates: findCandidates,
+                identities: identities,
+                intent: options.TypeMatchIntent,
+                headStopper: headStopper);
         }
         return results;
     }
@@ -2086,7 +1921,13 @@ internal static class TypeSearchService
         VerboseLogger logger,
         Func<bool> reachedLimit,
         Action markFailure,
-        List<TypeSearchResult>? inventory = null)
+        List<TypeSearchResult>? inventory = null,
+        bool findCandidates = false,
+        HashSet<(
+            string FullName,
+            TypeCandidateSourceIdentity Source)>? identities = null,
+        FindTypeMatchIntent intent = FindTypeMatchIntent.Ordinary,
+        TypeHeadStopper? headStopper = null)
     {
         switch (entry)
         {
@@ -2103,13 +1944,6 @@ internal static class TypeSearchService
                         continue;
                     }
 
-                    bool matches = searchPatterns.Any(searchPattern =>
-                        TypeMatcher.MatchesTypeFilter(
-                            type.FullName,
-                            searchPattern));
-                    if (!matches && inventory is null)
-                        continue;
-
                     var result = new TypeSearchResult
                     {
                         TypeName = type.TypeName,
@@ -2119,10 +1953,44 @@ internal static class TypeSearchService
                         Assembly = assembly.Library,
                         Source = assembly.Source,
                         SourceVersion = assembly.SourceVersion,
+                        AcquisitionRegistration =
+                            available.Subject.Registration,
                     };
+                    bool matches;
+                    if (findCandidates)
+                    {
+                        if (headStopper?.TryRestore(
+                                result,
+                                out matches) is not true)
+                        {
+                            matches = searchPatterns.Any(searchPattern =>
+                                PrepareCandidateClassification(
+                                    searchPattern,
+                                    result,
+                                    intent));
+                        }
+                    }
+                    else
+                    {
+                        matches = searchPatterns.Any(searchPattern =>
+                            TypeMatcher.MatchesTypeFilter(
+                                type.FullName,
+                                searchPattern));
+                    }
+                    if (!matches && inventory is null)
+                        continue;
+
                     inventory?.Add(result);
                     if (!matches)
                         continue;
+                    if (identities is not null
+                        && !identities.Add(
+                            (
+                                result.FullName,
+                                ExactNamespaceSourceIdentity(result))))
+                    {
+                        continue;
+                    }
 
                     results.Add(result);
                     if (reachedLimit())
