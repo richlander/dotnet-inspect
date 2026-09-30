@@ -28,9 +28,17 @@ and terminal from one validated ZIP central-directory snapshot. The
 content-demand owner composes existing source, archive, asset-selection,
 Metadata, cache, and transfer owners without absorbing their algorithms.
 Library-returning terminals may reuse the existing selected-Library
-implementation-PDB companion demand: owner-issued implementation
-correspondence adds only exact companion entries, and File List projects those
-entries without widening to the companion's complete root.
+implementation-PDB companion mechanics for explicit preparation:
+owner-issued implementation correspondence adds only exact companion entries,
+File List projects those entries without widening to the companion's complete
+root, and PackageHouse may retain the listed raw PDB entry without returning it
+with the Library. Its receipt carries a resource-free exact-companion locator
+bound to the package, selected Library correspondence, and directory snapshot.
+A later host-neutral PDB operation presents that locator to PackageHouse before
+external providers, so warm state is an optimization rather than the semantic
+handoff. The current direct companion handoff remains transitional until the
+focused PDB-settlement owner tracked by
+[#9002](https://github.com/richlander/dotnet-inspect/issues/9002).
 
 [#7423](https://github.com/richlander/dotnet-inspect/issues/7423) extends that
 composition with package-slice policy. Its first focused slice defines only the

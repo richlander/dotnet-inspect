@@ -25,7 +25,8 @@ version demand. One request therefore retains both:
 
 - which package is requested; and
 - one reusable narrowing over that package; and
-- which evidence terminals and companion modifiers run over the base narrowing.
+- which evidence terminals and preparation modifiers run over the base
+  narrowing.
 
 None of these values is reconstructed from another or from display text.
 
@@ -35,7 +36,7 @@ One `PackageHouseContentQuery` carries one narrowing and one or more result
 terminals. Every terminal in the query observes the exact same base narrowed
 package space and retains the same owner-issued narrowing receipt. A
 library-returning terminal may additionally request the selected-Library
-companion closure defined below.
+companion preparation defined below.
 
 The narrowing forms are:
 
@@ -81,14 +82,17 @@ describe the same effective content space: the base narrowed TFM/root space
 plus any exact selected-Library companion closure. Neither terminal repeats or
 independently interprets the narrowing or closure.
 
-One implementation slice adds a narrowing form, terminal, or companion
+One implementation slice adds a narrowing form, terminal, or preparation
 modifier only with a production caller. Until one lands, its place in this
 vocabulary is an adoption commitment, not a supported API.
 
 The content query does not contain an access mode, range selector, cache
-instruction, source URL, or fallback preference. Network permission, source
-authorization, transfer limits, cache capacity, and operation deadlines remain
-host-supplied capabilities and policy.
+backend, source URL, or fallback preference. The explicit PDB-preparation
+modifier declares likely future semantic use; it does not name a cache, demand
+a cache hit, or make retained state the later PDB operation's correctness
+boundary. Network permission, source authorization, transfer limits, cache
+capacity, and operation deadlines remain host-supplied capabilities and
+policy.
 
 ## ZIP central-directory snapshot
 
@@ -159,11 +163,11 @@ assembly and labels it acquired. The file list explains what else the package
 contains and can be requested next. The settlement and transfer receipt, not
 the file list, establish that the returned entry completed validation.
 
-## Selected-Library companion closure
+## Selected-Library companion preparation
 
-Libraries and Best Library may request the existing
-`ImplementationPortablePdb` selected-Library companion demand. This is a
-modifier on a library-returning terminal, not a general PDB terminal.
+Libraries and Best Library may explicitly request implementation Portable PDB
+preparation. This is a modifier on a library-returning terminal, not a general
+PDB terminal and not an implicit cost of every selected assembly.
 
 The base narrowing selects each primary Library candidate. The package
 asset-selection and correspondence owners may associate that Library with an
@@ -185,51 +189,87 @@ exact closure entries, not the complete companion root.
 
 The implementation assembly remains the ranged-read block anchor under
 [package read demand](package-read-demand.md#selected-library-companion-demand).
-The PDB is an optional exact entry and never another anchor. An absent,
-directory-only, unreadable, or limit-omitted PDB does not fail an otherwise
-valid Library result; the typed omission remains visible. A Library without an
-implementation counterpart does not invent one or a PDB.
+The PDB is an optional exact entry and never another anchor. When preparation
+is requested and the directory lists that entry, PackageHouse attempts to
+materialize it into PackageHouse-owned retained package content. It does not
+return PDB bytes or a PDB content reference with the Library result.
 
-The companion demand is package-local and never dispatches a `.snupkg` or
-symbol-server request. PackageHouse may satisfy it from retained package
-content, the entry cache, or an authorized package-source transfer. A valid
-cached package entry avoids that transfer. If the central-directory snapshot
-does not list the companion, PackageHouse settles typed absence without trying
+The preparation receipt records the exact companion path, whether the
+directory listed it, whether preparation was attempted, and whether package
+content was already retained, newly retained, unavailable, omitted by a bound,
+or failed. An absent, unreadable, or limit-omitted PDB does not fail an
+otherwise valid Library result. A Library without an implementation
+counterpart does not invent one or a PDB.
+
+When the directory lists the companion, the receipt carries a resource-free
+exact-companion locator bound to the package identity, owner-issued selected
+Library and implementation correspondence, and central-directory snapshot
+identity. It is neither a PDB content reference nor a cache handle. The later
+exact companion query presents this locator rather than reconstructing a path
+from display text.
+
+Preparation is package-local and never dispatches a `.snupkg` or symbol-server
+request. PackageHouse may satisfy it from retained complete package content,
+the entry cache, or an authorized package-source transfer. A retained package
+entry avoids that transfer. If the central-directory snapshot does not list
+the companion, PackageHouse settles typed package-local absence without trying
 another symbol provider.
 
 PackageHouse does not open the PDB, validate Portable PDB format or identity,
 inspect embedded PDB content, or consult `.snupkg` or symbol-server sources.
 The [PDB acquisition owner](../pdb-acquisition.md#pdb-location-strategy)
 may perform those later operations only when a separate downstream source or
-PDB query requests them. That operation consumes embedded or supplied
-package-local content and valid PDB-store entries before an applicable remote
-route. A valid cache hit skips that route. Invalid, mismatched, or unreadable
-cached content remains visible and may continue to another authorized provider
-unless the operation is cache-only or offline. The downstream operation
-preserves its independent source authority, limits, and identity checks.
+PDB query requests them.
+
+That downstream PDB operation receives the authoritative selected-assembly
+reference, the exact-companion locator or typed package-local absence, and an
+explicit PackageHouse companion capability. It checks applicable embedded
+content and the verified PDB store, then presents the locator to PackageHouse
+before consulting an applicable external provider. The exact request is the
+semantic handoff: it hits PackageHouse's warm retained content after successful
+preparation, and it may reacquire the entry under the later operation's current
+capabilities after eviction or retryable preparation failure. Correctness
+therefore does not depend on hidden shared cache state.
+
+PackageHouse returns raw package entry content to that exact request. The PDB
+owner validates Portable PDB format and assembly identity before publishing
+bytes to the verified PDB store. A raw PackageHouse entry cache and a verified
+PDB store are distinct authorities and cannot substitute for one another.
+
+The separately focused PDB-settlement owner, tracked by
+[#9002](https://github.com/richlander/dotnet-inspect/issues/9002), defines
+verified-store reuse, external-provider ordering, and negative acquisition
+observations. That contract must keep definitive provider absence distinct
+from operational or policy failure, and an external negative observation
+cannot suppress this exact PackageHouse companion query. This document does
+not define the observation key, expiry, or provider retry algorithm.
 
 This boundary has distinct authorities:
 
-- PackageHouse owns package-local companion delivery and its omission receipt.
+- PackageHouse owns explicit package-local preparation, exact companion
+  delivery on a later query, and both receipts.
 - The selected Library's owner-issued assembly reference is authoritative for
   which assembly needs symbols; Metadata identity checks admit any PDB before
   use.
-- `PdbAcquisitionService` owns matching external-PDB acquisition mechanics.
+- The host-neutral PDB settlement service owns embedded, verified-store,
+  package-companion, and external-provider composition. Existing
+  `PdbAcquisitionService` is its external-acquisition substrate.
 - Hosts own capability construction, network permission, stores, limits,
   cancellation, and offline/cache-only policy.
 - Product source composition owns whether a source request invokes that
   capability and how authored and decompiled candidates are ordered.
 
-The last authority is transitional today:
-`AssemblyContextSourceQuery` and legacy CLI wrappers still orchestrate parts of
-the embedded, adjacent, and external sequence. The target
-[SourceHouse](source-house.md), tracked by
-[#6512](https://github.com/richlander/dotnet-inspect/issues/6512), consumes
-PackageHouse-supplied Library and PDB content first, owns PDB-use policy and
-authored-source candidate ordering, and invokes PDB acquisition only through
-an explicit host-authorized capability. PackageHouse preserves the typed
-handoff that tracker expects; SourceHouse adoption and PDB-acquisition policy
-remain separately owned.
+The current [SourceHouse](source-house.md) contract, tracked by
+[#6512](https://github.com/richlander/dotnet-inspect/issues/6512), still
+defines supplied companion or embedded PDB input and a separately authorized
+external-acquisition capability. `AssemblyContextSourceQuery` and legacy CLI
+wrappers still orchestrate parts of that sequence. #9002 must explicitly
+reconcile and transfer that PDB-input contract before SourceHouse consumes the
+new settlement. Existing direct PackageHouse companion delivery therefore
+remains transitional until the independent PDB settlement and one production
+consumer adopt the exact-companion locator. Non-source consumers, including
+PDB Source Provenance and decompilation or analysis, may then consume the same
+PDB settlement without routing through SourceHouse.
 
 ## Best Library
 
@@ -278,7 +318,7 @@ owner-issued capabilities and evidence. Planning may consider:
 - the source's manifest and range capabilities;
 - advertised archive length and the package-cache size cut;
 - the exact narrowing, terminal set, files, libraries, optional namespace, and
-  selected-Library companion demand;
+  selected-Library companion-preparation demand;
 - transfer, archive, expanded-entry, request-count, and operation limits; and
 - whether a complete transfer is required to preserve the semantic result.
 
@@ -316,8 +356,9 @@ One settlement preserves:
 - the exact admitted central-directory snapshot identity when the query
   requires archive evidence;
 - one narrowing receipt shared by every terminal result;
-- the requested selected-Library companion demand and exact companion-closure
-  receipt when present;
+- the requested selected-Library companion preparation, exact
+  companion-closure receipt, resource-free exact-companion locator or typed
+  package-local absence, and preparation outcome when present;
 - the source decision and authority;
 - the requested target and root-family preference chain, plus the selected
   applicable root family when present;
@@ -359,20 +400,25 @@ while continuing to consume NuGet-owned framework and source facts.
 
 ## Production adoption and retirement
 
-The counted stack has six slices:
+The counted PackageHouse stack has seven slices:
 
 1. Lock this focused PackageHouse semantic-demand and planning contract.
 2. Put existing nuspec, file-list, exact-file, selected-asset,
    selected-Library PDB companion, and whole-archive behavior behind semantic
-   queries. Migrate one current production route while preserving output.
-3. Add reusable narrowing, Libraries, and Best Library by composing the
+   queries while preserving the current direct PDB-companion handoff. Migrate
+   one current production route.
+3. After #9002 locks and implements the independent PDB settlement, add
+   explicit PackageHouse preparation, the exact-companion locator and requery,
+   and one current production PDB consumer. Retire direct companion delivery
+   only for that adopted route.
+4. Add reusable narrowing, Libraries, and Best Library by composing the
    existing asset-selection and Metadata owners. Preserve real multi-library
    package evidence.
-4. Adopt Best Library and composable file-list evidence in Inspect Web Package
+5. Adopt Best Library and composable file-list evidence in Inspect Web Package
    Query, beginning with assembly-semantic evaluation.
-5. Adopt the same demands in `find` and shared Workspace/declaration loading,
+6. Adopt the same demands in `find` and shared Workspace/declaration loading,
    removing their split acquisition behavior.
-6. Migrate remaining commands and hosts, then delete
+7. Migrate remaining commands and hosts, then delete
    `PackagePayloadAccess` and caller-owned range/complete fallback logic.
 
 Implementation slices target their predecessor and land bottom-up. A demand
@@ -385,11 +431,15 @@ The production demo is a Package Query over `System.Text.Json`: one TFM plus
 `ref || lib` narrowing returns the selected complete `System.Text.Json.dll`
 entry and the complete detached file list for that same effective content
 space, without the Browser choosing an acquisition mode. When the companion
-modifier is present, a listed implementation PDB appears as one exact closure
-entry; absence is a typed omission and does not start symbol acquisition. The
-neighboring multi-library case uses `Avalonia`, an arbitrary ordered root
-chain, exact namespace selection, and deterministic alphabetical fallback for
-an absent namespace.
+preparation modifier is present, a listed implementation PDB appears as one
+exact closure entry and its raw package entry is retained without being
+returned. The receipt carries the exact-companion locator. A later PDB
+operation presents that locator to PackageHouse, validates the returned raw
+entry, and uses external providers only when authorized package-local evidence
+and applicable verified-store content do not answer. The neighboring
+multi-library case uses `Avalonia`, an arbitrary ordered root chain, exact
+namespace selection, and deterministic alphabetical fallback for an absent
+namespace.
 
 ## Pathological cases and gates
 
@@ -405,9 +455,10 @@ All implementation gates run in Release.
 | Exact files | Every explicitly requested file lies in the base narrowed space and is complete and validated; an outside, missing, or ambiguous path fails visibly. |
 | File list plus selected library | One narrowing receipt and any exact closure receipt govern the complete effective file list and selected Library content. |
 | Reference primary plus implementation PDB | The reference root remains primary; only the owner-issued implementation assembly and listed adjacent PDB enter companion closure. The rest of the implementation root remains absent. |
-| Missing or unmaterialized package-local PDB | The Library remains usable and the exact typed omission is visible; PackageHouse does not consult another symbol source. |
-| Cached package-local PDB | PackageHouse returns the valid retained or entry-cached companion without a package-source request. |
-| Later remote symbol acquisition | It occurs only for a separate authorized downstream PDB/source query after embedded, supplied package-local, and applicable valid store content do not answer it. |
+| Missing or unprepared package-local PDB | The Library remains usable and the exact typed preparation outcome is visible; PackageHouse does not consult another symbol source. |
+| Prepared package-local PDB | PackageHouse retains the raw entry and returns a resource-free exact-companion locator but no PDB content with the Library; a later query presents the locator and reads the retained entry without a package-source request. |
+| Evicted or previously unprepared PDB | The later exact companion query may reacquire the package entry under its current capabilities; absence of warm state does not skip package-local evidence. |
+| Later remote symbol acquisition | It occurs only for a separate authorized downstream PDB query after embedded content, applicable verified-store content, and the exact PackageHouse companion query do not answer it. |
 | Namespace in several libraries | The first exact namespace match in file-name-stem and package-path order wins. |
 | Namespace absent | The alphabetically first compatible library wins. |
 | Namesake evidence | Package-ID/file-name equality is reported without opening the assembly and does not alter selection order. |
@@ -436,6 +487,10 @@ This design does not:
 - make PackageHouse a Portable PDB decoder, identity validator, `.snupkg`
   client, or symbol-server client;
 - make PackageHouse own source-candidate ordering or PDB-use policy;
+- make PackageHouse's raw entry cache or the verified PDB store the only
+  semantic handoff between package and PDB settlement;
+- return PDB bytes with a Library result merely because explicit preparation
+  retained them;
 - require every demand to use ranged acquisition;
 - promise that a file list means every listed entry is materialized;
 - permit different terminals in one query to resolve different base narrowings

@@ -241,6 +241,16 @@ demand. It belongs only to a compile `Realize` request that asks for
 companion is `ImplementationPortablePdb`: for each selected implementation
 assembly, the House derives the same-directory, same-stem `.pdb` path.
 
+This section describes the current direct realization handoff. The semantic
+content-query successor uses the same exact-entry expansion for explicit
+preparation, retains the raw package entry without returning PDB content with
+the Library, and issues a resource-free exact-companion locator for the later
+host-neutral PDB operation to present back to PackageHouse. That settlement
+owner is tracked by
+[#9002](https://github.com/richlander/dotnet-inspect/issues/9002). Until that
+successor and its production composition land, current callers continue to
+receive the existing companion handoff.
+
 If the package directory lists that path, the ranged selection adds it as an
 exact entry. It does not make the PDB a block anchor and does not widen the
 implementation assembly's aligned block. If the directory does not list the
