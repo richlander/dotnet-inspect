@@ -69,7 +69,8 @@ does not mutate the running request.
 | --- | --- |
 | [Static Ecosystem Packs](ecosystem-packs.md) | Canonical Ecosystem identity, product order, core packages, platform populations, and ordered package-prefix declarations |
 | [Find Workspace scope](find-workspace-scope.md) | Explicit Ecosystem selection, bounded named-population realization, and the rule that prefix populations are a separate operation |
-| [Find type-search service](find-search-service.md) and [Find member-name search service](find-member-search-service.md) | Owner-issued pattern grammar, classification, candidate rows, source-local failures, and result limits |
+| [Find type-search service](find-search-service.md) and [Find member-name search service](find-member-search-service.md) | Owner-issued pattern grammar, Direct/Glob/namespace/Member classification, candidate rows, source-local failures, and result limits |
+| [Type Find population selection](type-find-population-selection.md) | First-nonempty Prefix, Substring, and Partial settlement over each complete ordered bounded Type population while retaining exact source associations |
 | [Incremental package-prefix candidates](package-prefix-candidate-stream.md) | Pull-driven package candidates, source order, paging, cancellation, and source completion |
 | PlatformHouse and PackageHouse | Exact source settlement, realization, provenance, and visible failure |
 | [Engine-to-browser async event streams](engine-browser-async-event-stream.md) | Progress, durable item, item failure, and completed event categories |
@@ -80,16 +81,16 @@ does not mutate the running request.
 
 <!-- markdownlint-enable MD013 -->
 
-Find currently has separate CLI Type and Member services and a Browser
-active-Workspace Type operation. Their host-neutral evaluation adoption is a
-prerequisite, not a responsibility absorbed here. An adopter supplies typed
-boundaries that:
+Type population-level settlement now has a host-neutral selector. Source
+realization and inventory, source-local Direct/Glob and Member matching, and
+CLI/Browser plan lowering remain adoption prerequisites rather than
+responsibilities absorbed here. An adopter supplies typed boundaries that:
 
 1. realize and inventory one source into immutable source-local facts;
 2. match one normalized question against those facts without reading the
    source again; and
-3. apply owner-issued population-level tier selection to references from one
-   bounded source group or one exact prefix package.
+3. apply the Type selector, or another Find-owner-issued population contract,
+   to references from one bounded source group or one exact prefix package.
 
 This operation schedules and associates those results; it never reconstructs
 a candidate from display text.
