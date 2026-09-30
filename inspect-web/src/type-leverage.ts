@@ -23,7 +23,7 @@ export interface TypeLeverageCue {
   readonly description: string;
 }
 
-export interface NamespaceLeverageCue {
+interface NamespaceLeverageCue {
   readonly topLeverage: boolean;
   readonly externalIncomingSourceTypeCount: number;
   readonly description: string;
