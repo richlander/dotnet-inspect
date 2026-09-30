@@ -18,16 +18,23 @@ Performance comes mostly from levels 1 and 2. This level makes that possible by
 describing work completely and declaratively, so the lower levels can share,
 reorder, collapse, and parallelize it without changing its meaning.
 
-No owner has adopted this design yet.
-[Assembly Analysis Operation](assembly-analysis-operation.md) is the target
-composition for the intended first adoption, retiring the closed producer hubs
-in [Library Body Analysis Execution](library-body-analysis-service.md).
-Research is the intended second adopter. The adoption sequence, the
-`LibraryBodyIndex` drain evidence, and the producer census are kept in #8568,
-not here.
+Library Body Analysis Execution
+([Library body Analysis service](library-body-analysis-service.md)) is the
+first production adopter of this work-description contract: unsafe-evidence
+presence declares one method-definition producer, plans it with Exists,
+executes it through the serial reference executor, and publishes its typed
+result and receipt. Its production query now forms that closing through
+QuerySpace, binds the resulting single-producer Method request to exact
+session-issued access through
+[Assembly Analysis Operation](assembly-analysis-operation.md), and preserves a
+separate source receipt. The serial executor remains interim beneath that
+composition. Research remains the intended second adopter. The adoption
+sequence, the `LibraryBodyIndex` drain evidence, and the producer census are
+kept in #8568, not here.
 
-Every property below is **unverified** until its gate lands with the first
-adoption; see [Verification](#verification).
+The unsafe-evidence gates listed by its adopting design are verified in
+Release. Properties not exercised by that slice remain **unverified** until
+their named gate lands; see [Verification](#verification).
 
 ## Examples
 

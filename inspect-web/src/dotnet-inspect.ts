@@ -264,6 +264,8 @@ import {
   familyHeatCue,
   familyHeatFor,
   implementationHeatFamilyIsEligible,
+  implementationHeatVisibleFamilyIsEligible,
+  implementationHeatVisibleFamilyMatchesRequest,
   type TypeHeatRequest,
   type TypeHeatState,
 } from "./implementation-heat.ts";
@@ -6927,10 +6929,17 @@ function typeHeatTarget(): {
   };
 }
 
-// The Browser mirrors the producer's ordinary/attached-extension family
-// predicate before scheduling heat.
-function familyIsEligible(
+function typeHeatRequestGroups(type: AppTypeSurface) {
+  const { publicMembers } = partitionGraphMembers(type.api);
+  return searchableMemberGroups(groupMembers(
+    publicMembers.filter(member => member.accessibility === "public")));
+}
+
+// The Browser mirrors the producer's public ordinary/attached-extension
+// request-family predicate before scheduling heat.
+function typeHeatRequestFamilyIsEligible(
   type: AppTypeSurface,
+  groups: ReturnType<typeof typeHeatRequestGroups>,
   group: {
     name: string;
     kind: string;
@@ -6942,12 +6951,14 @@ function familyIsEligible(
 ) {
   return implementationHeatFamilyIsEligible(
     type.accessibility,
-    memberGroups(type),
+    groups,
     group);
 }
 
 function typeHasEligibleFamily(type: AppTypeSurface) {
-  return memberGroups(type).some(group => familyIsEligible(type, group));
+  const groups = typeHeatRequestGroups(type);
+  return groups.some(group =>
+    typeHeatRequestFamilyIsEligible(type, groups, group));
 }
 
 function currentTypeHeatState(): TypeHeatState {
@@ -6975,28 +6986,46 @@ function scheduleTypeHeat() {
   }, 0));
 }
 
-function navGroupSelectors(group: { key: string }) {
+function navGroupHeatIdentity(group: { key: string }) {
   const type = selectedType();
-  const appGroup = type
-    ? memberGroups(type).find(candidate => candidate.key === group.key)
-    : undefined;
-  return type && appGroup && familyIsEligible(type, appGroup)
+  if (!type) return null;
+  const groups = memberGroups(type);
+  const appGroup = groups.find(candidate => candidate.key === group.key);
+  const requestGroups = typeHeatRequestGroups(type);
+  if (!appGroup
+    || appGroup.overloads.some(overload => overload.graphOnly)
+    || !implementationHeatVisibleFamilyIsEligible(groups, appGroup)
+    || !requestGroups.some(requestGroup =>
+      typeHeatRequestFamilyIsEligible(type, requestGroups, requestGroup)
+      && implementationHeatVisibleFamilyMatchesRequest(
+        requestGroup,
+        appGroup))) {
+    return null;
+  }
+  const overloads = appGroup.overloads.map(overload => ({
+    stableSelector: overload.stableSelector ?? "",
+    metadataToken:
+      overload.declarationMetadataToken ?? overload.metadataToken ?? 0,
+  }));
+  return overloads.every(overload =>
+    Boolean(overload.stableSelector) && overload.metadataToken !== 0)
     ? {
         name: appGroup.name,
-        selectors: appGroup.overloads.map(overload => overload.stableSelector),
+        accessibility: state.memberAccessibilityFilter,
+        overloads,
       }
     : null;
 }
 
 function memberNavOverloadHeat(group: { key: string }, index: number) {
-  const family = navGroupSelectors(group);
+  const family = navGroupHeatIdentity(group);
   if (!family) return null;
   const heat = familyHeatFor(
     currentTypeHeatState(),
     family.name,
-    family.selectors);
-  const selector = family.selectors[index];
-  const overload = heat?.overloads.find(item => item.stableSelector === selector);
+    family.accessibility,
+    family.overloads);
+  const overload = heat?.overloads[index];
   return overload
     ? {
         heatStrength: overload.heatStrength,
@@ -7007,9 +7036,13 @@ function memberNavOverloadHeat(group: { key: string }, index: number) {
 }
 
 function memberNavFamilyHeatCue(group: { key: string }) {
-  const family = navGroupSelectors(group);
+  const family = navGroupHeatIdentity(group);
   return family
-    ? familyHeatCue(currentTypeHeatState(), family.name, family.selectors)
+    ? familyHeatCue(
+        currentTypeHeatState(),
+        family.name,
+        family.accessibility,
+        family.overloads)
     : null;
 }
 
