@@ -22,4 +22,8 @@
     <ProjectReference Include="..\BinaryFetch\BinaryFetch.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.IO.Hashing" />
+  </ItemGroup>
+
 </Project>
