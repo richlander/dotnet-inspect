@@ -1,8 +1,8 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Packages;
-using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using DotnetInspect.Web.Interop.Metadata;
 
@@ -23,13 +23,14 @@ public sealed class BrowserLibraryApiDiffEnvelopeParityTests
     public async Task RealPackageDiffPreservesSharedEnvelopeAcrossBrowserExport()
     {
         await using RealAssetFixture fixture = await RealAssetFixture.Open();
-        InspectionEnvelope<LibraryApiDiffOutcome> terminal =
+        InspectionEnvelope<DiffAnalysisDocument> terminal =
             fixture.ExecuteShared();
-        Assert.IsType<LibraryApiDiffOutcome.Available>(terminal.Content);
+        Assert.IsType<DotnetInspector.Presentation.LibraryApiDiffOutcome.Available>(
+            terminal.Content.LibraryApi);
 
         JsonElement expectedContent = JsonSerializer.SerializeToElement(
             terminal.Content,
-            LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome);
+            DiffAnalysisInspectionJsonContext.Default.DiffAnalysisDocument);
         Assert.Contains(
             "AllowDuplicateProperties",
             expectedContent.GetRawText(),
@@ -84,12 +85,17 @@ public sealed class BrowserLibraryApiDiffEnvelopeParityTests
     {
         internal BrowserLibraryApiDiffRequest Request { get; } =
             new(
-                1,
+                BrowserLibraryApiDiffSchema.Version,
                 PackageId,
                 CurrentVersion,
                 TargetVersion,
                 Framework,
-                compileAssetId);
+                compileAssetId,
+                BrowserDiffAnalysisSurface.Library,
+                ["api"],
+                BrowserDiffAnalysisViews.Changes,
+                [],
+                []);
 
         internal static async Task<RealAssetFixture> Open()
         {
@@ -153,20 +159,46 @@ public sealed class BrowserLibraryApiDiffEnvelopeParityTests
             }
         }
 
-        internal InspectionEnvelope<LibraryApiDiffOutcome> ExecuteShared() =>
-            targetScope.UseSurfaceParticipant(
+        internal InspectionEnvelope<DiffAnalysisDocument> ExecuteShared()
+        {
+            InspectionCapabilityCatalog catalog =
+                InspectionCapabilityCatalog.Create(
+                    [DiffAnalysisCatalog.ProductModule]);
+            var selection =
+                Assert.IsType<AnalysisSetValidationResult.Accepted>(
+                    catalog.AnalysisCapabilities.ValidateSet(
+                        DiffAnalysisCatalog.Operation,
+                        AnalysisReportSurfaceKind.Library,
+                        targetCount: 1,
+                        ["api"]));
+            return targetScope.UseSurfaceParticipant(
                 targetParticipant,
                 (targetGroup, target) =>
                     currentScope.UseSurfaceParticipant(
                         currentParticipant,
                         (currentGroup, current) =>
-                            LibraryApiDiffInspection.Execute(
+                            DiffAnalysisLibraryInspection.Execute(
                                 targetGroup,
                                 target,
                                 currentGroup,
                                 current,
                                 ApiSurfaceScope.Public,
-                                BrowserApiSurfacePolicy.Limits)));
+                                BrowserApiSurfacePolicy.Limits,
+                                new DiffAnalysisLibraryInspectionRequest(
+                                    PackageId,
+                                    TargetVersion,
+                                    CurrentVersion,
+                                    catalog,
+                                    selection,
+                                    DiffAnalysisDocumentViews.Changes,
+                                    new HashSet<string>(),
+                                    [],
+                                    MemberTargetIdentities: null,
+                                    BeforePaths: [],
+                                    AfterPaths: [],
+                                    PrepareBodySignals: null,
+                                    HostUnavailability: []))));
+        }
 
         public async ValueTask DisposeAsync()
         {
