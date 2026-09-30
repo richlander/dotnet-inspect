@@ -290,7 +290,11 @@ public static class FixtureCatalog
         Asset(
             "documentation",
             "InspectWeb.DocumentationFixtures",
-            "InspectWeb.DocumentationFixtures.xml"));
+            "InspectWeb.DocumentationFixtures.xml"),
+        Asset(
+            "pdb",
+            "InspectWeb.DocumentationFixtures",
+            "InspectWeb.DocumentationFixtures.pdb"));
 
     public static readonly FixtureDefinition InspectWebMethodBodies = Fixture(
         FixtureIds.InspectWebMethodBodies,
