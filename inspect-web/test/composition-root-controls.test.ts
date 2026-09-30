@@ -1423,7 +1423,7 @@ test("typed scope bar owns its rendered control bindings", () => {
     ]);
   assert.match(
     scopeBarSource,
-    /function bindItemActions\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-library-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\][\s\S]*export function bindScopeBar\([\s\S]*bindItemActions\(root, actions\)/);
+    /function bindItemActions\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-library-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\][\s\S]*export function bindScopeBar\([\s\S]*bindItemActions\(root, actions, controller\)/);
   for (const selector of [
     "[data-scope]",
     "[data-package-lens]",

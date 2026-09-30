@@ -431,41 +431,57 @@ function navigationItemIsDisabled(item: HTMLButtonElement): boolean {
 function bindItemActions(
   root: ParentNode,
   actions: ScopeBarBindingActions,
+  controller: ScopeBarController | null,
 ): void {
   root.querySelectorAll<HTMLButtonElement>("[data-scope]").forEach(button =>
     button.onclick = () => {
       if (button.dataset.navigationCurrent === "true"
         || navigationItemIsDisabled(button)) return;
       const scope = button.dataset.scope;
-      if (isWorkspaceScope(scope)) actions.onScopeSelect(scope);
+      if (isWorkspaceScope(scope)) {
+        controller?.prepareItemActivation(button);
+        actions.onScopeSelect(scope);
+      }
     });
   root.querySelectorAll<HTMLButtonElement>("[data-package-lens]").forEach(
     button => button.onclick = () => {
       if (button.dataset.navigationCurrent === "true"
         || navigationItemIsDisabled(button)) return;
       const lens = button.dataset.packageLens;
-      if (isPackageLens(lens)) actions.onPackageLensSelect(lens);
+      if (isPackageLens(lens)) {
+        controller?.prepareItemActivation(button);
+        actions.onPackageLensSelect(lens);
+      }
     });
   root.querySelectorAll<HTMLButtonElement>("[data-library-lens]").forEach(
     button => button.onclick = () => {
       if (button.dataset.navigationCurrent === "true"
         || navigationItemIsDisabled(button)) return;
       const lens = button.dataset.libraryLens;
-      if (isLibraryLens(lens)) actions.onLibraryLensSelect(lens);
+      if (isLibraryLens(lens)) {
+        controller?.prepareItemActivation(button);
+        actions.onLibraryLensSelect(lens);
+      }
     });
   root.querySelectorAll<HTMLButtonElement>("[data-lens]").forEach(button =>
     button.onclick = () => {
       if (button.dataset.navigationCurrent === "true"
         || navigationItemIsDisabled(button)) return;
       const lens = button.dataset.lens;
-      if (isTypeLens(lens)) actions.onTypeLensSelect(lens);
+      if (isTypeLens(lens)) {
+        controller?.prepareItemActivation(button);
+        actions.onTypeLensSelect(lens);
+      }
     });
   root.querySelectorAll<HTMLButtonElement>("[data-member-section]").forEach(
     button => button.onclick = () => {
       if (button.dataset.navigationCurrent === "true"
         || navigationItemIsDisabled(button)) return;
       const section = button.dataset.memberSection;
-      if (isMemberSection(section)) actions.onMemberSectionSelect(section);
+      if (isMemberSection(section)) {
+        controller?.prepareItemActivation(button);
+        actions.onMemberSectionSelect(section);
+      }
     });
 }
 
@@ -483,7 +499,7 @@ export function bindScopeBar(
   bindRovingTabs([
     ...root.querySelectorAll<HTMLButtonElement>("[data-inspector-tab]"),
   ]);
-  bindItemActions(root, actions);
+  bindItemActions(root, actions, controller);
   return {
     disconnect() {
       controller?.disconnect();
@@ -1295,6 +1311,26 @@ class ScopeBarController implements ScopeBarBinding {
     if (!target) return false;
     target.focus({ preventScroll: true });
     return group.menu.ownerDocument.activeElement === target;
+  }
+
+  prepareItemActivation(item: HTMLButtonElement): void {
+    const group = this.subject?.menu.contains(item)
+      ? this.subject
+      : this.inspector?.menu.contains(item)
+        ? this.inspector
+        : null;
+    if (!group) return;
+    this.closeMenu(group, false);
+    if (item.dataset.localNavigationAction !== undefined) return;
+    const id = groupItemId(item);
+    const target = id
+      ? group.tabItems.find(tab => groupItemId(tab) === id)
+      : null;
+    if (group.form === "tabs" && target) {
+      target.focus({ preventScroll: true });
+    } else {
+      group.trigger.focus({ preventScroll: true });
+    }
   }
 
   private bindGroup(group: AdaptiveNavigationGroup | null): void {
