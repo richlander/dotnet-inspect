@@ -15,6 +15,62 @@ public readonly record struct CSharpAccessorDeclarationCoordinate(
     MetadataAccessorSemanticsRole Role,
     MetadataMethodAddress Method);
 
+public sealed record CSharpAccessorDeclarationRelationshipPost
+{
+    internal CSharpAccessorDeclarationRelationshipPost(
+        CSharpMethodImplementationPost implementation,
+        MetadataAccessorAssociationResult? association,
+        MetadataAccessorDeclarationResult? declaration)
+    {
+        ArgumentNullException.ThrowIfNull(implementation);
+        Implementation = implementation;
+        Association = association;
+        Declaration = declaration;
+    }
+
+    public CSharpMethodImplementationPost Implementation
+        { get; internal init; }
+
+    public MetadataAccessorAssociationResult? Association
+        { get; internal init; }
+
+    public MetadataAccessorDeclarationResult? Declaration
+        { get; internal init; }
+}
+
+public sealed record CSharpAccessorImplementationPost
+{
+    internal CSharpAccessorImplementationPost(
+        MetadataAccessorSemanticsOccurrence accessor,
+        CSharpMethodDeclarationPost method,
+        ImmutableArray<CSharpAccessorDeclarationRelationshipPost>
+            declarations)
+    {
+        ArgumentNullException.ThrowIfNull(accessor);
+        ArgumentNullException.ThrowIfNull(method);
+        if (declarations.IsDefault)
+        {
+            throw new ArgumentException(
+                "Declaration relationships must be initialized.",
+                nameof(declarations));
+        }
+
+        Accessor = accessor;
+        Method = method;
+        Declarations = declarations;
+    }
+
+    public MetadataAccessorSemanticsOccurrence Accessor
+        { get; internal init; }
+
+    public CSharpMethodDeclarationPost Method
+        { get; internal init; }
+
+    public ImmutableArray<CSharpAccessorDeclarationRelationshipPost>
+        Declarations
+        { get; internal init; }
+}
+
 public sealed record CSharpAccessorDeclarationPost
 {
     internal CSharpAccessorDeclarationPost(
@@ -22,15 +78,23 @@ public sealed record CSharpAccessorDeclarationPost
         MetadataAccessorAssociationResult association,
         CSharpAccessorDeclarationCoordinate? coordinate,
         MetadataAccessorDeclarationResult? declaration,
-        MetadataTypeDeclarationResult containingType)
+        MetadataTypeDeclarationResult containingType,
+        ImmutableArray<CSharpAccessorImplementationPost> implementations)
     {
         ArgumentNullException.ThrowIfNull(association);
         ArgumentNullException.ThrowIfNull(containingType);
+        if (implementations.IsDefault)
+        {
+            throw new ArgumentException(
+                "Accessor implementations must be initialized.",
+                nameof(implementations));
+        }
         Request = request;
         Association = association;
         Coordinate = coordinate;
         Declaration = declaration;
         ContainingType = containingType;
+        Implementations = implementations;
     }
 
     public CSharpAccessorDeclarationRequest Request { get; }
@@ -47,6 +111,9 @@ public sealed record CSharpAccessorDeclarationPost
     public MetadataTypeDeclarationResult ContainingType
         { get; internal init; }
 
+    public ImmutableArray<CSharpAccessorImplementationPost> Implementations
+        { get; internal init; }
+
     public static CSharpAccessorDeclarationPost Capture(
         MetadataDeclarationSession session,
         MetadataTypeDefinitionAddress type,
@@ -60,6 +127,8 @@ public sealed record CSharpAccessorDeclarationPost
             session.RelateAccessor(type, method, token);
         CSharpAccessorDeclarationCoordinate? coordinate = null;
         MetadataAccessorDeclarationResult? declaration = null;
+        var implementations =
+            ImmutableArray.CreateBuilder<CSharpAccessorImplementationPost>();
         if (association is MetadataAccessorAssociationResult.Related related)
         {
             coordinate = new(
@@ -69,6 +138,71 @@ public sealed record CSharpAccessorDeclarationPost
             declaration = session.PostAccessorDeclaration(
                 coordinate.Value.Declaration,
                 token);
+            if (declaration is
+                MetadataAccessorDeclarationResult.Posted posted)
+            {
+                foreach (MetadataAccessorSemanticsOccurrence accessor
+                    in posted.Evidence.Accessors)
+                {
+                    if (!IsConventionalRole(
+                            posted.Evidence.Root,
+                            accessor.Role))
+                    {
+                        continue;
+                    }
+
+                    CSharpMethodDeclarationPost methodPost =
+                        CSharpMethodDeclarationPost.Capture(
+                            session,
+                            type,
+                            accessor.Method.Method,
+                            token);
+                    var declarations = ImmutableArray.CreateBuilder<
+                        CSharpAccessorDeclarationRelationshipPost>(
+                            methodPost.ImplementationOccurrences.Length);
+                    foreach (CSharpMethodImplementationPost implementation
+                        in methodPost.ImplementationOccurrences)
+                    {
+                        MetadataAccessorAssociationResult?
+                            declarationAssociation = null;
+                        MetadataAccessorDeclarationResult?
+                            declarationAggregate = null;
+                        if (implementation.Relationship.Definition
+                            is MetadataDeclarationDefinitionDisposition
+                                .LocalResolved local)
+                        {
+                            declarationAssociation =
+                                session.RelateAccessor(
+                                    local.Owner,
+                                    local.Definition,
+                                    token);
+                            if (declarationAssociation is
+                                MetadataAccessorAssociationResult.Related
+                                    declarationRelated)
+                            {
+                                declarationAggregate =
+                                    session.PostAccessorDeclaration(
+                                        new(
+                                            local.Owner,
+                                            declarationRelated.Certificate
+                                                .Declaration),
+                                        token);
+                            }
+                        }
+
+                        declarations.Add(
+                            new(
+                                implementation,
+                                declarationAssociation,
+                                declarationAggregate));
+                    }
+                    implementations.Add(
+                        new(
+                            accessor,
+                            methodPost,
+                            declarations.MoveToImmutable()));
+                }
+            }
         }
 
         return new(
@@ -78,7 +212,22 @@ public sealed record CSharpAccessorDeclarationPost
             declaration,
             session.PostTypeDeclaration(
                 type,
-                token));
+                token),
+            implementations.ToImmutable());
+
+        static bool IsConventionalRole(
+            MetadataAccessorRootDeclarationEvidence root,
+            MetadataAccessorSemanticsRole role) =>
+            root switch
+            {
+                MetadataAccessorRootDeclarationEvidence.Property =>
+                    role is MetadataAccessorSemanticsRole.Getter
+                        or MetadataAccessorSemanticsRole.Setter,
+                MetadataAccessorRootDeclarationEvidence.Event =>
+                    role is MetadataAccessorSemanticsRole.AddOn
+                        or MetadataAccessorSemanticsRole.RemoveOn,
+                _ => false,
+            };
     }
 }
 
@@ -104,6 +253,8 @@ public enum CSharpAccessorDeclarationRefusalReason
     UnsupportedAccessorSignature,
     UnsupportedAccessorCorrespondence,
     UnsupportedAccessorMultiplicity,
+    UnsupportedExplicitInterfaceMultiplicity,
+    UnsupportedExplicitInterfaceComposition,
 }
 
 public enum CSharpAccessorDeclarationUnavailableReason
@@ -120,6 +271,13 @@ public enum CSharpAccessorDeclarationUnavailableReason
     AccessibilityUnavailable,
     ModifierShapeUnavailable,
     MemorySafetyUnavailable,
+    MethodImplementationRejected,
+    MethodImplementationMismatch,
+    ExplicitInterfaceOwnerRejected,
+    InterfaceImplementationUnavailable,
+    DeclarationAccessorAssociationUnavailable,
+    ExplicitInterfaceDeclarationRejected,
+    ExplicitInterfaceEvidenceMismatch,
     OutsideInitialBoundary,
 }
 
@@ -136,7 +294,8 @@ public sealed record CSharpAcceptedAccessorBinding
         MetadataAccessorSemanticsOccurrence occurrence,
         CSharpAccessorBodyPolicy bodyPolicy,
         string keyword,
-        string? accessibility)
+        string? accessibility,
+        CSharpAcceptedExplicitAccessorRelationship? explicitInterface = null)
     {
         ArgumentNullException.ThrowIfNull(occurrence);
         ArgumentException.ThrowIfNullOrEmpty(keyword);
@@ -144,6 +303,7 @@ public sealed record CSharpAcceptedAccessorBinding
         BodyPolicy = bodyPolicy;
         Keyword = keyword;
         Accessibility = accessibility;
+        ExplicitInterface = explicitInterface;
     }
 
     public MetadataAccessorSemanticsOccurrence Occurrence { get; }
@@ -153,6 +313,26 @@ public sealed record CSharpAcceptedAccessorBinding
     public string Keyword { get; }
 
     public string? Accessibility { get; }
+
+    public CSharpAcceptedExplicitAccessorRelationship? ExplicitInterface
+        { get; }
+}
+
+public sealed record CSharpAcceptedExplicitAccessorRelationship
+{
+    internal CSharpAcceptedExplicitAccessorRelationship(
+        MetadataMethodImplementationCertificate implementation,
+        MetadataAccessorAssociationCertificate declaration)
+    {
+        ArgumentNullException.ThrowIfNull(implementation);
+        ArgumentNullException.ThrowIfNull(declaration);
+        Implementation = implementation;
+        Declaration = declaration;
+    }
+
+    public MetadataMethodImplementationCertificate Implementation { get; }
+
+    public MetadataAccessorAssociationCertificate Declaration { get; }
 }
 
 public sealed record CSharpAcceptedAccessorDeclarationRequest
@@ -168,7 +348,11 @@ public sealed record CSharpAcceptedAccessorDeclarationRequest
         ImmutableArray<CSharpParameterSpelling> parameters,
         string accessibility,
         CSharpAcceptedAccessorModifiers modifiers,
-        ImmutableArray<CSharpAcceptedAccessorBinding> accessors)
+        ImmutableArray<CSharpAcceptedAccessorBinding> accessors,
+        MetadataAccessorDeclarationEvidence? explicitInterfaceAggregate =
+            null,
+        MetadataTypeIdentity? explicitInterfaceIdentity = null,
+        CSharpTypeSpelling? explicitInterface = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(aggregate);
@@ -189,6 +373,20 @@ public sealed record CSharpAcceptedAccessorDeclarationRequest
                 "Accessors must be initialized.",
                 nameof(accessors));
         }
+        bool hasExplicitInterfaceAggregate =
+            explicitInterfaceAggregate is not null;
+        bool hasExplicitInterfaceIdentity =
+            explicitInterfaceIdentity is not null;
+        bool hasExplicitInterfaceSpelling =
+            explicitInterface is not null;
+        if (hasExplicitInterfaceAggregate
+                != hasExplicitInterfaceIdentity
+            || hasExplicitInterfaceIdentity
+                != hasExplicitInterfaceSpelling)
+        {
+            throw new ArgumentException(
+                "Explicit-interface evidence must be complete.");
+        }
 
         Coordinate = coordinate;
         Profile = profile;
@@ -201,6 +399,9 @@ public sealed record CSharpAcceptedAccessorDeclarationRequest
         Accessibility = accessibility;
         Modifiers = modifiers;
         Accessors = accessors;
+        ExplicitInterfaceAggregate = explicitInterfaceAggregate;
+        ExplicitInterfaceIdentity = explicitInterfaceIdentity;
+        ExplicitInterface = explicitInterface;
     }
 
     public CSharpAccessorDeclarationCoordinate Coordinate { get; }
@@ -224,6 +425,13 @@ public sealed record CSharpAcceptedAccessorDeclarationRequest
     public CSharpAcceptedAccessorModifiers Modifiers { get; }
 
     public ImmutableArray<CSharpAcceptedAccessorBinding> Accessors { get; }
+
+    public MetadataAccessorDeclarationEvidence? ExplicitInterfaceAggregate
+        { get; }
+
+    public MetadataTypeIdentity? ExplicitInterfaceIdentity { get; }
+
+    public CSharpTypeSpelling? ExplicitInterface { get; }
 }
 
 public abstract record CSharpAccessorDeclarationRepresentabilityResult
@@ -251,6 +459,14 @@ public abstract record CSharpAccessorDeclarationRepresentabilityResult
 
 public static class CSharpAccessorDeclarationRepresentability
 {
+    sealed record ExplicitInterfaceContext(
+        MetadataAccessorDeclarationEvidence Aggregate,
+        MetadataTypeIdentity Identity,
+        CSharpTypeSpelling Spelling,
+        ImmutableDictionary<
+            int,
+            CSharpAcceptedExplicitAccessorRelationship> Relationships);
+
     public static CSharpAccessorDeclarationRepresentabilityResult Decide(
         CSharpAccessorDeclarationPost post,
         CSharpLanguageProfile profile)
@@ -425,6 +641,17 @@ public static class CSharpAccessorDeclarationRepresentability
                     .MemorySafetyUnavailable);
         }
 
+        CSharpAccessorDeclarationRepresentabilityResult?
+            explicitInterfaceFailure =
+                TryComposeExplicitInterface(
+                    post,
+                    profile,
+                    aggregate,
+                    containingType.Evidence,
+                    out ExplicitInterfaceContext? explicitInterface);
+        if (explicitInterfaceFailure is not null)
+            return explicitInterfaceFailure;
+
         return aggregate.Root switch
         {
             MetadataAccessorRootDeclarationEvidence.Property property =>
@@ -435,7 +662,8 @@ public static class CSharpAccessorDeclarationRepresentability
                     containingType.Evidence,
                     containingKind,
                     property,
-                    target),
+                    target,
+                    explicitInterface),
             MetadataAccessorRootDeclarationEvidence.Event @event =>
                 DecideEvent(
                     post,
@@ -444,7 +672,8 @@ public static class CSharpAccessorDeclarationRepresentability
                     containingType.Evidence,
                     containingKind,
                     @event,
-                    target),
+                    target,
+                    explicitInterface),
             _ => Unavailable(
                 CSharpAccessorDeclarationUnavailableReason
                     .OutsideInitialBoundary),
@@ -465,6 +694,321 @@ public static class CSharpAccessorDeclarationRepresentability
             _ => false,
         };
 
+    static CSharpAccessorDeclarationRepresentabilityResult?
+        TryComposeExplicitInterface(
+            CSharpAccessorDeclarationPost post,
+            CSharpLanguageProfile profile,
+            MetadataAccessorDeclarationEvidence aggregate,
+            MetadataTypeDeclarationEvidence containingType,
+            out ExplicitInterfaceContext? context)
+    {
+        context = null;
+
+        CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable Refuse(
+            CSharpAccessorDeclarationRefusalReason reason) =>
+            new(post.Request, profile, reason);
+        CSharpAccessorDeclarationRepresentabilityResult.Unavailable Unavailable(
+            CSharpAccessorDeclarationUnavailableReason reason) =>
+            new(post.Request, profile, reason);
+
+        MetadataAccessorSemanticsOccurrence[] accessors =
+        [
+            .. aggregate.Accessors.Where(accessor =>
+                IsConventionalAccessorRole(
+                    aggregate.Root,
+                    accessor.Role)),
+        ];
+        if (post.Implementations.Length != accessors.Length)
+        {
+            return Unavailable(
+                CSharpAccessorDeclarationUnavailableReason
+                    .MethodImplementationMismatch);
+        }
+
+        bool hasAbsent = false;
+        bool hasRelated = false;
+        for (int index = 0; index < accessors.Length; index++)
+        {
+            MetadataAccessorSemanticsOccurrence accessor = accessors[index];
+            CSharpAccessorImplementationPost implementation =
+                post.Implementations[index];
+            if (implementation.Accessor.PhysicalRowNumber
+                    != accessor.PhysicalRowNumber
+                || implementation.Accessor.Role != accessor.Role
+                || implementation.Accessor.Method.Method
+                    != accessor.Method.Method
+                || implementation.Method.Request.Type
+                    != post.Request.Type
+                || implementation.Method.Request.Method
+                    != accessor.Method.Method
+                || implementation.Method.Method is not
+                    MetadataMethodDeclarationResult.Posted method
+                || method.Evidence.Type != post.Request.Type
+                || method.Evidence.Method != accessor.Method.Method
+                || method.Evidence.Signature
+                    != accessor.Method.Signature)
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .MethodImplementationMismatch);
+            }
+
+            switch (implementation.Method.Implementations)
+            {
+                case MetadataMethodImplementationResult.Rejected:
+                    return Unavailable(
+                        CSharpAccessorDeclarationUnavailableReason
+                            .MethodImplementationRejected);
+                case MetadataMethodImplementationResult.Absent:
+                    hasAbsent = true;
+                    if (!implementation.Method
+                            .ImplementationOccurrences.IsEmpty
+                        || !implementation.Declarations.IsEmpty)
+                    {
+                        return Unavailable(
+                            CSharpAccessorDeclarationUnavailableReason
+                                .MethodImplementationMismatch);
+                    }
+                    break;
+                case MetadataMethodImplementationResult.Related:
+                    hasRelated = true;
+                    break;
+                default:
+                    return Unavailable(
+                        CSharpAccessorDeclarationUnavailableReason
+                            .MethodImplementationMismatch);
+            }
+        }
+
+        if (!hasRelated)
+            return null;
+        if (hasAbsent)
+        {
+            return Unavailable(
+                CSharpAccessorDeclarationUnavailableReason
+                    .ExplicitInterfaceEvidenceMismatch);
+        }
+
+        MetadataTypeDefinitionAddress? sharedOwner = null;
+        MetadataTypeIdentity? sharedIdentity = null;
+        MetadataAccessorDeclarationAddress? sharedDeclaration = null;
+        MetadataAccessorDeclarationEvidence? sharedAggregate = null;
+        var relationships = ImmutableDictionary.CreateBuilder<
+            int,
+            CSharpAcceptedExplicitAccessorRelationship>();
+
+        for (int index = 0; index < accessors.Length; index++)
+        {
+            MetadataAccessorSemanticsOccurrence accessor = accessors[index];
+            CSharpAccessorImplementationPost implementation =
+                post.Implementations[index];
+            var related = (MetadataMethodImplementationResult.Related)
+                implementation.Method.Implementations;
+            if (related.Relationships.Length != 1)
+            {
+                return Refuse(
+                    CSharpAccessorDeclarationRefusalReason
+                        .UnsupportedExplicitInterfaceMultiplicity);
+            }
+            if (implementation.Method.ImplementationOccurrences.Length != 1
+                || implementation.Declarations.Length != 1)
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .MethodImplementationMismatch);
+            }
+
+            MetadataMethodImplementationCertificate relationship =
+                related.Relationships[0];
+            CSharpAccessorDeclarationRelationshipPost declarationPost =
+                implementation.Declarations[0];
+            CSharpMethodImplementationPost occurrence =
+                implementation.Method.ImplementationOccurrences[0];
+            if (occurrence.Relationship != relationship
+                || declarationPost.Implementation != occurrence
+                || relationship.Type != post.Request.Type
+                || relationship.Body != accessor.Method.Method)
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .MethodImplementationMismatch);
+            }
+
+            if (relationship.Definition is not
+                MetadataDeclarationDefinitionDisposition.LocalResolved local)
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .OutsideInitialBoundary);
+            }
+            if (occurrence.DeclarationOwner is not
+                MetadataTypeDeclarationResult.Posted owner
+                || owner.Evidence.Category
+                    != MetadataTypeDeclarationCategory.Interface)
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .ExplicitInterfaceOwnerRejected);
+            }
+
+            MetadataNamedTypeIdentity? ownerDefinition =
+                relationship.DeclarationOwner switch
+                {
+                    MetadataTypeIdentity.Named named => named.Definition,
+                    MetadataTypeIdentity.GenericInstance generic =>
+                        generic.Definition,
+                    _ => null,
+                };
+            if (owner.Evidence.Type != local.Owner
+                || ownerDefinition is null
+                || owner.Evidence.DefinitionIdentity != ownerDefinition
+                || relationship.SpecialName
+                    is not MetadataSpecialNameEvidence.KnownTrue)
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .ExplicitInterfaceEvidenceMismatch);
+            }
+
+            if (occurrence.InterfaceRequest is not
+                    MetadataInterfaceImplementationRequest interfaceRequest
+                || interfaceRequest.Type != relationship.Type
+                || interfaceRequest.Interface
+                    != relationship.DeclarationOwner
+                || occurrence.InterfaceResult is not
+                    MetadataInterfaceImplementationResult.Related
+                        interfaceResult)
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .InterfaceImplementationUnavailable);
+            }
+            if (interfaceResult.Relationships.Length != 1)
+            {
+                return Refuse(
+                    CSharpAccessorDeclarationRefusalReason
+                        .UnsupportedExplicitInterfaceMultiplicity);
+            }
+            MetadataInterfaceImplementationCertificate interfaceCertificate =
+                interfaceResult.Relationships[0];
+            if (interfaceCertificate.Type != relationship.Type
+                || interfaceCertificate.Interface
+                    != relationship.DeclarationOwner)
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .ExplicitInterfaceEvidenceMismatch);
+            }
+
+            if (declarationPost.Association is not
+                    MetadataAccessorAssociationResult.Related
+                        declarationAssociation)
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .DeclarationAccessorAssociationUnavailable);
+            }
+            MetadataAccessorAssociationCertificate association =
+                declarationAssociation.Certificate;
+            if (association.Type != local.Owner
+                || association.Method != local.Definition
+                || association.Role != accessor.Role)
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .ExplicitInterfaceEvidenceMismatch);
+            }
+            if (declarationPost.Declaration is not
+                    MetadataAccessorDeclarationResult.Posted
+                        declaration
+                || declaration.Evidence.Type != local.Owner
+                || declaration.Evidence.Declaration
+                    != association.Declaration)
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .ExplicitInterfaceDeclarationRejected);
+            }
+
+            if (sharedOwner is null)
+            {
+                sharedOwner = local.Owner;
+                sharedIdentity = relationship.DeclarationOwner;
+                sharedDeclaration = association.Declaration;
+                sharedAggregate = declaration.Evidence;
+            }
+            else if (sharedOwner.Value != local.Owner
+                || sharedIdentity != relationship.DeclarationOwner
+                || sharedDeclaration!.Value != association.Declaration)
+            {
+                return Refuse(
+                    CSharpAccessorDeclarationRefusalReason
+                        .UnsupportedExplicitInterfaceComposition);
+            }
+
+            if (!CSharpDeclarationRepresentability
+                    .NamedTypeSpellingsAreUnambiguous(
+                        containingType.PrimitiveAlias
+                            ?? containingType.OpenSelfIdentity,
+                        relationship.DeclarationOwner,
+                        accessor.Method.Signature))
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .OutsideInitialBoundary);
+            }
+
+            relationships.Add(
+                accessor.PhysicalRowNumber,
+                new(relationship, association));
+        }
+
+        if (sharedAggregate is null
+            || sharedIdentity is null
+            || !RootKindsMatch(aggregate.Root, sharedAggregate.Root)
+            || !aggregate.Accessors
+                .Select(accessor => accessor.Role)
+                .Order()
+                .SequenceEqual(
+                    sharedAggregate.Accessors
+                        .Select(accessor => accessor.Role)
+                        .Order()))
+        {
+            return Refuse(
+                CSharpAccessorDeclarationRefusalReason
+                    .UnsupportedExplicitInterfaceComposition);
+        }
+        if (!CSharpDeclarationRepresentability.TrySpellType(
+                sharedIdentity,
+                out CSharpTypeSpelling? spelling))
+        {
+            return Unavailable(
+                CSharpAccessorDeclarationUnavailableReason
+                    .TypeSpellingUnavailable);
+        }
+
+        context = new(
+            sharedAggregate,
+            sharedIdentity,
+            spelling,
+            relationships.ToImmutable());
+        return null;
+
+        static bool RootKindsMatch(
+            MetadataAccessorRootDeclarationEvidence body,
+            MetadataAccessorRootDeclarationEvidence declaration) =>
+            body is MetadataAccessorRootDeclarationEvidence.Property
+                    bodyProperty
+                && declaration
+                    is MetadataAccessorRootDeclarationEvidence.Property
+                        declarationProperty
+                && bodyProperty.Signature.IndexParameterTypes.IsEmpty
+                    == declarationProperty.Signature.IndexParameterTypes.IsEmpty
+            || body is MetadataAccessorRootDeclarationEvidence.Event
+                && declaration
+                    is MetadataAccessorRootDeclarationEvidence.Event;
+    }
+
     static CSharpAccessorDeclarationRepresentabilityResult DecideProperty(
         CSharpAccessorDeclarationPost post,
         CSharpLanguageProfile profile,
@@ -472,7 +1016,8 @@ public static class CSharpAccessorDeclarationRepresentability
         MetadataTypeDeclarationEvidence containingType,
         CSharpContainingDeclarationKind containingKind,
         MetadataAccessorRootDeclarationEvidence.Property property,
-        MetadataAccessorSemanticsOccurrence target)
+        MetadataAccessorSemanticsOccurrence target,
+        ExplicitInterfaceContext? explicitInterface)
     {
         CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable Refuse(
             CSharpAccessorDeclarationRefusalReason reason) =>
@@ -496,7 +1041,12 @@ public static class CSharpAccessorDeclarationRepresentability
                 CSharpAccessorDeclarationRefusalReason
                     .IncompleteAccessorSet);
         }
-        if (property.Attributes != PropertyAttributes.None)
+        var declarationProperty =
+            explicitInterface?.Aggregate.Root
+                as MetadataAccessorRootDeclarationEvidence.Property
+            ?? property;
+        if (property.Attributes != PropertyAttributes.None
+            || declarationProperty.Attributes != PropertyAttributes.None)
         {
             return Refuse(
                 CSharpAccessorDeclarationRefusalReason
@@ -506,7 +1056,8 @@ public static class CSharpAccessorDeclarationRepresentability
         bool isIndexer =
             !property.Signature.IndexParameterTypes.IsEmpty;
         string metadataName =
-            MetadataDeclarationText.RenderDeclarationName(property);
+            MetadataDeclarationText.RenderDeclarationName(
+                declarationProperty);
         string name;
         if (isIndexer)
         {
@@ -611,34 +1162,66 @@ public static class CSharpAccessorDeclarationRepresentability
             .. aggregate.Accessors.Select(accessor =>
                 GetAccessibility(accessor.Method.Attributes)),
         ];
-        if (accessibilities.Any(static value => value.Length == 0)
-            || !CSharpAccessorDeclarationPolicy
-                .TrySelectPropertyAccessibility(
-                    accessibilities,
-                    out string declarationAccessibility))
+        string declarationAccessibility;
+        CSharpDeclarationModifierShape modifiers;
+        if (explicitInterface is null)
         {
-            return Unavailable(
-                CSharpAccessorDeclarationUnavailableReason
-                    .AccessibilityUnavailable);
+            if (accessibilities.Any(static value => value.Length == 0)
+                || !CSharpAccessorDeclarationPolicy
+                    .TrySelectPropertyAccessibility(
+                        accessibilities,
+                        out declarationAccessibility))
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .AccessibilityUnavailable);
+            }
+            if (!TryGetModifierShape(
+                    aggregate.Accessors,
+                    out modifiers)
+                || !CSharpAccessorDeclarationPolicy
+                    .DeclarationModifiersAreRepresentable(
+                        containingKind,
+                        IsStaticType(containingType),
+                        containingType.Attributes.HasFlag(
+                            TypeAttributes.Abstract),
+                        containingType.Attributes.HasFlag(
+                            TypeAttributes.Sealed),
+                        declarationAccessibility,
+                        modifiers))
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .ModifierShapeUnavailable);
+            }
         }
-
-        if (!TryGetModifierShape(
-                aggregate.Accessors,
-                out CSharpDeclarationModifierShape modifiers)
-            || !CSharpAccessorDeclarationPolicy
-                .DeclarationModifiersAreRepresentable(
-                    containingKind,
-                    IsStaticType(containingType),
-                    containingType.Attributes.HasFlag(
-                        TypeAttributes.Abstract),
-                    containingType.Attributes.HasFlag(
-                        TypeAttributes.Sealed),
-                    declarationAccessibility,
-                    modifiers))
+        else
         {
-            return Unavailable(
-                CSharpAccessorDeclarationUnavailableReason
-                    .ModifierShapeUnavailable);
+            if (!TryGetModifierShape(
+                    aggregate.Accessors,
+                    out modifiers))
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .ModifierShapeUnavailable);
+            }
+            if (modifiers.IsStatic)
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .OutsideInitialBoundary);
+            }
+            if (accessibilities.Any(static value => value != "private")
+                || modifiers.IsVirtual
+                || modifiers.IsAbstract
+                || modifiers.IsOverride
+                || modifiers.IsSealed)
+            {
+                return Refuse(
+                    CSharpAccessorDeclarationRefusalReason
+                        .UnsupportedExplicitInterfaceComposition);
+            }
+            declarationAccessibility = "private";
         }
 
         var bindings =
@@ -663,6 +1246,17 @@ public static class CSharpAccessorDeclarationRepresentability
 
             string accessorAccessibility =
                 GetAccessibility(accessor.Method.Attributes);
+            CSharpAcceptedExplicitAccessorRelationship?
+                explicitRelationship = null;
+            if (explicitInterface is not null
+                && !explicitInterface.Relationships.TryGetValue(
+                    accessor.PhysicalRowNumber,
+                    out explicitRelationship))
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .ExplicitInterfaceEvidenceMismatch);
+            }
             bindings.Add(
                 new(
                     accessor,
@@ -671,9 +1265,12 @@ public static class CSharpAccessorDeclarationRepresentability
                         ? CSharpAccessorBodyPolicy.SelectedBody
                         : CSharpAccessorBodyPolicy.SiblingStub,
                     keyword,
-                    accessorAccessibility == declarationAccessibility
+                    explicitInterface is not null
+                            || accessorAccessibility
+                                == declarationAccessibility
                         ? null
-                        : accessorAccessibility));
+                        : accessorAccessibility,
+                    explicitRelationship));
         }
 
         if (!target.Method.HasBodyRva)
@@ -703,7 +1300,10 @@ public static class CSharpAccessorDeclarationRepresentability
                         modifiers.IsAbstract,
                         modifiers.IsOverride,
                         modifiers.IsSealed),
-                    bindings.MoveToImmutable()));
+                    bindings.MoveToImmutable(),
+                    explicitInterface?.Aggregate,
+                    explicitInterface?.Identity,
+                    explicitInterface?.Spelling));
     }
 
     static CSharpAccessorDeclarationRepresentabilityResult DecideEvent(
@@ -713,7 +1313,8 @@ public static class CSharpAccessorDeclarationRepresentability
         MetadataTypeDeclarationEvidence containingType,
         CSharpContainingDeclarationKind containingKind,
         MetadataAccessorRootDeclarationEvidence.Event @event,
-        MetadataAccessorSemanticsOccurrence target)
+        MetadataAccessorSemanticsOccurrence target,
+        ExplicitInterfaceContext? explicitInterface)
     {
         CSharpAccessorDeclarationRepresentabilityResult.Unrepresentable Refuse(
             CSharpAccessorDeclarationRefusalReason reason) =>
@@ -732,7 +1333,12 @@ public static class CSharpAccessorDeclarationRepresentability
                 CSharpAccessorDeclarationRefusalReason
                     .IncompleteAccessorSet);
         }
-        if (@event.Attributes != EventAttributes.None)
+        var declarationEvent =
+            explicitInterface?.Aggregate.Root
+                as MetadataAccessorRootDeclarationEvidence.Event
+            ?? @event;
+        if (@event.Attributes != EventAttributes.None
+            || declarationEvent.Attributes != EventAttributes.None)
         {
             return Refuse(
                 CSharpAccessorDeclarationRefusalReason
@@ -740,7 +1346,8 @@ public static class CSharpAccessorDeclarationRepresentability
         }
 
         string metadataName =
-            MetadataDeclarationText.RenderDeclarationName(@event);
+            MetadataDeclarationText.RenderDeclarationName(
+                declarationEvent);
         if (!CSharpDeclarationRepresentability
                 .IsCompilerPreservedIdentifier(metadataName))
         {
@@ -781,32 +1388,65 @@ public static class CSharpAccessorDeclarationRepresentability
             .. aggregate.Accessors.Select(accessor =>
                 GetAccessibility(accessor.Method.Attributes)),
         ];
-        if (accessibilities.Any(static value => value.Length == 0)
-            || accessibilities.Distinct(StringComparer.Ordinal).Count() != 1)
+        string declarationAccessibility;
+        CSharpDeclarationModifierShape modifiers;
+        if (explicitInterface is null)
         {
-            return Unavailable(
-                CSharpAccessorDeclarationUnavailableReason
-                    .AccessibilityUnavailable);
+            if (accessibilities.Any(static value => value.Length == 0)
+                || accessibilities
+                    .Distinct(StringComparer.Ordinal).Count() != 1)
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .AccessibilityUnavailable);
+            }
+            declarationAccessibility = accessibilities[0];
+            if (!TryGetModifierShape(
+                    aggregate.Accessors,
+                    out modifiers)
+                || !CSharpAccessorDeclarationPolicy
+                    .DeclarationModifiersAreRepresentable(
+                        containingKind,
+                        IsStaticType(containingType),
+                        containingType.Attributes.HasFlag(
+                            TypeAttributes.Abstract),
+                        containingType.Attributes.HasFlag(
+                            TypeAttributes.Sealed),
+                        declarationAccessibility,
+                        modifiers))
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .ModifierShapeUnavailable);
+            }
         }
-        string declarationAccessibility = accessibilities[0];
-
-        if (!TryGetModifierShape(
-                aggregate.Accessors,
-                out CSharpDeclarationModifierShape modifiers)
-            || !CSharpAccessorDeclarationPolicy
-                .DeclarationModifiersAreRepresentable(
-                    containingKind,
-                    IsStaticType(containingType),
-                    containingType.Attributes.HasFlag(
-                        TypeAttributes.Abstract),
-                    containingType.Attributes.HasFlag(
-                        TypeAttributes.Sealed),
-                    declarationAccessibility,
-                    modifiers))
+        else
         {
-            return Unavailable(
-                CSharpAccessorDeclarationUnavailableReason
-                    .ModifierShapeUnavailable);
+            if (!TryGetModifierShape(
+                    aggregate.Accessors,
+                    out modifiers))
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .ModifierShapeUnavailable);
+            }
+            if (modifiers.IsStatic)
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .OutsideInitialBoundary);
+            }
+            if (accessibilities.Any(static value => value != "private")
+                || modifiers.IsVirtual
+                || modifiers.IsAbstract
+                || modifiers.IsOverride
+                || modifiers.IsSealed)
+            {
+                return Refuse(
+                    CSharpAccessorDeclarationRefusalReason
+                        .UnsupportedExplicitInterfaceComposition);
+            }
+            declarationAccessibility = "private";
         }
 
         if (!target.Method.HasBodyRva)
@@ -816,10 +1456,25 @@ public static class CSharpAccessorDeclarationRepresentability
                     .MissingTargetBody);
         }
 
-        ImmutableArray<CSharpAcceptedAccessorBinding> bindings =
-        [
-            .. aggregate.Accessors.Select(accessor =>
-                new CSharpAcceptedAccessorBinding(
+        var bindings =
+            ImmutableArray.CreateBuilder<CSharpAcceptedAccessorBinding>(
+                aggregate.Accessors.Length);
+        foreach (MetadataAccessorSemanticsOccurrence accessor
+            in aggregate.Accessors)
+        {
+            CSharpAcceptedExplicitAccessorRelationship?
+                explicitRelationship = null;
+            if (explicitInterface is not null
+                && !explicitInterface.Relationships.TryGetValue(
+                    accessor.PhysicalRowNumber,
+                    out explicitRelationship))
+            {
+                return Unavailable(
+                    CSharpAccessorDeclarationUnavailableReason
+                        .ExplicitInterfaceEvidenceMismatch);
+            }
+            bindings.Add(
+                new(
                     accessor,
                     accessor.PhysicalRowNumber
                             == target.PhysicalRowNumber
@@ -828,8 +1483,9 @@ public static class CSharpAccessorDeclarationRepresentability
                     accessor.Role == MetadataAccessorSemanticsRole.AddOn
                         ? "add"
                         : "remove",
-                    accessibility: null)),
-        ];
+                    accessibility: null,
+                    explicitRelationship));
+        }
         return new CSharpAccessorDeclarationRepresentabilityResult
             .Representable(
                 new(
@@ -848,7 +1504,10 @@ public static class CSharpAccessorDeclarationRepresentability
                         modifiers.IsAbstract,
                         modifiers.IsOverride,
                         modifiers.IsSealed),
-                    bindings));
+                    bindings.MoveToImmutable(),
+                    explicitInterface?.Aggregate,
+                    explicitInterface?.Identity,
+                    explicitInterface?.Spelling));
     }
 
     static bool TryGetContainingKind(
@@ -1026,32 +1685,37 @@ public static class CSharpAcceptedAccessorDeclarationRenderer
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var head = new List<string>
+        var head = new List<string>();
+        if (request.ExplicitInterface is null)
         {
-            request.Accessibility,
-        };
-        if (request.Modifiers.IsStatic)
-            head.Add("static");
-        else if (request.Modifiers.IsSealed)
-        {
-            head.Add("sealed");
-            head.Add("override");
+            head.Add(request.Accessibility);
+            if (request.Modifiers.IsStatic)
+                head.Add("static");
+            else if (request.Modifiers.IsSealed)
+            {
+                head.Add("sealed");
+                head.Add("override");
+            }
+            else if (request.Modifiers.IsOverride)
+                head.Add("override");
+            else if (request.Modifiers.IsAbstract)
+                head.Add("abstract");
+            else if (request.Modifiers.IsVirtual)
+                head.Add("virtual");
         }
-        else if (request.Modifiers.IsOverride)
-            head.Add("override");
-        else if (request.Modifiers.IsAbstract)
-            head.Add("abstract");
-        else if (request.Modifiers.IsVirtual)
-            head.Add("virtual");
         if (request.Kind == CSharpAccessorDeclarationKind.Event)
             head.Add("event");
         head.Add(request.Type.Source);
+        string explicitInterfacePrefix =
+            request.ExplicitInterface is null
+                ? ""
+                : request.ExplicitInterface.Source + ".";
         head.Add(request.Kind == CSharpAccessorDeclarationKind.Indexer
-            ? $"this[{string.Join(
+            ? $"{explicitInterfacePrefix}this[{string.Join(
                 ", ",
                 request.Parameters.Select(parameter =>
                     $"{parameter.Type.Source} {parameter.Name}"))}]"
-            : request.Name);
+            : explicitInterfacePrefix + request.Name);
 
         string accessors = string.Join(
             " ",
