@@ -655,7 +655,9 @@ gap.
    such as the first violation found, it is the row the reference passes would
    name, not whichever row a parallel executor reached first.
 
-Request collapse is tracked in #8574, and method bodies as a source in #8577.
+Request collapse is owned by
+[Query Space Composition](query-space-composition.md), and method bodies as a
+source by [Method Query Source](method-query-source.md).
 
 ## Tiers
 

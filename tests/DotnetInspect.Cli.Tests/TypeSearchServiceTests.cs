@@ -86,6 +86,74 @@ public class TypeSearchServiceTests
     }
 
     [Fact]
+    public void FindWorkspacePlan_ExplicitSourcesStartEmpty()
+    {
+        var options = new FindOptions
+        {
+            Packages = ["System.Text.Json@10.0.0"],
+        };
+
+        Assert.Same(
+            WorkspacePlan.Empty,
+            FindSourceCollector.CreateWorkspacePlan(options));
+    }
+
+    [Fact]
+    public async Task ExplicitWorkspace_AcquiresSourcesLazilyAndOnce()
+    {
+        var options = new FindOptions
+        {
+            Packages = ["Example.Package@1.0.0"],
+            Assemblies = ["Example.dll"],
+            Projects = ["Example.csproj"],
+            BinPaths = ["bin"],
+        };
+        var acquisitions = new List<AssemblySetRequest>();
+        bool stop = false;
+        await using var workspace = new ExplicitFindSearchWorkspace(
+            options,
+            request =>
+            {
+                acquisitions.Add(request);
+                stop = acquisitions.Count == 1;
+                return Task.FromResult(
+                    new AssemblySet([], [], []));
+            });
+
+        await ScanAsync(workspace, () => stop);
+        stop = false;
+        await ScanAsync(workspace, stop: null);
+        await ScanAsync(workspace, stop: null);
+
+        Assert.Collection(
+            acquisitions,
+            request => Assert.Equal(
+                ["Example.Package@1.0.0"],
+                request.Packages),
+            request => Assert.Equal(
+                ["Example.dll"],
+                request.Assemblies),
+            request => Assert.Equal(
+                ["Example.csproj"],
+                request.Projects),
+            request => Assert.Equal(
+                ["bin"],
+                request.Directories));
+
+        static Task ScanAsync(
+            ExplicitFindSearchWorkspace workspace,
+            Func<bool>? stop) =>
+            workspace.RunPerAssemblyAsync(
+                AssemblyContextTypeInventoryQuery.Definition,
+                static _ => throw new InvalidOperationException(
+                    "The synthetic source has no assemblies."),
+                static (_, _) => { },
+                static (_, _) => { },
+                static () => { },
+                stop);
+    }
+
+    [Fact]
     public void FindWorkspacePlan_RejectsExplicitEmptyEcosystemScope()
     {
         var options = new FindOptions
