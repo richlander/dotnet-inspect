@@ -3,16 +3,30 @@ using System.Net.Http.Headers;
 
 namespace DotnetInspector.PlatformHouse.Packages.Tests;
 
-internal sealed class PackagePlatformRangeFeed(
-    string packageId,
-    string version,
-    byte[] archive) : HttpMessageHandler
+internal sealed class PackagePlatformRangeFeed : HttpMessageHandler
 {
-    private readonly string _packageUrl =
-        $"https://globalcdn.nuget.org/packages/"
-        + $"{packageId}.{version}.nupkg";
+    private readonly IReadOnlyDictionary<string, byte[]> _packages;
     private int _fullRequests;
     private int _rangedRequests;
+
+    internal PackagePlatformRangeFeed(
+        string packageId,
+        string version,
+        byte[] archive)
+        : this([(packageId, version, archive)])
+    {
+    }
+
+    internal PackagePlatformRangeFeed(
+        params (string PackageId, string Version, byte[] Archive)[] packages)
+    {
+        _packages = packages.ToDictionary(
+            static package =>
+                $"https://globalcdn.nuget.org/packages/"
+                + $"{package.PackageId}.{package.Version}.nupkg",
+            static package => package.Archive,
+            StringComparer.OrdinalIgnoreCase);
+    }
 
     internal int FullRequests => Volatile.Read(ref _fullRequests);
     internal int RangedRequests => Volatile.Read(ref _rangedRequests);
@@ -21,10 +35,9 @@ internal sealed class PackagePlatformRangeFeed(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
-        if (!string.Equals(
+        if (!_packages.TryGetValue(
                 request.RequestUri!.AbsoluteUri,
-                _packageUrl,
-                StringComparison.OrdinalIgnoreCase))
+                out byte[]? archive))
         {
             return Task.FromResult(
                 Response(

@@ -64,3 +64,66 @@ public static class BodyUseSource
 
     static T Identity<T>(T value) => value;
 }
+
+/// <summary>
+/// Roslyn lifted shapes whose owner is the innermost declaring Type not
+/// prefixed <c>&lt;&gt;</c>. Each lifted body constructs a
+/// <see cref="BodyUseTarget"/>.
+/// </summary>
+public static class BodyUseLiftedShapes
+{
+    // A display class nested in this Type, captured inside an async method.
+    public static async Task<Func<BodyUseTarget>> CapturingLambdaInAsync(
+        int seed)
+    {
+        await Task.Yield();
+        int local = seed;
+        return () =>
+        {
+            _ = local;
+            return new BodyUseTarget();
+        };
+    }
+
+    // A non-capturing async lambda: its state machine nests in <>c and its
+    // kickoff is the lambda itself.
+    public static Func<Task<BodyUseTarget>> AsyncLambdaInCache() =>
+        static async () =>
+        {
+            await Task.Yield();
+            return new BodyUseTarget();
+        };
+
+    // A local function declared inside a lambda.
+    public static Func<BodyUseTarget> LocalFunctionInLambda() =>
+        static () =>
+        {
+            return Make();
+
+            static BodyUseTarget Make() => new();
+        };
+
+    // A lambda declared inside an iterator.
+    public static IEnumerable<Func<BodyUseTarget>> LambdaInIterator()
+    {
+        yield return static () => new BodyUseTarget();
+    }
+}
+
+/// <summary>
+/// One MethodSpec instantiation reached from callers with different generic
+/// arities.
+/// </summary>
+public static class BodyUseSharedInstantiation
+{
+    public static T Pick<T>(T value) => value;
+
+    public static BodyUseTarget FromNonGeneric(BodyUseTarget target) =>
+        Pick(target);
+
+    public static BodyUseTarget FromGeneric<U>(BodyUseTarget target) =>
+        Pick(target);
+
+    public static BodyUseTarget FromTwoGeneric<U, V>(BodyUseTarget target) =>
+        Pick(target);
+}
