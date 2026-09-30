@@ -1220,10 +1220,10 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /function memberDocumentOrdinalForOverload\([\s\S]*return overload\?\.baselineOrdinal[\s\S]*row => row\.metadataToken === metadataToken\)\?\.baselineOrdinal/);
   assert.match(
     appSource,
-    /function selectMemberNavEntry\([\s\S]*memberDocumentOrdinalForOverload\(entry\.group, entry\.index\)[\s\S]*openMemberDocument\(baselineOrdinal\)[\s\S]*!ordinaryMethodGroup\(entry\.group\)[\s\S]*openOverload\(entry\.index\)/);
+    /function selectMemberNavEntry\([\s\S]*memberDocumentOrdinalForOverload\(entry\.group, entry\.index\)[\s\S]*openMemberDocument\(baselineOrdinal\)[\s\S]*completeMemberGroupUsesLegacyOverloadRoute\(entry\.group\)[\s\S]*openOverload\(entry\.index\)/);
   assert.match(
     appSource,
-    /function drillIn\(\)[\s\S]*memberDocumentOrdinalForOverload\(member, 0\)[\s\S]*openMemberDocument\(baselineOrdinal\)/);
+    /function drillIn\(\)[\s\S]*memberDocumentOrdinalForOverload\(member, 0\)[\s\S]*openMemberDocument\(baselineOrdinal\)[\s\S]*completeMemberGroupUsesLegacyOverloadRoute\(member\)[\s\S]*openOverload\(0\)/);
   const loadMemberDocument =
     appSource.match(/async function loadSelectedMemberDocument\([\s\S]*?\n}\n\nasync function loadSelectedMemberGroupDocument/)?.[0]
     ?? "";

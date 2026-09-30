@@ -1306,6 +1306,12 @@ Member root. Once resolved, the implementation operation uses its complete
 admitted body population by default; `--all` does not widen traversal, select
 more relationships, or request every analysis.
 
+`-k`/`--kind` filters the logical C# declaration kind. Explicit interface
+properties and events compose their accessors into one `property` or `event`
+row, so select them with `-k property` or `-k event`.
+`-k explicit-interface-implementation` selects explicit method
+implementations that are not composed into a property or event declaration.
+
 Exact `library ... -S "Library Metrics" --json` emits the complete Research
 `LibraryStructuralReportDocument`: the Analysis receipt and coverage,
 numeric distributions and maximum-body identities, async disposition, typed
