@@ -1882,10 +1882,48 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                     bytes,
                     cancellationToken)
                 .ConfigureAwait(false);
-            return bytes;
+
+            byte[] probe = new byte[1];
+            int additional = await stream.ReadAsync(
+                    probe,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (additional == 0)
+                return bytes;
+            if (remainingLength + additional > maxArtifactBytes
+                || remainingLength + additional > Array.MaxLength)
+            {
+                throw new ArtifactMaterializationLimitException();
+            }
+
+            using var continued = new MemoryStream(bytes.Length + additional);
+            continued.Write(bytes);
+            continued.Write(probe, 0, additional);
+            await CopyRemainingBoundedAsync(
+                    stream,
+                    continued,
+                    maxArtifactBytes,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return continued.ToArray();
         }
 
         using var destination = new MemoryStream();
+        await CopyRemainingBoundedAsync(
+                stream,
+                destination,
+                maxArtifactBytes,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return destination.ToArray();
+    }
+
+    private static async ValueTask CopyRemainingBoundedAsync(
+        Stream stream,
+        MemoryStream destination,
+        long maxArtifactBytes,
+        CancellationToken cancellationToken)
+    {
         byte[] buffer = new byte[81920];
         while (true)
         {
@@ -1895,16 +1933,14 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                 .ConfigureAwait(false);
             if (read == 0)
                 break;
-            if (destination.Length + read
-                > maxArtifactBytes)
+            if (destination.Length + read > maxArtifactBytes
+                || destination.Length + read > Array.MaxLength)
             {
                 throw new ArtifactMaterializationLimitException();
             }
 
             destination.Write(buffer, 0, read);
         }
-
-        return destination.ToArray();
     }
 
     private async ValueTask<ArtifactSetPublicationOutcome>

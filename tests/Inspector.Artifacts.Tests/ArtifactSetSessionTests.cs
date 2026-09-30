@@ -526,6 +526,78 @@ public sealed partial class ArtifactSetSessionTests
     }
 
     [Fact]
+    public async Task ArtifactSetSession_ObservedSeekableBytesBeyondLimitAreRejected()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        await using var session = new ArtifactSetSession(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = 1,
+                MaxArtifactBytes = 2,
+                MaxRetainedBytes = 2,
+            });
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("underreported-length"),
+                    _ => new UnderreportingLengthStream([1, 2, 3]));
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+
+        var rejected =
+            Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(
+                await session.SealAsync(cancellationToken));
+        ArtifactSetAdmissionFailure failure =
+            Assert.Single(rejected.Failures);
+        Assert.Equal(
+            "artifact.session.artifact-byte-limit",
+            failure.Diagnostic.Code);
+    }
+
+    [Fact]
+    public async Task ArtifactSetSession_ObservedSeekableBytesWithinLimitAreRetained()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        await using var session = new ArtifactSetSession(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = 1,
+                MaxArtifactBytes = 3,
+                MaxRetainedBytes = 3,
+            });
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("underreported-length"),
+                    _ => new UnderreportingLengthStream([1, 2, 3]));
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+        ArtifactQueryAuthorization authorization =
+            session.CreateQueryAuthorization();
+        using ArtifactQueryLease lease =
+            session.IssueLease(authorization);
+        ArtifactIdentity identity =
+            Assert.Single(session.GetCatalog(lease)).Identity;
+        using Stream opened = session.OpenRead(identity, lease);
+        Assert.Equal([1, 2, 3], ReadAll(opened));
+    }
+
+    [Fact]
     public async Task ArtifactSetSession_RejectsOversizeImmutableSnapshot()
     {
         CancellationToken cancellationToken =
@@ -2052,6 +2124,61 @@ public sealed partial class ArtifactSetSessionTests
         public ValueTask DisposeAsync() =>
             ValueTask.FromException(
                 new IOException("cleanup failed"));
+    }
+
+    private sealed class UnderreportingLengthStream(byte[] content) :
+        Stream
+    {
+        private readonly MemoryStream _inner =
+            new(content, writable: false);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => _inner.Length - 1;
+        public override long Position
+        {
+            get => _inner.Position;
+            set => _inner.Position = value;
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            _inner.Read(buffer, offset, count);
+
+        public override int Read(Span<byte> buffer) =>
+            _inner.Read(buffer);
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            _inner.ReadAsync(buffer, cancellationToken);
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin) =>
+            _inner.Seek(offset, origin);
+
+        public override void Flush() =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                _inner.Dispose();
+            base.Dispose(disposing);
+        }
     }
 
     private sealed class BlockingThrowingLease :
