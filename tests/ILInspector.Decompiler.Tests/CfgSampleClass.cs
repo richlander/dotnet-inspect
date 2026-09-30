@@ -2485,6 +2485,45 @@ public class CfgSampleClass
         int Result(int current) => this.Result + current;
     }
 
+    // Environment substitution carries the exact enclosing receiver binder into
+    // the imported body. The binding proof must still recognize the authored
+    // member call after `self` is replaced with that receiver.
+    public int InstanceLocalFunctionShadowingAliasMember(int value)
+    {
+        var self = this;
+        return Read(value);
+
+        int Read(int current) => self.Read(current) + _localFunctionState;
+    }
+
+    public int InstanceLocalFunctionShadowingAliasMemberGroup(int value)
+    {
+        var self = this;
+        return Read(value);
+
+        int Read(int current)
+        {
+            Func<int, int> callback = self.Read;
+            return callback(current) + _localFunctionState;
+        }
+    }
+
+    public int InstanceLocalFunctionShadowingAliasField(int value)
+    {
+        var self = this;
+        return _read(value);
+
+        int _read(int current) => self._read + current + _localFunctionState;
+    }
+
+    public int InstanceLocalFunctionShadowingAliasProperty(int value)
+    {
+        var self = this;
+        return Result(value);
+
+        int Result(int current) => self.Result + current + _localFunctionState;
+    }
+
     // Both local functions flatten into one declaration scope. The authored
     // member call in Other must not bind to the sibling local declaration.
     public int SiblingInstanceLocalFunctionShadowingMember(int value)
@@ -2506,6 +2545,64 @@ public class CfgSampleClass
             Func<int, int> callback = this.Read;
             return callback(current);
         }
+    }
+
+    // The sibling proof must recognize an enclosing receiver introduced by
+    // environment substitution in the independently prepared Other body.
+    public int SiblingInstanceLocalFunctionShadowingAliasMember(int value)
+    {
+        int result = Read(value);
+        {
+            var self = this;
+            result += Other(value);
+
+            int Other(int current) => self.Read(current);
+        }
+        return result;
+        int Read(int current) => current + _localFunctionState;
+    }
+
+    public int SiblingInstanceLocalFunctionShadowingAliasMemberGroup(int value)
+    {
+        int result = Read(value);
+        {
+            var self = this;
+            result += Other(value);
+
+            int Other(int current)
+            {
+                Func<int, int> callback = self.Read;
+                return callback(current);
+            }
+        }
+        return result;
+        int Read(int current) => current + _localFunctionState;
+    }
+
+    public int SiblingInstanceLocalFunctionShadowingAliasField(int value)
+    {
+        int result = _read(value);
+        {
+            var self = this;
+            result += Other(value);
+
+            int Other(int current) => self._read + current;
+        }
+        return result;
+        int _read(int current) => current + _localFunctionState;
+    }
+
+    public int SiblingInstanceLocalFunctionShadowingAliasProperty(int value)
+    {
+        int result = Result(value);
+        {
+            var self = this;
+            result += Other(value);
+
+            int Other(int current) => self.Result + current;
+        }
+        return result;
+        int Result(int current) => current + _localFunctionState;
     }
 
     // Adversarial breadth: one capturing local function called twice. Both calls

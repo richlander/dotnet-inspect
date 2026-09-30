@@ -338,7 +338,11 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 {
                     continue;
                 }
-                if (HasShadowedInstanceMemberReference(body, method, sourceName))
+                if (HasShadowedInstanceMemberReference(
+                        body,
+                        method,
+                        sourceName,
+                        function))
                     continue;
 
                 importScope.Run(body, IrPasses.Default);
@@ -352,7 +356,11 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 {
                     continue;
                 }
-                if (HasShadowedInstanceMemberReference(body, method, sourceName))
+                if (HasShadowedInstanceMemberReference(
+                        body,
+                        method,
+                        sourceName,
+                        function))
                     continue;
                 // And vote again on the body's self-references, for the same reason the
                 // foreign check above runs twice: IrPasses.Run can ADD reference nodes.
@@ -424,7 +432,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     && HasShadowedInstanceMemberReference(
                         scopeCandidate.Body,
                         candidate.Method,
-                        candidate.Name)))
+                        candidate.Name,
+                        function)))
             .Select(candidate => candidate.Name)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -877,7 +886,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
     static bool HasShadowedInstanceMemberReference(
         IrFunction function,
         MethodRef localMethod,
-        string localName)
+        string localName,
+        IrFunction? enclosingHost = null)
     {
         foreach (var node in function.Descendants)
         {
@@ -1010,7 +1020,10 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
             if ((method is null || !SameLocalFunctionMethod(method, localMethod))
                 && (isHostReceiver
-                    || receiver is not null && IsHostReceiver(function, receiver))
+                    || receiver is not null
+                        && (IsHostReceiver(function, receiver)
+                            || enclosingHost is not null
+                                && IsBoundReceiver(enclosingHost, receiver)))
                 && string.Equals(memberName, localName, StringComparison.Ordinal))
             {
                 return true;
@@ -1042,6 +1055,16 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 || ReferenceEquals(
                     receiverParameter,
                     function.ReceiverParameter));
+
+    static bool IsBoundReceiver(IrFunction function, IrExpression expression)
+        => function.ReceiverParameter is { } receiverParameter
+            && expression is LoadArgument
+            {
+                Type: var receiverType,
+                Parameter: { } binding,
+            }
+            && Equals(receiverType, function.DeclaringType)
+            && ReferenceEquals(binding, receiverParameter);
 
     static bool CanPreserveParameterRefKinds(MethodRef method, int visibleParameterCount)
         => !method.ParameterTypes.Take(visibleParameterCount).Any(type => type.Kind == TypeRefKind.ByRef)

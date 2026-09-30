@@ -317,6 +317,23 @@ public class LocalFunctionRaisingPassTests
         Assert.Contains("g__Result", output);
     }
 
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingAliasMember), "g__Read")]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingAliasMemberGroup), "g__Read")]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingAliasField), "g___read")]
+    [InlineData(nameof(CfgSampleClass.InstanceLocalFunctionShadowingAliasProperty), "g__Result")]
+    public void InstanceLocalFunctionShadowingAliasMember_StaysLowered(
+        string methodName,
+        string generatedName)
+    {
+        string output = PrintRaised(
+            methodName,
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains(generatedName, output);
+    }
+
     [Fact]
     public void SiblingInstanceLocalFunctionShadowingMember_DeclinesShadowingDeclaration()
     {
@@ -340,6 +357,25 @@ public class LocalFunctionRaisingPassTests
                 declaration => declaration.Name == "Other"));
 
         Assert.Contains("g__Read", output);
+        Assert.Contains("int Other(int current)", output);
+    }
+
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingAliasMember), "g__Read")]
+    [InlineData(nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingAliasMemberGroup), "g__Read")]
+    [InlineData(nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingAliasField), "g___read")]
+    [InlineData(nameof(CfgSampleClass.SiblingInstanceLocalFunctionShadowingAliasProperty), "g__Result")]
+    public void SiblingInstanceLocalFunctionShadowingAliasMember_DeclinesShadowingDeclaration(
+        string methodName,
+        string generatedName)
+    {
+        string output = PrintRaised(
+            methodName,
+            function => Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>(),
+                declaration => declaration.Name == "Other"));
+
+        Assert.Contains(generatedName, output);
         Assert.Contains("int Other(int current)", output);
     }
 
