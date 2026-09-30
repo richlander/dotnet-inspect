@@ -8,6 +8,10 @@ export type InertString = string & {
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
+export type BrowserDiffAnalysisSurface = "Member" | "Type" | "Library" | number;
+
+export type BrowserDiffAnalysisViews = string | number;
+
 export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
 export type BrowserLibraryApiDiffChangeCategory = "Signature" | "Attribute" | number;
@@ -272,6 +276,11 @@ export interface BrowserLibraryApiDiffRequest {
   readonly targetVersion: string;
   readonly targetFramework: string;
   readonly compileAssetId: string;
+  readonly surface: BrowserDiffAnalysisSurface;
+  readonly analyses: ReadonlyArray<string>;
+  readonly views: BrowserDiffAnalysisViews;
+  readonly typeNames: ReadonlyArray<string>;
+  readonly memberTargetIdentities: ReadonlyArray<string>;
 }
 
 export interface BrowserLibraryApiDiffResult {
