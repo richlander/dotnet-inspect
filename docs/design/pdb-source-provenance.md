@@ -381,6 +381,7 @@ Metadata Type definition exactly once. Its receipt records:
 - method-to-document association count;
 - generation-marker rows examined;
 - path characters and segments examined;
+- unique document-checksum bytes examined;
 - direct and inherited marker counts;
 - each aggregate-disposition count; and
 - the exact finite bounds.
@@ -396,6 +397,10 @@ complete bounded enumeration.
 
 Each authenticated generation-marker row consumes the remaining global marker
 budget before its value is decoded or its evidence record is materialized.
+
+Each distinct document-checksum blob consumes the remaining global checksum
+budget before it is materialized. The producer materializes one immutable value
+per exact Blob-heap handle and reuses that value for every referencing document.
 
 The producer uses state-advancing bounded UTF-8 decoding to preflight compressed
 Portable PDB document-name components against the remaining total
@@ -469,6 +474,8 @@ independently compiled fixtures under `fixtures/metadata/` and must cover:
 - separator variants, dot segments, traversal-like hints, multiple eligible
   path decompositions, invalid Roslyn hint characters and segments, long paths,
   encoding-expanding inert paths, and every finite bound;
+- repeated references to one large checksum blob retaining one immutable value
+  and exceeding the checksum-byte limit before materialization;
 - exact artifact/image/PDB binding, duplicate and foreign rows, complete
   counts, deterministic order, and detached lifetime; and
 - a standalone PDB without positive PE CodeView correspondence remaining

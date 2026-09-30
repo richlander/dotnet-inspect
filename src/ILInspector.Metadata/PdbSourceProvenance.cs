@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Runtime.InteropServices;
 using System.Text;
 using InertText;
 using Inspector.Artifacts;
@@ -160,6 +161,7 @@ public sealed record PdbSourceProvenanceLimits
         int maxTypes = 1_000_000,
         int maxAssociations = 5_000_000,
         int maxMarkerRows = 1_000_000,
+        int maxTotalChecksumBytes = 64 * 1024 * 1024,
         int maxTotalPathCharacters = 64 * 1024 * 1024,
         int maxPathCharacters = 32 * 1024,
         int maxPathSegments = 256,
@@ -170,6 +172,8 @@ public sealed record PdbSourceProvenanceLimits
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxAssociations);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxMarkerRows);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maxTotalChecksumBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maxTotalPathCharacters);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxPathCharacters);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxPathSegments);
@@ -178,6 +182,7 @@ public sealed record PdbSourceProvenanceLimits
         MaxTypes = maxTypes;
         MaxAssociations = maxAssociations;
         MaxMarkerRows = maxMarkerRows;
+        MaxTotalChecksumBytes = maxTotalChecksumBytes;
         MaxTotalPathCharacters = maxTotalPathCharacters;
         MaxPathCharacters = maxPathCharacters;
         MaxPathSegments = maxPathSegments;
@@ -188,6 +193,7 @@ public sealed record PdbSourceProvenanceLimits
     public int MaxTypes { get; }
     public int MaxAssociations { get; }
     public int MaxMarkerRows { get; }
+    public int MaxTotalChecksumBytes { get; }
     public int MaxTotalPathCharacters { get; }
     public int MaxPathCharacters { get; }
     public int MaxPathSegments { get; }
@@ -201,6 +207,7 @@ public sealed record PdbSourceProvenanceReceipt(
     int MarkerRowCount,
     int PathCharactersExamined,
     int PathSegmentsExamined,
+    int ChecksumBytesExamined,
     int DirectMarkerCount,
     int InheritedMarkerCount,
     int OrdinaryEvidenceOnlyCount,
@@ -412,15 +419,22 @@ public sealed record PdbSourceProvenanceResult
             document.PathCharacterCount);
         int pathSegments = documents.Sum(document =>
             document.PathSegmentCount);
+        int checksumBytes = documents
+            .Select(static document => document.Checksum)
+            .Distinct()
+            .Sum(static checksum => checksum.Length);
         if (directMarkerCount != receipt.DirectMarkerCount
             || inheritedMarkerCount != receipt.InheritedMarkerCount
             || pathCharacters != receipt.PathCharactersExamined
             || pathSegments != receipt.PathSegmentsExamined
+            || checksumBytes != receipt.ChecksumBytesExamined
             || receipt.MarkerRowCount < 0
             || receipt.DocumentCount > receipt.Limits.MaxDocuments
             || receipt.TypeCount > receipt.Limits.MaxTypes
             || receipt.AssociationCount > receipt.Limits.MaxAssociations
             || receipt.MarkerRowCount > receipt.Limits.MaxMarkerRows
+            || receipt.ChecksumBytesExamined
+                > receipt.Limits.MaxTotalChecksumBytes
             || receipt.PathCharactersExamined
                 > receipt.Limits.MaxTotalPathCharacters)
         {
@@ -522,6 +536,7 @@ public enum PdbSourceProvenanceIncompleteReason
     TypeLimitExceeded,
     AssociationLimitExceeded,
     MarkerLimitExceeded,
+    ChecksumByteLimitExceeded,
     TotalPathCharacterLimitExceeded,
 }
 
@@ -668,8 +683,10 @@ public partial class PdbContext
             limits.MaxPathSegments);
         Dictionary<int, MutableDocument> documents = [];
         Dictionary<int, int> documentNameComponentCharacterCounts = [];
+        Dictionary<BlobHandle, ImmutableArray<byte>> checksums = [];
         int pathCharacters = 0;
         int pathSegments = 0;
+        int checksumBytes = 0;
         foreach (DocumentHandle handle in pdb.Documents)
         {
             int rowId = MetadataTokens.GetRowNumber(handle);
@@ -738,7 +755,7 @@ public partial class PdbContext
                     documentPathSegments,
                     document.Hash.IsNil
                         ? []
-                        : [.. pdb.GetBlobBytes(document.Hash)],
+                        : GetChecksum(document.Hash),
                     document.Hash.IsNil
                         ? null
                         : MapHashAlgorithm(
@@ -1030,6 +1047,7 @@ public partial class PdbContext
             markerRows,
             pathCharacters,
             pathSegments,
+            checksumBytes,
             directMarkerCount,
             inheritedMarkerCount,
             detachedTypes.Count(static row =>
@@ -1058,6 +1076,35 @@ public partial class PdbContext
                     limits.MaxMarkerRows,
                     "generation marker rows");
             }
+        }
+
+        ImmutableArray<byte> GetChecksum(BlobHandle handle)
+        {
+            if (checksums.TryGetValue(handle, out ImmutableArray<byte> checksum))
+                return checksum;
+
+            int length = pdb.GetBlobReader(handle).Length;
+            if (length > limits.MaxTotalChecksumBytes - checksumBytes)
+            {
+                throw Limit(
+                    PdbSourceProvenanceIncompleteReason
+                        .ChecksumByteLimitExceeded,
+                    limits.MaxTotalChecksumBytes == int.MaxValue
+                        ? int.MaxValue
+                        : limits.MaxTotalChecksumBytes + 1,
+                    limits.MaxTotalChecksumBytes,
+                    "unique document checksum bytes");
+            }
+            checksumBytes += length;
+            byte[] bytes = pdb.GetBlobBytes(handle);
+            if (bytes.Length != length)
+            {
+                throw new BadImageFormatException(
+                    "A Portable PDB document checksum changed length while it was decoded.");
+            }
+            checksum = ImmutableCollectionsMarshal.AsImmutableArray(bytes);
+            checksums.Add(handle, checksum);
+            return checksum;
         }
     }
 

@@ -37,6 +37,8 @@ Console.WriteLine($"types={result.Receipt.TypeCount}");
 Console.WriteLine($"associations={result.Receipt.AssociationCount}");
 Console.WriteLine($"marker-rows={result.Receipt.MarkerRowCount}");
 Console.WriteLine(
+    $"checksum-bytes={result.Receipt.ChecksumBytesExamined}");
+Console.WriteLine(
     $"ordinary-evidence-only="
     + result.Receipt.OrdinaryEvidenceOnlyCount);
 Console.WriteLine(

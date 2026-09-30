@@ -299,6 +299,9 @@ public class PdbSourceProvenanceTests
             new(maxMarkerRows: 1),
             PdbSourceProvenanceIncompleteReason.MarkerLimitExceeded);
         AssertIncomplete(
+            new(maxTotalChecksumBytes: 1),
+            PdbSourceProvenanceIncompleteReason.ChecksumByteLimitExceeded);
+        AssertIncomplete(
             new(maxTotalPathCharacters: 1),
             PdbSourceProvenanceIncompleteReason
                 .TotalPathCharacterLimitExceeded);
@@ -340,6 +343,50 @@ public class PdbSourceProvenanceTests
         Assert.True(
             allocated < 1024 * 1024,
             $"bounded provenance allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void SharedChecksumBlobIsMaterializedOnceAndBounded()
+    {
+        const int checksumLength = 64 * 1024;
+        (byte[] image, byte[] pdb) = BuildMarkerMetadata(
+            documentCount: 512,
+            sharedChecksumLength: checksumLength);
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+        context.LoadPdbFromStream(
+            new MemoryStream(pdb, writable: false));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        PdbSourceProvenanceResult result =
+            Assert.IsType<PdbSourceProvenanceOutcome.Available>(
+                context.InspectSourceProvenance(
+                    limits: new(
+                        maxTotalChecksumBytes: checksumLength))).Result;
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        ImmutableArray<byte> checksum = result.Documents[0].Checksum;
+        Assert.Equal(checksumLength, checksum.Length);
+        Assert.All(
+            result.Documents,
+            document => Assert.True(checksum == document.Checksum));
+        Assert.Equal(
+            checksumLength,
+            result.Receipt.ChecksumBytesExamined);
+        Assert.True(
+            allocated < 8L * 1024 * 1024,
+            $"bounded provenance allocated {allocated:N0} bytes");
+
+        var incomplete =
+            Assert.IsType<PdbSourceProvenanceOutcome.Incomplete>(
+                context.InspectSourceProvenance(
+                    limits: new(
+                        maxTotalChecksumBytes: checksumLength - 1)));
+        Assert.Equal(
+            PdbSourceProvenanceIncompleteReason.ChecksumByteLimitExceeded,
+            incomplete.Reason);
     }
 
     [Fact]
@@ -976,7 +1023,9 @@ public class PdbSourceProvenanceTests
         NestingShape nestingShape = NestingShape.OutOfRange,
         int repeatedGeneratedMarkerCount = 2,
         int generatedToolLength = 0,
-        Guid? portablePdbGuid = null)
+        Guid? portablePdbGuid = null,
+        int documentCount = 1,
+        int sharedChecksumLength = 0)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1220,20 +1269,40 @@ public class PdbSourceProvenanceTests
         rowCounts[(int)TableIndex.NestedClass] =
             nestingShape == NestingShape.Missing ? 0 : 1;
         var pdbMetadata = new MetadataBuilder();
-        BlobHandle documentName =
-            repeatedDocumentNameComponent is null
-                ? pdbMetadata.GetOrAddDocumentName(documentPath)
-                : AddRepeatedDocumentName(
-                    pdbMetadata,
-                    repeatedDocumentNameComponent,
-                    repeatedDocumentNameComponentCount,
-                    appendInvalidDocumentNameComponent,
-                    documentNameSeparator);
-        DocumentHandle document = pdbMetadata.AddDocument(
-            documentName,
-            default,
-            default,
-            default);
+        GuidHandle checksumAlgorithm =
+            sharedChecksumLength == 0
+                ? default
+                : pdbMetadata.GetOrAddGuid(
+                    new Guid(
+                        "8829D00F-11B8-4213-878B-770E8597AC16"));
+        BlobHandle checksum =
+            sharedChecksumLength == 0
+                ? default
+                : pdbMetadata.GetOrAddBlob(
+                    new byte[sharedChecksumLength]);
+        DocumentHandle document = default;
+        for (int index = 0; index < documentCount; index++)
+        {
+            BlobHandle documentName =
+                repeatedDocumentNameComponent is null
+                    ? pdbMetadata.GetOrAddDocumentName(
+                        documentCount == 1
+                            ? documentPath
+                            : $"{documentPath}/{index}")
+                    : AddRepeatedDocumentName(
+                        pdbMetadata,
+                        repeatedDocumentNameComponent,
+                        repeatedDocumentNameComponentCount,
+                        appendInvalidDocumentNameComponent,
+                        documentNameSeparator);
+            DocumentHandle added = pdbMetadata.AddDocument(
+                documentName,
+                checksumAlgorithm,
+                checksum,
+                default);
+            if (index == 0)
+                document = added;
+        }
         GuidHandle embeddedSource = pdbMetadata.GetOrAddGuid(
             new Guid("0E8A571B-6926-466E-B4AD-8AB04611F5FE"));
         BlobHandle embeddedValue = pdbMetadata.GetOrAddBlob(
