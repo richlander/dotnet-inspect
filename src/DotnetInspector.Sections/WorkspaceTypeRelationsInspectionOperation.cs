@@ -129,7 +129,7 @@ public static class WorkspaceTypeRelationsInspectionOperation
             && !appliesRowSelection;
         WorkspaceTypeHierarchyRelationExecutionPlan executionPlan =
             producerShapesRows && count is null
-                ? WorkspaceTypeHierarchyRelationExecutionPlan.ForwardRows(
+                ? WorkspaceTypeHierarchyRelationExecutionPlan.RowsSegment(
                     producerStart,
                     rows!.MaximumRows)
                 : WorkspaceTypeHierarchyRelationExecutionPlan.Exhaustive(
@@ -211,6 +211,15 @@ public static class WorkspaceTypeRelationsInspectionOperation
                 .. selection.RowSets.SelectMany(
                     static set => set.Values),
             ];
+            if (rows is not null
+                && candidates.Length > rows.MaximumRows)
+            {
+                throw new ArgumentException(
+                    "Subject Relations semantic row selection cannot be "
+                        + "combined with a Rows bound that would require "
+                        + "producer continuation.",
+                    nameof(rowSelection));
+            }
         }
 
         SubjectRelationPopulationCountOutcome? countOutcome =
@@ -389,13 +398,16 @@ public static class WorkspaceTypeRelationsInspectionOperation
         OrderCandidates(
             ImmutableArray<WorkspaceTypeRelationCandidateRow> candidates) =>
         [
-            .. CandidateForms(null)
-                .SelectMany(form =>
-                    candidates
-                        .Where(candidate => candidate.Form == form)
-                        .OrderBy(
-                            CandidateName,
-                            StringComparer.Ordinal)),
+            .. candidates
+                .OrderBy(
+                    static candidate =>
+                        WorkspaceTypeHierarchyRelationOrdering.FormRank(
+                            candidate.Form))
+                .ThenBy(
+                    static candidate =>
+                        WorkspaceTypeHierarchyRelationOrdering.CandidateName(
+                            candidate.Candidate),
+                    StringComparer.Ordinal),
         ];
 
     private static RowsCohortSequence<
@@ -431,12 +443,6 @@ public static class WorkspaceTypeRelationsInspectionOperation
             yield return SubjectRelationForm.BaseType;
         }
     }
-
-    private static string CandidateName(
-        WorkspaceTypeRelationCandidateRow candidate) =>
-        MetadataTypeNameFormatter.FormatFullName(
-            ((InspectionGraphTypeIdentity.AcquiredDefinition)
-                candidate.Candidate.Identity).Type);
 
     private static bool CanUseProducerCandidatePopulation(
         SubjectRelationPopulationSelection selection)

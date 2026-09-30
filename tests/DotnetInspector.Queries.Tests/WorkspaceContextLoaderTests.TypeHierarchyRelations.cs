@@ -307,7 +307,86 @@ public sealed partial class WorkspaceContextLoaderTests
     }
 
     [Fact]
-    public async Task TypeHierarchyRelations_StopOnlyAfterExactCorrespondence()
+    public async Task
+        TypeHierarchyRelations_PreserveFailedContextCoverageWithUsefulRows()
+    {
+        const string AssemblyName = "PartialRelations";
+        byte[] healthyImage = LocatorImage(
+            AssemblyName,
+            metadata =>
+            {
+                TypeDefinitionHandle contract =
+                    LocatorDefinition(
+                        metadata,
+                        "N",
+                        "IContract",
+                        TypeAttributes.Public
+                            | TypeAttributes.Interface
+                            | TypeAttributes.Abstract);
+                TypeDefinitionHandle implementation =
+                    LocatorDefinition(metadata, "N", "Implementation");
+                metadata.AddInterfaceImplementation(
+                    implementation,
+                    contract);
+            });
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationContext healthy =
+            await LocatorContext(workspace, healthyImage);
+        using var client = new HttpClient(new NotFoundHandler());
+        WorkspaceDeclarationContext failed =
+            await WorkspaceContextLoader.LoadDeclarationContextAsync(
+                workspace,
+                new()
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package(
+                            "missing.package",
+                            Version),
+                    ],
+                },
+                Options(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken);
+        WorkspaceDeclarationPopulation population =
+            CaptureDeclarations(workspace, healthy, failed);
+        WorkspaceDeclarationMember healthyMember = Assert.Single(
+            population.Receipt.Members);
+
+        WorkspaceTypeHierarchyRelationsResult result =
+            WorkspaceTypeHierarchyRelationsQuery.Execute(
+                workspace,
+                population,
+                new(
+                    healthyMember.AssemblyIdentity,
+                    healthyMember.Occurrence,
+                    LocatorName("N", "IContract")),
+                form: SubjectRelationForm.Interface,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Single(result.Rows);
+        Assert.Equal(1, result.CandidateCount);
+        Assert.False(result.Evidence.IsComplete);
+        Assert.True(result.Evidence.HasUsableRows);
+        SubjectRelationProducerOutcome metadata = Assert.Single(
+            result.Evidence.Producers,
+            producer => ReferenceEquals(
+                producer.Producer,
+                MetadataRelationGraphAdapter.HierarchyQuery));
+        Assert.Equal(
+            SubjectRelationProducerDisposition.Partial,
+            metadata.Disposition);
+        Assert.Contains(
+            metadata.Diagnostics,
+            diagnostic => ReferenceEquals(
+                diagnostic.Evidence,
+                failed.Receipt));
+    }
+
+    [Fact]
+    public async Task
+        TypeHierarchyRelations_GloballyOrderBeforeSegmenting()
     {
         const string ContractAssembly = "ForwardRows.Contracts";
         byte[] contracts = LocatorImage(
@@ -322,9 +401,9 @@ public sealed partial class WorkspaceContextLoaderTests
                         | TypeAttributes.Abstract));
         byte[][] candidates =
         [
-            Candidate("ForwardRows.First", "First"),
-            Candidate("ForwardRows.Second", "Second"),
-            Candidate("ForwardRows.Third", "Third"),
+            Candidate("ForwardRows.Zulu", "Zulu"),
+            Candidate("ForwardRows.Alpha", "Alpha"),
+            Candidate("ForwardRows.Beta", "Beta"),
         ];
         await using var workspace = new InspectionWorkspace();
         WorkspaceDeclarationPopulation population =
@@ -336,12 +415,7 @@ public sealed partial class WorkspaceContextLoaderTests
         WorkspaceDeclarationMember contractMember = Assert.Single(
             population.Receipt.Members,
             member => member.AssemblyIdentity.Name == ContractAssembly);
-        var plan =
-            WorkspaceTypeHierarchyRelationExecutionPlan.ForwardRows(
-                startOrdinal: 0,
-                maximumRows: 1);
-
-        WorkspaceTypeHierarchyRelationsResult result =
+        WorkspaceTypeHierarchyRelationsResult all =
             WorkspaceTypeHierarchyRelationsQuery.Execute(
                 workspace,
                 population,
@@ -350,26 +424,59 @@ public sealed partial class WorkspaceContextLoaderTests
                     contractMember.Occurrence,
                     LocatorName("N", "IContract")),
                 form: SubjectRelationForm.Interface,
-                executionPlan: plan,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        WorkspaceTypeHierarchyRelationsResult first =
+            WorkspaceTypeHierarchyRelationsQuery.Execute(
+                workspace,
+                population,
+                new(
+                    contractMember.AssemblyIdentity,
+                    contractMember.Occurrence,
+                    LocatorName("N", "IContract")),
+                form: SubjectRelationForm.Interface,
+                executionPlan:
+                    WorkspaceTypeHierarchyRelationExecutionPlan.RowsSegment(
+                        startOrdinal: 0,
+                        maximumRows: 1),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        WorkspaceTypeHierarchyRelationsResult second =
+            WorkspaceTypeHierarchyRelationsQuery.Execute(
+                workspace,
+                population,
+                new(
+                    contractMember.AssemblyIdentity,
+                    contractMember.Occurrence,
+                    LocatorName("N", "IContract")),
+                form: SubjectRelationForm.Interface,
+                executionPlan:
+                    WorkspaceTypeHierarchyRelationExecutionPlan.RowsSegment(
+                        startOrdinal: 1,
+                        maximumRows: 1),
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
-        Assert.Same(plan, result.ExecutionPlan);
-        Assert.False(result.CandidateCountIsComplete);
-        Assert.Equal(2, result.CandidateCount);
-        SubjectRelationRow row = Assert.Single(result.Rows);
-        var source = Assert.IsType<
-            InspectionGraphTypeIdentity.AcquiredDefinition>(
-                Assert.IsType<InspectionGraphSubject.TypeSubject>(
-                    row.Source).Identity);
-        Assert.Equal("N.First", source.Type.ToMetadataFullName());
-        Assert.False(result.Evidence.IsComplete);
-        Assert.True(result.Evidence.IsSatisfied);
-        Assert.All(
-            result.Evidence.Producers,
-            producer => Assert.Equal(
-                SubjectRelationProducerDisposition.Stopped,
-                producer.Disposition));
+        Assert.Equal(
+            ["N.Alpha", "N.Beta", "N.Zulu"],
+            all.Rows.Select(CandidateName));
+        Assert.Equal(
+            "N.Alpha",
+            CandidateName(Assert.Single(first.Rows)));
+        Assert.Equal(
+            "N.Beta",
+            CandidateName(Assert.Single(second.Rows)));
+        Assert.True(first.CandidateCountIsComplete);
+        Assert.Equal(3, first.CandidateCount);
+        Assert.True(first.Evidence.IsComplete);
+
+        static string CandidateName(SubjectRelationRow row) =>
+            Assert.IsType<
+                InspectionGraphTypeIdentity.AcquiredDefinition>(
+                    Assert.IsType<InspectionGraphSubject.TypeSubject>(
+                        row.Source).Identity)
+                .Type
+                .ToMetadataFullName();
 
         static byte[] Candidate(string assemblyName, string typeName) =>
             LocatorImage(

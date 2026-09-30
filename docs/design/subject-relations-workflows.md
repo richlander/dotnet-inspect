@@ -380,16 +380,16 @@ derives a typed forward plan for Exists, Head(N), and supported strict forward
 windows; the result retains that exact plan and reports whether production
 stopped after satisfying it. A zero-finding answer still exhausts the source.
 
-Production Rows derives its typed forward plan from the resolved Subject
-Relations request. It stops only after exact Workspace assembly correspondence
-has established the requested segment plus one lookahead candidate. The
-lookahead proves that a continuation exists without claiming an exact total;
-the producer outcome is `Stopped`, distinct from incomplete or failed work.
-Within one participant, Metadata and correspondence still finish together: a
-Metadata name match alone cannot establish that an identically named target
-belongs to the focused assembly. Exact Count, residual selection, and
-unsupported plan shapes retain exhaustive execution rather than acquiring ad
-hoc source semantics.
+Production Rows derives its typed segment plan from the resolved Subject
+Relations request. It exhausts exact Workspace assembly correspondence and
+orders the complete candidate population by canonical relation form and Type
+name before applying a segment bound. That global ordering keeps continuation
+ordinals stable across page sizes. Within one participant, Metadata and
+correspondence still finish together: a Metadata name match alone cannot
+establish that an identically named target belongs to the focused assembly.
+The analysis scorecard's forward-plan stopping remains separate evidence for
+the shared Metadata analyzer; production composition does not claim that
+optimization while its canonical order requires exhaustive correspondence.
 
 The fast definition matcher is fidelity-bearing for canonical TypeDef, TypeRef,
 and generic TypeSpec shapes emitted by Roslyn. Untrusted and malformed metadata
