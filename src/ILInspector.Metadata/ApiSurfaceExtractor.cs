@@ -1238,11 +1238,18 @@ public static partial class ApiSurfaceExtractor
                     reader,
                     jsonTypeAttributes,
                     observeDecodeWork);
+            apiType.JsonUnmappedMemberHandling =
+                AttributeReader.ReadJsonUnmappedMemberHandling(
+                    reader,
+                    jsonTypeAttributes,
+                    observeDecodeWork);
             apiType.HasUnsupportedJsonWireAttributes =
                 AttributeReader.HasUnsupportedJsonTypeWireAttributes(
                     reader,
                     jsonTypeAttributes,
-                    observeDecodeWork);
+                    observeDecodeWork)
+                || apiType.JsonUnmappedMemberHandling
+                    == JsonWireUnmappedMemberHandling.Unsupported;
             apiType.JsonPolymorphism =
                 AttributeReader.ReadJsonPolymorphism(
                     reader,
@@ -1620,6 +1627,19 @@ public static partial class ApiSurfaceExtractor
                         observeText,
                         observeAttributeMaterialize)
                 };
+
+                if (member.Kind == "constructor")
+                {
+                    SetsRequiredMembersAttributeEvidence evidence =
+                        AttributeReader.ReadSetsRequiredMembersAttributes(
+                            reader,
+                            methodCustomAttributes,
+                            observeAttributeMaterialize);
+                    member.SetsRequiredMembersAttributeCount =
+                        evidence.Count;
+                    member.HasMalformedSetsRequiredMembersAttribute =
+                        evidence.HasMalformedRow;
+                }
 
                 // Check for extension method
                 if (isExtensionMethod)
