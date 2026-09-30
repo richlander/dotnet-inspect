@@ -233,11 +233,13 @@ than an inspected artifact:
   `queryspace-scorecard time [--rounds N] [--budget-ms N] [--tsv <path>]
   <assembly>...` prints the ratios and absolute medians. Time the NativeAOT
   publish, not `dotnet run`.
-- `tools/MemberGroupScorecard` checks and times exact-overload Count and Rows
-  over pinned `System.Text.Json` scenarios. It reports preparation, kernel,
-  and composed costs separately; its answer hashes cover the complete
-  normalized result. Publish it for the target RID and run
-  `membergroup-scorecard <check|time> <System.Text.Json.dll>`.
+- `tools/MemberGroupScorecard` checks and times exact-overload Count and Rows,
+  plus exact Member ordinal and fingerprint selection, over pinned
+  `System.Text.Json` scenarios. It reports preparation, kernel, and composed
+  costs separately; its answer hashes cover the complete normalized result.
+  Publish it for the target RID and run
+  `membergroup-scorecard <check|time|exact-check|exact-time>
+  <System.Text.Json.dll>`.
 
 **The scorecard** scores Old, LINQ, NLinq, and Planner for Exists, Count,
 Head(N), Tail(N), Rows, and Rows(n..m), over one open query on pinned real

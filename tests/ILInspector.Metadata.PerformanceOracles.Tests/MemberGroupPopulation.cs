@@ -61,10 +61,11 @@ public sealed record MemberGroupScorecardResult(
     MemberGroupScorecardCheck Check,
     IReadOnlyList<MemberGroupScorecardCell> Cells);
 
-public static class MemberGroupPopulation
+public static partial class MemberGroupPopulation
 {
     public static IReadOnlyList<MemberGroupScorecardScenario>
-        Scenarios { get; } =
+        Scenarios
+    { get; } =
         [
             new(
                 "Deserialize public/all",
@@ -792,7 +793,8 @@ public static class MemberGroupPopulation
 
         internal MetadataReader Reader { get; }
         internal MetadataMethodSemanticsAssociationResult
-            MethodSemantics { get; }
+            MethodSemantics
+        { get; }
 
         internal static Asset Open(string path)
         {

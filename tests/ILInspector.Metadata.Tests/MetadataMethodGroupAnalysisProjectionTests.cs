@@ -9,6 +9,10 @@ public sealed class MetadataMethodGroupAnalysisProjectionTests
         from terminal in new[] { "Count", "Rows" }
         select new object[] { scenario, terminal };
 
+    public static IEnumerable<object[]> ExactScenarioRows() =>
+        from scenario in MemberGroupPopulation.ExactScenarios
+        select new object[] { scenario };
+
     [Theory]
     [MemberData(nameof(ScenarioRows))]
     public void LinqNlinqAndPlannerProjectTheSameModel(
@@ -41,6 +45,36 @@ public sealed class MetadataMethodGroupAnalysisProjectionTests
         Assert.Equal(scenario.ExpectedCount, oracle.Count);
         AssertAnswer(oracle, linq);
         AssertAnswer(oracle, planner);
+    }
+
+    [Theory]
+    [MemberData(nameof(ExactScenarioRows))]
+    public void LinqNlinqAndPlannerSelectTheSameExactMember(
+        MemberExactScorecardScenario scenario)
+    {
+        string path = typeof(System.Text.Json.JsonSerializer)
+            .Assembly.Location;
+
+        MemberExactProjectionAnswer oracle =
+            MemberGroupPopulation.ExecuteExact(
+                path,
+                scenario,
+                "NLinq");
+        MemberExactProjectionAnswer linq =
+            MemberGroupPopulation.ExecuteExact(
+                path,
+                scenario,
+                "LINQ");
+        MemberExactProjectionAnswer planner =
+            MemberGroupPopulation.ExecuteExact(
+                path,
+                scenario,
+                "Planner");
+
+        Assert.Equal(scenario.ExpectedCount, oracle.PopulationCount);
+        Assert.Equal(scenario.TargetOrdinal, oracle.BaselineOrdinal);
+        Assert.Equal(oracle, linq);
+        Assert.Equal(oracle, planner);
     }
 
     [Fact]
