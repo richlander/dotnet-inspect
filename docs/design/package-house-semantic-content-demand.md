@@ -211,8 +211,9 @@ preserves its independent source authority, limits, and identity checks.
 This boundary has distinct authorities:
 
 - PackageHouse owns package-local companion delivery and its omission receipt.
-- The selected Library's owner-issued assembly reference and Metadata identity
-  checks authorize assembly/PDB correspondence.
+- The selected Library's owner-issued assembly reference is authoritative for
+  which assembly needs symbols; Metadata identity checks admit any PDB before
+  use.
 - `PdbAcquisitionService` owns matching external-PDB acquisition mechanics.
 - Hosts own capability construction, network permission, stores, limits,
   cancellation, and offline/cache-only policy.
@@ -226,8 +227,9 @@ the embedded, adjacent, and external sequence. The target
 [#6512](https://github.com/richlander/dotnet-inspect/issues/6512), consumes
 PackageHouse-supplied Library and PDB content first, owns PDB-use policy and
 authored-source candidate ordering, and invokes PDB acquisition only through
-an explicit host-authorized capability. This design requires that typed
-handoff but does not redefine SourceHouse or PDB-acquisition policy.
+an explicit host-authorized capability. PackageHouse preserves the typed
+handoff that tracker expects; SourceHouse adoption and PDB-acquisition policy
+remain separately owned.
 
 ## Best Library
 
@@ -406,7 +408,6 @@ All implementation gates run in Release.
 | Missing or unmaterialized package-local PDB | The Library remains usable and the exact typed omission is visible; PackageHouse does not consult another symbol source. |
 | Cached package-local PDB | PackageHouse returns the valid retained or entry-cached companion without a package-source request. |
 | Later remote symbol acquisition | It occurs only for a separate authorized downstream PDB/source query after embedded, supplied package-local, and applicable valid store content do not answer it. |
-| SourceHouse adoption | Supplied PackageHouse PDB content is consumed before an explicitly authorized external-PDB capability; hosts do not recreate candidate order. |
 | Namespace in several libraries | The first exact namespace match in file-name-stem and package-path order wins. |
 | Namespace absent | The alphabetically first compatible library wins. |
 | Namesake evidence | Package-ID/file-name equality is reported without opening the assembly and does not alter selection order. |
