@@ -11,6 +11,7 @@ namespace DotnetInspector.Sections;
 
 public sealed record MemberMetricsQueryPlan(
     MemberMetricKind ProjectedMetrics,
+    MemberMetricKind QueryMetrics,
     MemberMetricKind RequestedMetrics,
     QuerySpaceTerminalRequirement Terminal,
     ResolvedRowQueryPlan<MemberMetricsRow> Rows);
@@ -266,6 +267,7 @@ public static class MemberMetricsQuery
                     is QuerySpaceTerminalRequirement.Rows
                         ? projectedMetrics
                         : MemberMetricKind.None,
+                queryMetrics,
                 requested,
                 request.Terminal,
                 rows.Plan!));

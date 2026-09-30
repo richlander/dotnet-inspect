@@ -128,13 +128,19 @@ public sealed record MemberMetricsRow(
     MemberSiblingRelationshipMetric? SiblingRelationships)
 {
     public int? LargestPhysicalIlBytes =>
-        BodySize?.LargestPhysicalIlBytes;
+        BodySize is { State: MemberMetricCellState.Available }
+            ? BodySize.LargestPhysicalIlBytes
+            : null;
 
     public int? IncomingSiblingCallers =>
-        SiblingRelationships?.IncomingSiblingCallers;
+        SiblingRelationships is { IsComplete: true }
+            ? SiblingRelationships.IncomingSiblingCallers
+            : null;
 
     public int? OutgoingSiblingTargets =>
-        SiblingRelationships?.OutgoingSiblingTargets;
+        SiblingRelationships is { IsComplete: true }
+            ? SiblingRelationships.OutgoingSiblingTargets
+            : null;
 }
 
 public sealed record MemberMetricsCoverageReceipt(
@@ -165,8 +171,17 @@ public abstract record MemberMetricsPopulationOutcome
     public sealed record Count(int Value)
         : MemberMetricsPopulationOutcome;
 
-    public sealed record Incomplete(RowWindowFailure Failure)
+    public sealed record Incomplete(
+        MemberMetricsPopulationIncompleteReason Reason,
+        MemberMetricKind RequiredMetrics,
+        RowWindowFailure? RowWindowFailure = null)
         : MemberMetricsPopulationOutcome;
+}
+
+public enum MemberMetricsPopulationIncompleteReason
+{
+    RequiredEvidence,
+    RowSelection,
 }
 
 public sealed record MemberMetricsInspectionContent(

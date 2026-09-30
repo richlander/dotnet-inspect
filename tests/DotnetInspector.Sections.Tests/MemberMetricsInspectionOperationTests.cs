@@ -1,4 +1,8 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
@@ -273,6 +277,57 @@ public sealed class MemberMetricsInspectionOperationTests
     }
 
     [Fact]
+    public async Task
+        CallFailure_DoesNotDowngradeCompletedBodySize()
+    {
+        byte[] image = await Fixture(
+            FixtureCatalog.AnalysisOverloadFamilyLens);
+        ReplaceSecondCallTokenWithInvalidValue(
+            image,
+            "CallHiddenTwice");
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberGroupDocument document =
+            Document(
+                ExecuteDocument(
+                    library,
+                    Subject(
+                        "ILInspector.Analysis.ImplementationProfileFixtures",
+                        "ImplementationProfileSample",
+                        "CallHiddenTwice")));
+
+        MemberMetricsInspectionContent content =
+            Available(
+                MemberMetricsInspectionOperation.Execute(
+                    Request(
+                        library,
+                        document,
+                        MemberMetricKind.All,
+                        MemberMetricKind.All,
+                        RowQueryIntent.Empty,
+                        QuerySpaceTerminalRequirement.Rows),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+        MemberMetricsRow row =
+            Assert.Single(
+                Assert.IsType<
+                    MemberMetricsPopulationOutcome.Rows>(
+                    content.Population)
+                .Items);
+
+        Assert.Equal(
+            MemberMetricCellState.Available,
+            row.BodySize!.State);
+        Assert.True(
+            row.BodySize.LargestPhysicalIlBytes > 0);
+        Assert.False(
+            row.SiblingRelationships!.IsComplete);
+        Assert.NotEmpty(content.Diagnostics);
+    }
+
+    [Fact]
     public async Task TopWithoutExplicitRanking_UsesLargestBodyOrder()
     {
         byte[] image = await Fixture(
@@ -323,6 +378,67 @@ public sealed class MemberMetricsInspectionOperationTests
         Assert.Equal(
             MemberMetricKind.BodySize,
             content.RequestedMetrics);
+    }
+
+    [Fact]
+    public async Task WorkBound_PreventsAuthoritativeTop()
+    {
+        byte[] image = await Fixture(
+            FixtureCatalog.AnalysisOverloadFamilyLens);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberGroupDocument document =
+            Document(
+                ExecuteDocument(
+                    library,
+                    Subject(
+                        "ILInspector.Analysis.OverloadFamilyLensFixtures",
+                        "SiblingDelegationChain",
+                        "Parse")));
+        RowQueryIntent rowIntent =
+            RowQueryIntent.Create(
+                [],
+                baselineOrder: null,
+                RowSelectionIntent<RowQueryOrderIntent>.Create(
+                    [
+                        RowSelectionIntentOperation<
+                            RowQueryOrderIntent>.Top(1),
+                    ]));
+        var limits = new MemberMetricsInspectionLimits(
+            maximumAssemblyBytes: image.Length,
+            new ImplementationMetricWorkLimits(
+                maximumPhysicalBodies: 1,
+                maximumEncodedIlBytes: long.MaxValue,
+                maximumAttributionProbeBodies: 100,
+                maximumAttributionProbeIlBytes: long.MaxValue));
+
+        MemberMetricsInspectionContent content =
+            Available(
+                MemberMetricsInspectionOperation.Execute(
+                    Request(
+                        library,
+                        document,
+                        MemberMetricKind.BodySize,
+                        MemberMetricKind.BodySize,
+                        rowIntent,
+                        QuerySpaceTerminalRequirement.Rows,
+                        limits),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+        MemberMetricsPopulationOutcome.Incomplete incomplete =
+            Assert.IsType<
+                MemberMetricsPopulationOutcome.Incomplete>(
+                content.Population);
+
+        Assert.Equal(
+            MemberMetricsPopulationIncompleteReason.RequiredEvidence,
+            incomplete.Reason);
+        Assert.Equal(
+            MemberMetricKind.BodySize,
+            incomplete.RequiredMetrics);
+        Assert.Null(incomplete.RowWindowFailure);
     }
 
     [Fact]
@@ -443,6 +559,70 @@ public sealed class MemberMetricsInspectionOperationTests
     }
 
     [Fact]
+    public async Task
+        IncompleteRelationshipPredicate_DoesNotPublishCount()
+    {
+        byte[] image = await Fixture(
+            FixtureCatalog.AnalysisOverloadFamilyLens);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberGroupDocument document =
+            Document(
+                ExecuteDocument(
+                    library,
+                    Subject(
+                        "ILInspector.Analysis.OverloadFamilyLensFixtures",
+                        "SiblingDelegationChain",
+                        "Parse")));
+        RowQueryIntent rowIntent =
+            RowQueryIntent.Create(
+                [
+                    new(
+                        MemberMetricsQuery
+                            .IncomingSiblingCallersKey,
+                        RowQueryOperator.Equals,
+                        new("0")),
+                ],
+                baselineOrder: null,
+                RowSelectionIntent<RowQueryOrderIntent>.Empty);
+        var limits = new MemberMetricsInspectionLimits(
+            maximumAssemblyBytes: image.Length,
+            new ImplementationMetricWorkLimits(
+                maximumPhysicalBodies: 1,
+                maximumEncodedIlBytes: long.MaxValue,
+                maximumAttributionProbeBodies: 100,
+                maximumAttributionProbeIlBytes: long.MaxValue));
+
+        MemberMetricsInspectionContent content =
+            Available(
+                MemberMetricsInspectionOperation.Execute(
+                    Request(
+                        library,
+                        document,
+                        MemberMetricKind.SiblingRelationships,
+                        MemberMetricKind.None,
+                        rowIntent,
+                        QuerySpaceTerminalRequirement.Count,
+                        limits),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+        MemberMetricsPopulationOutcome.Incomplete incomplete =
+            Assert.IsType<
+                MemberMetricsPopulationOutcome.Incomplete>(
+                content.Population);
+
+        Assert.Equal(
+            MemberMetricsPopulationIncompleteReason.RequiredEvidence,
+            incomplete.Reason);
+        Assert.Equal(
+            MemberMetricKind.SiblingRelationships,
+            incomplete.RequiredMetrics);
+        Assert.Null(incomplete.RowWindowFailure);
+    }
+
+    [Fact]
     public async Task WorkBound_LeavesUnavailableBodiesIncomplete()
     {
         byte[] image = await Fixture(
@@ -552,7 +732,10 @@ public sealed class MemberMetricsInspectionOperationTests
                     MemberMetricKind.BodySize,
                     MemberMetricKind.BodySize,
                     RowQueryIntent.Empty,
-                    QuerySpaceTerminalRequirement.Rows),
+                    QuerySpaceTerminalRequirement.Rows,
+                    new(
+                        maximumAssemblyBytes: 1,
+                        DefaultLimits().Analysis)),
                 library.IssueOperation(),
                 TestContext.Current.CancellationToken);
 
@@ -604,6 +787,70 @@ public sealed class MemberMetricsInspectionOperationTests
                     MemberMetricsInspectionOutcome.Rejected>(
                     envelope.Content)
                 .Reason);
+    }
+
+    private static void ReplaceSecondCallTokenWithInvalidValue(
+        byte[] image,
+        string methodName)
+    {
+        using var stream = new MemoryStream(
+            image,
+            writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single(handle =>
+                reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    methodName));
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+        MethodBodyBlock body = peReader.GetMethodBody(
+            method.RelativeVirtualAddress);
+        byte[] il = body.GetILBytes()
+            ?? throw new InvalidOperationException(
+                "Expected a managed method body.");
+        int secondCallOffset = il
+            .Select((value, index) => (value, index))
+            .Where(static item => item.value == 0x28)
+            .Select(static item => item.index)
+            .ElementAt(1);
+        int methodOffset = RvaToFileOffset(
+            peReader.PEHeaders,
+            method.RelativeVirtualAddress);
+        int headerSize = (image[methodOffset] & 3) == 2
+            ? 1
+            : ((BinaryPrimitives.ReadUInt16LittleEndian(
+                    image.AsSpan(
+                        methodOffset,
+                        sizeof(ushort)))
+                >> 12)
+                & 0xF) * sizeof(uint);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(
+                methodOffset
+                    + headerSize
+                    + secondCallOffset
+                    + 1,
+                sizeof(int)),
+            0x0AFFFFFF);
+    }
+
+    private static int RvaToFileOffset(
+        PEHeaders headers,
+        int rva)
+    {
+        SectionHeader section =
+            headers.SectionHeaders.Single(header =>
+                rva >= header.VirtualAddress
+                && rva < header.VirtualAddress
+                    + Math.Max(
+                        header.VirtualSize,
+                        header.SizeOfRawData));
+        return checked(
+            rva
+                - section.VirtualAddress
+                + section.PointerToRawData);
     }
 
     private static MemberMetricsInspectionRequest Request(

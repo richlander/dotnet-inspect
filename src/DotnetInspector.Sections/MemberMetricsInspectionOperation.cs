@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Libraries;
 using ILInspector.Analysis;
@@ -93,14 +94,35 @@ public static class MemberMetricsInspectionOperation
             {
                 snapshot = lease.Snapshot(
                     implementation,
-                    request.Limits.MaximumAssemblyBytes,
-                    static (view, limit, token) =>
-                        Snapshot(view, limit, token),
+                    new SnapshotRequest(
+                        request.Limits.MaximumAssemblyBytes,
+                        binding),
+                    static (view, state, token) =>
+                        Snapshot(view, state, token),
                     cancellationToken);
             }
             catch (OperationCanceledException)
             {
                 throw;
+            }
+            catch (UnsupportedMetadataFormatException exception)
+            {
+                return Failed(
+                    MemberMetricsInspectionFailure
+                        .UnsupportedWindowsMetadata,
+                    exception);
+            }
+            catch (MalformedMetadataRootException exception)
+            {
+                return Failed(
+                    MemberMetricsInspectionFailure.MalformedMetadata,
+                    exception);
+            }
+            catch (BadImageFormatException exception)
+            {
+                return Failed(
+                    MemberMetricsInspectionFailure.MalformedMetadata,
+                    exception);
             }
             catch (Exception exception) when (
                 exception is ObjectDisposedException
@@ -112,6 +134,14 @@ public static class MemberMetricsInspectionOperation
                     exception);
             }
 
+            if (snapshot is SnapshotOutcome.Rejected rejected)
+                return Rejected(rejected.Reason);
+            if (snapshot is SnapshotOutcome.Failed failed)
+            {
+                return Failed(
+                    failed.Reason,
+                    failed.Message);
+            }
             if (snapshot is SnapshotOutcome.Incomplete incomplete)
             {
                 return Incomplete(
@@ -315,23 +345,44 @@ public static class MemberMetricsInspectionOperation
 
         ImmutableArray<MemberMetricsRow> completeRows =
             rows.MoveToImmutable();
-        RowSelectionResult<MemberMetricsRow> selected =
-            RowQueryExecutor.Apply(
+        MemberMetricKind incompleteRequiredMetrics =
+            IncompleteRequiredMetrics(
                 completeRows,
-                plan.Rows);
-        MemberMetricsPopulationOutcome population =
-            !selected.IsSuccess
-                ? new MemberMetricsPopulationOutcome.Incomplete(
-                    selected.Failure!)
-                : plan.Terminal
-                    is QuerySpaceTerminalRequirement.Count
-                        ? new MemberMetricsPopulationOutcome.Count(
-                            selected.Values.Count)
-                        : new MemberMetricsPopulationOutcome.Rows(
-                        [
-                            .. selected.Values.Select(row =>
-                                Project(row, plan.ProjectedMetrics)),
-                        ]);
+                plan.QueryMetrics);
+        MemberMetricsPopulationOutcome population;
+        if (incompleteRequiredMetrics != MemberMetricKind.None)
+        {
+            population =
+                new MemberMetricsPopulationOutcome.Incomplete(
+                    MemberMetricsPopulationIncompleteReason
+                        .RequiredEvidence,
+                    incompleteRequiredMetrics);
+        }
+        else
+        {
+            RowSelectionResult<MemberMetricsRow> selected =
+                RowQueryExecutor.Apply(
+                    completeRows,
+                    plan.Rows);
+            population =
+                !selected.IsSuccess
+                    ? new MemberMetricsPopulationOutcome.Incomplete(
+                        MemberMetricsPopulationIncompleteReason
+                            .RowSelection,
+                        MemberMetricKind.None,
+                        selected.Failure!)
+                    : plan.Terminal
+                        is QuerySpaceTerminalRequirement.Count
+                            ? new MemberMetricsPopulationOutcome.Count(
+                                selected.Values.Count)
+                            : new MemberMetricsPopulationOutcome.Rows(
+                            [
+                                .. selected.Values.Select(row =>
+                                    Project(
+                                        row,
+                                        plan.ProjectedMetrics)),
+                            ]);
+        }
         MemberMetricsCoverageReceipt coverage =
             Coverage(
                 completeRows,
@@ -353,6 +404,30 @@ public static class MemberMetricsInspectionOperation
                 SharePath,
                 ShareReason),
             Diagnostics(metrics.Diagnostics));
+    }
+
+    private static MemberMetricKind IncompleteRequiredMetrics(
+        ImmutableArray<MemberMetricsRow> rows,
+        MemberMetricKind requiredMetrics)
+    {
+        MemberMetricKind incomplete =
+            MemberMetricKind.None;
+        if (requiredMetrics.HasFlag(MemberMetricKind.BodySize)
+            && rows.Any(static row =>
+                row.BodySize is not { IsComplete: true }))
+        {
+            incomplete |= MemberMetricKind.BodySize;
+        }
+        if (requiredMetrics.HasFlag(
+                MemberMetricKind.SiblingRelationships)
+            && rows.Any(static row =>
+                row.SiblingRelationships
+                    is not { IsComplete: true }))
+        {
+            incomplete |=
+                MemberMetricKind.SiblingRelationships;
+        }
+        return incomplete;
     }
 
     private static MemberBodySizeMetric BodySize(
@@ -388,15 +463,13 @@ public static class MemberMetricsInspectionOperation
         {
             state = MemberMetricCellState.Incomplete;
         }
-        else if (!diagnostics.IsEmpty)
-        {
-            state = physical.IsEmpty
-                ? MemberMetricCellState.Failed
-                : MemberMetricCellState.Incomplete;
-        }
         else if (!physical.IsEmpty)
         {
             state = MemberMetricCellState.Available;
+        }
+        else if (!diagnostics.IsEmpty)
+        {
+            state = MemberMetricCellState.Failed;
         }
         else if (!managedTokens.Contains(overload.MetadataToken)
             && bodies.IsEmpty
@@ -534,19 +607,69 @@ public static class MemberMetricsInspectionOperation
 
     private static SnapshotOutcome Snapshot(
         scoped LibraryContentView view,
-        long maximumAssemblyBytes,
+        SnapshotRequest request,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (view.Content.Length > maximumAssemblyBytes)
+        SnapshotOutcome identity =
+            view.UseReadStream(
+                stream => ValidateSnapshotIdentity(
+                    stream,
+                    request.Binding));
+        if (identity is not SnapshotOutcome.IdentityReady)
+            return identity;
+        if (view.Content.Length > request.MaximumAssemblyBytes)
         {
             return new SnapshotOutcome.Incomplete(
-                maximumAssemblyBytes,
+                request.MaximumAssemblyBytes,
                 view.Content.Length);
         }
         return new SnapshotOutcome.Ready(
             ImmutableArray.CreateRange(
                 view.Content.ToArray()));
+    }
+
+    private static SnapshotOutcome ValidateSnapshotIdentity(
+        Stream stream,
+        MemberOverloadPopulationBinding binding)
+    {
+        using var peReader = new PEReader(
+            stream,
+            PEStreamOptions.LeaveOpen);
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
+        {
+            return new SnapshotOutcome.Failed(
+                MemberMetricsInspectionFailure.NotManagedAssembly,
+                "The Library implementation image has no managed metadata.");
+        }
+        MetadataReader reader = peReader.GetMetadataReader();
+        if (!reader.IsAssembly)
+        {
+            return new SnapshotOutcome.Failed(
+                MemberMetricsInspectionFailure.ManagedModule,
+                "Member metrics require a managed assembly manifest.");
+        }
+        AssemblyReferenceIdentity actual =
+            AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+        if (!Matches(actual, binding.Assembly))
+        {
+            return new SnapshotOutcome.Rejected(
+                MemberMetricsInspectionRejection
+                    .AssemblyIdentityMismatch);
+        }
+        Guid moduleVersionId =
+            reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        if (moduleVersionId == Guid.Empty)
+        {
+            return new SnapshotOutcome.Failed(
+                MemberMetricsInspectionFailure.MalformedMetadata,
+                "The Library implementation image has an empty MVID.");
+        }
+        return moduleVersionId == binding.ModuleVersionId
+            ? new SnapshotOutcome.IdentityReady()
+            : new SnapshotOutcome.Rejected(
+                MemberMetricsInspectionRejection
+                    .StalePopulationBinding);
     }
 
     private static bool Matches(
@@ -690,11 +813,26 @@ public static class MemberMetricsInspectionOperation
             ImmutableArray<byte> Content)
             : SnapshotOutcome;
 
+        internal sealed record IdentityReady : SnapshotOutcome;
+
         internal sealed record Incomplete(
             long Limit,
             long Measured)
             : SnapshotOutcome;
+
+        internal sealed record Rejected(
+            MemberMetricsInspectionRejection Reason)
+            : SnapshotOutcome;
+
+        internal sealed record Failed(
+            MemberMetricsInspectionFailure Reason,
+            string Message)
+            : SnapshotOutcome;
     }
+
+    private sealed record SnapshotRequest(
+        long MaximumAssemblyBytes,
+        MemberOverloadPopulationBinding Binding);
 
     private sealed record PopulationValidation(
         ImmutableArray<MemberOverloadShape> Rows,
