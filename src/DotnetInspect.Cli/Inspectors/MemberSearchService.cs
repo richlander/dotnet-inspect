@@ -28,10 +28,49 @@ internal static class MemberSearchService
         IReadOnlyList<string> patterns,
         VerboseLogger logger,
         HttpClient httpClient,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        PlatformFindSearchWorkspace? platformWorkspace = null)
     {
         bool hasFailures = false;
         void MarkFailure() => hasFailures = true;
+        if (platformWorkspace is not null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            List<MemberFindResult> platformResults = [];
+            int? operationalLimit =
+                options.TypeFilter is null
+                    ? options.Limit
+                    : null;
+            AssemblyContextResult<AssemblyMemberMatches> queryResult =
+                platformWorkspace.QueryMembers(
+                    patterns,
+                    options.IncludeAll,
+                    operationalLimit);
+            foreach (AssemblyContextEntry<AssemblyMemberMatches> entry
+                in queryResult.Assemblies)
+            {
+                AddMembers(
+                    platformResults,
+                    options.TypeFilter,
+                    platformWorkspace.SourceFor(entry.Subject),
+                    entry,
+                    logger,
+                    MarkFailure);
+            }
+            if (options.Limit.HasValue
+                && platformResults.Count > options.Limit.Value)
+            {
+                platformResults =
+                    platformResults.Take(options.Limit.Value).ToList();
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            return new(platformResults, hasFailures)
+            {
+                SourceSelectionIncomplete =
+                    options.PackagePrefixLimitReached,
+            };
+        }
+
         AssemblySetRequest request =
             FindSourceCollector.BuildFindRequest(options);
         if (ConfiguredPackageSearchWorkspace.IsEligible(

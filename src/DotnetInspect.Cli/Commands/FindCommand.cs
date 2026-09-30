@@ -76,14 +76,19 @@ public class FindCommand
                 return new(1, RowCount: null);
             }
 
-            if (!options.HasAnyScope)
+            PlatformFindSearchWorkspace? platformWorkspace = null;
+            if (options.UsesImplicitPlatform)
             {
-                logger.Log("No scope specified, defaulting to all platform frameworks");
-                options = options with
-                {
-                    PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames
-                };
+                logger.Log(
+                    "No scope specified, defaulting to the platform Workspace");
+                platformWorkspace =
+                    await PlatformFindSearchWorkspace.OpenAsync(
+                        options,
+                        context,
+                        cancellationToken);
             }
+            await using PlatformFindSearchWorkspace? platformWorkspaceLifetime =
+                platformWorkspace;
 
             if (options.Members)
             {
@@ -93,7 +98,8 @@ public class FindCommand
                     rowSelection,
                     logger,
                     context.HttpClient,
-                    cancellationToken);
+                    cancellationToken,
+                    platformWorkspace);
             }
 
             FindSearchResult<TypeFindResult> search =
@@ -103,7 +109,8 @@ public class FindCommand
                     logger,
                     context.HttpClient,
                     cancellationToken,
-                    context);
+                    context,
+                    platformWorkspace);
             FindSearchResult<MemberFindResult>? memberTier =
                 await FindBroadenedMembersAsync(
                     options,
@@ -111,7 +118,8 @@ public class FindCommand
                     search.Rows,
                     logger,
                     context.HttpClient,
-                    cancellationToken);
+                    cancellationToken,
+                    platformWorkspace);
             List<MemberFindResult> members = memberTier?.Rows ?? [];
             List<TypeFindResult> results =
                 WithoutSupersededWeakRows(search.Rows, members);
@@ -214,7 +222,8 @@ public class FindCommand
             List<TypeFindResult> typeRows,
             VerboseLogger logger,
             HttpClient httpClient,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            PlatformFindSearchWorkspace? platformWorkspace)
     {
         HashSet<string> settled = new(
             typeRows
@@ -239,7 +248,8 @@ public class FindCommand
             memberPatterns,
             logger,
             httpClient,
-            cancellationToken);
+            cancellationToken,
+            platformWorkspace);
     }
 
     /// <summary>
@@ -355,7 +365,8 @@ public class FindCommand
         RowSelectionIntent<string>? rowSelection,
         VerboseLogger logger,
         HttpClient httpClient,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PlatformFindSearchWorkspace? platformWorkspace)
     {
         // Strip the leading '.' sentinel from each segment so ".Serialize" and "Serialize" both search
         // the member named "Serialize". ".ctor"/".cctor" are preserved (they are real member names).
@@ -376,7 +387,8 @@ public class FindCommand
                 memberPatterns,
                 logger,
                 httpClient,
-                cancellationToken);
+                cancellationToken,
+                platformWorkspace);
         List<MemberFindResult> results = search.Rows;
         int observedRowCount = results.Count;
         if (!TrySelectRows(
