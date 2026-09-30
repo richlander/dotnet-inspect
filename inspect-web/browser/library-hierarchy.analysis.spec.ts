@@ -306,6 +306,37 @@ test("ranked Analysis members replace sticky private Type population intent", as
   );
 });
 
+test("ranked Analysis activation does not outlive newer metadata spelling", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await page.evaluate(() => {
+    document.documentElement.dataset.typeMemberPopulationGate = "closed";
+  });
+
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"csharp","public"\]$/,
+  );
+  await page.locator("#member-filter-summary").click();
+  await page.locator('[data-member-spelling="metadata"]').click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"metadata","public"\]$/,
+  );
+
+  await page.evaluate(() => {
+    document.documentElement.dataset.typeMemberPopulationGate = "open";
+    document.dispatchEvent(new Event("finish-type-member-population"));
+  });
+
+  await expect(page.locator('[data-member-spelling="metadata"]'))
+    .toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Members");
+});
+
 test("different family navigation leaves exact Facts for the shared document", async ({
   page,
 }) => {

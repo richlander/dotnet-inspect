@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -114,6 +116,14 @@ public static class ApiMemberAccessors
             "remove" => owner.RemoverAccessibility,
             _ => null,
         };
+        MethodAttributes? physicalMethodAccess = accessorKind switch
+        {
+            "get" => owner.GetterPhysicalMethodAccess,
+            "set" or "init" => owner.SetterPhysicalMethodAccess,
+            "add" => owner.AdderPhysicalMethodAccess,
+            "remove" => owner.RemoverPhysicalMethodAccess,
+            _ => null,
+        };
         string? accessibility =
             physicalAccessibility
             ?? (string.IsNullOrEmpty(accessorEntry?.Accessibility)
@@ -189,6 +199,7 @@ public static class ApiMemberAccessors
             MethodImplementation = implementation,
             HasMethodBody = accessorHasBody,
             Accessibility = accessibility,
+            PhysicalMethodAccess = physicalMethodAccess,
             Documentation = owner.Documentation,
         };
     }

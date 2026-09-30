@@ -826,6 +826,29 @@ test("Library Enter loads the selected Type member population", async ({
     .toContainText("| 1");
 });
 
+test("Type-only history restores its member population", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]',
+  ).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"Example.Widget","csharp","public"\]$/,
+  );
+  await page.reload();
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"Example.Widget","csharp","public"\]$/,
+  );
+  await page.locator("#member-filter-summary").click();
+  await expect(page.locator('[data-member-access-filter="public"]'))
+    .toContainText("| 1");
+});
+
 for (const width of [900, 390]) {
   test(`Library navigation commits aggregate and exact subjects at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

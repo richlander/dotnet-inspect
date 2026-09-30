@@ -1090,6 +1090,15 @@ async function installFacades(
           diagnostics: [],
         };
       }
+      async function waitForTypeMemberPopulationGate() {
+        if (document.documentElement.dataset.typeMemberPopulationGate !== "closed")
+          return;
+        await new Promise(resolve =>
+          document.addEventListener(
+            "finish-type-member-population",
+            resolve,
+            { once: true }));
+      }
       export async function queryTypeMemberPopulation(
         id, version, framework, assembly, typeIdentity, spelling, accessibility) {
         document.documentElement.dataset.typeMemberPopulationRequest =
@@ -1097,6 +1106,7 @@ async function installFacades(
             id, version, framework, assembly, typeIdentity, spelling,
             accessibility,
           ]);
+        await waitForTypeMemberPopulationGate();
         return typeMemberPopulation(
           surfaceFor(id, version, framework),
           typeIdentity,
@@ -1110,6 +1120,7 @@ async function installFacades(
             framework, version, assembly, pack, typeIdentity, spelling,
             accessibility,
           ]);
+        await waitForTypeMemberPopulationGate();
         return typeMemberPopulation(
           surfaceFor("Microsoft.NETCore.App", version, framework),
           typeIdentity,
@@ -1123,6 +1134,7 @@ async function installFacades(
             declaredName, content.length, typeIdentity, spelling,
             accessibility,
           ]);
+        await waitForTypeMemberPopulationGate();
         return typeMemberPopulation(
           surfaces[0],
           typeIdentity,

@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -45,6 +47,12 @@ public static class ApiTypeMemberPopulationProjection
             Add(member);
             foreach (ApiMember accessor in accessors)
             {
+                if (accessor.PhysicalMethodAccess is { } physicalAccess)
+                {
+                    accessor.Accessibility =
+                        ApiSurfaceExtractor.GetPopulationAccessibility(
+                            physicalAccess);
+                }
                 accessor.Kind = "method";
                 Add(accessor);
             }
@@ -73,14 +81,22 @@ public static class ApiTypeMemberPopulationProjection
         IEnumerable<string?> accessibilities = member.Kind switch
         {
             "property" =>
-                Present(member.GetterToken, member.GetterAccessibility)
+                Present(
+                    member.GetterToken,
+                    member.GetterPhysicalMethodAccess,
+                    member.GetterAccessibility)
                     .Concat(Present(
                         member.SetterToken,
+                        member.SetterPhysicalMethodAccess,
                         member.SetterAccessibility)),
             "event" =>
-                Present(member.AdderToken, member.AdderAccessibility)
+                Present(
+                    member.AdderToken,
+                    member.AdderPhysicalMethodAccess,
+                    member.AdderAccessibility)
                     .Concat(Present(
                         member.RemoverToken,
+                        member.RemoverPhysicalMethodAccess,
                         member.RemoverAccessibility)),
             _ => [],
         };
@@ -95,10 +111,17 @@ public static class ApiTypeMemberPopulationProjection
         return joined;
     }
 
-    static IEnumerable<string?> Present(int? token, string? accessibility)
+    static IEnumerable<string?> Present(
+        int? token,
+        MethodAttributes? physicalAccess,
+        string? accessibility)
     {
         if (token is not null)
-            yield return accessibility;
+        {
+            yield return physicalAccess is { } access
+                ? ApiSurfaceExtractor.GetPopulationAccessibility(access)
+                : accessibility;
+        }
     }
 
     static string? Join(string? left, string? right)

@@ -905,6 +905,12 @@ test("Type transitions load the current lens selection after rendering", () => {
     /onTypeLensSelect:[\s\S]*?state\.lens = lens;[\s\S]*?render\(\);\s*loadCurrentTypeApiData\(\)/);
   assert.match(
     appSource,
+    /if \(!state\.atPackageRoot && !state\.atLibraryRoot && type\) \{\s*loadCurrentSelectionData\("Restoring a Type from navigation history"\);/);
+  assert.match(
+    appSource,
+    /async function activatePlatformForwarder[\s\S]*showContentDetailAfterRender\(\);\s*render\(\);\s*loadCurrentSelectionData\("Loading the forwarded Type"\)/);
+  assert.match(
+    appSource,
     /function loadCurrentTypeApiData\(\): void \{\s*if \(state\.lens === "api"\) \{\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
 });
 

@@ -1886,6 +1886,11 @@ public static partial class ApiSurfaceExtractor
                             reader.GetMethodDefinition(accessors.Getter)
                                 .Attributes
                                 & MethodAttributes.MemberAccessMask),
+                    GetterPhysicalMethodAccess = accessors.Getter.IsNil
+                        ? null
+                        : reader.GetMethodDefinition(accessors.Getter)
+                            .Attributes
+                            & MethodAttributes.MemberAccessMask,
                     GetterIsHidden = !accessors.Getter.IsNil
                         && IsHiddenMethod(
                             reader,
@@ -1901,6 +1906,11 @@ public static partial class ApiSurfaceExtractor
                             reader.GetMethodDefinition(accessors.Setter)
                                 .Attributes
                                 & MethodAttributes.MemberAccessMask),
+                    SetterPhysicalMethodAccess = accessors.Setter.IsNil
+                        ? null
+                        : reader.GetMethodDefinition(accessors.Setter)
+                            .Attributes
+                            & MethodAttributes.MemberAccessMask,
                     SetterIsHidden = !accessors.Setter.IsNil
                         && IsHiddenMethod(
                             reader,
@@ -2365,12 +2375,22 @@ public static partial class ApiSurfaceExtractor
                             reader.GetMethodDefinition(accessors.Adder)
                                 .Attributes
                                 & MethodAttributes.MemberAccessMask),
+                    AdderPhysicalMethodAccess = accessors.Adder.IsNil
+                        ? null
+                        : reader.GetMethodDefinition(accessors.Adder)
+                            .Attributes
+                            & MethodAttributes.MemberAccessMask,
                     RemoverAccessibility = accessors.Remover.IsNil
                         ? null
                         : GetAccessibility(
                             reader.GetMethodDefinition(accessors.Remover)
                                 .Attributes
                                 & MethodAttributes.MemberAccessMask),
+                    RemoverPhysicalMethodAccess = accessors.Remover.IsNil
+                        ? null
+                        : reader.GetMethodDefinition(accessors.Remover)
+                            .Attributes
+                            & MethodAttributes.MemberAccessMask,
                     AdderIsHidden = !accessors.Adder.IsNil
                         && IsHiddenMethod(
                             reader,

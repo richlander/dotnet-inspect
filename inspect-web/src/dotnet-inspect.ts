@@ -3967,6 +3967,9 @@ function applyView(view: WorkspaceView) {
     loadCurrentSelectionData("Restoring a Member from navigation history");
   } else {
     render();
+    if (!state.atPackageRoot && !state.atLibraryRoot && type) {
+      loadCurrentSelectionData("Restoring a Type from navigation history");
+    }
   }
   return true;
 }
@@ -5143,6 +5146,7 @@ async function activatePlatformForwarder(row: BrowserPlatformForwarderRow) {
     resetMemberFilters();
     showContentDetailAfterRender();
     render();
+    loadCurrentSelectionData("Loading the forwarded Type");
     afterNavigationFrame(navigationSeq, () => {
       if (focusGeneration === documentFocusGeneration) focusLevelOneHeading();
     });
@@ -9937,19 +9941,32 @@ function drillToPerfMember(
   state.typeCursor = filteredTypeRows().findIndex(candidate => candidate.id === targetType.id);
   render();
   const expectedView = viewSignature();
+  const expectedPopulationKey = typeMemberPopulationKey(targetType);
+  const expectedPopulationIntent = typeMemberPopulationIntentGeneration;
   observeAsync(
-    selectPerformanceMember(stableSelector, expectedView),
+    selectPerformanceMember(
+      stableSelector,
+      expectedView,
+      expectedPopulationKey,
+      expectedPopulationIntent),
     "Loading the ranked Member");
 }
 
 async function selectPerformanceMember(
   stableSelector: string,
   expectedView: string,
+  expectedPopulationKey: string,
+  expectedPopulationIntent: number,
 ) {
   await loadSelectedTypeMemberPopulation();
   if (viewSignature() !== expectedView) return;
   const type = selectedType();
-  if (!type) return;
+  if (!type
+    || typeMemberPopulationIntentGeneration !== expectedPopulationIntent
+    || typeMemberPopulationKey(type) !== expectedPopulationKey
+    || state.typeMemberPopulationKey !== expectedPopulationKey) {
+    return;
+  }
   for (const group of memberGroups(type)) {
     const overloadIndex = group.overloads.findIndex(overload =>
       overload.stableSelector === stableSelector);
@@ -18433,6 +18450,7 @@ interface TypeMemberPopulationLoad {
 }
 
 let typeMemberPopulationLoad: TypeMemberPopulationLoad | null = null;
+let typeMemberPopulationIntentGeneration = 0;
 
 function loadSelectedTypeMemberPopulation(): Promise<void> {
   const type = selectedType();
@@ -18533,6 +18551,7 @@ function setTypeMemberPopulationIntent(
   accessibility: MemberAccessibility,
   spelling: "csharp" | "metadata",
 ) {
+  typeMemberPopulationIntentGeneration++;
   state.memberAccessibilityFilter = accessibility;
   state.memberSpelling = spelling;
   typeMemberPopulationLoad = null;

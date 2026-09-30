@@ -1236,6 +1236,9 @@ public class ApiMember
     public string? GetterAccessibility { get; set; }
 
     [JsonIgnore]
+    public MethodAttributes? GetterPhysicalMethodAccess { get; set; }
+
+    [JsonIgnore]
     public bool GetterIsHidden { get; set; }
 
     /// <summary>
@@ -1248,6 +1251,9 @@ public class ApiMember
     /// <inheritdoc cref="HasSetter"/>
     [JsonIgnore]
     public string? SetterAccessibility { get; set; }
+
+    [JsonIgnore]
+    public MethodAttributes? SetterPhysicalMethodAccess { get; set; }
 
     [JsonIgnore]
     public bool SetterIsHidden { get; set; }
@@ -1266,7 +1272,13 @@ public class ApiMember
     public string? AdderAccessibility { get; set; }
 
     [JsonIgnore]
+    public MethodAttributes? AdderPhysicalMethodAccess { get; set; }
+
+    [JsonIgnore]
     public string? RemoverAccessibility { get; set; }
+
+    [JsonIgnore]
+    public MethodAttributes? RemoverPhysicalMethodAccess { get; set; }
 
     [JsonIgnore]
     public bool AdderIsHidden { get; set; }
