@@ -277,7 +277,7 @@ public sealed class TypeRelationsCommandTests
     }
 
     [Fact]
-    public async Task SemanticSelectionUsesDisplayedTypeOrder()
+    public async Task ForwardSelectionSortsOnlyDiscoveredCohort()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -326,7 +326,7 @@ public sealed class TypeRelationsCommandTests
             Assert.Equal(0, first.ExitCode);
             Assert.Empty(first.Error);
             Assert.Equal(
-                ReadJsonTypes(all.Output)[..1],
+                ["Probe.Zulu"],
                 ReadJsonTypes(first.Output));
             Assert.Equal(0, last.ExitCode);
             Assert.Empty(last.Error);

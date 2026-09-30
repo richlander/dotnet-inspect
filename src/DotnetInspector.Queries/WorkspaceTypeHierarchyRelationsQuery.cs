@@ -21,11 +21,13 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
     private WorkspaceTypeHierarchyRelationExecutionPlan(
         bool materializeRows,
         int startOrdinal,
-        int maximumRows)
+        int maximumRows,
+        int? discoveryMaximumCandidates)
     {
         MaterializeRows = materializeRows;
         StartOrdinal = startOrdinal;
         MaximumRows = maximumRows;
+        DiscoveryMaximumCandidates = discoveryMaximumCandidates;
     }
 
     public bool MaterializeRows { get; }
@@ -33,6 +35,8 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
     public int StartOrdinal { get; }
 
     public int MaximumRows { get; }
+
+    public int? DiscoveryMaximumCandidates { get; }
 
     public static WorkspaceTypeHierarchyRelationExecutionPlan Exhaustive(
         bool materializeRows = true,
@@ -44,7 +48,8 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
         return new(
             materializeRows,
             startOrdinal,
-            maximumRows);
+            maximumRows,
+            discoveryMaximumCandidates: null);
     }
 
     public static WorkspaceTypeHierarchyRelationExecutionPlan RowsSegment(
@@ -56,7 +61,21 @@ public sealed record WorkspaceTypeHierarchyRelationExecutionPlan
         return new(
             materializeRows: true,
             startOrdinal,
-            maximumRows);
+            maximumRows,
+            discoveryMaximumCandidates: null);
+    }
+
+    public static WorkspaceTypeHierarchyRelationExecutionPlan DiscoveryHead(
+        int maximumCandidates,
+        bool materializeRows)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maximumCandidates);
+        return new(
+            materializeRows,
+            startOrdinal: 0,
+            maximumRows: maximumCandidates,
+            discoveryMaximumCandidates: maximumCandidates);
     }
 }
 
@@ -106,7 +125,8 @@ public static class WorkspaceTypeHierarchyRelationOrdering
 public static class WorkspaceTypeHierarchyRelationsQuery
 {
     public static InspectionQuery<WorkspaceTypeHierarchyRelationsResult>
-        Definition { get; } =
+        Definition
+    { get; } =
         new(
             "Workspace Type hierarchy relations",
             InspectionCost.Unbounded);
@@ -194,6 +214,10 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 static context => !context.IsRealized),
         ];
         var scans = new List<ParticipantScan>();
+        int? remainingDiscoveryCandidates =
+            executionPlan.DiscoveryMaximumCandidates;
+        var discoveredCandidates = new HashSet<CandidateIdentity>();
+        WorkspaceDeclarationOccurrence? discoveryStop = null;
         foreach (IGrouping<
             AssemblyContextGroup,
             (
@@ -210,19 +234,47 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                     focusSelection,
                     includeNonPublic,
                     form,
+                    () => remainingDiscoveryCandidates,
                     cancellationToken))
             {
                 scans.Add(scan);
+                if (remainingDiscoveryCandidates is not null)
+                {
+                    foreach (ResolvedMatch match in scan.Matches)
+                    {
+                        var identity = new CandidateIdentity(
+                            MetadataRelationGraphCatalog.Form(
+                                match.Occurrence.Relationship),
+                            match.Occurrence.SourceSubject);
+                        if (discoveredCandidates.Add(identity))
+                        {
+                            remainingDiscoveryCandidates--;
+                            if (remainingDiscoveryCandidates == 0)
+                            {
+                                discoveryStop = scan.Member.Occurrence;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (discoveryStop is not null)
+                    break;
             }
+            if (discoveryStop is not null)
+                break;
         }
 
         SubjectRelationProducerOutcome metadata =
             AggregateMetadata(
                 scans,
                 unavailableMembers,
-                failedContexts);
+                failedContexts,
+                discoveryStop);
         SubjectRelationProducerOutcome correspondence =
-            AggregateCorrespondence(scans, unavailableMembers);
+            AggregateCorrespondence(
+                scans,
+                unavailableMembers,
+                discoveryStop);
         var evidence = new SubjectRelationPopulationEvidence(
             populationAuthority,
             [metadata, correspondence]);
@@ -232,24 +284,11 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             !executionPlan.MaterializeRows
                 ? []
                 :
-                [
-                    .. scans
-                        .SelectMany(scan => scan.Matches)
-                        .GroupBy(static match =>
-                            new CandidateIdentity(
-                                MetadataRelationGraphCatalog.Form(
-                                    match.Occurrence.Relationship),
-                                match.Occurrence.SourceSubject))
-                        .OrderBy(
-                            static group =>
-                                WorkspaceTypeHierarchyRelationOrdering
-                                    .FormRank(group.Key.Form))
-                        .ThenBy(
-                            static group =>
-                                WorkspaceTypeHierarchyRelationOrdering
-                                    .CandidateName(group.Key.Source),
-                            StringComparer.Ordinal),
-                ];
+                CreateCandidateGroups(
+                    scans,
+                    preserveDiscoveryOrder:
+                        executionPlan.DiscoveryMaximumCandidates
+                            is not null);
         int candidateCount =
             executionPlan.MaterializeRows
                 ? candidateGroups.Length
@@ -316,7 +355,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             evidence,
             executionPlan,
             candidateCount,
-            CandidateCountIsComplete: true,
+            CandidateCountIsComplete: evidence.IsComplete,
             rows,
             [
                 .. population.ReadAccesses()
@@ -340,6 +379,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         WorkspaceExactTypeFocusOutcome.Found focus,
         bool includeNonPublic,
         SubjectRelationForm? form,
+        Func<int?> remainingDiscoveryCandidates,
         CancellationToken cancellationToken)
     {
         var selected = members
@@ -382,7 +422,14 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                                             MetadataHierarchyRelationKind
                                                 .BaseType,
                                         _ => null,
-                                    }))
+                                    },
+                                    focus.Assembly),
+                            hierarchyForwardPlan:
+                                remainingDiscoveryCandidates()
+                                    is { } remaining
+                                    ? new(
+                                        remaining)
+                                    : null)
                         {
                             IncludeHidden = includeNonPublic,
                         },
@@ -692,12 +739,23 @@ public static class WorkspaceTypeHierarchyRelationsQuery
     private static SubjectRelationProducerOutcome AggregateMetadata(
         IEnumerable<ParticipantScan> scans,
         IEnumerable<WorkspaceDeclarationMember> unavailableMembers,
-        IEnumerable<WorkspaceDeclarationContextReceipt> failedContexts)
+        IEnumerable<WorkspaceDeclarationContextReceipt> failedContexts,
+        WorkspaceDeclarationOccurrence? discoveryStop)
     {
         WorkspaceDeclarationMember[] unavailable =
-            [.. unavailableMembers];
+        [
+            .. unavailableMembers.Where(member =>
+                discoveryStop is null
+                || Compare(
+                    member.Occurrence,
+                    discoveryStop) <= 0),
+        ];
         WorkspaceDeclarationContextReceipt[] contextFailures =
-            [.. failedContexts];
+        [
+            .. failedContexts.Where(context =>
+                discoveryStop is null
+                || context.Order <= discoveryStop.ContextOrder),
+        ];
         SubjectRelationProducerOutcome[] outcomes =
         [
             .. scans
@@ -716,8 +774,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 .Concat(
                     contextFailures.Select(static _ =>
                         new SubjectRelationCoverage(1, 0, 0, 1, 0))));
-        return new(
-            MetadataRelationGraphAdapter.HierarchyQuery,
+        SubjectRelationProducerDisposition disposition =
             AggregateDisposition(
                 outcomes.Select(static outcome => outcome.Disposition)
                     .Concat(
@@ -732,7 +789,15 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                     .Concat(
                         contextFailures.Select(static _ =>
                             SubjectRelationProducerDisposition
-                                .Unavailable))),
+                                .Unavailable)));
+        if (discoveryStop is not null
+            && disposition == SubjectRelationProducerDisposition.Complete)
+        {
+            disposition = SubjectRelationProducerDisposition.Stopped;
+        }
+        return new(
+            MetadataRelationGraphAdapter.HierarchyQuery,
+            disposition,
             coverage,
             [
                 MetadataRelationGraphCatalog.BaseType,
@@ -761,9 +826,14 @@ public static class WorkspaceTypeHierarchyRelationsQuery
 
     private static SubjectRelationProducerOutcome AggregateCorrespondence(
         IEnumerable<ParticipantScan> scans,
-        IEnumerable<WorkspaceDeclarationMember> unavailableMembers)
+        IEnumerable<WorkspaceDeclarationMember> unavailableMembers,
+        WorkspaceDeclarationOccurrence? discoveryStop)
     {
-        int unavailableParticipants = unavailableMembers.Count();
+        int unavailableParticipants = unavailableMembers.Count(member =>
+            discoveryStop is null
+            || Compare(
+                member.Occurrence,
+                discoveryStop) <= 0);
         int considered = scans.Sum(static scan => scan.Considered);
         int examined = scans.Sum(static scan => scan.Examined);
         int unavailable = checked(
@@ -772,7 +842,9 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         return new(
             Definition,
             unavailable == 0
-                ? SubjectRelationProducerDisposition.Complete
+                ? discoveryStop is not null
+                    ? SubjectRelationProducerDisposition.Stopped
+                    : SubjectRelationProducerDisposition.Complete
                 : examined > 0
                     ? SubjectRelationProducerDisposition.Partial
                     : SubjectRelationProducerDisposition.Unavailable,
@@ -792,6 +864,16 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                     SubjectRelationProducerDiagnostic.Create(
                         SubjectRelationProducerDiagnosticKind.Failure,
                         scan.RetentionFailure!)));
+    }
+
+    private static int Compare(
+        WorkspaceDeclarationOccurrence left,
+        WorkspaceDeclarationOccurrence right)
+    {
+        int context = left.ContextOrder.CompareTo(right.ContextOrder);
+        return context != 0
+            ? context
+            : left.MemberOrder.CompareTo(right.MemberOrder);
     }
 
     private static SubjectRelationCoverage SumCoverage(
@@ -833,7 +915,37 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 : SubjectRelationProducerDisposition.Unavailable;
         if (values.Contains(SubjectRelationProducerDisposition.Partial))
             return SubjectRelationProducerDisposition.Partial;
+        if (values.Contains(SubjectRelationProducerDisposition.Stopped))
+            return SubjectRelationProducerDisposition.Stopped;
         return SubjectRelationProducerDisposition.Complete;
+    }
+
+    private static IGrouping<
+        CandidateIdentity,
+        ResolvedMatch>[] CreateCandidateGroups(
+        IEnumerable<ParticipantScan> scans,
+        bool preserveDiscoveryOrder)
+    {
+        IEnumerable<IGrouping<CandidateIdentity, ResolvedMatch>> groups =
+            scans.SelectMany(static scan => scan.Matches)
+                .GroupBy(static match =>
+                    new CandidateIdentity(
+                        MetadataRelationGraphCatalog.Form(
+                            match.Occurrence.Relationship),
+                        match.Occurrence.SourceSubject));
+        if (!preserveDiscoveryOrder)
+        {
+            groups = groups
+                .OrderBy(static group =>
+                    WorkspaceTypeHierarchyRelationOrdering.FormRank(
+                        group.Key.Form))
+                .ThenBy(
+                    static group =>
+                        WorkspaceTypeHierarchyRelationOrdering
+                            .CandidateName(group.Key.Source),
+                    StringComparer.Ordinal);
+        }
+        return [.. groups];
     }
 
     private sealed record ResolutionCandidate(

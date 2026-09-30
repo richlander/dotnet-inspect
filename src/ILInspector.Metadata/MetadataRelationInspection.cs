@@ -90,6 +90,7 @@ internal static partial class MetadataRelationInspection
                     exception.Message));
         }
 
+        bool hierarchyWasStopped = false;
         MetadataRelationFamilyResult<MetadataHierarchyRelationEvidence>
             hierarchy =
                 request.Includes(MetadataRelationFamily.Hierarchy)
@@ -98,7 +99,8 @@ internal static partial class MetadataRelationInspection
                         request,
                         visibility,
                         operation,
-                        cancellationToken)
+                        cancellationToken,
+                        out hierarchyWasStopped)
                     : MetadataRelationFamilyResult<
                         MetadataHierarchyRelationEvidence>.NotRequested();
         MetadataRelationFamilyResult<MetadataExtensionRelationEvidence>
@@ -141,7 +143,8 @@ internal static partial class MetadataRelationInspection
                 hierarchy,
                 extensions,
                 references,
-                signatures));
+                signatures,
+                hierarchyWasStopped));
     }
 
     private static void ValidateTypeScope(

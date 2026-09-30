@@ -52,17 +52,21 @@ public sealed record MetadataHierarchyTargetSelection
 {
     public MetadataHierarchyTargetSelection(
         MetadataTypeDefinitionName type,
-        MetadataHierarchyRelationKind? kind = null)
+        MetadataHierarchyRelationKind? kind = null,
+        AssemblyReferenceIdentity? assembly = null)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
         if (kind is not null && !Enum.IsDefined(kind.Value))
             throw new ArgumentOutOfRangeException(nameof(kind));
         Kind = kind;
+        Assembly = assembly;
     }
 
     public MetadataTypeDefinitionName Type { get; }
 
     public MetadataHierarchyRelationKind? Kind { get; }
+
+    public AssemblyReferenceIdentity? Assembly { get; }
 }
 
 public sealed record MetadataRelationInspectionRequest
@@ -72,7 +76,8 @@ public sealed record MetadataRelationInspectionRequest
         MetadataOperationPolicy policy,
         bool includeNonPublic = false,
         IEnumerable<MetadataTypeDefinitionAddress>? typeScope = null,
-        MetadataHierarchyTargetSelection? hierarchyTarget = null)
+        MetadataHierarchyTargetSelection? hierarchyTarget = null,
+        MetadataHierarchyRelationForwardPlan? hierarchyForwardPlan = null)
     {
         ArgumentNullException.ThrowIfNull(families);
         ArgumentNullException.ThrowIfNull(policy);
@@ -106,6 +111,15 @@ public sealed record MetadataRelationInspectionRequest
                 nameof(hierarchyTarget));
         }
         HierarchyTarget = hierarchyTarget;
+        if (hierarchyForwardPlan is not null
+            && hierarchyTarget?.Kind is null)
+        {
+            throw new ArgumentException(
+                "Forward hierarchy analysis requires one exact relation "
+                    + "kind.",
+                nameof(hierarchyForwardPlan));
+        }
+        HierarchyForwardPlan = hierarchyForwardPlan;
     }
 
     public ImmutableArray<MetadataRelationFamily> Families { get; }
@@ -120,6 +134,9 @@ public sealed record MetadataRelationInspectionRequest
     { get; }
 
     public MetadataHierarchyTargetSelection? HierarchyTarget { get; }
+
+    public MetadataHierarchyRelationForwardPlan? HierarchyForwardPlan
+    { get; }
 
     public bool Includes(MetadataRelationFamily family) =>
         Families.Contains(family);
@@ -299,7 +316,8 @@ public sealed record MetadataRelationInspectionResult(
     MetadataRelationFamilyResult<MetadataAssemblyReferenceRelationEvidence>
         AssemblyReferences,
     MetadataRelationFamilyResult<MetadataSignatureRelationEvidence>
-        Signatures);
+        Signatures,
+    bool HierarchyWasStopped = false);
 
 public abstract record MetadataRelationInspectionOutcome
 {

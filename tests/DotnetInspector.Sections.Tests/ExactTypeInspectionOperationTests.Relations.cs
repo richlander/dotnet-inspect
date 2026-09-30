@@ -260,6 +260,156 @@ public sealed partial class ExactTypeInspectionOperationTests
 
     [Fact]
     public async Task
+        PlatformForwarderPreservesOriginalSimpleNameAmbiguity()
+    {
+        const string runtimeVersion = "11.0.0";
+        const string facade = "Facade";
+        const string terminal = "Terminal";
+        var terminalIdentity = new AssemblyReferenceIdentity(
+            terminal,
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        byte[] facadeAssembly = BuildAmbiguousForwarderAssembly(
+            facade,
+            terminalIdentity);
+        AssemblyReferenceIdentity facadeIdentity;
+        using (var pe = new PEReader(
+            new MemoryStream(facadeAssembly, writable: false)))
+        {
+            facadeIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    pe.GetMetadataReader());
+        }
+        byte[] terminalAssembly = BuildMetadataAssembly(
+            terminal,
+            Guid.NewGuid(),
+            definesType: true,
+            "Remote",
+            "IContract");
+        var requestedAssemblies = new List<string>();
+        PlatformSourceCapabilityIdentity capability =
+            PlatformSourceCapabilityIdentity.Create(
+                "test-platform-implementation");
+        var platformSource = new PlatformLibraryRealizationSource(
+            capability,
+            PlatformSourceFacet.Implementation,
+            (request, target, _, association) =>
+            {
+                Assert.Null(association);
+                var binding = Assert.IsType<
+                    PlatformLibraryDemand.AssemblyReferenceBinding>(
+                        Assert.IsType<PlatformPopulationDemand.Library>(
+                            ((PlatformHouseOperation.Realize)
+                                request.Operation).Population).Value);
+                requestedAssemblies.Add(binding.Identity.Name);
+                byte[] content = binding.Identity.Name switch
+                {
+                    facade => facadeAssembly,
+                    terminal => terminalAssembly,
+                    _ => throw new InvalidOperationException(),
+                };
+                using var pe = new PEReader(
+                    new MemoryStream(content, writable: false));
+                AssemblyReferenceIdentity identity =
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(
+                        pe.GetMetadataReader());
+                var contribution =
+                    new PlatformSourceContribution.Realization(
+                        PlatformSourceFacet.Implementation,
+                        capability,
+                        request.Snapshot,
+                        PlatformSourceGeneration.Create("generation-1"),
+                        target,
+                        PlatformSourceCoordinateIdentity.Create(
+                            binding.Identity.Name),
+                        ((PlatformHouseOperation.Realize)
+                            request.Operation).Population,
+                        PlatformSourceContributionCompleteness
+                            .Authoritative);
+                var item =
+                    new PlatformLibraryArtifactMaterializationItem(
+                        contribution,
+                        new TestArtifactProvenance(
+                            binding.Identity.Name),
+                        identity,
+                        content.LongLength,
+                        _ => new MemoryStream(
+                            content,
+                            writable: false));
+                return ValueTask.FromResult<
+                    PlatformLibraryRealizationSourceAttempt>(
+                        new PlatformLibraryRealizationSourceAttempt
+                            .Succeeded(
+                                contribution,
+                                PlatformHouseCandidateIdentity.Create(
+                                    binding.Identity.Name),
+                                item));
+            });
+        var input = new WorkspaceContextInput
+        {
+            Framework = Framework,
+            Members =
+            [
+                WorkspaceMemberCoordinate.Platform(
+                    "runtime",
+                    facade,
+                    runtimeVersion,
+                    Framework),
+            ],
+        };
+        ExactLibrarySourceCoordinate focusLibrary =
+            new ExactLibrarySourceCoordinate.Platform(
+                new PlatformLibraryPopulationDeclaration(
+                    PlatformFamily.DotNetRuntime),
+                new ManagedMetadataIdentity.Assembly(
+                    facadeIdentity));
+        SubjectRelationsQueryPlan plan = Assert.IsType<
+            SubjectRelationsQueryPlanResult.Accepted>(
+                SubjectRelationsQuery.ResolveIntent(
+                    SubjectRelationsRouteKind.Type,
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                SubjectRelationsQuery.DirectionTermKey,
+                                PortableQueryOperator.Equal,
+                                "incoming"),
+                            new(
+                                SubjectRelationsQuery.FormTermKey,
+                                PortableQueryOperator.Equal,
+                                "interface"),
+                        ],
+                        [],
+                        [],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+        using var client = new HttpClient(new FailingHandler());
+
+        ExactTypeRelationsInspectionOutcome outcome =
+            await ExactTypeRelationsInspectionOperation.ExecuteAsync(
+                new TypeRelationsInspectionRequest(
+                    input,
+                    "IContract",
+                    FocusAssemblyName: facade,
+                    FocusLibrary: focusLibrary),
+                LoadOptions(client, new InMemoryPackageStore()),
+                plan,
+                count: new SubjectRelationPopulationCountRequest(),
+                platformImplementationSource: platformSource,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var unavailable = Assert.IsType<
+            ExactTypeRelationsInspectionOutcome.Unavailable>(outcome);
+        Assert.Contains(
+            "ambiguous",
+            unavailable.Detail,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal([facade, terminal], requestedAssemblies);
+    }
+
+    [Fact]
+    public async Task
         FailedCapturedContextMakesCountIncompleteWhileRowsRemainUseful()
     {
         byte[] assembly = BuildHierarchyAssembly();
@@ -381,11 +531,165 @@ public sealed partial class ExactTypeInspectionOperationTests
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
-        Assert.IsType<SubjectRelationPopulationCountOutcome.Incomplete>(
-            selectedCount.Population.Count);
+        Assert.Equal(
+            1,
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    selectedCount.Population.Count).Value);
         Assert.Null(selectedCount.Population.Rows);
         Assert.Empty(selectedCount.Candidates);
         Assert.False(selectedCount.Population.Evidence.IsComplete);
+        Assert.True(selectedCount.Population.Evidence.IsSatisfied);
+
+        SubjectRelationsQueryPlan bothFormsPlan = Assert.IsType<
+            SubjectRelationsQueryPlanResult.Accepted>(
+                SubjectRelationsQuery.ResolveIntent(
+                    SubjectRelationsRouteKind.Type,
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                SubjectRelationsQuery.DirectionTermKey,
+                                PortableQueryOperator.Equal,
+                                "incoming"),
+                        ],
+                        [],
+                        [],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+        WorkspaceTypeRelationsInspectionResult selectedBothFormsCount =
+            WorkspaceTypeRelationsInspectionOperation.Execute(
+                workspace,
+                population,
+                new(
+                    member.AssemblyIdentity,
+                    member.Occurrence,
+                    focusType),
+                bothFormsPlan,
+                count: new SubjectRelationPopulationCountRequest(),
+                rowSelection:
+                    RowSelectionIntent<string>.Create(
+                        [
+                            RowSelectionIntentOperation<string>.Window(
+                                1,
+                                100),
+                        ]),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<SubjectRelationPopulationCountOutcome.Incomplete>(
+            selectedBothFormsCount.Population.Count);
+        Assert.Null(selectedBothFormsCount.Population.Rows);
+        Assert.Empty(selectedBothFormsCount.Candidates);
+        Assert.False(
+            selectedBothFormsCount.Population.Evidence.IsComplete);
+
+        await using var reversedWorkspace =
+            new InspectionWorkspace(
+                new WorkspacePlan([], [failedInput, healthyInput]));
+        WorkspaceDeclarationContext failedFirst =
+            await WorkspaceContextLoader.LoadDeclarationContextAsync(
+                reversedWorkspace,
+                failedInput,
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+        WorkspaceDeclarationContext healthySecond =
+            await WorkspaceContextLoader.LoadDeclarationContextAsync(
+                reversedWorkspace,
+                healthyInput,
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+        WorkspaceDeclarationPopulation reversedPopulation =
+            Assert.IsType<
+                WorkspaceDeclarationPopulationCapture.Captured>(
+                    reversedWorkspace.CaptureDeclarationPopulation(
+                        [failedFirst, healthySecond]))
+                .Population;
+        WorkspaceDeclarationMember reversedMember = Assert.Single(
+            reversedPopulation.Receipt.Members);
+        WorkspaceTypeRelationsInspectionResult blockedHead =
+            WorkspaceTypeRelationsInspectionOperation.Execute(
+                reversedWorkspace,
+                reversedPopulation,
+                new(
+                    reversedMember.AssemblyIdentity,
+                    reversedMember.Occurrence,
+                    focusType),
+                plan,
+                count: new SubjectRelationPopulationCountRequest(),
+                rowSelection:
+                    RowSelectionIntent<string>.Create(
+                        [
+                            RowSelectionIntentOperation<string>.Head(1),
+                        ]),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<SubjectRelationPopulationCountOutcome.Incomplete>(
+            blockedHead.Population.Count);
+        Assert.False(blockedHead.Population.Evidence.IsSatisfied);
+    }
+
+    [Fact]
+    public async Task HeadSelectsDiscoveryCohortBeforeDisplayOrdering()
+    {
+        byte[] assembly = BuildHierarchyAssembly();
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Hierarchy.dll", assembly));
+        using var client = new HttpClient(new FailingHandler());
+        SubjectRelationsQueryPlan plan = Assert.IsType<
+            SubjectRelationsQueryPlanResult.Accepted>(
+                SubjectRelationsQuery.ResolveIntent(
+                    SubjectRelationsRouteKind.Type,
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                SubjectRelationsQuery.DirectionTermKey,
+                                PortableQueryOperator.Equal,
+                                "incoming"),
+                            new(
+                                SubjectRelationsQuery.FormTermKey,
+                                PortableQueryOperator.Equal,
+                                "interface"),
+                        ],
+                        [],
+                        [],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+
+        ExactTypeRelationsInspectionOutcome outcome =
+            await ExactTypeRelationsInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "Relations.IContract"),
+                LoadOptions(client, store),
+                plan,
+                rows: new SubjectRelationPopulationRowsRequest(1),
+                rowSelection:
+                    RowSelectionIntent<string>.Create(
+                        [
+                            RowSelectionIntentOperation<string>.Head(1),
+                        ]),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var available = Assert.IsType<
+            ExactTypeRelationsInspectionOutcome.Available>(outcome);
+        Assert.Equal(
+            "Relations.Second",
+            MetadataTypeNameFormatter.FormatFullName(
+                Assert.IsType<
+                    InspectionGraphTypeIdentity.AcquiredDefinition>(
+                        Assert.Single(
+                            available.Relations.Candidates)
+                            .Candidate.Identity).Type));
+        Assert.True(available.Relations.Population.Evidence.IsSatisfied);
+        Assert.Contains(
+            available.Relations.Population.Evidence.Producers,
+            static producer =>
+                producer.Disposition
+                    == SubjectRelationProducerDisposition.Stopped);
     }
 
     [Fact]
@@ -444,9 +748,11 @@ public sealed partial class ExactTypeInspectionOperationTests
         Assert.Null(available.Relations.Population.Rows);
         Assert.Empty(available.Relations.Candidates);
         Assert.Empty(available.Relations.Relations.Rows);
-        Assert.Equal(2, available.Relations.Relations.CandidateCount);
-        Assert.True(
+        Assert.Equal(1, available.Relations.Relations.CandidateCount);
+        Assert.False(
             available.Relations.Relations.Evidence.IsComplete);
+        Assert.True(
+            available.Relations.Relations.Evidence.IsSatisfied);
     }
 
     [Fact]
@@ -978,6 +1284,66 @@ public sealed partial class ExactTypeInspectionOperationTests
             baseType,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildAmbiguousForwarderAssembly(
+        string assemblyName,
+        AssemblyReferenceIdentity forwardTarget)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString($"{assemblyName}.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Local"),
+            metadata.GetOrAddString("IContract"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyReferenceHandle target =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(forwardTarget.Name),
+                forwardTarget.Version!,
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        metadata.AddExportedType(
+            TypeAttributes.Public | Forwarder,
+            metadata.GetOrAddString("Remote"),
+            metadata.GetOrAddString("IContract"),
+            target,
+            typeDefinitionId: 0);
 
         var builder = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

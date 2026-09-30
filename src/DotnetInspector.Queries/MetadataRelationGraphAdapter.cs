@@ -314,7 +314,12 @@ public static class MetadataRelationGraphAdapter
 
         var occurrences = new List<InspectionGraphOccurrence>();
         var producers = new List<SubjectRelationProducerOutcome>();
-        ProjectHierarchy(source, result.Hierarchy, occurrences, producers);
+        ProjectHierarchy(
+            source,
+            result.Hierarchy,
+            result.HierarchyWasStopped,
+            occurrences,
+            producers);
         ProjectExtensions(source, result.Extensions, occurrences, producers);
         ProjectReferences(
             source,
@@ -609,6 +614,7 @@ public static class MetadataRelationGraphAdapter
         ResolvedAssemblyReference source,
         MetadataRelationFamilyResult<MetadataHierarchyRelationEvidence>
             result,
+        bool wasStopped,
         List<InspectionGraphOccurrence> occurrences,
         List<SubjectRelationProducerOutcome> producers)
     {
@@ -646,6 +652,7 @@ public static class MetadataRelationGraphAdapter
             Outcome(
                 HierarchyQuery,
                 result,
+                wasStopped,
                 [
                     MetadataRelationGraphCatalog.BaseType,
                     MetadataRelationGraphCatalog.Interface,
@@ -789,6 +796,7 @@ public static class MetadataRelationGraphAdapter
     private static SubjectRelationProducerOutcome Outcome<TEvidence>(
         InspectionQuery<MetadataRelationFamilyResult<TEvidence>> query,
         MetadataRelationFamilyResult<TEvidence> result,
+        bool wasStopped,
         IEnumerable<InspectionGraphRelationshipDescriptor> relationships)
     {
         MetadataRelationCoverage coverage =
@@ -804,30 +812,45 @@ public static class MetadataRelationGraphAdapter
                     nameof(result)),
             coverage,
             result.Diagnostics,
-            relationships);
+            relationships,
+            wasStopped);
     }
+
+    private static SubjectRelationProducerOutcome Outcome<TEvidence>(
+        InspectionQuery<MetadataRelationFamilyResult<TEvidence>> query,
+        MetadataRelationFamilyResult<TEvidence> result,
+        IEnumerable<InspectionGraphRelationshipDescriptor> relationships) =>
+        Outcome(query, result, wasStopped: false, relationships);
 
     private static SubjectRelationProducerOutcome Outcome(
         InspectionQueryDefinition query,
         MetadataRelationFamilyDisposition disposition,
         MetadataRelationCoverage coverage,
         IEnumerable<MetadataRelationDiagnostic> diagnostics,
-        IEnumerable<InspectionGraphRelationshipDescriptor> relationships) =>
+        IEnumerable<InspectionGraphRelationshipDescriptor> relationships,
+        bool wasStopped = false) =>
         new(
             query,
-            disposition switch
-            {
-                MetadataRelationFamilyDisposition.Complete =>
-                    SubjectRelationProducerDisposition.Complete,
-                MetadataRelationFamilyDisposition.Partial =>
-                    SubjectRelationProducerDisposition.Partial,
-                MetadataRelationFamilyDisposition.Unavailable =>
-                    SubjectRelationProducerDisposition.Unavailable,
-                MetadataRelationFamilyDisposition.Failed =>
-                    SubjectRelationProducerDisposition.Failed,
-                _ => throw new ArgumentOutOfRangeException(
-                    nameof(disposition)),
-            },
+            wasStopped
+                && disposition
+                    == MetadataRelationFamilyDisposition.Partial
+                && coverage.Unavailable == 0
+                && coverage.Limited == 0
+                && !diagnostics.Any()
+                    ? SubjectRelationProducerDisposition.Stopped
+                    : disposition switch
+                    {
+                        MetadataRelationFamilyDisposition.Complete =>
+                            SubjectRelationProducerDisposition.Complete,
+                        MetadataRelationFamilyDisposition.Partial =>
+                            SubjectRelationProducerDisposition.Partial,
+                        MetadataRelationFamilyDisposition.Unavailable =>
+                            SubjectRelationProducerDisposition.Unavailable,
+                        MetadataRelationFamilyDisposition.Failed =>
+                            SubjectRelationProducerDisposition.Failed,
+                        _ => throw new ArgumentOutOfRangeException(
+                            nameof(disposition)),
+                    },
             new(
                 coverage.Considered,
                 coverage.Examined,

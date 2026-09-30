@@ -53,7 +53,8 @@ public sealed class WorkspaceTypeRelationsContinuationAuthority
     }
 
     internal SubjectRelationPopulationContinuationAuthority
-        PopulationAuthority { get; }
+        PopulationAuthority
+    { get; }
 
     internal int NextOrdinal => PopulationAuthority.NextOrdinal;
 
@@ -154,8 +155,18 @@ public static class WorkspaceTypeRelationsInspectionOperation
             rows is not null
             && producerCandidatePopulation
             && !appliesRowSelection;
+        int? discoveryHead =
+            producerCandidatePopulation
+            && plan.Selection.Form is not null
+            && TryGetForwardMaximum(rowSelection) is { } forwardMaximum
+                ? forwardMaximum
+                : null;
         WorkspaceTypeHierarchyRelationExecutionPlan executionPlan =
-            producerShapesRows && count is null
+            discoveryHead is { } maximumCandidates
+                ? WorkspaceTypeHierarchyRelationExecutionPlan.DiscoveryHead(
+                    maximumCandidates,
+                    materializeRows: rows is not null || countNeedsRows)
+                : producerShapesRows && count is null
                 ? WorkspaceTypeHierarchyRelationExecutionPlan.RowsSegment(
                     producerStart,
                     rows!.MaximumRows)
@@ -194,7 +205,7 @@ public static class WorkspaceTypeRelationsInspectionOperation
         int? selectedCount = null;
         if (countSelectionNeedsNoRows)
         {
-            if (relations.Evidence.IsComplete)
+            if (relations.Evidence.IsSatisfied)
             {
                 RowSelectionPlan<string> selectionPlan =
                     RowsCohortExecutor.ResolveUnorderedSelection(
@@ -217,7 +228,10 @@ public static class WorkspaceTypeRelationsInspectionOperation
                 selectedCount = countSelection.Count;
             }
         }
-        else if (appliesRowSelection)
+        else if (appliesRowSelection
+            && !(count is not null
+                && rows is null
+                && !relations.Evidence.IsSatisfied))
         {
             RowsCohortResult<
                 SubjectRelationForm,
@@ -254,7 +268,7 @@ public static class WorkspaceTypeRelationsInspectionOperation
         SubjectRelationPopulationCountOutcome? countOutcome =
             count is null
                 ? null
-                : relations.Evidence.IsComplete
+                : relations.Evidence.IsSatisfied
                     ? new SubjectRelationPopulationCountOutcome.Counted(
                         selectedCount
                             ?? (countNeedsRows
@@ -314,7 +328,11 @@ public static class WorkspaceTypeRelationsInspectionOperation
                     producerShapesRows
                         ? relations.CandidateCount
                         : candidates.Length;
-                if (relations.CandidateCountIsComplete
+                bool selectedPopulationIsComplete =
+                    relations.CandidateCountIsComplete
+                    || (appliesRowSelection
+                        && relations.Evidence.IsSatisfied);
+                if (selectedPopulationIsComplete
                     && start > populationCount)
                 {
                     rowsOutcome =
@@ -347,7 +365,7 @@ public static class WorkspaceTypeRelationsInspectionOperation
                     int next = checked(start + candidateRows.Length);
                     SubjectRelationPopulationContinuation? continuation =
                         next < populationCount
-                        || !relations.CandidateCountIsComplete
+                        || !selectedPopulationIsComplete
                             ? new(
                                 new InertString(
                                     TextPolicy.Field,
@@ -396,6 +414,24 @@ public static class WorkspaceTypeRelationsInspectionOperation
             settled,
             candidateRows,
             nextContinuationAuthority);
+    }
+
+    private static int? TryGetForwardMaximum(
+        RowSelectionIntent<string>? selection)
+    {
+        if (selection?.Operations is not [var operation])
+            return null;
+
+        return operation.Kind switch
+        {
+            RowSelectionStageKind.Head when operation.Count > 0 =>
+                operation.Count,
+            RowSelectionStageKind.Window
+                when operation.Start > 0
+                    && operation.End >= operation.Start =>
+                operation.End,
+            _ => null,
+        };
     }
 
     private static ImmutableArray<WorkspaceTypeRelationCandidateRow>

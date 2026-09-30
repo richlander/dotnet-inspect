@@ -16,7 +16,8 @@ internal static partial class MetadataRelationInspection
         MetadataRelationInspectionRequest request,
         MetadataVisibilityClassification? visibility,
         MetadataOperationContext operation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        out bool wasStopped)
     {
         if (request.HierarchyTarget is not null)
         {
@@ -24,9 +25,11 @@ internal static partial class MetadataRelationInspection
                 reader,
                 request,
                 operation,
-                cancellationToken);
+                cancellationToken,
+                out wasStopped);
         }
 
+        wasStopped = false;
         var evidence =
             ImmutableArray.CreateBuilder<
                 MetadataHierarchyRelationEvidence>();
@@ -153,7 +156,8 @@ internal static partial class MetadataRelationInspection
         MetadataReader reader,
         MetadataRelationInspectionRequest request,
         MetadataOperationContext operation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        out bool wasStopped)
     {
         MetadataRelationFamilyResult<
             MetadataHierarchyRelationAnalysisRow> analysis =
@@ -163,9 +167,9 @@ internal static partial class MetadataRelationInspection
                     operation,
                     cancellationToken,
                     materializeRows: true,
-                    forwardPlan: null,
+                    request.HierarchyForwardPlan,
                     out _,
-                    out _);
+                    out wasStopped);
         var evidence =
             ImmutableArray.CreateBuilder<
                 MetadataHierarchyRelationEvidence>();

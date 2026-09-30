@@ -149,9 +149,9 @@ public static class WorkspaceExactTypeFocusQuery
             selectionKind);
         if (selected is
             [
-                {
-                    Kind: AssemblyTypeDeclarationKind.Definition,
-                } directMatch,
+            {
+                Kind: AssemblyTypeDeclarationKind.Definition,
+            } directMatch,
             ])
         {
             WorkspaceDeclarationMember member =
@@ -285,9 +285,9 @@ public static class WorkspaceExactTypeFocusQuery
             Select(matches, type, selectionKind);
         if (selected is
             [
-                {
-                    Kind: AssemblyTypeDeclarationKind.Definition,
-                } directMatch,
+            {
+                Kind: AssemblyTypeDeclarationKind.Definition,
+            } directMatch,
             ])
         {
             WorkspaceDeclarationMember member =
@@ -349,6 +349,23 @@ public static class WorkspaceExactTypeFocusQuery
                     is ExactLibrarySourceCoordinate.Platform
                 && unbound.TerminalAssemblyIdentity is { } required)
             {
+                if (TryGetAcquiredDefinition(
+                        population,
+                        required,
+                        match.Type,
+                        out WorkspaceDeclarationOccurrence?
+                            acquiredOccurrence,
+                        out bool assemblyPresent))
+                {
+                    AddResolved(
+                        new(
+                            required,
+                            acquiredOccurrence,
+                            match.Type));
+                    continue;
+                }
+                if (assemblyPresent)
+                    return Unavailable();
                 return new WorkspaceExactTypeFocusOutcome
                     .PlatformAssemblyRequired(
                         required,
@@ -368,19 +385,11 @@ public static class WorkspaceExactTypeFocusQuery
                 DefinitionOccurrence(
                     population,
                     definition.Assembly.Assembly.Registration);
-            int existing = resolved.FindIndex(candidate =>
-                candidate.Type == definition.Type
-                && candidate.Assembly.IsEquivalentTo(
-                    definition.Assembly.Assembly.Identity));
-            var candidate = new ResolvedFocusCandidate(
-                definition.Assembly.Assembly.Identity,
-                occurrence,
-                definition.Type);
-            if (existing < 0)
-                resolved.Add(candidate);
-            else if (resolved[existing].Occurrence is null
-                && occurrence is not null)
-                resolved[existing] = candidate;
+            AddResolved(
+                new(
+                    definition.Assembly.Assembly.Identity,
+                    occurrence,
+                    definition.Type));
         }
 
         return resolved switch
@@ -401,6 +410,59 @@ public static class WorkspaceExactTypeFocusQuery
                 "The exact Type focus could not be resolved in the "
                     + "candidate context.",
                 outcomes.ToImmutable());
+
+        void AddResolved(ResolvedFocusCandidate candidate)
+        {
+            int existing = resolved.FindIndex(current =>
+                current.Type == candidate.Type
+                && current.Assembly.IsEquivalentTo(
+                    candidate.Assembly));
+            if (existing < 0)
+                resolved.Add(candidate);
+            else if (resolved[existing].Occurrence is null
+                && candidate.Occurrence is not null)
+                resolved[existing] = candidate;
+        }
+    }
+
+    private static bool TryGetAcquiredDefinition(
+        WorkspaceDeclarationPopulation population,
+        AssemblyReferenceIdentity assembly,
+        MetadataTypeDefinitionName type,
+        out WorkspaceDeclarationOccurrence? occurrence,
+        out bool assemblyPresent)
+    {
+        occurrence = null;
+        assemblyPresent = false;
+        foreach (WorkspaceDeclarationMember member
+            in population.Receipt.Members)
+        {
+            if (!member.AssemblyIdentity.IsEquivalentTo(assembly))
+                continue;
+
+            assemblyPresent = true;
+            WorkspaceDeclarationInventoryOutcome outcome =
+                population.ReadDeclarations(member.Occurrence);
+            if (outcome
+                is not WorkspaceDeclarationInventoryOutcome.Inspected
+                {
+                    Outcome:
+                        AssemblyTypeDeclarationInventoryOutcome.Read read,
+                })
+            {
+                continue;
+            }
+            if (read.Inventory.GetDeclarations(includeAll: true)
+                .Any(declaration =>
+                    declaration.Kind
+                        == AssemblyTypeDeclarationKind.Definition
+                    && declaration.Name == type))
+            {
+                occurrence = member.Occurrence;
+                return true;
+            }
+        }
+        return false;
     }
 
     private static WorkspaceDeclarationOccurrence? DefinitionOccurrence(

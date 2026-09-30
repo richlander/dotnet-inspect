@@ -329,12 +329,12 @@ segment, but it cannot widen acquisition, authorize another producer, change
 the canonical population, or strengthen completion. Sections and convenience
 commands lower their gestures to the same typed population request. Type
 relation row selection and its Count terminal execute in the shared section
-operation over the canonical per-form candidate ordering; the CLI formats a
-typed semantic failure but does not order, select, or count a private copy of
-the candidate population. An exact single-form Count applies head, tail, and
-window stages to exact producer cardinality without constructing Rows.
-Residual selection remains exhaustive when its ordering cannot be proven from
-a producer prefix.
+operation; the CLI does not order, select, or count a private copy of the
+candidate population. `Head(N)` and supported strict forward windows select a
+bounded producer-discovery cohort, then Sections orders only that cohort for
+presentation. They do not promise the canonical prefix of an exhaustive
+result. Tail, backward-dependent selection, and residual selection exhaust.
+An exact single-form Count applies supported stages without constructing Rows.
 
 For incoming Type hierarchy relations, the exact focused metadata Type name
 and selected Interface or Base Type form reach the Metadata producer. Metadata
@@ -375,21 +375,17 @@ algorithm is ported into the product pass and therefore shared by all standard
 columns.
 
 Terminal work elimination is separate from analysis throughput. Count,
-complete Rows, and Tail exhaust the selected source. The analysis scorecard
-derives a typed forward plan for Exists, Head(N), and supported strict forward
-windows; the result retains that exact plan and reports whether production
-stopped after satisfying it. A zero-finding answer still exhausts the source.
+complete Rows, and Tail exhaust the selected source. Exists, `Head(N)`, and
+supported strict forward windows derive a typed forward plan and may stop after
+satisfying it. A zero-finding answer still exhausts the source.
 
-Production Rows derives its typed segment plan from the resolved Subject
-Relations request. It exhausts exact Workspace assembly correspondence and
-orders the complete candidate population by canonical relation form and Type
-name before applying a segment bound. That global ordering keeps continuation
-ordinals stable across page sizes. Within one participant, Metadata and
-correspondence still finish together: a Metadata name match alone cannot
-establish that an identically named target belongs to the focused assembly.
-The analysis scorecard's forward-plan stopping remains separate evidence for
-the shared Metadata analyzer; production composition does not claim that
-optimization while its canonical order requires exhaustive correspondence.
+Production Rows derives its typed terminal plan from the resolved Subject
+Relations request. A forward terminal stops only after exact Workspace
+assembly correspondence confirms enough distinct candidates; an identically
+named target in another assembly cannot satisfy the terminal. Sections then
+orders the bounded discovery cohort by canonical relation form and Type name
+for presentation. Exhaustive Rows and continuation paging order the complete
+candidate population so continuation ordinals remain stable across page sizes.
 
 The fast definition matcher is fidelity-bearing for canonical TypeDef, TypeRef,
 and generic TypeSpec shapes emitted by Roslyn. Untrusted and malformed metadata
@@ -1138,7 +1134,8 @@ Every result carries its selected populations and per-family coverage:
 considered, examined, excluded, unavailable or limited, with the relevant
 owner's reason. Complete means complete for that declared finite population
 and supported evidence kinds. It never means every possible caller on NuGet
-was found. A display row limit is not an acquisition or analysis limit.
+was found. A presentation-only line limit is not an acquisition or analysis
+limit; a producer-planned semantic `Head(N)` or forward window is.
 If a work limit truncates a sweep, retained useful rows remain visibly partial;
 an empty partial result cannot establish absence.
 

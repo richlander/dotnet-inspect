@@ -100,6 +100,7 @@ public readonly record struct MetadataHierarchyRelationAnalysisUnit(
     bool IsExcluded,
     bool BaseMatched,
     bool InterfaceMatched,
+    int ForwardCandidateCount,
     MetadataHierarchyRelationAnalysisRow? BaseRelation,
     MetadataHierarchyRelationAnalysisRow? InterfaceRelation,
     MetadataRelationDiagnostic? Diagnostic)
@@ -204,6 +205,7 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                     IsExcluded: true,
                     BaseMatched: false,
                     InterfaceMatched: false,
+                    ForwardCandidateCount: 0,
                     BaseRelation: null,
                     InterfaceRelation: null,
                     Diagnostic: null);
@@ -211,6 +213,8 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
 
             bool baseMatched = false;
             bool interfaceMatched = false;
+            bool baseForwardCandidate = false;
+            bool interfaceForwardCandidate = false;
             int baseToken = 0;
             ImmutableArray<int>.Builder? interfaceTokens = null;
             MetadataHierarchyTargetSelection target =
@@ -226,7 +230,8 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                         _reader,
                         definition.BaseType,
                         baseToken,
-                        out baseMatched);
+                        out baseMatched,
+                        out baseForwardCandidate);
                 if (diagnostic is not null)
                     return Unavailable(diagnostic);
             }
@@ -250,13 +255,15 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                             _reader,
                             implementation.Interface,
                             token,
-                            out bool matches);
+                            out bool matches,
+                            out bool forwardCandidate);
                     if (diagnostic is not null)
                         return Unavailable(diagnostic);
                     if (!matches)
                         continue;
 
                     interfaceMatched = true;
+                    interfaceForwardCandidate |= forwardCandidate;
                     if (_request.MaterializeRows)
                     {
                         _operation.Charge(
@@ -274,6 +281,7 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                     IsExcluded: false,
                     BaseMatched: false,
                     InterfaceMatched: false,
+                    ForwardCandidateCount: 0,
                     BaseRelation: null,
                     InterfaceRelation: null,
                     Diagnostic: null);
@@ -285,6 +293,8 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                     IsExcluded: false,
                     baseMatched,
                     interfaceMatched,
+                    (baseForwardCandidate ? 1 : 0)
+                        + (interfaceForwardCandidate ? 1 : 0),
                     BaseRelation: null,
                     InterfaceRelation: null,
                     Diagnostic: null);
@@ -336,6 +346,8 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                 IsExcluded: false,
                 baseMatched,
                 interfaceMatched,
+                (baseForwardCandidate ? 1 : 0)
+                    + (interfaceForwardCandidate ? 1 : 0),
                 baseMatched
                     ? new(
                         address,
@@ -374,7 +386,8 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
         MetadataReader reader,
         EntityHandle candidateTarget,
         int occurrenceToken,
-        out bool matched)
+        out bool matched,
+        out bool forwardCandidate)
     {
         _operation.Charge(
             MetadataOperationDimension.RelationshipEdges);
@@ -386,6 +399,12 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                 out string? failure);
         matched =
             match == MetadataTypeDefinitionNameMatchResult.Match;
+        forwardCandidate =
+            matched
+            && DirectlyTargetsAssembly(
+                reader,
+                candidateTarget,
+                _request.Target.Assembly);
         return match
                 == MetadataTypeDefinitionNameMatchResult.Rejected
             ? new(
@@ -404,9 +423,68 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
             IsExcluded: false,
             BaseMatched: false,
             InterfaceMatched: false,
+            ForwardCandidateCount: 0,
             BaseRelation: null,
             InterfaceRelation: null,
             diagnostic);
+
+    static bool DirectlyTargetsAssembly(
+        MetadataReader reader,
+        EntityHandle target,
+        AssemblyReferenceIdentity? expected)
+    {
+        if (expected is null)
+            return true;
+
+        EntityHandle definition = target;
+        if (definition.Kind == HandleKind.TypeSpecification)
+        {
+            BlobReader signature = reader.GetBlobReader(
+                reader.GetTypeSpecification(
+                    (TypeSpecificationHandle)definition).Signature);
+            if (signature.ReadSignatureTypeCode()
+                    != SignatureTypeCode.GenericTypeInstance
+                || signature.ReadSignatureTypeCode()
+                    != SignatureTypeCode.TypeHandle)
+            {
+                return false;
+            }
+            definition = signature.ReadTypeHandle();
+        }
+
+        if (definition.Kind == HandleKind.TypeDefinition)
+        {
+            return reader.IsAssembly
+                && expected.IsEquivalentTo(
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(
+                        reader));
+        }
+        if (definition.Kind != HandleKind.TypeReference)
+            return false;
+
+        EntityHandle scope =
+            reader.GetTypeReference(
+                (TypeReferenceHandle)definition).ResolutionScope;
+        while (scope.Kind == HandleKind.TypeReference)
+        {
+            scope = reader.GetTypeReference(
+                (TypeReferenceHandle)scope).ResolutionScope;
+        }
+        return scope.Kind switch
+        {
+            HandleKind.AssemblyReference =>
+                expected.IsEquivalentTo(
+                    AssemblyReferenceIdentity.From(
+                        reader,
+                        (AssemblyReferenceHandle)scope)),
+            HandleKind.ModuleDefinition =>
+                reader.IsAssembly
+                && expected.IsEquivalentTo(
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(
+                        reader)),
+            _ => false,
+        };
+    }
 
     public void Dispose()
     {
@@ -637,6 +715,7 @@ internal static partial class MetadataRelationInspection
                 materializeRows,
                 forwardPlan);
         int matched = 0;
+        int forwardCandidates = 0;
         int considered = 0;
         int excluded = 0;
         int examined = 0;
@@ -680,12 +759,14 @@ internal static partial class MetadataRelationInspection
 
                 examined++;
                 matched = checked(matched + unit.CandidateCount);
+                forwardCandidates = checked(
+                    forwardCandidates + unit.ForwardCandidateCount);
                 if (unit.BaseRelation is { } baseRelation)
                     rows.Add(baseRelation);
                 if (unit.InterfaceRelation is { } interfaceRelation)
                     rows.Add(interfaceRelation);
                 if (analysisRequest.ForwardPlan is { } forward
-                    && matched >= forward.MaximumCandidates
+                    && forwardCandidates >= forward.MaximumCandidates
                     && considered < sourceCandidateCount)
                 {
                     stopped = true;

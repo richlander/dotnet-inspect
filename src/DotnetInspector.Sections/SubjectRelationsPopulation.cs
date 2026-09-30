@@ -560,10 +560,10 @@ public static class SubjectRelationsPopulationOperation
                 nameof(rows));
         }
         if (count is SubjectRelationPopulationCountOutcome.Counted
-            && !evidence.IsComplete)
+            && !evidence.IsSatisfied)
         {
             throw new ArgumentException(
-                "Exact relation Count requires complete producer evidence.",
+                "Exact relation Count requires satisfied producer evidence.",
                 nameof(count));
         }
         if (rows is SubjectRelationPopulationRowsOutcome.Read read)

@@ -998,15 +998,37 @@ public sealed class MetadataRelationInspectionTests
         var forwardPlan =
             new MetadataHierarchyRelationForwardPlan(
                 maximumCandidates: 6);
+        var exactTarget = new MetadataHierarchyTargetSelection(
+            target.Type,
+            target.Kind,
+            complete.Result.Receipt.Assembly);
         var forward =
             Assert.IsType<
                 MetadataHierarchyRelationAnalysisOutcome.Available>(
                 session.AnalyzeHierarchyRelations(
                     new(
-                        target,
+                        exactTarget,
                         MetadataOperationPolicy.Unbounded,
                         forwardPlan: forwardPlan),
                     TestContext.Current.CancellationToken));
+        var unrelatedAssembly =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                    session.AnalyzeHierarchyRelations(
+                        new(
+                            new(
+                                target.Type,
+                                target.Kind,
+                                new(
+                                    "Unrelated",
+                                    new Version(1, 0, 0, 0),
+                                    Culture: null,
+                                    PublicKeyToken: null)),
+                            MetadataOperationPolicy.Unbounded,
+                            forwardPlan:
+                                new(
+                                    maximumCandidates: 1)),
+                        TestContext.Current.CancellationToken));
         var noFinding =
             Assert.IsType<
                 MetadataHierarchyRelationAnalysisOutcome.Available>(
@@ -1039,6 +1061,10 @@ public sealed class MetadataRelationInspectionTests
         Assert.True(
             forward.Result.Receipt.Counters.DeclarationCandidates
             < complete.Result.Receipt.Counters.DeclarationCandidates);
+        Assert.False(unrelatedAssembly.Result.WasStopped);
+        Assert.Equal(
+            complete.Result.CandidateCount,
+            unrelatedAssembly.Result.CandidateCount);
 
         Assert.False(noFinding.Result.WasStopped);
         Assert.Equal(0, noFinding.Result.CandidateCount);
