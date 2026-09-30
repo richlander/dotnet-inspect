@@ -9,6 +9,8 @@ using ILInspector.Metadata;
 using ILInspector.Research;
 using ILInspector.SourceLink;
 using InertText;
+using QuerySpace.Composition;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Sections;
 
@@ -45,6 +47,29 @@ public static class LibraryAddressInspectionOperation
                 return Rejected(
                     LibraryAddressInspectionRejection
                         .MissingImplementationAssembly);
+            }
+
+            LibraryAddressPopulationQueryResolution.Accepted?
+                populationQuery = null;
+            if (request.Intent
+                is LibraryAddressIntent.Population populationIntent)
+            {
+                populationQuery =
+                    LibraryAddressPopulationQuery.ResolveRequest(
+                        populationIntent.Query,
+                        cancellationToken)
+                    as LibraryAddressPopulationQueryResolution.Accepted
+                    ?? throw new ArgumentException(
+                        "The Library Address population query is not accepted.",
+                        nameof(request));
+                if (populationQuery.Terminal
+                    is QuerySpaceTerminalRequirement.Count
+                        or QuerySpaceTerminalRequirement.Exists)
+                {
+                    return ExecutePopulationCardinality(
+                        populationIntent,
+                        populationQuery);
+                }
             }
 
             LibraryContentReference? portablePdb = null;
@@ -184,6 +209,9 @@ public static class LibraryAddressInspectionOperation
                 LibraryAddressIntent.Population population =>
                     ExecutePopulation(
                         population,
+                        populationQuery
+                            ?? throw new InvalidOperationException(
+                                "The Library Address population query was not resolved."),
                         descriptor,
                         ready,
                         request.Limits,
@@ -309,6 +337,7 @@ public static class LibraryAddressInspectionOperation
     private static InspectionEnvelope<LibraryAddressInspectionOutcome>
         ExecutePopulation(
             LibraryAddressIntent.Population population,
+            LibraryAddressPopulationQueryResolution.Accepted query,
             ResolvedAssemblyReference descriptor,
             SnapshotOutcome.Ready snapshot,
             LibraryAddressInspectionLimits limits,
@@ -411,14 +440,34 @@ public static class LibraryAddressInspectionOperation
                     }
                 }
 
-                var document =
-                    new LibraryAddressDocument.Population(
-                        new(rows.ToImmutable()));
-                envelope = document.Result.IsComplete
-                    ? Completed(document)
-                    : Partial(
-                        document,
-                        diagnostics.ToImmutable());
+                ImmutableArray<LibraryAddressPopulationRow> allRows =
+                    rows.ToImmutable();
+                bool isComplete =
+                    allRows.All(
+                        static row =>
+                            row is LibraryAddressPopulationRow.Resolved);
+                RowSelectionResult<LibraryAddressPopulationRow> selection =
+                    RowQueryExecutor.Apply(
+                        allRows,
+                        query.Plan.Rows);
+                if (!selection.IsSuccess)
+                {
+                    envelope = PopulationQueryRejected(
+                        selection.Failure!);
+                }
+                else
+                {
+                    var document =
+                        new LibraryAddressDocument.Population(
+                            LibraryAddressPopulationResult.ForRows(
+                                [.. selection.Values],
+                                isComplete));
+                    envelope = isComplete
+                        ? Completed(document)
+                        : Partial(
+                            document,
+                            diagnostics.ToImmutable());
+                }
             }
         }
         catch (OperationCanceledException exception)
@@ -472,6 +521,56 @@ public static class LibraryAddressInspectionOperation
         return envelope
             ?? throw new InvalidOperationException(
                 "Library Address population execution did not settle.");
+    }
+
+    private static InspectionEnvelope<LibraryAddressInspectionOutcome>
+        ExecutePopulationCardinality(
+            LibraryAddressIntent.Population population,
+            LibraryAddressPopulationQueryResolution.Accepted query)
+    {
+        if (!RowQueryExecutor.TryApplyCount(
+                population.Records.Length,
+                query.Plan.Rows,
+                out RowSelectionCountResult selection))
+        {
+            throw new ArgumentException(
+                "The Library Address population query cannot be evaluated "
+                    + "from source cardinality.",
+                nameof(population));
+        }
+        if (!selection.IsSuccess)
+            return PopulationQueryRejected(selection.Failure!);
+
+        bool isComplete = !population.HasMalformedRecords;
+        LibraryAddressPopulationResult result =
+            query.Terminal switch
+            {
+                QuerySpaceTerminalRequirement.Count =>
+                    LibraryAddressPopulationResult.ForCount(
+                        selection.Count,
+                        isComplete),
+                QuerySpaceTerminalRequirement.Exists =>
+                    LibraryAddressPopulationResult.ForExists(
+                        selection.Count != 0,
+                        isComplete),
+                _ => throw new InvalidOperationException(
+                    "A source-cardinality execution requires Count or Exists."),
+            };
+        var document = new LibraryAddressDocument.Population(result);
+        if (isComplete)
+            return Completed(document);
+
+        return Partial(
+            document,
+            population.Records
+                .OfType<LibraryAddressPopulationRecord.Malformed>()
+                .Select(
+                    static malformed =>
+                        new InspectionDiagnostic(
+                            "library-address.population.malformed",
+                            InspectionDiagnosticSeverity.Error,
+                            malformed.Error,
+                            $"line {malformed.LineNumber}")));
     }
 
     private static InspectionEnvelope<LibraryAddressInspectionOutcome>
@@ -899,6 +998,24 @@ public static class LibraryAddressInspectionOperation
             ]);
 
     private static InspectionEnvelope<LibraryAddressInspectionOutcome>
+        PopulationQueryRejected(RowWindowFailure failure) =>
+        Envelope(
+            new LibraryAddressInspectionOutcome.Rejected(
+                LibraryAddressInspectionRejection
+                    .PopulationQueryRejected),
+            [
+                new(
+                    RejectionCode(
+                        LibraryAddressInspectionRejection
+                            .PopulationQueryRejected),
+                    InspectionDiagnosticSeverity.Error,
+                    $"Library Address population row selection stage "
+                        + $"{failure.StageNumber} requires row "
+                        + $"{failure.RequiredPosition}, but only "
+                        + $"{failure.AvailableCount} rows are available."),
+            ]);
+
+    private static InspectionEnvelope<LibraryAddressInspectionOutcome>
         Incomplete(
             LibraryAddressInspectionBound bound,
             long limit,
@@ -1004,6 +1121,8 @@ public static class LibraryAddressInspectionOperation
             LibraryAddressInspectionRejection
                     .PortablePdbCorrespondenceMismatch =>
                 "library-address.rejected.portable-pdb-mismatch",
+            LibraryAddressInspectionRejection.PopulationQueryRejected =>
+                "library-address.rejected.population-query",
             _ => throw new InvalidOperationException(
                 "Unknown Library Address rejection."),
         };
@@ -1025,6 +1144,8 @@ public static class LibraryAddressInspectionOperation
             LibraryAddressInspectionRejection
                     .PortablePdbCorrespondenceMismatch =>
                 "The retained Portable PDB does not correspond to the Library implementation assembly.",
+            LibraryAddressInspectionRejection.PopulationQueryRejected =>
+                "The Library Address population query could not be evaluated.",
             _ => throw new InvalidOperationException(
                 "Unknown Library Address rejection."),
         };

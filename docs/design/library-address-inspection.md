@@ -67,29 +67,51 @@ the CLI root.
 Population intent carries already-admitted records rather than a file path.
 Each record is either one valid IL point or one retained malformed-input
 observation. Construction snapshots the records, requires at least one, and
-rejects more than 1,024. Execution preserves order and emits one row per
-record. Population intent may allow absent boundary-only instruction,
-callsite, and return-address facets for otherwise valid in-body offsets so a
-host can aggregate effective evidence without turning those observations into
-resolution failures. It does not apply CLI row selection.
+rejects more than 1,024. The intent also carries an owner-issued
+`LibraryAddressPopulationQuery` request over the admitted-record row set. The
+query supports Rows, Count, and Exists terminals plus head, tail, and window
+selection.
+
+Rows preserves source order, projects every admitted record, and then applies
+the requested row selection to its detached result. It emits one selected row
+per selected record while preserving diagnostics and completion state from
+the complete admitted population. Population intent may allow absent
+boundary-only instruction, callsite, and return-address facets for otherwise
+valid in-body offsets so a host can aggregate effective evidence without
+turning those observations into resolution failures.
+
+Count and Exists are source-native observations of admitted records. They
+apply the same row selection to source cardinality and do not snapshot, decode,
+or project implementation-assembly content. Their detached documents retain
+no row objects. They preserve diagnostics for retained malformed-input
+observations, but do not discover whether a syntactically valid coordinate
+would fail projection. Count fidelity is established with Roslyn-produced
+assemblies; arbitrary ECMA-335 inputs establish containment and inert failure
+behavior rather than semantic Count oracles.
 
 File reading, lexical parsing, structural/effective discovery, section
-selection, row windows, rendering, and browser-URL preference remain host
-concerns.
+selection, rendering, and browser-URL preference remain host concerns. A host
+may lower an existing count of a one-row head selection to Exists and render
+the boolean as cardinality zero or one; this contract adds no CLI flag.
 
 ## Outcomes
 
 `LibraryAddressInspectionOperation.Execute` returns
 `InspectionEnvelope<LibraryAddressInspectionOutcome>`.
 
-- `Completed` contains an exact IL, exact heap, or wholly resolved population
-  document.
-- `Partial` contains a population document with at least one malformed or
-  unresolved row while retaining every useful row in source order.
+- `Completed` contains an exact IL, exact heap, or complete population
+  terminal document.
+- `Partial` contains a population terminal document when the complete admitted
+  population has at least one retained malformed observation or, for Rows,
+  unresolved projection.
 - An unresolved exact point remains typed content with an error diagnostic.
-- Population documents preserve valid rows, malformed-input rows, and
-  resolution-failure rows together. `IsComplete` is false when any row is not
-  resolved.
+- Rows population documents preserve selected valid rows, malformed-input
+  rows, and resolution-failure rows together. Their `IsComplete` state still
+  describes the complete admitted population, including unselected records.
+- Count documents contain only the selected cardinality. Exists documents
+  contain only whether the selected population is non-empty. Their
+  `IsComplete` state reports retained malformed input; it does not claim that
+  every syntactically valid coordinate can be projected.
 - `Rejected` records authority or correspondence failures.
 - `Incomplete` records assembly, companion-PDB, or embedded-PDB byte limits.
 - `Failed` records content-access, format, inspection, or cleanup failures.

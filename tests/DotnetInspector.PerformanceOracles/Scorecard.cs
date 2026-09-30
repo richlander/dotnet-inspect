@@ -465,6 +465,23 @@ public static class Scorecard
         for (int i = 0; i < timing.Warmup; i++)
             Keep(column.Answer(closing, asset));
 
+        int batchSize = 1;
+        long minimumBatchTicks = Math.Max(
+            1,
+            Stopwatch.Frequency / 10_000);
+        while (batchSize < 1_048_576)
+        {
+            long calibrationStart = Stopwatch.GetTimestamp();
+            for (int i = 0; i < batchSize; i++)
+                Keep(column.Answer(closing, asset));
+            if (Stopwatch.GetTimestamp() - calibrationStart
+                >= minimumBatchTicks)
+            {
+                break;
+            }
+            batchSize *= 2;
+        }
+
         var samples = new List<double>();
         long budget = Stopwatch.Frequency * timing.BudgetMilliseconds / 1000;
         long started = Stopwatch.GetTimestamp();
@@ -472,8 +489,11 @@ public static class Scorecard
             && (samples.Count < timing.MinSamples || Stopwatch.GetTimestamp() - started < budget))
         {
             long start = Stopwatch.GetTimestamp();
-            Keep(column.Answer(closing, asset));
-            samples.Add(Stopwatch.GetElapsedTime(start).TotalMicroseconds);
+            for (int i = 0; i < batchSize; i++)
+                Keep(column.Answer(closing, asset));
+            samples.Add(
+                Stopwatch.GetElapsedTime(start).TotalMicroseconds
+                    / batchSize);
         }
 
         return MedianOf(samples);

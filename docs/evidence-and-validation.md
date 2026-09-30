@@ -250,6 +250,14 @@ than an inspected artifact:
   Publish it for the target RID and run
   `membergroup-scorecard <check|time|exact-check|exact-time>
   <System.Text.Json.dll>`.
+- `tools/AddressTerminalScorecard` checks and times admitted Address
+  populations through LINQ, a standard NLinq query, NLinq's source-native
+  cardinality ceiling, and the shipping
+  `LibraryAddressPopulationQuery` planner. It reports prepared terminal-kernel
+  and composed IL-projection phases separately and preserves one output row
+  per admitted record, including unresolved records. Publish it for the target
+  RID and run
+  `address-terminal-scorecard <check|time> <population> <assembly>...`.
 - `tools/TypeFindPopulationScorecard` checks and times one complete immutable
   Type population through LINQ, pinned NLinq, and the shipping selector. Its
   normalized rows include the selected tier, effective pattern, exact
@@ -265,6 +273,8 @@ assets:
 - Report each cell as a ratio to NLinq, measured by the same binary in the
   same run. Give the geometric mean across assets and the range, with
   absolute medians alongside.
+- Calibrate repeated invocations for sub-microsecond cells so timer
+  quantization cannot collapse source-native or planner medians to zero.
 - On the owner-named Roslyn fidelity corpus, check that every column gives the
   same Boolean, count, or row identity for every closing and asset. Report a
   strict window's failure as a failure, never as a success.

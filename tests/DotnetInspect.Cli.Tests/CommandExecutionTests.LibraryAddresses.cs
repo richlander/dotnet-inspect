@@ -1295,6 +1295,41 @@ public partial class CommandExecutionTests
                 output);
             Assert.DoesNotContain("first-coordinate", output);
             Assert.Contains("second-coordinate", output);
+
+            var count = await RunAppAsync(
+                "library",
+                "address",
+                "--file",
+                coordinatePath,
+                "--package",
+                packagePath,
+                "--library",
+                relativeLibraryPath,
+                "--count",
+                "--tips",
+                "q");
+            Assert.Equal(0, count.Exit);
+            Assert.Empty(count.Error);
+            Assert.Equal("2", count.Output.Trim());
+
+            var exists = await RunAppAsync(
+                "library",
+                "address",
+                "--file",
+                coordinatePath,
+                "--package",
+                packagePath,
+                "--library",
+                relativeLibraryPath,
+                "-n",
+                "1",
+                "--head",
+                "--count",
+                "--tips",
+                "q");
+            Assert.Equal(0, exists.Exit);
+            Assert.Empty(exists.Error);
+            Assert.Equal("1", exists.Output.Trim());
         }
         finally
         {
