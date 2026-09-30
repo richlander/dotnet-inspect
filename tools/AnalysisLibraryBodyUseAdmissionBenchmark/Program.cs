@@ -8,6 +8,7 @@ using ILInspector.Analysis.Planning;
 
 const int DefaultRounds = 15;
 const int WarmupRounds = 2;
+const int OperationsPerSample = 5;
 
 int rounds = DefaultRounds;
 var suppliedAssets = new List<string>();
@@ -54,8 +55,9 @@ BenchmarkAsset[] assets = suppliedAssets.Count == 0
 Console.WriteLine(
     "asset\tdisposition\tfingerprint\ttypes\tbodies\texamined"
     + "\tphysical_only\tunavailable\tlimited\toperands\toccurrences"
-    + "\tdiagnostics\tmedian_ms\tp95_ms\tmedian_bytes");
+    + "\tdiagnostics\tmedian_ms\tp95_ms\tmedian_cpu_ms\tmedian_bytes");
 
+using Process process = Process.GetCurrentProcess();
 foreach (BenchmarkAsset asset in assets)
 {
     if (!File.Exists(asset.Path))
@@ -73,6 +75,7 @@ foreach (BenchmarkAsset asset in assets)
     }
 
     var elapsed = new double[rounds];
+    var cpu = new double[rounds];
     var allocated = new long[rounds];
     for (int i = 0; i < rounds; i++)
     {
@@ -83,12 +86,25 @@ foreach (BenchmarkAsset asset in assets)
             compacting: false);
 
         long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        TimeSpan cpuBefore = process.TotalProcessorTime;
         long started = Stopwatch.GetTimestamp();
-        AnalysisLibraryBodyUseResult result = Execute(asset.Path);
-        elapsed[i] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        AnalysisLibraryBodyUseResult result = expected;
+        for (int operation = 0;
+             operation < OperationsPerSample;
+             operation++)
+        {
+            result = Execute(asset.Path);
+            RequireFingerprint(asset, fingerprint, result);
+        }
+        elapsed[i] =
+            Stopwatch.GetElapsedTime(started).TotalMilliseconds
+            / OperationsPerSample;
+        cpu[i] =
+            (process.TotalProcessorTime - cpuBefore).TotalMilliseconds
+            / OperationsPerSample;
         allocated[i] =
-            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
-        RequireFingerprint(asset, fingerprint, result);
+            (GC.GetAllocatedBytesForCurrentThread() - allocatedBefore)
+            / OperationsPerSample;
         GC.KeepAlive(result);
     }
 
@@ -117,6 +133,7 @@ foreach (BenchmarkAsset asset in assets)
             Percentile95(elapsed).ToString(
                 "F4",
                 CultureInfo.InvariantCulture),
+            Median(cpu).ToString("F4", CultureInfo.InvariantCulture),
             MedianLong(allocated).ToString(CultureInfo.InvariantCulture)));
 }
 
