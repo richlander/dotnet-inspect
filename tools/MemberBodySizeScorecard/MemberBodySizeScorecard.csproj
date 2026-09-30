@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The experimental #8577 method-body scorecard. Old is the current focused
+    Analysis route; LINQ, NLinq, and Planner consume the same prepared
+    logical-to-physical body population. Publish NativeAOT to time:
+      dotnet publish tools/MemberBodySizeScorecard -c Release -r <rid> -p:PublishAot=true -p:IsPublishable=true -o <dir>
+    See docs/evidence-and-validation.md#performance-oracles-for-queryspace-enablement.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>analysis-harness</AssemblyName>
+    <RootNamespace>ILInspector.AnalysisHarness</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Speed</OptimizationPreference>
+    <PublishAot>true</PublishAot>
+    <IsPublishable>true</IsPublishable>
+    <StripSymbols>true</StripSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../AnalysisHarness/MemberBodySizeScorecard.cs"
+             Link="MemberBodySizeScorecard.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
+    <ProjectReference Include="../../tests/DotnetInspector.PerformanceOracles/DotnetInspector.PerformanceOracles.csproj" />
+  </ItemGroup>
+
+</Project>
