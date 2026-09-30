@@ -369,6 +369,10 @@ public class IndexBuildInvariantTests
             DotnetInspector.Queries
                 .UnsafeEvidencePresenceResult.Available>(
                     result);
+        Assert.Equal(
+            ILInspector.Analysis.Planning
+                .MethodDefinitionSourceCompletion.Satisfied,
+            available.SourceReceipt.Completion);
         ILInspector.Analysis.Planning.ProducerParticipation participation =
             available.Receipt.For(
                 ILInspector.Analysis.Planning

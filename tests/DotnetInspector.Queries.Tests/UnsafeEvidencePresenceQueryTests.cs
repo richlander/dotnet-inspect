@@ -87,6 +87,14 @@ public sealed class UnsafeEvidencePresenceQueryTests
                     UnsafeEvidencePresenceQuery.Execute(path, context));
 
             Assert.Equal(ProducerOutcome.Failed, incomplete.Outcome);
+            Assert.Equal(
+                MethodDefinitionSourceCompletion.ProducerFailed,
+                incomplete.SourceReceipt.Completion);
+            Assert.Equal(
+                ProducerTerminal.Exists,
+                incomplete.SourceReceipt.Terminal);
+            Assert.True(
+                incomplete.SourceReceipt.DefinitionsVisited > 0);
             Assert.Contains(
                 "N.Sample::Broken",
                 incomplete.Error.Message,

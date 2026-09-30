@@ -810,8 +810,10 @@ that definition's diagnostic, and the answer is not reported as absent.
    ([#8577](https://github.com/richlander/dotnet-inspect/issues/8577)), this
    owner provides the serial reference executor for the method-definition
    source. It implements the reference passes exactly, stops at a settled
-   Exists terminal, and records participation. It is not an optimization
-   and makes no parallel or collapse claim.
+   Exists terminal, and records participation. Assembly Analysis Operation now
+   composes that executor behind exact session-issued access and publishes a
+   separate Method-source receipt. The executor is not an optimization and
+   makes no parallel or collapse claim.
 7. **Producer algorithm.** Unsafe-evidence presence keeps the existing probe
    algorithm unchanged: the declaration check, the unsafe local-signature
    check, and the instruction scan with its call probe. It keeps the
@@ -823,7 +825,9 @@ that definition's diagnostic, and the answer is not reported as absent.
 9. **Retirement.** `LibraryBodyIndex.HasUnsafeEvidence` and the builder's
    presence loop are removed. `UnsafeEvidencePresenceQuery` forms an
    owner-issued QuerySpace request with Exists, lowers it to the producer work
-   description, and reads the producer's result and receipt.
+   description, forms the single-producer Method source request, and executes
+   it through `AssemblyAnalysisService`. The query reads the focused producer
+   result while preserving the detached source and producer receipts.
    `DotnetInspector.Queries` has no dependency on `LibraryBodyIndex`.
 10. **Coexistence.** The fused execution for all other producers is unchanged
    and shares no mutable state with the planned execution.
