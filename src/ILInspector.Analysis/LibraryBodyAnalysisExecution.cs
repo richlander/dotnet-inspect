@@ -343,7 +343,7 @@ public sealed class LibraryBodyAnalysisExecution
 
         ImmutableArray<MethodImplementationMetricEvidence> bodies =
             analysis.Methods.ImplementationMetrics;
-        if (metricPlan.IncludesDirectCallEvidence)
+        if (metricPlan.IncludesDirectCallMetric)
         {
             bodies = PublishDirectCallMetrics(
                 bodies,
@@ -356,8 +356,8 @@ public sealed class LibraryBodyAnalysisExecution
             actualStages =
                 analysis.ImplementationMetricParticipation
                     ?.Stages ?? [];
-        if (metricPlan.RequestedEvidence.HasFlag(
-                ImplementationMetricEvidenceKind
+        if (metricPlan.RequestedMetrics.HasFlag(
+                ImplementationMetricKind
                     .SiblingOverloadRelationships))
         {
             siblingRelationships =
@@ -382,8 +382,8 @@ public sealed class LibraryBodyAnalysisExecution
             receipt,
             WasRequested: true,
             new(
-                metricPlan.RequestedEvidence,
-                metricPlan.EffectiveEvidence,
+                metricPlan.RequestedMetrics,
+                metricPlan.RequiredFacts,
                 metricPlan.WorkStages,
                 metricPlan.UsesFocusedExecution
                     && plan.RequestedFeatures
@@ -521,7 +521,7 @@ public sealed class LibraryBodyAnalysisExecution
                     new(
                         ImplementationMetricWorkStage
                             .SiblingRelationshipProjection,
-                        ImplementationMetricEvidenceKind
+                        ImplementationMetricKind
                             .SiblingOverloadRelationships,
                         featureCauses,
                         bodies.Length,
