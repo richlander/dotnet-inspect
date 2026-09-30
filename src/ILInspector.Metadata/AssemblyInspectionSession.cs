@@ -230,8 +230,7 @@ public sealed class AssemblyInspectionSession :
     /// </summary>
     public MetadataHierarchyRelationAnalysisOutcome
         AnalyzeHierarchyRelations(
-            MetadataHierarchyRelationAnalysisRequest request,
-            CancellationToken cancellationToken = default)
+            MetadataHierarchyRelationAnalysisRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!_image.TryGetMetadataReader(out MetadataReader? reader))
@@ -242,8 +241,7 @@ public sealed class AssemblyInspectionSession :
         }
         return MetadataRelationInspection.ExecuteHierarchyAnalysis(
             reader,
-            request,
-            cancellationToken);
+            request);
     }
 
     /// <summary>

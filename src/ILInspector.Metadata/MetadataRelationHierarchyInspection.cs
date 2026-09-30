@@ -23,8 +23,7 @@ internal static partial class MetadataRelationInspection
             return ScanTargetedHierarchy(
                 reader,
                 request,
-                operation,
-                cancellationToken);
+                operation);
         }
 
         var evidence =
@@ -152,8 +151,7 @@ internal static partial class MetadataRelationInspection
         MetadataHierarchyRelationEvidence> ScanTargetedHierarchy(
         MetadataReader reader,
         MetadataRelationInspectionRequest request,
-        MetadataOperationContext operation,
-        CancellationToken cancellationToken)
+        MetadataOperationContext operation)
     {
         MetadataRelationFamilyResult<
             MetadataHierarchyRelationAnalysisRow> analysis =
@@ -161,7 +159,6 @@ internal static partial class MetadataRelationInspection
                     reader,
                     request,
                     operation,
-                    cancellationToken,
                     materializeRows: true,
                     forwardPlan: null,
                     out _,

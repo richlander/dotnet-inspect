@@ -485,12 +485,10 @@ internal static partial class MetadataRelationInspection
     internal static MetadataHierarchyRelationAnalysisOutcome
         ExecuteHierarchyAnalysis(
             MetadataReader reader,
-            MetadataHierarchyRelationAnalysisRequest request,
-            CancellationToken cancellationToken)
+            MetadataHierarchyRelationAnalysisRequest request)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(request);
-        cancellationToken.ThrowIfCancellationRequested();
 
         var relationRequest = new MetadataRelationInspectionRequest(
             [MetadataRelationFamily.Hierarchy],
@@ -557,7 +555,6 @@ internal static partial class MetadataRelationInspection
                 reader,
                 relationRequest,
                 operation,
-                cancellationToken,
                 request.MaterializeRows,
                 request.ForwardPlan,
                 out int candidateCount,
@@ -594,7 +591,6 @@ internal static partial class MetadataRelationInspection
             MetadataReader reader,
             MetadataRelationInspectionRequest request,
             MetadataOperationContext operation,
-            CancellationToken cancellationToken,
             bool materializeRows,
             MetadataHierarchyRelationForwardPlan? forwardPlan,
             out int candidateCount,
@@ -637,7 +633,6 @@ internal static partial class MetadataRelationInspection
                     reader);
             foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
             {
-                cancellationToken.ThrowIfCancellationRequested();
                 if (!request.IncludesType(reader, handle))
                     continue;
                 considered++;

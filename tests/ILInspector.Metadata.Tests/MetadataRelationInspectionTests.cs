@@ -45,8 +45,7 @@ public sealed class MetadataRelationInspectionTests
                             new(
                                 TypeName("System", "Object"),
                                 MetadataHierarchyRelationKind.BaseType),
-                            MetadataOperationPolicy.Unbounded),
-                        TestContext.Current.CancellationToken));
+                            MetadataOperationPolicy.Unbounded)));
 
         Assert.IsType<MetadataImageFormatResult.NoMetadata>(
             rejected.Format);
@@ -751,8 +750,7 @@ public sealed class MetadataRelationInspectionTests
                 session.AnalyzeHierarchyRelations(
                     new(
                         target,
-                        MetadataOperationPolicy.Unbounded),
-                    TestContext.Current.CancellationToken));
+                        MetadataOperationPolicy.Unbounded)));
         var countOnly =
             Assert.IsType<
                 MetadataHierarchyRelationAnalysisOutcome.Available>(
@@ -760,8 +758,7 @@ public sealed class MetadataRelationInspectionTests
                     new(
                         target,
                         MetadataOperationPolicy.Unbounded,
-                        materializeRows: false),
-                    TestContext.Current.CancellationToken));
+                        materializeRows: false)));
         var relations =
             Assert.IsType<MetadataRelationInspectionOutcome.Available>(
                 session.Relations(
@@ -865,8 +862,7 @@ public sealed class MetadataRelationInspectionTests
                 session.AnalyzeHierarchyRelations(
                     new(
                         target,
-                        MetadataOperationPolicy.Unbounded),
-                    TestContext.Current.CancellationToken));
+                        MetadataOperationPolicy.Unbounded)));
         var forwardPlan =
             new MetadataHierarchyRelationForwardPlan(
                 maximumCandidates: 6);
@@ -877,8 +873,7 @@ public sealed class MetadataRelationInspectionTests
                     new(
                         target,
                         MetadataOperationPolicy.Unbounded,
-                        forwardPlan: forwardPlan),
-                    TestContext.Current.CancellationToken));
+                        forwardPlan: forwardPlan)));
         var noFinding =
             Assert.IsType<
                 MetadataHierarchyRelationAnalysisOutcome.Available>(
@@ -890,8 +885,7 @@ public sealed class MetadataRelationInspectionTests
                         MetadataOperationPolicy.Unbounded,
                         forwardPlan:
                             new(
-                                maximumCandidates: 1)),
-                    TestContext.Current.CancellationToken));
+                                maximumCandidates: 1))));
 
         Assert.True(complete.Result.CandidateCount > 6);
         Assert.False(complete.Result.WasStopped);
@@ -969,8 +963,7 @@ public sealed class MetadataRelationInspectionTests
                         new(
                             TypeName("Sample", "ITarget`1"),
                             MetadataHierarchyRelationKind.Interface),
-                        MetadataOperationPolicy.Unbounded),
-                    TestContext.Current.CancellationToken));
+                        MetadataOperationPolicy.Unbounded)));
 
         Assert.Equal(
             MetadataRelationFamilyDisposition.Partial,
@@ -1023,8 +1016,7 @@ public sealed class MetadataRelationInspectionTests
                         new(
                             TypeName("Sample", "ITarget"),
                             MetadataHierarchyRelationKind.BaseType),
-                        MetadataOperationPolicy.Unbounded),
-                    TestContext.Current.CancellationToken));
+                        MetadataOperationPolicy.Unbounded)));
 
         Assert.Equal(
             MetadataRelationFamilyDisposition.Partial,
