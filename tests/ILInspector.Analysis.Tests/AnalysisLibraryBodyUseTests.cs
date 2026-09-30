@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -5,6 +6,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using AnalysisBodyUseFixtures;
+using ILInspector.AnalysisHarness;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
@@ -89,6 +91,151 @@ public sealed class AnalysisLibraryBodyUseTests
         Assert.True(
             participation.Layers.Single(
                 static layer => layer.Layer == "ModuleLookup").Acquired > 0);
+    }
+
+    [Fact]
+    public void ExecuteTerminalImage_ClosesLogicalOccurrenceRows()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        ImmutableArray<byte> image =
+            [.. File.ReadAllBytes(FixturePath)];
+        AnalysisLibraryBodyUseAnswer.Rows rows = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Rows>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
+                        FixturePath,
+                        image,
+                        ProducerTerminal.Rows,
+                        new(),
+                        cancellationToken)).Answer);
+        AnalysisLibraryBodyUseAnswer.Count count = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Count>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
+                        FixturePath,
+                        image,
+                        ProducerTerminal.Complete,
+                        new(),
+                        cancellationToken)).Answer);
+        AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Exists>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
+                        FixturePath,
+                        image,
+                        ProducerTerminal.Exists,
+                        new(),
+                        cancellationToken)).Answer);
+
+        Assert.Equal(rows.Result.Occurrences.Length, count.Value);
+        Assert.True(exists.Value);
+        Assert.Equal(
+            AnalysisLibraryBodyUseTerminalDisposition.Qualified,
+            count.Evidence.Disposition);
+        Assert.Equal(
+            AnalysisLibraryBodyUseTerminalDisposition.Settled,
+            exists.Evidence.Disposition);
+        Assert.Equal(
+            ProducerOutcome.Complete,
+            count.Evidence.Receipt.Work.Producers.Single().Outcome);
+        Assert.Equal(
+            ProducerOutcome.Stopped,
+            exists.Evidence.Receipt.Work.Producers.Single().Outcome);
+        Assert.True(
+            exists.Evidence.Receipt.Work.UnitsVisited
+                < count.Evidence.Receipt.Work.UnitsVisited);
+    }
+
+    [Fact]
+    public void ExecuteTerminalImage_EmptyLogicalOccurrencePopulationCompletes()
+    {
+        ImmutableArray<byte> image =
+            BuildIndependentImage([(byte)ILOpCode.Ret]);
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        AnalysisLibraryBodyUseAnswer.Count count = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Count>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
+                        "Empty.dll",
+                        image,
+                        ProducerTerminal.Complete,
+                        new(),
+                        cancellationToken)).Answer);
+        AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Exists>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
+                        "Empty.dll",
+                        image,
+                        ProducerTerminal.Exists,
+                        new(),
+                        cancellationToken)).Answer);
+
+        Assert.Equal(0, count.Value);
+        Assert.False(exists.Value);
+        Assert.Equal(
+            AnalysisLibraryBodyUseTerminalDisposition.Complete,
+            count.Evidence.Disposition);
+        Assert.Equal(
+            AnalysisLibraryBodyUseTerminalDisposition.Complete,
+            exists.Evidence.Disposition);
+        Assert.All(
+            new[] { count.Evidence, exists.Evidence },
+            static evidence => Assert.Equal(
+                ProducerOutcome.Complete,
+                evidence.Receipt.Work.Producers.Single().Outcome));
+    }
+
+    [Fact]
+    public void ExecuteTerminalImage_ExistsDoesNotSettleOnRejectedOccurrenceBatch()
+    {
+        ImmutableArray<byte> image =
+            BuildIndependentImage(
+                [
+                    (byte)ILOpCode.Ldtoken,
+                    0x02, 0x00, 0x00, 0x02,
+                    (byte)ILOpCode.Pop,
+                    (byte)ILOpCode.Ldtoken,
+                    0x02, 0x00, 0x00, 0x02,
+                    (byte)ILOpCode.Pop,
+                    (byte)ILOpCode.Ret,
+                ]);
+        var limits = new AnalysisLibraryBodyUseLimits(
+            MaximumOccurrences: 1);
+        AnalysisLibraryBodyUseAnswer.Count count = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Count>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
+                        "OccurrenceLimit.dll",
+                        image,
+                        ProducerTerminal.Complete,
+                        limits,
+                        TestContext.Current.CancellationToken)).Answer);
+        AnalysisLibraryBodyUseAnswer.Exists exists = Assert.IsType<
+            AnalysisLibraryBodyUseAnswer.Exists>(
+                QueryAvailable(
+                    AnalysisLibraryBodyUseService.ExecuteTerminalImage(
+                        "OccurrenceLimit.dll",
+                        image,
+                        ProducerTerminal.Exists,
+                        limits,
+                        TestContext.Current.CancellationToken)).Answer);
+
+        Assert.Equal(0, count.Value);
+        Assert.False(exists.Value);
+        Assert.Equal(
+            AnalysisLibraryBodyUseTerminalDisposition.Partial,
+            count.Evidence.Disposition);
+        Assert.Equal(
+            AnalysisLibraryBodyUseTerminalDisposition.Partial,
+            exists.Evidence.Disposition);
+        Assert.All(
+            new[] { count.Evidence, exists.Evidence },
+            static evidence => Assert.Equal(
+                ProducerOutcome.Complete,
+                evidence.Receipt.Work.Producers.Single().Outcome));
     }
 
     [Fact]
@@ -191,6 +338,152 @@ public sealed class AnalysisLibraryBodyUseTests
                 Name(occurrence.SourceType).Contains(
                     "<>",
                     StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(nameof(BodyUseLiftedShapes.CapturingLambdaInAsync))]
+    [InlineData(nameof(BodyUseLiftedShapes.AsyncLambdaInCache))]
+    [InlineData(nameof(BodyUseLiftedShapes.LocalFunctionInLambda))]
+    [InlineData(nameof(BodyUseLiftedShapes.LambdaInIterator))]
+    public void ExecutePath_AttributesRoslynLiftedShapeToDeclaringType(
+        string source)
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecutePath(
+                    FixturePath,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        using var image = new PEReader(File.OpenRead(FixturePath));
+        MetadataReader reader = image.GetMetadataReader();
+
+        // Every generated body produced for the source method: a lifted
+        // method named for it, or a member of a Type named for it.
+        string marker = $"<{source}>";
+        HashSet<int> generated =
+        [
+            .. reader.MethodDefinitions
+                .Where(handle =>
+                {
+                    MethodDefinition method =
+                        reader.GetMethodDefinition(handle);
+                    return reader.GetString(method.Name).Contains(
+                            marker,
+                            StringComparison.Ordinal)
+                        || reader.GetString(
+                                reader.GetTypeDefinition(
+                                    method.GetDeclaringType()).Name)
+                            .Contains(marker, StringComparison.Ordinal);
+                })
+                .Select(static handle => MetadataTokens.GetToken(handle)),
+        ];
+        Assert.NotEmpty(generated);
+
+        AnalysisLibraryBodyUseOccurrence[] uses =
+            [.. result.Occurrences.Where(
+                occurrence => generated.Contains(
+                    occurrence.PhysicalMethodToken))];
+        Assert.Contains(
+            uses,
+            static occurrence =>
+                Name(occurrence.TargetType)
+                    == "AnalysisBodyUseFixtures.BodyUseTarget"
+                && occurrence.OperandKind
+                    == AnalysisLibraryBodyUseOperandKind.Constructor);
+        Assert.All(
+            uses,
+            static occurrence => Assert.Equal(
+                "AnalysisBodyUseFixtures.BodyUseLiftedShapes",
+                Name(occurrence.SourceType)));
+    }
+
+    [Fact]
+    public void ExecutePath_BindsSharedMethodSpecAcrossCallerArities()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecutePath(
+                    FixturePath,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        using var image = new PEReader(File.OpenRead(FixturePath));
+        MetadataReader reader = image.GetMetadataReader();
+        string[] callers =
+        [
+            nameof(BodyUseSharedInstantiation.FromNonGeneric),
+            nameof(BodyUseSharedInstantiation.FromGeneric),
+            nameof(BodyUseSharedInstantiation.FromTwoGeneric),
+        ];
+
+        // Roslyn emits one MethodSpec for Pick<BodyUseTarget>, reached from
+        // callers of generic arity 0, 1, and 2. Each binds it identically.
+        var bindings = callers
+            .Select(caller =>
+            {
+                int token = MetadataTokens.GetToken(
+                    reader.MethodDefinitions.Single(handle =>
+                        reader.StringComparer.Equals(
+                            reader.GetMethodDefinition(handle).Name,
+                            caller)));
+                Assert.DoesNotContain(
+                    result.Diagnostics,
+                    diagnostic => diagnostic.MethodToken == token);
+                return result.Occurrences
+                    .Where(occurrence =>
+                        occurrence.PhysicalMethodToken == token
+                        && occurrence.OperandKind
+                            == AnalysisLibraryBodyUseOperandKind
+                                .GenericMethodInstantiation)
+                    .Select(static occurrence => (
+                        occurrence.OperandToken,
+                        occurrence.OccurrenceOrdinal,
+                        Target: Name(occurrence.TargetType)))
+                    .ToArray();
+            })
+            .ToArray();
+
+        Assert.Equal(
+            [
+                (bindings[0][0].OperandToken, 0,
+                    "AnalysisBodyUseFixtures.BodyUseSharedInstantiation"),
+                (bindings[0][0].OperandToken, 1,
+                    "AnalysisBodyUseFixtures.BodyUseTarget"),
+            ],
+            bindings[0]);
+        Assert.Equal(0x2B, bindings[0][0].OperandToken >>> 24);
+        Assert.All(
+            bindings,
+            binding => Assert.Equal(bindings[0], binding));
+    }
+
+    [Fact]
+    public void ExecuteImage_FailsMethodSpecOutsideLaterCallerScope()
+    {
+        // One MethodSpec, G<!!0>, is valid from the generic caller visited
+        // first and invalid from the non-generic caller visited second. The
+        // cached valid binding must not answer for the invalid caller.
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "MethodSpecScope.dll",
+                    BuildMethodSpecScopeImage(),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        AnalysisLibraryBodyUseOccurrence occurrence =
+            Assert.Single(result.Occurrences);
+        Assert.Equal(0x06000002, occurrence.PhysicalMethodToken);
+        Assert.Equal(0x2B000001, occurrence.OperandToken);
+        AnalysisLibraryBodyUseDiagnostic diagnostic =
+            Assert.Single(result.Diagnostics);
+        Assert.Equal(
+            AnalysisLibraryBodyUseDiagnosticKind.UnresolvedOperand,
+            diagnostic.Kind);
+        Assert.Equal(0x06000003, diagnostic.MethodToken);
+        Assert.Equal(1, result.Coverage.OperandsUnavailable);
     }
 
     [Fact]
@@ -297,10 +590,15 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
-    public void ExecutePath_LimitsLiftedOwnerAttributionProbe()
+    public void ExecutePath_AttributesLiftedBodyWithoutDecodingItsOwner()
     {
         using var image = new PEReader(File.OpenRead(FixturePath));
         MetadataReader reader = image.GetMetadataReader();
+        MethodDefinitionHandle owner = Assert.Single(
+            reader.MethodDefinitions,
+            handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                nameof(BodyUseSource.BoundedLiftedOwner)));
         MethodDefinitionHandle lifted = Assert.Single(
             reader.MethodDefinitions,
             handle => reader.GetString(
@@ -308,8 +606,9 @@ public sealed class AnalysisLibraryBodyUseTests
                 .Contains(
                     "<BoundedLiftedOwner>g__Local",
                     StringComparison.Ordinal));
-        int liftedToken = MetadataTokens.GetToken(lifted);
 
+        // The owner exceeds the two-instruction limit; the lifted body
+        // (newobj, ret) does not, and its attribution decodes no other body.
         AnalysisLibraryBodyUseResult result =
             Available(
                 AnalysisLibraryBodyUseService.ExecutePath(
@@ -319,22 +618,82 @@ public sealed class AnalysisLibraryBodyUseTests
                             MaximumInstructionsPerBody: 2)),
                     TestContext.Current.CancellationToken)).Result;
 
-        Assert.Equal(
-            AnalysisLibraryBodyUseDisposition.Partial,
-            result.Disposition);
-        AnalysisLibraryBodyUseDiagnostic diagnostic =
-            Assert.Single(
-                result.Diagnostics,
-                candidate =>
-                    candidate.MethodToken == liftedToken
-                    && candidate.Kind
-                        == AnalysisLibraryBodyUseDiagnosticKind.Limit);
-        Assert.Equal(2, diagnostic.Limit);
-        Assert.Equal(3, diagnostic.AttemptedCharge);
         Assert.Contains(
-            "Logical-owner attribution probe",
-            diagnostic.Detail,
-            StringComparison.Ordinal);
+            result.Diagnostics,
+            diagnostic =>
+                diagnostic.MethodToken == MetadataTokens.GetToken(owner)
+                && diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind.Limit);
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            diagnostic =>
+                diagnostic.MethodToken == MetadataTokens.GetToken(lifted));
+        Assert.Equal(
+            AnalysisLibraryBodyUseFidelity.LogicalOwner,
+            Assert.Single(
+                result.PhysicalEvidence,
+                evidence =>
+                    evidence.PhysicalMethodToken
+                        == MetadataTokens.GetToken(lifted)).Fidelity);
+        Assert.Contains(
+            result.Occurrences,
+            occurrence =>
+                occurrence.PhysicalMethodToken
+                    == MetadataTokens.GetToken(lifted)
+                && Name(occurrence.SourceType)
+                    == "AnalysisBodyUseFixtures.BodyUseSource"
+                && Name(occurrence.TargetType)
+                    == "AnalysisBodyUseFixtures.BodyUseTarget");
+    }
+
+    [Fact]
+    public void ExecutePath_AttributesOnlyStateMachineRoleBodies()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecutePath(
+                    FixturePath,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        using var image = new PEReader(
+            File.OpenRead(FixturePath));
+        MetadataReader reader = image.GetMetadataReader();
+        MethodDefinitionHandle kickoff = reader.MethodDefinitions.Single(
+            handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                nameof(BodyUseSource.IteratorUse)));
+        StateMachineRelationshipResult.Resolved relationship =
+            Assert.IsType<StateMachineRelationshipResult.Resolved>(
+                StateMachineRelationshipIndex
+                    .Create(reader)
+                    .GetByKickoff(kickoff));
+        var roles = relationship.Relationship.Roles
+            .OfType<StateMachineRoleDisposition.Present>()
+            .Select(static role => role.Method.Token)
+            .ToHashSet();
+        Assert.Equal(2, roles.Count);
+
+        // Roslyn's iterator role bodies (MoveNext, Dispose) belong to the
+        // kickoff's declaring Type; its other generated members do not.
+        TypeDefinitionHandle stateMachine =
+            reader.GetMethodDefinition(
+                    MetadataTokens.MethodDefinitionHandle(roles.First()))
+                .GetDeclaringType();
+        foreach (MethodDefinitionHandle method
+            in reader.GetTypeDefinition(stateMachine).GetMethods())
+        {
+            int token = MetadataTokens.GetToken(method);
+            AnalysisLibraryBodyUsePhysicalEvidence evidence =
+                Assert.Single(
+                    result.PhysicalEvidence,
+                    candidate => candidate.PhysicalMethodToken == token);
+            Assert.Equal(
+                roles.Contains(token)
+                    ? AnalysisLibraryBodyUseFidelity.LogicalOwner
+                    : AnalysisLibraryBodyUseFidelity.PhysicalOnly,
+                evidence.Fidelity);
+        }
     }
 
     [Fact]
@@ -385,18 +744,102 @@ public sealed class AnalysisLibraryBodyUseTests
                 [.. File.ReadAllBytes(FixturePath)],
                 new(),
                 cancellation.Token));
+
+        var asset = new BodyUseScorecardAsset(
+            "bodyless",
+            "Bodyless.dll",
+            BuildIndependentImage(
+                [0x2A],
+                bodylessOnly: true));
+        foreach (BodyUseScorecardClosing closing
+            in Enum.GetValues<BodyUseScorecardClosing>())
+        {
+            foreach (BodyUseScorecardColumn column
+                in Enum.GetValues<BodyUseScorecardColumn>())
+            {
+                Assert.Throws<OperationCanceledException>(
+                    () => BodyUseScorecard.Execute(
+                        column,
+                        closing,
+                        asset,
+                        cancellationToken: cancellation.Token));
+            }
+        }
+    }
+
+    [Fact]
+    public void Scorecard_ChecksEveryClosing()
+    {
+        BodyUseScorecardCheck check = BodyUseScorecard.Check(
+            [
+                new(
+                    "empty",
+                    "Empty.dll",
+                    BuildIndependentImage([(byte)ILOpCode.Ret])),
+            ],
+            cancellationToken:
+                TestContext.Current.CancellationToken);
+
+        Assert.True(check.Agrees);
+        Assert.Equal(9, check.Compared);
+        Assert.Equal(
+            Enum.GetValues<BodyUseScorecardClosing>(),
+            check.AnswerHashes.Select(static answer => answer.Closing));
+    }
+
+    [Fact]
+    public void Scorecard_PreservesTypeInventoryLimitRejection()
+    {
+        AssertScorecardRejection(
+            new(
+                "inventory-limit",
+                "InventoryLimit.dll",
+                BuildIndependentImage([0x2A])),
+            new(
+                MaximumRetainedTextCharacters: 1),
+            AnalysisLibraryBodyUseRejectionKind.Limit);
+    }
+
+    [Fact]
+    public void Scorecard_PreservesUnsupportedInventoryRejection()
+    {
+        AssertScorecardRejection(
+            new(
+                "duplicate-inventory",
+                "DuplicateInventory.dll",
+                BuildIndependentImage(
+                    [0x2A],
+                    duplicateTypeDefinition: true)),
+            new(),
+            AnalysisLibraryBodyUseRejectionKind.UnsupportedImage);
+    }
+
+    [Fact]
+    public void Scorecard_PreservesMethodVisitRejection()
+    {
+        AssertScorecardRejection(
+            new(
+                "malformed-method-list",
+                "MalformedMethodList.dll",
+                BuildIndependentImage(
+                    [0x2A],
+                    malformedMethodList: true)),
+            new(),
+            AnalysisLibraryBodyUseRejectionKind.Execution);
     }
 
     [Fact]
     public void ExecuteImage_ContainsMalformedBodyAndRetainsHealthyBody()
     {
+        ImmutableArray<byte> image =
+            BuildIndependentImage(
+                [0x2A],
+                unreadableSecondBody: true);
         AnalysisLibraryBodyUseResult result =
             Available(
                 AnalysisLibraryBodyUseService.ExecuteImage(
                     "IndependentEcma335.dll",
-                    BuildIndependentImage(
-                        [0x2A],
-                        unreadableSecondBody: true),
+                    image,
                     new(),
                     TestContext.Current.CancellationToken)).Result;
 
@@ -412,6 +855,23 @@ public sealed class AnalysisLibraryBodyUseTests
                 diagnostic.Kind
                     == AnalysisLibraryBodyUseDiagnosticKind
                         .MalformedBody);
+
+        BodyUseScorecardCheck scorecard = BodyUseScorecard.Check(
+            [
+                new(
+                    "malformed-body",
+                    "IndependentEcma335.dll",
+                    image),
+            ],
+            cancellationToken:
+                TestContext.Current.CancellationToken);
+        Assert.True(
+            scorecard.Agrees,
+            string.Join(
+                Environment.NewLine,
+                scorecard.Mismatches.Select(static mismatch =>
+                    $"{mismatch.Column}: {mismatch.Answer}; "
+                        + $"oracle {mismatch.OracleAnswer}")));
     }
 
     [Fact]
@@ -518,6 +978,472 @@ public sealed class AnalysisLibraryBodyUseTests
                 diagnostic.Kind
                     == AnalysisLibraryBodyUseDiagnosticKind
                         .UnresolvedOperand);
+    }
+
+    [Fact]
+    public void ExecuteImage_ReportsTruncatedMethodSignatureOperand()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [
+                            (byte)ILOpCode.Call,
+                            0x01, 0x00, 0x00, 0x0A,
+                            (byte)ILOpCode.Ret,
+                        ],
+                        truncatedMethodMemberReference: true),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Empty(result.Occurrences);
+        Assert.Equal(1, result.Coverage.OperandsUnavailable);
+        Assert.Single(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind
+                        .UnresolvedOperand
+                && diagnostic.IlOffset == 0);
+    }
+
+    [Fact]
+    public void ExecuteImage_ReportsBodyWithTruncatedOwnSignature()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [(byte)ILOpCode.Ret],
+                        truncatedOwnSignature: true),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(1, result.Coverage.BodiesUnavailable);
+        Assert.Single(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind.MalformedBody);
+    }
+
+    [Fact]
+    public void ExecuteImage_DecodesRepeatedMalformedSignatureOnce()
+    {
+        // 256 calls to one MemberRef whose 8 KiB signature is truncated. Each
+        // call fails visibly, but the signature is decoded once.
+        const int calls = 256;
+        byte[] il = new byte[(calls * 5) + 1];
+        for (int i = 0; i < calls; i++)
+        {
+            il[i * 5] = (byte)ILOpCode.Call;
+            il[(i * 5) + 1] = 0x01;
+            il[(i * 5) + 4] = 0x0A;
+        }
+        il[^1] = (byte)ILOpCode.Ret;
+        ImmutableArray<byte> image =
+            BuildIndependentImage(il, largeTruncatedParameters: 4096);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    image,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(calls, result.Coverage.OperandsUnavailable);
+        Assert.Equal(
+            calls,
+            result.Diagnostics.Count(static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind
+                        .UnresolvedOperand));
+        // One decode allocates about 2 MB; one per call would be about 600 MB.
+        Assert.InRange(allocated, 0, 32 * 1024 * 1024);
+
+        BodyUseScorecardCheck scorecard = BodyUseScorecard.Check(
+            [
+                new(
+                    "repeated-malformed-signature",
+                    "IndependentEcma335.dll",
+                    image),
+            ],
+            cancellationToken:
+                TestContext.Current.CancellationToken);
+        Assert.True(
+            scorecard.Agrees,
+            string.Join(
+                Environment.NewLine,
+                scorecard.Mismatches.Select(static mismatch =>
+                    $"{mismatch.Column}: {mismatch.Answer}; "
+                        + $"oracle {mismatch.OracleAnswer}")));
+    }
+
+    [Fact]
+    public void ExecuteImage_RepeatedOperandFailureGrowsLinearly()
+    {
+        // Every call to one truncated MemberRef fails visibly; the retained
+        // failure is reported per use without rethrowing one shared exception.
+        long Allocated(int calls)
+        {
+            byte[] il = new byte[(calls * 5) + 1];
+            for (int i = 0; i < calls; i++)
+            {
+                il[i * 5] = (byte)ILOpCode.Call;
+                il[(i * 5) + 1] = 0x01;
+                il[(i * 5) + 4] = 0x0A;
+            }
+            il[^1] = (byte)ILOpCode.Ret;
+            ImmutableArray<byte> image = BuildIndependentImage(
+                il,
+                truncatedMethodMemberReference: true);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            AnalysisLibraryBodyUseResult result =
+                Available(
+                    AnalysisLibraryBodyUseService.ExecuteImage(
+                        "IndependentEcma335.dll",
+                        image,
+                        new(),
+                        TestContext.Current.CancellationToken)).Result;
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.Equal(calls, result.Coverage.OperandsUnavailable);
+            Assert.Equal(calls, result.Diagnostics.Length);
+            return allocated;
+        }
+
+        _ = Allocated(64);
+        long small = Allocated(512);
+        long large = Allocated(2048);
+
+        // About 1 KB per extra call; one growing shared exception costs
+        // hundreds of MB here.
+        Assert.InRange(large - small, 0, 1536 * 4096);
+    }
+
+    [Fact]
+    public void ExecuteImage_DecodesSharedMethodSpecInstantiationOnce()
+    {
+        // 256 MethodSpec rows share one 8 KiB instantiation that does not
+        // match its target's arity. Every call fails visibly; the shared
+        // instantiation is decoded once.
+        const int specifications = 256;
+        ImmutableArray<byte> image =
+            BuildSharedMethodSpecImage(specifications, arguments: 4096);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "SharedMethodSpec.dll",
+                    image,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(specifications, result.Coverage.OperandsUnavailable);
+        Assert.Equal(
+            specifications,
+            result.Diagnostics.Count(static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind
+                        .UnresolvedOperand));
+        // One decode allocates about 2 MB; one per row is over 500 MB.
+        Assert.InRange(allocated, 0, 32 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void ExecutePath_AttributesRoslynVisualBasicStateMachines()
+    {
+        string path = typeof(AnalysisBodyUseVbFixtures.VbTarget)
+            .Assembly.Location;
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecutePath(
+                    path,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        using var image = new PEReader(File.OpenRead(path));
+        MetadataReader reader = image.GetMetadataReader();
+
+        // VB$StateMachine_* role bodies continue as their kickoff, so their
+        // VbTarget constructions belong to VbSource.
+        foreach (string kickoff in new[] { "AsyncUse", "IteratorUse" })
+        {
+            TypeDefinitionHandle stateMachine = Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(
+                        reader.GetTypeDefinition(handle).Name)
+                    .EndsWith("_" + kickoff, StringComparison.Ordinal));
+            MethodDefinitionHandle moveNext = Assert.Single(
+                reader.GetTypeDefinition(stateMachine).GetMethods(),
+                handle => reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    "MoveNext"));
+            Assert.Contains(
+                result.Occurrences,
+                occurrence =>
+                    occurrence.PhysicalMethodToken
+                        == MetadataTokens.GetToken(moveNext)
+                    && Name(occurrence.SourceType)
+                        == "AnalysisBodyUseVbFixtures.VbSource"
+                    && Name(occurrence.TargetType)
+                        == "AnalysisBodyUseVbFixtures.VbTarget"
+                    && occurrence.OperandKind
+                        == AnalysisLibraryBodyUseOperandKind.Constructor);
+        }
+    }
+
+    [Fact]
+    public void ExecuteImage_IgnoresUnreadableCalleeName()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [
+                            (byte)ILOpCode.Call,
+                            0x01, 0x00, 0x00, 0x0A,
+                            (byte)ILOpCode.Ret,
+                        ],
+                        unreadableMemberName: true),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Complete,
+            result.Disposition);
+        Assert.Single(result.Occurrences);
+        Assert.Equal(1, result.Coverage.OperandsExamined);
+        Assert.Equal(0, result.Coverage.OperandsUnavailable);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void ExecuteImage_IgnoresUnreadableCalleeParameterRange()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "MethodDefinitionParameterRange.dll",
+                    BuildMethodDefinitionParameterRangeImage(),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Complete,
+            result.Disposition);
+        Assert.Single(result.Occurrences);
+        Assert.Equal(1, result.Coverage.OperandsExamined);
+        Assert.Equal(0, result.Coverage.OperandsUnavailable);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void ExecuteImage_ValidatesSharedMethodSpecAcrossTargetArities()
+    {
+        // 768 MethodSpec rows share one 8 KiB instantiation, each targeting a
+        // MemberRef of a different generic arity. The instantiation is
+        // decoded and charged once; each distinct target arity is still
+        // rejected visibly.
+        const int specifications = 768;
+        ImmutableArray<byte> image =
+            BuildSharedMethodSpecImage(
+                specifications,
+                arguments: 4096,
+                distinctTargetArities: true);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "SharedMethodSpec.dll",
+                    image,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(specifications, result.Coverage.OperandsUnavailable);
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            static diagnostic => diagnostic.Detail.Contains(
+                "Method-reference decoding work exceeds the assembly budget.",
+                StringComparison.Ordinal));
+        Assert.InRange(allocated, 0, 64 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void ExecuteImage_IgnoresMethodSpecTargetNamesAndResolverBudget()
+    {
+        // Full member resolution charges each differently named target
+        // identity. Body use reads no target name, so one shared valid
+        // instantiation remains complete and bounded.
+        const int specifications = 600;
+        ImmutableArray<byte> image =
+            BuildSharedMethodSpecImage(
+                specifications,
+                arguments: 1,
+                distinctTargetNames: true);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "SharedMethodSpec.dll",
+                    image,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Complete,
+            result.Disposition);
+        Assert.Equal(specifications, result.Coverage.OperandsExamined);
+        Assert.Equal(specifications, result.Occurrences.Length);
+        Assert.Empty(result.Diagnostics);
+        Assert.InRange(allocated, 0, 32 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void ExecuteImage_RejectsMethodSignatureBudgetExhaustion()
+    {
+        ImmutableArray<byte> image =
+            BuildIndependentImage(
+                [
+                    (byte)ILOpCode.Call,
+                    0x01, 0x00, 0x00, 0x0A,
+                    (byte)ILOpCode.Ret,
+                ],
+                largeTruncatedParameters: 4096);
+        var limits = new AnalysisLibraryBodyUseLimits(
+            MaximumMethodSignatureBytes: 1024);
+        AnalysisLibraryBodyUseOutcome outcome =
+            AnalysisLibraryBodyUseService.ExecuteImage(
+                "IndependentEcma335.dll",
+                image,
+                new(limits),
+                TestContext.Current.CancellationToken);
+
+        AnalysisLibraryBodyUseOutcome.Rejected rejected =
+            Assert.IsType<AnalysisLibraryBodyUseOutcome.Rejected>(outcome);
+        Assert.Equal(
+            AnalysisLibraryBodyUseRejectionKind.Limit,
+            rejected.Kind);
+        Assert.Contains(
+            "method-signature byte budget",
+            rejected.Detail,
+            StringComparison.Ordinal);
+
+        BodyUseScorecardCheck scorecard = BodyUseScorecard.Check(
+            [
+                new(
+                    "signature-budget",
+                    "IndependentEcma335.dll",
+                    image),
+            ],
+            limits,
+            TestContext.Current.CancellationToken);
+        Assert.True(
+            scorecard.Agrees,
+            string.Join(
+                Environment.NewLine,
+                scorecard.Mismatches.Select(static mismatch =>
+                    $"{mismatch.Column}: {mismatch.Answer}; "
+                        + $"oracle {mismatch.OracleAnswer}")));
+    }
+
+    [Fact]
+    public void ExecuteImage_ChargesCrossKindSharedBlobOnce()
+    {
+        AnalysisLibraryBodyUseOutcome outcome =
+            AnalysisLibraryBodyUseService.ExecuteImage(
+                "CrossKindSharedBlob.dll",
+                BuildCrossKindSharedBlobImage(),
+                new(
+                    new(
+                        MaximumMethodSignatureBytes: 10)),
+                TestContext.Current.CancellationToken);
+
+        AnalysisLibraryBodyUseResult result = Available(outcome).Result;
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Single(result.Occurrences);
+        Assert.Equal(1, result.Coverage.OperandsUnavailable);
+    }
+
+    [Fact]
+    public void ExecuteImage_BoundsStateMachineAttributeNames()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "StateMachineName.dll",
+                    BuildOversizedStateMachineNameImage(kickoffs: 64),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        // The oversized shared name fails the generated body it would
+        // attribute, visibly; ordinary kickoff bodies are unaffected.
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(1, result.Coverage.BodiesUnavailable);
+        Assert.Equal(64, result.Coverage.BodiesExamined);
+        Assert.Single(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind.MalformedBody
+                && diagnostic.Detail.Contains(
+                    "state-machine host",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ExecuteImage_BoundsSharedLiftedMethodNameWork()
+    {
+        const int methods = 512;
+        ImmutableArray<byte> image =
+            BuildSharedLiftedMethodNameImage(
+                methods,
+                nameCharacters: 8 * 1024);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "SharedLiftedMethodName.dll",
+                    image,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Qualified,
+            result.Disposition);
+        Assert.Equal(methods, result.Coverage.BodiesPhysicalOnly);
+        Assert.Equal(methods, result.Diagnostics.Length);
+        Assert.All(
+            result.Diagnostics,
+            static diagnostic => Assert.Equal(
+                AnalysisLibraryBodyUseDiagnosticKind.UnavailableLogicalOwner,
+                diagnostic.Kind));
+        Assert.True(
+            allocated < 4 * 1024 * 1024,
+            $"Allocated {allocated:N0} bytes.");
     }
 
     [Fact]
@@ -664,15 +1590,17 @@ public sealed class AnalysisLibraryBodyUseTests
             new(
                 Body(
                     methodToken: 0x06000001,
-                    ilOffset: 0)));
+                    ilOffset: 0),
+                ProducerTerminal.Rows));
         accumulator.Add(
             new(
                 Body(
                     methodToken: 0x06000002,
-                    ilOffset: 1)));
+                    ilOffset: 1),
+                ProducerTerminal.Rows));
 
         AnalysisLibraryBodyUseProducer.Result result =
-            accumulator.Complete();
+            accumulator.Complete(retainRows: true);
 
         Assert.Single(result.Occurrences);
         Assert.Equal(2, result.Bodies.Length);
@@ -724,11 +1652,70 @@ public sealed class AnalysisLibraryBodyUseTests
                     ? $"{rejected.Kind}: {rejected.Detail}"
                     : $"Unexpected outcome {outcome.GetType().Name}.");
 
+    static AnalysisLibraryBodyUseQueryOutcome.Available QueryAvailable(
+        AnalysisLibraryBodyUseQueryOutcome outcome) =>
+        outcome is AnalysisLibraryBodyUseQueryOutcome.Available available
+            ? available
+            : throw new Xunit.Sdk.XunitException(
+                outcome
+                    is AnalysisLibraryBodyUseQueryOutcome.Rejected rejected
+                    ? $"{rejected.Kind}: {rejected.Detail}"
+                    : $"Unexpected outcome {outcome.GetType().Name}.");
+
+    static void AssertScorecardRejection(
+        BodyUseScorecardAsset asset,
+        AnalysisLibraryBodyUseLimits limits,
+        AnalysisLibraryBodyUseRejectionKind expectedKind)
+    {
+        BodyUseScorecardCheck check = BodyUseScorecard.Check(
+            [asset],
+            limits,
+            TestContext.Current.CancellationToken);
+        Assert.True(
+            check.Agrees,
+            string.Join(
+                Environment.NewLine,
+                check.Mismatches.Select(static mismatch =>
+                    $"{mismatch.Column}: {mismatch.Answer}; "
+                        + $"oracle {mismatch.OracleAnswer}")));
+
+        BodyUseScorecardExecution planner = BodyUseScorecard.Execute(
+            BodyUseScorecardColumn.Planner,
+            asset,
+            limits,
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(planner.Rejection);
+        Assert.Equal(expectedKind, planner.Rejection.Kind);
+        foreach (BodyUseScorecardClosing closing
+            in Enum.GetValues<BodyUseScorecardClosing>())
+        {
+            foreach (BodyUseScorecardColumn column
+                in Enum.GetValues<BodyUseScorecardColumn>())
+            {
+                BodyUseScorecardExecution execution =
+                    BodyUseScorecard.Execute(
+                        column,
+                        closing,
+                        asset,
+                        limits,
+                        TestContext.Current.CancellationToken);
+                Assert.Equal(planner.Rejection, execution.Rejection);
+            }
+        }
+    }
+
     static ImmutableArray<byte> BuildIndependentImage(
         byte[] firstBody,
         bool unreadableSecondBody = false,
         bool missingCurrentModuleTypeReference = false,
-        bool methodMemberReference = false)
+        bool methodMemberReference = false,
+        bool truncatedMethodMemberReference = false,
+        bool truncatedOwnSignature = false,
+        int largeTruncatedParameters = 0,
+        bool unreadableMemberName = false,
+        bool bodylessOnly = false,
+        bool duplicateTypeDefinition = false,
+        bool malformedMethodList = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -756,12 +1743,47 @@ public sealed class AnalysisLibraryBodyUseTests
             metadata.AddTypeDefinition(
                 TypeAttributes.Public
                     | TypeAttributes.Abstract
-                    | TypeAttributes.Sealed,
+                    | (bodylessOnly
+                        ? 0
+                        : TypeAttributes.Sealed),
                 metadata.GetOrAddString("N"),
                 metadata.GetOrAddString("Independent"),
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
+        if (duplicateTypeDefinition)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Independent"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        }
+        if (malformedMethodList)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("MalformedMethodRange"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("MalformedMethodRangeEnd"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(3));
+        }
         if (missingCurrentModuleTypeReference)
         {
             metadata.AddTypeReference(
@@ -783,10 +1805,54 @@ public sealed class AnalysisLibraryBodyUseTests
                 metadata.GetOrAddString("NotAField"),
                 metadata.GetOrAddBlob(signature));
         }
+        if (largeTruncatedParameters > 0)
+        {
+            // Declares one more parameter than it encodes.
+            var truncated = new BlobBuilder();
+            truncated.WriteByte(0x00);
+            truncated.WriteCompressedInteger(largeTruncatedParameters + 1);
+            truncated.WriteByte(0x01);
+            for (int i = 0; i < largeTruncatedParameters; i++)
+            {
+                truncated.WriteByte(0x1D);
+                truncated.WriteByte(0x08);
+            }
+            metadata.AddMemberReference(
+                owner,
+                metadata.GetOrAddString("LargeTruncated"),
+                metadata.GetOrAddBlob(truncated));
+        }
+        if (unreadableMemberName)
+        {
+            // A readable parent and signature, but a name offset past the end
+            // of the string heap.
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature()
+                .Parameters(
+                    0,
+                    static returnType => returnType.Void(),
+                    static _ => { });
+            metadata.AddMemberReference(
+                owner,
+                metadata.GetOrAddString("UnreadableName"),
+                metadata.GetOrAddBlob(signature));
+        }
+        if (truncatedMethodMemberReference)
+        {
+            // A method header with no parameter count or return type.
+            metadata.AddMemberReference(
+                owner,
+                metadata.GetOrAddString("Truncated"),
+                metadata.GetOrAddBlob(new byte[] { 0x00 }));
+        }
 
         var bodies = new BlobBuilder();
         var encoder = new MethodBodyStreamEncoder(bodies);
-        AddMethod("Healthy", firstBody, readable: true);
+        if (bodylessOnly)
+            AddBodylessMethod("Bodyless");
+        else
+            AddMethod("Healthy", firstBody, readable: true);
         if (unreadableSecondBody)
             AddMethod("Malformed", [0x2A], readable: false);
 
@@ -799,7 +1865,10 @@ public sealed class AnalysisLibraryBodyUseTests
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         pe.Serialize(image);
-        return ImmutableArray.Create(image.ToArray());
+        byte[] bytes = image.ToArray();
+        if (unreadableMemberName)
+            PointMemberReferenceNamePastStringHeap(bytes);
+        return ImmutableArray.Create(bytes);
 
         void AddMethod(
             string name,
@@ -825,8 +1894,31 @@ public sealed class AnalysisLibraryBodyUseTests
                 MethodAttributes.Public | MethodAttributes.Static,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(name),
-                metadata.GetOrAddBlob(signature),
+                truncatedOwnSignature
+                    ? metadata.GetOrAddBlob(new byte[] { 0x00 })
+                    : metadata.GetOrAddBlob(signature),
                 offset,
+                MetadataTokens.ParameterHandle(1));
+        }
+
+        void AddBodylessMethod(string name)
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(isInstanceMethod: true)
+                .Parameters(
+                    0,
+                    static returnType => returnType.Void(),
+                    static _ => { });
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.NewSlot,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(name),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset: 0,
                 MetadataTokens.ParameterHandle(1));
         }
     }
@@ -1144,6 +2236,610 @@ public sealed class AnalysisLibraryBodyUseTests
                 new InstructionEncoder(code),
                 maxStack: 1);
         AddVoidMethod(metadata, "Use", offset);
+        return Serialize(metadata, bodies);
+    }
+
+    // Rewrites MemberRef row 1's Name column to an offset past the end of the
+    // string heap, leaving its parent and signature readable.
+    static void PointMemberReferenceNamePastStringHeap(byte[] bytes)
+    {
+        int nameOffset;
+        int nameSize;
+        using (var pe = new PEReader(ImmutableArray.Create(bytes)))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            Assert.Equal(
+                "UnreadableName",
+                reader.GetString(
+                    reader.GetMemberReference(
+                        MetadataTokens.MemberReferenceHandle(1)).Name));
+            int table = reader.GetTableMetadataOffset(TableIndex.MemberRef);
+            // These small images use 2-byte coded and heap indexes.
+            Assert.True(reader.GetHeapSize(HeapIndex.String) < (1 << 16));
+            nameSize = 2;
+            nameOffset = pe.PEHeaders.MetadataStartOffset + table + 2;
+        }
+        for (int i = 0; i < nameSize; i++)
+            bytes[nameOffset + i] = 0xFF;
+    }
+
+    static ImmutableArray<byte> BuildSharedMethodSpecImage(
+        int specifications,
+        int arguments,
+        bool distinctTargetArities = false,
+        bool distinctTargetNames = false)
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "SharedMethodSpec",
+            new Guid("5d1b9c3e-7a42-4f0b-9e61-8c2f4a7d3b90"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Shared"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        var genericSignature = new BlobBuilder();
+        new BlobEncoder(genericSignature)
+            .MethodSignature(genericParameterCount: 1)
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        // 0x06000001: static void G<T>()
+        MethodDefinitionHandle generic = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("G"),
+            metadata.GetOrAddBlob(genericSignature),
+            Body([(byte)ILOpCode.Ret]),
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddGenericParameter(
+            generic,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            0);
+
+        // One instantiation of many int[] arguments, shared by every row.
+        var instantiation = new BlobBuilder();
+        GenericTypeArgumentsEncoder argumentEncoder =
+            new BlobEncoder(instantiation)
+                .MethodSpecificationSignature(arguments);
+        for (int i = 0; i < arguments; i++)
+            argumentEncoder.AddArgument().SZArray().Int32();
+        BlobHandle shared = metadata.GetOrAddBlob(instantiation);
+        TypeDefinitionHandle sharedType =
+            MetadataTokens.TypeDefinitionHandle(2);
+        for (int i = 0; i < specifications; i++)
+        {
+            EntityHandle target = generic;
+            if (distinctTargetArities || distinctTargetNames)
+            {
+                int targetArity = distinctTargetArities ? i + 1 : 1;
+                var targetSignature = new BlobBuilder();
+                new BlobEncoder(targetSignature)
+                    .MethodSignature(genericParameterCount: targetArity)
+                    .Parameters(
+                        0,
+                        static returnType => returnType.Void(),
+                        static _ => { });
+                target = metadata.AddMemberReference(
+                    sharedType,
+                    metadata.GetOrAddString(
+                        distinctTargetNames
+                            ? $"G{i}"
+                            : "G"),
+                    metadata.GetOrAddBlob(targetSignature));
+            }
+            metadata.AddMethodSpecification(target, shared);
+        }
+
+        // 0x06000002: calls every MethodSpec row once.
+        byte[] il = new byte[(specifications * 5) + 1];
+        for (int i = 0; i < specifications; i++)
+        {
+            int token = 0x2B000001 + i;
+            il[i * 5] = (byte)ILOpCode.Call;
+            BitConverter.TryWriteBytes(il.AsSpan((i * 5) + 1, 4), token);
+        }
+        il[^1] = (byte)ILOpCode.Ret;
+        var callerSignature = new BlobBuilder();
+        new BlobEncoder(callerSignature)
+            .MethodSignature()
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Caller"),
+            metadata.GetOrAddBlob(callerSignature),
+            Body(il),
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata, bodies);
+
+        int Body(byte[] code)
+        {
+            var builder = new BlobBuilder();
+            builder.WriteBytes(code);
+            return encoder.AddMethodBody(
+                new InstructionEncoder(builder),
+                maxStack: 1);
+        }
+    }
+
+    static ImmutableArray<byte> BuildCrossKindSharedBlobImage()
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "CrossKindSharedBlob",
+            new Guid("42914ef5-654d-4ee5-a18e-da14e66d0996"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle owner =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Owner"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        var genericSignature = new BlobBuilder();
+        genericSignature.WriteBytes(
+            new byte[] { 0x10, 0x01, 0x00, 0x01 });
+        MethodDefinitionHandle generic = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("G"),
+            metadata.GetOrAddBlob(genericSignature),
+            Body([(byte)ILOpCode.Ret]),
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddGenericParameter(
+            generic,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            0);
+
+        var sharedBlob = new BlobBuilder();
+        sharedBlob.WriteBytes(
+            new byte[] { 0x0A, 0x01, 0x08 });
+        BlobHandle shared = metadata.GetOrAddBlob(sharedBlob);
+        metadata.AddMemberReference(
+            owner,
+            metadata.GetOrAddString("Broken"),
+            shared);
+        metadata.AddMethodSpecification(generic, shared);
+
+        var callerSignature = new BlobBuilder();
+        callerSignature.WriteBytes(
+            new byte[] { 0x00, 0x00, 0x01 });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Caller"),
+            metadata.GetOrAddBlob(callerSignature),
+            Body(
+            [
+                (byte)ILOpCode.Call,
+                0x01, 0x00, 0x00, 0x0A,
+                (byte)ILOpCode.Call,
+                0x01, 0x00, 0x00, 0x2B,
+                (byte)ILOpCode.Ret,
+            ]),
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata, bodies);
+
+        int Body(byte[] code)
+        {
+            var builder = new BlobBuilder();
+            builder.WriteBytes(code);
+            return encoder.AddMethodBody(
+                new InstructionEncoder(builder),
+                maxStack: 1);
+        }
+    }
+
+    static ImmutableArray<byte> BuildMethodDefinitionParameterRangeImage()
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "MethodDefinitionParameterRange",
+            new Guid("98c50c85-ad86-4c5a-b5cc-93898b513c8d"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("ParameterRange"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        int targetBody = Body([(byte)ILOpCode.Ret]);
+        var targetSignature = new BlobBuilder();
+        new BlobEncoder(targetSignature)
+            .MethodSignature()
+            .Parameters(
+                1,
+                static returnType => returnType.Void(),
+                parameters => parameters
+                    .AddParameter()
+                    .Type()
+                    .Int32());
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Target"),
+            metadata.GetOrAddBlob(targetSignature),
+            targetBody,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("value"),
+            sequenceNumber: 1);
+
+        int callerBody = Body(
+            [
+                (byte)ILOpCode.Ldc_i4_0,
+                (byte)ILOpCode.Call,
+                0x01, 0x00, 0x00, 0x06,
+                (byte)ILOpCode.Ret,
+            ]);
+        var callerSignature = new BlobBuilder();
+        new BlobEncoder(callerSignature)
+            .MethodSignature()
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Caller"),
+            metadata.GetOrAddBlob(callerSignature),
+            callerBody,
+            MetadataTokens.ParameterHandle(2));
+
+        byte[] image = Serialize(metadata, bodies).ToArray();
+        using (var stream = new MemoryStream(image, writable: false))
+        using (var pe = new PEReader(stream))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            MethodDefinitionHandle caller =
+                MetadataTokens.MethodDefinitionHandle(2);
+            int rowSize =
+                reader.GetTableRowSize(TableIndex.MethodDef);
+            int rowOffset =
+                pe.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(TableIndex.MethodDef)
+                + (MetadataTokens.GetRowNumber(caller) - 1) * rowSize;
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                image.AsSpan(
+                    rowOffset + rowSize - sizeof(ushort),
+                    sizeof(ushort)),
+                ushort.MaxValue);
+        }
+        return ImmutableArray.Create(image);
+
+        int Body(byte[] code)
+        {
+            var body = new BlobBuilder();
+            body.WriteBytes(code);
+            return encoder.AddMethodBody(
+                new InstructionEncoder(body),
+                maxStack: 1);
+        }
+    }
+
+    static ImmutableArray<byte> BuildMethodSpecScopeImage()
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "MethodSpecScope",
+            new Guid("b0e5f7a2-61c4-4d0e-8f3a-2d8c9e4b7a15"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Scope"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+
+        // 0x06000001: static void G<T>()
+        MethodDefinitionHandle generic = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("G"),
+            VoidSignature(genericParameters: 1),
+            Body([(byte)ILOpCode.Ret]),
+            MetadataTokens.ParameterHandle(1));
+
+        // 0x2B000001: G<!!0>
+        var instantiation = new BlobBuilder();
+        new BlobEncoder(instantiation)
+            .MethodSpecificationSignature(1)
+            .AddArgument()
+            .GenericMethodTypeParameter(0);
+        metadata.AddMethodSpecification(
+            generic,
+            metadata.GetOrAddBlob(instantiation));
+
+        byte[] call =
+        [
+            (byte)ILOpCode.Call,
+            0x01, 0x00, 0x00, 0x2B,
+            (byte)ILOpCode.Ret,
+        ];
+        // 0x06000002: static void Valid<U>() { G<U>(); }
+        MethodDefinitionHandle valid = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Valid"),
+            VoidSignature(genericParameters: 1),
+            Body(call),
+            MetadataTokens.ParameterHandle(1));
+        // 0x06000003: static void Invalid() { G<!!0>(); }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Invalid"),
+            VoidSignature(genericParameters: 0),
+            Body(call),
+            MetadataTokens.ParameterHandle(1));
+
+        metadata.AddGenericParameter(
+            generic,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            0);
+        metadata.AddGenericParameter(
+            valid,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("U"),
+            0);
+        return Serialize(metadata, bodies);
+
+        int Body(byte[] il)
+        {
+            var code = new BlobBuilder();
+            code.WriteBytes(il);
+            return encoder.AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+        }
+
+        BlobHandle VoidSignature(int genericParameters)
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(genericParameterCount: genericParameters)
+                .Parameters(
+                    0,
+                    static returnType => returnType.Void(),
+                    static _ => { });
+            return metadata.GetOrAddBlob(signature);
+        }
+    }
+
+    static ImmutableArray<byte> BuildOversizedStateMachineNameImage(
+        int kickoffs)
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "StateMachineName",
+            new Guid("3c9f0d0e-2b1a-4d61-9a55-6a9d1c1f4e21"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle host = metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Host"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle stateMachine = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPrivate | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("<Run>d__0"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(kickoffs + 1));
+        metadata.AddNestedType(stateMachine, host);
+
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(10, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("AsyncStateMachineAttribute"));
+        TypeReferenceHandle systemType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Type"));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                1,
+                static returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Type(
+                    systemType,
+                    isValueType: false));
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+
+        // One shared value blob naming N.Host+<Run>d__0 behind a name far
+        // longer than any type-name bound.
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteSerializedString(
+            new string('A', 64 * 1024) + "N.Host+<Run>d__0");
+        value.WriteUInt16(0);
+        BlobHandle sharedValue = metadata.GetOrAddBlob(value);
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        for (int i = 0; i < kickoffs; i++)
+        {
+            MethodDefinitionHandle kickoff = metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString($"Run{i}"),
+                VoidSignature(metadata, instance: false),
+                AddRet(encoder),
+                MetadataTokens.ParameterHandle(1));
+            metadata.AddCustomAttribute(kickoff, constructor, sharedValue);
+        }
+        MethodDefinitionHandle moveNext = metadata.AddMethodDefinition(
+            MethodAttributes.Private | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("MoveNext"),
+            VoidSignature(metadata, instance: true),
+            AddRet(encoder),
+            MetadataTokens.ParameterHandle(1));
+        TypeReferenceHandle stateMachineInterface = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("IAsyncStateMachine"));
+        metadata.AddMethodImplementation(
+            stateMachine,
+            moveNext,
+            metadata.AddMemberReference(
+                stateMachineInterface,
+                metadata.GetOrAddString("MoveNext"),
+                VoidSignature(metadata, instance: true)));
+        return Serialize(metadata, bodies);
+
+        static int AddRet(MethodBodyStreamEncoder encoder)
+        {
+            var code = new BlobBuilder();
+            code.WriteByte((byte)ILOpCode.Ret);
+            return encoder.AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+        }
+
+        static BlobHandle VoidSignature(
+            MetadataBuilder metadata,
+            bool instance)
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(isInstanceMethod: instance)
+                .Parameters(
+                    0,
+                    static returnType => returnType.Void(),
+                    static _ => { });
+            return metadata.GetOrAddBlob(signature);
+        }
+    }
+
+    static ImmutableArray<byte> BuildSharedLiftedMethodNameImage(
+        int methods,
+        int nameCharacters)
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "SharedLiftedMethodName",
+            new Guid("342f7858-aad5-44f6-ad9d-acde265db6a3"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Host"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature()
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        BlobHandle sharedSignature = metadata.GetOrAddBlob(signature);
+        StringHandle sharedName = metadata.GetOrAddString(
+            $"<{new string('A', nameCharacters)}>g__Local|0_0");
+
+        var code = new BlobBuilder();
+        code.WriteByte((byte)ILOpCode.Ret);
+        var bodies = new BlobBuilder();
+        int bodyOffset = new MethodBodyStreamEncoder(bodies)
+            .AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+        for (int i = 0; i < methods; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                sharedName,
+                sharedSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        }
         return Serialize(metadata, bodies);
     }
 

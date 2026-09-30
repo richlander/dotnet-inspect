@@ -8,6 +8,55 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
+internal enum AnalysisLibraryBodyUseTerminalDisposition
+{
+    Settled,
+    Complete,
+    Qualified,
+    Partial,
+}
+
+internal sealed record AnalysisLibraryBodyUseTerminalEvidence(
+    AnalysisLibraryBodyUseReceipt Receipt,
+    AnalysisLibraryBodyUseTerminalDisposition Disposition,
+    AnalysisLibraryBodyUseCoverage Coverage,
+    ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics);
+
+internal abstract record AnalysisLibraryBodyUseAnswer
+{
+    private protected AnalysisLibraryBodyUseAnswer()
+    {
+    }
+
+    internal sealed record Exists(
+        bool Value,
+        AnalysisLibraryBodyUseTerminalEvidence Evidence)
+        : AnalysisLibraryBodyUseAnswer;
+
+    internal sealed record Count(
+        int Value,
+        AnalysisLibraryBodyUseTerminalEvidence Evidence)
+        : AnalysisLibraryBodyUseAnswer;
+
+    internal sealed record Rows(AnalysisLibraryBodyUseResult Result)
+        : AnalysisLibraryBodyUseAnswer;
+}
+
+internal abstract record AnalysisLibraryBodyUseQueryOutcome
+{
+    private protected AnalysisLibraryBodyUseQueryOutcome()
+    {
+    }
+
+    internal sealed record Available(AnalysisLibraryBodyUseAnswer Answer)
+        : AnalysisLibraryBodyUseQueryOutcome;
+
+    internal sealed record Rejected(
+        AnalysisLibraryBodyUseRejectionKind Kind,
+        string Detail)
+        : AnalysisLibraryBodyUseQueryOutcome;
+}
+
 /// <summary>
 /// Produces qualified whole-Library Type uses from managed method bodies.
 /// </summary>
@@ -24,7 +73,13 @@ public static class AnalysisLibraryBodyUseService
         using var image = new PEReader(
             stream,
             PEStreamOptions.PrefetchEntireImage);
-        return Execute(path, image, request, cancellationToken);
+        return Rows(
+            Query(
+                path,
+                image,
+                ProducerTerminal.Rows,
+                request.Limits,
+                cancellationToken));
     }
 
     public static AnalysisLibraryBodyUseOutcome ExecuteImage(
@@ -42,36 +97,64 @@ public static class AnalysisLibraryBodyUseService
         }
         ArgumentNullException.ThrowIfNull(request);
         using var reader = new PEReader(image);
-        return Execute(
+        return Rows(
+            Query(
+                sourceName,
+                reader,
+                ProducerTerminal.Rows,
+                request.Limits,
+                cancellationToken));
+    }
+
+    internal static AnalysisLibraryBodyUseQueryOutcome ExecuteTerminalImage(
+        string sourceName,
+        ImmutableArray<byte> image,
+        ProducerTerminal terminal,
+        AnalysisLibraryBodyUseLimits limits,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        if (image.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "A prefetched PE image is required.",
+                nameof(image));
+        }
+        ArgumentNullException.ThrowIfNull(limits);
+        limits.Validate();
+        using var reader = new PEReader(image);
+        return Query(
             sourceName,
             reader,
-            request,
+            terminal,
+            limits,
             cancellationToken);
     }
 
-    static AnalysisLibraryBodyUseOutcome Execute(
+    static AnalysisLibraryBodyUseQueryOutcome Query(
         string sourceName,
         PEReader image,
-        AnalysisLibraryBodyUseRequest request,
+        ProducerTerminal terminal,
+        AnalysisLibraryBodyUseLimits limits,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         AssemblyTypeDeclarationInventoryOutcome inventoryOutcome =
             AssemblyTypeDeclarationInventoryReader.Read(
                 image,
-                request.Limits.MaximumTypeDefinitions,
-                request.Limits.MaximumRetainedTextCharacters);
+                limits.MaximumTypeDefinitions,
+                limits.MaximumRetainedTextCharacters);
         if (inventoryOutcome
             is AssemblyTypeDeclarationInventoryOutcome.Incomplete incomplete)
         {
-            return new AnalysisLibraryBodyUseOutcome.Rejected(
+            return new AnalysisLibraryBodyUseQueryOutcome.Rejected(
                 AnalysisLibraryBodyUseRejectionKind.Limit,
                 $"The Type inventory exceeded {incomplete.Bound}.");
         }
         if (inventoryOutcome
             is AssemblyTypeDeclarationInventoryOutcome.Rejected rejected)
         {
-            return new AnalysisLibraryBodyUseOutcome.Rejected(
+            return new AnalysisLibraryBodyUseQueryOutcome.Rejected(
                 AnalysisLibraryBodyUseRejectionKind.UnsupportedImage,
                 rejected.Failure.Detail);
         }
@@ -82,7 +165,7 @@ public static class AnalysisLibraryBodyUseService
             MetadataReader metadata = image.GetMetadataReader();
             if (!metadata.IsAssembly)
             {
-                return new AnalysisLibraryBodyUseOutcome.Rejected(
+                return new AnalysisLibraryBodyUseQueryOutcome.Rejected(
                     AnalysisLibraryBodyUseRejectionKind
                         .MissingAssemblyIdentity,
                     "A Library body-use population requires an assembly manifest.");
@@ -92,7 +175,7 @@ public static class AnalysisLibraryBodyUseService
                 metadata.GetModuleDefinition().Mvid);
             if (mvid == Guid.Empty)
             {
-                return new AnalysisLibraryBodyUseOutcome.Rejected(
+                return new AnalysisLibraryBodyUseQueryOutcome.Rejected(
                     AnalysisLibraryBodyUseRejectionKind
                         .MissingAssemblyIdentity,
                     "The metadata image has an empty module version identifier.");
@@ -100,16 +183,16 @@ public static class AnalysisLibraryBodyUseService
 
             var producer =
                 new AnalysisLibraryBodyUseProducer(
-                    request.Limits,
+                    limits,
                     cancellationToken);
             ProducerPlanResult plan =
                 ProducerPlanner.Plan(
                     [new ProducerRequest(
                         producer,
-                        ProducerTerminal.Rows)]);
+                        terminal)]);
             if (plan is not ProducerPlanResult.Accepted accepted)
             {
-                return new AnalysisLibraryBodyUseOutcome.Rejected(
+                return new AnalysisLibraryBodyUseQueryOutcome.Rejected(
                     AnalysisLibraryBodyUseRejectionKind.Planning,
                     "The Analysis body-use producer could not be planned.");
             }
@@ -127,69 +210,181 @@ public static class AnalysisLibraryBodyUseService
                     result.Failure?.Message
                     ?? result.Critical?.Message
                     ?? "The Analysis body-use producer did not complete.";
-                return new AnalysisLibraryBodyUseOutcome.Rejected(
-                    AnalysisLibraryBodyUseRejectionKind.Execution,
+                return new AnalysisLibraryBodyUseQueryOutcome.Rejected(
+                    result.Critical is null
+                        ? AnalysisLibraryBodyUseRejectionKind.Execution
+                        : AnalysisLibraryBodyUseRejectionKind.Limit,
                     detail);
             }
 
             var inventory =
                 ((AssemblyTypeDeclarationInventoryOutcome.Read)
                     inventoryOutcome).Inventory;
-            ImmutableArray<AnalysisLibraryBodyUseType> types =
-                BuildTypes(metadata, inventory);
-            var names = types.ToDictionary(
-                static type => type.Type,
-                static type => type.Name);
-            ImmutableArray<AnalysisLibraryBodyUseOccurrence> occurrences =
-                [.. value.Occurrences.Select(
-                    occurrence => ProjectOccurrence(
-                        metadata,
-                        names,
-                        occurrence))];
-            ImmutableArray<AnalysisLibraryBodyUsePhysicalEvidence> physical =
-                [.. value.Bodies.Select(
-                    body =>
-                    {
-                        MetadataTypeDefinitionAddress address =
-                            MetadataTypeDefinitionAddress.FromHandle(
-                                metadata,
-                                body.PhysicalType);
-                        return new AnalysisLibraryBodyUsePhysicalEvidence(
-                            address,
-                            names[address],
-                            body.PhysicalMethodToken,
-                            body.Fidelity);
-                    })];
-            bool partial = value.Diagnostics.Any(
-                static diagnostic =>
-                    diagnostic.Kind
-                        is not AnalysisLibraryBodyUseDiagnosticKind
-                            .UnavailableLogicalOwner);
-            AnalysisLibraryBodyUseDisposition disposition =
-                partial
-                    ? AnalysisLibraryBodyUseDisposition.Partial
-                    : value.Coverage.BodiesPhysicalOnly != 0
-                        ? AnalysisLibraryBodyUseDisposition.Qualified
-                        : AnalysisLibraryBodyUseDisposition.Complete;
-            return new AnalysisLibraryBodyUseOutcome.Available(
-                new(
-                    new(mvid, inventory.Identity, execution.Receipt),
-                    disposition,
-                    types,
-                    occurrences,
-                    physical,
-                    value.Coverage,
-                    value.Diagnostics));
+            var receipt =
+                new AnalysisLibraryBodyUseReceipt(
+                    mvid,
+                    inventory.Identity,
+                    execution.Receipt);
+            return new AnalysisLibraryBodyUseQueryOutcome.Available(
+                Answer(
+                    terminal,
+                    metadata,
+                    inventory,
+                    receipt,
+                    result,
+                    value));
         }
         catch (Exception exception)
             when (LibraryMethodAnalysisRunner
                 .IsRecoverableMethodFailure(exception))
         {
-            return new AnalysisLibraryBodyUseOutcome.Rejected(
+            return new AnalysisLibraryBodyUseQueryOutcome.Rejected(
                 AnalysisLibraryBodyUseRejectionKind.MalformedImage,
                 ProducerFailure.Describe(exception));
         }
     }
+
+    static AnalysisLibraryBodyUseAnswer Answer(
+        ProducerTerminal terminal,
+        MetadataReader metadata,
+        AssemblyTypeDeclarationInventory inventory,
+        AnalysisLibraryBodyUseReceipt receipt,
+        ProducerResult<AnalysisLibraryBodyUseProducer.Result> result,
+        AnalysisLibraryBodyUseProducer.Result value)
+    {
+        if (terminal == ProducerTerminal.Rows)
+        {
+            AnalysisLibraryBodyUseProjection projection = Project(
+                metadata,
+                inventory,
+                value);
+            return new AnalysisLibraryBodyUseAnswer.Rows(
+                new(
+                    receipt,
+                    projection.Disposition,
+                    projection.Types,
+                    projection.Occurrences,
+                    projection.PhysicalEvidence,
+                    projection.Coverage,
+                    projection.Diagnostics));
+        }
+
+        var evidence = new AnalysisLibraryBodyUseTerminalEvidence(
+            receipt,
+            TerminalDisposition(
+                value,
+                result.Outcome == ProducerOutcome.Stopped),
+            value.Coverage,
+            value.Diagnostics);
+        return terminal == ProducerTerminal.Complete
+            ? new AnalysisLibraryBodyUseAnswer.Count(
+                value.OccurrenceCount,
+                evidence)
+            : new AnalysisLibraryBodyUseAnswer.Exists(
+                value.OccurrenceCount != 0,
+                evidence);
+    }
+
+    internal static AnalysisLibraryBodyUseTerminalDisposition
+        TerminalDisposition(
+            AnalysisLibraryBodyUseProducer.Result value,
+            bool settled)
+    {
+        if (settled)
+            return AnalysisLibraryBodyUseTerminalDisposition.Settled;
+        AnalysisLibraryBodyUseDisposition disposition =
+            Disposition(value);
+        return disposition switch
+        {
+            AnalysisLibraryBodyUseDisposition.Complete =>
+                AnalysisLibraryBodyUseTerminalDisposition.Complete,
+            AnalysisLibraryBodyUseDisposition.Qualified =>
+                AnalysisLibraryBodyUseTerminalDisposition.Qualified,
+            AnalysisLibraryBodyUseDisposition.Partial =>
+                AnalysisLibraryBodyUseTerminalDisposition.Partial,
+            _ => throw new ArgumentOutOfRangeException(nameof(value)),
+        };
+    }
+
+    internal static AnalysisLibraryBodyUseProjection Project(
+        MetadataReader metadata,
+        AssemblyTypeDeclarationInventory inventory,
+        AnalysisLibraryBodyUseProducer.Result value)
+    {
+        ArgumentNullException.ThrowIfNull(inventory);
+        ArgumentNullException.ThrowIfNull(value);
+        if (value.Occurrences.IsDefault || value.Bodies.IsDefault)
+        {
+            throw new InvalidOperationException(
+                "Rows projection requires retained occurrence and body rows.");
+        }
+
+        ImmutableArray<AnalysisLibraryBodyUseType> types =
+            BuildTypes(metadata, inventory);
+        var names = types.ToDictionary(
+            static type => type.Type,
+            static type => type.Name);
+        ImmutableArray<AnalysisLibraryBodyUseOccurrence> occurrences =
+            [.. value.Occurrences.Select(
+                occurrence => ProjectOccurrence(
+                    metadata,
+                    names,
+                    occurrence))];
+        ImmutableArray<AnalysisLibraryBodyUsePhysicalEvidence> physical =
+            [.. value.Bodies.Select(
+                body =>
+                {
+                    MetadataTypeDefinitionAddress address =
+                        MetadataTypeDefinitionAddress.FromHandle(
+                            metadata,
+                            body.PhysicalType);
+                    return new AnalysisLibraryBodyUsePhysicalEvidence(
+                        address,
+                        names[address],
+                        body.PhysicalMethodToken,
+                        body.Fidelity);
+                })];
+        AnalysisLibraryBodyUseDisposition disposition =
+            Disposition(value);
+        return new(
+            disposition,
+            types,
+            occurrences,
+            physical,
+            value.Coverage,
+            value.Diagnostics);
+    }
+
+    static AnalysisLibraryBodyUseDisposition Disposition(
+        AnalysisLibraryBodyUseProducer.Result value)
+    {
+        bool partial = value.Diagnostics.Any(
+            static diagnostic =>
+                diagnostic.Kind
+                    is not AnalysisLibraryBodyUseDiagnosticKind
+                        .UnavailableLogicalOwner);
+        return partial
+            ? AnalysisLibraryBodyUseDisposition.Partial
+            : value.Coverage.BodiesPhysicalOnly != 0
+                ? AnalysisLibraryBodyUseDisposition.Qualified
+                : AnalysisLibraryBodyUseDisposition.Complete;
+    }
+
+    static AnalysisLibraryBodyUseOutcome Rows(
+        AnalysisLibraryBodyUseQueryOutcome outcome) =>
+        outcome switch
+        {
+            AnalysisLibraryBodyUseQueryOutcome.Available
+            {
+                Answer: AnalysisLibraryBodyUseAnswer.Rows rows,
+            } => new AnalysisLibraryBodyUseOutcome.Available(rows.Result),
+            AnalysisLibraryBodyUseQueryOutcome.Rejected rejected =>
+                new AnalysisLibraryBodyUseOutcome.Rejected(
+                    rejected.Kind,
+                    rejected.Detail),
+            _ => throw new InvalidOperationException(
+                "A Rows body-use query returned a non-Rows answer."),
+        };
 
     static ImmutableArray<AnalysisLibraryBodyUseType> BuildTypes(
         MetadataReader reader,
@@ -251,3 +446,11 @@ public static class AnalysisLibraryBodyUseService
             occurrence.OccurrenceOrdinal);
     }
 }
+
+internal readonly record struct AnalysisLibraryBodyUseProjection(
+    AnalysisLibraryBodyUseDisposition Disposition,
+    ImmutableArray<AnalysisLibraryBodyUseType> Types,
+    ImmutableArray<AnalysisLibraryBodyUseOccurrence> Occurrences,
+    ImmutableArray<AnalysisLibraryBodyUsePhysicalEvidence> PhysicalEvidence,
+    AnalysisLibraryBodyUseCoverage Coverage,
+    ImmutableArray<AnalysisLibraryBodyUseDiagnostic> Diagnostics);

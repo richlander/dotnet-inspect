@@ -9,7 +9,7 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
-public class UnsafeEvidencePresenceTests
+public partial class UnsafeEvidencePresenceTests
 {
     [Fact]
     public void

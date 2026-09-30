@@ -902,13 +902,16 @@ test("malformed courtesy package routes become typed failures", () => {
 
 test("valid courtesy package routes continue to decode normally", () => {
   const parsed = parseWorkspaceLocation(locationSnapshot(
-    "https://inspect.example/packages/Example%2EPackage/1.0.0%2Bbuild#source"),
+    "https://inspect.example/packages/Example%2EPackage/1.0.0%2Bbuild#package"),
   () => {
     throw new Error("unexpected packet decode");
   });
 
   assert.equal(parsed.package, "Example.Package");
   assert.equal(parsed.version, "1.0.0+build");
+  assert.equal(parsed.atPackageRoot, true);
+  assert.equal(parsed.workspaceSubjectOpen, false);
+  assert.equal(parsed.packageLens, "overview");
   assert.equal(parsed.routeFailure, null);
 });
 
@@ -1162,6 +1165,20 @@ test("history signatures distinguish exact graph member identity", () => {
       workspaceViewSignature(original),
       workspaceViewSignature(workspaceView({ bodyTarget })));
   }
+});
+
+test("history signatures distinguish exact Member document identity", () => {
+  const original = workspaceView({
+    selectedMemberKey: "method:Build",
+    memberDocumentFingerprint: "abc123",
+  });
+
+  assert.notEqual(
+    workspaceViewSignature(original),
+    workspaceViewSignature({
+      ...original,
+      memberDocumentFingerprint: "def456",
+    }));
 });
 
 test("history signatures distinguish captured library scope", () => {

@@ -286,6 +286,70 @@ public sealed record BrowserMemberGroupDocumentDiagnostic(
     string Summary,
     string? Correspondence);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserMemberDocumentOutcome>))]
+public enum BrowserMemberDocumentOutcome
+{
+    Available,
+    Rejected,
+    Incomplete,
+    Failed,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeMemberPopulationOutcome>))]
+public enum BrowserTypeMemberPopulationOutcome
+{
+    Available,
+    Rejected,
+    Incomplete,
+    Failed,
+}
+
+public sealed record BrowserMemberDocumentInspection(
+    BrowserMemberDocumentOutcome Outcome,
+    string? Detail,
+    BrowserMemberDocument? Document,
+    BrowserMemberGroupDocumentDiagnostic[] Diagnostics);
+
+public sealed record BrowserMemberDocument(
+    string TypeIdentity,
+    string MemberName,
+    int MetadataToken,
+    int BaselineOrdinal,
+    string DisplaySignature,
+    string CanonicalSignature,
+    string Fingerprint,
+    string Accessibility,
+    string Receiver);
+
+public sealed record BrowserTypeMemberPopulationInspection(
+    BrowserTypeMemberPopulationOutcome Outcome,
+    string? Detail,
+    BrowserTypeMemberPopulation? Population,
+    string[] Diagnostics);
+
+public sealed record BrowserTypeMemberPopulation(
+    string TypeIdentity,
+    string Spelling,
+    string Accessibility,
+    BrowserTypeMemberComposition Composition,
+    BrowserTypeMemberPopulationGroup[] Groups);
+
+public sealed record BrowserTypeMemberComposition(
+    int Public,
+    int Protected,
+    int Internal,
+    int Private,
+    int Static,
+    int This,
+    int Extension);
+
+public sealed record BrowserTypeMemberPopulationGroup(
+    string Key,
+    string Name,
+    string Kind,
+    int CompleteCount,
+    BrowserMemberSurface[] Members);
+
 /// <summary>
 /// One type row projected for a graph target. See the package facade's declaration for the
 /// identity rules these fields carry; this facade owns its own copy of the transport.
@@ -336,7 +400,8 @@ public sealed record BrowserMemberSurface(
     string AnchorTypeFullName,
     string? DeclaringTypeDefinitionId,
     string GraphSelectorKey,
-    BrowserMemberBodySelector[] BodySelectors);
+    BrowserMemberBodySelector[] BodySelectors,
+    int? BaselineOrdinal = null);
 
 public sealed record BrowserMemberBodySelector(
     int Token,
@@ -369,6 +434,8 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserGraphMemberSurface))]
 [JsonSerializable(typeof(BrowserMemberDeclaration))]
 [JsonSerializable(typeof(BrowserMemberGroupDocumentInspection))]
+[JsonSerializable(typeof(BrowserMemberDocumentInspection))]
+[JsonSerializable(typeof(BrowserTypeMemberPopulationInspection))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(
     typeof(InspectionEnvelope<JsonElement>),

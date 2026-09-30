@@ -7,7 +7,8 @@ namespace QuerySpace.Composition;
 public enum QuerySpaceTerminalRequirement
 {
     Rows,
-    Count
+    Count,
+    Exists
 }
 
 public sealed class QuerySpaceOperationTermDescriptor

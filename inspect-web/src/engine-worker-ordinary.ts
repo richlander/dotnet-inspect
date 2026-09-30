@@ -75,9 +75,13 @@ type MetadataOperationName =
   | "queryLibraryApiDiff"
   | "queryTypeProjection"
   | "queryMemberDeclaration"
+  | "queryMemberDocument"
   | "queryMemberGroupDocument"
+  | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
+  | "queryPlatformMemberDocument"
   | "queryPlatformMemberGroupDocument"
+  | "queryPlatformTypeMemberPopulation"
   | "queryPackageMetadataTable"
   | "queryPlatformMetadataTable"
   | "queryPackageHeapEntries"
@@ -88,7 +92,9 @@ type MetadataOperationName =
 
 type MetadataFacadeOperationName =
   | MetadataOperationName
-  | "queryUploadedLibraryMemberGroupDocument";
+  | "queryUploadedLibraryMemberDocument"
+  | "queryUploadedLibraryMemberGroupDocument"
+  | "queryUploadedLibraryTypeMemberPopulation";
 
 type AnalysisOperationName =
   | "queryCloneCandidates"
@@ -141,6 +147,7 @@ type CatalogOperationName =
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "observeRetainedWorkspaceSettlement"
+  | "preparePackageQueryWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
   | "recordRetainedWorkspaceNavigationPosting"
@@ -169,12 +176,29 @@ type SourceWorkerClient =
 
 type MetadataWorkerClient =
   AsyncFacadeGroup<MetadataFacade, MetadataOperationName> & {
+    readonly queryUploadedLibraryMemberDocument: (
+      libraryIdentity: string,
+      typeIdentity: string,
+      memberName: string,
+      baselineOrdinal: number,
+      fingerprintPrefix: string,
+    ) => Promise<Awaited<ReturnType<
+      MetadataFacade["queryUploadedLibraryMemberDocument"]
+    >>>;
     readonly queryUploadedLibraryMemberGroupDocument: (
       libraryIdentity: string,
       typeIdentity: string,
       memberName: string,
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryMemberGroupDocument"]
+    >>>;
+    readonly queryUploadedLibraryTypeMemberPopulation: (
+      libraryIdentity: string,
+      typeIdentity: string,
+      spelling: string,
+      accessibility: string,
+    ) => Promise<Awaited<ReturnType<
+      MetadataFacade["queryUploadedLibraryTypeMemberPopulation"]
     >>>;
   };
 
@@ -1217,6 +1241,16 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["queryMemberDeclaration"]>
       ) => facades.metadata.queryMemberDeclaration(...args),
     ),
+    queryMemberDocument: valueOperation(
+      "ordinary-metadata-query-member-document",
+      8,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryMemberDocument"]
+        >
+      ) => facades.metadata.queryMemberDocument(...args),
+    ),
     queryMemberGroupDocument: valueOperation(
       "ordinary-metadata-query-member-group-document",
       6,
@@ -1226,6 +1260,16 @@ export const engineWorkerOrdinaryOperations = {
           MetadataFacade["queryMemberGroupDocument"]
         >
       ) => facades.metadata.queryMemberGroupDocument(...args),
+    ),
+    queryTypeMemberPopulation: valueOperation(
+      "ordinary-metadata-query-type-member-population",
+      7,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryTypeMemberPopulation"]
+        >
+      ) => facades.metadata.queryTypeMemberPopulation(...args),
     ),
     queryPlatformMemberDeclaration: valueOperation(
       "ordinary-metadata-query-platform-member-declaration",
@@ -1237,6 +1281,16 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.metadata.queryPlatformMemberDeclaration(...args),
     ),
+    queryPlatformMemberDocument: valueOperation(
+      "ordinary-metadata-query-platform-member-document",
+      8,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryPlatformMemberDocument"]
+        >
+      ) => facades.metadata.queryPlatformMemberDocument(...args),
+    ),
     queryPlatformMemberGroupDocument: valueOperation(
       "ordinary-metadata-query-platform-member-group-document",
       6,
@@ -1246,6 +1300,49 @@ export const engineWorkerOrdinaryOperations = {
           MetadataFacade["queryPlatformMemberGroupDocument"]
         >
       ) => facades.metadata.queryPlatformMemberGroupDocument(...args),
+    ),
+    queryUploadedLibraryMemberDocument: valueOperation(
+      "ordinary-metadata-query-uploaded-library-member-document",
+      5,
+      (
+        facades,
+        libraryIdentity: string,
+        typeIdentity: string,
+        memberName: string,
+        baselineOrdinal: number,
+        fingerprintPrefix: string,
+      ) => {
+        const retained = retainedUploadedLibraries.get(facades);
+        if (!retained) {
+          throw new Error(
+            "No uploaded Library image is retained in this Worker epoch.",
+          );
+        }
+        if (retained.identity !== libraryIdentity) {
+          throw new Error(
+            "The requested uploaded Library is not the image retained "
+              + "in this Worker epoch.",
+          );
+        }
+        return facades.metadata.queryUploadedLibraryMemberDocument(
+          retained.declaredName,
+          retained.content,
+          typeIdentity,
+          memberName,
+          baselineOrdinal,
+          fingerprintPrefix,
+        );
+      },
+    ),
+    queryPlatformTypeMemberPopulation: valueOperation(
+      "ordinary-metadata-query-platform-type-member-population",
+      7,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryPlatformTypeMemberPopulation"]
+        >
+      ) => facades.metadata.queryPlatformTypeMemberPopulation(...args),
     ),
     queryUploadedLibraryMemberGroupDocument: valueOperation(
       "ordinary-metadata-query-uploaded-library-member-group-document",
@@ -1273,6 +1370,37 @@ export const engineWorkerOrdinaryOperations = {
           retained.content,
           typeIdentity,
           memberName,
+        );
+      },
+    ),
+    queryUploadedLibraryTypeMemberPopulation: valueOperation(
+      "ordinary-metadata-query-uploaded-library-type-member-population",
+      4,
+      (
+        facades,
+        libraryIdentity: string,
+        typeIdentity: string,
+        spelling: string,
+        accessibility: string,
+      ) => {
+        const retained = retainedUploadedLibraries.get(facades);
+        if (!retained) {
+          throw new Error(
+            "No uploaded Library image is retained in this Worker epoch.",
+          );
+        }
+        if (retained.identity !== libraryIdentity) {
+          throw new Error(
+            "The requested uploaded Library is not the image retained "
+              + "in this Worker epoch.",
+          );
+        }
+        return facades.metadata.queryUploadedLibraryTypeMemberPopulation(
+          retained.declaredName,
+          retained.content,
+          typeIdentity,
+          spelling,
+          accessibility,
         );
       },
     ),
@@ -1760,6 +1888,29 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.observeRetainedWorkspaceSettlement(...args),
     ),
+    preparePackageQueryWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-prepare-package-query-workspace-definition",
+      5,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["preparePackageQueryWorkspaceDefinition"]
+        >
+      ) => facades.catalog.preparePackageQueryWorkspaceDefinition(...args),
+      async (facades, result) => {
+        if (result.status !== "prepared" || result.receipt === null) return;
+        const cancellation =
+          await facades.catalog.cancelRetainedWorkspaceActivation(
+            result.receipt,
+          );
+        if (cancellation.status === "failed") {
+          throw new Error(
+            cancellation.failure?.message
+              ?? "Rejected package-query Workspace preparation could not be cleaned up.",
+          );
+        }
+      },
+    ),
     prepareRetainedWorkspaceDefinition: valueOperation(
       "ordinary-catalog-prepare-retained-workspace-definition",
       4,
@@ -2023,20 +2174,42 @@ export function bindEngineWorkerOrdinaryClient(
       queryMemberDeclaration: bind(
         engineWorkerOrdinaryOperations.metadata.queryMemberDeclaration,
       ),
+      queryMemberDocument: bind(
+        engineWorkerOrdinaryOperations.metadata.queryMemberDocument,
+      ),
       queryMemberGroupDocument: bind(
         engineWorkerOrdinaryOperations.metadata.queryMemberGroupDocument,
+      ),
+      queryTypeMemberPopulation: bind(
+        engineWorkerOrdinaryOperations.metadata.queryTypeMemberPopulation,
       ),
       queryPlatformMemberDeclaration: bind(
         engineWorkerOrdinaryOperations.metadata
           .queryPlatformMemberDeclaration,
       ),
+      queryPlatformMemberDocument: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryPlatformMemberDocument,
+      ),
       queryPlatformMemberGroupDocument: bind(
         engineWorkerOrdinaryOperations.metadata
           .queryPlatformMemberGroupDocument,
       ),
+      queryUploadedLibraryMemberDocument: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryUploadedLibraryMemberDocument,
+      ),
+      queryPlatformTypeMemberPopulation: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryPlatformTypeMemberPopulation,
+      ),
       queryUploadedLibraryMemberGroupDocument: bind(
         engineWorkerOrdinaryOperations.metadata
           .queryUploadedLibraryMemberGroupDocument,
+      ),
+      queryUploadedLibraryTypeMemberPopulation: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryUploadedLibraryTypeMemberPopulation,
       ),
       queryTypeProjection: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeProjection,
@@ -2242,6 +2415,10 @@ export function bindEngineWorkerOrdinaryClient(
       observeRetainedWorkspaceSettlement: bind(
         engineWorkerOrdinaryOperations.catalog
           .observeRetainedWorkspaceSettlement,
+      ),
+      preparePackageQueryWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .preparePackageQueryWorkspaceDefinition,
       ),
       prepareRetainedWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog

@@ -193,7 +193,7 @@ internal static class MemberGroupDocumentOutput
                 $"Unknown member receiver '{receiver}'."),
         };
 
-    private static string? ResolveCanonicalMethodName(
+    internal static string? ResolveCanonicalMethodName(
         ApiType type,
         string requestedName)
     {

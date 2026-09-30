@@ -177,6 +177,76 @@ public sealed class TypeMemberCompositionTests
                 .Single(candidate => candidate.DefinitionName == type)
                 .Members);
         Assert.Equal("private", allRow.Accessibility);
+
+        using var session = AssemblyInspectionSession.OpenPrefetched(
+            new MemoryStream(image, writable: false));
+        MetadataTypeMemberPopulation population = Assert.IsType<
+                MetadataTypeMemberPopulationOutcome.Available>(
+                MetadataTypeMemberPopulationInspection.Inspect(
+                    session,
+                    new(
+                        type,
+                        MetadataMemberSpelling.Metadata,
+                        includeHidden: true,
+                        MetadataMethodAccessibilityFilter.Private),
+                    new(
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue)))
+            .Population;
+        ApiMember physicalRow =
+            Assert.Single(Assert.Single(population.Groups).Members);
+        Assert.Equal("private", physicalRow.Accessibility);
+    }
+
+    [Fact]
+    public void PrivateScopePropertyAccessor_AgreesWithMetadataPopulation()
+    {
+        byte[] image = BuildPrivateScopePropertyImage();
+        MetadataTypeDefinitionName type =
+            Name("Fixtures", "PrivateScopePropertyType");
+
+        ApiMember property = Assert.Single(
+            Extract(image, includeAll: true).Types
+                .Single(candidate => candidate.DefinitionName == type)
+                .Members);
+        Assert.Null(property.GetterAccessibility);
+        Assert.Equal(
+            MethodAttributes.PrivateScope,
+            property.GetterPhysicalMethodAccess);
+
+        using var session = AssemblyInspectionSession.OpenPrefetched(
+            new MemoryStream(image, writable: false));
+        MetadataTypeMemberPopulation population = Assert.IsType<
+                MetadataTypeMemberPopulationOutcome.Available>(
+                MetadataTypeMemberPopulationInspection.Inspect(
+                    session,
+                    new(
+                        type,
+                        MetadataMemberSpelling.Metadata,
+                        includeHidden: true,
+                        MetadataMethodAccessibilityFilter.Private),
+                    new(
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue)))
+            .Population;
+        ApiMember[] rows =
+        [
+            .. population.Groups.SelectMany(group => group.Members),
+        ];
+        Assert.Equal(2, rows.Length);
+        Assert.All(
+            rows,
+            static row => Assert.Equal("private", row.Accessibility));
+        Assert.Contains(rows, row => row.Kind == "property");
+        Assert.Contains(rows, row => row.Name == "get_Value");
+        Assert.Equal(2, population.Composition.Private);
+        Assert.Equal(0, population.Composition.Public);
     }
 
     [Fact]
@@ -461,6 +531,94 @@ public sealed class TypeMemberCompositionTests
             objectType,
             MetadataTokens.FieldDefinitionHandle(1),
             method);
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildPrivateScopePropertyImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("PrivateScopeProperty.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("7AD0D27B-6862-4EAF-A4A8-22A48977BDCB")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("PrivateScopeProperty"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle objectType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+
+        var getterSignature = new BlobBuilder();
+        new BlobEncoder(getterSignature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                parameters => { });
+        MethodDefinitionHandle getter = metadata.AddMethodDefinition(
+            MethodAttributes.PrivateScope
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("get_Value"),
+            metadata.GetOrAddBlob(getterSignature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            getter);
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("PrivateScopePropertyType"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            getter);
+        var propertySignature = new BlobBuilder();
+        new BlobEncoder(propertySignature)
+            .PropertySignature(isInstanceProperty: false)
+            .Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                parameters => { });
+        PropertyDefinitionHandle property = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(propertySignature));
+        metadata.AddPropertyMap(type, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            getter);
 
         var image = new BlobBuilder();
         new ManagedPEBuilder(

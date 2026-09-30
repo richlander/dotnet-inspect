@@ -187,13 +187,14 @@ internal static class BrowserLibraryDocumentOperation
             await AssemblyContextLibraryInspection.ExecuteAsync(
                     materialization,
                     (reference, owner) =>
-                        owner.IssueOperationLease(reference)
-                            is LibraryOperationLeaseIssueOutcome.Issued issued
-                            ? LibraryInspectionOperation.Execute(
-                                new(reference, plan),
-                                issued.Lease,
-                                cancellationToken)
-                            : null)
+                        AssemblyContextLibraryInspection.ExecuteOperation(
+                            reference,
+                            owner,
+                            lease =>
+                                LibraryInspectionOperation.Execute(
+                                    new(reference, plan),
+                                    lease,
+                                    cancellationToken)))
                 .ConfigureAwait(false);
         return BrowserLibraryDocumentProjection.Project(run);
     }

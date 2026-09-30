@@ -44,11 +44,6 @@ export function memberGroupMatches(
   }
 
   return group.overloads.some(overload => {
-    if (filters.accessibility
-        && filters.accessibility !== "all"
-        && overload.accessibility !== filters.accessibility) {
-      return false;
-    }
     if (filters.trait
         && !MEMBER_TRAITS.some(
           ([property]) => property === filters.trait && overload[property])) {

@@ -142,11 +142,10 @@ dotnet-inspect find System.Text.Json.Nodes
 It returns the public Types declared directly in
 `System.Text.Json.Nodes`, such as `JsonArray`, `JsonNode`, and `JsonObject`.
 It does not include Types from `System.Text.Json` or descendant namespaces.
-The rows use the `Namespace` match classification. In the default unscoped
-search, exact Platform prune evidence also admits the corresponding NuGet
-package, so equal package and Platform Type observations remain separate.
-Explicit source options remain authoritative; for example,
-`--platform System.Text.Json` does not add the package observation.
+The rows use the `Namespace` match classification. The default unscoped search
+uses the same House-realized Runtime and ASP.NET Core populations as other
+Type patterns. Explicit source options remain authoritative; for example,
+`--platform System.Text.Json` searches only that platform Library.
 
 Add a terminal `.*` to include the named namespace and its descendants:
 
@@ -1280,7 +1279,12 @@ Tree rooted at one compact identity line and containing every public,
 non-hidden exact overload; explicit `--tree` renders the same population.
 This remains a MemberGroup when the selected version has one overload.
 Select an exact Member with an ordinal or digest when the intended subject is
-one declaration rather than its overload family.
+one declaration rather than its overload family. Its native default is one
+singular Signature view containing the display signature, digest, and canonical
+signature, with no sibling Rows or Count. The one-based ordinal selects from
+the current MemberGroup's stable baseline order; after resolution, the
+owner-issued exact identity and population binding replace that ordinal as the
+durable subject.
 
 `--all` is an API visibility option. API-level commands use their ordinary
 public-facing declaration population by default; add `--all` when the

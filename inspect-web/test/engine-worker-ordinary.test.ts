@@ -139,14 +139,26 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryLibraryApiDiff"),
     queryMemberDeclaration: () =>
       unexpected("queryMemberDeclaration"),
+    queryMemberDocument: () =>
+      unexpected("queryMemberDocument"),
     queryMemberGroupDocument: () =>
       unexpected("queryMemberGroupDocument"),
+    queryTypeMemberPopulation: () =>
+      unexpected("queryTypeMemberPopulation"),
     queryPlatformMemberDeclaration: () =>
       unexpected("queryPlatformMemberDeclaration"),
+    queryPlatformMemberDocument: () =>
+      unexpected("queryPlatformMemberDocument"),
     queryPlatformMemberGroupDocument: () =>
       unexpected("queryPlatformMemberGroupDocument"),
+    queryUploadedLibraryMemberDocument: () =>
+      unexpected("queryUploadedLibraryMemberDocument"),
+    queryPlatformTypeMemberPopulation: () =>
+      unexpected("queryPlatformTypeMemberPopulation"),
     queryUploadedLibraryMemberGroupDocument: () =>
       unexpected("queryUploadedLibraryMemberGroupDocument"),
+    queryUploadedLibraryTypeMemberPopulation: () =>
+      unexpected("queryUploadedLibraryTypeMemberPopulation"),
     queryTypeProjection: () => unexpected("queryTypeProjection"),
     queryPackageMetadataTable: () =>
       unexpected("queryPackageMetadataTable"),
@@ -251,6 +263,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("encodeWorkspaceShareState"),
     observeRetainedWorkspaceSettlement: () =>
       unexpected("observeRetainedWorkspaceSettlement"),
+    preparePackageQueryWorkspaceDefinition: () =>
+      unexpected("preparePackageQueryWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinition: () =>
       unexpected("prepareRetainedWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinitionWithCredentials: () =>
@@ -456,11 +470,15 @@ test("uploaded Library input uses a bounded structured-clone byte tuple", () => 
   }
 });
 
-test("uploaded Library MemberGroup queries use the retained exact image", async () => {
+test("uploaded Library Member document queries use the retained exact image", async () => {
   const content = [0x4d, 0x5a, 0x00, 0x01];
   const identity = `sha256:${"a".repeat(64)}`;
   let received:
     [string, number[], string, string] | undefined;
+  let exactReceived:
+    [string, number[], string, string, number, string] | undefined;
+  let receivedPopulation:
+    [string, number[], string, string, string] | undefined;
   const state = fixture({
     library: {
       async openUploadedLibrary(declaredName, bytes) {
@@ -493,6 +511,39 @@ test("uploaded Library MemberGroup queries use the retained exact image", async 
       },
     },
     metadata: {
+      async queryUploadedLibraryMemberDocument(
+        declaredName,
+        bytes,
+        typeIdentity,
+        memberName,
+        baselineOrdinal,
+        fingerprintPrefix,
+      ) {
+        exactReceived = [
+          declaredName,
+          bytes,
+          typeIdentity,
+          memberName,
+          baselineOrdinal,
+          fingerprintPrefix,
+        ];
+        return {
+          outcome: "Available",
+          detail: null,
+          document: {
+            typeIdentity,
+            memberName,
+            metadataToken: 0x06000001,
+            baselineOrdinal,
+            displaySignature: "void Run()",
+            canonicalSignature: "M:Example.Widget.Run",
+            fingerprint: "abc123",
+            accessibility: "Public",
+            receiver: "This",
+          },
+          diagnostics: [],
+        };
+      },
       async queryUploadedLibraryMemberGroupDocument(
         declaredName,
         bytes,
@@ -520,6 +571,27 @@ test("uploaded Library MemberGroup queries use the retained exact image", async 
           diagnostics: [],
         };
       },
+      async queryUploadedLibraryTypeMemberPopulation(
+        declaredName,
+        bytes,
+        typeIdentity,
+        spelling,
+        accessibility,
+      ) {
+        receivedPopulation = [
+          declaredName,
+          bytes,
+          typeIdentity,
+          spelling,
+          accessibility,
+        ];
+        return {
+          outcome: "Failed",
+          detail: "probe",
+          population: null,
+          diagnostics: [],
+        };
+      },
     },
   });
 
@@ -542,6 +614,41 @@ test("uploaded Library MemberGroup queries use the retained exact image", async 
     content,
     "Example.Widget",
     "Run",
+  ]);
+  const population =
+    state.client.metadata.queryUploadedLibraryTypeMemberPopulation(
+      identity,
+      "Example.Widget",
+      "metadata",
+      "private",
+    );
+  await state.environment.flushAsync();
+  assert.equal((await population).detail, "probe");
+  assert.deepEqual(receivedPopulation, [
+    "Uploaded.dll",
+    content,
+    "Example.Widget",
+    "metadata",
+    "private",
+  ]);
+
+  const exact =
+    state.client.metadata.queryUploadedLibraryMemberDocument(
+      identity,
+      "Example.Widget",
+      "Run",
+      1,
+      "",
+    );
+  await state.environment.flushAsync();
+  assert.equal((await exact).outcome, "Available");
+  assert.deepEqual(exactReceived, [
+    "Uploaded.dll",
+    content,
+    "Example.Widget",
+    "Run",
+    1,
+    "",
   ]);
 
   const mismatched =
@@ -1157,12 +1264,17 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   const libraryDiff = state.client.metadata.queryLibraryApiDiff(
     "operation-1",
     {
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
       targetFramework: "net11.0",
       compileAssetId: "lib/net11.0/Example.dll",
+      surface: "Library",
+      analyses: ["api"],
+      views: "Changes",
+      typeNames: [],
+      memberTargetIdentities: [],
     },
   );
   const libraryDiffCancellation =
@@ -1251,12 +1363,17 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(libraryDiffArguments, [
     "operation-1",
     {
-      schemaVersion: 1,
+      schemaVersion: 2,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
       targetFramework: "net11.0",
       compileAssetId: "lib/net11.0/Example.dll",
+      surface: "Library",
+      analyses: ["api"],
+      views: "Changes",
+      typeNames: [],
+      memberTargetIdentities: [],
     },
   ]);
   assert.deepEqual(libraryDiffCancelArguments, [
@@ -2111,9 +2228,13 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryLibraryApiDiff",
       "queryGraphMemberSurface",
       "queryMemberDeclaration",
+      "queryMemberDocument",
       "queryMemberGroupDocument",
+      "queryTypeMemberPopulation",
       "queryPlatformMemberDeclaration",
+      "queryPlatformMemberDocument",
       "queryPlatformMemberGroupDocument",
+      "queryPlatformTypeMemberPopulation",
       "queryPackageHeapEntries",
       "queryPackageMetadata",
       "queryPackageMetadataTable",
@@ -2121,7 +2242,9 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMetadata",
       "queryPlatformMetadataTable",
       "queryTypeProjection",
+      "queryUploadedLibraryMemberDocument",
       "queryUploadedLibraryMemberGroupDocument",
+      "queryUploadedLibraryTypeMemberPopulation",
     ],
     analysis: [
       "queryCloneCandidates",
@@ -2174,6 +2297,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "observeRetainedWorkspaceSettlement",
+      "preparePackageQueryWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinitionWithCredentials",
       "recordRetainedWorkspaceNavigationPosting",
@@ -2195,7 +2319,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 95);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 102);
 
   const state = fixture();
   const groups = [

@@ -18,14 +18,23 @@ Performance comes mostly from levels 1 and 2. This level makes that possible by
 describing work completely and declaratively, so the lower levels can share,
 reorder, collapse, and parallelize it without changing its meaning.
 
-No owner has adopted this design yet. Library Body Analysis Execution
+Library Body Analysis Execution
 ([Library body Analysis service](library-body-analysis-service.md)) is the
-intended first adopter; Research is the intended second. The adoption
+first production adopter of this work-description contract: unsafe-evidence
+presence declares one method-definition producer, plans it with Exists,
+executes it through the serial reference executor, and publishes its typed
+result and receipt. Its production query now forms that closing through
+QuerySpace, binds the resulting single-producer Method request to exact
+session-issued access through
+[Assembly Analysis Operation](assembly-analysis-operation.md), and preserves a
+separate source receipt. The serial executor remains interim beneath that
+composition. Research remains the intended second adopter. The adoption
 sequence, the `LibraryBodyIndex` drain evidence, and the producer census are
 kept in #8568, not here.
 
-Every property below is **unverified** until its gate lands with the first
-adoption; see [Verification](#verification).
+The unsafe-evidence gates listed by its adopting design are verified in
+Release. Properties not exercised by that slice remain **unverified** until
+their named gate lands; see [Verification](#verification).
 
 ## Examples
 
@@ -285,6 +294,11 @@ Count are observations of the Rows of the same population. This level does not
 merge, deduplicate, or reduce requests, and it does not decide what is pushed
 down; QuerySpace and the source do that for every consumer.
 
+An Analysis producer must not use LINQ as its production query path. Selection,
+projection, ordering, limits, Count, and Exists go through QuerySpace so the
+request reaches the source; LINQ remains only a performance oracle under the
+[evidence guidance](../evidence-and-validation.md#performance-oracles-for-queryspace-enablement).
+
 A producer's row vocabulary is owned with its result type, is host-neutral,
 and is bound through QuerySpace composition. A host binds and presents it; a
 host never defines it.
@@ -319,13 +333,15 @@ passes: they "communicate through the tree, never side-channel state".
 **Rule.** A producer is given units. No producer loops over the subject
 itself.
 
-*Lets the lower levels:* cancel and bound work at unit boundaries, yield on
+*Lets the lower levels:* bound and settle work at unit boundaries, yield on
 single-threaded Browser/Wasm, report progress, attribute time per producer,
-and schedule in parallel, all without producer changes.
+and schedule in parallel, all without producer changes. Cancellation, when an
+operation exposes it, remains a coarser orchestrator decision and does not
+enter producer visits or per-unit callbacks.
 
 *Lesson:* Roslyn's operation callbacks and Go's shared `inspect` traversal give
 N analyzers one walk. Analyses that walk the program themselves cannot be
-interrupted, parallelized, or fused.
+bounded, parallelized, or fused.
 
 ### Scope is declared on the edge, not tested inside the visit
 
@@ -418,10 +434,10 @@ runs as one loop specialized to gate, predicate, and projection.
 **Field demand is declared before work.** A producer declares the fields it
 reads, in the same vocabulary as its data layers, `MethodDefinitionLayers`:
 `Flags`, `NameComparison`, `AttributeTypeMatch`, `SignatureShape`, and
-`StateMachineRelationship`, and `IdentityText`, beside `Body` and
-`ModuleLookup`. Reading an undeclared field throws
-`ProducerContractException`, exactly as reading an undeclared layer does. That
-runtime contract is the enforcement gate. From the declarations, the planner:
+`IdentityText`, beside `Body` and `ModuleLookup`. Reading an undeclared field
+throws `ProducerContractException`, exactly as reading an undeclared layer
+does. That runtime contract is the enforcement gate. From the declarations,
+the planner:
 
 - arms the gate's identity budget only when some requested producer declares
   `IdentityText`, so a plan of Count, Exists, and classification spends no

@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using Inspector.Findings;
 using ILInspector.Metadata;
@@ -46,7 +47,7 @@ internal static class BrowserLibraryApiDiffWireProjection
 
     internal static BrowserLibraryApiDiffResult Project(
         BrowserLibraryApiDiffRequest request,
-        InspectionEnvelope<LibraryApiDiffOutcome> inspection,
+        InspectionEnvelope<DiffAnalysisDocument> inspection,
         BrowserLibraryApiDiffEndpointContext target,
         BrowserLibraryApiDiffEndpointContext current)
     {
@@ -58,7 +59,7 @@ internal static class BrowserLibraryApiDiffWireProjection
         var wireInspection = new InspectionEnvelope<JsonElement>(
             JsonSerializer.SerializeToElement(
                 inspection.Content,
-                LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome),
+                DiffAnalysisInspectionJsonContext.Default.DiffAnalysisDocument),
             inspection.Share,
             inspection.Diagnostics);
         BrowserLibraryApiDiffResult? inspectionRejection =
@@ -68,13 +69,16 @@ internal static class BrowserLibraryApiDiffWireProjection
             return inspectionRejection;
         }
 
-        BrowserLibraryApiDiffResult projected = inspection.Content switch
+        LibraryApiDiffOutcome libraryApi = inspection.Content.LibraryApi
+            ?? throw new InvalidOperationException(
+                "The selected-Library Diff inspection omitted Library API evidence.");
+        BrowserLibraryApiDiffResult projected = libraryApi switch
         {
             LibraryApiDiffOutcome.Available available =>
                 ProjectAvailable(request, available.Document, target, current),
             LibraryApiDiffOutcome.Unavailable unavailable =>
                 new BrowserLibraryApiDiffResult(
-                    1,
+                    BrowserLibraryApiDiffSchema.Version,
                     request,
                     BrowserLibraryApiDiffResultKind.Unavailable,
                     Value: null,
@@ -142,7 +146,7 @@ internal static class BrowserLibraryApiDiffWireProjection
         ];
         LibraryApiDiffSummary summary = document.Summary;
         return new BrowserLibraryApiDiffResult(
-            1,
+            BrowserLibraryApiDiffSchema.Version,
             request,
             BrowserLibraryApiDiffResultKind.Succeeded,
             new BrowserLibraryApiDiffSucceeded(
@@ -242,7 +246,7 @@ internal static class BrowserLibraryApiDiffWireProjection
         long observed)
     {
         var result = new BrowserLibraryApiDiffResult(
-            1,
+            BrowserLibraryApiDiffSchema.Version,
             request,
             BrowserLibraryApiDiffResultKind.Rejected,
             Value: null,
@@ -281,7 +285,7 @@ internal static class BrowserLibraryApiDiffWireProjection
         long? bound = null,
         long? observed = null) =>
         new(
-            1,
+            BrowserLibraryApiDiffSchema.Version,
             request,
             BrowserLibraryApiDiffResultKind.Rejected,
             Value: null,
