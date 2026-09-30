@@ -246,6 +246,47 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task
+        QueryTypeProjection_PreservesCanonicalGenericCandidateOrder()
+    {
+        const string packageId = "Browser.OrderedTypeRelations";
+        const string interfaceName =
+            "Browser.OrderedTypeRelations.IService";
+        const string genericName =
+            "Browser.OrderedTypeRelations.Service";
+        const string nonGenericName =
+            "Browser.OrderedTypeRelations.ServiceA";
+        _ = await Coordinate(
+            packageId,
+            Package(
+                BuildOrderedInterfaceImplementationImage(
+                    packageId,
+                    interfaceName,
+                    genericName,
+                    nonGenericName),
+                $"lib/net11.0/{packageId}.dll"));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{packageId}.dll",
+            interfaceName,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """);
+
+        Assert.Equal(
+            [$"{genericName}`1", nonGenericName],
+            metadata.Implementers.Select(
+                static candidate => candidate.TypeQueryId));
+    }
+
+    [Fact]
     public async Task QueryTypeProjection_ExpandsDependenciesAcrossWorkspacePackages()
     {
         const string rootPackageId =
@@ -1238,6 +1279,39 @@ public sealed partial class BrowserEngineBoundaryTests
         implementer.DefineGenericParameters("T");
         implementer.AddInterfaceImplementation(interfaceType);
         implementer.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildOrderedInterfaceImplementationImage(
+        string assemblyName,
+        string interfaceName,
+        string genericImplementerName,
+        string nonGenericImplementerName)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        Type interfaceType = module.DefineType(
+                interfaceName,
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Interface)
+            .CreateType();
+        TypeBuilder generic = module.DefineType(
+            $"{genericImplementerName}`1",
+            TypeAttributes.Public | TypeAttributes.Class);
+        generic.DefineGenericParameters("T");
+        generic.AddInterfaceImplementation(interfaceType);
+        generic.CreateType();
+        TypeBuilder nonGeneric = module.DefineType(
+            nonGenericImplementerName,
+            TypeAttributes.Public | TypeAttributes.Class);
+        nonGeneric.AddInterfaceImplementation(interfaceType);
+        nonGeneric.CreateType();
 
         using var stream = new MemoryStream();
         assembly.Save(stream);

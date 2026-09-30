@@ -107,13 +107,15 @@ public static class WorkspaceExactTypeFocusQuery
             foreach (AssemblyTypeDeclaration declaration
                 in read.Inventory.GetDeclarations(includeAll))
             {
-                if (declaration.Kind
-                        != AssemblyTypeDeclarationKind.Definition)
+                if (declaration.Kind is not (
+                    AssemblyTypeDeclarationKind.Definition
+                    or AssemblyTypeDeclarationKind.Forwarder))
                     continue;
                 matches.Add(new(
                     member.Occurrence,
                     declaration.Name,
-                    declaration.Name.ToEscapedFullName()));
+                    declaration.Name.ToEscapedFullName(),
+                    declaration.Kind));
             }
         }
 
@@ -139,26 +141,25 @@ public static class WorkspaceExactTypeFocusQuery
             matches,
             type,
             selectionKind);
-        if (selected.Count == 1)
+        if (selected is
+            [
+                {
+                    Kind: AssemblyTypeDeclarationKind.Definition,
+                } directMatch,
+            ])
         {
-            var match = selected[0];
             WorkspaceDeclarationMember member =
                 population.Receipt.Members.Single(candidate =>
                     ReferenceEquals(
                         candidate.Occurrence,
-                        match.Occurrence));
+                        directMatch.Occurrence));
             return new WorkspaceExactTypeFocusOutcome.Found(
                 member.AssemblyIdentity,
-                match.Occurrence,
-                match.Type);
+                directMatch.Occurrence,
+                directMatch.Type);
         }
-        if (selected.Count > 1)
-        {
-            return new WorkspaceExactTypeFocusOutcome.Unavailable(
-                "The exact Type focus is ambiguous in the candidate "
-                    + "context.",
-                outcomes.ToImmutable());
-        }
+        if (selected.Count > 0)
+            return ResolveSelected(population, selected, outcomes);
         if (library is not null)
         {
             return new WorkspaceExactTypeFocusOutcome.Unavailable(
@@ -267,7 +268,8 @@ public static class WorkspaceExactTypeFocusQuery
                     new DefinitionFocusCandidate(
                         member.Occurrence,
                         name,
-                        name.ToEscapedFullName())));
+                        name.ToEscapedFullName(),
+                        AssemblyTypeDeclarationKind.Definition)));
         }
 
         if ((library is null
@@ -305,6 +307,112 @@ public static class WorkspaceExactTypeFocusQuery
                 outcomes.ToImmutable());
         }
 
+        return null;
+    }
+
+    private static WorkspaceExactTypeFocusOutcome ResolveSelected(
+        WorkspaceDeclarationPopulation population,
+        IEnumerable<DefinitionFocusCandidate> selected,
+        ImmutableArray<WorkspaceExactTypeFocusMemberOutcome>.Builder
+            outcomes)
+    {
+        var resolved = new List<ResolvedFocusCandidate>();
+        foreach (DefinitionFocusCandidate match in selected)
+        {
+            if (!population.TryGetAccess(
+                    match.Occurrence,
+                    out WorkspaceDeclarationMember? member,
+                    out AssemblyContextGroup? group,
+                    out ResolvedAssemblyReference? assembly)
+                || member is null
+                || group is null
+                || assembly is null)
+            {
+                return Unavailable();
+            }
+            AssemblyContextParticipant participant =
+                group.Participants.Single(candidate =>
+                    ReferenceEquals(
+                        candidate.Assembly.Registration,
+                        assembly.Registration));
+            AssemblyContextTypeResolutionResult resolution =
+                AssemblyContextTypeResolutionQuery.Execute(
+                    group,
+                    participant,
+                    match.Type,
+                    member.Coordinate
+                        is ExactLibrarySourceCoordinate.Platform
+                            ? AssemblyResolutionScope.Platform
+                            : AssemblyResolutionScope.Any);
+            if (resolution
+                is not AssemblyContextTypeResolutionResult.Available
+                {
+                    Outcome: TypeResolutionOutcome.Resolved available,
+                })
+            {
+                return Unavailable();
+            }
+
+            ResolvedTypeDefinition definition = available.Definition;
+            WorkspaceDeclarationOccurrence? occurrence =
+                DefinitionOccurrence(
+                    population,
+                    definition.Assembly.Assembly.Registration);
+            int existing = resolved.FindIndex(candidate =>
+                candidate.Type == definition.Type
+                && candidate.Assembly.IsEquivalentTo(
+                    definition.Assembly.Assembly.Identity));
+            var candidate = new ResolvedFocusCandidate(
+                definition.Assembly.Assembly.Identity,
+                occurrence,
+                definition.Type);
+            if (existing < 0)
+                resolved.Add(candidate);
+            else if (resolved[existing].Occurrence is null
+                && occurrence is not null)
+                resolved[existing] = candidate;
+        }
+
+        return resolved switch
+        {
+            [var match] => new WorkspaceExactTypeFocusOutcome.Found(
+                match.Assembly,
+                match.Occurrence,
+                match.Type),
+            [] => Unavailable(),
+            _ => new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact Type focus is ambiguous in the candidate "
+                    + "context.",
+                outcomes.ToImmutable()),
+        };
+
+        WorkspaceExactTypeFocusOutcome.Unavailable Unavailable() =>
+            new(
+                "The exact Type focus could not be resolved in the "
+                    + "candidate context.",
+                outcomes.ToImmutable());
+    }
+
+    private static WorkspaceDeclarationOccurrence? DefinitionOccurrence(
+        WorkspaceDeclarationPopulation population,
+        AssemblyAcquisitionRegistration registration)
+    {
+        foreach (WorkspaceDeclarationMember member
+            in population.Receipt.Members)
+        {
+            if (population.TryGetAccess(
+                    member.Occurrence,
+                    out _,
+                    out _,
+                    out ResolvedAssemblyReference? assembly)
+                && assembly is not null
+                && ReferenceEquals(
+                    assembly.Registration,
+                    registration))
+            {
+                return member.Occurrence;
+            }
+        }
         return null;
     }
 
@@ -501,8 +609,14 @@ public static class WorkspaceExactTypeFocusQuery
     private sealed record DefinitionFocusCandidate(
         WorkspaceDeclarationOccurrence Occurrence,
         MetadataTypeDefinitionName Type,
-        string FullName)
+        string FullName,
+        AssemblyTypeDeclarationKind Kind)
         : IFocusCandidate;
+
+    private sealed record ResolvedFocusCandidate(
+        AssemblyReferenceIdentity Assembly,
+        WorkspaceDeclarationOccurrence? Occurrence,
+        MetadataTypeDefinitionName Type);
 
     private sealed record ReferencedFocusCandidate(
         AssemblyReferenceIdentity Assembly,

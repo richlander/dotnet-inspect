@@ -1522,12 +1522,12 @@ public static class TypeCommand
                             [
                                 WorkspaceMemberCoordinate.Platform(
                                     pinnedFamily,
-                                    options.PlatformAssembly,
                                     version: pinnedVersion,
                                     framework: pinnedFramework),
                             ],
                         },
-                        options.TypeName),
+                        options.TypeName,
+                        FocusAssemblyName: options.PlatformAssembly),
                     options.TypeName,
                     pinnedFamily,
                     pinnedVersion);
@@ -1564,12 +1564,12 @@ public static class TypeCommand
                         [
                             WorkspaceMemberCoordinate.Platform(
                                 resolvedFamily,
-                                options.PlatformAssembly,
                                 version: platformVersion,
                                 framework: framework),
                         ],
                     },
-                    options.TypeName),
+                    options.TypeName,
+                    FocusAssemblyName: options.PlatformAssembly),
                 options.TypeName,
                 resolvedFamily,
                 platformVersion);

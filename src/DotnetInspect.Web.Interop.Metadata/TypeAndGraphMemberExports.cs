@@ -278,16 +278,7 @@ public static partial class MetadataExports
                         provenance?.Tfm,
                         provenance?.Rid,
                         provenance?.AssetPath);
-                })
-                .OrderBy(
-                    static candidate => candidate.TypeQueryId,
-                    StringComparer.Ordinal)
-                .ThenBy(
-                    static candidate => candidate.AssemblyName,
-                    StringComparer.Ordinal)
-                .ThenBy(
-                    static candidate => candidate.PackageId,
-                    StringComparer.Ordinal),
+                }),
         ];
         string[] failures =
             available.Relations.Relations.Evidence.IsComplete

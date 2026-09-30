@@ -11,6 +11,27 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public sealed class TypeRelationsCommandTests
 {
+    [Theory]
+    [InlineData("System.IDisposable", "Implementers")]
+    [InlineData("System.IO.Stream", "Derived Types")]
+    public async Task PlatformFacade_ResolvesForwardedRelationFocus(
+        string type,
+        string section)
+    {
+        var result = await ExecuteAsync(
+            "type",
+            type,
+            "--platform",
+            "System.Runtime",
+            "-S",
+            section,
+            "--count");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.True(int.Parse(result.Output.Trim()) > 0);
+    }
+
     [Fact]
     public async Task LocalLibrary_ImplementersPreserveProvenance()
     {

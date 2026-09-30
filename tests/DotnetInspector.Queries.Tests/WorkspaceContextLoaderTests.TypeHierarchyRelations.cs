@@ -266,18 +266,19 @@ public sealed partial class WorkspaceContextLoaderTests
                     terminal,
                     facade,
                     candidate));
-        WorkspaceDeclarationMember terminalMember = Assert.Single(
-            population.Receipt.Members,
-            member => member.AssemblyIdentity.Name == TerminalAssembly);
+        var focus = Assert.IsType<WorkspaceExactTypeFocusOutcome.Found>(
+            WorkspaceExactTypeFocusQuery.Execute(
+                population,
+                "N.IContract",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(TerminalAssembly, focus.Assembly.Name);
 
         WorkspaceTypeHierarchyRelationsResult result =
             WorkspaceTypeHierarchyRelationsQuery.Execute(
                 workspace,
                 population,
-                new(
-                    terminalMember.AssemblyIdentity,
-                    terminalMember.Occurrence,
-                    LocatorName("N", "IContract")),
+                focus,
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
