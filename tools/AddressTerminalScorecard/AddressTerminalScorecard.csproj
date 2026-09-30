@@ -11,6 +11,9 @@
     <AssemblyName>address-terminal-scorecard</AssemblyName>
     <InvariantGlobalization>true</InvariantGlobalization>
     <OptimizationPreference>Speed</OptimizationPreference>
+    <PublishAot>true</PublishAot>
+    <IsPublishable>true</IsPublishable>
+    <StripSymbols>true</StripSymbols>
   </PropertyGroup>
 
   <ItemGroup>
