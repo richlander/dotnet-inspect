@@ -8,6 +8,10 @@ export type InertString = string & {
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
+export type BrowserDiffAnalysisSurface = "Member" | "Type" | "Library" | number;
+
+export type BrowserDiffAnalysisViews = string | number;
+
 export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
 export type BrowserLibraryApiDiffChangeCategory = "Signature" | "Attribute" | number;
@@ -270,16 +274,9 @@ export interface BrowserLibraryApiDiffRequest {
   readonly targetVersion: string;
   readonly targetFramework: string;
   readonly compileAssetId: string;
-  readonly surface: "Member" | "Type" | "Library";
+  readonly surface: BrowserDiffAnalysisSurface;
   readonly analyses: ReadonlyArray<string>;
-  readonly views:
-    | "Changes"
-    | "Summary"
-    | "Transitions"
-    | "Changes, Summary"
-    | "Changes, Transitions"
-    | "Summary, Transitions"
-    | "Changes, Summary, Transitions";
+  readonly views: BrowserDiffAnalysisViews;
   readonly typeNames: ReadonlyArray<string>;
   readonly memberTargetIdentities: ReadonlyArray<string>;
 }
@@ -1239,3 +1236,4 @@ export async function queryUploadedLibraryMemberGroupDocument(declaredName: stri
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMemberGroupDocumentInspection;
 }
+
