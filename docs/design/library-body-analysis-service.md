@@ -810,8 +810,10 @@ that definition's diagnostic, and the answer is not reported as absent.
    ([#8577](https://github.com/richlander/dotnet-inspect/issues/8577)), this
    owner provides the serial reference executor for the method-definition
    source. It implements the reference passes exactly, stops at a settled
-   Exists terminal, and records participation. It is not an optimization
-   and makes no parallel or collapse claim.
+   Exists terminal, and records participation. Assembly Analysis Operation now
+   composes that executor behind exact session-issued access and publishes a
+   separate Method-source receipt. The executor is not an optimization and
+   makes no parallel or collapse claim.
 7. **Producer algorithm.** Unsafe-evidence presence keeps the existing probe
    algorithm unchanged: the declaration check, the unsafe local-signature
    check, and the instruction scan with its call probe. It keeps the
@@ -821,11 +823,19 @@ that definition's diagnostic, and the answer is not reported as absent.
    diagnostic. Evidence found first settles the terminal, and later
    definitions are not visited. This matches the retired probe.
 9. **Retirement.** `LibraryBodyIndex.HasUnsafeEvidence` and the builder's
-   presence loop are removed, and `UnsafeEvidencePresenceQuery` reads the
-   producer's result. `DotnetInspector.Queries` then has no dependency on
-   `LibraryBodyIndex`.
+   presence loop are removed. `UnsafeEvidencePresenceQuery` forms an
+   owner-issued QuerySpace request with Exists, lowers it to the producer work
+   description, forms the single-producer Method source request, and executes
+   it through `AssemblyAnalysisService`. The query reads the focused producer
+   result while preserving the detached source and producer receipts.
+   `DotnetInspector.Queries` has no dependency on `LibraryBodyIndex`.
 10. **Coexistence.** The fused execution for all other producers is unchanged
    and shares no mutable state with the planned execution.
+11. **QuerySpace closing.** The production query owns the Query Operation and
+    QuerySpace descriptors for its method-definition population. QuerySpace
+    owns the structural Exists closing; Producer Planning owns the resulting
+    producer terminal and work description. Resolution is resource-free and
+    occurs before `PdbContext` lends the image.
 
 ### Gates
 
@@ -840,8 +850,8 @@ These gates land with the implementing slice and run in Release:
   the same answers and failures through the planned execution.
 - **Early stop:** the receipt shows no definition visited after the first
   evidence.
-- **Failure:** an incomplete definition before any evidence yields the failed
-  outcome, not an absent answer.
+- **Failure:** an incomplete definition before any evidence preserves the
+  failed outcome and work receipt, not an absent answer.
 - **Undeclared access:** a producer that requested only the declaration layer
   cannot obtain the body layer, and a producer cannot read another
   producer's result without declaring the dependency.
@@ -849,6 +859,10 @@ These gates land with the implementing slice and run in Release:
   yields evidence, not a failure.
 - **Minimal description:** a single-producer request's work description and
   receipt contain no other producer, layer, or lookup.
+- **QuerySpace closing:** the descriptor advertises only Exists; the
+  owner-issued request retains its row set and result contract; and resolution
+  produces a work description whose unsafe-evidence producer terminal is
+  Exists before any image is read.
 - **Failure containment:** with test declarations, a failing producer leaves
   an independent producer's result unchanged and gives a dependent a typed
   prerequisite failure.

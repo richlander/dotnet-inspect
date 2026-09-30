@@ -117,7 +117,7 @@ public partial class DiffCommand
         }
 
         var selection = (AnalysisSetValidationResult.Accepted)validation;
-        bool selectsApi = selection.Analyses.Any(IsApi);
+        bool selectsApi = DiffAnalysisViewAdmission.IncludesApi(selection);
         List<string> views;
         if (options.IncludeSections is { Count: > 0 } sections)
         {
@@ -143,20 +143,21 @@ public partial class DiffCommand
             ];
         }
 
-        if (views.Contains(DiffSections.Changes.Name) && !selectsApi)
+        switch (DiffAnalysisViewAdmission.Validate(
+            selection,
+            DocumentViews(views)))
         {
-            CommandError.Write(
-                "The Changes view projects the 'api' analysis, which is not "
-                + "selected; add --analysis api or select -S Transitions.");
-            return false;
-        }
-        if (views.Contains(DiffSections.Transitions.Name)
-            && surface == AnalysisReportSurfaceKind.Library)
-        {
-            CommandError.Write(
-                "The Transitions view requires the Type or Member surface; "
-                + "add --type or --member, or select -S Summary.");
-            return false;
+            case DiffAnalysisViewRejectionReason.ChangesRequireApi:
+                CommandError.Write(
+                    "The Changes view projects the 'api' analysis, which is not "
+                    + "selected; add --analysis api or select -S Transitions.");
+                return false;
+            case DiffAnalysisViewRejectionReason
+                .TransitionsRequireTypeOrMember:
+                CommandError.Write(
+                    "The Transitions view requires the Type or Member surface; "
+                    + "add --type or --member, or select -S Summary.");
+                return false;
         }
         if ((views.Contains(DiffSections.Transitions.Name)
                 || views.Contains(DiffSections.Summary.Name))
@@ -174,8 +175,8 @@ public partial class DiffCommand
 
         if (views is [var only]
             && only == DiffSections.Changes.Name
-            && selection.Analyses is [var single]
-            && IsApi(single)
+            && selection.Analyses.Length == 1
+            && selectsApi
             && options.Analysis is null
             && !options.EnvelopeOutput
             && !options.JsonOutput)
@@ -252,11 +253,6 @@ public partial class DiffCommand
             }
         }
     }
-
-    static bool IsApi(AnalysisDescriptor analysis)
-        => analysis.ParticipationFor(AnalysisOperationKind.Compare)
-            ?.Surfaces.Any(surface => surface.ProducerRoute
-                == DiffAnalysisCatalog.ApiRoute) == true;
 
     static void WriteAnalysisSetRejection(
         AnalysisSetValidationResult.Rejected rejected,
@@ -545,7 +541,7 @@ public partial class DiffCommand
         AnalysisSetRun run)
     {
         AnalysisSetValidationResult.Accepted selection = plan.Selection;
-        bool selectsApi = selection.Analyses.Any(IsApi);
+        bool selectsApi = DiffAnalysisViewAdmission.IncludesApi(selection);
         InspectionEnvelope<DiffAnalysisDocument> inspection = run.Inspection;
         DiffAnalysisDocument document = inspection.Content;
 
