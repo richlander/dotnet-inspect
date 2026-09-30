@@ -107,11 +107,13 @@ session is disposed, while copied body data remains safe to retain.
   call-graph, and leverage results issued by one Analysis execution. CLI and
   Workspace/L1 composition supply it, so the producer never reopens Analysis.
 
-`ResearchAssemblyContext` is no longer a member-projection input. The
-Workspace/L1 query retains it only for residual query-owned callee evidence
-that still uses the compatibility index. The focused member input is not a
+`ResearchAssemblyContext` is no longer a member-projection input or an index
+owner. The Workspace/L1 query builds it from the same focused member input for
+residual query-owned callee evidence. The focused member input is not a
 universal Research result bag: its constructor names the four result families
-used by the default registry and requires one shared execution receipt.
+used by the default registry and requires one shared execution receipt. The
+query's separate compatibility index remains only for its later call-
+relationship, invocation-destination, and local-throw migration.
 
 This migration is tracked by
 [#2786](https://github.com/richlander/dotnet-inspect/issues/2786).

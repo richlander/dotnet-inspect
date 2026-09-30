@@ -406,7 +406,6 @@ listed owners.
 | Spotlight activation preserves current realized content after registration removal | Current consumer requiring focused adaptation, not rollback here | Workspace Scope [#6751](https://github.com/richlander/dotnet-inspect/issues/6751) and retained host [#6757](https://github.com/richlander/dotnet-inspect/issues/6757) |
 | Artifact sessions, groups, snapshots, and query admissions | Correctness-bearing active-realization ownership | Artifact and Workspace owners |
 | `AnalysisIndexCache` survives Workspaces | Realization- or operation-owned derived evidence | Analysis [#6754](https://github.com/richlander/dotnet-inspect/issues/6754) |
-| `ResearchAssemblyContextCache` strongly retains exact indexes | Exact-index memoization without lifetime extension | Research [#6755](https://github.com/richlander/dotnet-inspect/issues/6755) |
 | `PlatformTypeCatalog` retains path-keyed filesystem inventory | Exact-generation realization state or recomputation | Platform [#6756](https://github.com/richlander/dotnet-inspect/issues/6756) |
 | Package acquisition single-flight removes settled entries | Behavior-transparent in-flight coordination | Package owner; retain if its equivalence contract remains satisfied |
 | Weak memoization keyed by an exact immutable reader | Behavior-transparent implementation detail | Focused format owner |
