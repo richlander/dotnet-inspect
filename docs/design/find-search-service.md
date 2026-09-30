@@ -309,6 +309,10 @@ similarity passes reuse those resolved assembly sets; a result limit still
 acquires sources lazily in established order and stops before later sources.
 The command owns that lifetime across both Type classification and the
 broadened Member tier.
+This slice's result limit is the trusted `FindOptions.Limit` compatibility
+input. CLI semantic row selection, including `-n`, remains post-classification
+until the stacked row-limit-pushdown successor establishes where the first
+presented row is already determined.
 Each admitted assembly executes the same inventory query, and the service
 projects its type name, namespace, full name, kind, library file base name,
 source, and source version into the internal `TypeSearchResult` currency. The

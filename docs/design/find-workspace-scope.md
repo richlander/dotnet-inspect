@@ -281,9 +281,11 @@ cold and one warm sample per Package.
    `--tfm`, `--platform <Library>`, `--library`, `--project`, and `--bin` build
    an empty Workspace. The shared first slice retains each ordered explicit
    source once across Find's classification passes, removing compatibility
-   reacquisition while preserving lazy `-n` acquisition. Follow-up slices
-   replace the remaining legacy Package and named-platform-Library acquisition
-   seams with PackageHouse and PlatformHouse realization.
+   reacquisition while preserving the existing trusted operational-limit
+   behavior. A stacked successor lowers CLI `-n` into safe acquisition and
+   query early exit. Follow-up slices replace the remaining legacy Package and
+   named-platform-Library acquisition seams with PackageHouse and PlatformHouse
+   realization.
 3. **`--ecosystem` as a selector,** with short names and the empty-population
    failure, together with the search-scope-resolution amendment. Demo:
    `find .Add* --ecosystem aspire`.
