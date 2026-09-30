@@ -180,7 +180,10 @@ internal static class InspectWebDeploymentWorkflowContract
             "Staging workflow contract accepted disabled Vite asset verification.");
         AssertMutationRejected(
             stagingWorkflow,
-            "            [[ \"$asset\" =~ ^assets/([A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]\n",
+            """
+                        [[ "$asset" == browser-package-entry-cache.js \
+                          || "$asset" =~ ^assets/([A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]
+            """,
             "",
             ValidateStaging,
             "Staging workflow contract accepted a deleted Vite asset path constraint.");
@@ -1717,7 +1720,8 @@ internal static class InspectWebDeploymentWorkflowContract
             jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
             vite_assets=$(jq -er '[to_entries[].value | .file, (.css[]?), (.assets[]?)] | unique | if length > 0 then join("\n") else error("empty Vite manifest") end' "$manifest")
             while IFS= read -r asset; do
-              [[ "$asset" =~ ^assets/([A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]
+              [[ "$asset" == browser-package-entry-cache.js \
+                || "$asset" =~ ^assets/([A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]
               test -f "$site/$asset"
             done <<< "$vite_assets"
             vite_entry=$(jq -er '.["index.html"].file' "$manifest")
