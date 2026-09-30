@@ -19,6 +19,13 @@ House facade, request, settlement, result, receipts, and typed handoffs.
 Adjacent owners retain their identities, algorithms, failures, and lifetimes.
 Their adoption remains separately reviewed.
 
+[#8994](https://github.com/richlander/dotnet-inspect/issues/8994) adds the
+focused [semantic content-demand contract](package-house-semantic-content-demand.md).
+Callers declare package evidence; PackageHouse owns cache, manifest,
+directory, ranged-entry, complete-transfer, and typed-fallback planning. The
+content-demand owner composes existing source, asset-selection, Metadata,
+cache, and transfer owners without absorbing their algorithms.
+
 [#7423](https://github.com/richlander/dotnet-inspect/issues/7423) extends that
 composition with package-slice policy. Its first focused slice defines only the
 package-local compile inventory and selected projection that PackageHouse
@@ -111,6 +118,7 @@ The owner defines:
 
 - the product-facing `PackageHouse` facade;
 - the package-demand envelope;
+- the semantic content-demand envelope and House-owned acquisition plan;
 - the package operation profile and common operation context;
 - the distinction between settlement, acquisition, and realization;
 - composition of owner-issued package source, version, pruning, payload,
@@ -1451,6 +1459,11 @@ No compatibility facade or obsolete CLI path is retained solely to preserve
 the old architecture. A direct path remains only while it is the shipping path
 for a supported scenario.
 
+The semantic-content-demand migration additionally removes
+`PackagePayloadAccess` and caller-owned range/complete fallback only after the
+last production caller adopts the House-owned plan. No new caller may add
+another transfer-mode choice during that migration.
+
 ## Composition evidence
 
 The Package Source Model's TLA+ model continues to own concurrent authority,
@@ -1621,6 +1634,22 @@ separate package-slice sequence:
 Package Dependency Query scope, size measurements, traversal targets, and call
 graphs remain later #7423 sequences. This slice does not authorize or specify
 them.
+
+[#8994](https://github.com/richlander/dotnet-inspect/issues/8994) adds a
+six-slice semantic-content-demand stack:
+
+1. lock the focused demand and House-owned planning contract;
+2. move existing manifest, file-list, exact-file, selected-asset, and
+   whole-archive behavior behind it with one production adopter;
+3. add all-library and Best-Library demands by composing asset-selection and
+   Metadata evidence;
+4. adopt Package Query;
+5. adopt `find` and shared Workspace/declaration loading; and
+6. migrate remaining callers, then remove `PackagePayloadAccess` and
+   caller-owned fallback.
+
+Each arm lands with a production caller. Other owners adopt the pattern in
+focused successor slices rather than broadening the owner document.
 
 ## Required gates
 

@@ -2,11 +2,17 @@
 
 ## Status, owner, and claim
 
-This document is the normative owner for **how much of a package archive a
-realization asks a ranged read for**. It is a slice of
+This document is the normative owner for **which package entries a semantic
+content demand selects when PackageHouse plans a ranged read**. It is a slice of
 [#8386](https://github.com/richlander/dotnet-inspect/issues/8386), whose goal
 is that assemblies a person or an agent inspects all day do not cost network
 all day.
+
+The [PackageHouse semantic content-demand
+contract](package-house-semantic-content-demand.md) owns whether cache,
+manifest, archive-directory, ranged, or complete acquisition satisfies a
+request. This document owns only entry expansion after the House selects ranged
+execution. Commands and hosts do not select an access mode.
 
 The claim has five parts:
 
@@ -323,24 +329,24 @@ vocabularies:
   Cache Storage, so a warm read after store recreation makes no package request
   ([cache policy adoption step 5](package-cache-policy.md#adoption)).
 
-### Per-command demand
+### Current demand adoption
 
-| Command | Demand | Access at this head |
-| --- | --- | --- |
-| `find` member search, `implements`, `extensions`, `depends`, with one `--package ID@VERSION` and `--tfm` | `Surface` | ranged, size first |
-| `library address` with one exact package Library and non-JSON output | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB when source location is selected | ranged, size first |
-| `library address --json` | `SurfaceAndImplementation` plus the established complete Library JSON metadata | complete |
-| `type`, `member`, and other `library` operations | `SurfaceAndImplementation` | complete |
-| `graph` | `SurfaceAndImplementation` | complete |
-| `package` | the whole archive | complete |
-| `package ID@VERSION --content` of a root `README.md` or `skills/**/SKILL.md` | one exact file | ranged, size first |
-| `diff --history`, Metadata cells (API findings) | `Surface` | ranged, size first |
-| `diff --history`, Analysis cells (IL-body findings) | `SurfaceAndImplementation` | ranged, size first |
+| Command | Semantic demand |
+| --- | --- |
+| `find` member search, `implements`, `extensions`, `depends`, with one `--package ID@VERSION` and `--tfm` | `Surface` |
+| `library address` with one exact package Library and non-JSON output | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB when source location is selected |
+| `library address --json` | `SurfaceAndImplementation` plus the established complete Library JSON metadata |
+| `type`, `member`, and other `library` operations | `SurfaceAndImplementation` |
+| `graph` | `SurfaceAndImplementation` |
+| `package` | Whole archive |
+| `package ID@VERSION --content` of a root `README.md` or `skills/**/SKILL.md` | One exact file |
+| `diff --history`, Metadata cells (API findings) | `Surface` |
+| `diff --history`, Analysis cells (IL-body findings) | `SurfaceAndImplementation` |
 
-The first two command families and the last three rows adopt ranged access,
-except that `library address --json` retains complete acquisition. The others
-keep their current complete acquisition until they adopt ranged access (see
-[Adoption](#adoption)).
+At this head, callers still carry transitional ranged or complete access
+choices. [#8994](https://github.com/richlander/dotnet-inspect/issues/8994)
+removes those choices one adopter at a time. The table records semantic need,
+not transfer policy; new callers must not copy the transitional access split.
 
 ## Pathological cases and gates
 
@@ -379,15 +385,12 @@ All gates run in Release.
    exact-package search Root realized with `Surface`.
 2. Named implementation demand and aligned blocks in the House and the
    acquisition step, with gates 6 to 10.
-3. `library address` adopts ranged access with
+3. `library address` declares
    `SurfaceAndImplementation`, one named implementation, selected Library
-   handoffs, and source-sensitive companion demand for non-JSON output. JSON
-   retains the complete path until the shared Address result owns its existing
-   Library metadata schema.
-4. `type`, `member`, and the remaining `library` operations adopt ranged
-   access, naming the assemblies that define what they inspect and reusing the
-   folders a surface search cached.
-5. `graph` adopts ranged access with `SurfaceAndImplementation`.
+   handoffs, and source-sensitive companion demand for non-JSON output.
+4. `type`, `member`, and the remaining `library` operations name the
+   assemblies that define what they inspect.
+5. `graph` declares `SurfaceAndImplementation`.
 6. Runtime packs are realized with named implementation demand once the
    [package-backed platform source](package-backed-platform-realization.md)
    no longer reads every member's identity at realization. That change belongs
@@ -399,14 +402,16 @@ All gates run in Release.
    viewer calls the same operation for root `README.md`, root `PACKAGE.md`, and
    `skills/**/*.md`. Other Inspect Web package operations retain their existing
    acquisition paths.
-8. `diff --history` realizes each version cell with ranged access: Metadata
+8. `diff --history` realizes each version cell with semantic asset demand:
+   Metadata
    cells with `Surface`, whose package Root prepares no implementation role,
    and Analysis cells with `SurfaceAndImplementation`. A history over the
-   versions of a large package then reads each version's surface folder, or
-   its surface and implementation folders, instead of its whole archive, and
-   a repeated history reads nothing it already holds.
+   versions of a large package permits the House to select only each version's
+   surface folder, or its surface and implementation folders, and a repeated
+   history may read nothing it already holds.
 
-`package` keeps complete acquisition, except its document export (step 7).
+[#8994](https://github.com/richlander/dotnet-inspect/issues/8994) moves access
+planning into PackageHouse after these demand semantics are preserved.
 
 ## Non-claims
 
@@ -415,6 +420,6 @@ This document does not:
 - change size first, the entry cache, or the durable identity of HTTP
   authorities, which the [package cache policy](package-cache-policy.md)
   owns;
-- change which assets a realization selects, only which entries a ranged read
-  of them fetches;
-- change complete acquisition for any command.
+- change which assets a realization selects, only which entries a House-planned
+  ranged read of them fetches; or
+- decide whether a semantic demand uses ranged or complete acquisition.
