@@ -137,6 +137,9 @@ test("implementation evidence remains subtle member-list heat", () => {
     /implementationHeatVisibleFamilyIsEligible\(groups, appGroup\)/);
   assert.match(
     visible,
+    /implementationHeatVisibleFamilyMatchesRequest\(\s*requestGroup,\s*appGroup\)/);
+  assert.match(
+    visible,
     /declarationMetadataToken \?\? overload\.metadataToken/);
 
   const renderMember = sourceText(functionDeclaration("renderMember"));

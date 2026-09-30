@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
   chooseSubject,
   core,
@@ -45,7 +45,7 @@ function overload(
 function overloadedPackage(): BrowserPackageSurface {
   const type = {
     ...createType("Example.Widget", core),
-    members: 6,
+    members: 8,
     api: [
       overload("Run(int)", "public void Run(int value)", 0x06000100),
       overload("Run(string)", "public void Run(string value)", 0x06000101),
@@ -75,6 +75,20 @@ function overloadedPackage(): BrowserPackageSurface {
         0x06000103,
         "Compute",
       ),
+      overload(
+        "Hidden(int)",
+        "private void Hidden(int value)",
+        0x06000106,
+        "Hidden",
+        "private",
+      ),
+      overload(
+        "Hidden(string)",
+        "private void Hidden(string value)",
+        0x06000107,
+        "Hidden",
+        "private",
+      ),
     ],
   };
   return {
@@ -88,8 +102,19 @@ function overloadedPackage(): BrowserPackageSurface {
       ...surface.types.filter(candidate =>
         candidate.definitionId !== type.definitionId),
     ],
-    totalMembers: 7,
+    totalMembers: 9,
   };
+}
+
+async function selectMemberAccessibility(
+  page: Page,
+  accessibility: "public" | "private",
+) {
+  const button = page.locator(
+    `[data-member-access-filter="${accessibility}"]`);
+  if (!await button.isVisible())
+    await page.locator("#member-filter-summary").click();
+  await button.click();
 }
 
 test("Type heat paints the member list without an Implementation section", async ({
@@ -128,41 +153,20 @@ test("Type heat paints the member list without an Implementation section", async
   await expect(page.locator('[data-member-section="implementation-profiles"]'))
     .toHaveCount(0);
 
-  const runFamily = page.locator("[data-nav-member]").filter({ hasText: "Run" });
-  await runFamily.click();
-  await expect(runFamily.locator(".family-heat-cue.progress"))
-    .toHaveText("measuring");
-
-  await releaseFacade(page, `fixture-type-heat-ready:${core.id}`);
-  await expect(runFamily.locator(".family-heat-cue")).toHaveCount(0);
-  const rows = page.locator(".overload-nav-row");
-  await expect(rows).toHaveCount(2);
-  await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
-  await expect(rows.nth(0)).not.toHaveClass(/\bhub\b/);
-  await expect(rows.nth(0)).toHaveAttribute(
-    "aria-description",
-    "98 instructions; 100% of the largest body in this family",
-  );
-  await expect(rows.locator(".overload-size")).toHaveCount(0);
-  await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
-  await expect(rows.nth(1)).not.toHaveClass(/\bheated\b/);
-
-  // Moving within the Type reuses its heat without exposing family details.
-  const compute = page.locator("[data-nav-member]")
-    .filter({ hasText: "Compute" });
-  await compute.click();
-  await expect(rows).toHaveCount(2);
-  await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
-  await expect(rows.nth(1)).toHaveClass(/\bheated\b/);
-  await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
-
-  // The selected non-public population joins exact MethodDef tokens from the
-  // same cached Type record; changing accessibility issues no new heat request.
-  await page.locator("#member-filter-summary").click();
-  await page.locator('[data-member-access-filter="private"]').click();
+  await selectMemberAccessibility(page, "private");
+  const hidden = page.locator("[data-nav-member]")
+    .filter({ hasText: "Hidden" });
+  await hidden.click();
+  await expect(hidden.locator(".family-heat-cue")).toHaveCount(0);
   const privateRun = page.locator("[data-nav-member]")
     .filter({ hasText: "Run" });
   await privateRun.click();
+  await expect(privateRun.locator(".family-heat-cue.progress"))
+    .toHaveText("measuring");
+
+  await releaseFacade(page, `fixture-type-heat-ready:${core.id}`);
+  await expect(privateRun.locator(".family-heat-cue")).toHaveCount(0);
+  const rows = page.locator(".overload-nav-row");
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
   await expect(rows.nth(0)).toHaveAttribute(
@@ -171,7 +175,29 @@ test("Type heat paints the member list without an Implementation section", async
   );
   await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
   await expect(rows.nth(1)).not.toHaveClass(/\bheated\b/);
+  await expect(rows.locator(".overload-size")).toHaveCount(0);
+
+  // Public and private populations reuse one Type record.
+  await selectMemberAccessibility(page, "public");
+  const runFamily = page.locator("[data-nav-member]").filter({ hasText: "Run" });
+  await runFamily.click();
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
+  await expect(rows.nth(0)).not.toHaveClass(/\bhub\b/);
+  await expect(rows.nth(0)).toHaveAttribute(
+    "aria-description",
+    "98 instructions; 100% of the largest body in this family",
+  );
+  await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
+
+  const compute = page.locator("[data-nav-member]")
+    .filter({ hasText: "Compute" });
+  await compute.click();
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
+  await expect(rows.nth(1)).toHaveClass(/\bheated\b/);
   await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
+
   await page.locator('[data-nav-overload="1"]').click();
   await expect(page.getByRole("heading", { name: "Implementation" }))
     .toHaveCount(0);
@@ -179,4 +205,37 @@ test("Type heat paints the member list without an Implementation section", async
     .toHaveCount(0);
   expect(await html.getAttribute(
     "data-implementation-profile-request-count")).toBeNull();
+});
+
+test("non-public-only families do not inherit Type heat failure", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    overloadedPackage(),
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "query-error",
+  );
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-list [data-type]").click();
+  await chooseSubject(page, "member", "Member");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-type-heat-request-count", "1");
+
+  await selectMemberAccessibility(page, "private");
+  const hidden = page.locator("[data-nav-member]")
+    .filter({ hasText: "Hidden" });
+  await hidden.click();
+  await expect(hidden.locator(".family-heat-cue")).toHaveCount(0);
+
+  const runFamily = page.locator("[data-nav-member]").filter({ hasText: "Run" });
+  await runFamily.click();
+  await expect(runFamily.locator(".family-heat-cue.problem"))
+    .toHaveText("heat unavailable");
 });

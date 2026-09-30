@@ -265,6 +265,7 @@ import {
   familyHeatFor,
   implementationHeatFamilyIsEligible,
   implementationHeatVisibleFamilyIsEligible,
+  implementationHeatVisibleFamilyMatchesRequest,
   type TypeHeatRequest,
   type TypeHeatState,
 } from "./implementation-heat.ts";
@@ -6990,9 +6991,15 @@ function navGroupHeatIdentity(group: { key: string }) {
   if (!type) return null;
   const groups = memberGroups(type);
   const appGroup = groups.find(candidate => candidate.key === group.key);
+  const requestGroups = typeHeatRequestGroups(type);
   if (!appGroup
     || appGroup.overloads.some(overload => overload.graphOnly)
-    || !implementationHeatVisibleFamilyIsEligible(groups, appGroup)) {
+    || !implementationHeatVisibleFamilyIsEligible(groups, appGroup)
+    || !requestGroups.some(requestGroup =>
+      typeHeatRequestFamilyIsEligible(type, requestGroups, requestGroup)
+      && implementationHeatVisibleFamilyMatchesRequest(
+        requestGroup,
+        appGroup))) {
     return null;
   }
   const overloads = appGroup.overloads.map(overload => ({

@@ -6,6 +6,7 @@ import {
   familyHeatFor,
   implementationHeatFamilyIsEligible,
   implementationHeatVisibleFamilyIsEligible,
+  implementationHeatVisibleFamilyMatchesRequest,
   projectFamilyHeat,
   typeHeatCacheKey,
   type PackageTypeHeatRequest,
@@ -118,6 +119,47 @@ test("heat admits only coherent ordinary or single-declarer extension families",
       [privateExtensions],
       privateExtensions),
     true);
+  assert.equal(
+    implementationHeatVisibleFamilyMatchesRequest(
+      ordinary,
+      {
+        ...ordinary,
+        overloads: ordinary.overloads.map(overload => ({
+          ...overload,
+          accessibility: "private",
+        })),
+      }),
+    true);
+  assert.equal(
+    implementationHeatVisibleFamilyMatchesRequest(
+      extensions,
+      {
+        ...privateExtensions,
+        name: extensions.name,
+        overloads: privateExtensions.overloads.map(overload => ({
+          ...overload,
+          declaringTypeDefinitionId:
+            "System.Text.Json.JsonSerializer",
+        })),
+      }),
+    true);
+  assert.equal(
+    implementationHeatVisibleFamilyMatchesRequest(
+      extensions,
+      {
+        ...privateExtensions,
+        name: extensions.name,
+        overloads: privateExtensions.overloads.map(overload => ({
+          ...overload,
+          declaringTypeDefinitionId: "Example.OtherExtensions",
+        })),
+      }),
+    false);
+  assert.equal(
+    implementationHeatVisibleFamilyMatchesRequest(
+      extensions,
+      ordinary),
+    false);
 });
 
 function method(

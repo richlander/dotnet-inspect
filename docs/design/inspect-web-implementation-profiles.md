@@ -460,6 +460,7 @@ The following gates enforce this design:
    incomplete, bodyless, generated-body, and non-public-callee boundaries.
 6. Member-list rendering and accessibility tests prove selected-population row
    order, public and non-public overload heat from one Type record,
+   non-public-only families receive no loading or failure status,
    right-anchored heat with at most 75% reach, the hub strip, parent-row status
    text and tokens, accessible descriptions, every visible state, the absence
    of raw metric labels, and the absence of an Implementation detail section.

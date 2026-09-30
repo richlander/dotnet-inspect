@@ -76,6 +76,21 @@ export function implementationHeatFamilyIsEligible(
     && group.overloads.every(overload => overload.accessibility === "public");
 }
 
+export function implementationHeatVisibleFamilyMatchesRequest(
+  request: ImplementationHeatFamilyCandidate,
+  visible: ImplementationHeatFamilyCandidate,
+): boolean {
+  if (request.name !== visible.name || request.kind !== visible.kind)
+    return false;
+  if (request.kind === "method") return true;
+  const requestDeclaringType =
+    request.overloads[0]?.declaringTypeDefinitionId;
+  return request.kind === "extension-method"
+    && Boolean(requestDeclaringType)
+    && visible.overloads[0]?.declaringTypeDefinitionId
+      === requestDeclaringType;
+}
+
 export function typeHeatCacheKey(request: TypeHeatRequest): string {
   return request.kind === "package"
     ? JSON.stringify([
