@@ -2,17 +2,19 @@
 
 ## Status, owner, and claim
 
-This document is the normative owner for **which package entries a semantic
-content demand selects when PackageHouse plans a ranged read**. It is a slice of
+This document is the normative owner for **which package entries a resolved
+semantic-content narrowing selects when PackageHouse plans a ranged read**. It
+is a slice of
 [#8386](https://github.com/richlander/dotnet-inspect/issues/8386), whose goal
 is that assemblies a person or an agent inspects all day do not cost network
 all day.
 
 The [PackageHouse semantic content-demand
-contract](package-house-semantic-content-demand.md) owns whether cache,
-manifest, archive-directory, ranged, or complete acquisition satisfies a
-request. This document owns only entry expansion after the House selects ranged
-execution. Commands and hosts do not select an access mode.
+contract](package-house-semantic-content-demand.md) owns the reusable
+package/TFM/root-family narrowing and whether cache, manifest,
+archive-directory, ranged, or complete acquisition satisfies a query. This
+document owns only entry expansion after the House resolves that narrowing and
+selects ranged execution. Commands and hosts do not select an access mode.
 
 The claim has five parts:
 

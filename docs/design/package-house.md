@@ -21,10 +21,11 @@ Their adoption remains separately reviewed.
 
 [#8994](https://github.com/richlander/dotnet-inspect/issues/8994) adds the
 focused [semantic content-demand contract](package-house-semantic-content-demand.md).
-Callers declare package evidence; PackageHouse owns cache, manifest,
-directory, ranged-entry, complete-transfer, and typed-fallback planning. The
-content-demand owner composes existing source, asset-selection, Metadata,
-cache, and transfer owners without absorbing their algorithms.
+Callers declare one reusable package narrowing plus evidence terminals;
+PackageHouse owns cache, manifest, directory, ranged-entry, complete-transfer,
+and typed-fallback planning. The content-demand owner composes existing source,
+asset-selection, Metadata, cache, and transfer owners without absorbing their
+algorithms.
 
 [#7423](https://github.com/richlander/dotnet-inspect/issues/7423) extends that
 composition with package-slice policy. Its first focused slice defines only the
@@ -1641,8 +1642,8 @@ six-slice semantic-content-demand stack:
 1. lock the focused demand and House-owned planning contract;
 2. move existing manifest, file-list, exact-file, selected-asset, and
    whole-archive behavior behind it with one production adopter;
-3. add all-library and Best-Library demands by composing asset-selection and
-   Metadata evidence;
+3. add reusable package narrowing plus all-library and Best-Library terminals
+   by composing asset-selection and Metadata evidence;
 4. adopt Package Query;
 5. adopt `find` and shared Workspace/declaration loading; and
 6. migrate remaining callers, then remove `PackagePayloadAccess` and

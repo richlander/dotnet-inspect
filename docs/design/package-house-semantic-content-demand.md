@@ -20,59 +20,87 @@ payload access. They do not retry a ranged result through a complete path or
 reconstruct archive selectors. PackageHouse preserves the semantic demand
 through planning, execution, typed fallback, settlement, and receipts.
 
-The semantic demand is separate from the existing package identity or version
-demand. One request therefore retains both:
+The semantic content query is separate from the existing package identity or
+version demand. One request therefore retains both:
 
 - which package is requested; and
-- which package evidence is required.
+- one reusable narrowing over that package; and
+- which evidence terminals run over the narrowed space.
 
-Neither value is reconstructed from the other or from display text.
+None of these values is reconstructed from another or from display text.
 
-## Content demands
+## Content query
 
-The PackageHouse content vocabulary is:
+One `PackageHouseContentQuery` carries one narrowing and one or more result
+terminals. Every terminal in the query observes the exact same narrowed package
+space and retains the same owner-issued narrowing receipt.
+
+The narrowing forms are:
+
+- **Package-wide.** Every admitted package entry is in scope.
+- **TFM-wide.** Every admitted entry associated with one requested target
+  framework is in scope. A runtime target also carries its RID.
+- **TFM and ordered root preference.** The query carries one target framework
+  and an arbitrary non-empty ordered list of distinct package library root
+  families: `ref`, `lib`, or `runtimes`. PackageHouse selects the first
+  applicable family in request order. Examples include `lib`, `ref || lib`,
+  `lib || runtimes`, and `ref || lib || runtimes`; the vocabulary is not
+  limited to two choices.
+
+The package asset-selection owner determines whether a root family is
+applicable for the target context. PackageHouse preserves that owner-issued
+decision and does not infer applicability from folder existence or rendered
+paths. A `runtimes` choice requires the target's RID.
+
+The result terminals are:
 
 - **Nuspec.** Return the exact package manifest without acquiring archive
-  payload when the authorized source supplies it directly.
+  payload when the authorized source supplies it directly. This terminal
+  requires package-wide narrowing.
 - **File list.** Return the complete validated archive entry inventory without
-  expanding entry content.
+  expanding entry content, projected to the narrowed space.
 - **Files.** Return the complete validated content of one or more exact package
-  entries.
-- **Libraries.** Return every compatible library selected for one target
-  context and requested package root family: `ref`, `lib`, or `runtimes`.
-  Runtime selection carries the required RID.
+  entries within the narrowed space.
+- **Libraries.** Return every compatible library in the narrowed space.
 - **Best Library.** Return one compatible library selected by the rule in
   [Best Library](#best-library).
 - **Whole archive.** Return the complete package payload when the product
-  question genuinely requires package-wide content.
+  question genuinely requires package-wide content. This terminal requires
+  package-wide narrowing.
 
-One implementation slice adds a demand arm only with a production caller.
-Until an arm lands, its place in this vocabulary is an adoption commitment,
-not a supported API.
+A query may request several compatible terminals. In particular, Best Library
+and File List may run together. The selected assembly and file list then
+describe the same narrowed TFM/root space; neither terminal repeats or
+independently interprets the narrowing.
 
-The content demand does not contain an access mode, range selector, cache
+One implementation slice adds a narrowing form or terminal only with a
+production caller. Until one lands, its place in this vocabulary is an
+adoption commitment, not a supported API.
+
+The content query does not contain an access mode, range selector, cache
 instruction, source URL, or fallback preference. Network permission, source
 authorization, transfer limits, cache capacity, and operation deadlines remain
 host-supplied capabilities and policy.
 
 ## File-list evidence
 
-A request may ask for the complete detached file list together with another
-content demand. File-list evidence is therefore composable rather than a
-mutually exclusive payload mode.
+A query may ask for the complete detached file list together with another
+terminal. File-list evidence is therefore composable rather than a mutually
+exclusive payload mode.
 
 The file list:
 
 - preserves every validated package entry path and declared expanded length;
-- is complete for the admitted archive directory;
+- is complete for the query's narrowed package space;
 - carries no stream, payload generation, cache handle, or source authority;
 - identifies which exact files a later request may name; and
 - does not imply that any listed entry content was materialized.
 
 PackageHouse may already need the archive directory to plan a ranged
 acquisition. It publishes that directory as file-list evidence only when the
-request asks for it. An internal planning read does not silently enlarge the
-product result.
+query asks for it, and projects it through the exact narrowing receipt before
+publication. An internal planning read does not silently enlarge the product
+result.
 
 A selected file or library entry is always complete. PackageHouse returns the
 whole validated ZIP entry or a typed non-success; it never returns a partial
@@ -85,11 +113,12 @@ the file list, establish that the returned entry completed validation.
 `GetBestLibrary` is the only single-library selection demand. There is no
 separate namesake-library request.
 
-The demand carries a target context, requested package root family, and an
-optional namespace. It consumes compatible library candidates from the
-package asset-selection owner and namespace facts from the Metadata owner.
-PackageHouse composes those owner-issued facts; it does not parse target
-frameworks, rank asset compatibility, or decode Metadata itself.
+The terminal carries an optional namespace. Its target context and ordered
+root-family preference come only from the shared narrowing query. It consumes
+compatible library candidates from that narrowed space and namespace facts
+from the Metadata owner. PackageHouse composes those owner-issued facts; it
+does not parse target frameworks, rank asset compatibility, resolve the root
+preference from paths, or decode Metadata itself.
 
 Selection is deterministic:
 
@@ -117,14 +146,14 @@ House cannot select a fallback on incomplete namespace evidence.
 
 ## House-owned acquisition planning
 
-PackageHouse chooses one execution plan from the semantic demand and
+PackageHouse chooses one execution plan from the semantic query and
 owner-issued capabilities and evidence. Planning may consider:
 
 - an already settled manifest, directory, complete payload, or selected entry;
 - complete-payload and entry-cache state;
 - the source's manifest and range capabilities;
 - advertised archive length and the package-cache size cut;
-- the exact file, library, target, root-family, and optional namespace demand;
+- the exact narrowing, terminal set, files, libraries, and optional namespace;
 - transfer, archive, expanded-entry, request-count, and operation limits; and
 - whether a complete transfer is required to preserve the semantic result.
 
@@ -142,7 +171,7 @@ The plan may use:
 - ranged work followed by a typed complete-transfer fallback.
 
 Fallback changes the transfer path, not the semantic result. Cache, ranged,
-ranged-then-complete, and complete execution of the same demand must return
+ranged-then-complete, and complete execution of the same query must return
 equivalent content evidence or corresponding typed non-success. The
 [package transfer receipt](package-transfer-receipt.md) records which path
 occurred and why.
@@ -158,9 +187,11 @@ settling the plan that composes those owner-issued policies.
 One settlement preserves:
 
 - the exact package identity or version demand;
-- the exact semantic content demand;
+- the exact semantic content query;
+- one narrowing receipt shared by every terminal result;
 - the source decision and authority;
-- the selected target and package root family when applicable;
+- the requested target and root-family preference chain, plus the selected
+  applicable root family when present;
 - owner-issued asset and namespace evidence;
 - selected files or libraries and their actual package paths;
 - optional complete detached file-list evidence;
@@ -202,10 +233,11 @@ The counted stack has six slices:
 
 1. Lock this focused PackageHouse semantic-demand and planning contract.
 2. Put existing nuspec, file-list, exact-file, selected-asset, and
-   whole-archive behavior behind semantic demands. Migrate one current
+   whole-archive behavior behind semantic queries. Migrate one current
    production route while preserving output.
-3. Add Libraries and Best Library by composing the existing asset-selection
-   and Metadata owners. Preserve real multi-library package evidence.
+3. Add reusable narrowing, Libraries, and Best Library by composing the
+   existing asset-selection and Metadata owners. Preserve real multi-library
+   package evidence.
 4. Adopt Best Library and composable file-list evidence in Inspect Web Package
    Query, beginning with assembly-semantic evaluation.
 5. Adopt the same demands in `find` and shared Workspace/declaration loading,
@@ -219,11 +251,13 @@ lock with one adopter under the bounded first-adopter exception in
 [design scope](../design-scope.md#stage-implementation-after-locking-the-design);
 later adopters remain focused owner-specific slices.
 
-The production demo is a Package Query over `System.Text.Json`: PackageHouse
-returns the selected complete `System.Text.Json.dll` entry and the complete
-detached package file list without the Browser choosing an acquisition mode.
-The neighboring multi-library case uses `Avalonia` and proves exact namespace
-selection plus deterministic alphabetical fallback for an absent namespace.
+The production demo is a Package Query over `System.Text.Json`: one TFM plus
+`ref || lib` narrowing returns the selected complete `System.Text.Json.dll`
+entry and the complete detached file list for that same selected root space,
+without the Browser choosing an acquisition mode. The neighboring
+multi-library case uses `Avalonia`, an arbitrary ordered root chain, exact
+namespace selection, and deterministic alphabetical fallback for an absent
+namespace.
 
 ## Pathological cases and gates
 
@@ -232,9 +266,11 @@ All implementation gates run in Release.
 | Case | Required outcome |
 | --- | --- |
 | Nuspec with direct manifest capability | No archive payload acquisition; the exact manifest and source receipt settle. |
-| File list | Every admitted path appears once; no expanded entry content is opened. |
-| Exact files | Every returned entry is complete and validated; a missing or ambiguous path fails visibly. |
-| File list plus selected library | One settlement carries the complete directory and one complete selected assembly entry. |
+| Package-wide file list | Every admitted path appears once; no expanded entry content is opened. |
+| TFM-wide file list | Every path in the owner-issued target scope appears once; unrelated target paths do not appear. |
+| Ordered root preference | The first applicable family is selected from an arbitrary-length chain; a later family cannot contribute entries or libraries. |
+| Exact files | Every returned entry lies in the narrowed space and is complete and validated; an outside, missing, or ambiguous path fails visibly. |
+| File list plus selected library | One narrowing receipt governs the complete narrowed file list and one complete selected assembly entry. |
 | Namespace in several libraries | The alphabetically first exact namespace match wins. |
 | Namespace absent | The alphabetically first compatible library wins. |
 | Namesake evidence | Package-ID/file-name equality is reported without opening the assembly and does not alter selection order. |
@@ -242,7 +278,7 @@ All implementation gates run in Release.
 | Range ignored | Complete fallback preserves the semantic result and records the typed transfer path. |
 | Archive below the size cut | Complete acquisition may satisfy the demand without changing its result. |
 | Cache, ranged, and complete paths | Results are equivalent apart from transfer receipts and cache-dependent evidence. |
-| CLI and Browser/Wasm | Equivalent authorized requests use the same semantic demand and House planning contract. |
+| CLI and Browser/Wasm | Equivalent authorized requests use the same semantic query and House planning contract. |
 
 The first design slice changes no executable behavior, so Markdown validation
 is its enforcing gate. Each implementation slice names the focused Release
@@ -252,8 +288,8 @@ tests and real packages that enforce the cases it adopts.
 
 This design does not:
 
-- define package ID, version, target framework, RID, namespace, or package-path
-  grammar;
+- define package ID, version, target framework, RID, namespace, package-path,
+  or package-root grammar;
 - define version selection, source authorization, framework compatibility,
   asset selection, namespace decoding, archive validation, cache policy, or
   transfer receipt issuance;
@@ -261,6 +297,7 @@ This design does not:
   names;
 - require every demand to use ranged acquisition;
 - promise that a file list means every listed entry is materialized;
+- permit different terminals in one query to resolve different narrowed spaces;
 - return partial assembly entries;
 - define command syntax, output shape, rendering, or presentation;
 - migrate all callers in one PR; or
