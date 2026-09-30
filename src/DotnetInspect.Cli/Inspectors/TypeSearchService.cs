@@ -32,7 +32,8 @@ internal static class TypeSearchService
         HttpClient httpClient,
         CancellationToken cancellationToken = default,
         CommandContext? commandContext = null,
-        PlatformFindSearchWorkspace? platformWorkspace = null)
+        PlatformFindSearchWorkspace? platformWorkspace = null,
+        ExplicitFindSearchWorkspace? explicitWorkspace = null)
     {
         if (platformWorkspace is not null)
         {
@@ -202,7 +203,9 @@ internal static class TypeSearchService
                     patterns,
                     logger,
                     httpClient,
-                    inspectImplicitNamespace);
+                    inspectImplicitNamespace,
+                    cancellationToken,
+                    explicitWorkspace);
             return platformCatalogFailed
                 ? legacy with { HasFailures = true }
                 : legacy;
@@ -232,7 +235,9 @@ internal static class TypeSearchService
                         options,
                         patterns,
                         logger,
-                        httpClient);
+                        httpClient,
+                        cancellationToken: cancellationToken,
+                        explicitWorkspace: explicitWorkspace);
                 }
 
                 located =
@@ -1163,19 +1168,50 @@ internal static class TypeSearchService
             VerboseLogger logger,
             HttpClient httpClient,
             Func<string, Task<List<TypeFindResult>>>?
-                inspectNamespace = null)
+                    inspectNamespace = null,
+            CancellationToken cancellationToken = default,
+            ExplicitFindSearchWorkspace? explicitWorkspace = null)
+    {
+        if (explicitWorkspace is not null)
+        {
+            return await FindWithLegacyCoreAsync(
+                options,
+                patterns,
+                logger,
+                explicitWorkspace,
+                inspectNamespace);
+        }
+
+        await using var ownedWorkspace =
+            new ExplicitFindSearchWorkspace(
+                options,
+                httpClient,
+                logger.Log,
+                cancellationToken);
+        return await FindWithLegacyCoreAsync(
+            options,
+            patterns,
+            logger,
+            ownedWorkspace,
+            inspectNamespace);
+    }
+
+    private static async Task<FindSearchResult<TypeFindResult>>
+        FindWithLegacyCoreAsync(
+            FindOptions options,
+            string[] patterns,
+            VerboseLogger logger,
+            ExplicitFindSearchWorkspace workspace,
+            Func<string, Task<List<TypeFindResult>>>?
+                inspectNamespace)
     {
         bool hasFailures = false;
         void MarkFailure() => hasFailures = true;
-        await using var workspace =
-            new AssemblySetInspectionWorkspace(
-                FindSourceCollector.CreateWorkspacePlan(options));
         Task<List<TypeSearchResult>> Collect(string? pattern) =>
             CollectTypesAsync(
                 options,
                 pattern,
                 logger,
-                httpClient,
                 workspace,
                 MarkFailure);
 
@@ -1828,13 +1864,15 @@ internal static class TypeSearchService
         HttpClient httpClient)
     {
         await using var workspace =
-            new AssemblySetInspectionWorkspace(
-                FindSourceCollector.CreateWorkspacePlan(options));
+            new ExplicitFindSearchWorkspace(
+                options,
+                httpClient,
+                logger.Log,
+                CancellationToken.None);
         return await CollectTypesAsync(
             options,
             pattern,
             logger,
-            httpClient,
             workspace,
             static () => { });
     }
@@ -1843,8 +1881,7 @@ internal static class TypeSearchService
         FindOptions options,
         string? pattern,
         VerboseLogger logger,
-        HttpClient httpClient,
-        AssemblySetInspectionWorkspace workspace,
+        ExplicitFindSearchWorkspace workspace,
         Action markFailure)
     {
         List<TypeSearchResult> results = [];
@@ -1857,47 +1894,30 @@ internal static class TypeSearchService
             && options.Limit.HasValue
             && results.Count >= options.Limit.Value;
 
-        async Task CollectAndScanAsync(AssemblySetRequest request)
-        {
-            using var assemblySet = await AssemblySetResolver.CollectAsync(httpClient, request, logger.Log);
-            AssemblySetDiagnosticWriter.Write(assemblySet);
-            if (assemblySet.Diagnostics.Count > 0)
-                markFailure();
-
-            workspace.RunPerAssembly(
-                assemblySet,
-                AssemblyContextTypeInventoryQuery.Definition,
-                group => AssemblyContextTypeInventoryQuery.Execute(
-                    group,
-                    options.IncludeAll),
-                (assembly, entry) => AddTypes(
-                    results,
-                    searchPatterns,
-                    options.TypeFilter,
-                    SearchAssemblySource.FromAssemblySet(assembly),
-                    entry,
-                    logger,
-                    ReachedLimit,
-                    markFailure),
-                (assembly, failure) =>
-                {
-                    markFailure();
-                    CommandError.WriteWarning(
-                        $"Could not read {assembly.Path}: {failure}");
-                },
-                ReachedLimit);
-        }
-
-        if (pattern is not null && options.Limit.HasValue)
-        {
-            await FindSourceCollector.StreamSourcesAsync(
-                options,
+        await workspace.RunPerAssemblyAsync(
+            AssemblyContextTypeInventoryQuery.Definition,
+            group => AssemblyContextTypeInventoryQuery.Execute(
+                group,
+                options.IncludeAll),
+            (assembly, entry) => AddTypes(
+                results,
+                searchPatterns,
+                options.TypeFilter,
+                SearchAssemblySource.FromAssemblySet(assembly),
+                entry,
+                logger,
                 ReachedLimit,
-                CollectAndScanAsync);
-            return results;
-        }
-
-        await CollectAndScanAsync(FindSourceCollector.BuildFindRequest(options));
+                markFailure),
+            (assembly, failure) =>
+            {
+                markFailure();
+                CommandError.WriteWarning(
+                    $"Could not read {assembly.Path}: {failure}");
+            },
+            markFailure,
+            pattern is not null && options.Limit.HasValue
+                ? ReachedLimit
+                : null);
         return results;
     }
 
