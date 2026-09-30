@@ -51,7 +51,7 @@ public sealed class PackagePayloadAcquisitionPlan
     /// <summary>
     /// How an uncached payload is transferred. <see cref="PackagePayloadAccess.Ranged"/>
     /// requires a Realize operation, whose selection bounds the read, or an
-    /// Acquire operation carrying a <see cref="PackageDocumentDemand"/>.
+    /// Acquire operation carrying a <see cref="PackageFileDemand"/>.
     /// </summary>
     public PackagePayloadAccess Access { get; }
 

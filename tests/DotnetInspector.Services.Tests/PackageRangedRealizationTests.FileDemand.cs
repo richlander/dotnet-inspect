@@ -5,8 +5,8 @@ using NuGetFetch;
 namespace DotnetInspector.Services.Tests;
 
 /// <summary>
-/// Document demand and pull reads over ranged content: the contract gates of
-/// <c>docs/design/package-read-demand.md#document-demand</c>, over the real
+/// File demand and pull reads over ranged content: the contract gates of
+/// <c>docs/design/package-read-demand.md#exact-file-demand</c>, over the real
 /// asset PCLStorage 1.0.2.
 /// </summary>
 public sealed partial class PackageRangedRealizationTests
@@ -24,16 +24,16 @@ public sealed partial class PackageRangedRealizationTests
     /// directory tail, and entry spans only.
     /// </summary>
     [Fact]
-    public async Task DocumentDemand_NamedEntry_ReadsTheRootFolderAndTheEntryFolder()
+    public async Task FileDemand_NamedEntry_ReadsTheRootFolderAndTheEntryFolder()
     {
         byte[] archive = ReadPclStorage();
         var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
         await using RangedEnvironment environment = RangedEnvironment.Create(server);
         var store = new InMemoryPackageStore();
 
-        PackageHouseSettlement settlement = await environment.AcquireDocumentsAsync(
+        PackageHouseSettlement settlement = await environment.AcquireFilesAsync(
             store,
-            PackageDocumentDemand.Create(["lib/net45/PCLStorage.xml"]));
+            PackageFileDemand.Create(["lib/net45/PCLStorage.xml"]));
 
         var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(settlement);
         Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
@@ -62,16 +62,16 @@ public sealed partial class PackageRangedRealizationTests
     /// reads it, without its subfolders.
     /// </summary>
     [Fact]
-    public async Task DocumentDemand_NamedFolder_ReadsItsSubfoldersToo()
+    public async Task FileDemand_NamedFolder_ReadsItsSubfoldersToo()
     {
         byte[] archive = ReadPclStorage();
         var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
         await using RangedEnvironment environment = RangedEnvironment.Create(server);
 
         var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
-            await environment.AcquireDocumentsAsync(
+            await environment.AcquireFilesAsync(
                 new InMemoryPackageStore(),
-                PackageDocumentDemand.Create([], ["package/"])));
+                PackageFileDemand.Create([], ["package/"])));
 
         Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
         var content = Assert.IsType<RangedPackageContent>(acquired.Payload.Content);
@@ -94,7 +94,7 @@ public sealed partial class PackageRangedRealizationTests
     /// already-checked bytes of the materialized entry.
     /// </summary>
     [Fact]
-    public async Task DocumentDemand_PullRead_StreamsTheMaterializedEntry()
+    public async Task FileDemand_PullRead_StreamsTheMaterializedEntry()
     {
         byte[] archive = ReadPclStorage();
         await using RangedEnvironment environment = RangedEnvironment.Create(
@@ -102,9 +102,9 @@ public sealed partial class PackageRangedRealizationTests
         const string Path = "lib/net45/PCLStorage.xml";
 
         var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
-            await environment.AcquireDocumentsAsync(
+            await environment.AcquireFilesAsync(
                 new InMemoryPackageStore(),
-                PackageDocumentDemand.Create([Path])));
+                PackageFileDemand.Create([Path])));
         Assert.True(Assert.IsType<RangedPackageContent>(acquired.Payload.Content)
             .TryGetEntryLength(Path, out long length));
         await using PackageHousePayloadRead read = acquired.OpenPayloadRead(Path, length);
@@ -127,16 +127,16 @@ public sealed partial class PackageRangedRealizationTests
     /// is a visible refusal, raised by the first read, not by opening.
     /// </summary>
     [Fact]
-    public async Task DocumentDemand_PullReadOfAnUnreadEntry_IsAVisibleRefusal()
+    public async Task FileDemand_PullReadOfAnUnreadEntry_IsAVisibleRefusal()
     {
         await using RangedEnvironment environment = RangedEnvironment.Create(
             new RangeFeed(PclStorage, PclStorageVersion, ReadPclStorage()));
         const string Unread = "lib/sl5/PCLStorage.dll";
 
         var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
-            await environment.AcquireDocumentsAsync(
+            await environment.AcquireFilesAsync(
                 new InMemoryPackageStore(),
-                PackageDocumentDemand.Create(["lib/net45/PCLStorage.xml"])));
+                PackageFileDemand.Create(["lib/net45/PCLStorage.xml"])));
         var content = Assert.IsType<RangedPackageContent>(acquired.Payload.Content);
         Assert.False(content.IsMaterialized(Unread));
         Assert.True(content.TryGetEntryLength(Unread, out long length));
@@ -168,14 +168,14 @@ public sealed partial class PackageRangedRealizationTests
     [Theory]
     [InlineData(PackagePayloadAccess.Ranged)]
     [InlineData(PackagePayloadAccess.Complete)]
-    public async Task DocumentDemand_UnlistedName_FailsVisibly(PackagePayloadAccess access)
+    public async Task FileDemand_UnlistedName_FailsVisibly(PackagePayloadAccess access)
     {
         await using RangedEnvironment environment = RangedEnvironment.Create(
             new RangeFeed(PclStorage, PclStorageVersion, ReadPclStorage()));
 
-        PackageHouseSettlement settlement = await environment.AcquireDocumentsAsync(
+        PackageHouseSettlement settlement = await environment.AcquireFilesAsync(
             new InMemoryPackageStore(),
-            PackageDocumentDemand.Create(["README.md"], ["skills/demo/"]),
+            PackageFileDemand.Create(["README.md"], ["skills/demo/"]),
             access);
 
         var noMatch = Assert.IsType<PackageHouseResult.NoMatch>(settlement.Result);
@@ -191,23 +191,23 @@ public sealed partial class PackageRangedRealizationTests
     /// is answered by the entry cache with no request.
     /// </summary>
     [Fact]
-    public async Task DocumentDemand_WarmRead_MakesNoRequest()
+    public async Task FileDemand_WarmRead_MakesNoRequest()
     {
         byte[] archive = ReadPclStorage();
         var store = new InMemoryPackageStore();
-        PackageDocumentDemand documents = PackageDocumentDemand.Create(["lib/net45/PCLStorage.xml"]);
+        PackageFileDemand files = PackageFileDemand.Create(["lib/net45/PCLStorage.xml"]);
         await using (RangedEnvironment first = RangedEnvironment.Create(
             new RangeFeed(PclStorage, PclStorageVersion, archive)))
         {
             Transfer(
-                await first.AcquireDocumentsAsync(store, documents),
+                await first.AcquireFilesAsync(store, files),
                 PackagePayloadOrigin.Ranged);
         }
 
         var warm = new RangeFeed(PclStorage, PclStorageVersion, archive);
         await using RangedEnvironment environment = RangedEnvironment.Create(warm);
         PackageTransferReceipt receipt = Transfer(
-            await environment.AcquireDocumentsAsync(store, documents),
+            await environment.AcquireFilesAsync(store, files),
             PackagePayloadOrigin.Cache);
 
         Assert.Equal(PackageTransferPath.EntryCache, receipt.Path);
@@ -216,39 +216,118 @@ public sealed partial class PackageRangedRealizationTests
     }
 
     /// <summary>
-    /// A document demand is validated like an entry name and belongs to an
+    /// The host-neutral exact-file operation owns House demand, ranged
+    /// acquisition, resolution, pull reading, and cache reuse. Missing files
+    /// remain typed failures rather than empty content.
+    /// </summary>
+    [Fact]
+    public async Task PackageFileAcquisition_ColdWarmAndMissing_AreOrchestrated()
+    {
+        const string Path = "lib/net45/PCLStorage.xml";
+        byte[] archive = ReadPclStorage();
+        var store = new InMemoryPackageStore();
+        var cold = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using (RangedEnvironment first = RangedEnvironment.Create(cold))
+        {
+            var acquired = Assert.IsType<PackageFileAcquisitionResult.Acquired>(
+                await first.AcquireFileAsync(store, Path));
+            PackageTransferReceipt receipt = Transfer(
+                acquired.Settlement,
+                PackagePayloadOrigin.Ranged);
+            Assert.Equal(PackageTransferPath.Ranged, receipt.Path);
+            Assert.True(receipt.BytesReceived < archive.Length);
+
+            await using PackageHousePayloadRead read = acquired.OpenRead();
+            using var output = new MemoryStream();
+            await read.CopyToAsync(
+                output,
+                TestContext.Current.CancellationToken);
+            using ZipArchive oracle = new(new MemoryStream(archive));
+            using Stream expected = oracle.GetEntry(Path)!.Open();
+            Assert.Equal(ReadAll(expected), output.ToArray());
+        }
+
+        var warm = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using (RangedEnvironment second = RangedEnvironment.Create(warm))
+        {
+            var acquired = Assert.IsType<PackageFileAcquisitionResult.Acquired>(
+                await second.AcquireFileAsync(store, Path));
+            PackageTransferReceipt receipt = Transfer(
+                acquired.Settlement,
+                PackagePayloadOrigin.Cache);
+            Assert.Equal(PackageTransferPath.EntryCache, receipt.Path);
+            Assert.Empty(receipt.Requests);
+            Assert.Equal(0, warm.RangedRequests + warm.FullRequests);
+        }
+
+        await using RangedEnvironment missingEnvironment =
+            RangedEnvironment.Create(
+                new RangeFeed(PclStorage, PclStorageVersion, archive));
+        PackageFileAcquisitionResult missing =
+            await missingEnvironment.AcquireFileAsync(
+                new InMemoryPackageStore(),
+                "README.md");
+        Assert.IsType<PackageFileAcquisitionResult.Unavailable>(missing);
+        Assert.Equal(PackageFileAcquisitionStatus.Missing, missing.Status);
+        Assert.IsType<PackageHouseResult.NoMatch>(missing.Settlement.Result);
+
+        await using RangedEnvironment absentPackageEnvironment =
+            RangedEnvironment.Create(
+                new RangeFeed(PclStorage, PclStorageVersion, archive));
+        PackageFileAcquisitionResult absentPackage =
+            await absentPackageEnvironment.AcquireFileAsync(
+                new InMemoryPackageStore(),
+                "README.md",
+                packageId: "Missing.Package");
+        Assert.Equal(
+            PackageFileAcquisitionStatus.NotSettled,
+            absentPackage.Status);
+        Assert.IsNotType<PackageHouseSettlement.Acquired>(
+            absentPackage.Settlement);
+    }
+
+    /// <summary>
+    /// A file demand is validated like an entry name and belongs to an
     /// Acquire operation.
     /// </summary>
     [Fact]
-    public void DocumentDemand_ValidatesPathsAndRequiresAcquire()
+    public void FileDemand_ValidatesPathsAndRequiresAcquire()
     {
-        Assert.Throws<ArgumentException>(() => PackageDocumentDemand.Create([]));
-        Assert.Throws<ArgumentException>(() => PackageDocumentDemand.Create(["../README.md"]));
-        Assert.Throws<ArgumentException>(() => PackageDocumentDemand.Create(["/README.md"]));
-        Assert.Throws<ArgumentException>(() => PackageDocumentDemand.Create(["skills/a/../SKILL.md"]));
-        Assert.Throws<ArgumentException>(() => PackageDocumentDemand.Create(["skills\\a\\SKILL.md"]));
-        Assert.Throws<ArgumentException>(() => PackageDocumentDemand.Create(["C:README.md"]));
-        Assert.Throws<ArgumentException>(() => PackageDocumentDemand.Create(["skills/"]));
-        Assert.Throws<ArgumentException>(() => PackageDocumentDemand.Create([], ["/"]));
-        Assert.Throws<ArgumentException>(() => PackageDocumentDemand.Create([], [".."]));
+        Assert.Throws<ArgumentException>(() => PackageFileDemand.Create([]));
+        Assert.Throws<ArgumentException>(() => PackageFileDemand.Create(["../README.md"]));
+        Assert.Throws<ArgumentException>(() => PackageFileDemand.Create(["/README.md"]));
+        Assert.Throws<ArgumentException>(() => PackageFileDemand.Create(["skills/a/../SKILL.md"]));
+        Assert.Throws<ArgumentException>(() => PackageFileDemand.Create(["skills\\a\\SKILL.md"]));
+        Assert.Throws<ArgumentException>(() => PackageFileDemand.Create(["C:README.md"]));
+        Assert.Throws<ArgumentException>(() => PackageFileDemand.Create(["skills/"]));
+        Assert.Throws<ArgumentException>(() => PackageFileDemand.Create([], ["/"]));
+        Assert.Throws<ArgumentException>(() => PackageFileDemand.Create([], [".."]));
 
-        PackageDocumentDemand documents = PackageDocumentDemand.Create(
+        PackageFileDemand files = PackageFileDemand.Create(
             ["README.md", "readme.md"],
             ["skills/demo", "skills/demo/"]);
-        Assert.Equal(["README.md"], documents.Entries);
-        Assert.Equal(["skills/demo/"], documents.Folders);
+        Assert.Equal(["README.md"], files.Entries);
+        Assert.Equal(["skills/demo/"], files.Folders);
 
         var coordinate = new PackageHouseDemand.Exact(
             PackageSourceCoordinate.Create(PclStorage, PclStorageVersion));
         Assert.Throws<ArgumentException>(() => new PackageHouseRequest(
             coordinate,
             PackageHouseOperation.Create(PackageHouseOperationProfile.Settle),
-            documentDemand: documents));
+            fileDemand: files));
         Assert.Throws<ArgumentException>(() => new PackageHouseRequest(
             coordinate,
             PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
             PackageHouseTargetContext.Exact("net45"),
             PackageHouseAssetSelectionKind.Compile,
-            documentDemand: documents));
+            fileDemand: files));
+        Assert.Throws<ArgumentException>(() =>
+            new PackageFileAcquisitionRequest(
+                PackageSourceCoordinate.Create(
+                    PclStorage,
+                    PclStorageVersion),
+                "README.md",
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Settle)));
     }
 }

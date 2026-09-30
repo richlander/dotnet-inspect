@@ -127,7 +127,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task PackageDocument_ReadmeAndSkillPullThroughHouseAcquisition()
+    public async Task PackageDocument_ReadmePackageAndSkillUseExactFileAcquisition()
     {
         string packageId = $"gallery.documents.{Guid.NewGuid():N}";
         const string version = "1.2.3";
@@ -223,8 +223,11 @@ public sealed partial class BrowserEngineBoundaryTests
             package);
         Assert.Equal(readme, repeatedReadme);
         Assert.Equal(requestsAfterPackage, handler.Requested.Count);
-        Assert.Equal(2, handler.OrdinaryPackageResponses);
-        Assert.True(handler.PackageBytesServed >= handler.ArchiveLength);
+        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.True(handler.RangedPackageResponses > 0);
+        Assert.True(
+            handler.PackageBytesServed < 512 * 1024,
+            $"served {handler.PackageBytesServed} package bytes by range");
     }
 
     [Fact]
@@ -236,7 +239,7 @@ public sealed partial class BrowserEngineBoundaryTests
             Path.Combine(
                 AppContext.BaseDirectory,
                 "RealAssets",
-                "DocumentDemand",
+                "FileDemand",
                 "newtonsoft.json.13.0.4.nupkg"),
             TestContext.Current.CancellationToken);
         Assert.Equal(
