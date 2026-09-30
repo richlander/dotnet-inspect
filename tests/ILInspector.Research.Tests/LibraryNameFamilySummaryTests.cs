@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using CSharpText;
 using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
@@ -48,6 +49,20 @@ public sealed class LibraryNameFamilySummaryTests
             all.TwoWord.ResidualTypeCount,
             all.TwoWord.Residuals.Sum(static residual =>
                 residual.Count));
+        Assert.Equal(
+            all.Families
+                .OrderByDescending(static family => family.TypeCount)
+                .ThenByDescending(static family =>
+                    family.DistinctNamespaceCount)
+                .ThenBy(static family => family.Identity.Kind)
+                .ThenBy(static family => family.Identity.Words[0])
+                .ThenBy(static family =>
+                    family.Identity.Words.Length == 2
+                        ? family.Identity.Words[1]
+                        : string.Empty)
+                .ThenBy(static family =>
+                    family.Identity.Separator ?? string.Empty),
+            all.Families);
         Assert.Equal(
             Enumerable.Range(
                 document.Types[0].Type.Definition.Value,
@@ -210,6 +225,56 @@ public sealed class LibraryNameFamilySummaryTests
                 LibraryNameFamilyKind.TwoWordSuffix,
                 ["Foo", "Bar"],
                 "_").Identity);
+    }
+
+    [Fact]
+    public void LibraryNameFamilies_DistinguishOracleMethodologies()
+    {
+        using FixtureExecution fixture = OpenFixture();
+        IdentifierWordOracle product =
+            IdentifierWordProductOracle.Instance;
+        ImmutableArray<IdentifierWordOracleEntry> entries =
+            product.Entries.Add(
+                new(
+                    "ValidationContext",
+                    IdentifierWordOracleEntryKind.Compound));
+        IdentifierWordOracle alternative = Assert.IsType<
+            IdentifierWordOracleConstruction.Created>(
+                IdentifierWordOracle.Create(
+                    product.Receipt.GrammarVersion,
+                    product.Receipt.VocabularyVersion,
+                    IdentifierWordOracle.ComputeDigest(entries),
+                    product.Receipt.SourceCoordinate,
+                    product.Receipt.ReviewSetVersion,
+                    entries)).Oracle;
+
+        LibraryNameFamilyDocument baseline = Execute(fixture);
+        LibraryNameFamilyDocument changed = Execute(
+            fixture,
+            oracle: alternative);
+        LibraryNameFamilyIdentity baselineContext = Family(
+            Population(
+                baseline,
+                LibraryNameFamilyPopulationKind.AllTypes),
+            LibraryNameFamilyKind.OneWordSuffix,
+            ["Context"]).Identity;
+        LibraryNameFamilyIdentity changedContext = Family(
+            Population(
+                changed,
+                LibraryNameFamilyPopulationKind.AllTypes),
+            LibraryNameFamilyKind.OneWordSuffix,
+            ["Context"]).Identity;
+
+        Assert.NotEqual(
+            baseline.Receipt.Oracle.Digest,
+            changed.Receipt.Oracle.Digest);
+        Assert.NotEqual(baseline.Methodology, changed.Methodology);
+        Assert.NotEqual(baselineContext, changedContext);
+        Assert.Equal(
+            ["ValidationContext"],
+            Type(
+                changed,
+                "ValidationContext").OneWordSuffix!.Words);
     }
 
     [Fact]
@@ -467,12 +532,14 @@ public sealed class LibraryNameFamilySummaryTests
 
     private static LibraryNameFamilyDocument Execute(
         FixtureExecution fixture,
-        PdbSourceProvenanceOutcome? provenance = null)
+        PdbSourceProvenanceOutcome? provenance = null,
+        IdentifierWordOracle? oracle = null)
     {
         LibraryNameFamilySummaryOutcome outcome =
             LibraryNameFamilySummary.Execute(
                 fixture.Assembly,
                 fixture.Session,
+                oracle,
                 provenance: provenance ?? fixture.Provenance);
         return Assert.IsType<LibraryNameFamilySummaryOutcome.Available>(
             outcome).Document;

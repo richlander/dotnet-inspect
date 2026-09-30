@@ -163,7 +163,8 @@ Type.
 
 The required CSharpText input supplies:
 
-- a grammar and oracle version;
+- a grammar version and complete oracle receipt, including vocabulary version
+  and entry digest;
 - immutable recognized atoms and compounds;
 - any explicit Library-local numbered-family evidence;
 - an ordinal, culture-independent break operation; and
@@ -175,9 +176,12 @@ The returned spans cover the name stem exactly once.
 Unknown uppercase runs, mixed-case proper nouns, digit compounds, and
 non-C# metadata names remain visible evidence; uncertainty never drops text.
 
-The same grammar and oracle version apply to every Type in one document.
-Changing either changes the summary methodology version and invalidates a
-baseline comparison.
+The same grammar and exact oracle receipt apply to every Type in one document.
+The summary's effective methodology identity contains both the
+`library-name-families` algorithm version and that complete receipt. Changing
+the grammar, vocabulary version, entry digest, source coordinate, review-set
+version, or entry count therefore changes every family identity and invalidates
+a baseline comparison.
 
 Library-local numbered-family evidence is derived once from the exact ordered
 name-stem population and passed to CSharpText as explicit textual context.
@@ -254,8 +258,9 @@ A suffix family is identified by:
 
 ```text
 NameFamilyIdentity
-  MethodologyVersion
-  WordGrammarVersion
+  Methodology
+    Version
+    WordOracleReceipt
   Kind                 OneWordSuffix | TwoWordSuffix
   Words[]              exact word spellings under ordinal comparison
   Separator?           exact intervening separator spelling for two words
@@ -427,6 +432,9 @@ product-owned Metadata inventory and CSharpText word results:
 - `LibraryNameFamilies_PreservesWordRuleEvidence`: every owner-issued word,
   ordinal, separator, unresolved-run disposition, and detailed rule value
   survives Research aggregation unchanged.
+- `LibraryNameFamilies_DistinguishOracleMethodologies`: two valid oracles over
+  one exact Library issue distinct methodology and family identities even when
+  a family retains the same word spelling.
 - `LibraryNameFamilies_SeparatesExactSpellings`: acronym, casing, and plural
   variants remain separate ordinal families.
 - `LibraryNameFamilies_RejectMismatchedArtifactSession` and
@@ -454,6 +462,9 @@ and oracle/version behavior; the Research gates above verify that the composed
 document preserves those results. The later QuerySpace adoption owns
 `LibraryNameFamilies_BoundsDisplayWithoutChangingCounts`, because this
 resource-free producer does not select or truncate display rows.
+
+The focused `LibraryNameFamilySummaryTests` class runs in ordinary PR CI; the
+full Research suite remains part of Deep Inspect.
 
 The PR-fast `ILInspector.Research.NameFamilyFixtures` fixture lives under
 `fixtures/research/` following

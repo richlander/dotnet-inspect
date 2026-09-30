@@ -99,18 +99,32 @@ public sealed record LibraryNameFamilyProvenanceQualification(
     LibraryNameFamilyProvenanceRejection? Rejection = null,
     string? Detail = null);
 
+public sealed record LibraryNameFamilyMethodology
+{
+    public LibraryNameFamilyMethodology(
+        string version,
+        IdentifierWordOracleReceipt wordOracle)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(version);
+        ArgumentNullException.ThrowIfNull(wordOracle);
+        Version = version;
+        WordOracle = wordOracle;
+    }
+
+    public string Version { get; }
+    public IdentifierWordOracleReceipt WordOracle { get; }
+}
+
 public sealed class LibraryNameFamilyIdentity :
     IEquatable<LibraryNameFamilyIdentity>
 {
     public LibraryNameFamilyIdentity(
-        string methodologyVersion,
-        string wordGrammarVersion,
+        LibraryNameFamilyMethodology methodology,
         LibraryNameFamilyKind kind,
         ImmutableArray<string> words,
         string? separator)
     {
-        ArgumentException.ThrowIfNullOrEmpty(methodologyVersion);
-        ArgumentException.ThrowIfNullOrEmpty(wordGrammarVersion);
+        ArgumentNullException.ThrowIfNull(methodology);
         if (!Enum.IsDefined(kind))
             throw new ArgumentOutOfRangeException(nameof(kind));
         if (words.IsDefault
@@ -131,23 +145,20 @@ public sealed class LibraryNameFamilyIdentity :
                 nameof(separator));
         }
 
-        MethodologyVersion = methodologyVersion;
-        WordGrammarVersion = wordGrammarVersion;
+        Methodology = methodology;
         Kind = kind;
         Words = [.. words];
         Separator = separator;
     }
 
-    public string MethodologyVersion { get; }
-    public string WordGrammarVersion { get; }
+    public LibraryNameFamilyMethodology Methodology { get; }
     public LibraryNameFamilyKind Kind { get; }
     public ImmutableArray<string> Words { get; }
     public string? Separator { get; }
 
     public bool Equals(LibraryNameFamilyIdentity? other) =>
         other is not null
-        && MethodologyVersion == other.MethodologyVersion
-        && WordGrammarVersion == other.WordGrammarVersion
+        && Methodology == other.Methodology
         && Kind == other.Kind
         && Words.SequenceEqual(other.Words, StringComparer.Ordinal)
         && Separator == other.Separator;
@@ -158,8 +169,7 @@ public sealed class LibraryNameFamilyIdentity :
     public override int GetHashCode()
     {
         var hash = new HashCode();
-        hash.Add(MethodologyVersion, StringComparer.Ordinal);
-        hash.Add(WordGrammarVersion, StringComparer.Ordinal);
+        hash.Add(Methodology);
         hash.Add(Kind);
         foreach (string word in Words)
             hash.Add(word, StringComparer.Ordinal);
@@ -238,7 +248,7 @@ public sealed record LibraryNameFamilyReceipt(
 
 public sealed record LibraryNameFamilyDocument(
     LibraryNameFamilyBinding Binding,
-    string MethodologyVersion,
+    LibraryNameFamilyMethodology Methodology,
     LibraryNameFamilyReceipt Receipt,
     LibraryNameFamilyProvenanceQualification Provenance,
     ImmutableArray<LibraryNameFamilyTypeRow> Types,
@@ -305,6 +315,10 @@ public static class LibraryNameFamilySummary
                     .IdentifierWordGrammarMismatch,
                 "The identifier-word oracle uses a different grammar.");
         }
+        var methodology = new LibraryNameFamilyMethodology(
+            MethodologyVersion,
+            oracle.Receipt);
+
         Guid moduleVersionId = session.ModuleVersionId();
         if (registeredMvid != moduleVersionId)
         {
@@ -408,7 +422,7 @@ public static class LibraryNameFamilySummary
                     declaration.DefinitionToken!.Value.Value);
             FamilyAssignment assignment = AssignFamilies(
                 succeeded.Result.Spans,
-                oracle.Receipt.GrammarVersion);
+                methodology);
             PdbTypeSourceEvidence? source = null;
             sourceByType?.TryGetValue(address, out source);
             rows.Add(
@@ -467,7 +481,7 @@ public static class LibraryNameFamilySummary
                     artifact,
                     assembly.Identity,
                     moduleVersionId),
-                MethodologyVersion,
+                methodology,
                 new(
                     limits,
                     typeRows.Length,
@@ -585,7 +599,7 @@ public static class LibraryNameFamilySummary
 
     private static FamilyAssignment AssignFamilies(
         ImmutableArray<IdentifierWordSpan> spans,
-        string grammarVersion)
+        LibraryNameFamilyMethodology methodology)
     {
         if (spans.IsEmpty)
         {
@@ -633,8 +647,7 @@ public static class LibraryNameFamilySummary
         }
 
         var oneWord = new LibraryNameFamilyIdentity(
-            MethodologyVersion,
-            grammarVersion,
+            methodology,
             LibraryNameFamilyKind.OneWordSuffix,
             [terminus.Text],
             separator: null);
@@ -681,8 +694,7 @@ public static class LibraryNameFamilySummary
             spans[(precedingIndex + 1)..terminusIndex]
                 .Select(static span => span.Text));
         var twoWord = new LibraryNameFamilyIdentity(
-            MethodologyVersion,
-            grammarVersion,
+            methodology,
             LibraryNameFamilyKind.TwoWordSuffix,
             [preceding.Text, terminus.Text],
             separator);
@@ -718,10 +730,20 @@ public static class LibraryNameFamilySummary
                 types,
                 LibraryNameFamilyKind.TwoWordSuffix),
         ];
+        LibraryNameFamilyRow[] families =
+        [
+            .. oneWord.Concat(twoWord)
+                .OrderByDescending(static family =>
+                    family.TypeCount)
+                .ThenByDescending(static family =>
+                    family.DistinctNamespaceCount)
+                .ThenBy(static family =>
+                    FamilyKey.From(family.Identity)),
+        ];
         return new(
             kind,
             types.Length,
-            [.. oneWord.Concat(twoWord)],
+            [.. families],
             new(
                 types.Length,
                 oneWord.Sum(static family => family.TypeCount),

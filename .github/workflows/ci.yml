@@ -917,6 +917,14 @@ jobs:
         if: matrix.shard == 'host-policy'
         run: dotnet run --project eng/DependencyPolicy -c Release --no-build
 
+      - name: Run Library name-family Research tests
+        if: matrix.shard == 'host-policy'
+        run: >-
+          dotnet run --project tests/ILInspector.Research.Tests -c Release
+          --no-build --
+          --filter-class
+          'ILInspector.Research.Tests.LibraryNameFamilySummaryTests'
+
       - name: Test CLI runtime flavor across publish modes
         if: matrix.shard == 'host-policy'
         run: bash eng/test-runtime-flavor.sh ${{ matrix.rid }}
