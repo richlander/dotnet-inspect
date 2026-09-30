@@ -221,7 +221,7 @@ internal static class BrowserPackageWorkspace
         MaxEntryCount = 4_096,
         MaxUniqueDirectories = 16_384,
     };
-    static readonly PackagePayloadLimits DocumentPayloadLimits =
+    static readonly PackagePayloadLimits FilePayloadLimits =
         PayloadLimits with
         {
             MaxArchiveBytes = PackagePayloadLimits.Default.MaxArchiveBytes,
@@ -440,6 +440,12 @@ internal static class BrowserPackageWorkspace
                 ArgumentException.ThrowIfNullOrWhiteSpace(version);
                 ArgumentException.ThrowIfNullOrWhiteSpace(path);
                 ArgumentNullException.ThrowIfNull(source);
+                if (!BrowserPackage.IsBrowsableDocumentPath(path))
+                {
+                    throw new InvalidOperationException(
+                        $"'{path}' is not a browsable document in "
+                            + $"{packageId} {version}.");
+                }
 
                 IPackageSourceAuthorization authorization =
                     SourceAuthorizationFor(source);
@@ -451,15 +457,12 @@ internal static class BrowserPackageWorkspace
                     PackageHouseOperationProfile.Acquire,
                     requestTimeout: remaining,
                     operationTimeout: remaining);
-                PackageDocumentDemand? documentDemand =
-                    CreateRangedDocumentDemand(path);
-                var request = new PackageHouseRequest(
-                    new PackageHouseDemand.Exact(
-                        PackageSourceCoordinate.Create(
-                            packageId,
-                            version)),
-                    operation,
-                    documentDemand: documentDemand);
+                var request = new PackageFileAcquisitionRequest(
+                    PackageSourceCoordinate.Create(
+                        packageId,
+                        version),
+                    path,
+                    operation);
                 await using PackageSourceSettlementLease sourceLease =
                     PackageSourceSettlementService.IssueLease(
                         authority =>
@@ -474,35 +477,29 @@ internal static class BrowserPackageWorkspace
                         deadline.Token,
                         operation.RequestTimeout,
                         operation.OperationTimeout);
-                var house = new PackageHouse(
-                    authorization,
-                    new PackagePayloadAcquisitionPlan(
-                        (authority, _) =>
-                            ReferenceEquals(
-                                authority.Association,
-                                source.Source.Association)
-                                ? store
-                                : throw new InvalidOperationException(
-                                    "The package payload requested another configured source."),
-                        documentDemand is null
-                            ? PackageLimits
-                            : DocumentPayloadLimits,
-                        new BrowserPackageOperationTransferPolicy(
-                            store,
-                            deadline),
-                        access: documentDemand is null
-                            ? PackagePayloadAccess.Complete
-                            : PackagePayloadAccess.Ranged));
-                PackageHouseSettlement settlement =
-                    await house.ExecuteAsync(
-                            request,
-                            sourceOperation)
-                        .ConfigureAwait(false);
-                if (settlement is not PackageHouseSettlement.Acquired acquired
-                    || settlement.Result is not PackageHouseResult.Settled)
+                PackageFileAcquisitionResult result =
+                    await PackageFileAcquisition.ExecuteAsync(
+                        request,
+                        authorization,
+                        new PackageFileAcquisitionPlan(
+                            (authority, _) =>
+                                ReferenceEquals(
+                                    authority.Association,
+                                    source.Source.Association)
+                                    ? store
+                                    : throw new InvalidOperationException(
+                                        "The package payload requested another configured source."),
+                            FilePayloadLimits,
+                            new BrowserPackageOperationTransferPolicy(
+                                store,
+                                deadline)),
+                        sourceOperation)
+                    .ConfigureAwait(false);
+                if (result is not PackageFileAcquisitionResult.Acquired file)
                 {
-                    if (documentDemand is not null
-                        && settlement.Result is PackageHouseResult.NoMatch)
+                    if (result.Status
+                        is PackageFileAcquisitionStatus.Missing
+                            or PackageFileAcquisitionStatus.Ambiguous)
                     {
                         throw new InvalidOperationException(
                             $"'{path}' is not a browsable document in "
@@ -510,22 +507,17 @@ internal static class BrowserPackageWorkspace
                     }
                     throw new InvalidOperationException(
                         $"PackageHouse could not acquire {packageId} {version}: "
-                            + DescribePackageHouseResult(settlement.Result));
+                            + DescribePackageHouseResult(
+                                result.Settlement.Result));
                 }
 
                 return await BrowserPackage.ReadDocumentAsync(
-                        acquired,
-                        path,
+                        file,
                         deadline.Token)
                     .ConfigureAwait(false);
             },
             operationTimeout,
             cancellationToken);
-
-    static PackageDocumentDemand? CreateRangedDocumentDemand(string path) =>
-        BrowserPackage.UsesRangedDocumentAcquisition(path)
-            ? PackageDocumentDemand.Create([path])
-            : null;
 
     internal static Task<BrowserPackageRealizationResult> RealizeWithSettlementAsync(
         string packageId,
@@ -4633,7 +4625,7 @@ internal sealed class BrowserPackage
             string? kind =
                 isRoot && fileName.Equals("README.md", StringComparison.OrdinalIgnoreCase) ? "readme"
                 : isRoot && fileName.Equals("PACKAGE.md", StringComparison.OrdinalIgnoreCase) ? "package"
-                : UsesRangedDocumentAcquisition(entry.Path) ? "skill"
+                : IsSkillDocumentPath(entry.Path) ? "skill"
                 : null;
             if (kind is null)
                 continue;
@@ -4660,12 +4652,11 @@ internal sealed class BrowserPackage
     }
 
     internal static async Task<BrowserPackageDocumentPayload> ReadDocumentAsync(
-        PackageHouseSettlement.Acquired settlement,
-        string path,
+        PackageFileAcquisitionResult.Acquired file,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(settlement);
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(file);
+        PackageHouseSettlement.Acquired settlement = file.Settlement;
         IPackageContent content = settlement.Payload.Content;
         PackageSourceCoordinate coordinate = settlement.Payload.Coordinate;
         if (content is not IPackageContentEntryManifest manifest)
@@ -4679,39 +4670,14 @@ internal sealed class BrowserPackage
                 manifest.EnumerateEntriesWithLengths(),
                 coordinate.PackageId,
                 coordinate.Version)
-            .FirstOrDefault(candidate => candidate.Path.Equals(path, StringComparison.Ordinal))
+            .FirstOrDefault(candidate => candidate.Path.Equals(
+                file.Entry.Path,
+                StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
-                $"'{path}' is not a browsable document in "
+                $"'{file.Entry.Path}' is not a browsable document in "
                     + $"{coordinate.PackageId} {coordinate.Version}.");
 
-        Stream input;
-        if (document.Kind is "readme" or "skill")
-        {
-            PackageDocumentEntryResolution resolution =
-                PackageDocumentEntryResolver.Resolve(
-                    settlement,
-                    document.Path);
-            PackageContentEntry entry = resolution.Entry
-                ?? throw new InvalidOperationException(
-                    $"The requested package document entry could not be resolved: "
-                        + $"{resolution.Status}.");
-            input = settlement.OpenPayloadRead(
-                entry.Path,
-                entry.Length);
-        }
-        else
-        {
-            input = content.TryOpenEntry(
-                    document.Path,
-                    PackageDocumentContentLimits.MaxDecodedBytes,
-                    out Stream? eager)
-                ? eager
-                : throw new InvalidOperationException(
-                    $"The requested package entry was not found in "
-                        + $"{coordinate.PackageId} {coordinate.Version}.");
-        }
-
-        await using (input)
+        await using (PackageHousePayloadRead input = file.OpenRead())
         {
             return new BrowserPackageDocumentPayload(
                 document.Kind,
@@ -4838,15 +4804,25 @@ internal sealed class BrowserPackage
         return false;
     }
 
-    internal static bool UsesRangedDocumentAcquisition(string path)
+    internal static bool IsBrowsableDocumentPath(string path)
     {
         string[] segments = path.Split('/');
         string fileName = segments[^1];
         return segments.Length == 1
-                && fileName.Equals(
-                    "README.md",
-                    StringComparison.OrdinalIgnoreCase)
-            || fileName.EndsWith(
+                && (fileName.Equals(
+                        "README.md",
+                        StringComparison.OrdinalIgnoreCase)
+                    || fileName.Equals(
+                        "PACKAGE.md",
+                        StringComparison.OrdinalIgnoreCase))
+            || IsSkillDocumentPath(path);
+    }
+
+    static bool IsSkillDocumentPath(string path)
+    {
+        string[] segments = path.Split('/');
+        string fileName = segments[^1];
+        return fileName.EndsWith(
                 ".md",
                 StringComparison.OrdinalIgnoreCase)
                 && IsUnderSkillsDirectory(segments);
