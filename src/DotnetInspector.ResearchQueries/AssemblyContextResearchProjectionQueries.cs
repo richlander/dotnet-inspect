@@ -453,8 +453,6 @@ public static class AssemblyContextMemberProjectionQuery
                     subject,
                     snapshot,
                     resolver);
-            ResearchAssemblyContext? assembly =
-                index is null ? null : ResearchAssemblyContext.Create(index);
             MemberProjectionAnalysisInput? analysis =
                 execution is null
                     ? null
@@ -463,6 +461,10 @@ public static class AssemblyContextMemberProjectionQuery
                         execution.Safety,
                         execution.CallGraph,
                         execution.Leverage);
+            ResearchAssemblyContext? assembly =
+                analysis is null
+                    ? null
+                    : ResearchAssemblyContext.Create(analysis);
             CallRelationshipProjection? callRelationships =
                 index is not null
                     && request.MethodToken is int requestedMethodToken
