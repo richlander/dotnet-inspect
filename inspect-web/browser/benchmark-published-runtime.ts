@@ -678,18 +678,75 @@ async function measureMethodComparison(
       throw new Error("The method-comparison input is absent.");
     }
 
+    const encoded =
+      await benchmark.catalog.captureCompleteWorkspaceShareState({
+        tabs: [{
+          id: "t0",
+          kind: "package",
+          source: surface.package,
+          version: surface.version,
+          framework: surface.activeFramework,
+          runtimeIdentifier: null,
+        }],
+        contexts: [{ id: "g0", tabIds: ["t0"] }],
+        activeTabId: "t0",
+        selectedContextId: "g0",
+        view: {
+          lens: null,
+          type: null,
+          memberAnchor: null,
+          memberSignature: null,
+          section: null,
+          libraries: [],
+        },
+      });
+    if (!encoded.succeeded || encoded.packet === null) {
+      throw new Error(
+        `Method-comparison Workspace encoding failed: ${
+          JSON.stringify(encoded.failure)
+        }`,
+      );
+    }
+    const retainedDefinitionId =
+      `runtime-benchmark-${crypto.randomUUID()}`;
+    const activation =
+      await benchmark.catalog.activateRetainedWorkspaceDefinition(
+        retainedDefinitionId,
+        "Runtime benchmark",
+        window.location.href,
+        encoded.packet,
+      );
+    if (activation.status !== "activated" || activation.posting === null) {
+      throw new Error(
+        `Method-comparison Workspace activation failed: ${
+          JSON.stringify(activation)
+        }`,
+      );
+    }
+    const posting = activation.posting;
+    if (posting.packages.length !== 1) {
+      throw new Error(
+        "Method-comparison Workspace did not publish exactly one Package row.",
+      );
+    }
+    const retainedPackage = posting.packages[0]!;
+
     let started = performance.now();
-    const prepared = await benchmark.source.queryMethodBodyComparisonTargets(
-      `runtime-benchmark-targets-${crypto.randomUUID()}`,
-      surface.package,
-      surface.version,
-      surface.activeFramework,
-      type.assemblyId,
-      type.definitionId,
-      body.memberName,
-      body.selectorKey,
-      body.token,
-    );
+    const prepared =
+      await benchmark.source.queryRetainedMethodBodyComparisonTargets(
+        `runtime-benchmark-targets-${crypto.randomUUID()}`,
+        posting.retainedDefinitionId,
+        posting.realizationId,
+        retainedPackage.navigationId,
+        surface.package,
+        surface.version,
+        surface.activeFramework,
+        type.assemblyId,
+        type.definitionId,
+        body.memberName,
+        body.selectorKey,
+        body.token,
+      );
     const preparationMilliseconds = performance.now() - started;
     if (prepared.kind !== "Succeeded" || !prepared.value) {
       throw new Error(
@@ -714,10 +771,14 @@ async function measureMethodComparison(
 
     async function compare() {
       const comparisonStarted = performance.now();
-      const result = await benchmark.source.queryMethodBodyComparison(
-        `runtime-benchmark-comparison-${crypto.randomUUID()}`,
-        request,
-      );
+      const result =
+        await benchmark.source.queryRetainedMethodBodyComparison(
+          `runtime-benchmark-comparison-${crypto.randomUUID()}`,
+          posting.retainedDefinitionId,
+          posting.realizationId,
+          retainedPackage.navigationId,
+          request,
+        );
       const milliseconds = performance.now() - comparisonStarted;
       if (result.kind !== "Succeeded"
           || !result.value
