@@ -3095,6 +3095,10 @@ test("the site artifact rejects a missing Vite output", (context) => {
   };
   const manifest: Record<string, ManifestEntry> = {
     "index.html": indexEntry,
+    "src/browser-package-entry-cache.ts": {
+      file: "browser-package-entry-cache.js",
+      isEntry: true,
+    },
     "src/dotnet-inspect.ts": {
       file: "assets/app.js",
       isDynamicEntry: true,
@@ -3112,6 +3116,7 @@ test("the site artifact rejects a missing Vite output", (context) => {
   writeFileSync(join(site, "assets/index.js"), "");
   writeFileSync(join(site, "assets/index.css"), "");
   writeFileSync(join(site, "assets/app.js"), "");
+  writeFileSync(join(site, "browser-package-entry-cache.js"), "");
 
   assert.doesNotThrow(() => verifySiteArtifact(site));
   writeFileSync(
@@ -3156,6 +3161,20 @@ test("the site artifact rejects a missing Vite output", (context) => {
       + '<script type="module" src="/assets/index.js"></script>'
       + '<link rel="stylesheet" href="/assets/index.css">',
   );
+  manifest["src/browser-package-entry-cache.ts"] = {
+    file: "unexpected-root.js",
+    isEntry: true,
+  };
+  writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /manifest contains invalid asset 'unexpected-root\.js'/,
+  );
+
+  manifest["src/browser-package-entry-cache.ts"] = {
+    file: "browser-package-entry-cache.js",
+    isEntry: true,
+  };
   delete manifest["src/dotnet-inspect.ts"];
   writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   assert.throws(

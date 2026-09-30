@@ -278,11 +278,25 @@ of complete archives belong to the Inspect Web slice:
   archive request can use the `force-cache` fetch mode. The browser then
   serves a cached archive at any age without revalidating, and still evicts
   under disk pressure. Version listings change and keep the default mode.
-- **An explicit browser package store.** The Cache API or the origin private
-  file system keeps archives until the user clears them. With
-  `navigator.storage.persist()`, the browser does not evict them. Such a
-  store is Inspect Web's counterpart to the CLI's authority-scoped durable
-  store.
+- **An explicit browser package store.** Inspect Web uses Cache Storage,
+  whose request/response key-value model matches immutable directory and
+  expanded-entry payloads and is available in its dedicated Worker without a
+  service worker. Cache Storage and the origin private file system share the
+  same origin quota and eviction policy, so OPFS would not improve retention.
+  Entries survive refresh and browser restart, but are best-effort until the
+  browser grants origin persistence and can still be removed explicitly by
+  the user. `navigator.storage.persist()` may be denied and is not available
+  in a Worker; Inspect Web therefore reports whether its origin is persistent
+  rather than claiming every profile is. These semantics follow the
+  [Storage API quota and eviction model](https://developer.mozilla.org/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria),
+  [`CacheStorage` Worker contract](https://developer.mozilla.org/docs/Web/API/CacheStorage),
+  and [`persist()` contract](https://developer.mozilla.org/docs/Web/API/StorageManager/persist).
+  If Cache Storage cannot be opened, Inspect Web reports the storage failure
+  and continues without the entry-cache optimization. If only the persistence
+  status query fails, the cache remains available and is reported as
+  best-effort.
+  The explicit store is Inspect Web's counterpart to the CLI's
+  authority-scoped durable store.
 
 Inspect Web's browser requests also set `redirect: "error"` today, so a feed
 that redirects package downloads, as Azure Artifacts does with a `303` to its
@@ -361,9 +375,11 @@ All gates run in Release.
    settle "latest" through the
    [Package Version Service](package-version-service.md) as other packages
    do. Both changes are claims of those owners, adopted under their designs.
-5. Inspect Web adopts ranged access, size first, and a browser entry cache in
-   the range-access design's Inspect Web slice, with preflight-free ranged
-   requests.
+5. The Inspect Web document viewer adopts ranged access, size first, and a
+   Cache Storage-backed browser entry cache for root README and Skill Markdown
+   requests, with preflight-free ranged requests. Other Inspect Web package
+   operations retain their existing acquisition paths until their owning
+   designs adopt ranged access.
 
 ## Non-claims
 

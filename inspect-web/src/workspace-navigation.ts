@@ -765,7 +765,8 @@ function decodeWorkspaceShareResult(
   const memberSection = section && isMemberSection(section)
     ? section
     : null;
-  const packageLens = isPackageLens(state.view.lens)
+  const packageLens = !(state.view.type && state.view.lens === "overview")
+    && isPackageLens(state.view.lens)
     ? state.view.lens
     : null;
   const libraryLens = state.view.lens?.startsWith("library:")

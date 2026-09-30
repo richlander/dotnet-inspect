@@ -136,6 +136,7 @@ import {
   createPackageAcquisition,
   createNuGetPackageModel,
   createRuntimePackageModel,
+  mergeRuntimePackageSurface,
   createUploadedLibraryModel,
   createWorkspaceOccurrencePackageModel,
   graphOnlyImplementationBody,
@@ -150,6 +151,13 @@ import {
   type InspectedMemberSurface,
   type InspectedTypeSurface,
 } from "./package-acquisition.ts";
+import {
+  bindPlatformForwarders,
+  filterForwardedTypes,
+  isForwardedType,
+  renderForwardedTypeOverview,
+  type TypeInventoryRow,
+} from "./platform-forwarders.ts";
 import {
   createPackageInspectionCoordinator,
   resolvePackagePerformanceMember,
@@ -477,11 +485,14 @@ import {
 } from "./metadata-viewer.ts";
 import {
   bindSettingsPanel,
-  reconcileStyleTaste,
   renderSettingsView,
-  type StyleOption,
-  type StyleTier,
 } from "./settings-panel.ts";
+import {
+  findStyleChoice,
+  reconcileStyleTaste,
+  resolveStyleCatalog,
+  type ResolvedStyleCatalog,
+} from "./style-vocabulary.ts";
 import {
   bindProductNavigation,
   renderBrand,
@@ -489,7 +500,7 @@ import {
   type ProductDestination,
 } from "./brand.ts";
 import {
-  DEFAULT_PLATFORM_FRAMEWORK, isExactPlatformPruningFramework,
+  isExactPlatformPruningFramework,
   loadPlatformIndex, parsePlatformCatalogTarget,
   platformCatalogFramework, requirePlatformPackageSupplies,
   type PlatformAssemblyRow, type PlatformIndex, type PlatformCatalogTarget,
@@ -717,6 +728,8 @@ import type {
   BrowserPackageDependencyGroup,
   BrowserPackagePruningResult,
   BrowserPackageSurface,
+  BrowserPlatformForwarderRow,
+  BrowserPlatformForwarderView,
   BrowserExactLibraryApiInspection,
   BrowserTypeCandidate,
   BrowserWorkspacePackageOccurrenceActivation,
@@ -1410,8 +1423,7 @@ const initialState = {
   selectedBodyTarget: null,
   graphSource: { status: "closed" as const },
   docViewer: { status: "closed" as const },
-  styleTiers: null,
-  styleOptions: null,
+  styleCatalog: null,
   styleCatalogError: "",
   taste: loadStoredTaste(),
   settings: false,
@@ -1511,8 +1523,7 @@ interface StateOverrides {
   selectedBodyTarget: BodyTarget | null;
   graphSource: GraphSourceState;
   docViewer: DocumentViewerState;
-  styleTiers: StyleTier[] | null;
-  styleOptions: StyleOption[] | null;
+  styleCatalog: ResolvedStyleCatalog | null;
   history: string[];
   retryAction: ErrorRetryAction;
   diag: RuntimeStartupDiagnostics | null;
@@ -1537,6 +1548,18 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
+
+interface PlatformForwarderPresentation {
+  key: string;
+  view: BrowserPlatformForwarderView | null;
+  ready: boolean;
+  loading: Promise<void> | null;
+  error: string;
+  activating: boolean;
+  activationView: string | null;
+}
+
+let platformForwarderPresentation: PlatformForwarderPresentation | null = null;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
@@ -1981,8 +2004,7 @@ function captureRetainedHostState() {
     spotlightChipIndex: state.spotlightChipIndex,
     spotlightCapabilitySearch: state.spotlightCapabilitySearch,
     spotlightPackageSearch: state.spotlightPackageSearch,
-    styleTiers: state.styleTiers,
-    styleOptions: state.styleOptions,
+    styleCatalog: state.styleCatalog,
     styleCatalogError: state.styleCatalogError,
     taste: state.taste,
     settings: state.settings,
@@ -3755,8 +3777,11 @@ function applyView(view: WorkspaceView) {
       platformLibraryKey(candidate) === view.platformLibrary);
     if (!target || !row) return false;
     const resident = runtimePackageForTarget(target);
-    if (!resident?.assemblies.some(descriptor =>
-      platformLibraryMatchesDescriptor(row, descriptor))) {
+    const descriptor = resident?.assemblies.find(candidate =>
+      platformLibraryMatchesDescriptor(row, candidate));
+    if (!descriptor
+      || platformForwarderPresentation?.key !== platformForwarderKey(
+        target.tfm, target.version, descriptor.id, descriptor.platformPack)) {
       const navigationSeq = navigationSequence.current();
       observeAsync(
         restorePlatformHistoryView(view, row, navigationSeq),
@@ -3797,7 +3822,9 @@ function applyView(view: WorkspaceView) {
       ? memberSectionIdsFor(member, pkg.isRuntimePack, hasSelectedBody)
       : []);
   state.lens = view.lens;
-  state.selectedTypeId = type?.id ?? defaultVisibleTypeId(pkg);
+  const forwarder = currentPlatformForwarderView()?.forwarders.find(
+    row => row.id === view.selectedTypeId);
+  state.selectedTypeId = type?.id ?? forwarder?.id ?? defaultVisibleTypeId(pkg);
   reconcileAccessibilityFilter(pkg.types.find(item => item.id === state.selectedTypeId));
   state.selectedMemberKey = memberHistory.selectedMemberKey;
   state.memberBrowseTypeId = memberHistory.memberBrowseTypeId;
@@ -4812,6 +4839,7 @@ const packageControls = createPackageControls({
 
 function selectedType() {
   if (!state.package) return null;
+  if (selectedForwarder()) return null;
   const withinLibrary = (item: AppTypeSurface) =>
     !state.libraryScope || state.libraryScope.has(libraryKey(item));
   return state.package.types.find(item =>
@@ -4831,6 +4859,214 @@ function filteredTypes() {
       && (!state.libraryScope || state.libraryScope.has(libraryKey(item)))
       && state.accessibilityFilter.has(item.accessibilityId);
   });
+}
+
+function platformForwarderKey(
+  framework: string, version: string, library: string, pack: string | null,
+) {
+  return JSON.stringify([framework, version, library, pack]);
+}
+
+function selectedPlatformForwarderKey(): string | null {
+  const pkg = state.package;
+  const library = state.libraryScope?.size === 1
+    ? state.libraryScope.values().next().value
+    : null;
+  return pkg?.isRuntimePack && library
+    ? platformForwarderKey(pkg.activeFramework, pkg.version, library,
+        pkg.assemblies.find(row => row.id === library)?.platformPack ?? null)
+    : null;
+}
+
+function currentPlatformForwarderView() {
+  return platformForwarderPresentation?.key === selectedPlatformForwarderKey()
+    ? platformForwarderPresentation.view
+    : null;
+}
+
+function selectedForwarder() {
+  return currentPlatformForwarderView()?.forwarders.find(
+    row => row.id === state.selectedTypeId) ?? null;
+}
+
+function filteredTypeRows(): Array<AppTypeSurface | BrowserPlatformForwarderRow> {
+  const definitions = filteredTypes();
+  const forwarders = filterForwardedTypes(
+    currentPlatformForwarderView()?.forwarders ?? [],
+    { text: state.typeFilter, namespace: state.namespaceFilter, kind: state.kindFilter });
+  return forwarders.length === 0 ? definitions : [...definitions, ...forwarders]
+    .sort((left, right) =>
+      left.namespace.localeCompare(right.namespace)
+      || left.name.localeCompare(right.name));
+}
+
+function platformForwarderInventoryStatus(): string {
+  const presentation = platformForwarderPresentation;
+  if (!presentation || presentation.key !== selectedPlatformForwarderKey())
+    return "";
+  if (presentation.loading)
+    return '<p role="status">Loading forwarded Types...</p>';
+  if (!presentation.ready && presentation.error)
+    return `<p role="alert">Forwarded-Type inventory unavailable: ${escapeHtml(presentation.error)}
+      <button type="button" data-forwarder-inventory-retry>Retry</button></p>`;
+  return "";
+}
+
+function retainPlatformForwarderSurface(view: BrowserPlatformForwarderView) {
+  const selected = createRuntimePackageModel(view.surface);
+  const existing = runtimePackageForTarget({
+    tfm: selected.activeFramework, version: selected.version,
+  });
+  const pkg = existing
+    ? mergeRuntimePackageSurface(existing, view.surface)
+    : selected;
+  platformPackages.set(platformTargetKey({
+    tfm: pkg.activeFramework, version: pkg.version,
+  }), pkg);
+  if (!state.packages.includes(pkg)) retainPackageModel(pkg);
+  return { pkg, libraryId: selected.assemblyId };
+}
+
+function retirePlatformForwarderView() {
+  const retired = platformForwarderPresentation;
+  platformForwarderPresentation = null;
+  if (retired?.view) {
+    observeAsync(
+      engineClient.package.closePlatformForwarderView(retired.view.id),
+      "Closing the forwarded-Type view");
+  }
+}
+
+function installPlatformForwarderView(view: BrowserPlatformForwarderView) {
+  const libraryId = view.surface.defaultAssemblyId;
+  if (!libraryId) throw new Error("The forwarded-Type view has no selected Library identity.");
+  const descriptor = view.surface.assemblies.find(row => row.id === libraryId);
+  if (!descriptor) throw new Error("The forwarded-Type view has no selected Library descriptor.");
+  const key = platformForwarderKey(
+    view.framework, view.version, libraryId, descriptor.platformPack);
+  retirePlatformForwarderView();
+  platformForwarderPresentation = {
+    key, view, ready: true, loading: null, error: "", activating: false,
+    activationView: null,
+  };
+}
+
+function reconcilePlatformForwarderView(refresh = false) {
+  if (state.loading) return;
+  const key = !state.home && !state.credits
+    && !state.packageQueryOpen && !state.packageActivityOpen
+    && !state.atPackageRoot && !state.typeExplorerOpen
+    ? selectedPlatformForwarderKey()
+    : null;
+  const abandonedActivation = platformForwarderPresentation?.activating
+    && platformForwarderPresentation.activationView !== viewSignature();
+  if (!refresh && !abandonedActivation && platformForwarderPresentation?.key === key) return;
+  const retainedView = platformForwarderPresentation?.key === key
+    ? platformForwarderPresentation.view : null;
+  retirePlatformForwarderView();
+  if (!key) return;
+  const pkg = currentPackage();
+  const library = selectedLibrary();
+  if (!library) return;
+  const row = platformLibraryForRequest(pkg, library.id);
+  const request: PlatformForwarderPresentation = {
+    key, view: retainedView, ready: false, loading: null, error: "", activating: false,
+    activationView: null,
+  };
+  platformForwarderPresentation = request;
+  request.loading = (async () => {
+    try {
+      const result = await engineClient.package.openPlatformForwarderView(
+        pkg.activeFramework, pkg.version, platformAssemblyRequest(row), row.pack);
+      if (platformForwarderPresentation !== request
+        || selectedPlatformForwarderKey() !== key) {
+        if (result.view)
+          await engineClient.package.closePlatformForwarderView(result.view.id);
+        return;
+      }
+      if (result.status !== "opened" || !result.view)
+        throw new Error(`${result.status}: ${result.message ?? "Forwarded-Type inventory unavailable."}`);
+      retainPlatformForwarderSurface(result.view);
+      request.view = result.view;
+      request.ready = true;
+      if (!pkg.types.some(type => type.id === state.selectedTypeId)
+        && !result.view.forwarders.some(type => type.id === state.selectedTypeId)) {
+        state.selectedTypeId = filteredTypeRows()[0]?.id ?? "";
+      }
+    } catch (error) {
+      if (platformForwarderPresentation === request)
+        request.error = errorMessage(error);
+    } finally {
+      request.loading = null;
+      if (platformForwarderPresentation === request) render();
+    }
+  })();
+  observeAsync(request.loading, "Loading forwarded-Type inventory");
+}
+
+async function activatePlatformForwarder(row: BrowserPlatformForwarderRow) {
+  const source = platformForwarderPresentation;
+  if (!source?.ready || !source.view || source.activating) return;
+  const navigationSeq = navigationSequence.begin();
+  const sourceView = viewSignature();
+  const focusGeneration = documentFocusGeneration;
+  const isCurrent = () => navigationSequence.isCurrent(navigationSeq)
+    && platformForwarderPresentation === source
+    && viewSignature() === sourceView;
+  source.activating = true;
+  source.activationView = sourceView;
+  source.error = "";
+  render({ synchronizeUrl: false });
+  try {
+    const result = await engineClient.package.activatePlatformForwarder(row.action);
+    if (!isCurrent()) {
+      if (result.view)
+        await engineClient.package.closePlatformForwarderView(result.view.id);
+      if (platformForwarderPresentation === source) {
+        reconcilePlatformForwarderView(true);
+        render({ synchronizeUrl: false });
+      }
+      return;
+    }
+    if (result.status !== "opened" || !result.view)
+      throw new Error(`${result.status}: ${result.message ?? "Could not open the forwarded Type."}`);
+    const { pkg, libraryId } = retainPlatformForwarderSurface(result.view);
+    installPlatformForwarderView(result.view);
+    activatePackage(pkg, { resetAccessibility: true });
+    state.libraryScope = new Set([libraryId]);
+    state.frameworkLibraryPresentation = {
+      tfm: pkg.activeFramework, version: pkg.version, libraryId,
+    };
+    state.selectedTypeId = result.view.selectedTypeId ?? "";
+    state.atPackageRoot = false;
+    state.atLibraryRoot = false;
+    state.lens = selectedForwarder() ? "overview" : "api";
+    state.typeFilter = "";
+    state.namespaceFilter = "";
+    state.kindFilter = "";
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    state.selectedOverloadIndex = null;
+    resetMemberFilters();
+    showContentDetailAfterRender();
+    render();
+    afterNavigationFrame(navigationSeq, () => {
+      if (focusGeneration === documentFocusGeneration) focusLevelOneHeading();
+    });
+  } catch (error) {
+    if (isCurrent()) {
+      source.error = errorMessage(error);
+      source.activating = false;
+      render({ synchronizeUrl: false });
+      afterNavigationFrame(navigationSeq, () => {
+        if (focusGeneration === documentFocusGeneration)
+          document.querySelector<HTMLButtonElement>("[data-platform-forwarder]")?.focus();
+      });
+    }
+  } finally {
+    source.activating = false;
+    source.activationView = null;
+  }
 }
 
 // The type the type list would land on by default: the first type the CURRENT
@@ -5122,10 +5358,21 @@ function enterTypeSubject(
   return true;
 }
 
+function enterForwardedType(row: BrowserPlatformForwarderRow) {
+  state.workspaceSubjectOpen = false;
+  state.atPackageRoot = false;
+  state.atLibraryRoot = false;
+  state.selectedTypeId = row.id;
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  state.lens = "overview";
+}
+
 // Reset the type cursor/selection to the first type in the selected Library.
 function normalizeLibrarySelection() {
   state.typeCursor = 0;
-  const first = filteredTypes()[0];
+  const first = filteredTypeRows()[0];
   state.selectedTypeId = first?.id || "";
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
@@ -5140,9 +5387,10 @@ function afterLibraryScopeChange() {
 
 function namespaces() {
   if (!state.package) return [];
-  return [...new Set(state.package.types
+  return [...new Set([...state.package.types
     .filter(item => state.accessibilityFilter.has(item.accessibilityId))
-    .map(item => item.namespace))];
+    .map(item => item.namespace),
+  ...(currentPlatformForwarderView()?.forwarders.map(item => item.namespace) ?? [])])];
 }
 
 function accessibilityBuckets() {
@@ -5636,6 +5884,9 @@ function namespaceOptions() {
     if (!state.accessibilityFilter.has(item.accessibilityId)) continue;
     counts.set(item.namespace, (counts.get(item.namespace) || 0) + 1);
   }
+  for (const item of currentPlatformForwarderView()?.forwarders ?? []) {
+    counts.set(item.namespace, (counts.get(item.namespace) || 0) + 1);
+  }
   return [...counts.keys()]
     .sort((a, b) => a.localeCompare(b))
     .map(ns => `<option value="${escapeHtml(ns)}" ${state.namespaceFilter === ns ? "selected" : ""}>${escapeHtml(ns || "(global namespace)")} · ${counts.get(ns)}</option>`)
@@ -5667,13 +5918,16 @@ function typeKinds() {
     .filter(item => !state.libraryScope || state.libraryScope.has(libraryKey(item)))
     .filter(item => state.accessibilityFilter.has(item.accessibilityId))
     .map(item => typeKind(item.kind)));
-  return KIND_ORDER.filter(kind => present.has(kind));
+  return [
+    ...KIND_ORDER.filter(kind => present.has(kind)),
+    ...(currentPlatformForwarderView()?.forwarders.length ? ["forwarded"] : []),
+  ];
 }
 
 
 function typeGroups() {
-  const groups = new Map<string, InspectedTypeSurface[]>();
-  for (const item of filteredTypes()) {
+  const groups = new Map<string, TypeInventoryRow[]>();
+  for (const item of filteredTypeRows()) {
     let group = groups.get(item.namespace);
     if (!group) {
       group = [];
@@ -5902,6 +6156,7 @@ function libraryLensesFor(pkg: AppPackage | null) {
 }
 
 function availableTypeLenses() {
+  if (selectedForwarder()) return typeLensesFor(state.package, true);
   return typeLensesFor(state.package);
 }
 
@@ -6310,7 +6565,7 @@ function activateCompareType(typeIdentifier: string) {
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   resetMemberFilters();
-  state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === target.id);
+  state.typeCursor = filteredTypeRows().findIndex(candidate => candidate.id === target.id);
   state.lens = "compare";
   state.compareCloneSelectedRank = null;
   render();
@@ -6961,7 +7216,9 @@ function drillIn() {
     return;
   }
   if (state.atLibraryRoot) {
-    if (!enterTypeSubject(selectedType())) return;
+    const forwarder = selectedForwarder();
+    if (forwarder) enterForwardedType(forwarder);
+    else if (!enterTypeSubject(selectedType())) return;
     showContentDetailAfterRender();
     render();
     return;
@@ -7165,6 +7422,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
 
 function renderCore(options: { synchronizeUrl?: boolean }) {
   sourceInspection.cancelHiddenRequest();
+  reconcilePlatformForwarderView();
   libraryApiDiff.reconcile(currentLibraryApiDiffSelection());
   compareClone.reconcile(currentCompareCloneTarget());
   memberDiffExplorer.reconcile(currentMemberDiffExploreContext());
@@ -7379,7 +7637,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   }
   const pkg = state.package;
   const current = selectedType();
-  if (!current) {
+  const forwarder = selectedForwarder();
+  if (!current && !forwarder) {
     if (!state.atPackageRoot && !state.atLibraryRoot) {
       state.atLibraryRoot = true;
     }
@@ -7387,7 +7646,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
     state.selectedOverloadIndex = null;
-  } else if (state.selectedTypeId !== current.id) {
+  } else if (current && state.selectedTypeId !== current.id) {
     state.selectedTypeId = current.id;
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
@@ -7401,7 +7660,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     renderTypeExplorerPage();
     return;
   }
-  const visible = filteredTypes();
+  const visible = filteredTypeRows();
   // Keep the package lens on something the active package actually supports, so a restored
   // URL or stale selection can neither render nor auto-load a lens that fetches a missing nupkg.
   if (state.atPackageRoot && !packageLensesFor(pkg).some(([id]) => id === state.packageLens)) {
@@ -7414,7 +7673,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   if (!state.atPackageRoot
     && scope() === "type"
     && !availableTypeLenses().some(([id]) => id === state.lens)) {
-    state.lens = "api";
+    state.lens = forwarder ? "overview" : "api";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
   const activeScope = scope();
@@ -7471,7 +7730,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     activeScope === "type" && state.lens === "metadata";
   const overviewWorkingSurface =
     (activeScope === "package" && state.packageLens === "overview")
-    || (activeScope === "library" && state.libraryLens === "overview");
+    || (activeScope === "library" && state.libraryLens === "overview")
+    || (activeScope === "type" && forwarder !== null);
   const packageDependenciesWorkingSurface =
     activeScope === "package" && state.packageLens === "dependencies";
   const libraryMetadataWorkingSurface =
@@ -7853,7 +8113,7 @@ function maybeAutoLoadTypeMetadata() {
 
 function renderNavPane(
   current: AppTypeSurface | null | undefined,
-  visible: readonly AppTypeSurface[],
+  visible: readonly TypeInventoryRow[],
 ) {
   if (scope() === "workspace") return renderWorkspaceNavPane();
   if (scope() === "package") {
@@ -7964,6 +8224,14 @@ function currentInspectedSubjectPath(): readonly SubjectPathSegment[] {
     }];
   }
   if (scope() === "platform") return [{ kind: "platform", label: platformTargetLabel(), copyable: true }];
+  const forwarder = selectedForwarder();
+  if (forwarder && !state.atPackageRoot && !state.atLibraryRoot && state.package) {
+    return [...inspectedSubjectPath(state.package, null), {
+      kind: "type",
+      label: forwarder.name,
+      copyable: true,
+    }];
+  }
   return state.package
     ? inspectedSubjectPath(state.package, selectedType())
     : [];
@@ -8028,11 +8296,11 @@ function navigationSnapshotHasPlatformRootParent(
 
 function renderTypeNavPane(
   current: AppTypeSurface | null | undefined,
-  visible: readonly AppTypeSurface[],
+  visible: readonly TypeInventoryRow[],
 ) {
   const definingLibraries = aggregateTypeLibraryLabels();
   return renderTypeNav({
-    current: current ?? null,
+    current: selectedForwarder() ?? current ?? null,
     visible,
     typeGroups: typeGroups(),
     typeFilter: state.typeFilter,
@@ -8054,6 +8322,7 @@ function renderTypeNavPane(
     typeDisplayName,
     typeLibraryLabel: item => definingLibraries.get(item.id) ?? "",
     kindIcon,
+    statusHtml: platformForwarderInventoryStatus(),
   });
 }
 
@@ -8092,7 +8361,7 @@ function renderScopeBar(
   availableScopes ??= [
     ...rootScopes,
     ...(libraryScopeAvailable ? ["library" as const] : []),
-    ...(selected ? ["type" as const] : []),
+    ...(selected || selectedForwarder() ? ["type" as const] : []),
     ...(selected && memberGroups(selected).length ? ["member" as const] : []),
   ];
   const showMemberScope =
@@ -9516,7 +9785,7 @@ function drillToPerfMember(
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = group.overloads.indexOf(member);
   resetMemberSectionState();
-  state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === targetType.id);
+  state.typeCursor = filteredTypeRows().findIndex(candidate => candidate.id === targetType.id);
   observeAsync(
     loadSelectedMemberDocumentation(),
     "Loading member documentation");
@@ -9733,10 +10002,24 @@ function renderLibraryCompositionOverview(
     const ns = type.namespace || "global";
     nsCounts.set(ns, (nsCounts.get(ns) || 0) + 1);
   }
+  const forwarders = currentPlatformForwarderView()?.forwarders ?? [];
+  for (const row of forwarders) {
+    const ns = row.namespace || "global";
+    nsCounts.set(ns, (nsCounts.get(ns) ?? 0) + 1);
+  }
+  const descriptor = pkg.assemblies.find(item => item.id === library?.id);
+  const catalogRow = pkg.isRuntimePack && descriptor
+    ? state.platformIndex?.target(pkg.activeFramework, pkg.version)?.rows.find(
+        row => platformLibraryMatchesDescriptor(row, descriptor))
+    : null;
+  const role = catalogRow?.kind === "facade" ? "Facade assembly" : null;
   const kindChips = KIND_ORDER
     .filter(kind => kinds.has(kind))
     .map(kind => `<button class="type-chip" data-kind-jump="${kind}"><span class="ns-count">${kinds.get(kind)}</span>${kindPlural[kind]}</button>`)
-    .join("");
+    .join("")
+    + (forwarders.length
+      ? `<button class="type-chip" data-kind-jump="forwarded"><span class="ns-count">${forwarders.length}</span>Forwarded</button>`
+      : "");
   const namespaceChips = [...nsCounts.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 12)
@@ -9764,19 +10047,19 @@ function renderLibraryCompositionOverview(
     displayName: library?.name ?? "All libraries",
     iconHtml: renderInspectedSubjectIcon(pkg),
     details: library
-      ? [library.asset || "Managed library", libraryIdentity(library)]
+      ? [...(role ? [role] : []), library.asset || "Managed library", libraryIdentity(library)]
       : [`${libraries.length} managed ${libraries.length === 1 ? "library" : "libraries"}`, pkg.activeFramework],
     enablements: enabledLibraryEnablements(pkg, library),
     packageId: pkg.id,
     packageVersion: pkg.version,
     activeFramework: pkg.activeFramework,
     totalTypes: library
-      ? library.types
+      ? library.types + forwarders.length
       : libraries.reduce((sum, candidate) => sum + candidate.types, 0),
     totalMembers: library
       ? library.members
       : libraries.reduce((sum, candidate) => sum + candidate.members, 0),
-    contentHtml,
+    contentHtml: `${platformForwarderInventoryStatus()}${contentHtml}`,
     escapeHtml,
   });
 }
@@ -9973,6 +10256,16 @@ function renderLens(item: AppTypeSurface | null | undefined) {
   if (scope() === "workspace") return renderWorkspaceView();
   if (state.atPackageRoot) return renderPackageView();
   if (state.atLibraryRoot) return renderLibraryView();
+  const forwarder = selectedForwarder();
+  if (forwarder) return platformForwarderInventoryStatus() + renderForwardedTypeOverview(
+    forwarder,
+    currentPlatformForwarderView()!.assembly,
+    {
+      pending: platformForwarderPresentation!.activating,
+      error: platformForwarderPresentation!.ready ? platformForwarderPresentation!.error : "",
+      available: platformForwarderPresentation!.ready,
+    },
+    escapeHtml);
   if (!item) return "";
   switch (state.lens) {
     case "source":
@@ -9982,6 +10275,7 @@ function renderLens(item: AppTypeSurface | null | undefined) {
     case "compare":
       return renderCompareSurface();
     case "api":
+    case "overview":
       return renderApiLens(item);
     default:
       return assertNever(state.lens, "type lens");
@@ -10590,7 +10884,7 @@ const packageViewActions: PackageViewBindingActions = {
     state.memberBrowseTypeId = "";
     resetMemberFilters();
     state.typeCursor = 0;
-    const first = filteredTypes()[0];
+    const first = filteredTypeRows()[0];
     if (first) state.selectedTypeId = first.id;
     render();
   },
@@ -10614,7 +10908,7 @@ const packageViewActions: PackageViewBindingActions = {
     state.memberBrowseTypeId = "";
     resetMemberFilters();
     state.typeCursor = 0;
-    const first = filteredTypes()[0];
+    const first = filteredTypeRows()[0];
     if (first) state.selectedTypeId = first.id;
     render();
   },
@@ -10913,7 +11207,7 @@ function bindTypePanelEvents() {
     onKindSelect: kind => {
       state.kindFilter = kind;
       state.typeCursor = 0;
-      const first = filteredTypes()[0];
+      const first = filteredTypeRows()[0];
       if (first) state.selectedTypeId = first.id;
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
@@ -11026,7 +11320,7 @@ function bindTypePanelEvents() {
     onNamespaceSelect: namespace => {
       state.namespaceFilter = namespace;
       state.typeCursor = 0;
-      const first = filteredTypes()[0];
+      const first = filteredTypeRows()[0];
       if (first) state.selectedTypeId = first.id;
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
@@ -11044,7 +11338,7 @@ function bindTypePanelEvents() {
     onTypeFilterChange: value => {
       state.typeFilter = value;
       state.typeCursor = 0;
-      const first = filteredTypes()[0];
+      const first = filteredTypeRows()[0];
       if (first) state.selectedTypeId = first.id;
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
@@ -11074,10 +11368,12 @@ function bindTypePanelEvents() {
         state.libraryScope = new Set([libraryKey(type)]);
       }
       state.selectedTypeId = typeId;
+      const forwarder = selectedForwarder();
+      if (forwarder) enterForwardedType(forwarder);
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       resetMemberFilters();
-      state.typeCursor = filteredTypes()
+      state.typeCursor = filteredTypeRows()
         .findIndex(item => item.id === state.selectedTypeId);
       render();
     },
@@ -11123,7 +11419,9 @@ function bindScopeBarEvents() {
         state.workspaceSubjectOpen = false;
         // Pop out to the type level: leave the package root and drop any open member so the
         // type lenses (API / Metadata / Source) take the strip. Ensure a type is selected.
-        if (!enterTypeSubject(selectedType())) return;
+        const forwarder = selectedForwarder();
+        if (forwarder) enterForwardedType(forwarder);
+        else if (!enterTypeSubject(selectedType())) return;
         state.selectedMemberKey = "";
         state.memberBrowseTypeId = "";
         state.selectedOverloadIndex = null;
@@ -11726,6 +12024,20 @@ function bindWorkspaceSubjectEvents() {
   });
 }
 
+function bindPlatformForwarderEvents() {
+  bindPlatformForwarders(document, {
+    retry: () => {
+      reconcilePlatformForwarderView(true);
+      render();
+    },
+    activate: rowId => {
+      const row = selectedForwarder();
+      if (row?.id === rowId)
+        observeAsync(activatePlatformForwarder(row), "Opening the forwarded Type");
+    },
+  });
+}
+
 function bindEvents() {
   packageControls.bind(document);
   bindWorkspaceSubjectEvents();
@@ -11753,6 +12065,7 @@ function bindEvents() {
   bindGraphExplore(document, openGraphExplorer);
   bindCallGraphTraversalFramework();
   bindContentFrameEvents();
+  bindPlatformForwarderEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.spotlightOpen) spotlight.bind(document, "modal");
 }
@@ -11820,7 +12133,7 @@ function handleTypeKeys(event: KeyboardEvent): boolean {
     }
     return false;
   }
-  const items = filteredTypes();
+  const items = filteredTypeRows();
   if (!items.length) return false;
   let cursor = items.findIndex(item => item.id === state.selectedTypeId);
   if (cursor < 0) cursor = Math.min(state.typeCursor, items.length - 1);
@@ -11844,13 +12157,15 @@ function handleTypeKeys(event: KeyboardEvent): boolean {
 
 function selectTypeByCursor(
   cursor: number,
-  items: readonly InspectedTypeSurface[],
+  items: readonly TypeInventoryRow[],
   focusList: boolean,
 ) {
   const selected = items[cursor];
   if (!selected) return;
   state.typeCursor = cursor;
   state.selectedTypeId = selected.id;
+  if (isForwardedType(selected) && !state.atLibraryRoot)
+    enterForwardedType(selected);
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   resetMemberFilters();
@@ -11862,7 +12177,7 @@ function selectTypeByCursor(
 }
 
 function stepTypeSelection(delta: number) {
-  const items = filteredTypes();
+  const items = filteredTypeRows();
   if (!items.length) return;
   let cursor = items.findIndex(item => item.id === state.selectedTypeId);
   if (cursor < 0) cursor = Math.min(state.typeCursor, items.length - 1);
@@ -12109,7 +12424,11 @@ function spotlightLoadedPackageMatches(query: string) {
 
 // Platform selection is independent of the focused NuGet package.
 function platformScopeTfm(): string {
-  return state.platformSelection?.tfm ?? DEFAULT_PLATFORM_FRAMEWORK;
+  const framework =
+    state.platformSelection?.tfm ?? state.platformIndex?.defaultFramework;
+  if (!framework)
+    throw new Error("The Platform catalog default is unavailable.");
+  return framework;
 }
 
 const platformVersions = new Map<string, { values: string[] } & PlatformSubjectStatus>();
@@ -12118,10 +12437,12 @@ const platformPackages = new Map<string, AppPackage>();
 let platformCatalogSequence = 0;
 
 function selectedPlatformTarget(): PlatformCatalogTarget | null {
+  const index = state.platformIndex;
+  if (!index) return null;
   const selection = state.platformSelection;
-  return state.platformIndex?.target(
-    selection?.tfm ?? DEFAULT_PLATFORM_FRAMEWORK,
-    selection?.version) ?? null;
+  return index.target(
+    selection?.tfm ?? index.defaultFramework,
+    selection?.version);
 }
 
 function platformTargetLabel() {
@@ -12164,10 +12485,11 @@ function retainPlatformPackageForTarget(
   return packageModel;
 }
 
-async function ensurePlatformCatalog(tfm: string, version?: string): Promise<PlatformCatalogTarget> {
-  const catalogTfm = platformCatalogFramework(tfm);
+async function ensurePlatformCatalog(tfm?: string, version?: string): Promise<PlatformCatalogTarget> {
   state.platformIndex ??= await loadPlatformIndex();
   if (!state.platformIndex) throw new Error("The Platform catalog could not be loaded.");
+  const catalogTfm = platformCatalogFramework(
+    tfm ?? state.platformIndex.defaultFramework);
   const bundled = state.platformIndex.target(catalogTfm, version);
   if (bundled) return bundled;
   if (!version) throw new Error(`The Platform catalog has no target for ${catalogTfm}.`);
@@ -12274,7 +12596,7 @@ function startPlatformTargetWork(target: PlatformCatalogTarget) {
 }
 
 async function openPlatformSubject(
-  tfm = state.platformSelection?.tfm ?? DEFAULT_PLATFORM_FRAMEWORK,
+  tfm = state.platformSelection?.tfm,
   version = state.platformSelection?.version,
 ) {
   const capacityError = platformCoordinateCapacityError();
@@ -13180,18 +13502,16 @@ async function openPlatformLibrary(
     // A Library selection needs only its selected family. Broad catalog warmup
     // also downloads the other runtime pack and discovers unrelated versions.
     if (!deferPlatformPresentation) startPlatformTargetWork(target);
-    let pkg = runtimePackageForTarget(target);
-    const alreadyLoaded = pkg?.assemblies.some(item => platformLibraryMatchesDescriptor(row, item));
-    if (!alreadyLoaded) {
-      const runtimeResult = await loadRuntimePackAssembly(
-        target.tfm, platformAssemblyRequest(row), row.pack,
-        () => navigationSequence.isCurrent(navigationSeq), target.version,
-        row.file);
-      if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
-      pkg = runtimeResult.packageModel;
-      if (!pkg) throw new Error(runtimeResult.failureMessage || `Could not inspect ${row.assembly}.`);
+    const forwarderResult = await engineClient.package.openPlatformForwarderView(
+      target.tfm, target.version, platformAssemblyRequest(row), row.pack);
+    if (!navigationSequence.isCurrent(navigationSeq)) {
+      if (forwarderResult.view)
+        await engineClient.package.closePlatformForwarderView(forwarderResult.view.id);
+      return undefined;
     }
-    if (!pkg) throw new Error("The Platform inspection did not return a Library.");
+    if (forwarderResult.status !== "opened" || !forwarderResult.view)
+      throw new Error(`${forwarderResult.status}: ${forwarderResult.message ?? "The Platform inspection did not return a Library."}`);
+    const { pkg } = retainPlatformForwarderSurface(forwarderResult.view);
     if (pkg.version !== target.version || pkg.activeFramework !== target.tfm) {
       throw new Error("The inspected Library does not match the selected Platform target.");
     }
@@ -13203,6 +13523,7 @@ async function openPlatformLibrary(
     if (!state.packages.includes(pkg)) retainPackageModel(pkg);
     activatePackage(pkg, { resetAccessibility: true });
     state.libraryScope = new Set([library.id]);
+    installPlatformForwarderView(forwarderResult.view);
     state.frameworkLibraryPresentation = {
       tfm: target.tfm,
       version: target.version,
@@ -13217,7 +13538,7 @@ async function openPlatformLibrary(
     state.namespaceFilter = "";
     state.typeFilter = "";
     state.kindFilter = "";
-    state.selectedTypeId = filteredTypes()[0]?.id ?? "";
+    state.selectedTypeId = filteredTypeRows()[0]?.id ?? "";
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
     state.selectedOverloadIndex = null;
@@ -13370,7 +13691,7 @@ async function pickSpotlightMember(
   state.namespaceFilter = "";
   state.kindFilter = "";
   resetMemberSectionState();
-  state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
+  state.typeCursor = filteredTypeRows().findIndex(item => item.id === state.selectedTypeId);
   if (rollbackSnapshot
     && !publishInitialLoadedWorkspace(rollbackSnapshot)) return;
   render({ synchronizeUrl: rollbackSnapshot === null });
@@ -13418,7 +13739,7 @@ async function pickSpotlight(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
-  state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
+  state.typeCursor = filteredTypeRows().findIndex(item => item.id === state.selectedTypeId);
   if (rollbackSnapshot
     && !publishInitialLoadedWorkspace(rollbackSnapshot)) return;
   const selectionData = loadSelectionData();
@@ -13768,7 +14089,7 @@ function installManagedSpotlightType(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
-  state.typeCursor = filteredTypes().findIndex(
+  state.typeCursor = filteredTypeRows().findIndex(
     candidate => candidate.id === state.selectedTypeId,
   );
 }
@@ -14347,7 +14668,9 @@ function canonicalViewRestorationFailure(
     return null;
   }
   const lens = requestedLens ?? "api";
-  if (!typeLensesFor(pkg).some(([id]) => id === lens)) {
+  const forwarder = currentPlatformForwarderView()?.forwarders.find(
+    row => row.id === deep.type);
+  if (!typeLensesFor(pkg, Boolean(forwarder)).some(([id]) => id === lens)) {
     return `The shared '${lens}' lens is not available for ${pkg.id}.`;
   }
   if (lens !== "api" && !deep.type) {
@@ -14356,7 +14679,7 @@ function canonicalViewRestorationFailure(
   const requestedType = deep.type
     ? pkg.types.find(type => type.id === deep.type)
     : null;
-  if (deep.type && !requestedType) {
+  if (deep.type && !requestedType && !forwarder) {
     return `The shared type '${deep.type}' is no longer available.`;
   }
   if (requestedType
@@ -14441,11 +14764,14 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.platformStack = [];
   state.platformDrillLoading = false;
   state.platformDrillError = "";
-  const restoreType = deep?.type && pkg.types.some(item => item.id === deep.type);
+  const forwarder = currentPlatformForwarderView()?.forwarders.find(
+    row => row.id === deep?.type);
+  const restoreType = deep?.type
+    && (pkg.types.some(item => item.id === deep.type) || forwarder !== undefined);
   resetMemberFilters();
   state.selectedTypeId = restoreType
     ? deep?.type ?? ""
-    : defaultVisibleTypeId(pkg);
+    : defaultVisibleTypeId(pkg) || currentPlatformForwarderView()?.forwarders[0]?.id || "";
   // The restored/defaulted type may sit outside the current accessibility bucket or the
   // platform's library scope (e.g. an internal type reached via a shared link, or a history
   // entry for a type in a library the session had since scoped away from). Reconcile both
@@ -14465,6 +14791,10 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
+  if (forwarder) {
+    state.lens = "overview";
+    return;
+  }
   if (deep?.graphTarget && !restoreType) {
     appendQueryNotice(
       "The shared graph member's declaring type is no longer available and was not opened.");
@@ -14619,7 +14949,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     }
     }
   }
-  state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === state.selectedTypeId));
+  state.typeCursor = Math.max(0, filteredTypeRows().findIndex(item => item.id === state.selectedTypeId));
 }
 
 // Kick off the async data load implied by the current lens/section so a restored or
@@ -14629,6 +14959,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
 // `state.lens !== "api"` test and silently fetch nothing.
 function loadSelectedTypeLensData(): Promise<void> | undefined | "member" {
   switch (state.lens) {
+    case "overview": return undefined;
     case "source": return loadSelectedTypeSource();
     case "metadata": return loadSelectedTypeMetadata();
     // Compare work is reconciled by render() from the retained Package mode.
@@ -18467,7 +18798,7 @@ function navigateToType(
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   resetMemberFilters();
-  state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === target.id);
+  state.typeCursor = filteredTypeRows().findIndex(candidate => candidate.id === target.id);
   render();
 }
 
@@ -20172,7 +20503,7 @@ function navigateToRuntimeMember(
   state.memberFindingSelectionError = "";
   state.annotatedDestinationError = "";
   state.selectedBodyTarget = bodyTarget;
-  state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === type.id));
+  state.typeCursor = Math.max(0, filteredTypeRows().findIndex(item => item.id === type.id));
   if (section === "overview") {
     observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
   } else {
@@ -20319,14 +20650,14 @@ function reloadVisibleSource() {
 }
 
 function toggleTaste(id: string) {
-  const option = (state.styleOptions || []).find(item => item.id === id);
+  const option = findStyleChoice(state.styleCatalog, id);
   if (state.taste.includes(id)) {
     state.taste = state.taste.filter(item => item !== id);
   } else {
-    if (option?.conflict_group) {
-      const groupIds = (state.styleOptions || [])
-        .filter(item => item.conflict_group === option.conflict_group)
-        .map(item => item.id);
+    if (option?.conflictGroup) {
+      const groupIds = (state.styleCatalog?.choices ?? [])
+        .filter(item => item.conflictGroup === option.conflictGroup)
+        .map(item => item.term.identity.value);
       state.taste = state.taste.filter(item => !groupIds.includes(item));
     }
     state.taste = [...state.taste, id];
@@ -20627,8 +20958,7 @@ function renderSettingsViewHtml() {
     theme: state.theme,
     settingsReturn: state.settingsReturn,
     styleCatalog: {
-      styleTiers: state.styleTiers,
-      styleOptions: state.styleOptions,
+      styleCatalog: state.styleCatalog,
       styleCatalogError: state.styleCatalogError,
       taste: state.taste,
     },
@@ -21306,7 +21636,7 @@ function applyProductHomeDemoSelection(
   state.selectedTypeId = type.id;
   state.typeCursor = Math.max(
     0,
-    filteredTypes().findIndex(item => item === type));
+    filteredTypeRows().findIndex(item => item === type));
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
   state.workspaceSubjectOpen = false;
@@ -21649,7 +21979,7 @@ async function restoreWorkspaceFromLocation(
     if (platformCoordinate(tab)) {
       try {
         const catalog = await ensurePlatformCatalog(
-          tab.framework || DEFAULT_PLATFORM_FRAMEWORK,
+          tab.framework || undefined,
           tab.version === "latest" ? undefined : tab.version);
         if (!navigationSequence.isCurrent(navigationSeq)) return;
         state.platformSelection = { tfm: catalog.tfm, version: catalog.version, includeAllLibraries: false, filter: "" };
@@ -22249,21 +22579,6 @@ async function restoreInitialWorkspace() {
     navigationSeq);
 }
 
-function isStyleTier(value: unknown): value is StyleTier {
-  return isRecord(value)
-    && typeof value.id === "string"
-    && typeof value.title === "string"
-    && typeof value.summary === "string";
-}
-
-function isStyleOption(value: unknown): value is StyleOption {
-  return isRecord(value)
-    && typeof value.id === "string"
-    && typeof value.tier === "string"
-    && typeof value.title === "string"
-    && typeof value.summary === "string";
-}
-
 function showEngineFailure(error: unknown) {
   state.loading = false;
   state.engineReady = false;
@@ -22340,24 +22655,17 @@ async function bootstrap() {
       refreshPackageStats();
     }
     try {
-      const vocabulary = await engineClient.catalog.listVocabulary();
-      const sections = vocabulary?.sections || [];
-      state.styleTiers = (
-        sections.find(section => section.id === "csharp.style-tiers")?.values
-        || []).filter(isStyleTier);
-      state.styleOptions = (
-        sections.find(section => section.id === "csharp.style-choices")?.values
-        || []).filter(isStyleOption);
+      state.styleCatalog = resolveStyleCatalog(
+        await engineClient.catalog.inspectVocabulary());
       const reconciledTaste = reconcileStyleTaste(
         state.taste,
-        state.styleOptions);
+        state.styleCatalog);
       if (reconciledTaste.length !== state.taste.length) {
         state.taste = reconciledTaste;
         localStorage.setItem("inspect-taste", JSON.stringify(state.taste));
       }
     } catch (error) {
-      state.styleTiers = [];
-      state.styleOptions = [];
+      state.styleCatalog = null;
       state.styleCatalogError = errorMessage(error);
     }
     try {

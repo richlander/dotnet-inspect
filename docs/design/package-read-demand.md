@@ -283,24 +283,31 @@ a Browser/Wasm host that adopts ranged access needs no further substrate.
 The documents a host reads are those of the package's document manifest: the
 root `README.md` and the Markdown under `skills/`. Two consumers read them:
 
-- **The CLI export**, adopted in this slice. `package ID@VERSION --content
-  --out FILE` with one literal root `README.md` or `skills/**/SKILL.md` path
+- **The CLI exact-document content route**, adopted in this slice. `package
+  ID@VERSION --content` with one literal root `README.md` or
+  `skills/**/SKILL.md` path
   acquires through the House with ranged access and a document demand naming
   that path and, for a skill, the `SKILL.md`'s folder. It uses the
   authority-scoped store the search Root uses, so size first, the entry
   cache, and durable HTTP identity apply. The directory lists every entry, so
   the .NET tool-wrapper check reads the ranged directory as it reads the
   complete archive; a possible wrapper takes the complete package-content
-  path, which follows the redirect, and says so in verbose output. Offline,
-  the export keeps the local package cache path, as the search Root's offline
-  branch does, so it does not yet answer from the authority-scoped store or
-  the entry cache. For
-  `Newtonsoft.Json` 13.0.4 (2.5 MB), a cold README export is the size probe,
-  the directory tail, and one span: 6 of 24 entries.
-- **The Browser/Wasm viewer** (#8489), which reads root `README.md` and
-  `skills/**/*.md` document-manifest entries through a House `Acquire` and
-  the settlement's pull stream. It keeps complete `Acquire` until Inspect Web
-  adopts ranged access
+  path, which follows the redirect, and says so in verbose output. The shared
+  entry resolver selects the exact manifest entry. Separator, raw, JSONL, and
+  Skill file projections detach content up to the 16 MiB document limit; exact
+  README file output copies the pull read directly with a bounded buffer.
+  Offline, the command keeps the local package cache path, as the search Root's
+  offline branch does, so it does not yet answer from the authority-scoped
+  store or the entry cache. For `Newtonsoft.Json` 13.0.4 (2.5 MB), a cold
+  README content request is the size probe, the directory tail, and one span:
+  6 of 24 entries.
+- **The Browser/Wasm viewer** (#8489 and its ranged-adoption successor), which
+  reads root `README.md` and `skills/**/*.md` document-manifest entries through
+  a ranged House `Acquire`, the same entry resolver, and the settlement pull
+  stream. Size first keeps small archives on complete acquisition; larger
+  archives read the root and selected document or skill folder by range. The
+  Browser package-entry store retains the directory and selected entries in
+  Cache Storage, so a warm read after store recreation makes no package request
   ([cache policy adoption step 5](package-cache-policy.md#adoption)).
 
 ### Per-command demand
@@ -313,7 +320,7 @@ root `README.md` and the Markdown under `skills/`. Two consumers read them:
 | `type`, `member`, and other `library` operations | `SurfaceAndImplementation` | complete |
 | `graph` | `SurfaceAndImplementation` | complete |
 | `package` | the whole archive | complete |
-| `package ID@VERSION --content --out` of a root `README.md` or `skills/**/SKILL.md` | a document demand | ranged, size first |
+| `package ID@VERSION --content` of a root `README.md` or `skills/**/SKILL.md` | a document demand | ranged, size first |
 | `diff --history`, Metadata cells (API findings) | `Surface` | ranged, size first |
 | `diff --history`, Analysis cells (IL-body findings) | `SurfaceAndImplementation` | ranged, size first |
 
@@ -338,9 +345,9 @@ All gates run in Release.
 | 8. An entry larger than the budget | one block holding that entry alone | `PackageEntryBlocksTests`: blocks tile the folder without gap or overlap, whatever the input order |
 | 9. A name that selects no implementation asset | a visible realization failure | `PackageRangedRealizationTests.NamedImplementation_NameSelectingNothing_FailsVisibly` (House `NoMatch`) and `PackageRootAcquisitionTests.AssetDemand_NamedRootRealizesOnlyItsNames` (Root `PackageImplementationNameException`) |
 | 10. A named asset in a folder already read whole as the surface | no block and no extra request: the named read equals the unnamed read | `PackageRangedRealizationTests.NamedImplementation_FolderAlreadyReadAsSurface_AddsNoBlock`, a boundary fixture with interleaved `lib/net8.0` and `lib/net10.0` folders and no `ref/` |
-| 11. A root `README.md` export from an archive above the cut | size probe, tail, and one span for the root folder; output byte-identical to the complete path | `ConfiguredPayloadAcquisitionTests.PackageCommand_ReadmeExport_RealNewtonsoftArchive_ReadsTheRootFolderByRange`, real asset `Newtonsoft.Json` 13.0.4, whose README bytes equal the archive entry's; `PackageCommand_ReadmeExport_CompleteFallbackWritesTheSameBytes` takes the complete path and writes the same bytes |
-| 12. A `skills/<name>/SKILL.md` export | the root folder and that skill folder only, its subfolders included | `ConfiguredPayloadAcquisitionTests.PackageCommand_SkillExport_ReadsTheRootAndSkillFoldersOnly`, a boundary fixture modeled on the skill layout of `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 and padded above the cut, because that package is under it |
-| 13. The same export twice from a credential-free HTTP feed | the second makes no package request | case 11's gate: the second export reads the entry cache, and its transfer receipt has no request |
+| 11. A root `README.md` content request from an archive above the cut | size probe, tail, and one span for the root folder; every CLI projection matches the complete-acquisition path, file output is byte-identical and bounded-streamed, detached output above 16 MiB fails visibly; Browser/Wasm incrementally decodes the same ranged entry and a warm read makes no request | `ConfiguredPayloadAcquisitionTests.PackageCommand_ReadmeContent_RealNewtonsoftArchive_ReadsTheRootFolderByRange` and `BrowserEngineBoundaryTests.PackageDocument_RealNewtonsoftReadmeUsesRangeAndWarmEntryCache`, real asset `Newtonsoft.Json` 13.0.4; `PackageCommand_ReadmeExport_CompleteFallbackWritesTheSameBytes`; `PackageDocumentContentInspectionTests.EntryAboveDetachedLimitFailsBeforeOpeningContent` |
+| 12. A `skills/<name>/SKILL.md` content request | the root folder and that skill folder only, its subfolders included | `ConfiguredPayloadAcquisitionTests.PackageCommand_SkillExport_ReadsTheRootAndSkillFoldersOnly`, a boundary fixture modeled on the skill layout of `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 and padded above the cut, because that package is under it |
+| 13. The same content request twice from a credential-free HTTP feed | the second makes no package request | case 11's gate: the second request reads the entry cache, and its transfer receipt has no request |
 | 14. A named entry the directory does not list | a visible failure | `PackageRangedRealizationTests.DocumentDemand_UnlistedName_FailsVisibly` (House `NoMatch`, ranged and complete) and `ConfiguredPayloadAcquisitionTests.PackageCommand_SkillExport_MissingSkillFailsVisibly` |
 | 15. A pull read of a ranged entry that was not read | a visible refusal | `PackageRangedRealizationTests.DocumentDemand_PullReadOfAnUnreadEntry_IsAVisibleRefusal`, real asset `PCLStorage` 1.0.2: the first read, not the open, raises `PackageEntryNotMaterializedException` |
 | 16. A Metadata history over a large package with a `ref/` folder | each version cell reads only its surface folder; findings identical to the complete path | `ConfiguredPayloadAcquisitionTests.DiffHistory_MetadataCells_ReadOnlyTheSurfaceFolderByRange`, real assets `Avalonia` 11.3.14 and 12.1.2 for net8.0: every span starts in `ref/net8.0` and crosses other entries only within the 64 KiB merge gap, and the spans read every entry of that folder |
@@ -372,10 +379,12 @@ All gates run in Release.
    [package-backed platform source](package-backed-platform-realization.md)
    no longer reads every member's identity at realization. That change belongs
    to its owner.
-7. Document demand and pull reads over ranged content, adopted by the exact
-   `package --content --out` export of a root `README.md` or
-   `skills/**/SKILL.md` path. The Browser/Wasm document viewer keeps
-   complete `Acquire` until Inspect Web adopts ranged access.
+7. Document demand and pull reads over ranged content, adopted by exact
+   `package --content` requests for a root `README.md` or
+   `skills/**/SKILL.md` path, including separator, raw, JSONL, and `--out`
+   projections, and by the Browser/Wasm document viewer for root `README.md`
+   and `skills/**/*.md`. Other Inspect Web package operations retain their
+   existing acquisition paths.
 8. `diff --history` realizes each version cell with ranged access: Metadata
    cells with `Surface`, whose package Root prepares no implementation role,
    and Analysis cells with `SurfaceAndImplementation`. A history over the
