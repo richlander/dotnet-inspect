@@ -183,11 +183,8 @@ internal sealed class MethodRowGate
     internal const string IdentityWork = "IdentityWork";
     internal const string IdentityDecodeFailures = "IdentityDecodeFailures";
     internal const string AttributeTypeChain = "AttributeTypeChain";
-    internal const string StateMachineRelationships =
-        "StateMachineRelationships";
 
     readonly SignatureShapeWalker _signatures;
-    StateMachineRelationshipIndex? _stateMachines;
     readonly Dictionary<MethodRowClassifier, ClassifierCache> _classifiers = [];
     readonly Dictionary<(EntityHandle Constructor, MetadataTypeNameTarget Target), bool> _attributeConstructors = [];
     readonly Dictionary<(EntityHandle Type, MetadataTypeNameTarget Target), bool> _attributeTypes = [];
@@ -373,43 +370,6 @@ internal sealed class MethodRowGate
         Reader.StringComparer.StartsWith(_typeDefinition.Name, prefix);
 
     internal bool SignatureHasPointer() => _signatures.MethodHasPointer(_methodDefinition);
-
-    /// <summary>
-    /// The row's kickoff relationship. The index is built once per execution;
-    /// its global budget exhaustion aborts, and any other result, including a
-    /// per-row rejection, is returned for the reader to interpret.
-    /// </summary>
-    internal StateMachineRelationshipResult StateMachineByKickoff()
-        => StateMachines().GetByKickoff(_methodHandle);
-
-    /// <summary>
-    /// The row's state-machine implementation relationship under the same
-    /// execution-scoped index and failure policy as the kickoff relationship.
-    /// </summary>
-    internal StateMachineRelationshipResult StateMachineByImplementation()
-        => StateMachines().GetByImplementation(_methodHandle);
-
-    StateMachineRelationshipIndex StateMachines()
-    {
-        if (_stateMachines is null)
-        {
-            _stateMachines = StateMachineRelationshipIndex.Create(Reader);
-        }
-
-        if (_stateMachines.Relationships
-            is StateMachineRelationshipsResult.Rejected
-            {
-                Failure.Kind:
-                    StateMachineRelationshipFailureKind.BudgetExceeded,
-            })
-        {
-            Abort(
-                StateMachineRelationships,
-                "The state-machine relationship budget is exhausted.");
-        }
-
-        return _stateMachines;
-    }
 
     /// <summary>
     /// Whether one of the row's custom attributes has the target type,
