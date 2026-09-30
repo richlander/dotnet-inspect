@@ -105,6 +105,7 @@ internal static class NavigationWorkspaceSnapshotEquality
         && a.HasJsonStringEnumConverter == b.HasJsonStringEnumConverter
         && a.JsonConverterAttributeCount == b.JsonConverterAttributeCount
         && a.HasUnsupportedJsonWireAttributes == b.HasUnsupportedJsonWireAttributes
+        && a.JsonUnmappedMemberHandling == b.JsonUnmappedMemberHandling
         && a.JsonSerializableAttributeCount == b.JsonSerializableAttributeCount
         && Sequence(a.JsonSerializableRoots, b.JsonSerializableRoots)
         && a.JsonPropertyNamingPolicy == b.JsonPropertyNamingPolicy

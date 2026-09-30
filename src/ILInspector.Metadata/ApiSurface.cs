@@ -933,6 +933,10 @@ public class ApiType
     public bool HasUnsupportedJsonWireAttributes { get; set; }
 
     [JsonIgnore]
+    public JsonWireUnmappedMemberHandling JsonUnmappedMemberHandling
+        { get; set; }
+
+    [JsonIgnore]
     public ApiJsonPolymorphismEvidence? JsonPolymorphism { get; set; }
 
     [JsonIgnore]

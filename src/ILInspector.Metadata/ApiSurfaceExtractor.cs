@@ -1237,11 +1237,18 @@ public static partial class ApiSurfaceExtractor
                     reader,
                     jsonTypeAttributes,
                     observeDecodeWork);
+            apiType.JsonUnmappedMemberHandling =
+                AttributeReader.ReadJsonUnmappedMemberHandling(
+                    reader,
+                    jsonTypeAttributes,
+                    observeDecodeWork);
             apiType.HasUnsupportedJsonWireAttributes =
                 AttributeReader.HasUnsupportedJsonTypeWireAttributes(
                     reader,
                     jsonTypeAttributes,
-                    observeDecodeWork);
+                    observeDecodeWork)
+                || apiType.JsonUnmappedMemberHandling
+                    == JsonWireUnmappedMemberHandling.Unsupported;
             apiType.JsonPolymorphism =
                 AttributeReader.ReadJsonPolymorphism(
                     reader,

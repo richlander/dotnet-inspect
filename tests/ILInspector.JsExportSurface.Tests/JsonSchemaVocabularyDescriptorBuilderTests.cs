@@ -421,7 +421,10 @@ public sealed class JsonSchemaVocabularyDescriptorBuilderTests
             apiSurface.Types,
             candidate => candidate.Name
                 == nameof(StrictUnmappedInputFixture));
-        Assert.True(type.HasUnsupportedJsonWireAttributes);
+        Assert.False(type.HasUnsupportedJsonWireAttributes);
+        Assert.Equal(
+            JsonWireUnmappedMemberHandling.Disallow,
+            type.JsonUnmappedMemberHandling);
         ApiAssemblyIdentity assembly = Assert.IsType<
             ApiAssemblyIdentity>(apiSurface.AssemblyIdentity);
         var surface =
@@ -437,21 +440,25 @@ public sealed class JsonSchemaVocabularyDescriptorBuilderTests
             };
         VocabularySnapshot snapshot = CreateSnapshot();
 
-        JsonSchemaVocabularyException exception =
-            Assert.Throws<JsonSchemaVocabularyException>(() =>
-                JsonSchemaVocabularyDescriptorBuilder.Build(
-                    surface,
-                    JsonWireDeclarationPlan.Create(surface),
-                    new(
-                        new("strict-input"),
-                        JsonWireDirection.Deserialize,
-                        new JsonSchemaContractRoot.Object(type)),
-                    snapshot,
-                    snapshot.Identity));
+        JsonSchemaVocabularyDescriptor descriptor =
+            JsonSchemaVocabularyDescriptorBuilder.Build(
+                surface,
+                JsonWireDeclarationPlan.Create(surface),
+                new(
+                    new("strict-input"),
+                    JsonWireDirection.Deserialize,
+                    new JsonSchemaContractRoot.Object(type)),
+                snapshot,
+                snapshot.Identity);
 
-        Assert.Equal(
-            "wire-shaping attributes or inheritance are unsupported",
-            exception.Reason);
+        string definitionName =
+            descriptor.Schema.GetProperty("$ref")
+                .GetString()!["#/$defs/".Length..];
+        Assert.False(
+            descriptor.Schema.GetProperty("$defs")
+                .GetProperty(definitionName)
+                .GetProperty("additionalProperties")
+                .GetBoolean());
         Assert.Throws<JsonException>(() =>
             JsonSerializer.Deserialize(
                 """{"Name":"ok","unexpected":1}""",

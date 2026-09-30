@@ -537,6 +537,16 @@ public static class JsonSchemaVocabularyDescriptorBuilder
                     caseType,
                     "wire-shaping attributes are unsupported");
             }
+            if (_direction == JsonWireDirection.Deserialize
+                && (root.JsonUnmappedMemberHandling
+                        == JsonWireUnmappedMemberHandling.Disallow
+                    || caseType.JsonUnmappedMemberHandling
+                        == JsonWireUnmappedMemberHandling.Disallow))
+            {
+                throw Unsupported(
+                    caseType,
+                    "polymorphic unmapped-member handling is unsupported");
+            }
 
             IReadOnlyList<JsonWirePolymorphicMember> members;
             try
@@ -791,7 +801,9 @@ public static class JsonSchemaVocabularyDescriptorBuilder
                 ["type"] = "object",
                 ["properties"] = properties,
                 ["additionalProperties"] =
-                    _direction == JsonWireDirection.Deserialize,
+                    _direction == JsonWireDirection.Deserialize
+                    && type.JsonUnmappedMemberHandling
+                        != JsonWireUnmappedMemberHandling.Disallow,
             };
             if (required.Count > 0)
             {

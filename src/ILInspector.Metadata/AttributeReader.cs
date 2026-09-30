@@ -674,11 +674,58 @@ public static partial class AttributeReader
         || HasUnsupportedJsonObjectCreationHandlingAttribute(
             reader,
             attributes,
-            beforeMaterialize)
-        || HasUnsupportedJsonUnmappedMemberHandlingAttribute(
-            reader,
-            attributes,
             beforeMaterialize);
+
+    public static JsonWireUnmappedMemberHandling
+        ReadJsonUnmappedMemberHandling(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+    {
+        bool found = false;
+        JsonWireUnmappedMemberHandling result =
+            JsonWireUnmappedMemberHandling.Skip;
+        foreach (CustomAttributeHandle attrHandle in attributes)
+        {
+            CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
+            if (!IsFrameworkAttributeType(
+                    reader,
+                    attr.Constructor,
+                    JsonUnmappedMemberHandlingAttributeName,
+                    SystemTextJsonAssemblyName,
+                    beforeMaterialize))
+            {
+                continue;
+            }
+
+            if (found
+                || !HasExpectedConstructor(
+                    reader,
+                    attr.Constructor,
+                    FrameworkConstructorKind.JsonUnmappedMemberHandling,
+                    beforeMaterialize)
+                || AttributeDecoder.TryDecode(
+                    reader,
+                    attr,
+                    beforeMaterialize,
+                    JsonSourceGenerationExternalEnumUnderlyingTypes) is not
+                    {
+                        FixedArguments: [var handling],
+                        NamedArguments.Length: 0,
+                    }
+                || !TryReadInt32(handling.Value, out int rawValue)
+                || rawValue is not 0 and not 1)
+            {
+                return JsonWireUnmappedMemberHandling.Unsupported;
+            }
+
+            found = true;
+            result = rawValue == 1
+                ? JsonWireUnmappedMemberHandling.Disallow
+                : JsonWireUnmappedMemberHandling.Skip;
+        }
+        return result;
+    }
 
     public static bool HasUnsupportedJsonMemberWireAttributes(
         MetadataReader reader,
@@ -2782,17 +2829,6 @@ public static partial class AttributeReader
             attributes,
             JsonObjectCreationHandlingAttributeName,
             FrameworkConstructorKind.JsonObjectCreationHandling,
-            beforeMaterialize);
-
-    static bool HasUnsupportedJsonUnmappedMemberHandlingAttribute(
-        MetadataReader reader,
-        CustomAttributeHandleCollection attributes,
-        Action<int>? beforeMaterialize)
-        => HasUnsupportedJsonEnumAttribute(
-            reader,
-            attributes,
-            JsonUnmappedMemberHandlingAttributeName,
-            FrameworkConstructorKind.JsonUnmappedMemberHandling,
             beforeMaterialize);
 
     static bool HasUnsupportedJsonEnumAttribute(
