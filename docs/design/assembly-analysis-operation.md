@@ -294,8 +294,10 @@ The first implementation adoption supplies these Release gates:
 - `AssemblyAnalysisService_PreservesProducerOutcomes`
 - `AssemblyAnalysisExecution_ContainsNoLiveSubjectAuthority`
 - `AssemblyAnalysisService_SequentialReferenceMatchesInterimExecutor`
-- `AssemblyAnalysisService_MixedLegacyAndMigratedProducersUseOneSourcePlan`
 - `AssemblyAnalysisOperation_PreservesOwnerIssuedSourceKinds`
+
+The slice that introduces the legacy-remainder declaration supplies
+`AssemblyAnalysisService_MixedLegacyAndMigratedProducersUseOneSourcePlan`.
 
 The first production slice also keeps the existing CLI and Browser/Wasm
 consumer canaries green. A test harness alone is not adoption.
