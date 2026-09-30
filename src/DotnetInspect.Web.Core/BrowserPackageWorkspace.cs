@@ -696,12 +696,12 @@ internal static class BrowserPackageWorkspace
             string.IsNullOrWhiteSpace(targetFramework)
                 ? PackageHouseTargetContext.OwnerDefault()
                 : PackageHouseTargetContext.Exact(targetFramework);
-        TimeSpan operationTimeout =
+        TimeSpan remaining =
             SourceSettlementOperationTimeout(deadline.Remaining);
         var operation = PackageHouseOperation.Create(
             PackageHouseOperationProfile.Realize,
-            requestTimeout: operationTimeout,
-            operationTimeout: operationTimeout);
+            requestTimeout: remaining,
+            operationTimeout: remaining);
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Exact(settled.Result.Coordinate),
             operation,
@@ -1317,27 +1317,52 @@ internal static class BrowserPackageWorkspace
             string assemblyIdOrName,
             string documentationId,
             CancellationToken cancellationToken = default) =>
+        QueryMemberDocumentationAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyIdOrName,
+            documentationId,
+            Gallery,
+            PackageOperationTimeout,
+            cancellationToken);
+
+    internal static Task<DocumentationQueryOutcome>
+        QueryMemberDocumentationAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyIdOrName,
+            string documentationId,
+            IPackageSourceClient source,
+            TimeSpan operationTimeout,
+            CancellationToken cancellationToken,
+            BrowserSessionPackageStore? packageStore = null) =>
         RunPackageOperationAsync(
             async deadline =>
             {
-                IPackageSourceClient source = Gallery;
+                ArgumentNullException.ThrowIfNull(source);
                 IPackageSourceAuthorization authorization =
                     SourceAuthorizationFor(source);
+                BrowserSessionPackageStore store =
+                    packageStore ?? StoreFor(source);
                 TimeSpan operationTimeout =
                     SourceSettlementOperationTimeout(deadline.Remaining);
                 var operation = PackageHouseOperation.Create(
                     PackageHouseOperationProfile.Realize,
                     requestTimeout: operationTimeout,
                     operationTimeout: operationTimeout);
-                var request = new PackageHouseRequest(
+                var request = new PackageLibraryRealizationRequest(
                     new PackageHouseDemand.Exact(
                         PackageSourceCoordinate.Create(
                             packageId,
                             version)),
+                    targetFramework,
+                    new PackageLibrarySelector(assemblyIdOrName),
+                    PackageLibraryRealizationDepth.Implementation,
                     operation,
-                    PackageHouseTargetContext.Exact(targetFramework),
-                    PackageHouseAssetSelectionKind.Compile,
-                    PackageHouseLibraryHandoffMode.SelectedLibraries);
+                    PackageHouseLibraryCompanionDemand
+                        .ImplementationPortablePdb);
                 await using PackageSourceSettlementLease sourceLease =
                     PackageSourceSettlementService.IssueLease(
                         authority =>
@@ -1347,68 +1372,52 @@ internal static class BrowserPackageWorkspace
                                 ? source
                                 : throw new InvalidOperationException(
                                     "The package settlement requested another configured source."));
-                PackageSourceOperationLease sourceOperation =
+                using PackageSourceOperationLease sourceOperation =
                     sourceLease.IssueOperationLease(
                         deadline.Token,
                         operation.RequestTimeout,
                         operation.OperationTimeout);
-                var house = new PackageHouse(
-                    authorization,
-                    new PackagePayloadAcquisitionPlan(
+                PackageLibraryRealizationResult library =
+                    await PackageLibraryRealization.ExecuteAsync(
+                        request,
+                        authorization,
+                        new PackageLibraryRealizationPlan(
                         (authority, _) =>
                             ReferenceEquals(
                                 authority.Association,
                                 source.Source.Association)
-                                ? StoreFor(source)
+                                ? store
                                 : throw new InvalidOperationException(
                                     "The package payload requested another configured source."),
                         PackageLimits,
                         new BrowserPackageOperationTransferPolicy(
-                            PackageTransferPolicy,
-                            deadline)));
-                PackageHouseSettlement settlement =
-                    await house.ExecuteAsync(
-                            request,
-                            sourceOperation)
+                            store,
+                            deadline)),
+                        sourceOperation)
                         .ConfigureAwait(false);
-                if (settlement is not PackageHouseSettlement.Acquired acquired
-                    || settlement.Result
-                        is not PackageHouseResult.Settled
-                    || settlement.Result.Evidence.Realization
-                        is not PackageHouseRealizationReceipt.Compile realization)
+                if (library
+                    is not PackageLibraryRealizationResult.Realized realized)
                 {
                     throw new InvalidOperationException(
-                        $"PackageHouse could not realize {packageId} {version} "
-                            + $"for {targetFramework}: "
-                            + DescribePackageHouseResult(settlement.Result));
+                        library.Status
+                        is PackageLibraryRealizationStatus.Missing
+                            or PackageLibraryRealizationStatus.Ambiguous
+                        ? $"'{assemblyIdOrName}' did not select exactly "
+                            + $"one compile Library of {packageId} "
+                            + $"{version} ({library.Status})."
+                        : $"PackageHouse could not realize {packageId} "
+                            + $"{version} for {targetFramework}: "
+                            + DescribePackageHouseResult(
+                                library.Settlement.Result));
                 }
-
-                PackageCompileAsset? asset =
-                    realization.Selection.FindAsset(assemblyIdOrName)
-                    ?? realization.Selection.Assets.FirstOrDefault(
-                        candidate =>
-                            BrowserPackageCoordinate.MatchesAssembly(
-                                candidate,
-                                assemblyIdOrName));
-                if (asset is null)
-                {
-                    throw new InvalidOperationException(
-                        $"'{assemblyIdOrName}' is not a selected compile assembly of "
-                            + $"{packageId} {version}.");
-                }
-                PackageHouseLibraryHandoff.Compile handoff =
-                    realization.LibraryHandoffs
-                        .OfType<PackageHouseLibraryHandoff.Compile>()
-                        .Single(candidate =>
-                            ReferenceEquals(candidate.Asset, asset));
                 return await BrowserPackageDocumentationQuery.ExecuteAsync(
-                        acquired,
-                        handoff,
+                        realized.Acquired,
+                        realized.Handoff,
                         documentationId,
                         deadline.Token)
                     .ConfigureAwait(false);
             },
-            PackageOperationTimeout,
+            operationTimeout,
             cancellationToken);
 
     private static string DescribePackageHouseResult(

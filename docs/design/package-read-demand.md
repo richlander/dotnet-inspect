@@ -244,6 +244,59 @@ existing ranged plan exactly. An unnamed implementation realization already
 reads the implementation folder whole, so a listed adjacent PDB is already
 retained without an additional exact entry.
 
+### Exact Library realization
+
+A host that needs one exact selected package Library calls
+`PackageLibraryRealization`. Its request names one exact or version-selecting
+package demand, target framework, Library selector, required depth, optional
+selected-Library companion demand, and `Realize` operation. Its plan contains
+the host-provided authority-scoped store, limits, transfer policy, diagnostics,
+and ranged size cut.
+
+The operation:
+
+1. creates one compile `Realize` request with selected-Library handoffs;
+2. uses `SurfaceAndImplementation` without a named implementation for
+   selection-depth work, or adds one named implementation for
+   implementation-depth work;
+3. executes cache-first, size-first ranged realization;
+4. resolves exactly one selector-issued compile handoff while preserving its
+   PackageHouse settlement and content generation; and
+5. returns typed realized, unsettled, unrealized, missing, or ambiguous status.
+
+Selectors are typed as an opaque compile asset ID, an exact package-relative
+asset path, or a query. Query selection first honors an exact asset ID, then
+matches a qualified path against the API or implementation asset, or an
+unqualified assembly name against either role. Zero and several matches remain
+visible typed outcomes; the operation never chooses another Library.
+
+Implementation depth derives one file name before acquisition so named
+implementation demand reaches the ranged read. Selection depth preserves the
+selector-issued API-to-implementation correspondence and therefore retains the
+selected implementation set; it also permits a reference-only Library with no
+implementation counterpart. Portable PDB companion demand requires
+implementation depth and remains optional as described above.
+
+Hosts bind package-source authorization, stores, deadlines, cancellation, and
+the consumer operation. They do not independently assemble the House request,
+choose asset demand, derive named implementation demand, execute realization,
+or resolve one handoff.
+
+Three production consumers adopt this operation:
+
+- package-backed CLI `library address` uses implementation depth and requests
+  a Portable PDB only for source-location evidence;
+- CLI package documentation enrichment uses selection depth for compiled XML
+  and implementation depth plus Portable PDB demand when authored-source
+  documentation is authorized; and
+- Browser/Wasm member documentation uses implementation plus Portable PDB
+  demand with its Cache Storage-backed package-entry store.
+
+Package-wide Browser Root realization remains package-shaped and does not use
+this operation. Existing inspections that already consume one owner-issued
+exact Library occurrence also remain downstream of realization rather than
+reacquiring the package.
+
 ### Exact file demand
 
 A consumer that needs package files rather than assets names them directly:
@@ -330,6 +383,8 @@ vocabularies:
 | `find` member search, `implements`, `extensions`, `depends`, with one `--package ID@VERSION` and `--tfm` | `Surface` | ranged, size first |
 | `library address` with one exact package Library and non-JSON output | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB when source location is selected | ranged, size first |
 | `library address --json` | `SurfaceAndImplementation` plus the established complete Library JSON metadata | complete |
+| CLI package documentation for one exact Library | `SurfaceAndImplementation`; one named implementation and a listed adjacent Portable PDB are added for authored source | ranged, size first |
+| Browser member documentation for one exact Library | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB | ranged, size first |
 | `type`, `member`, and other `library` operations | `SurfaceAndImplementation` | complete |
 | `graph` | `SurfaceAndImplementation` | complete |
 | `package` | the whole archive | complete |
@@ -372,6 +427,9 @@ All gates run in Release.
 | 22. CLI Address selects an exact Library from a pinned or latest configured package | both version policies use PackageHouse and render the same Member context | `ConfiguredPayloadAcquisitionTests.LibraryAddressCommand_ConfiguredPackageUsesHouseSelection` |
 | 23. CLI Address selects an exact Library from a local archive and requests source location | the exact archive is admitted by its embedded identity and the adjacent Portable PDB supplies source evidence | `CommandExecutionTests.LibraryAddressCommand_PackageSourceLocationUsesAdjacentPortablePdb` |
 | 24. A local archive lacks embedded package identity | exact-source admission fails visibly before Address inspection | `CommandExecutionTests.LibraryAddressCommand_LocalArchiveRequiresEmbeddedPackageIdentity` |
+| 25. One high-level exact-Library request is cold, warm, or missing | cold execution uses ranged acquisition, warm execution uses the entry cache without a package request, and a missing selector is a typed result | `PackageRangedRealizationTests.PackageLibraryRealization_ColdWarmAndMissing_AreOrchestrated`, real asset `PCLStorage` 1.0.2 |
+| 26. Exact-Library depth and selection are pathological | implementation depth reads fewer implementation entries than selection depth, while an ambiguous query remains a typed result | `PackageRangedRealizationTests.PackageLibraryRealization_DepthReachesRangedAcquisition` and `PackageLibraryRealization_QueryAmbiguityIsTyped`, real asset `Avalonia` 12.1.2 plus an ambiguity fixture |
+| 27. Browser member documentation reads one implementation and its PDB from an archive above the cut | cold execution uses ranges and skips an unrelated 2 MiB implementation plus 2 MiB padding; after store recreation, the same authored documentation makes no package request | `BrowserEngineBoundaryTests.QueryMemberDocumentation_UsesRangeAndWarmEntryCache` |
 
 ## Adoption
 
@@ -384,29 +442,33 @@ All gates run in Release.
    handoffs, and source-sensitive companion demand for non-JSON output. JSON
    retains the complete path until the shared Address result owns its existing
    Library metadata schema.
-4. `type`, `member`, and the remaining `library` operations adopt ranged
+4. Exact Library realization centralizes House request construction, one
+   handoff selection, and typed failure for CLI Address, CLI package
+   documentation, and Browser member documentation. Documentation selects
+   selection or implementation depth from its authored-source demand.
+5. `type`, `member`, and the remaining `library` operations adopt ranged
    access, naming the assemblies that define what they inspect and reusing the
    folders a surface search cached.
-5. `graph` adopts ranged access with `SurfaceAndImplementation`.
-6. Runtime packs are realized with named implementation demand once the
+6. `graph` adopts ranged access with `SurfaceAndImplementation`.
+7. Runtime packs are realized with named implementation demand once the
    [package-backed platform source](package-backed-platform-realization.md)
    no longer reads every member's identity at realization. That change belongs
    to its owner.
-7. File demand and pull reads over ranged content, composed by
+8. File demand and pull reads over ranged content, composed by
    `PackageFileAcquisition`. Exact `package --content` requests for a root
    `README.md` or `skills/**/SKILL.md` path call its desktop adapter, including
    separator, raw, JSONL, and `--out` projections. The Browser/Wasm document
    viewer calls the same operation for root `README.md`, root `PACKAGE.md`, and
    `skills/**/*.md`. Other Inspect Web package operations retain their existing
    acquisition paths.
-8. `diff --history` realizes each version cell with ranged access: Metadata
+9. `diff --history` realizes each version cell with ranged access: Metadata
    cells with `Surface`, whose package Root prepares no implementation role,
    and Analysis cells with `SurfaceAndImplementation`. A history over the
    versions of a large package then reads each version's surface folder, or
    its surface and implementation folders, instead of its whole archive, and
    a repeated history reads nothing it already holds.
 
-`package` keeps complete acquisition, except its document export (step 7).
+`package` keeps complete acquisition, except its document export (step 8).
 
 ## Non-claims
 

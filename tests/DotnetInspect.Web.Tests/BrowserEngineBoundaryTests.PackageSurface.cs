@@ -613,6 +613,94 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task
+        QueryMemberDocumentation_UsesRangeAndWarmEntryCache()
+    {
+        string packageId =
+            $"Browser.Documentation.Ranged.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        const string assemblyName = "CSharpText.MemberSlicing.dll";
+        const string documentationId =
+            "M:CSharpText.MemberSlicing.MemberTextSlicer.ExtractMemberText"
+            + "(System.String,System.Int32,System.Int32,System.String,"
+            + "System.Collections.Generic.IReadOnlyList{System.Int32})";
+        string assemblyPath = typeof(MemberTextSlicer).Assembly.Location;
+        byte[] packageBytes = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                $"""
+                 <package>
+                   <metadata>
+                     <id>{packageId}</id>
+                     <version>{version}</version>
+                     <authors>Tests</authors>
+                     <description>Ranged browser documentation.</description>
+                   </metadata>
+                 </package>
+                 """)),
+            ($"ref/net11.0/{assemblyName}",
+                File.ReadAllBytes(assemblyPath)),
+            ($"lib/net11.0/{assemblyName}",
+                File.ReadAllBytes(assemblyPath)),
+            ("lib/net11.0/CSharpText.MemberSlicing.pdb",
+                File.ReadAllBytes(
+                    Path.ChangeExtension(assemblyPath, ".pdb"))),
+            ("lib/net11.0/Unrelated.dll", new byte[2 * MiB]),
+            ("content/padding.bin", new byte[2 * MiB]));
+        Assert.True(packageBytes.Length > 4 * MiB);
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            packageBytes);
+        using IPackageSourceClient source = Gallery(handler);
+        var persistence = new MemoryPackageEntryPersistence();
+        var store = new BrowserPackageWorkspace.BrowserSessionPackageStore(
+            source,
+            persistence);
+
+        Task<DocumentationQueryOutcome> Read(
+            BrowserPackageWorkspace.BrowserSessionPackageStore packageStore) =>
+            BrowserPackageWorkspace.QueryMemberDocumentationAsync(
+                packageId,
+                version,
+                "net11.0",
+                assemblyName,
+                documentationId,
+                source,
+                TimeSpan.FromSeconds(10),
+                TestContext.Current.CancellationToken,
+                packageStore);
+
+        DocumentationQueryOutcome first = await Read(store);
+        int requests = handler.Requested.Count;
+        var recreatedStore =
+            new BrowserPackageWorkspace.BrowserSessionPackageStore(
+                source,
+                persistence);
+        DocumentationQueryOutcome second = await Read(recreatedStore);
+
+        foreach (DocumentationQueryOutcome outcome in new[] { first, second })
+        {
+            var completed =
+                Assert.IsType<DocumentationQueryOutcome.Completed>(
+                    outcome);
+            var authored =
+                Assert.IsType<AuthoredDocumentationOutcome.Available>(
+                    completed.AuthoredSource);
+            Assert.Contains(
+                "Locates the declaration",
+                authored.Documentation.Summary,
+                StringComparison.Ordinal);
+        }
+        Assert.Equal(requests, handler.Requested.Count);
+        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.True(handler.RangedPackageResponses > 0);
+        Assert.True(
+            handler.PackageBytesServed < 512 * 1024,
+            $"served {handler.PackageBytesServed} of "
+                + $"{packageBytes.Length} package bytes");
+    }
+
+    [Fact]
     public void UnconstrainedDependencyNavigation_SelectsLatestStableVersion()
     {
         Assert.Equal(
