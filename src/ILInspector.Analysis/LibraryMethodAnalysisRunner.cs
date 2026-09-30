@@ -980,7 +980,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             }
             var il = metadataBody.IL.ToArray();
             if (plan.ImplementationMetrics
-                    is { IncludesHeaderEvidence: true } metricPlan
+                    is { IncludesHeaderMetrics: true } metricPlan
                 && metricBodyAdmitted)
             {
                 result.ImplementationMetrics =
@@ -1001,7 +1001,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     scope);
             localDecode?.Complete();
             if (plan.ImplementationMetrics
-                    is { IncludesLocalEvidence: true }
+                    is { IncludesLocalMetric: true }
                 && metricBodyAdmitted)
             {
                 result.ImplementationMetrics =
@@ -1033,11 +1033,11 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             bool measureInstructionShape =
                 includeImplementationProfiles
                 || implementationMetricPlan
-                    ?.IncludesInstructionShapeEvidence == true;
+                    ?.IncludesInstructionShapeMetric == true;
             bool measureControlFlow =
                 includeImplementationProfiles
                 || implementationMetricPlan
-                    ?.IncludesControlFlowEvidence == true;
+                    ?.IncludesControlFlowMetric == true;
             MethodImplementationContextMeasurements?
                 contextMeasurements = null;
             if (metricBodyAdmitted
@@ -1052,7 +1052,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                             measureControlFlow);
             }
             if (implementationMetricPlan
-                    is { IncludesFocusedContextEvidence: true }
+                    is { IncludesFocusedContextMetrics: true }
                 && contextMeasurements is { } focusedMeasurements
                 && metricBodyAdmitted)
             {
@@ -1156,11 +1156,11 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 && !collectOwnershipDerivedOpportunities;
             try
             {
-                bool publishDirectCallMetrics =
+                bool collectDirectCallFacts =
                     implementationMetricPlan
-                        ?.IncludesDirectCallEvidence == true
+                        ?.RequiresDirectCallFacts == true
                     && metricBodyAdmitted;
-                if (publishDirectCallMetrics)
+                if (collectDirectCallFacts)
                 {
                     result.ImplementationMetrics =
                         MarkDirectCallCollection(
@@ -1200,7 +1200,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     qualifyExceptionType: localExceptionTypes is null
                         ? null : localExceptionTypes.Qualify);
                 directCallCollection?.Complete();
-                if (publishDirectCallMetrics)
+                if (collectDirectCallFacts)
                 {
                     result.ImplementationMetrics =
                         MarkDirectCallCollection(
@@ -1593,7 +1593,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             _implementationMetricWork?.AdmitMetricBody(
                 caller.MetadataToken,
                 metadataBody.IL.Length);
-            if (metricPlan.IncludesHeaderEvidence)
+            if (metricPlan.IncludesHeaderMetrics)
             {
                 result.ImplementationMetrics =
                     CreateHeaderMetrics(
@@ -1637,7 +1637,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                             result.DeclaredSource?.DeclaringType);
                 return result;
             }
-            if (metricPlan.IncludesLocalEvidence)
+            if (metricPlan.IncludesLocalMetric)
             {
                 result.ImplementationMetrics =
                     CreateLocalMetrics(
@@ -1684,7 +1684,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 }
             }
             if (context is not null
-                && metricPlan.IncludesFocusedContextEvidence)
+                && metricPlan.IncludesFocusedContextMetrics)
             {
                 try
                 {
@@ -1693,9 +1693,9 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                             .MeasureContext(
                                 context,
                                 metricPlan
-                                    .IncludesInstructionShapeEvidence,
+                                    .IncludesInstructionShapeMetric,
                                 metricPlan
-                                    .IncludesControlFlowEvidence);
+                                    .IncludesControlFlowMetric);
                     result.ImplementationMetrics =
                         CreateContextMetrics(
                             result.ImplementationMetrics,
@@ -1722,7 +1722,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 }
             }
             if (context is not null
-                && metricPlan.IncludesDirectCallEvidence)
+                && metricPlan.RequiresDirectCallFacts)
             {
                 var calls =
                     ImmutableArray.CreateBuilder<DirectCall>();
@@ -1810,8 +1810,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
     {
         ImplementationMetricExceptionRegionCounts?
             exceptionRegions = null;
-        if (plan.EffectiveEvidence.HasFlag(
-                ImplementationMetricEvidenceKind
+        if (plan.RequestedMetrics.HasFlag(
+                ImplementationMetricKind
                     .ExceptionRegions))
         {
             int catches = 0;
@@ -1847,8 +1847,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
         return new(
             method,
             evidenceMethod,
-            plan.EffectiveEvidence.HasFlag(
-                ImplementationMetricEvidenceKind.BodySize)
+            plan.RequestedMetrics.HasFlag(
+                ImplementationMetricKind.BodySize)
                 ? body.IL.Length
                 : null,
             exceptionRegions,
