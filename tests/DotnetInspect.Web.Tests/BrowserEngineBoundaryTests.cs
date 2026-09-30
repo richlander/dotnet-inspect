@@ -576,11 +576,59 @@ public sealed partial class BrowserEngineBoundaryTests
                 ZipArchiveMode.Create,
                 leaveOpen: true))
         {
+            string prefix =
+                $"runtimes/linux-x64/lib/{framework}/";
+            string target =
+                $".NETCoreApp,Version=v{framework["net".Length..]}/linux-x64";
+            string runtimeAssets = string.Join(
+                ",",
+                assemblies.Select(assembly =>
+                    JsonSerializer.Serialize(assembly.Name) + ":{}"));
+            string dependencyManifest =
+                $$"""
+                  {
+                    "runtimeTarget":{"name":"{{target}}"},
+                    "targets":{
+                      "{{target}}":{
+                        "Fixture/1.0.0":{
+                          "runtime":{ {{runtimeAssets}} }
+                        }
+                      }
+                    }
+                  }
+                  """;
+            foreach (string platform in
+                new[]
+                {
+                    "Microsoft.NETCore.App",
+                    "Microsoft.AspNetCore.App",
+                })
+            {
+                using (Stream runtimeConfiguration = archive
+                    .CreateEntry(
+                        prefix + platform + ".runtimeconfig.json",
+                        CompressionLevel.NoCompression)
+                    .Open())
+                {
+                    runtimeConfiguration.Write(
+                        """{"runtimeOptions":{}}"""u8);
+                }
+
+                using Stream dependencies = archive
+                    .CreateEntry(
+                        prefix + platform + ".deps.json",
+                        CompressionLevel.NoCompression)
+                    .Open();
+                dependencies.Write(
+                    System.Text.Encoding.UTF8.GetBytes(
+                        dependencyManifest));
+            }
+
             foreach ((string name, byte[] bytes) in assemblies)
             {
                 using Stream entry = archive
                     .CreateEntry(
-                        $"runtimes/linux-x64/lib/{framework}/{name}",
+                        prefix + name,
                         CompressionLevel.NoCompression)
                     .Open();
                 entry.Write(bytes);

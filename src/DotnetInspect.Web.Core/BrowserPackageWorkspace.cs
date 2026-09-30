@@ -295,6 +295,8 @@ internal static class BrowserPackageWorkspace
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
         SourceAuthorizationFor(Gallery);
     internal static IPackageStore SessionPackageStore => Store;
+    internal static BrowserSessionPackageStore PackageStoreFor(
+        IPackageSourceClient source) => StoreFor(source);
     internal static IPackagePayloadTransferPolicy PackageTransferPolicy =>
         Store;
     internal static PackagePayloadLimits PackageLimits => PayloadLimits;
@@ -1130,7 +1132,7 @@ internal static class BrowserPackageWorkspace
             "The package source association is not registered with a configured Browser source identity.");
     }
 
-    static IPackageSourceAuthorization SourceAuthorizationFor(
+    internal static IPackageSourceAuthorization SourceAuthorizationFor(
         IPackageSourceClient source)
     {
         if (SourceAuthorizations.TryGetValue(
@@ -2600,18 +2602,27 @@ internal static class BrowserPackageWorkspace
         };
     }
 
-    static bool MatchesGalleryProducer(string requiredProducer) =>
-        Gallery.Source.Producer.PortableKey.Equals(
+    internal static bool MatchesConfiguredProducer(
+        IPackageSourceClient source,
+        string configuredSourceUrl,
+        string requiredProducer) =>
+        source.Source.Producer.PortableKey.Equals(
             requiredProducer,
             StringComparison.Ordinal)
-        || Gallery.Source.Producer.Key.Equals(
+        || source.Source.Producer.Key.Equals(
             requiredProducer,
             StringComparison.Ordinal)
         || NuGetCache.GetSourceKey(
-                PackageSource.NuGetOrg.Url)
+                configuredSourceUrl)
             .Equals(
                 requiredProducer,
                 StringComparison.Ordinal);
+
+    static bool MatchesGalleryProducer(string requiredProducer) =>
+        MatchesConfiguredProducer(
+            Gallery,
+            PackageSource.NuGetOrg.Url,
+            requiredProducer);
 
     static void ObserveAndRemovePendingAcquisition(
         PendingAcquisitionKey key,
