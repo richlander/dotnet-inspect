@@ -727,6 +727,21 @@ public sealed class PackageHouse
                         acquiredEntryPaths)
                     ?? request.FileDemand?.Unmatched(acquiredEntryPaths)
                     ?? [];
+                PackageHouseFileList? fileList = null;
+                bool fileListUnavailable = false;
+                if (request.ContentQuery?.FileListTerminal is not null)
+                {
+                    if (payload.Content
+                        is IPackageContentEntryManifest manifest)
+                    {
+                        fileList = new PackageHouseFileList(
+                            manifest.EnumerateEntriesWithLengths());
+                    }
+                    else
+                    {
+                        fileListUnavailable = true;
+                    }
+                }
                 if (request.ContentQuery is { } contentQuery)
                 {
                     payloadResult = ProjectSemanticContent(
@@ -745,6 +760,27 @@ public sealed class PackageHouse
                     payload.Origin,
                     payload.Content.GenerationIdentity,
                     payloadResult.Transfer!);
+                if (fileListUnavailable)
+                {
+                    InertString reason = Reason(
+                        "The acquired package does not expose a validated entry manifest for the requested File List.");
+                    failures.Add(
+                        new PackageHouseFailure.Stage(
+                            PackageHouseFailureStage.Selection,
+                            reason));
+                    PackageHouseEvidence evidence = new(
+                        request,
+                        decision,
+                        acquisition,
+                        failures: failures);
+                    return new PackageHouseSettlement.Acquired(
+                        new PackageHouseResult.Failed(
+                            evidence,
+                            reason),
+                        payload,
+                        payloadResult,
+                        selectionUsesOriginalSources);
+                }
                 if (unmatchedFiles is [_, ..])
                 {
                     // A named file the archive does not list is a
@@ -767,7 +803,8 @@ public sealed class PackageHouse
                                 request,
                                 decision,
                                 acquisition,
-                                failures: failures),
+                                failures: failures,
+                                fileList: fileList),
                             reason),
                         payload,
                         payloadResult,
@@ -781,7 +818,8 @@ public sealed class PackageHouse
                         request,
                         decision,
                         acquisition,
-                        failures: failures);
+                        failures: failures,
+                        fileList: fileList);
                     return new PackageHouseSettlement.Acquired(
                         new PackageHouseResult.Settled(
                             acquiredEvidence),
@@ -1419,11 +1457,12 @@ public sealed class PackageHouse
         string packageId,
         IPackageContent directory)
     {
-        if (request.ContentQuery?.FilesTerminal is { } semanticFiles)
+        if (request.ContentQuery is { } contentQuery)
         {
             return new PackageRangedSelection(
-                semanticFiles.Select(
-                    [.. directory.EnumerateEntries()]));
+                contentQuery.FilesTerminal?.Select(
+                    [.. directory.EnumerateEntries()])
+                ?? []);
         }
         if (request.FileDemand is { } legacyFiles)
         {
@@ -1479,7 +1518,14 @@ public sealed class PackageHouse
         if (!payloadAcquisition.HouseOwnsAccess)
             return payloadAcquisition.Access;
 
-        return request.ContentQuery?.FilesTerminal is not null
+        return request.ContentQuery is
+            {
+                FilesTerminal: not null
+            }
+            or
+            {
+                FileListTerminal: not null
+            }
             ? PackagePayloadAccess.Ranged
             : throw new NotSupportedException(
                 "PackageHouse does not yet support the requested semantic content terminals.");
@@ -1495,12 +1541,9 @@ public sealed class PackageHouse
             ?? throw new ArgumentException(
                 "Semantic content projection requires an acquired payload.",
                 nameof(payloadResult));
-        PackageHouseContentTerminal.Files files =
-            query.FilesTerminal
-            ?? throw new NotSupportedException(
-                "PackageHouse does not yet support the requested semantic content terminals.");
         IReadOnlyList<string> selected =
-            files.Select(acquiredEntryPaths);
+            query.FilesTerminal?.Select(acquiredEntryPaths)
+            ?? [];
         IPackageContent content = SelectedPackageContent.Create(
             payload.Content,
             selected);

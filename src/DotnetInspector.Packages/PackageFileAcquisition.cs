@@ -52,7 +52,8 @@ public sealed class PackageFileAcquisitionRequest
                 nameof(operation));
         }
         Coordinate = coordinate;
-        ContentQuery = PackageHouseContentQuery.PackageFiles([path]);
+        ContentQuery =
+            PackageHouseContentQuery.PackageFilesWithFileList([path]);
         Path = ContentQuery.FilesTerminal!.Entries.Single();
         Operation = operation;
     }
@@ -101,12 +102,18 @@ public abstract class PackageFileAcquisitionResult
             : base(PackageFileAcquisitionStatus.Acquired, settlement)
         {
             Entry = entry;
+            FileList = settlement.Result.Evidence.FileList
+                ?? throw new ArgumentException(
+                    "Exact package-file acquisition requires File List evidence.",
+                    nameof(settlement));
         }
 
         public new PackageHouseSettlement.Acquired Settlement =>
             (PackageHouseSettlement.Acquired)base.Settlement;
 
         public PackageContentEntry Entry { get; }
+
+        public PackageHouseFileList FileList { get; }
 
         public PackageHousePayloadRead OpenRead() =>
             Settlement.OpenPayloadRead(

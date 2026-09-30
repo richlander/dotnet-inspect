@@ -92,6 +92,31 @@ public abstract class PackageHouseContentTerminal
 
         public override string ToString() => string.Join(", ", Entries);
     }
+
+    /// <summary>
+    /// The complete validated archive entry inventory without expanding
+    /// additional entry content.
+    /// </summary>
+    public sealed class FileList : PackageHouseContentTerminal
+    {
+    }
+}
+
+/// <summary>
+/// The complete validated physical entry inventory returned by a File List
+/// terminal.
+/// </summary>
+public sealed class PackageHouseFileList
+{
+    internal PackageHouseFileList(
+        IReadOnlyList<PackageContentEntry> entries)
+    {
+        Entries = entries
+            ?? throw new ArgumentNullException(nameof(entries));
+    }
+
+    /// <summary>Every package entry, in archive-directory order.</summary>
+    public IReadOnlyList<PackageContentEntry> Entries { get; }
 }
 
 /// <summary>
@@ -133,6 +158,9 @@ public sealed class PackageHouseContentQuery
         FilesTerminal = values
             .OfType<PackageHouseContentTerminal.Files>()
             .SingleOrDefault();
+        FileListTerminal = values
+            .OfType<PackageHouseContentTerminal.FileList>()
+            .SingleOrDefault();
     }
 
     /// <summary>The package-entry space shared by every terminal.</summary>
@@ -143,10 +171,25 @@ public sealed class PackageHouseContentQuery
 
     internal PackageHouseContentTerminal.Files? FilesTerminal { get; }
 
+    internal PackageHouseContentTerminal.FileList? FileListTerminal { get; }
+
     /// <summary>Creates a package-wide exact Files query.</summary>
     public static PackageHouseContentQuery PackageFiles(
         IEnumerable<string> entries) =>
         new(
             new PackageHouseContentNarrowing.PackageWide(),
             [new PackageHouseContentTerminal.Files(entries)]);
+
+    /// <summary>
+    /// Creates one package-wide query for exact Files content and the complete
+    /// physical File List over the same directory snapshot.
+    /// </summary>
+    public static PackageHouseContentQuery PackageFilesWithFileList(
+        IEnumerable<string> entries) =>
+        new(
+            new PackageHouseContentNarrowing.PackageWide(),
+            [
+                new PackageHouseContentTerminal.Files(entries),
+                new PackageHouseContentTerminal.FileList(),
+            ]);
 }

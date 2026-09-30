@@ -64,7 +64,7 @@ public sealed partial class PackageRangedRealizationTests
         var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
             await environment.AcquireContentAsync(
                 store,
-                PackageHouseContentQuery.PackageFiles([Path]),
+                PackageHouseContentQuery.PackageFilesWithFileList([Path]),
                 sizeCut: archive.Length));
 
         Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
@@ -78,12 +78,51 @@ public sealed partial class PackageRangedRealizationTests
             [acquired.Payload.ProducerKey]);
         Assert.NotNull(cached);
         Assert.Contains("PCLStorage.nuspec", cached.EnumerateEntries());
+        Assert.Contains(
+            acquired.Result.Evidence.FileList!.Entries,
+            entry => entry.Path == "PCLStorage.nuspec");
         PackageTransferReceipt receipt = Transfer(
             acquired,
             PackagePayloadOrigin.Download);
         Assert.Equal(PackageTransferPath.Download, receipt.Path);
         Assert.Equal(1, server.FullRequests);
         Assert.Equal(0, server.RangedRequests);
+    }
+
+    [Fact]
+    public async Task SemanticFileList_RangedReadPublishesOnlyDirectoryEvidence()
+    {
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        var query = new PackageHouseContentQuery(
+            new PackageHouseContentNarrowing.PackageWide(),
+            [new PackageHouseContentTerminal.FileList()]);
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                query));
+
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+        PackageHouseFileList fileList =
+            Assert.IsType<PackageHouseFileList>(
+                acquired.Result.Evidence.FileList);
+        using var oracle = new ZipArchive(new MemoryStream(archive));
+        Assert.Equal(
+            oracle.Entries.Select(static entry => entry.FullName),
+            fileList.Entries.Select(static entry => entry.Path));
+        PackageTransferReceipt receipt = Transfer(
+            acquired,
+            PackagePayloadOrigin.Ranged);
+        Assert.Equal(
+            [
+                PackageTransferRequestPurpose.SizeProbe,
+                PackageTransferRequestPurpose.DirectoryTail,
+            ],
+            receipt.Requests.Select(static request => request.Purpose));
     }
 
     [Fact]

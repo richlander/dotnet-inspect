@@ -50,12 +50,11 @@ The claim has six parts:
   the package root or sibling entries. A complete-transfer fallback may retain
   the whole archive, but its semantic result publishes only the requested
   entries.
-- **Current direct Files remain folder-expanded.** `PackageFileDemand` names
-  entry paths or folder prefixes, but the current compatibility route expands
-  a named entry to its direct folder. `PackageFileAcquisition` owns that
-  demand, House execution, cache-aware acquisition, manifest resolution, and
-  generation-bound read until #8994 adopters migrate to semantic exact-entry
-  expansion.
+- **Legacy file demand remains folder-expanded.** `PackageFileDemand` names
+  entry paths or folder prefixes and expands a named entry to its direct
+  folder. Remaining compatibility callers keep that behavior until their
+  #8994 adoption slices land. `PackageFileAcquisition` is the first semantic
+  exact-entry adopter and no longer uses `PackageFileDemand`.
 
 This document transfers one claim from the
 [package source model](package-source-model.md#ranged-payload-realization):
@@ -362,9 +361,10 @@ published as materialized content. The transfer receipt discloses complete
 acquisition.
 
 This expansion is a successor arm of the read-demand owner. It does not change
-`PackageLibraryRealization` or the current `PackageFileDemand` behavior below.
-The #8994 implementation slice adds it with its first production caller and
-retires folder-expanded direct file acquisition route by route.
+`PackageLibraryRealization` or the remaining `PackageFileDemand` behavior
+below. The #8994 implementation stack adds it with
+`PackageFileAcquisition` as its first production caller and retires
+folder-expanded direct file acquisition route by route.
 
 ### Exact file demand
 
@@ -394,17 +394,21 @@ it, on the ranged and the complete path alike, never an empty success.
 archive under the cut is acquired complete, and a warm file read makes
 no request.
 
-`PackageFileAcquisition` is the host-neutral exact-file operation. Its request
-contains one pinned package coordinate, one safe relative file path, and one
-House operation. Its plan contains the host-provided authority-scoped store,
-limits, transfer policy, diagnostics, and ranged size cut. The operation:
+`PackageFileAcquisition` is the host-neutral exact-file operation and the first
+semantic Files plus File List adopter. Its request contains one pinned package
+coordinate, one safe relative file path, and one House operation. Its plan
+contains the host-provided authority-scoped store, limits, transfer policy,
+diagnostics, and ranged size cut, but no access mode. The operation:
 
-1. creates the exact file demand and House request;
-2. executes cache-first, size-first ranged acquisition;
+1. creates one package-wide semantic query for the exact Files content and
+   complete physical File List over the same directory snapshot;
+2. lets PackageHouse choose cache-first, size-first ranged acquisition, or
+   complete fallback while publishing only the exact queried entry;
 3. resolves one case-insensitive manifest entry while preserving its actual
    path and rejecting missing or ambiguous matches; and
 4. returns a typed acquired file whose `OpenRead()` is bound to that House
-   settlement and content generation.
+   settlement and content generation, plus the resource-free File List for
+   follow-on decisions.
 
 Hosts bind source authorization, stores, deadlines, cancellation, and output
 projection. They do not independently assemble House demand, execute
@@ -426,22 +430,22 @@ vocabularies:
   calls the desktop `AcquireFileAsync` adapter. It uses the
   authority-scoped store the search Root uses, so size first, the entry
   cache, and durable HTTP identity apply. The directory lists every entry, so
-  the .NET tool-wrapper check reads the ranged directory as it reads the
-  complete archive; a possible wrapper takes the complete package-content
-  path, which follows the redirect, and says so in verbose output. Separator,
-  raw, JSONL, and Skill file projections detach content up to the 16 MiB
-  document limit; exact README file output copies the acquired file directly
-  with a bounded buffer.
+  the query's File List lets the .NET tool-wrapper check observe the ranged
+  directory as it reads the complete archive; a possible wrapper takes the
+  complete package-content path, which follows the redirect, and says so in
+  verbose output. Separator, raw, JSONL, and Skill file projections detach
+  content up to the 16 MiB document limit; exact README file output copies the
+  acquired file directly with a bounded buffer.
   Offline, the command keeps the local package cache path, as the search Root's
   offline branch does, so it does not yet answer from the authority-scoped
   store or the entry cache. For `Newtonsoft.Json` 13.0.4 (2.5 MB), a cold
-  README content request is the size probe, the directory tail, and one span:
-  6 of 24 entries.
+  README content request is the size probe, the directory tail, and one exact
+  entry span: 1 of 24 entries.
 - **The Browser/Wasm viewer**, which validates that the requested path is a
   root `README.md`, root `PACKAGE.md`, or Markdown beneath `skills/`, then
   calls `PackageFileAcquisition`. Size first keeps small archives on complete
-  acquisition; larger archives read the root and selected file's direct folder
-  by range. The
+  acquisition; larger archives read only the exact selected entry by range.
+  The
   Browser package-entry store retains the directory and selected entries in
   Cache Storage, so a warm read after store recreation makes no package request
   ([cache policy adoption step 5](package-cache-policy.md#adoption)).
@@ -483,8 +487,8 @@ All gates run in Release.
 | 8. An entry larger than the budget | one block holding that entry alone | `PackageEntryBlocksTests`: blocks tile the folder without gap or overlap, whatever the input order |
 | 9. A name that selects no implementation asset | a visible realization failure | `PackageRangedRealizationTests.NamedImplementation_NameSelectingNothing_FailsVisibly` (House `NoMatch`) and `PackageRootAcquisitionTests.AssetDemand_NamedRootRealizesOnlyItsNames` (Root `PackageImplementationNameException`) |
 | 10. A named asset in a folder already read whole as the surface | no block and no extra request: the named read equals the unnamed read | `PackageRangedRealizationTests.NamedImplementation_FolderAlreadyReadAsSurface_AddsNoBlock`, a boundary fixture with interleaved `lib/net8.0` and `lib/net10.0` folders and no `ref/` |
-| 11. A root `README.md` content request from an archive above the cut | size probe, tail, and one span for the root folder; every CLI projection matches the complete-acquisition path, file output is byte-identical and bounded-streamed, detached output above 16 MiB fails visibly; Browser/Wasm incrementally decodes the same ranged entry and a warm read makes no request | `ConfiguredPayloadAcquisitionTests.PackageCommand_ReadmeContent_RealNewtonsoftArchive_ReadsTheRootFolderByRange` and `BrowserEngineBoundaryTests.PackageDocument_RealNewtonsoftReadmeUsesRangeAndWarmEntryCache`, real asset `Newtonsoft.Json` 13.0.4; `PackageCommand_ReadmeExport_CompleteFallbackWritesTheSameBytes`; `PackageFileContentInspectionTests.EntryAboveDetachedLimitFailsBeforeOpeningContent` |
-| 12. A `skills/<name>/SKILL.md` content request | the root folder and that exact file's direct folder only; sibling and reference subfolders are not fetched | `ConfiguredPayloadAcquisitionTests.PackageCommand_SkillExport_ReadsTheRootAndExactSkillFolderOnly`, a boundary fixture modeled on the skill layout of `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 and padded above the cut, because that package is under it |
+| 11. A root `README.md` content request from an archive above the cut | size probe, tail, and one exact entry span; every CLI projection matches the complete-acquisition path, file output is byte-identical and bounded-streamed, detached output above 16 MiB fails visibly; Browser/Wasm incrementally decodes the same ranged entry and a warm read makes no request | `ConfiguredPayloadAcquisitionTests.PackageCommand_ReadmeContent_RealNewtonsoftArchive_ReadsOnlyTheExactEntryByRange` and `BrowserEngineBoundaryTests.PackageDocument_RealNewtonsoftReadmeUsesRangeAndWarmEntryCache`, real asset `Newtonsoft.Json` 13.0.4; `PackageCommand_ReadmeExport_CompleteFallbackWritesTheSameBytes`; `PackageFileContentInspectionTests.EntryAboveDetachedLimitFailsBeforeOpeningContent` |
+| 12. A `skills/<name>/SKILL.md` content request | only the exact Skill entry is published; root files, sibling Skills, and reference subfolders are not fetched | `ConfiguredPayloadAcquisitionTests.PackageCommand_SkillExport_ReadsOnlyTheExactEntry`, a boundary fixture modeled on the skill layout of `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 and padded above the cut, because that package is under it |
 | 13. The same content request twice from a credential-free HTTP feed | the second makes no package request | case 11's gate: the second request reads the entry cache, and its transfer receipt has no request |
 | 14. A named entry the directory does not list | a visible failure | `PackageRangedRealizationTests.PackageFileAcquisition_ColdWarmAndMissing_AreOrchestrated` (typed exact-file result), `FileDemand_UnlistedName_FailsVisibly` (House `NoMatch`, ranged and complete), and `ConfiguredPayloadAcquisitionTests.PackageCommand_SkillExport_MissingSkillFailsVisibly` |
 | 15. A pull read of a ranged entry that was not read | a visible refusal | `PackageRangedRealizationTests.FileDemand_PullReadOfAnUnreadEntry_IsAVisibleRefusal`, real asset `PCLStorage` 1.0.2: the first read, not the open, raises `PackageEntryNotMaterializedException` |

@@ -907,7 +907,8 @@ public sealed class PackageHouseEvidence
         PackageHouseDecisionReceipt? decision = null,
         PackageHouseAcquisitionReceipt? acquisition = null,
         PackageHouseRealizationReceipt? realization = null,
-        IEnumerable<PackageHouseFailure>? failures = null)
+        IEnumerable<PackageHouseFailure>? failures = null,
+        PackageHouseFileList? fileList = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (decision is not null
@@ -945,11 +946,20 @@ public sealed class PackageHouseEvidence
                 "Only a Realize operation can retain realization evidence.",
                 nameof(realization));
         }
+        if (fileList is not null
+            && (acquisition is null
+                || request.ContentQuery?.FileListTerminal is null))
+        {
+            throw new ArgumentException(
+                "File List evidence requires an acquired semantic File List terminal.",
+                nameof(fileList));
+        }
 
         Request = request;
         Decision = decision;
         Acquisition = acquisition;
         Realization = realization;
+        FileList = fileList;
         Failures = failures is null
             ? []
             : [.. failures];
@@ -972,6 +982,12 @@ public sealed class PackageHouseEvidence
     public PackageHouseAcquisitionReceipt? Acquisition { get; }
 
     public PackageHouseRealizationReceipt? Realization { get; }
+
+    /// <summary>
+    /// The complete physical package-entry inventory requested by a semantic
+    /// File List terminal.
+    /// </summary>
+    public PackageHouseFileList? FileList { get; }
 
     public ImmutableArray<PackageHouseFailure> Failures { get; }
 
