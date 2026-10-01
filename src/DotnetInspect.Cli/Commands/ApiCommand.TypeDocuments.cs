@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Net;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Inspectors;
 using ILInspector.Metadata;
@@ -121,6 +123,13 @@ public partial class ApiCommand
                     section, StringComparer.OrdinalIgnoreCase))
                 .ToList();
         }
+        if (!ApplyTypeUnsafeMembersApplicability(
+                filteredType,
+                options,
+                effective))
+        {
+            return 1;
+        }
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
         var unprobed = memberPipeline.GetUnprobedSections();
         var bareDiscover = options.Discover is null or { Length: 0 };
@@ -197,6 +206,74 @@ public partial class ApiCommand
                 ApiMemberSectionPipelines.GetExactOnlySections(options));
     }
 
+    private static bool ApplyTypeUnsafeMembersApplicability(
+        ApiType type,
+        ApiOptions options,
+        List<string> effective)
+    {
+        if (!effective.Contains(
+                SectionNames.UnsafeMembers,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        UnsafeEvidencePresenceResult result;
+        try
+        {
+            if (options.DllPath is not { } path
+                || type.MetadataToken is not { } token)
+                return true;
+            EntityHandle entity = MetadataTokens.EntityHandle(token);
+            if (entity.Kind != HandleKind.TypeDefinition)
+                return true;
+
+            using PdbContext context =
+                PdbContext.OpenMetadataOnly(path);
+            result = UnsafeEvidencePresenceQuery.ExecuteExactTypes(
+                path,
+                context,
+                (TypeDefinitionHandle)entity);
+        }
+        catch (Exception ex)
+        {
+            CommandError.Write(
+                $"Could not determine {SectionNames.UnsafeMembers} "
+                + $"applicability for {type.FullName}: {ex.Message}");
+            return false;
+        }
+
+        switch (result)
+        {
+            case UnsafeEvidencePresenceResult.Available
+                {
+                    HasEvidence: false,
+                }:
+                effective.RemoveAll(
+                    section => section.Equals(
+                        SectionNames.UnsafeMembers,
+                        StringComparison.OrdinalIgnoreCase));
+                return true;
+            case UnsafeEvidencePresenceResult.Available:
+                return true;
+            case UnsafeEvidencePresenceResult.ExecutionIncomplete incomplete:
+                CommandError.Write(
+                    $"Could not determine {SectionNames.UnsafeMembers} "
+                    + $"applicability for {type.FullName}: "
+                    + incomplete.Error.Message);
+                return false;
+            case UnsafeEvidencePresenceResult.Failed failed:
+                CommandError.Write(
+                    $"Could not determine {SectionNames.UnsafeMembers} "
+                    + $"applicability for {type.FullName}: "
+                    + failed.Error.Message);
+                return false;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown unsafe-evidence presence outcome.");
+        }
+    }
+
     /// <summary>
     /// Renders the type's member/enum sections to Markdown.
     /// </summary>
@@ -246,7 +323,9 @@ public partial class ApiCommand
         IReadOnlyCollection<string>? discoverySections,
         TypeAcquisitionContext? acquisition = null)
     {
-        if (discoverySections is not { Count: > 0 })
+        if (discoverySections is { Count: 0 })
+            return [];
+        if (discoverySections is null)
             return [BuildTypeRenderDocument(type, options, acquisition)];
 
         return
