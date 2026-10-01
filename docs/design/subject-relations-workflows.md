@@ -327,7 +327,111 @@ identity. They are not duplicated as a second set of public `request-*` keys.
 A compatible row-query binding may apply residual shaping to a returned
 segment, but it cannot widen acquisition, authorize another producer, change
 the canonical population, or strengthen completion. Sections and convenience
-commands lower their gestures to the same typed population request.
+commands lower their gestures to the same typed population request. Type
+relation row selection and its Count terminal execute in the shared section
+operation; the CLI does not order, select, or count a private copy of the
+candidate population. `Head(N)` and supported strict forward windows select a
+bounded producer-discovery cohort, then Sections orders only that cohort for
+presentation. They do not promise the canonical prefix of an exhaustive
+result. Tail, backward-dependent selection, and residual selection exhaust.
+An exact single-form Count applies supported stages without constructing Rows.
+
+For incoming Type hierarchy relations, the exact focused metadata Type name
+and selected Interface or Base Type form reach the Metadata producer. Metadata
+compares unrelated edge targets without materializing their names and projects
+source identities only for matching edges. Workspace correspondence resolves
+only those producer-returned candidates; current-module targets use their
+already-established assembly identity directly, while external and forwarded
+targets retain binding-policy resolution. A Count-only request groups exact
+candidate identities without lowering canonical Rows. Exact simple-name focus
+selection likewise probes matching TypeDefs without first retaining the whole
+declaration-name inventory; richer selection gestures retain the general
+inventory path.
+
+### Resolve exact Type focus once
+
+An exact Type relation operation resolves one focus binding before composing
+any relation, inspection, sharing, or diagnostic content. The request's
+selection kind applies consistently to declaration and referenced-target
+discovery. Query selection may use the ordinary exact-Type shorthand for a
+generic definition, such as `List` for ``List`1``; DefinitionIdentity selection
+remains an exact definition-name match. A targeted-search optimization may
+decode fewer declarations, but it must produce the same matching declarations
+as the selected gesture.
+
+Every matching captured declaration retains its owner-issued occurrence and
+acquisition registration. Equivalent assembly identity and Type text do not
+replace that authority. If the gesture matches equivalent definitions from
+two captured acquisitions, the focus is ambiguous. Referenced hierarchy
+evidence may establish focus only when the gesture selects no captured
+declaration; it cannot erase a declaration match or ambiguity by reconstructing
+the same Type from assembly identity.
+
+All content returned by the operation consumes that one resolved binding.
+Optional exact-Type inspection describes the same definition occurrence,
+Library coordinate, assembly, and Type identity as the relation focus; it does
+not rerun the original text against a broader population. A consumer that
+cannot preserve the binding reports typed unavailability rather than returning
+content for a different Type. This is one Subject Relations composition
+contract, not a change to Metadata matching or Assembly Inspection's own
+identity construction.
+
+The targeted Metadata producer and its NLinq performance oracle execute the
+same hierarchy analysis: enumerate externally visible, non-hidden Type
+definitions; inspect the selected base-Type or interface edges; compare the
+outer definition of direct and constructed targets; and project the matching
+source definition identity. Count performs that analysis without materializing
+source rows. Full relation evidence adds constructed target decoding and graph
+projection only after this shared analysis has selected an occurrence. The
+LINQ, NLinq, and Planner call the same product-owned analysis pass for this
+scope, matching, guarded decoding, budget charging, and row projection, as
+required by the
+[performance-oracle rule](../evidence-and-validation.md#performance-oracles-for-queryspace-enablement).
+Every standard scorecard column starts from the same session-owned admitted
+metadata image. General format classification and `MetadataReader`
+construction occur once when the asset session opens; LINQ and NLinq construct
+their shared pass from that session, while Planner consumes the same retained
+reader without repeating admission. The scorecard therefore measures reader
+and terminal machinery after a common admission boundary. Exact end-to-end
+measurements separately retain acquisition and admission cost.
+The scorecard answer gate includes the producer's malformed generic-TypeSpec
+fixture and compares diagnostics and operation counters as well as benign rows.
+The scorecard measures the shipping analysis stage; exact NativeAOT base/head
+measurements cover its production composition and host lowering. Measurements
+from any lighter oracle loop remain labeled frontier evidence until that
+algorithm is ported into the product pass and therefore shared by all standard
+columns.
+
+Terminal work elimination is separate from analysis throughput. Count,
+complete Rows, and Tail exhaust the selected source. Exists, `Head(N)`, and
+supported strict forward windows derive a typed forward plan and may stop after
+satisfying it. A zero-finding answer still exhausts the source.
+
+Production Rows derives its typed terminal plan from the resolved Subject
+Relations request. A forward terminal stops only after exact Workspace
+assembly correspondence confirms enough distinct candidates; an identically
+named target in another assembly cannot satisfy the terminal. Sections then
+orders the bounded discovery cohort by canonical relation form and Type name
+for presentation. Exhaustive Rows and continuation paging order the complete
+candidate population so continuation ordinals remain stable across page sizes.
+
+The fast definition matcher is fidelity-bearing for canonical TypeDef, TypeRef,
+and generic TypeSpec shapes emitted by Roslyn. Untrusted and malformed metadata
+remains subject to bounded image admission, relationship/name traversal, and
+blob reads; it must not create unbounded work, unsafe memory behavior, assembly
+loading, or another containment failure. A malformed or non-canonical target
+may be rejected as incomplete and is not promised an exact semantic answer.
+Its failure remains visible in producer disposition and diagnostics. Hierarchy
+production is responsible for high-fidelity answers on Roslyn-produced
+assemblies and secure, bounded behavior on every admitted assembly. The
+session-owned image, not the hierarchy producer, rejects unsupported Windows
+Metadata and malformed metadata-reader construction before the producer runs.
+Within an admitted reader, guarded decoding and operation budgets remain the
+producer's responsibility. Hierarchy analysis uses one lazy, memoized
+nested-Type visibility resolver per admitted image. It charges declaring-Type edges
+to the relationship budget, detects cycles by identity, and aborts that
+malformed family instead of repeating a declaring-Type walk for each
+candidate.
 
 The canonical row unit is one logical relation. Each row preserves:
 
@@ -1058,7 +1162,8 @@ Every result carries its selected populations and per-family coverage:
 considered, examined, excluded, unavailable or limited, with the relevant
 owner's reason. Complete means complete for that declared finite population
 and supported evidence kinds. It never means every possible caller on NuGet
-was found. A display row limit is not an acquisition or analysis limit.
+was found. A presentation-only line limit is not an acquisition or analysis
+limit; a producer-planned semantic `Head(N)` or forward window is.
 If a work limit truncates a sweep, retained useful rows remain visibly partial;
 an empty partial result cannot establish absence.
 
@@ -1587,6 +1692,8 @@ the named adoption gates run in Release:
 | Claim | Required outcome gate |
 | --- | --- |
 | Exact locator continuity | Find two same-named types or overloads; reopening each preserves its package/source, target, subject and context without substitution. |
+| Exact Type focus selection continuity | On the real `System.Private.CoreLib` asset, Query selection of `List` and explicit selection of ``System.Collections.Generic.List`1`` resolve the same generic definition for ordinary inspection and relations. DefinitionIdentity selection remains exact. Two captured acquisitions with equivalent assembly identity and matching generic definitions remain ambiguous, while a zero-declaration targeted search may still select one external hierarchy target without constructing unrelated declaration inventory. |
+| Exact Type focus composition | One operation whose population contains a qualified selected Type and another same-leaf Type returns relation and optional inspection content for the same exact definition occurrence, Library coordinate, assembly, and Type identity. A real platform facade and terminal pair preserves the same binding through expansion. CLI and Browser consume that shared result without re-resolving display text. |
 | Signature discovery fidelity | ToHexString's byte-span input and AsSpan's char-span return differ correctly. Factory Create/Release differ by return versus parameter; Use retains its nested delegate sites without claiming to return Task. Combined predicates apply to one member, repeated sites do not duplicate it, and unavailable evidence stays visible. The flags and section predicates yield the same results in CLI and browser. |
 | Throw discovery fidelity | The real ArgumentNullException.Throw helper matches its exact exception type; ThrowIfNull's call alone does not. Construction-only and catch-only controls do not match; a locally caught throw does not claim escape. Unknown/rethrow type evidence and absent bodies stay visibly incomplete/unsupported. Member-return/throw conjunctions use one exact member; edge conjunctions never stitch its separate relations together. Incoming and outgoing views retain identical endpoints/sites; CLI and browser agree on matches, shortcut discovery, coverage and portable restoration. |
 | Ecosystem identity continuity | The catalog's canonical ecosystem identity selects its declared Find population and filters its Integration associations without conflating membership with evidence. Catalog inspection remains acquisition-free. |
