@@ -201,19 +201,19 @@ public sealed class EcosystemCommandTests
         Assert.Contains("ecosystem.blazor", result.Output);
         Assert.Contains("ecosystem.maui", result.Output);
         Assert.Contains(
-            "| ecosystem.runtime | .NET Runtime | .NET Runtime libraries and product demos. | none | 0 | 3 |",
+            "| ecosystem.runtime | .NET Runtime | none | .NET Runtime libraries and product demos. | none | 0 | 3 |",
             result.Output);
         Assert.Contains(
-            "| ecosystem.aspire | Aspire | Aspire package and demo content. | configured | 13 | 2 |",
+            "| ecosystem.aspire | Aspire | ecosystem.aspnetcore | Aspire package and demo content. | configured | 13 | 2 |",
             result.Output);
         Assert.Contains(
-            "| ecosystem.ai | AI | AI model clients, abstractions, agents, and protocol packages. | none | 0 | 0 |",
+            "| ecosystem.ai | AI | ecosystem.microsoft-extensions | AI model clients, abstractions, agents, and protocol packages. | none | 0 | 0 |",
             result.Output);
         Assert.Contains(
-            "| ecosystem.blazor | Blazor | Blazor browser, Hybrid, data, and authentication integrations. | none | 0 | 0 |",
+            "| ecosystem.blazor | Blazor | ecosystem.aspnetcore | Blazor browser, Hybrid, data, and authentication integrations. | none | 0 | 0 |",
             result.Output);
         Assert.Contains(
-            "| ecosystem.maui | .NET MAUI | .NET MAUI controls, Hybrid, toolkit, and graphics integrations. | none | 0 | 0 |",
+            "| ecosystem.maui | .NET MAUI | ecosystem.microsoft-extensions | .NET MAUI controls, Hybrid, toolkit, and graphics integrations. | none | 0 | 0 |",
             result.Output);
     }
 
@@ -303,6 +303,10 @@ public sealed class EcosystemCommandTests
         Assert.Contains("# Aspire", result.Output);
         Assert.Contains("## Ecosystem Info", result.Output);
         Assert.Contains("| ID | ecosystem.aspire |", result.Output);
+        Assert.Contains("| Depends On | ecosystem.aspnetcore |", result.Output);
+        Assert.Contains(
+            "| Lineage | ecosystem.runtime → ecosystem.microsoft-extensions → ecosystem.aspnetcore → ecosystem.aspire |",
+            result.Output);
         Assert.Contains("| Known Integration Bindings | 13 |", result.Output);
         Assert.DoesNotContain("## Integrations", result.Output);
     }
