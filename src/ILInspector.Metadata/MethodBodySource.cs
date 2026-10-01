@@ -398,6 +398,16 @@ public sealed partial class MethodBodySource : IOperandNameResolver
                 return null;
             }
         }
+        foreach (var handle in type.GetFields())
+        {
+            var field = _reader.GetFieldDefinition(handle);
+            if (TypeMatcher.MatchesMemberName(
+                    _reader.GetString(field.Name),
+                    methodName))
+            {
+                return null;
+            }
+        }
         return match.IsNil ? null : match;
     }
 
@@ -418,6 +428,16 @@ public sealed partial class MethodBodySource : IOperandNameResolver
             var method = _reader.GetMethodDefinition(handle);
             if (TypeMatcher.MatchesMemberName(
                     _reader.GetString(method.Name),
+                    memberName))
+            {
+                return null;
+            }
+        }
+        foreach (var handle in type.GetFields())
+        {
+            var field = _reader.GetFieldDefinition(handle);
+            if (TypeMatcher.MatchesMemberName(
+                    _reader.GetString(field.Name),
                     memberName))
             {
                 return null;

@@ -112,7 +112,11 @@ public partial class ApiCommand
             methods,
             memberOptions.OverloadIndex!.Value - 1);
         if (method?.MetadataToken is not { } methodToken)
-            return null;
+        {
+            CommandError.Write(
+                $"section '{SectionNames.Calls}' produced no payload.");
+            return 1;
+        }
 
         return WriteCallSiteCount(
             assemblyPath,

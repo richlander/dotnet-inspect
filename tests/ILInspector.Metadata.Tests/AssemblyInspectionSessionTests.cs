@@ -417,6 +417,11 @@ public class AssemblyInspectionSessionTests
                 declaringType,
                 nameof(MethodBodyFixture.pick),
                 publicOnly: true));
+        Assert.Null(
+            session.MethodBodies.ResolveUniqueMethod(
+                declaringType,
+                nameof(MethodBodyFixture.PickField),
+                publicOnly: true));
     }
 
     [Fact]
@@ -460,6 +465,12 @@ public class AssemblyInspectionSessionTests
                 declaringType,
                 nameof(MethodBodyFixture.SetterOnly),
                 accessorIndex: 1,
+                publicOnly: true));
+        Assert.Null(
+            session.MethodBodies.ResolveAccessorMethod(
+                declaringType,
+                nameof(MethodBodyFixture.ValueField),
+                accessorIndex: 0,
                 publicOnly: true));
     }
 
@@ -621,5 +632,15 @@ public class AssemblyInspectionSessionTests
         public static void pick(int value)
         {
         }
+
+        public static int PickField;
+
+        public static void pickField()
+        {
+        }
+
+        public static int ValueField;
+
+        public static int valueField { get; set; }
     }
 }

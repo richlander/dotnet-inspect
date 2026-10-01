@@ -490,6 +490,55 @@ public class MemberCallsSectionTests
         Assert.Empty(result.Output);
     }
 
+    [Fact]
+    public async Task
+        CallsSection_CountWithAllPreservesFieldMethodAmbiguity()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.PickField),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+    }
+
+    [Fact]
+    public async Task
+        CallsSection_CountWithAllPreservesFieldPropertySelection()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.ValueField),
+            "--index",
+            "1",
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "section 'Calls' produced no payload.",
+            result.Error);
+    }
+
     [Theory]
     [InlineData(1, 0, "1")]
     [InlineData(2, 1, "")]
@@ -683,6 +732,22 @@ public static class MemberCallsFixture
 
     public static void pick(int value) =>
         Console.WriteLine(value);
+
+    public static int PickField;
+
+    public static void pickField() =>
+        Console.WriteLine("method");
+
+    public static int ValueField;
+
+    public static int valueField
+    {
+        get
+        {
+            Console.WriteLine("property");
+            return 0;
+        }
+    }
 
     public static Action LoadsFunctionPointer() =>
         CallsWriteLineTwice;
