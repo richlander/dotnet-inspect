@@ -8,7 +8,7 @@ This document is the normative owner for Package Library Scope, tracked by
 The contract is a target policy adopted independently by each operation.
 Package Query `library-literal` is the first gated adopter under
 [#8297](https://github.com/richlander/dotnet-inspect/issues/8297). The Package
-children document is the compile-role aggregate adopter for the staged native
+children document is the compile-role aggregate adopter for the native
 Package Tree under [#8494](https://github.com/richlander/dotnet-inspect/issues/8494).
 Each adoption proves only its own role and answer shape, not repository-wide
 conformance.
@@ -263,21 +263,25 @@ The Package children document adopts aggregate scope over the exact ordered
 compile population issued by Package selection. It retains every compile asset
 ID and path, inspects each occurrence independently, and carries the exact
 public definition-and-forwarder Count or a typed unavailable outcome. The CLI
-uses that document for bare Package Markdown and `--tree`; Inspect Web carries
-the same document and uses its Counts for Library navigation. Tool-package
+uses that document for its native Tree, structured JSON and envelope, row
+formats, row windows, projections, and scalar Count. Every Library row carries
+the exact asset path used by `package P --library <path>`; every RID Package row
+carries its exact Package selector. Inspect Web carries the same document and
+uses its Counts and exact asset IDs for Library navigation. Tool-package
 children consume the separate tool-Library population owned by Package Info
 tool measurements.
 
-Later Navigation, SourceLink, complete-format Package presentation, and
-relationship adoptions remain separately scoped. Existing aggregate behavior
-is evidence, not an automatic conformance claim.
+Later SourceLink and relationship adoptions remain separately scoped. Existing
+aggregate behavior is evidence, not an automatic conformance claim.
 
 ## Verification
 
 Each adopter names its own Release gates. Package children are gated by
 `PackageChildrenInspectionTests` for exact occurrence identity,
 definition-and-forwarder Counts, RID rows, and native no-Library state;
-`CommandExecutionTests.Package` for the CLI default and explicit Tree; and
+`CommandExecutionTests.Package` for the CLI default and explicit Tree, complete
+formats, row selection and projection, scalar Count, visible empty states,
+Minimal-only tool collapse, and exact duplicate-name Library navigation; and
 `BrowserMemberDeclarationTests` plus `package-acquisition.test.ts` for Browser
 transport and Count consumption.
 

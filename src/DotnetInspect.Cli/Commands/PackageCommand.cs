@@ -305,13 +305,13 @@ public partial class PackageCommand
             // without a selection, so accepting -S there would silently ignore it.
             if (lensMode
                 && (options.SelectExplicitlySet
-                    || dependencyHierarchyProjection))
+                    || options.Tree))
             {
                 var lensName = options.ListVersions ? "--versions"
                     : options.ListLayout ? "--layout"
                     : options.ListTfms ? "--tfms"
                     : "--content";
-                if (dependencyHierarchyProjection
+                if (options.Tree
                     && !options.SelectExplicitlySet)
                     CommandError.Write($"--tree cannot be combined with {lensName}.");
                 else
@@ -363,11 +363,20 @@ public partial class PackageCommand
 
             if (!ValidateDependencyHierarchyProjection(options))
                 return 1;
+            bool packageChildrenProjection =
+                IsPackageChildrenProjection(options);
+            if (packageChildrenProjection
+                && !ValidatePackageChildrenProjection(options))
+            {
+                return 1;
+            }
 
             // #3448 aligns the package gate with the library one: a count over several selected
             // sections is meaningful now that the file family is disjoint, so require a selection
             // rather than exactly one section.
-            if (!rendersOwnPayload && options.Count)
+            if (!rendersOwnPayload
+                && !packageChildrenProjection
+                && options.Count)
             {
                 if (!CountOutput.ValidateSectionsSelected(
                         options.IncludeSections, options.FixedOverview))
@@ -450,6 +459,7 @@ public partial class PackageCommand
                     ? sectionCatalog.BareSelectSectionNames
                     : options.IncludeSections;
             if (!options.Count
+                && !packageChildrenProjection
                 && !OutputFormatResolver.ValidateSingleSectionForTabular(
                     options.TabularExplicitlySet,
                     tabularSections))

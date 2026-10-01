@@ -683,13 +683,20 @@ forwarders. `--tfm` selects an explicit target; otherwise the Package selection
 default chooses the target. Tool pointer packages list their RID packages,
 managed tool payloads list the entry-point Library before their dependencies,
 and native tool payloads state that they contain no managed Libraries. Minimal
-output may collapse a managed tool's dependency Libraries into one counted
-branch; `-v:n` and `-v:d` list every Library.
+implicit Tree output may collapse a managed tool's dependency Libraries into
+one counted branch; `-v:n`, `-v:d`, and explicit output formats list every
+Library.
 
-Select `Package Info` explicitly for Package facts. Explicit sections,
-structured and row projections, and explicitly selected output formats retain
-the sectioned Package document during this staged adoption. A bare Package Tree
-is distinct from the dependency graph: select `Dependency Hierarchy` together
+Unselected Markdown, plain text, JSON, envelope, table, TSV, and JSONL output
+all consume that same Package children document. JSON carries subject,
+completion, total and selected Counts, and typed child rows. Row formats expose
+the exact asset ID, asset path, child role, declaration Count outcome, and a
+copyable `selector` for the same Library occurrence or RID Package. `--rows`
+windows children, `--count` counts the selected child population, and
+`--fields` or `--columns` projects child-row columns.
+
+Select `Package Info` explicitly for Package facts. A bare Package Tree is
+distinct from the dependency graph: select `Dependency Hierarchy` together
 with `--tree` for rooted transitive dependencies.
 
 `package ID[@VERSION] --workspace PACKET` inspects the matching direct Package

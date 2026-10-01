@@ -374,12 +374,14 @@ presentation.
    tool packages, with Library rows addressed through the step 3 Library
    selector and tool pointer rows through `package <id>`.
 
-Package step 5 is partially adopted. The host-neutral Package children
-document, bare CLI Markdown Tree, explicit bare `--tree`, and Inspect Web Count
-consumer are implemented for compile, tool payload, RID pointer, and native
-tool shapes. Explicit sections and structured or row projections still use the
-sectioned Package document, so the complete-format and child-navigation
-obligations remain pending rather than being claimed by this slice.
+Package step 5 is adopted. The host-neutral Package children document covers
+compile, tool payload, RID pointer, and native tool shapes. Bare CLI output and
+explicit bare `--tree` use its native Tree; JSON, envelope, row formats, row
+windows, projections, and scalar Count use its complete child population.
+Every emitted child row carries the exact gesture that reaches the same
+Library occurrence or RID Package. Inspect Web transports the same document,
+uses its declaration Counts, and retains exact compile asset IDs for Library
+navigation. Explicit sections remain the opt-in sectioned Package views.
 
 ## Gates
 
@@ -407,6 +409,8 @@ against that adoption's motivating assets:
   rows in `dotnet-inspect.any`.
 
 Until an adoption lands, every obligation is `unverified` for that command.
-For Package, the implemented Tree and Browser Count gates verify only the
-partial adoption stated above; exhaustive complete-format and exact
-child-navigation gates remain `unverified`.
+For Package, `PackageChildrenInspectionTests`,
+`CommandExecutionTests.Package`, `BrowserMemberDeclarationTests`, and
+`package-acquisition.test.ts` gate the adopted native population, complete
+formats, failure states, exact duplicate-name child navigation, and shared
+Browser Counts described above.

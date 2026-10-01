@@ -1,4 +1,7 @@
 using System.Collections.Immutable;
+using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
@@ -8,14 +11,50 @@ using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using Markout;
+using Markout.Formatting;
 
 namespace DotnetInspect.Cli.Commands;
 
 public partial class PackageCommand
 {
+    private const string PackageChildrenSection = "Package Children";
+
+    private static readonly string[] PackageChildrenDisplayNames =
+    [
+        "Ordinal",
+        "Kind",
+        "Identity",
+        "Name",
+        "Target",
+        "Role",
+        "Asset",
+        "Selector",
+        "Type Declarations",
+        "Count Status",
+        "Status",
+        "Detail",
+    ];
+
+    private static readonly string[] PackageChildrenStableNames =
+    [
+        "ordinal",
+        "kind",
+        "identity",
+        "name",
+        "target",
+        "role",
+        "asset",
+        "selector",
+        "type_declarations",
+        "count_status",
+        "status",
+        "detail",
+    ];
+
     private static bool IsPackageChildrenProjection(
         InspectionOptions options) =>
-        options.Discover is null
+        options.PackageArgs.Length == 1
+        && options.Discover is null
         && options.IncludeSections is not { Count: > 0 }
         && !options.SelectExplicitlySet
         && !options.SelectDefault
@@ -24,12 +63,57 @@ public partial class PackageCommand
         && !options.ListLayout
         && !options.ListTfms
         && !options.ShowContent
-        && !options.IsRawOutput
-        && options.Rows is null
-        && options.ShareFormat is null
-        && options.Columns is not { Length: > 0 }
-        && options.Fields is not { Length: > 0 }
-        && (options.Tree || !options.FormatFlagExplicitlySet);
+        && !options.Raw
+        && !options.Print
+        && !options.Value
+        && !options.Urls
+        && !options.Paths
+        && !options.Roots
+        && !options.Schema
+        && options.PackageLibrary is null
+        && !options.AllLibraries;
+
+    private static bool ValidatePackageChildrenProjection(
+        InspectionOptions options)
+    {
+        string[]? columns = PackageChildrenColumns(options);
+        if (columns is not { Length: > 0 })
+            return true;
+        if (options.Format == OutputFormat.Mermaid)
+        {
+            CommandError.Write(
+                "--fields/--columns are not available with Mermaid Package children output.");
+            return false;
+        }
+
+        var schema = new DocumentSchema();
+        schema.Add(
+            PackageChildrenSection,
+            "column",
+            [
+                .. PackageChildrenDisplayNames,
+                .. PackageChildrenStableNames,
+            ]);
+        return ProjectionDiagnostics.ValidateProjection(
+            schema,
+            PackageChildrenSection,
+            fields: null,
+            columns);
+    }
+
+    private static string[]? PackageChildrenColumns(
+        InspectionOptions options)
+    {
+        if (options.Columns is not { Length: > 0 })
+            return options.Fields;
+        if (options.Fields is not { Length: > 0 })
+            return options.Columns;
+        return
+        [
+            .. options.Fields,
+            .. options.Columns,
+        ];
+    }
 
     private static async Task<int> WritePackageChildrenAsync(
         InspectionResult result,
@@ -49,14 +133,13 @@ public partial class PackageCommand
                     options,
                     CancellationToken.None)
                 .ConfigureAwait(false);
-        OutputDestination.Write(
-            options.OutputPath,
-            null,
-            writer => WritePackageChildrenTree(
-                writer,
+        if (!WritePackageChildren(
+                inspection,
                 result,
-                inspection.Content,
-                options.Verbosity));
+                options))
+        {
+            return 1;
+        }
         foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
         {
             CommandError.WriteLine(
@@ -364,20 +447,495 @@ public partial class PackageCommand
                 "Package children do not yet have a canonical Workspace "
                     + "Share projection."));
 
+    private static bool WritePackageChildren(
+        InspectionEnvelope<PackageChildrenDocument> inspection,
+        InspectionResult package,
+        InspectionOptions options)
+    {
+        PackageChildrenDocument content = inspection.Content;
+        string packageSelector =
+            PackageSelector(content, options);
+        PackageChildOutputRow[] allRows =
+            PackageChildRows(content, packageSelector);
+        PackageChildOutputRow[] selectedRows =
+        [
+            .. RowWindow.Apply(options.Rows, allRows),
+        ];
+        if (options.Count)
+        {
+            CountOutput.WriteCount(
+                selectedRows.Length,
+                options.OutputPath);
+            return true;
+        }
+
+        var outputDocument = new PackageChildrenOutputDocument(
+            content.Subject.PackageId.ToString(),
+            content.Subject.PackageVersion.ToString(),
+            content.Subject.TargetFramework?.ToString(),
+            content.Kind,
+            content.Status,
+            content.IsComplete,
+            content.Detail?.ToString(),
+            allRows.Length,
+            selectedRows.Length,
+            selectedRows);
+        if (options.EnvelopeOutput)
+        {
+            var envelope =
+                new InspectionEnvelope<PackageChildrenOutputDocument>(
+                    outputDocument,
+                    inspection.Share,
+                    inspection.Diagnostics);
+            return InspectionEnvelopeOutput.TryWrite(
+                envelope,
+                new InspectionEnvelopeJsonContract<
+                    PackageChildrenOutputDocument>(
+                        "package-children",
+                        1,
+                        PackageChildrenJsonContext.Default
+                            .PackageChildrenOutputDocument),
+                includeEnvelope: true,
+                compactJson: options.CompactJson,
+                outputPath: options.OutputPath);
+        }
+
+        OutputDestination.Write(
+            options.OutputPath,
+            null,
+            output => WritePackageChildren(
+                output,
+                package,
+                content,
+                outputDocument,
+                selectedRows,
+                packageSelector,
+                options));
+        return true;
+    }
+
+    private static void WritePackageChildren(
+        TextWriter output,
+        InspectionResult package,
+        PackageChildrenDocument content,
+        PackageChildrenOutputDocument outputDocument,
+        IReadOnlyList<PackageChildOutputRow> selectedRows,
+        string packageSelector,
+        InspectionOptions options)
+    {
+        switch (options.Format)
+        {
+            case OutputFormat.Json:
+                if (PackageChildrenColumns(options)
+                    is { Length: > 0 })
+                {
+                    WritePackageChildrenProjectedJson(
+                        output,
+                        content,
+                        selectedRows,
+                        packageSelector,
+                        options);
+                }
+                else
+                {
+                    output.WriteLine(
+                        JsonSerializer.Serialize(
+                            outputDocument,
+                            options.CompactJson
+                                ? PackageChildrenCompactJsonContext.Default
+                                    .PackageChildrenOutputDocument
+                                : PackageChildrenJsonContext.Default
+                                    .PackageChildrenOutputDocument));
+                }
+                return;
+            case OutputFormat.Table:
+            case OutputFormat.Tsv:
+            case OutputFormat.Jsonl:
+                WritePackageChildrenTable(
+                    output,
+                    content,
+                    selectedRows,
+                    packageSelector,
+                    options);
+                return;
+            case OutputFormat.Mermaid:
+                WritePackageChildrenTree(
+                    output,
+                    package,
+                    content,
+                    selectedRows,
+                    options,
+                    new MermaidFormatter());
+                return;
+            case OutputFormat.PlainText:
+                if (PackageChildrenColumns(options)
+                    is { Length: > 0 })
+                {
+                    WritePackageChildrenTable(
+                        output,
+                        content,
+                        selectedRows,
+                        packageSelector,
+                        options);
+                    return;
+                }
+                WritePackageChildrenTree(
+                    output,
+                    package,
+                    content,
+                    selectedRows,
+                    options,
+                    new PlainTextFormatter());
+                return;
+            default:
+                if (PackageChildrenColumns(options)
+                    is { Length: > 0 })
+                {
+                    WritePackageChildrenTable(
+                        output,
+                        content,
+                        selectedRows,
+                        packageSelector,
+                        options);
+                    return;
+                }
+                WritePackageChildrenTree(
+                    output,
+                    package,
+                    content,
+                    selectedRows,
+                    options,
+                    new MarkdownFormatter());
+                return;
+        }
+    }
+
     private static void WritePackageChildrenTree(
         TextWriter output,
         InspectionResult package,
         PackageChildrenDocument document,
-        Verbosity verbosity)
+        IReadOnlyList<PackageChildOutputRow> selectedRows,
+        InspectionOptions options,
+        IMarkoutFormatter formatter)
     {
-        output.WriteLine(DescribePackageChildrenSubject(
-            package,
-            document));
-        var writer = new MarkoutWriter(
+        bool sourceHasRows =
+            !document.Libraries.IsEmpty
+            || !document.RuntimeIdentifierPackages.IsEmpty;
+        PackageChildrenDocument selectedDocument =
+            SelectPackageChildren(document, selectedRows);
+        if (formatter is not MermaidFormatter)
+        {
+            output.WriteLine(DescribePackageChildrenSubject(
+                package,
+                document));
+        }
+        var writer = new MarkoutWriter(output, formatter);
+        List<TreeNode> nodes = PackageChildrenNodes(
+            selectedDocument,
+            options.Verbosity,
+            allowMinimalCollapse:
+                !options.FormatFlagExplicitlySet
+                && options.Rows is null);
+        if (formatter is MermaidFormatter)
+        {
+            writer.WriteTree(
+            [
+                new(DescribePackageChildrenSubject(package, document))
+                {
+                    Children = [.. nodes],
+                },
+            ]);
+        }
+        else if (sourceHasRows && selectedRows.Count == 0)
+        {
+            writer.WriteTree([]);
+        }
+        else
+        {
+            writer.WriteTree([.. nodes]);
+        }
+        writer.Flush();
+    }
+
+    private static void WritePackageChildrenTable(
+        TextWriter output,
+        PackageChildrenDocument document,
+        IReadOnlyList<PackageChildOutputRow> selectedRows,
+        string packageSelector,
+        InspectionOptions options)
+    {
+        PackageChildOutputRow[] presentationRows =
+            selectedRows.Count > 0
+                ? [.. selectedRows]
+                : PackageChildRows(
+                    document,
+                    packageSelector).Length == 0
+                    ?
+                    [
+                        StatusRow(document),
+                    ]
+                    : [];
+        OutputFormatter.WriteProjectedTable(
             output,
-            new MarkdownFormatter());
-        writer.WriteTree(
-            [.. PackageChildrenNodes(document, verbosity)]);
+            showHeader: !options.NoHeader,
+            tsv: options.Format == OutputFormat.Tsv,
+            jsonl: options.Format == OutputFormat.Jsonl,
+            PackageChildrenColumns(options),
+            fields: null,
+            (writer, formatter, writerOptions) =>
+            {
+                writerOptions.JsonTypedValues = true;
+                var markout = new MarkoutWriter(
+                    writer,
+                    formatter,
+                    writerOptions);
+                markout.WriteTable(
+                    PackageChildrenDisplayNames,
+                    PackageChildrenStableNames,
+                    PackageChildrenCells(presentationRows));
+                markout.Flush();
+            });
+    }
+
+    private static void WritePackageChildrenProjectedJson(
+        TextWriter output,
+        PackageChildrenDocument document,
+        IReadOnlyList<PackageChildOutputRow> selectedRows,
+        string packageSelector,
+        InspectionOptions options)
+    {
+        PackageChildOutputRow[] presentationRows =
+            selectedRows.Count > 0
+                ? [.. selectedRows]
+                : PackageChildRows(
+                    document,
+                    packageSelector).Length == 0
+                    ?
+                    [
+                        StatusRow(document),
+                    ]
+                    : [];
+        var rendered = new StringWriter
+        {
+            NewLine = "\n",
+        };
+        OutputFormatter.WriteProjectedTable(
+            rendered,
+            showHeader: false,
+            tsv: false,
+            jsonl: true,
+            PackageChildrenColumns(options),
+            fields: null,
+            (writer, formatter, writerOptions) =>
+            {
+                writerOptions.JsonTypedValues = true;
+                var markout = new MarkoutWriter(
+                    writer,
+                    formatter,
+                    writerOptions);
+                markout.WriteTable(
+                    PackageChildrenDisplayNames,
+                    PackageChildrenStableNames,
+                    PackageChildrenCells(presentationRows));
+                markout.Flush();
+            });
+        string[] lines = rendered.ToString().Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries);
+        if (options.CompactJson)
+        {
+            output.Write('[');
+            output.Write(string.Join(',', lines));
+            output.WriteLine(']');
+            return;
+        }
+
+        output.WriteLine('[');
+        for (int index = 0; index < lines.Length; index++)
+        {
+            output.Write("  ");
+            output.Write(lines[index]);
+            output.WriteLine(index + 1 < lines.Length ? "," : "");
+        }
+        output.WriteLine(']');
+    }
+
+    private static string[][] PackageChildrenCells(
+        IEnumerable<PackageChildOutputRow> rows) =>
+    [
+        .. rows.Select(
+            static row => new[]
+            {
+                row.Ordinal?.ToString(
+                    CultureInfo.InvariantCulture)
+                    ?? "",
+                row.Kind,
+                row.Identity,
+                row.Name,
+                row.Target ?? "",
+                row.Role ?? "",
+                row.Asset ?? "",
+                row.Selector ?? "",
+                row.TypeDeclarations?.ToString(
+                    CultureInfo.InvariantCulture)
+                    ?? "",
+                row.CountStatus ?? "",
+                row.Status,
+                row.Detail ?? "",
+            }),
+    ];
+
+    private static PackageChildrenDocument SelectPackageChildren(
+        PackageChildrenDocument document,
+        IReadOnlyList<PackageChildOutputRow> selectedRows) =>
+        new(
+            document.Subject,
+            document.Kind,
+            document.Status,
+            document.Kind == PackageChildrenKind.Libraries
+                ?
+                [
+                    .. selectedRows
+                        .Where(static row => row.Ordinal is not null)
+                        .Select(
+                            row => document.Libraries[
+                                row.Ordinal!.Value - 1]),
+                ]
+                : [],
+            document.Kind
+                == PackageChildrenKind.RuntimeIdentifierPackages
+                ?
+                [
+                    .. selectedRows
+                        .Where(static row => row.Ordinal is not null)
+                        .Select(
+                            row => document.RuntimeIdentifierPackages[
+                                row.Ordinal!.Value - 1]),
+                ]
+                : [],
+            document.Detail,
+            document.IsComplete);
+
+    private static PackageChildOutputRow[] PackageChildRows(
+        PackageChildrenDocument document,
+        string packageSelector) =>
+        document.Kind switch
+        {
+            PackageChildrenKind.Libraries =>
+            [
+                .. document.Libraries.Select(
+                    (library, index) => LibraryRow(
+                        document,
+                        library,
+                        packageSelector,
+                        index + 1)),
+            ],
+            PackageChildrenKind.RuntimeIdentifierPackages =>
+            [
+                .. document.RuntimeIdentifierPackages.Select(
+                    (package, index) => RuntimeIdentifierPackageRow(
+                        document,
+                        package,
+                        index + 1)),
+            ],
+            PackageChildrenKind.NoManagedLibraries => [],
+            _ => throw new InvalidOperationException(
+                "Unknown Package children kind."),
+        };
+
+    private static PackageChildOutputRow LibraryRow(
+        PackageChildrenDocument document,
+        PackageLibraryChild library,
+        string packageSelector,
+        int ordinal)
+    {
+        (int? count, string countStatus, string? countDetail) =
+            library.PublicTypeDeclarations switch
+            {
+                LibraryTypePopulationCountOutcome.Counted counted =>
+                    (counted.Total, "counted", (string?)null),
+                LibraryTypePopulationCountOutcome.Incomplete incomplete =>
+                    ((int?)null, "incomplete",
+                        $"{incomplete.Bound}: "
+                            + $"{incomplete.Measured} > "
+                            + $"{incomplete.Limit}"),
+                LibraryTypePopulationCountOutcome.Unavailable unavailable =>
+                    ((int?)null, "unavailable",
+                        unavailable.Reason.ToString()),
+                _ => ((int?)null, "unavailable", (string?)null),
+            };
+        string assetPath = library.AssetPath.ToString();
+        string selector =
+            $"package {QuoteSelector(packageSelector)} "
+                + $"--library {QuoteSelector(assetPath)}";
+        return new(
+            ordinal,
+            "Library",
+            library.AssetId.ToString(),
+            library.AssemblyName.ToString(),
+            document.Subject.TargetFramework?.ToString(),
+            library.Role.ToString(),
+            assetPath,
+            selector,
+            count,
+            countStatus,
+            library.IsAvailable ? "available" : "unavailable",
+            library.Unavailable?.Detail.ToString() ?? countDetail);
+    }
+
+    private static PackageChildOutputRow RuntimeIdentifierPackageRow(
+        PackageChildrenDocument document,
+        PackageRuntimeIdentifierChild package,
+        int ordinal)
+    {
+        string packageId = package.PackageId.ToString();
+        string version = document.Subject.PackageVersion.ToString();
+        return new(
+            ordinal,
+            "RID Package",
+            packageId,
+            packageId,
+            package.RuntimeIdentifier.ToString(),
+            null,
+            null,
+            $"package {QuoteSelector($"{packageId}@{version}")}",
+            null,
+            null,
+            "available",
+            null);
+    }
+
+    private static PackageChildOutputRow StatusRow(
+        PackageChildrenDocument document) =>
+        new(
+            null,
+            "Status",
+            $"{document.Subject.PackageId}"
+                + $"@{document.Subject.PackageVersion}",
+            document.Subject.PackageId.ToString(),
+            document.Subject.TargetFramework?.ToString(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            document.Status.ToString(),
+            document.Detail?.ToString());
+
+    private static string QuoteSelector(string value) =>
+        value.Any(char.IsWhiteSpace)
+            ? $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\""
+            : value;
+
+    private static string PackageSelector(
+        PackageChildrenDocument document,
+        InspectionOptions options)
+    {
+        string requested = options.PackageArgs.Single();
+        return File.Exists(requested) || Directory.Exists(requested)
+            ? Path.GetFullPath(requested)
+            : $"{document.Subject.PackageId}"
+                + $"@{document.Subject.PackageVersion}";
     }
 
     private static string DescribePackageChildrenSubject(
@@ -427,11 +985,15 @@ public partial class PackageCommand
 
     private static List<TreeNode> PackageChildrenNodes(
         PackageChildrenDocument document,
-        Verbosity verbosity) =>
+        Verbosity verbosity,
+        bool allowMinimalCollapse) =>
         document.Kind switch
         {
             PackageChildrenKind.Libraries =>
-                LibraryNodes(document, verbosity),
+                LibraryNodes(
+                    document,
+                    verbosity,
+                    allowMinimalCollapse),
             PackageChildrenKind.RuntimeIdentifierPackages =>
             [
                 new(
@@ -462,7 +1024,8 @@ public partial class PackageCommand
 
     private static List<TreeNode> LibraryNodes(
         PackageChildrenDocument document,
-        Verbosity verbosity)
+        Verbosity verbosity,
+        bool allowMinimalCollapse)
     {
         if (document.Libraries.IsEmpty)
         {
@@ -519,7 +1082,8 @@ public partial class PackageCommand
                 library => LibraryNode(
                     library,
                     duplicateNames)));
-        if (verbosity == Verbosity.Minimal
+        if (allowMinimalCollapse
+            && verbosity == Verbosity.Minimal
             && entryPoints.Length > 0
             && dependencies.Length > 8
             && dependencies.All(static library => library.IsAvailable))
@@ -574,3 +1138,45 @@ public partial class PackageCommand
         string? TargetFramework,
         PackageLibraryChildRole Role);
 }
+
+internal sealed record PackageChildOutputRow(
+    int? Ordinal,
+    string Kind,
+    string Identity,
+    string Name,
+    string? Target,
+    string? Role,
+    string? Asset,
+    string? Selector,
+    int? TypeDeclarations,
+    string? CountStatus,
+    string Status,
+    string? Detail);
+
+internal sealed record PackageChildrenOutputDocument(
+    string PackageId,
+    string PackageVersion,
+    string? TargetFramework,
+    PackageChildrenKind Kind,
+    PackageChildrenStatus Status,
+    bool IsComplete,
+    string? Detail,
+    int TotalCount,
+    int SelectedCount,
+    PackageChildOutputRow[] Children);
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(PackageChildrenOutputDocument))]
+internal partial class PackageChildrenJsonContext :
+    JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(PackageChildrenOutputDocument))]
+internal partial class PackageChildrenCompactJsonContext :
+    JsonSerializerContext;
