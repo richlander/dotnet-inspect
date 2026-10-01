@@ -734,6 +734,10 @@ test("typed package view owns package navigation bindings", () => {
   assert.match(
     namespaceJump,
     /state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*state\.kindFilter = ""/);
+  for (const projection of [kindJump, namespaceJump]) {
+    assert.doesNotMatch(projection, /loadTypeLeverage\(\)/);
+    assert.match(projection, /\brender\(\)/);
+  }
   for (const source of [kindJump, namespaceJump]) {
     assert.match(
       source,
@@ -1233,7 +1237,8 @@ test("typed type panel owns its rendered control bindings", () => {
     /state\.typeLeverageFilter = ""/);
   assert.match(
     clearFilters,
-    /if \(state\.typeLeverageEnabled\) loadTypeLeverage\(\);\s*else renderPreservingMemberFocus\(\)/);
+    /renderPreservingMemberFocus\(\)/);
+  assert.doesNotMatch(clearFilters, /loadTypeLeverage\(\)/);
   assert.match(
     binding,
     /onTypeFilterChange: value => \{[\s\S]*?render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},/);
@@ -1287,7 +1292,8 @@ test("typed type panel owns its rendered control bindings", () => {
   const kindSelect = callbackSource("onKindSelect");
   assert.match(
     kindSelect,
-    /if \(state\.typeLeverageEnabled\) loadTypeLeverage\(\);\s*else renderPreservingMemberFocus\(\)/);
+    /renderPreservingMemberFocus\(\)/);
+  assert.doesNotMatch(kindSelect, /loadTypeLeverage\(\)/);
   assert.match(
     kindSelect,
     /loadCurrentSelectionData\("Loading the selected Type"\)/);

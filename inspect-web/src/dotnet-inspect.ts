@@ -11819,8 +11819,7 @@ const packageViewActions: PackageViewBindingActions = {
     state.typeCursor = 0;
     const first = filteredTypeRows()[0];
     if (first) state.selectedTypeId = first.id;
-    if (state.typeLeverageEnabled) loadTypeLeverage();
-    else render();
+    render();
     loadCurrentSelectionData("Loading the selected Type");
   },
   onLibraryScopeSelect: (library, kind) => {
@@ -11845,8 +11844,7 @@ const packageViewActions: PackageViewBindingActions = {
     state.typeCursor = 0;
     const first = filteredTypeRows()[0];
     if (first) state.selectedTypeId = first.id;
-    if (state.typeLeverageEnabled) loadTypeLeverage();
-    else render();
+    render();
     loadCurrentSelectionData("Loading the selected Type");
   },
   onPerformanceMemberSelect: target => {
@@ -12061,8 +12059,7 @@ function bindTypePanelEvents() {
       state.kindFilter = "";
       state.typeLeverageFilter = "";
       state.accessibilityFilter = defaultAccessibilityFilter(state.package);
-      if (state.typeLeverageEnabled) loadTypeLeverage();
-      else renderPreservingMemberFocus();
+      renderPreservingMemberFocus();
     },
     onCopyAnchor: anchor => {
       const type = selectedType();
@@ -12312,8 +12309,7 @@ function bindTypePanelEvents() {
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       resetMemberFilters();
-      if (state.typeLeverageEnabled) loadTypeLeverage();
-      else renderPreservingMemberFocus();
+      renderPreservingMemberFocus();
       loadCurrentSelectionData("Loading the selected Type");
     },
     onOverloadSelect: index => {
