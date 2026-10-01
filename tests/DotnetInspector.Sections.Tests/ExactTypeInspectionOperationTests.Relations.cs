@@ -212,6 +212,14 @@ public sealed partial class ExactTypeInspectionOperationTests
             "Relations",
             "IContract",
             terminalIdentity);
+        AssemblyReferenceIdentity facadeIdentity;
+        using (var pe = new PEReader(
+            new MemoryStream(facadeAssembly, writable: false)))
+        {
+            facadeIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    pe.GetMetadataReader());
+        }
         byte[] terminalAssembly = BuildMetadataAssembly(
             terminal,
             Guid.NewGuid(),
@@ -290,22 +298,12 @@ public sealed partial class ExactTypeInspectionOperationTests
                     Framework),
             ],
         };
-        ExactLibrarySourceCoordinate focusLibrary;
-        await using (var focusWorkspace =
-            new InspectionWorkspace(
-                new WorkspacePlan([], [input])))
-        {
-            WorkspaceDeclarationContext focusContext =
-                await WorkspaceContextLoader.LoadDeclarationContextAsync(
-                    focusWorkspace,
-                    input,
-                    LoadOptions(client, store),
-                    TestContext.Current.CancellationToken);
-            focusLibrary = Assert.IsAssignableFrom<
-                ExactLibrarySourceCoordinate>(
-                    Assert.Single(
-                        focusContext.Receipt.Members).Coordinate);
-        }
+        ExactLibrarySourceCoordinate focusLibrary =
+            new ExactLibrarySourceCoordinate.Platform(
+                    new PlatformLibraryPopulationDeclaration(
+                        PlatformFamily.DotNetRuntime),
+                    new ManagedMetadataIdentity.Assembly(
+                        facadeIdentity));
         SubjectRelationsQueryPlan plan = Assert.IsType<
             SubjectRelationsQueryPlanResult.Accepted>(
                 SubjectRelationsQuery.ResolveIntent(
