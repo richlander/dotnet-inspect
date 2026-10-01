@@ -425,12 +425,22 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 bool needsIsolatedLocalScope = !body.Locals.IsEmpty
                     || body.Descendants.Any(
                         node => node is LoadStackSlot or StoreStackSlot);
-                if ((environment is not null
-                        && needsIsolatedLocalScope
-                        && environment.Captures.Values.Any(
-                            capture => !capture.IsArgumentCapture))
-                    || body.Descendants.OfType<UnsupportedNode>().Any()
-                    || !IsPrintableBody(body, allowLocalStatements: true))
+                if (environment is not null
+                    && needsIsolatedLocalScope
+                    && environment.Captures.Values.Any(
+                        capture => !capture.IsArgumentCapture))
+                    continue;
+                if (body.Descendants.OfType<UnsupportedNode>().Any())
+                    continue;
+                // Iterator reconstruction has already authenticated and structured these
+                // statement kinds. Admit them as a local-function body only when a
+                // reconstructed yield proves this is that pipeline's output.
+                bool isReconstructedIterator = body.Descendants.OfType<YieldReturn>().Any();
+                if (!IsPrintableBody(
+                        body,
+                        allowLocalStatements: true,
+                        allowLoops: isReconstructedIterator,
+                        allowIteratorStatements: isReconstructedIterator))
                     continue;
 
                 candidates.Add(new Candidate(
@@ -1480,7 +1490,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
     static bool IsPrintableBody(
         IrFunction body,
         bool allowLocalStatements = false,
-        bool allowLoops = false)
+        bool allowLoops = false,
+        bool allowIteratorStatements = false)
     {
         if (body.Body.Blocks is not [{ Children: var statements }])
             return false;
@@ -1503,13 +1514,16 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 continue;
             if (allowLoops && statement is WhileLoop)
                 continue;
+            if (allowIteratorStatements && statement is UsingStatement or YieldReturn)
+                continue;
             if (statement is IfStatement)
                 continue;
             if (statement is not ExpressionStatement)
                 return false;
         }
 
-        return false;
+        return allowIteratorStatements
+            && body.Descendants.OfType<YieldReturn>().Any();
     }
 
     static bool IsVoid(TypeRef type) => type is { Namespace: "System", Name: "Void" };
