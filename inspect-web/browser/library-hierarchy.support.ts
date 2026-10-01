@@ -690,10 +690,11 @@ async function installFacades(
         return result;
       }
       export async function queryPackage(id, version, framework) {
-        const surface = surfaceFor(id);
+        const defaultSurface = surfaceFor(id);
+        const surface = surfaceFor(id, version, framework);
         if (packageLoading.deferInitial || (packageLoading.deferChanges
-          && (id !== surfaces[0].package || version !== surface.version
-            || framework !== surface.activeFramework))) {
+          && (id !== surfaces[0].package || version !== defaultSurface.version
+            || framework !== defaultSurface.activeFramework))) {
           document.documentElement.dataset.packageQueryPending =
             JSON.stringify([id, version, framework]);
           await new Promise(resolve => document.addEventListener(
