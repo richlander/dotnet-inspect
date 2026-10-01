@@ -384,6 +384,17 @@ export function familyHeatFor(
         && overload.stableSelector === rosterMember.stableSelector))) {
       return null;
     }
+  } else if (accessibility === "all") {
+    if (visible.some(overload => {
+      const method = family.methods.get(overload.metadataToken);
+      if (method === undefined) return true;
+      return method.isRosterMember
+        && !family.roster.some(rosterMember =>
+          rosterMember.metadataToken === overload.metadataToken
+          && rosterMember.stableSelector === overload.stableSelector);
+    })) {
+      return null;
+    }
   } else if (visible.some(overload => {
     const method = family.methods.get(overload.metadataToken);
     return method === undefined || method.isRosterMember;

@@ -79,7 +79,7 @@ root README remains current without cataloging every focused capability.
 | Concern | Entry point |
 | --- | --- |
 | Layering and project families | [Inspection Layers](design/inspection-layers.md), [Library Family Boundaries](design/library-family-boundaries.md), and [Inspection Operation Kernels](design/inspection-operation-kernels.md) |
-| Graph structure and execution | [Inspector.Graph Library Boundary](design/inspector-graph-library-boundary.md) and [Inspector.Graph Execution](design/inspector-graph-execution.md) |
+| Graph structure and execution | [Inspector.Graph Library Boundary](design/inspector-graph-library-boundary.md), [Inspector.Graph Execution](design/inspector-graph-execution.md), and [Inspector.Graph Group Projection](design/inspector-graph-group-projection.md) |
 | Analysis planning, realization, execution, and metric coordination | [Analysis Surfaces and Universes](design/analysis-surfaces-and-universes.md), [Analysis Universe Realization](design/analysis-universe-realization.md), [Assembly Analysis Operation](design/assembly-analysis-operation.md), and [Evidence and Metric Coordination](design/evidence-metric-coordination.md) |
 | Cross-host operation composition | [Inspection Operation Composition](design/inspection-operation-composition.md) |
 | Query library, composition, operation registration, portable intent, and payload | [QuerySpace Library Boundary](design/query-space-library.md), [Query Space Composition](design/query-space-composition.md), [Query Operation Infrastructure](design/query-operation-infrastructure.md), [Portable Query Intent](design/portable-query-intent.md), and [Portable Query Payload](design/portable-query-payload.md) |
