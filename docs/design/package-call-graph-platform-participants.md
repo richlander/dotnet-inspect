@@ -81,20 +81,22 @@ adds only the consumer slice that joins them.
 For one `PackageDependencyMemberCallGraphInspectionRequest` whose effective
 focal length admits a registered Platform population, the inspection:
 
-1. for each registered Platform population in the focal scope receipt,
-   requests one exact `PlatformFamilyTarget` at the traversal target
-   framework from the Platform owner, and realizes and admits that family's
-   population;
-2. builds one graph context that contains the package participants plus the
-   certified Platform participants admitted for every selected family
-   target;
-3. when the package-only context reports intrinsic CoreLib non-participation,
-   runs `IntrinsicCoreLibraryWorkspaceContinuationOperation` once and, if it
-   publishes, restarts the graph in the successor Workspace generation; and
+1. builds the package-only predecessor graph through
+   `PackageDependencyMemberCallGraphOperation`, as today;
+2. when that graph reports intrinsic CoreLib non-participation and the focal
+   scope admits the `DotNetRuntime` population, evaluates
+   `IntrinsicCoreLibraryPlatformApplicabilityQuery` for the exact
+   `DotNetRuntime` target and runs
+   `IntrinsicCoreLibraryWorkspaceContinuationOperation` once. The
+   continuation realizes that exact-target population and admits it into a
+   successor Workspace generation;
+3. when the continuation publishes, discards the predecessor graph and builds
+   one mixed graph against the published successor. Its context contains the
+   package participants plus the certified `DotNetRuntime` participants;
 4. classifies every node owned by a certified Platform participant as a
    Platform node in the outcome, alongside Package nodes; and
-5. passes the matching `PlatformPruneInventory` to edge realization only
-   under the [pruning precondition](#pruning-precondition), so pruned
+5. passes the `DotNetRuntime` `PlatformPruneInventory` to edge realization
+   only under the [pruning precondition](#pruning-precondition), so pruned
    dependencies become the existing
    `PackageDependencyMemberCallGraphDestination.Platform` route rather than
    package participants.
@@ -107,13 +109,15 @@ pruning from an assembly name, namespace, package id, or display text.
 All Platform work shares one target framework: the traversal target. Within
 it, each selected family keeps its own exact target.
 
-- The focal scope receipt names families, not versions. The inspection
-  requests each family's exact target from the Platform owner, which selects
-  the version. The default curated Workspace selects both `DotNetRuntime` and
-  `AspNetCore`, which produce independent House requests and two exact family
-  targets, as
+- The focal scope receipt names families, not versions. The Platform owner
+  selects the exact `DotNetRuntime` target at the traversal framework.
+- This design admits only the `DotNetRuntime` family, the one that owns the
+  intrinsic CoreLib target. The default curated Workspace also selects
+  `AspNetCore`, which is an independent House request with its own exact
+  target, as
   [PlatformHouse reference processing](platform-house-reference-processing.md)
-  requires. Equal version text never merges them.
+  requires. Admitting `AspNetCore` participants into the successor is a
+  non-claim; it follows the #8466 binding route, not this continuation.
 - Pruning uses only the `DotNetRuntime` family's inventory and exact target.
   `PackageHouseTargetContext` carries one Platform target, and
   `PackageHousePruningReceipt` rejects a delegation whose supplying family
@@ -121,10 +125,8 @@ it, each selected family keeps its own exact target.
   separately owned PackageHouse contract change and is not claimed here.
 - A population realized for another target, such as the CLI's versionless
   family default, is not reused.
-- If one family's exact target is unavailable, that family contributes no
-  participants and no pruning inventory, and its typed unavailability is
-  reported. The other families proceed. If no family is available, the
-  graph stays package-only.
+- If the exact `DotNetRuntime` target is unavailable, the predecessor graph
+  is the result, with that typed unavailability reported.
 
 ### Pruning precondition
 
@@ -147,12 +149,20 @@ the typed binding outcome from #8466.
 
 ### Generation restart
 
-Graph construction is bound to one Workspace generation. Continuation
-publication replaces that generation. The inspection discards the earlier
-graph session, rebuilds once against the successor, and retains the
-continuation receipt in the outcome. A rejected, cancelled, or failed
-continuation returns the package-only graph with that typed outcome visible.
-At most one continuation and one restart occur for each request.
+Graph construction is bound to one Workspace generation. The package-only
+predecessor graph is what proves CoreLib non-participation, so it is always
+built first and never against a context that already has Platform
+participants. Continuation publication replaces the generation. The
+inspection discards the predecessor graph session, builds once against the
+successor, and retains the continuation receipt in the outcome. At most one
+continuation and one rebuild occur for each request.
+
+- A rejected or failed continuation returns the predecessor graph with that
+  typed outcome visible.
+- Cancellation propagates. As the
+  [inspection owner](package-dependency-member-call-graph-inspection.md)
+  specifies, a cancelled request produces no envelope, whether cancellation
+  happens during the predecessor graph, the continuation, or the rebuild.
 
 ### Focal lengths
 
@@ -192,6 +202,7 @@ and does not change projection or lowering rules.
 
 ## Non-claims
 
+- Admitting `AspNetCore` or other non-`DotNetRuntime` Platform participants.
 - Implementing package-origin `AssemblyRef` to Platform binding (#8466).
   Pruning waits for it, per the [pruning precondition](#pruning-precondition).
 - Implementing the CoreLib binding capability. This document consumes
@@ -220,9 +231,8 @@ Each slice is one reviewed PR with a production consumer, checked off on
 product usable after every slice.
 
 1. **Mixed graph context (CLI).** Depends on PlatformHouse stage 4.
-   Realize and admit the certified exact-target Platform participants into
-   the graph context, run the continuation and restart, and classify
-   Platform nodes. Pass node classifications to
+   Build the predecessor graph, run applicability and continuation, rebuild
+   against the successor, and classify Platform nodes. Pass node classifications to
    `ExternalCallGraphOutputAdapter`. No pruning yet. Adopt in `graph calls`
    with the `Serialize~faeffed6d4` and `JsonDocument.Dispose` tests.
 2. **Mixed graph context (Web).** Adopt the same inspection outcome in
@@ -248,9 +258,9 @@ sites in their PR demos.
 | STJ `netstandard2.0`, traversal `net11.0`, `Everything` | Zero unclassified CoreLib targets (slice 1); subsumed packages pruned and their calls bound to Platform participants (slice 3) |
 | `JsonDocument.Dispose`, same root | `Interlocked` and `Volatile` resolve to the exact certified CoreLib participant |
 | Same root, `Self` | Package-only graph; intrinsic targets `OutsideOperationScope` |
-| One family's exact target unavailable | That family contributes nothing and reports typed unavailability; other families proceed; no fallback target |
-| Default curated Workspace (`DotNetRuntime` + `AspNetCore`) | Two independent exact family targets at the traversal framework |
-| Continuation rejected or failed | Package-only graph plus the typed continuation outcome |
+| Exact `DotNetRuntime` target unavailable | Predecessor graph plus typed unavailability; no fallback target |
+| Continuation rejected or failed | Predecessor graph plus the typed continuation outcome |
+| Cancelled during any phase | Cancellation propagates; no envelope |
 | Pruning precondition unmet, including no `ecosystem.runtime` registration | No pruning; subsumed packages stay package participants |
 | `AspNetCore`-subsumed package dependency | Not pruned; remains a package participant |
 | Equivalent CLI and Web inputs | Equal host-neutral outcomes |
