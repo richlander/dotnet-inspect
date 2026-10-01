@@ -89,12 +89,16 @@ internal static class JsExportSurfaceLoader
 
         try
         {
-            LibraryBodyIndex bodyIndex =
-                LibraryBodyIndex.OpenFromPrefetchedImage(
+            LibraryBodyAnalysisExecution bodyExecution =
+                LibraryBodyAnalysisService.ExecuteImage(
                     assemblyPath,
                     image,
-                    LibraryBodyAnalysisFeatures.MethodEvidence
-                        | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+                    LibraryBodyAnalysisRequest.Create(
+                        LibraryBodyAnalysisFeatures.MethodEvidence
+                            | LibraryBodyAnalysisFeatures
+                                .JsonWireContractFlow));
+            LibraryBodyIndex bodyIndex =
+                bodyExecution.CompatibilityIndex();
             if (!TryLoadReferencedTypeDefinitions(
                     assemblyPath,
                     searchLocations,
@@ -233,11 +237,14 @@ internal static class JsExportSurfaceLoader
                 dependencySurface.Types.Any(type =>
                     type.BaseType
                         == "System.Text.Json.Serialization.JsonSerializerContext")
-                    ? LibraryBodyIndex.OpenFromPrefetchedImage(
-                        path,
-                        dependencyImage,
-                        LibraryBodyAnalysisFeatures.MethodEvidence
-                            | LibraryBodyAnalysisFeatures.JsonWireContractFlow)
+                    ? LibraryBodyAnalysisService.ExecuteImage(
+                            path,
+                            dependencyImage,
+                            LibraryBodyAnalysisRequest.Create(
+                                LibraryBodyAnalysisFeatures.MethodEvidence
+                                    | LibraryBodyAnalysisFeatures
+                                        .JsonWireContractFlow))
+                        .CompatibilityIndex()
                     : null;
             foreach (ApiType type in dependencySurface.Types)
             {
