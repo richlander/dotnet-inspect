@@ -218,7 +218,8 @@ internal static class MethodImplementationProfileAnalysis
         ImmutableArray<DirectCall> directCalls,
         IReadOnlyDictionary<int, MethodSignals> signals,
         ImmutableArray<OverloadCallRelationship> relationships,
-        MethodDefinitionMap methodMap)
+        MethodDefinitionMap methodMap,
+        IReadOnlyDictionary<int, int>? directInvocationCounts = null)
     {
         var incomingCallers = relationships
             .GroupBy(static relationship => relationship.Callee.MetadataToken)
@@ -260,6 +261,9 @@ internal static class MethodImplementationProfileAnalysis
                     calls ??= [];
                     ImplementationMetricDirectCalls directCallMetrics =
                         MeasureDirectCalls(
+                            directInvocationCounts?.GetValueOrDefault(
+                                body.EvidenceMethod.MetadataToken)
+                                ?? calls.Length,
                             calls,
                             methodMap,
                             incompleteReason: null);
@@ -315,9 +319,22 @@ internal static class MethodImplementationProfileAnalysis
         [
             .. calls.Where(static call => IsInvocation(call.Kind)),
         ];
-        return new(
+        return MeasureDirectCalls(
             invocations.Length,
-            CountDistinctCallees(invocations, methodMap),
+            invocations,
+            methodMap,
+            incompleteReason);
+    }
+
+    internal static ImplementationMetricDirectCalls MeasureDirectCalls(
+        int invocationCount,
+        IEnumerable<DirectCall> calls,
+        MethodDefinitionMap methodMap,
+        string? incompleteReason)
+    {
+        return new(
+            invocationCount,
+            CountDistinctCallees(calls, methodMap),
             incompleteReason);
     }
 

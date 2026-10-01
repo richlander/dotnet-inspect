@@ -2099,7 +2099,7 @@ public static class ApiOutputFormatter
             }));
     }
 
-    private static ApiMember? SelectBodyMethod(
+    internal static ApiMember? SelectBodyMethod(
         ApiType type,
         List<ApiMember> methods,
         int overloadIndex)
