@@ -173,8 +173,11 @@ The Ecosystems API owns the current product manifests. The platform-curated
 registration sequence is:
 
 1. .NET Runtime
-2. ASP.NET Core
-3. Microsoft.Extensions
+2. Microsoft.Extensions
+3. ASP.NET Core
+
+That sequence is the lineage of ASP.NET Core in the
+[ecosystem hierarchy](ecosystem-hierarchy.md).
 
 Curated construction returns that complete sequence in a validated,
 resource-free `WorkspacePlan`. The caller explicitly constructs

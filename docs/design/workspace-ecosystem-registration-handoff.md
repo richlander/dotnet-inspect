@@ -37,8 +37,9 @@ approved in #6763, supplies the platform and all-known construction intents
 adopted here. #7001 adds selected-set construction from an explicit ordered
 ecosystem identity sequence. The platform composition keeps its narrower
 meaning; all-known construction adds every shipped ecosystem, including Aspire,
-AI, Blazor, and .NET MAUI; selected-set construction adds exactly the requested
-registrations in caller order. These application-owned choices add no product
+AI, Blazor, and .NET MAUI; selected-set construction adds the requested
+registrations in caller order, each preceded by its ancestors as defined by
+[Ecosystem hierarchy](ecosystem-hierarchy.md#workspace-plan-construction). These application-owned choices add no product
 policy to Workspace.
 
 ## Authority and exact claim
@@ -392,22 +393,23 @@ The application catalog owns two separate authored sequences:
 ```text
 PlatformProductWorkspace
   ecosystem.runtime
-  ecosystem.aspnetcore
   ecosystem.microsoft-extensions
+  ecosystem.aspnetcore
 
 AllKnownProductWorkspace
   ecosystem.runtime
-  ecosystem.aspnetcore
   ecosystem.microsoft-extensions
+  ecosystem.aspnetcore
   ecosystem.aspire
   ecosystem.ai
   ecosystem.blazor
+  ecosystem.maui
 ```
 
-This order is product policy. It is not derived from pack discovery order,
-alphabetical order, package-set order, or namespace roots. The current pack
-discovery order places Microsoft.Extensions before ASP.NET Core, so filtering
-the ordinary pack manifest would produce the wrong curated order.
+This order is product policy. It is not derived from alphabetical order,
+package-set order, or namespace roots. Each manifest places every pack after
+its [ecosystem hierarchy](ecosystem-hierarchy.md) parent; the platform manifest
+is the lineage of ASP.NET Core.
 
 Complete validation of either manifest requires:
 

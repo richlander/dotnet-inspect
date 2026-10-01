@@ -156,6 +156,8 @@ build.
 One pack registration may contain:
 
 - stable ecosystem identity and product-owned discovery metadata;
+- one optional parent pack, `DependsOn`, defined by
+  [Ecosystem hierarchy](ecosystem-hierarchy.md);
 - compact namespace hints and ordered registered core-package roots;
 - explicit tool-package references;
 - one optional package-set identity;
@@ -255,6 +257,7 @@ EcosystemPackRegistration
   Prefixes     immutable ordered EcosystemPackagePrefix sequence
   Scanner      EcosystemIntegrationScannerBinding?
   Loader       EcosystemPopulationLoaderBinding?
+  DependsOn    EcosystemPackId?
   Demos        immutable ordered EcosystemDemoRegistration sequence
 
 EcosystemPackDescriptor
