@@ -478,7 +478,8 @@ public partial class DiffCommand
                         toPaths,
                         options,
                         fromSurface,
-                        toSurface))));
+                        toSurface)),
+                "--analysis"));
         return new AnalysisSetRun(
             DiffAnalysisInspection.Execute(
                 new DiffAnalysisInspectionRequest(

@@ -456,7 +456,8 @@ public partial class DiffCommand
                     ImplementationDiffResult result =
                         RequireImplementationComparison(
                             queryResults.Get(
-                                ImplementationComparisonQuery.Definition));
+                                ImplementationComparisonQuery.Definition),
+                            DiffSections.ComplexityContext.Name);
                     ComplexityContextView view =
                         DiffOutputFormatter.BuildComplexityContextView(
                             inputs.Name,
@@ -496,7 +497,8 @@ public partial class DiffCommand
                     ImplementationDiffResult result =
                         RequireImplementationComparison(
                             queryResults.Get(
-                                ImplementationComparisonQuery.Definition));
+                                ImplementationComparisonQuery.Definition),
+                            DiffSections.StructuralContext.Name);
                     StructuralContextView view =
                         DiffOutputFormatter.BuildStructuralContextView(
                             inputs.Name,
@@ -556,7 +558,8 @@ public partial class DiffCommand
                             await BuildImplementationDiffWithSourceAsync(
                                 RequireImplementationComparison(
                                     queryResults.Get(
-                                        ImplementationComparisonQuery.Definition)),
+                                        ImplementationComparisonQuery.Definition),
+                                    DiffSections.ImplementationDiff.Name),
                                 inputs.FromPaths,
                                 inputs.ToPaths,
                                 options,
@@ -1261,7 +1264,8 @@ public partial class DiffCommand
                     await BuildImplementationDiffWithSourceAsync(
                         RequireImplementationComparison(
                             queryResults.Get(
-                                ImplementationComparisonQuery.Definition)),
+                                ImplementationComparisonQuery.Definition),
+                            DiffSections.ImplementationDiff.Name),
                         inputs.FromPaths,
                         inputs.ToPaths,
                         options,
@@ -1287,7 +1291,8 @@ public partial class DiffCommand
             ImplementationDiffResult result =
                 RequireImplementationComparison(
                     queryResults.Get(
-                        ImplementationComparisonQuery.Definition));
+                        ImplementationComparisonQuery.Definition),
+                    DiffSections.ComplexityContext.Name);
             complexityContextView =
                 DiffOutputFormatter.BuildComplexityContextView(
                     inputs.Name,
@@ -1302,7 +1307,8 @@ public partial class DiffCommand
             ImplementationDiffResult result =
                 RequireImplementationComparison(
                     queryResults.Get(
-                        ImplementationComparisonQuery.Definition));
+                        ImplementationComparisonQuery.Definition),
+                    DiffSections.StructuralContext.Name);
             structuralContextView =
                     DiffOutputFormatter.BuildStructuralContextView(
                         inputs.Name,
@@ -1560,7 +1566,8 @@ public partial class DiffCommand
     static IReadOnlyList<ComparisonMemberSelection> ResolveComparisonMemberSelections(
         ApiSurface fromSurface,
         ApiSurface toSurface,
-        DiffOptions options)
+        DiffOptions options,
+        string? methodLikeContext = null)
     {
         List<ComparisonMemberSelection> selections = [];
         foreach (string rawTarget in options.MemberFilter)
@@ -1579,9 +1586,54 @@ public partial class DiffCommand
                     $"Member target '{rawTarget}' names type "
                     + $"'{parsed.TypeName}', which has no single Metadata "
                     + "type definition in the diff inputs.");
+            if (methodLikeContext is not null)
+            {
+                ValidateMethodLikeSelection(
+                    fromSurface,
+                    toSurface,
+                    parsed,
+                    rawTarget,
+                    methodLikeContext);
+            }
             selections.Add(new(type.DefinitionName, parsed.Selector));
         }
         return selections;
+    }
+
+    static void ValidateMethodLikeSelection(
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        ParsedDiffMemberTarget parsed,
+        string rawTarget,
+        string targetContext)
+    {
+        bool found = false;
+        bool bodyFound = false;
+        foreach (ApiSurface surface in new[] { fromSurface, toSurface })
+        {
+            ApiType? type = FindSelectedType(
+                surface,
+                parsed.TypeName,
+                out string? typeError);
+            if (typeError is not null)
+                throw new InvalidOperationException(typeError);
+            if (type is null)
+                continue;
+
+            MemberTargetResolution resolution =
+                MemberTargetResolver.Resolve(type, parsed.Selector);
+            if (!resolution.Found)
+                continue;
+            found = true;
+            bodyFound |= resolution.Target!.Body is not null;
+        }
+
+        if (found && !bodyFound)
+        {
+            throw new InvalidOperationException(
+                $"{targetContext} --member requires a method-like target; "
+                    + $"'{rawTarget}' resolved to a member with no method body.");
+        }
     }
 
     internal static ImplementationDiffResult BuildImplementationDiff(
@@ -1597,7 +1649,8 @@ public partial class DiffCommand
                     toPaths,
                     options,
                     fromSurface,
-                    toSurface)));
+                    toSurface)),
+            DiffSections.ImplementationDiff.Name);
 
     private static ImplementationComparisonInput
         CreateImplementationComparisonInput(
@@ -1642,7 +1695,14 @@ public partial class DiffCommand
             memberSelections = ResolveComparisonMemberSelections(
                 oldSurface,
                 newSurface,
-                options);
+                options,
+                SelectsComplexityContext(options)
+                    ? DiffSections.ComplexityContext.Name
+                    : SelectsStructuralContext(options)
+                        ? DiffSections.StructuralContext.Name
+                        : options.Analysis is not null
+                            ? "--analysis"
+                            : DiffSections.ImplementationDiff.Name);
         }
 
         return new ImplementationComparisonInput(
@@ -1817,13 +1877,17 @@ public partial class DiffCommand
     }
 
     static ImplementationDiffResult RequireImplementationComparison(
-        ImplementationComparisonResult result)
+        ImplementationComparisonResult result,
+        string targetContext)
         => result switch
         {
             ImplementationComparisonResult.Compared compared =>
                 compared.Comparison,
             ImplementationComparisonResult.TargetFailed failed =>
-                throw new InvalidOperationException(failed.Summary),
+                throw new InvalidOperationException(
+                    FormatImplementationTargetFailure(
+                        failed,
+                        targetContext)),
             ImplementationComparisonResult.PopulationRejected rejected =>
                 throw new InvalidOperationException(
                     $"Implementation comparison population was rejected "
@@ -1852,6 +1916,24 @@ public partial class DiffCommand
             _ => throw new InvalidOperationException(
                 "Implementation comparison returned an unknown outcome."),
         };
+
+    static string FormatImplementationTargetFailure(
+        ImplementationComparisonResult.TargetFailed failed,
+        string targetContext)
+    {
+        bool selectedNonMethod = failed.Resolution.Scopes.Any(scope =>
+            failed.Resolution.Attempts.Any(attempt =>
+                attempt.Request.Scope == scope.Id
+                && attempt.Outcome is ResearchTargetOutcome.Resolved
+                {
+                    Role: ResearchTargetRelationshipRole.None,
+                    BodyIdentity: null,
+                }));
+        return selectedNonMethod
+            ? $"{targetContext} --member requires a method-like target. "
+                + failed.Summary
+            : failed.Summary;
+    }
 
     sealed record PdbSourceEndpointIndex(
         ImmutableDictionary<string, MethodIdentity> Methods,

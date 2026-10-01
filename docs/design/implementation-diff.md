@@ -2273,6 +2273,11 @@ document as Content and initially reports Share as non-projectable at
 the ordered pair faithfully. Diagnostics remain envelope-level operation
 diagnostics, not a second home for member evidence.
 
+The portable transport is `implementation-diff` schema 2. Schema 2 records
+semantic `memberSelections` as declaring-type and selector pairs; it replaces
+schema 1's internal `memberTargetIdentities`, which were not a portable request
+currency.
+
 The first host adoption is complete CLI transport for
 `diff --library before.dll..after.dll -S "Implementation Diff" --json` and
 `--envelope`. Exact section selection selects this operation; it does not
