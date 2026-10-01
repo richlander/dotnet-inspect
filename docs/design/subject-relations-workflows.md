@@ -9,6 +9,8 @@ The QuerySpace-native composition reframe is tracked by
 [#8124](https://github.com/richlander/dotnet-inspect/issues/8124).
 The request-driven population reconciliation is tracked by
 [#8184](https://github.com/richlander/dotnet-inspect/issues/8184).
+The Metadata-owned hierarchy producer and performance-oracle contract is
+tracked by [#9062](https://github.com/richlander/dotnet-inspect/issues/9062).
 Nothing in this document is a claim that the proposed commands or defaults ship.
 The local-throw refinement is tracked by
 [#6960](https://github.com/richlander/dotnet-inspect/issues/6960).
@@ -337,16 +339,18 @@ result. Tail, backward-dependent selection, and residual selection exhaust.
 An exact single-form Count applies supported stages without constructing Rows.
 
 For incoming Type hierarchy relations, the exact focused metadata Type name
-and selected Interface or Base Type form reach the Metadata producer. Metadata
-compares unrelated edge targets without materializing their names and projects
-source identities only for matching edges. Workspace correspondence resolves
-only those producer-returned candidates; current-module targets use their
-already-established assembly identity directly, while external and forwarded
-targets retain binding-policy resolution. A Count-only request groups exact
-candidate identities without lowering canonical Rows. Exact simple-name focus
-selection likewise probes matching TypeDefs without first retaining the whole
-declaration-name inventory; richer selection gestures retain the general
-inventory path.
+and selected Interface or Base Type form reach the Metadata-owned producer
+over an admitted session. The producer returns owner-issued candidate
+identities, coverage, diagnostics, and terminal disposition. Workspace
+correspondence resolves only those returned candidates; current-module targets
+use their already-established assembly identity directly, while external and
+forwarded targets retain binding-policy resolution. A Count-only request
+groups exact candidate identities without lowering canonical Rows.
+
+Subject Relations may consume an owner-issued targeted declaration lookup
+instead of requesting a complete declaration inventory. That handoff must
+preserve the selected gesture's candidate set, typed failures, and occurrence
+authority; this design does not define how Metadata matches or decodes names.
 
 ### Resolve exact Type focus once
 
@@ -376,31 +380,16 @@ content for a different Type. This is one Subject Relations composition
 contract, not a change to Metadata matching or Assembly Inspection's own
 identity construction.
 
-The targeted Metadata producer and its NLinq performance oracle execute the
-same hierarchy analysis: enumerate externally visible, non-hidden Type
-definitions; inspect the selected base-Type or interface edges; compare the
-outer definition of direct and constructed targets; and project the matching
-source definition identity. Count performs that analysis without materializing
-source rows. Full relation evidence adds constructed target decoding and graph
-projection only after this shared analysis has selected an occurrence. The
-LINQ, NLinq, and Planner call the same product-owned analysis pass for this
-scope, matching, guarded decoding, budget charging, and row projection, as
-required by the
+Any hierarchy scorecard used to justify this adoption follows the
 [performance-oracle rule](../evidence-and-validation.md#performance-oracles-for-queryspace-enablement).
-Every standard scorecard column starts from the same session-owned admitted
-metadata image. General format classification and `MetadataReader`
-construction occur once when the asset session opens; LINQ and NLinq construct
-their shared pass from that session, while Planner consumes the same retained
-reader without repeating admission. The scorecard therefore measures reader
-and terminal machinery after a common admission boundary. Exact end-to-end
-measurements separately retain acquisition and admission cost.
-The scorecard answer gate includes the producer's malformed generic-TypeSpec
-fixture and compares diagnostics and operation counters as well as benign rows.
-The scorecard measures the shipping analysis stage; exact NativeAOT base/head
-measurements cover its production composition and host lowering. Measurements
-from any lighter oracle loop remain labeled frontier evidence until that
-algorithm is ported into the product pass and therefore shared by all standard
-columns.
+LINQ, NLinq, and Planner independently answer the same owner-defined question
+over the same admitted image, scope, fidelity domain, safety contract,
+projection, and closing. They may share admission and owner-issued facts whose
+inputs and invariants align, but not the query implementation being compared.
+The report links each exact implementation, population source, pinned NLinq
+provenance, and invocation. The Metadata owner defines its producer algorithm,
+fidelity, containment, and operation bounds; Subject Relations consumes the
+typed outcomes and does not restate them.
 
 Terminal work elimination is separate from analysis throughput. Count,
 complete Rows, and Tail exhaust the selected source. Exists, `Head(N)`, and
@@ -414,24 +403,6 @@ named target in another assembly cannot satisfy the terminal. Sections then
 orders the bounded discovery cohort by canonical relation form and Type name
 for presentation. Exhaustive Rows and continuation paging order the complete
 candidate population so continuation ordinals remain stable across page sizes.
-
-The fast definition matcher is fidelity-bearing for canonical TypeDef, TypeRef,
-and generic TypeSpec shapes emitted by Roslyn. Untrusted and malformed metadata
-remains subject to bounded image admission, relationship/name traversal, and
-blob reads; it must not create unbounded work, unsafe memory behavior, assembly
-loading, or another containment failure. A malformed or non-canonical target
-may be rejected as incomplete and is not promised an exact semantic answer.
-Its failure remains visible in producer disposition and diagnostics. Hierarchy
-production is responsible for high-fidelity answers on Roslyn-produced
-assemblies and secure, bounded behavior on every admitted assembly. The
-session-owned image, not the hierarchy producer, rejects unsupported Windows
-Metadata and malformed metadata-reader construction before the producer runs.
-Within an admitted reader, guarded decoding and operation budgets remain the
-producer's responsibility. Hierarchy analysis uses one lazy, memoized
-nested-Type visibility resolver per admitted image. It charges declaring-Type edges
-to the relationship budget, detects cycles by identity, and aborts that
-malformed family instead of repeating a declaring-Type walk for each
-candidate.
 
 The canonical row unit is one logical relation. Each row preserves:
 
