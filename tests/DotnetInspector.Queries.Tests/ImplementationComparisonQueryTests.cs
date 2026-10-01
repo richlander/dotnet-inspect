@@ -330,6 +330,87 @@ public sealed class ImplementationComparisonQueryTests
     }
 
     [Fact]
+    public void DocumentQuery_CoalescesSelectorsForTheSamePhysicalTarget()
+    {
+        ComparisonMemberSelection shortSelection = new(
+            TypeName("DiffFixtureSample.MethodRemovalSample"),
+            MemberTargetSelector.Parse("Removed:1"));
+        ImplementationDiffDocument baseline =
+            ImplementationDiffDocumentQuery.Execute(
+                new ImplementationComparisonInput(
+                    [
+                        StreamBackedInput(
+                            FixtureCatalog.DiffPair.OldAssemblyPath(),
+                            "before.dll"),
+                    ],
+                    [
+                        StreamBackedInput(
+                            FixtureCatalog.DiffPair.NewAssemblyPath(),
+                            "after.dll"),
+                    ],
+                    MemberSelections: [shortSelection]));
+        ImplementationDiffDocument repeated =
+            ImplementationDiffDocumentQuery.Execute(
+                new ImplementationComparisonInput(
+                    [
+                        StreamBackedInput(
+                            FixtureCatalog.DiffPair.OldAssemblyPath(),
+                            "before.dll"),
+                    ],
+                    [
+                        StreamBackedInput(
+                            FixtureCatalog.DiffPair.NewAssemblyPath(),
+                            "after.dll"),
+                    ],
+                    MemberSelections:
+                    [
+                        new ComparisonMemberSelection(
+                            TypeName(
+                                "DiffFixtureSample.MethodRemovalSample"),
+                            MemberTargetSelector.Parse("Removed:1")),
+                        new ComparisonMemberSelection(
+                            TypeName(
+                                "DiffFixtureSample.MethodRemovalSample"),
+                            MemberTargetSelector.Parse("Removed:1")),
+                    ]));
+
+        Assert.Equal(2, repeated.Request.MemberSelections.Count);
+        ImplementationDiffDocumentMember baselineMember =
+            Assert.Single(baseline.Members);
+        ImplementationDiffDocumentMember repeatedMember =
+            Assert.Single(repeated.Members);
+        Assert.Equal(baselineMember.Subject, repeatedMember.Subject);
+        Assert.Equal(
+            baselineMember.Evidence.Select(EvidenceIdentity),
+            repeatedMember.Evidence.Select(EvidenceIdentity));
+        Assert.Equal(
+            baselineMember.IlFindingComparison!.Operations.Count,
+            repeatedMember.IlFindingComparison!.Operations.Count);
+        Assert.All(
+            repeated.Coverage.Mechanisms.Where(coverage =>
+                coverage.Mechanism
+                    is ImplementationDiffDocumentMechanism.CSharp
+                        or ImplementationDiffDocumentMechanism.IlBody),
+            coverage => Assert.Equal(1, coverage.ChangedSubjectCount));
+
+        static (
+            ResearchChangeMechanism Mechanism,
+            string DescriptorId,
+            ResearchChangeKind Kind,
+            string? OldValue,
+            string? NewValue,
+            string? Detail) EvidenceIdentity(
+                ImplementationDiffEvidence evidence)
+            => (
+                evidence.Mechanism,
+                evidence.DescriptorId,
+                evidence.Kind,
+                evidence.OldValue,
+                evidence.NewValue,
+                evidence.Detail);
+    }
+
+    [Fact]
     public void DocumentQuery_TargetedUnavailableNativeResultIsIncomplete()
     {
         ImplementationDiffDocument document =
@@ -1021,6 +1102,27 @@ public sealed class ImplementationComparisonQueryTests
             paired.Evidence,
             evidence => evidence.Mechanism
                 == ResearchChangeMechanism.IlBody);
+    }
+
+    [Fact]
+    public void DocumentQuery_TargetedCrossEndpointCollisionUsesOneSubject()
+    {
+        ImplementationDiffDocument document = CompareReturnTypeOverloads(
+            methodName: "SelectedMixed",
+            oldIntValue: 1,
+            oldStringValue: "removed",
+            newIntValue: 2,
+            newStringValue: "",
+            newIncludesString: false,
+            memberSelector: "SelectedMixed:1",
+            profiled: true);
+
+        ImplementationDiffDocumentMember member =
+            Assert.Single(document.Members);
+        ImplementationDiffDocumentComplexityChange complexity =
+            Assert.Single(document.Complexity.Changes);
+        Assert.Equal(member.Subject, complexity.Subject);
+        Assert.Equal("SelectedMixed", member.Subject.MemberName);
     }
 
     [Fact]
@@ -1906,7 +2008,8 @@ public sealed class ImplementationComparisonQueryTests
         string newStringValue,
         bool newIncludesInt = true,
         bool newIncludesString = true,
-        string? memberSelector = null)
+        string? memberSelector = null,
+        bool profiled = false)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -1928,10 +2031,14 @@ public sealed class ImplementationComparisonQueryTests
                 newStringValue,
                 newIncludesInt,
                 newIncludesString);
+            Func<string, string, ImplementationAssemblyInput> createInput =
+                profiled
+                    ? ProfiledStreamBackedInput
+                    : StreamBackedInput;
             return ImplementationDiffDocumentQuery.Execute(
                 new ImplementationComparisonInput(
-                    [StreamBackedInput(oldPath, "before.dll")],
-                    [StreamBackedInput(newPath, "after.dll")],
+                    [createInput(oldPath, "before.dll")],
+                    [createInput(newPath, "after.dll")],
                     TypeFilters: new HashSet<string>(
                         StringComparer.OrdinalIgnoreCase)
                     {

@@ -164,12 +164,23 @@ public static partial class ResearchDiff
 
         var comparisons = new List<ResearchComparison>();
         var retained = ImmutableArray.CreateBuilder<RetainedFindingComparison>();
+        var projectedWork = new HashSet<ProducerProjectionKey>();
         foreach (ResearchProducerWorkResult work in completion.Results)
         {
             ResearchSubjectKey subject = SubjectFromWorkBasis(
                 resolution,
                 population,
                 work.Item.Basis);
+            if (work.Item.Basis
+                    is ResearchProducerWorkBasis.Correspondence correspondence
+                && !projectedWork.Add(ProducerProjectionKey.Create(
+                    work.Item.Producer,
+                    subject,
+                    correspondence.Outcome)))
+            {
+                continue;
+            }
+
             switch (work.Outcome)
             {
                 case ResearchProducerWorkOutcome.ProducedCSharp produced:
@@ -483,7 +494,7 @@ public static partial class ResearchDiff
                     ResearchMemberIdentity.SubjectFromMethod(method);
                 bool includeReturnType =
                     ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
-                        occurrence.MethodPopulation.DeclaredMethods)
+                        WorkBasisMethods(population, basis))
                     .Contains(baseSubject.Id);
                 return ResearchMemberIdentity.SubjectFromMethod(
                     method,
@@ -507,6 +518,44 @@ public static partial class ResearchDiff
             display,
             scope.DeclaringTypeFullName,
             scope.Selector.RequestedText);
+    }
+
+    static IEnumerable<MethodIdentity> WorkBasisMethods(
+        ResearchAdmittedPopulation population,
+        ResearchProducerWorkBasis basis)
+    {
+        IEnumerable<ResearchComparisonInputId> inputs = basis switch
+        {
+            ResearchProducerWorkBasis.DesignatedPair designated =>
+            [
+                designated.Pair.Before.Request.Input,
+                designated.Pair.After.Request.Input,
+            ],
+            ResearchProducerWorkBasis.Correspondence correspondence =>
+                correspondence.Outcome.Domain.Inputs
+                    .Where(static input =>
+                        input.Role == ResearchTargetInputRole.Implementation)
+                    .Select(
+                        static input => input.Input),
+            _ => throw new ArgumentOutOfRangeException(nameof(basis)),
+        };
+
+        foreach (ResearchComparisonInputId input in inputs)
+        {
+            if (population.GetInput(input).Occurrence
+                is not ImplementationComparisonInputOccurrence occurrence)
+            {
+                throw new InvalidOperationException(
+                    "Implementation producer work requires implementation "
+                        + "comparison input occurrences.");
+            }
+
+            foreach (MethodIdentity method
+                in occurrence.MethodPopulation.DeclaredMethods)
+            {
+                yield return method;
+            }
+        }
     }
 
     public static ResearchComparison FromCSharpBodyDiff(CSharpBodyDiffResult diff)
@@ -1826,6 +1875,59 @@ public static partial class ResearchDiff
             IlDiffKind.Context => "context",
             _ => ToKebabCase(kind.ToString()),
         };
+
+    sealed record ProducerProjectionKey(
+        ResearchProducerKind Producer,
+        string SubjectId,
+        ResearchTargetDomainKey Domain,
+        ResearchTargetCorrespondenceKind Kind,
+        MetadataMethodAddress? BeforeAddress,
+        MetadataMethodAddress? AfterAddress)
+    {
+        public static ProducerProjectionKey Create(
+            ResearchProducerKind producer,
+            ResearchSubjectKey subject,
+            ResearchTargetCorrespondenceOutcome outcome)
+            => new(
+                producer,
+                subject.Id,
+                outcome.Domain.Key,
+                outcome.Kind,
+                BeforeAddressOf(outcome),
+                AfterAddressOf(outcome));
+
+        static MetadataMethodAddress? BeforeAddressOf(
+            ResearchTargetCorrespondenceOutcome outcome)
+            => outcome switch
+            {
+                ResearchTargetCorrespondenceOutcome.Paired paired =>
+                    paired.Before.Target.Address,
+                ResearchTargetCorrespondenceOutcome.BeforeOnly beforeOnly =>
+                    beforeOnly.Before.Target.Address,
+                ResearchTargetCorrespondenceOutcome.CounterpartUnavailable
+                    {
+                        Attempt.Request.Side:
+                            ResearchComparisonSide.Before,
+                    } unavailable => unavailable.Target.Address,
+                _ => null,
+            };
+
+        static MetadataMethodAddress? AfterAddressOf(
+            ResearchTargetCorrespondenceOutcome outcome)
+            => outcome switch
+            {
+                ResearchTargetCorrespondenceOutcome.Paired paired =>
+                    paired.After.Target.Address,
+                ResearchTargetCorrespondenceOutcome.AfterOnly afterOnly =>
+                    afterOnly.After.Target.Address,
+                ResearchTargetCorrespondenceOutcome.CounterpartUnavailable
+                    {
+                        Attempt.Request.Side:
+                            ResearchComparisonSide.After,
+                    } unavailable => unavailable.Target.Address,
+                _ => null,
+            };
+    }
 
     sealed record MethodPopulationEntry(
         string Key,

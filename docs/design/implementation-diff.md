@@ -514,7 +514,16 @@ to one correspondence-issued subject, including one-sided Findings and
 unavailable or failed inspection topology when no two-sided semantic diff
 exists. Complexity matches the resolved module and MethodDef address to each
 profile's Analysis-issued logical owner, then retains every associated physical
-evidence method, including generated state-machine bodies.
+evidence method, including generated state-machine bodies. Return-type
+collision qualification considers the declared methods from both endpoint
+populations in the correspondence domain, so native and complexity evidence
+use the same subject when a collision exists on only one endpoint.
+
+Repeated selection occurrences remain distinct in the target resolution and
+portable request. When two occurrences resolve to the same physical endpoint
+pair, producer, and subject, implementation-result projection retains that
+evidence once in the subject-keyed result rather than duplicating rows or
+failing document construction.
 
 Every requested member scope must resolve to an Analysis-issued body identity
 on at least one endpoint and must produce evaluable correspondence rather than
@@ -2245,11 +2254,14 @@ The document contains:
   transition facts and the producer-owned C# and IL rows or typed failures that
   support them. When the ordinary API anchor collides, return type participates
   in the body currency so valid ECMA-335 return-type-only overloads remain
-  distinct. Each per-hunk IL change retains only its own hunk rows, while failure
-  changes retain only their directly associated typed failure; added and
-  removed methods additionally retain their one-sided typed IL Finding
-  comparison, including endpoint topology and canonical operations, because no
-  two-sided semantic IL hunk exists to project;
+  distinct; collision qualification uses both exact-pair endpoint populations.
+  Repeated selectors for one physical target remain present in the request but
+  contribute one subject and one copy of its evidence. Each per-hunk IL change
+  retains only its own hunk rows, while failure changes retain only their
+  directly associated typed failure; added and removed methods additionally
+  retain their one-sided typed IL Finding comparison, including endpoint
+  topology and canonical operations, because no two-sided semantic IL hunk
+  exists to project;
 - complexity changes with endpoint completeness and image-issued method
   evidence coordinates plus the owner-issued local population context for
   delta-bearing changes; and
