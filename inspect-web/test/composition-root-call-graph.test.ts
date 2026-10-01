@@ -1125,7 +1125,10 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     /\?\? selectedMemberGroups\(type\)\.map\(group => group\.kind\)/);
   assert.match(
     filters,
-    /const fallbackGroups = !population[\s\S]*loadedMemberDeclarationsApplyToSelection\(\)[\s\S]*\? selectedMemberGroups\(type\)[\s\S]*: null;[\s\S]*const kindCount = \(kind: string\) =>[\s\S]*selectorCounts[\s\S]*fallbackGroups[\s\S]*memberKindCount\(fallbackGroups, kind\)[\s\S]*: null/);
+    /function selectedMemberKindCount\([\s\S]*currentTypeMemberPopulation\(type\)\?\.selectorCounts[\s\S]*loadedMemberDeclarationsApplyToSelection\(\)[\s\S]*memberKindCount\(selectedMemberGroups\(type\), kind\)/);
+  assert.match(
+    filters,
+    /function selectedMemberTraitCount\([\s\S]*currentTypeMemberPopulation\(type\)\?\.selectorCounts\.traits[\s\S]*if \(!traits\) return null;/);
   assert.match(
     appSource,
     /function loadedMemberDeclarationsApplyToSelection\([\s\S]*state\.memberSpelling === "csharp"[\s\S]*state\.memberAccessibilityFilter === "public"[\s\S]*function declaredMemberGroups\([\s\S]*loadedMemberDeclarationsApplyToSelection\(\)[\s\S]*partitionGraphMembers\(type\.api\)[\s\S]*searchableMemberGroups\(groupMembers\(publicMembers\)\)/);
@@ -1145,11 +1148,15 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     /memberCount: groups\.reduce\([\s\S]*group\.overloads\.length/);
 });
 
-test("unavailable exact Member populations omit the selected Kind count", () => {
+test("unavailable exact Member populations omit selector counts", () => {
   const populationAndFilters =
     appSource.match(/function currentTypeMemberPopulation\([\s\S]*?(?=\nfunction renderTypeMemberPopulationStatus)/)?.[0]
     ?? "";
   assert.notEqual(populationAndFilters, "");
+  const compositionControls =
+    appSource.match(/function compositionFilterButton\([\s\S]*?(?=\nfunction selectedMember\()/)?.[0]
+    ?? "";
+  assert.notEqual(compositionControls, "");
 
   for (const [label, memberSpelling, memberAccessibilityFilter] of [
     ["metadata loading", "metadata", "public"],
@@ -1172,31 +1179,104 @@ test("unavailable exact Member populations omit the selected Kind count", () => 
     };
     const rendered: unknown = runInNewContext(
       stripTypeScriptTypes(`${populationAndFilters}
-        renderMemberFilterControls(type);
+        ${compositionControls}
+        ({
+          filters: renderMemberFilterControls(type),
+          composition: renderMemberComposition(type),
+        });
       `),
       {
         state,
-        type: {},
+        type: { api: [] },
         MEMBER_TRAITS,
         memberKindCount,
         typeMemberPopulationKey: () =>
           `${state.memberSpelling}/${state.memberAccessibilityFilter}`,
         escapeHtml: (value: string) => value,
       });
-    if (typeof rendered !== "string") {
-      assert.fail(`${label}: expected rendered Member filters`);
+    if (!rendered
+      || typeof rendered !== "object"
+      || !("filters" in rendered)
+      || typeof rendered.filters !== "string"
+      || !("composition" in rendered)
+      || typeof rendered.composition !== "string") {
+      assert.fail(`${label}: expected rendered Member controls`);
     }
-    const html = rendered;
 
     assert.match(
-      html,
+      rendered.filters,
       /<option value="method" selected>method<\/option>/,
       label);
     assert.doesNotMatch(
-      html,
+      rendered.filters,
       /<option value="method" selected>method · 0<\/option>/,
       label);
+    assert.match(
+      rendered.composition,
+      /data-member-jump-kind="method"><span>method<\/span>/,
+      label);
+    assert.doesNotMatch(
+      rendered.composition,
+      /data-member-jump-(?:kind|trait)="[^"]*"><strong>0<\/strong>/,
+      label);
   }
+
+  const exactZeroState = {
+    memberKindFilter: "method",
+    memberSpelling: "csharp",
+    memberAccessibilityFilter: "public",
+    memberTextFilter: "",
+    memberTraitFilter: "interface",
+    memberFiltersExpanded: true,
+    typeMemberPopulationKey: "csharp/public",
+    typeMemberPopulation: {
+      outcome: "Available",
+      population: {
+        groups: [],
+        composition: {
+          public: 0,
+          protected: 0,
+          internal: 0,
+          private: 0,
+        },
+        selectorCounts: {
+          kinds: [],
+          traits: {
+            all: 0,
+            static: 0,
+            instance: 0,
+            virtual: 0,
+            interface: 0,
+            extensions: 0,
+          },
+        },
+      },
+    },
+    typeMemberPopulationLoading: false,
+    typeMemberPopulationError: "",
+  };
+  const exactZero: unknown = runInNewContext(
+    stripTypeScriptTypes(`${populationAndFilters}
+      ${compositionControls}
+      renderMemberComposition(type);
+    `),
+    {
+      state: exactZeroState,
+      type: { api: [] },
+      MEMBER_TRAITS,
+      memberKindCount,
+      typeMemberPopulationKey: () => "csharp/public",
+      escapeHtml: (value: string) => value,
+    });
+  if (typeof exactZero !== "string") {
+    assert.fail("exact zero: expected rendered Member composition");
+  }
+  assert.match(
+    exactZero,
+    /data-member-jump-kind="method"><strong>0<\/strong><span>method<\/span>/);
+  assert.match(
+    exactZero,
+    /data-member-jump-trait="interface"><strong>0<\/strong><span>interface<\/span>/);
 });
 
 test("type API reports the filtered member count once in its header", () => {
