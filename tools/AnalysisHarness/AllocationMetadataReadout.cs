@@ -146,10 +146,15 @@ public static class AllocationMetadataReadout
 
         public void AddAssembly(string path)
         {
-            LibraryBodyIndex index;
+            LibraryBodyAnalysisExecution execution;
             try
             {
-                index = LibraryBodyIndex.Open(path);
+                execution = LibraryBodyAnalysisService.ExecutePath(
+                    path,
+                    LibraryBodyAnalysisRequest.Create(
+                        LibraryBodyAnalysisFeatures.Allocations
+                            | LibraryBodyAnalysisFeatures
+                                .OptimizationOpportunities));
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or IOException or ArgumentException)
             {
@@ -157,8 +162,8 @@ public static class AllocationMetadataReadout
             }
 
             _opened++;
-            _methods += index.Methods.Length;
-            foreach (var occurrence in index.GetAllocationOccurrences().Values.SelectMany(static value => value))
+            _methods += execution.CallGraph.Methods.Length;
+            foreach (var occurrence in execution.Allocations.Occurrences.Values.SelectMany(static value => value))
             {
                 _allocationOccurrences++;
                 var kind = occurrence.Kind.ToString();
@@ -176,7 +181,7 @@ public static class AllocationMetadataReadout
                 Add(_occurrenceCross, string.Join('|', kind, allocation, pathContext, pathConfidence, postDominance, escape));
             }
 
-            foreach (var opportunity in index.OptimizationOpportunities)
+            foreach (var opportunity in execution.Optimization.Opportunities)
             {
                 _optimizationOpportunities++;
                 var allocation = Text(opportunity.RuntimeAllocationType);

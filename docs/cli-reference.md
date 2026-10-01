@@ -161,23 +161,35 @@ The literal dot is significant: `System.Text.Json.Nodes.*` excludes
 `System.Text.Json.NodesExtra`, while `System.Text.Json.Nodes*` remains the
 broader lexical Type glob with `Glob` classification.
 
-When neither a direct Type nor an exact namespace matches, `find` broadens in
-ranked tiers without wildcard syntax:
+`find` classifies each Type independently without requiring wildcard syntax:
 
 ```bash
-dotnet-inspect find JsonSer       # Prefix: JsonSerializer first
+dotnet-inspect find JsonSer       # Prefix and similar Types in discovery order
 dotnet-inspect find Serializer    # Substring: XmlSerializer, JsonSerializer, ...
 dotnet-inspect find AppendFormat  # Members: StringBuilder.AppendFormat overloads
 ```
 
-A name prefix settles the answer with `Prefix` rows, shortest name first. An
-undotted identifier with no Prefix Type also searches member names; Markdown
-shows those rows in a `Members` section before any `Substring` Type rows.
-Similarity suggestions (`Partial`) remain the last resort and are ordered by
-score. The `Match` value names each broadened tier. Plain `--json` and table
-formats keep Type rows only and note omitted member matches; `--count` rejects
-an answer that includes them. Use `find .AppendFormat` for member rows in
-every format.
+Each candidate receives one `Exact`, `Direct`, `Glob`, `Namespace`, `Prefix`,
+`Substring`, or `Partial` classification. Exact and broader classes can mix;
+the rows retain source and declaration discovery order rather than sorting by
+name or similarity score. An undotted identifier without an Exact, Direct,
+Glob, Namespace, or Prefix Type may also search member names; Markdown shows
+those rows in a separate `Members` section. Plain `--json` and table formats
+keep Type rows only and note omitted member matches; `--count` rejects an
+answer that includes them. Use `find .AppendFormat` for member rows in every
+format.
+
+`-n N` is also Find's maximum hit budget across its Type or Member patterns.
+For Type search, duplicate identity and per-candidate classification occur
+before the budget. Find keeps the Nth accepted candidate, then stops before
+the next Type, query participant, pattern group, source, or implicit broadened
+Member fallback. Use a leading dot or `--members` when Member rows are the
+requested bounded answer. If Type rows do not fill the budget, implicit Member
+fallback may still contribute and its rows precede weak Type rows in the
+presented answer. The current reverse-locator package route applies Head after
+its complete resident census; other compatibility and Platform routes stop
+metadata traversal directly. `--tail` and row windows remain exhaustive before
+selection.
 
 ### Library namespace Type listings
 
@@ -289,6 +301,7 @@ stderr rather than mixed into structured output.
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
+| Library vocabulary | `library -S "Name Families"` | Ranked one- and two-word Type-name suffix families, exact supporting Type evidence, and optional source-provenance populations. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
 | Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
@@ -1339,8 +1352,11 @@ numeric distributions and maximum-body identities, async disposition, typed
 type summaries, cross-type relationships, Analysis diagnostics, and the
 methodology-v2 Type-leverage document. Type leverage preserves exact metadata
 type identities, the separately ordered sea-level and mountain-peak rankings,
-role and evidence qualifications, Metadata signature-use and Analysis body-use
-receipts, and Graph work receipts.
+raw directional degrees, one nullable dominant pole per Type, role and evidence
+qualifications, Metadata signature-use and Analysis body-use receipts, and
+Graph work receipts. A Type that qualifies at both directional maxima receives
+the larger-degree pole; an exact degree tie receives no pole while remaining
+in both rankings.
 `--envelope` emits identical `content` plus Share and operation diagnostics:
 
 ```bash
@@ -1363,6 +1379,35 @@ summaries carry exact metadata keys separately from display labels, and every
 relationship endpoint names a retained summary, so a Copilot App can render an
 SVG without recovering identity from display text. Library Metrics Share is
 currently `nonProjectable`.
+
+Exact `library ... -S "Name Families"` reports the most prevalent one- and
+two-word Type-name suffix families in one Library. The default `all`
+population covers every Type definition. `--name-family-population` selects
+`ordinary`, `generated`, `mixed`, or `unknown` when exactly bound source
+provenance is available:
+
+```bash
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Name Families" -n 10 --head
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Name Families" --name-family-population ordinary --count
+```
+
+`-n`, `--head`, `--tail`, and `--rows` are semantic QuerySpace selection over
+family rows; `--count` executes the corresponding QuerySpace Count terminal.
+The section is explicit-only and is not added by verbosity or category
+selection.
+
+Exact `-S "Name Families" --json` emits complete Content: every Type word and
+residual row, every population and family member address, methodology and
+oracle identity, provenance qualification, and partition receipts.
+`--envelope` emits the same Content plus a currently `nonProjectable` Share.
+These complete transports accept the population selector but reject row,
+field, column, Count, discovery, print, and shape projection. Markdown, table,
+TSV, and JSONL lower only the already selected family rows and show at most
+five labeled Type examples per family.
 
 See [API and implementation population scope](design/api-population-scope.md)
 for the distinction between API visibility, implementation completeness, and

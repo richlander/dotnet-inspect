@@ -312,12 +312,15 @@ public static class AssemblyContextTypeProjectionQuery
 /// context group, without a filesystem path.
 /// </summary>
 /// <remarks>
-/// The query owns both lifetimes the projection needs: the <see cref="MetadataSource"/> over the
-/// group's immutable image snapshot, and the whole-assembly <see cref="LibraryBodyIndex"/> the
-/// Research fact producers observe through. Path-keyed Analysis resolution cannot reach a
-/// snapshot, so the context is supplied explicitly; when it cannot be built the result carries a
-/// <see cref="MemberProjectionContextLimitation"/> rather than a fact-free projection that reads
-/// as complete. Gated by <c>AssemblyContextResearchProjectionQueryTests</c>.
+/// The query owns both lifetimes the projection needs: the
+/// <see cref="MetadataSource"/> over the group's immutable image snapshot and
+/// the focused Analysis execution Research observes through. Path-keyed
+/// Analysis resolution cannot reach a snapshot, so the context is supplied
+/// explicitly; when it cannot be built the result carries a
+/// <see cref="MemberProjectionContextLimitation"/> rather than a fact-free
+/// projection that reads as complete. Local-throw projection remains the one
+/// compatibility-index consumer until Analysis publishes its focused result.
+/// Gated by <c>AssemblyContextResearchProjectionQueryTests</c>.
 /// </remarks>
 public static class AssemblyContextMemberProjectionQuery
 {
@@ -422,7 +425,6 @@ public static class AssemblyContextMemberProjectionQuery
         AssemblyContextAnalysisSource.BindingPolicyResolver resolver =
             AssemblyContextResearchSource.Resolver(group, subject);
         LibraryBodyAnalysisExecution? execution = null;
-        LibraryBodyIndex? index = null;
         MemberProjectionContextLimitation? limitation = null;
         try
         {
@@ -432,7 +434,6 @@ public static class AssemblyContextMemberProjectionQuery
                 LibraryBodyAnalysisRequest.Create(
                     request.AnalysisFeatures),
                 resolver);
-            index = execution.CompatibilityIndex();
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -465,18 +466,20 @@ public static class AssemblyContextMemberProjectionQuery
                 analysis is null
                     ? null
                     : ResearchAssemblyContext.Create(analysis);
+            LibraryCallGraphAnalysisResult? callGraph =
+                execution?.CallGraph;
             CallRelationshipProjection? callRelationships =
-                index is not null
+                callGraph is not null
                     && request.MethodToken is int requestedMethodToken
                     && request.CallRelationships
                     ? ProjectCallRelationships(
-                        index,
+                        callGraph,
                         requestedMethodToken,
                         request.CallCycles,
                         request.LocalThrowPaths)
                     : null;
             if (request.CallRelationships
-                && index is not null
+                && callGraph is not null
                 && callRelationships is null)
             {
                 throw new InvalidOperationException(
@@ -524,14 +527,14 @@ public static class AssemblyContextMemberProjectionQuery
                     : null;
             IReadOnlyList<AssemblyMemberInvocationDestination> destinations = [];
             if (request.InvocationDestinations
-                && index is not null
+                && callGraph is not null
                 && projection.SourceDocument is { } document
                 && projection.SelectedMethodToken is { } methodToken)
             {
                 CallRelationshipProjection? destinationRelationships =
                     callRelationships
                     ?? ProjectCallRelationships(
-                        index,
+                        callGraph,
                         methodToken,
                         includeCycles: false,
                         includeExtendedCallees: false);
@@ -583,14 +586,20 @@ public static class AssemblyContextMemberProjectionQuery
                         ? ProjectAllocationExceptionPaths(
                             projection)
                         : null;
+            LibraryBodyIndex? localThrowIndex =
+                request.LocalThrowPaths
+                    ? execution?.CompatibilityIndex()
+                    : null;
             AssemblyMemberLocalThrowPathInspection? localThrowPaths =
                 request.LocalThrowPaths
-                    && index is not null
+                    && localThrowIndex is not null
+                    && callGraph is not null
                     && request.MethodToken is int localThrowRootToken
                     && callRelationships is not null
                     && relationshipOverlay is not null
                     ? ProjectLocalThrowPaths(
-                        index,
+                        localThrowIndex,
+                        callGraph,
                         localThrowRootToken,
                         callRelationships,
                         relationshipOverlay)
@@ -611,10 +620,10 @@ public static class AssemblyContextMemberProjectionQuery
         }
         finally
         {
-            // The index holds derived call-graph maps for the whole assembly. It is not
-            // disposable, so hand that memory back explicitly before the query returns rather
-            // than leaving it to a browser's collector.
-            index?.ReleaseCallGraphCaches();
+            // The focused result holds derived call-graph maps for the whole
+            // assembly. Hand that memory back explicitly before the query
+            // returns rather than leaving it to a browser's collector.
+            execution?.CallGraph.ReleaseCaches();
         }
     }
 
@@ -934,15 +943,15 @@ public static class AssemblyContextMemberProjectionQuery
     const int ExtendedCalleeNodes = 25;
 
     static CallRelationshipProjection? ProjectCallRelationships(
-        LibraryBodyIndex index,
+        LibraryCallGraphAnalysisResult callGraph,
         int callerToken,
         bool includeCycles,
         bool includeExtendedCallees)
     {
-        index.GetDirectCallsByEvidenceMethod()
+        callGraph.DirectCallsByEvidenceMethod
             .TryGetValue(callerToken, out ImmutableArray<DirectCall> callArray);
         DirectCall[] calls = callArray.IsDefault ? [] : [.. callArray];
-        CallTreeNode? exactCalleeRoot = index.BuildCallTree(
+        CallTreeNode? exactCalleeRoot = callGraph.BuildCallTree(
             callerToken,
             maxDepth: 1,
             maxNodes: calls.Length == int.MaxValue
@@ -955,7 +964,7 @@ public static class AssemblyContextMemberProjectionQuery
         AnnotatedCallGraphCycleInspection? cycles = null;
         if (includeCycles || includeExtendedCallees)
         {
-            CallTreeNode boundedCalleeRoot = index.BuildCallTree(
+            CallTreeNode boundedCalleeRoot = callGraph.BuildCallTree(
                 callerToken,
                 ExtendedCalleeDepth,
                 ExtendedCalleeNodes);
@@ -964,7 +973,7 @@ public static class AssemblyContextMemberProjectionQuery
                 boundedCalleeRoot);
             if (includeCycles)
             {
-                CallTreeNode callerRoot = index.BuildCallerTree(
+                CallTreeNode callerRoot = callGraph.BuildCallerTree(
                     callerToken,
                     ExtendedCalleeDepth,
                     ExtendedCalleeNodes);
@@ -974,7 +983,7 @@ public static class AssemblyContextMemberProjectionQuery
                     callerRoot)
                 {
                     FocusModuleVersionId =
-                        index.ModuleIdentity.ModuleVersionId,
+                        callGraph.ModuleIdentity.ModuleVersionId,
                     FocusMethodToken = callerToken,
                     FocusCallSites = [.. calls],
                 };
@@ -1173,6 +1182,7 @@ public static class AssemblyContextMemberProjectionQuery
 
     static AssemblyMemberLocalThrowPathInspection ProjectLocalThrowPaths(
         LibraryBodyIndex index,
+        LibraryCallGraphAnalysisResult callGraph,
         int rootToken,
         CallRelationshipProjection relationships,
         AssemblyMemberCallRelationshipOverlay relationshipOverlay)
@@ -1182,10 +1192,10 @@ public static class AssemblyContextMemberProjectionQuery
             MaximumNodes: ExtendedCalleeNodes,
             MaximumEdges: 100,
             MaximumPaths: 25);
-        MethodIdentity root = index.DeclaredMethods.Single(
+        MethodIdentity root = callGraph.DeclaredMethods.Single(
             method => method.MetadataToken == rootToken);
         Dictionary<int, MethodIdentity> methodsByToken =
-            index.DeclaredMethods.ToDictionary(
+            callGraph.DeclaredMethods.ToDictionary(
                 static method => method.MetadataToken);
         HashSet<int> outboundNodeIds =
             OutboundNodeIds(
@@ -1252,7 +1262,7 @@ public static class AssemblyContextMemberProjectionQuery
                 ObservedReachablePairs: 0,
                 ReturnedPaths: 0);
             boundaries = [];
-            if (!index.HasFullMethodEvidenceScope)
+            if (!callGraph.HasFullMethodEvidenceScope)
             {
                 boundaries.Add(
                     new AssemblyMemberLocalThrowPathBoundary(
@@ -1260,20 +1270,20 @@ public static class AssemblyContextMemberProjectionQuery
                             .PartialMethodEvidenceScope,
                         1));
             }
-            if (!index.Diagnostics.IsEmpty)
+            if (!callGraph.Diagnostics.IsEmpty)
             {
                 boundaries.Add(
                     new AssemblyMemberLocalThrowPathBoundary(
                         AssemblyMemberLocalThrowPathBoundaryKind
                             .AnalysisIncomplete,
-                        index.Diagnostics.Length));
+                        callGraph.Diagnostics.Length));
             }
         }
         else
         {
             LibraryBodyRootPathResult search =
                 LibraryBodyRootPathAnalysis.FindShortestPaths(
-                index.CallGraphAnalysis,
+                callGraph,
                 [rootAddress],
                 destinations,
                 limits);

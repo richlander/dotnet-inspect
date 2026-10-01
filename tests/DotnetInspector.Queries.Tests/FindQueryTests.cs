@@ -85,6 +85,7 @@ public sealed class FindQueryTests
                 (RowSelectionStageKind.Tail, null, null, 1),
             ],
             plan.Rows.Operations.Select(Operation));
+        Assert.Null(plan.ResultLimit);
 
         static (
             RowSelectionStageKind Kind,
@@ -107,6 +108,25 @@ public sealed class FindQueryTests
                         null,
                         operation.Count),
             };
+    }
+
+    [Theory]
+    [InlineData(FindQueryRouteKind.TypeResults)]
+    [InlineData(FindQueryRouteKind.MemberResults)]
+    public void PureHead_ExposesTheMaximumResultCount(
+        FindQueryRouteKind kind)
+    {
+        FindQueryPlan plan = Accepted(
+            FindQuery.ResolveIntent(
+                kind,
+                PortableQueryIntent.Create(
+                    [],
+                    [],
+                    [PortableQueryStage.Head(3)],
+                    []),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(3, plan.ResultLimit);
     }
 
     [Theory]

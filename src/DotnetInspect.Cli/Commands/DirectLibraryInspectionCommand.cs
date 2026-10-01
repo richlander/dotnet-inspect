@@ -29,7 +29,8 @@ internal static class DirectLibraryInspectionCommand
     internal static bool ShouldExecute(
         LibraryOptions options) =>
         options.EnvelopeOutput
-        && !LibraryCommand.IsExactLibraryMetricsSelection(options);
+        && !LibraryCommand.IsExactLibraryMetricsSelection(options)
+        && !LibraryCommand.IsExactNameFamilySelection(options);
 
     internal static async Task<int> ExecuteAsync(
         LibraryOptions options,
