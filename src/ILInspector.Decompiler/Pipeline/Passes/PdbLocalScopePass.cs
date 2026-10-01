@@ -20,7 +20,7 @@ public sealed class PdbLocalScopePass : IIrPass
         if (duplicates.Length == 0)
             return;
 
-        var nodeOrder = function.DescendantsOutsideNestedFunctions
+        var nodeOrder = IrFunction.NodesSharingLocalScope(function)
             .Select((node, position) => (node, position))
             .ToDictionary(pair => pair.node, pair => pair.position);
         var candidates = duplicates

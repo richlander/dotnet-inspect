@@ -81,10 +81,13 @@ export interface MemberDiffExplorerDependencies {
   readonly reportOperationDiagnostic: (
     diagnostic: OperationDiagnostic,
   ) => void;
+  readonly renderPage: () => void;
 }
 
 export interface MemberDiffExplorerController {
   readonly isOpen: boolean;
+  renderInline(context: LibraryApiDiffMemberExploreContext): string;
+  bindInline(root: ParentNode): void;
   open(
     context: LibraryApiDiffMemberExploreContext,
     invoker: HTMLElement,
@@ -106,9 +109,10 @@ function sameContext(
   right: LibraryApiDiffMemberExploreContext,
 ): boolean {
   return left.packageModel === right.packageModel
-    && left.result === right.result
-    && left.destination === right.destination
-    && left.member === right.member;
+    && sameRequest(
+      memberDiffSourceRequest(left),
+      memberDiffSourceRequest(right),
+    );
 }
 
 function memberRequest(
@@ -250,13 +254,14 @@ function endpointStatus(
 }
 
 function changedSpans(
-  changes: readonly BrowserSourceDiffChange[],
+  change: BrowserSourceDiffChange | null,
   side: "before" | "after",
   line: number,
 ): readonly BrowserSourceDiffSpan[] {
-  return changes.flatMap(change => change.innerMappings
+  if (change === null) return [];
+  return change.innerMappings
     .map(mapping => mapping[side])
-    .filter(span => span.line === line))
+    .filter(span => span.line === line)
     .sort((left, right) => left.start - right.start);
 }
 
@@ -280,33 +285,91 @@ function highlightedLine(
   return parts.join("");
 }
 
-function diffLine(
-  side: "before" | "after",
-  index: number,
-  diff: BrowserSourceDiff,
+type BrowserSourceDiffRelation = BrowserSourceDiff["relations"][number];
+
+interface SourceRelationLookup {
+  readonly before: ReadonlyMap<number, readonly BrowserSourceDiffRelation[]>;
+  readonly after: ReadonlyMap<number, readonly BrowserSourceDiffRelation[]>;
+}
+
+function sourceRelationLookup(diff: BrowserSourceDiff): SourceRelationLookup {
+  const before = new Map<number, BrowserSourceDiffRelation[]>();
+  const after = new Map<number, BrowserSourceDiffRelation[]>();
+  const add = (
+    index: Map<number, BrowserSourceDiffRelation[]>,
+    coordinate: number,
+    relation: BrowserSourceDiffRelation,
+  ): void => {
+    const relations = index.get(coordinate);
+    if (relations === undefined) index.set(coordinate, [relation]);
+    else relations.push(relation);
+  };
+  for (const relation of diff.relations) {
+    for (const coordinate of relation.beforeCoordinates)
+      add(before, coordinate, relation);
+    for (const coordinate of relation.afterCoordinates)
+      add(after, coordinate, relation);
+  }
+  return { before, after };
+}
+
+function relationDecorations(
+  beforeIndex: number | null,
+  afterIndex: number | null,
+  lookup: SourceRelationLookup,
   escapeHtml: (value: unknown) => string,
-  relationKind: "Addition" | "Removal" | "Correspondence",
-  placement: "Stable" | "Moved" | null,
 ): string {
+  const relations = new Set<BrowserSourceDiffRelation>();
+  if (beforeIndex !== null) {
+    for (const relation of lookup.before.get(beforeIndex) ?? [])
+      relations.add(relation);
+  }
+  if (afterIndex !== null) {
+    for (const relation of lookup.after.get(afterIndex) ?? [])
+      relations.add(relation);
+  }
+  const labels = [...relations].flatMap(relation => {
+    const facts = [relation.content, relation.placement]
+      .filter(fact => fact !== null);
+    if (facts.length === 0) return [];
+    return [`<span class="member-diff-source-relation-label" data-relation-kind="${escapeHtml(relation.kind)}" data-relation-content="${escapeHtml(relation.content ?? "")}" data-relation-placement="${escapeHtml(relation.placement ?? "")}">${facts.map(escapeHtml).join(" · ")}</span>`];
+  });
+  return labels.length === 0
+    ? ""
+    : `<span class="member-diff-source-relations" aria-label="Relation facts">${labels.join("")}</span>`;
+}
+
+function diffLine(
+  kind: "context" | "removal" | "addition",
+  beforeIndex: number | null,
+  afterIndex: number | null,
+  diff: BrowserSourceDiff,
+  change: BrowserSourceDiffChange | null,
+  relations: SourceRelationLookup,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const side = kind === "addition" ? "after" : "before";
+  const index = side === "before" ? beforeIndex : afterIndex;
+  if (index === null)
+    throw new Error("A Source diff row has no line on its rendered side.");
   const sequence = diff[side];
   const text = sequence.lines[index] ?? "";
-  const beforeNumber = side === "before" ? String(index + 1) : "";
-  const afterNumber = side === "after" ? String(index + 1) : "";
-  const marker = relationKind === "Correspondence"
-    ? placement === "Moved" ? "↕" : "↔"
-    : side === "before" ? "−" : "+";
-  const correspondenceClass = relationKind === "Correspondence"
-    ? " member-diff-source-line-correspondence"
-    : "";
-  return `<div class="member-diff-source-line member-diff-source-line-${side}${correspondenceClass}" data-side="${side}" data-line="${index}" data-relation-kind="${relationKind}" data-placement="${placement ?? ""}">
-    <span class="member-diff-source-number">${beforeNumber}</span>
-    <span class="member-diff-source-number">${afterNumber}</span>
+  const marker = kind === "context" ? " " : kind === "removal" ? "−" : "+";
+  return `<div class="member-diff-source-line member-diff-source-line-${kind}" data-row-kind="${kind}" data-before-line="${beforeIndex ?? ""}" data-after-line="${afterIndex ?? ""}">
+    <span class="member-diff-source-number">${beforeIndex === null ? "" : beforeIndex + 1}</span>
+    <span class="member-diff-source-number">${afterIndex === null ? "" : afterIndex + 1}</span>
     <span class="member-diff-source-marker" aria-hidden="true">${marker}</span>
     <code>${highlightedLine(
       text,
-      changedSpans(diff.changes, side, index),
+      changedSpans(change, side, index),
       escapeHtml,
     )}</code>
+    ${relationDecorations(
+      beforeIndex,
+      afterIndex,
+      relations,
+      escapeHtml,
+    )}
   </div>`;
 }
 
@@ -349,62 +412,50 @@ export function renderMemberSourceDiff(
   escapeHtml: (value: unknown) => string,
 ): string {
   const rows: string[] = [];
-  for (const relation of diff.relations) {
-    if (relation.kind === "Correspondence") {
-      const content = relation.content ?? "Correspondence";
-      const placement = relation.placement ?? "Unplaced";
-      const beforeCount = relation.beforeCoordinates.length;
-      const afterCount = relation.afterCoordinates.length;
-      const label = `${content} correspondence · ${placement} · ${
-        beforeCount.toLocaleString()
-      } Before ${beforeCount === 1 ? "line" : "lines"} ↔ ${
-        afterCount.toLocaleString()
-      } After ${afterCount === 1 ? "line" : "lines"}`;
-      const relationRows = [
-        ...relation.beforeCoordinates.map(coordinate => diffLine(
-          "before",
-          coordinate,
-          diff,
-          escapeHtml,
-          relation.kind,
-          relation.placement,
-        )),
-        ...relation.afterCoordinates.map(coordinate => diffLine(
-          "after",
-          coordinate,
-          diff,
-          escapeHtml,
-          relation.kind,
-          relation.placement,
-        )),
-      ];
-      rows.push(`<section class="member-diff-source-relation" data-relation-kind="Correspondence" data-content="${content}" data-placement="${placement}" aria-label="${label}">
-        <div class="member-diff-source-relation-label">${label}</div>
-        ${relationRows.join("")}
-      </section>`);
-      continue;
-    }
-    for (const coordinate of relation.beforeCoordinates) {
+  const relations = sourceRelationLookup(diff);
+  let beforeCursor = 0;
+  let afterCursor = 0;
+  const contextRows = (beforeEnd: number, afterEnd: number): void => {
+    while (beforeCursor < beforeEnd && afterCursor < afterEnd) {
       rows.push(diffLine(
-        "before",
-        coordinate,
+        "context",
+        beforeCursor++,
+        afterCursor++,
         diff,
+        null,
+        relations,
         escapeHtml,
-        relation.kind,
-        relation.placement,
       ));
     }
-    for (const coordinate of relation.afterCoordinates) {
+  };
+  for (const change of diff.changes) {
+    contextRows(change.before.start, change.after.start);
+    const beforeEnd = change.before.start + change.before.count;
+    while (beforeCursor < beforeEnd) {
       rows.push(diffLine(
-        "after",
-        coordinate,
+        "removal",
+        beforeCursor++,
+        null,
         diff,
+        change,
+        relations,
         escapeHtml,
-        relation.kind,
-        relation.placement,
+      ));
+    }
+    const afterEnd = change.after.start + change.after.count;
+    while (afterCursor < afterEnd) {
+      rows.push(diffLine(
+        "addition",
+        null,
+        afterCursor++,
+        diff,
+        change,
+        relations,
+        escapeHtml,
       ));
     }
   }
+  contextRows(diff.before.lines.length, diff.after.lines.length);
   const statistics = diff.statistics;
   return `<div class="member-diff-source-summary" aria-label="Source diff statistics">
     <span>${statistics.added.toLocaleString()} added</span>
@@ -417,6 +468,21 @@ export function renderMemberSourceDiff(
   <div class="member-diff-source-diff" role="table" aria-label="Unified authored Source diff">${rows.join("")}</div>
   <p class="member-diff-source-terminators">Final line terminators: Before ${escapeHtml(diff.before.finalLineTerminator)}; After ${escapeHtml(diff.after.finalLineTerminator)}.</p>
   ${mappedChangeEvidence(diff, escapeHtml)}`;
+}
+
+export function renderInlineMemberSourceDiff(
+  context: LibraryApiDiffMemberExploreContext,
+  source: MemberDiffExplorerSourceState,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const content = source.status === "idle"
+    ? `<p class="member-diff-source-prompt">Compare the authored Source for the exact Before and After Member endpoints.</p>
+      <button type="button" class="secondary" data-member-diff-source-show>Show authored Source diff</button>`
+    : renderSourcePane(source, context, escapeHtml);
+  return `<section class="library-api-diff-change-section member-diff-inline-source" aria-labelledby="member-diff-inline-source-title">
+    <h2 id="member-diff-inline-source-title">Authored Source</h2>
+    ${content}
+  </section>`;
 }
 
 function retryButton(): string {
@@ -584,6 +650,16 @@ function isRetainable(result: BrowserSourceComparisonResult): boolean {
     && result.value.status !== "Failed";
 }
 
+function retriesOnActivation(source: MemberDiffExplorerSourceState): boolean {
+  return source.status === "failed"
+    || source.status === "canceled"
+    || (source.status === "ready"
+      && (source.result.kind === "Failed"
+        || source.result.kind === "Canceled"
+        || (source.result.kind === "Succeeded"
+          && source.result.value?.status === "Failed")));
+}
+
 export function createMemberDiffExplorer(
   dependencies: MemberDiffExplorerDependencies,
 ): MemberDiffExplorerController {
@@ -637,7 +713,10 @@ export function createMemberDiffExplorer(
       case "replaced": {
         const alreadyLoading = source.status === "loading";
         source = { status: "loading" };
-        if (!alreadyLoading) render();
+        if (!alreadyLoading) {
+          render();
+          dependencies.renderPage();
+        }
         break;
       }
       case "terminal": {
@@ -655,6 +734,7 @@ export function createMemberDiffExplorer(
           retained = null;
         }
         render();
+        dependencies.renderPage();
         break;
       }
       case "canceled":
@@ -663,6 +743,7 @@ export function createMemberDiffExplorer(
           reason: "Authored Source was canceled.",
         };
         render();
+        dependencies.renderPage();
         break;
       case "disposed":
         break;
@@ -749,6 +830,7 @@ export function createMemberDiffExplorer(
         error: dependencies.describeError(error),
       };
       render();
+      dependencies.renderPage();
       return;
     }
     const started = session.start({ context, request }, adapter);
@@ -758,17 +840,16 @@ export function createMemberDiffExplorer(
         error: "Authored Source could not start.",
       };
       render();
+      dependencies.renderPage();
     }
   }
 
   function close(
     restoreFocus: boolean,
-    reason: OperationCancelReason,
+    _reason: OperationCancelReason,
   ): void {
     const returnTarget = invoker;
-    context = null;
     invoker = null;
-    session.cancelCurrent(reason);
     if (dialog !== null) {
       if (dialog.open) dialog.close();
       dialog.remove();
@@ -783,13 +864,35 @@ export function createMemberDiffExplorer(
     get isOpen() {
       return dialog !== null;
     },
+    renderInline(nextContext) {
+      return renderInlineMemberSourceDiff(
+        nextContext,
+        context !== null && sameContext(context, nextContext)
+          ? source
+          : { status: "idle" },
+        dependencies.escapeHtml,
+      );
+    },
+    bindInline(root) {
+      root.querySelector<HTMLElement>("[data-member-diff-source-show]")
+        ?.addEventListener("click", startSource);
+      root.querySelector<HTMLElement>("[data-member-diff-source-retry]")
+        ?.addEventListener("click", startSource);
+    },
     open(nextContext, nextInvoker) {
       if (dialog !== null) close(false, "superseded");
-      context = nextContext;
+      if (context === null || !sameContext(context, nextContext)) {
+        session.cancelCurrent("superseded");
+        context = nextContext;
+        source = retained !== null
+            && sameContext(retained.context, nextContext)
+          ? { status: "ready", result: retained.result }
+          : { status: "idle" };
+      } else {
+        context = nextContext;
+        if (retriesOnActivation(source)) source = { status: "idle" };
+      }
       invoker = nextInvoker;
-      source = retained !== null && sameContext(retained.context, nextContext)
-        ? { status: "ready", result: retained.result }
-        : { status: "loading" };
       const nextDialog = dependencies.document.createElement("dialog");
       dialog = nextDialog;
       nextDialog.className = "member-diff-explorer";
@@ -815,20 +918,26 @@ export function createMemberDiffExplorer(
       nextDialog.showModal();
       nextDialog.querySelector<HTMLElement>("#member-diff-explorer-title")
         ?.focus();
-      if (retained === null || !sameContext(retained.context, nextContext)) {
+      if (source.status === "idle") {
         startSource();
       }
     },
     reconcile(nextContext) {
-      if (context === null || dialog === null) return false;
-      if (nextContext !== null && sameContext(context, nextContext)) {
+      if (nextContext !== null
+        && context !== null
+        && sameContext(context, nextContext)) {
         context = nextContext;
         return false;
       }
-      if (nextContext !== null && retained !== null
-        && !sameContext(retained.context, nextContext)) {
-        retained = null;
-      }
+      const dialogWasOpen = dialog !== null;
+      session.cancelCurrent("superseded");
+      context = nextContext;
+      source = nextContext !== null
+          && retained !== null
+          && sameContext(retained.context, nextContext)
+        ? { status: "ready", result: retained.result }
+        : { status: "idle" };
+      if (!dialogWasOpen) return false;
       pendingFallbackFocus = true;
       close(false, "superseded");
       return true;

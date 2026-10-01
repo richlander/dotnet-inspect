@@ -805,7 +805,15 @@ static partial class FidelityCheck
             string pname = reader.GetString(prop.Name);
             if (pname.Contains('<') || pname.Contains('.'))
                 continue; // compiler-generated / explicit interface impl
+            string backingName = AutoPropertyBackingFieldName(pname);
+            string? propertyInitializer = fieldInits.FirstOrDefault(init =>
+                init.Field == pname || init.Field == backingName).Value;
+            bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
+                || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
+            // A standalone whole-property artifact has no containing-constructor
+            // context, so initializer-bearing non-target auto-properties compose below.
             if (!requireAutoProperty
+                && (propertyInitializer is null || accessorIsTarget)
                 && TryGetProductWholeProperty(pa, targets, out _, out _))
             {
                 if (!pa.Getter.IsNil) orderedTargetProperties[pa.Getter] = ph;
@@ -844,14 +852,13 @@ static partial class FidelityCheck
                     && AccessorsAreCompilerGenerated(reader, pa)
                     && HasAutoPropertyBackingField(reader, typeDef, pname, ret, isStatic);
                 if (isAutoProperty
+                    && (propertyInitializer is null || accessorIsTarget)
                     && TryGetProductWholeProperty(pa, targets, out _, out _))
                 {
                     if (!pa.Getter.IsNil) orderedTargetProperties[pa.Getter] = ph;
                     if (!pa.Setter.IsNil) orderedTargetProperties[pa.Setter] = ph;
                     continue;
                 }
-                bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
-                    || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
                 if (accessorIsTarget && !isAutoProperty)
                 {
                     bool requiresMethodFallback = requireAutoProperty
@@ -867,7 +874,9 @@ static partial class FidelityCheck
                     continue;
                 if (isAutoProperty)
                 {
-                    string initializer = fieldInits.FirstOrDefault(init => init.Field == pname).Value is { } value
+                    // Primary-constructor evidence is property-named; ordinary
+                    // lifted stores retain the backing-field identity.
+                    string initializer = propertyInitializer is { } value
                         ? $" = {value};"
                         : "";
                     string autoBody = " get;" + (hasSet ? " set;" : "");
@@ -1003,7 +1012,7 @@ static partial class FidelityCheck
         string propertyType,
         bool isStaticProperty)
     {
-        string backingName = $"<{propertyName}>k__BackingField";
+        string backingName = AutoPropertyBackingFieldName(propertyName);
         var context = GenericContext.ForType(reader, typeDef);
         foreach (var fieldHandle in typeDef.GetFields())
         {
@@ -1025,6 +1034,9 @@ static partial class FidelityCheck
         }
         return false;
     }
+
+    static string AutoPropertyBackingFieldName(string propertyName)
+        => $"<{propertyName}>k__BackingField";
 
     static string? AutoPropertyNameForBackingField(MetadataReader reader, TypeDefinition typeDef, string fieldName)
     {

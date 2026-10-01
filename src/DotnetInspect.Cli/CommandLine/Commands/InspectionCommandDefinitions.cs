@@ -3,12 +3,14 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using QuerySpace.Rows;
 using ILInspector.Metadata;
+using ILInspector.Research;
 
 namespace DotnetInspect.Cli.CommandLine;
 
@@ -461,6 +463,15 @@ public static class InspectionCommandDefinitions
         {
             Description = "Metadata root for @Metadata sections: cli or r2r-manifest"
         };
+        var nameFamilyPopulationOption =
+            new Option<string?>("--name-family-population")
+            {
+                Description =
+                    "With exact -S \"Name Families\": all, ordinary, "
+                        + "generated, mixed, or unknown",
+            };
+        nameFamilyPopulationOption.CompletionSources.Add(
+            ["all", "ordinary", "generated", "mixed", "unknown"]);
         var detailsOption = new Option<bool>("--details")
         {
             Description =
@@ -492,6 +503,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(namespaceOption);
         assemblyCommand.Options.Add(namespaceChildrenOption);
         assemblyCommand.Options.Add(metadataRootOption);
+        assemblyCommand.Options.Add(nameFamilyPopulationOption);
         assemblyCommand.Options.Add(detailsOption);
         assemblyCommand.Options.Add(opts.PreferRenderedUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
@@ -546,20 +558,29 @@ public static class InspectionCommandDefinitions
                 return;
             }
 
+            string? exactSelector =
+                result.GetValue(opts.Select)?.Trim();
             bool exactLibraryMetrics =
                 string.Equals(
-                    result.GetValue(opts.Select)?.Trim(),
+                    exactSelector,
                     SectionNames.LibraryMetrics,
+                    StringComparison.OrdinalIgnoreCase);
+            bool exactNameFamilies =
+                string.Equals(
+                    exactSelector,
+                    SectionNames.NameFamilies,
                     StringComparison.OrdinalIgnoreCase);
             if (result.GetResult(opts.Select)
                     is { Implicit: false }
-                && !exactLibraryMetrics)
+                && !exactLibraryMetrics
+                && !exactNameFamilies)
             {
                 result.AddError(
                     "library --envelope accepts only the exact "
-                        + "\"Library Metrics\" section selection.");
+                        + "\"Library Metrics\" or \"Name Families\" "
+                        + "section selection.");
             }
-            if (exactLibraryMetrics)
+            if (exactLibraryMetrics || exactNameFamilies)
                 return;
 
             Option[] directEnvelopeIncompatibleOptions =
@@ -671,13 +692,16 @@ public static class InspectionCommandDefinitions
                         + "combined with an exact Library source.");
                 return 1;
             }
-            bool libraryMetricsEnvelope =
+            bool completeLibraryEnvelope =
                 parseResult.GetValue(opts.Envelope)
-                && HasExactLibraryMetricsSelector(
-                    parseResult,
-                    opts);
+                && (HasExactLibraryMetricsSelector(
+                        parseResult,
+                        opts)
+                    || HasExactNameFamiliesSelector(
+                        parseResult,
+                        opts));
             if (parseResult.GetValue(opts.Envelope)
-                && !libraryMetricsEnvelope)
+                && !completeLibraryEnvelope)
             {
                 assemblyPath = source;
             }
@@ -885,6 +909,42 @@ public static class InspectionCommandDefinitions
                 CommandError.Write(ecosystemRowSelectionError!);
                 return 1;
             }
+            RowSelectionIntent<string>? nameFamilyRowSelection = null;
+            if (HasExactNameFamiliesSelector(select, selectDefault)
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        SectionNames.NameFamilies,
+                        out nameFamilyRowSelection,
+                        out string? nameFamilyRowSelectionError))
+            {
+                CommandError.Write(nameFamilyRowSelectionError!);
+                return 1;
+            }
+            string? nameFamilyPopulationText =
+                parseResult.GetValue(nameFamilyPopulationOption);
+            if (nameFamilyPopulationText is not null
+                && !HasExactNameFamiliesSelector(
+                    select,
+                    selectDefault))
+            {
+                CommandError.Write(
+                    "--name-family-population requires exact "
+                        + $"-S \"{SectionNames.NameFamilies}\".");
+                return 1;
+            }
+            LibraryNameFamilyPopulationKind nameFamilyPopulation =
+                LibraryNameFamilyPopulationKind.AllTypes;
+            if (nameFamilyPopulationText is not null
+                && !LibraryNameFamilyQuery.TryParsePopulation(
+                    nameFamilyPopulationText,
+                    out nameFamilyPopulation))
+            {
+                CommandError.Write(
+                    "--name-family-population must be all, ordinary, "
+                        + "generated, mixed, or unknown.");
+                return 1;
+            }
             if (opts.IsJsonDocumentOutput(parseResult)
                 && LibraryEcosystemDependencyRowSelectionAdoption
                     .IsMultiSectionSelection(
@@ -983,6 +1043,7 @@ public static class InspectionCommandDefinitions
                 Rows = cloneCandidateRowSelection is null
                     && referenceRowSelection is null
                     && ecosystemDependencyRowSelection is null
+                    && nameFamilyRowSelection is null
                     ? opts.ParseRows(parseResult)
                     : null,
                 CloneCandidateRowSelection =
@@ -991,6 +1052,8 @@ public static class InspectionCommandDefinitions
                     referenceRowSelection,
                 EcosystemDependencyRowSelection =
                     ecosystemDependencyRowSelection,
+                NameFamilyPopulation = nameFamilyPopulation,
+                NameFamilyRowSelection = nameFamilyRowSelection,
                 PerformanceTriage = performanceTriage,
                 BodyKindQuery = bodyKindQuery,
                 CloneCandidateQuery = cloneCandidateQuery,
@@ -1020,6 +1083,27 @@ public static class InspectionCommandDefinitions
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
             result => CloneCandidateRowSelectionAdoption.IsActive(
+                result,
+                opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => HasExactNameFamiliesSelector(
                 result,
                 opts),
             validateLowering: (result, lowering) =>
@@ -1099,6 +1183,31 @@ public static class InspectionCommandDefinitions
         return selectors is [var selector]
             && selector.Equals(
                 SectionNames.LibraryMetrics,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasExactNameFamiliesSelector(
+        ParseResult parseResult,
+        SharedOptions opts)
+        => HasExactNameFamiliesSelector(
+            opts.ParseSelect(parseResult),
+            opts.ParseSelectDefault(parseResult));
+
+    private static bool HasExactNameFamiliesSelector(
+        string[]? select,
+        bool selectDefault)
+    {
+        if (selectDefault)
+            return false;
+
+        string[] selectors =
+        [
+            .. (select ?? [])
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+        return selectors is [var selector]
+            && selector.Equals(
+                SectionNames.NameFamilies,
                 StringComparison.OrdinalIgnoreCase);
     }
 

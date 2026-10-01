@@ -68,6 +68,40 @@ public class LambdaRaisingPassTests
         Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
     }
 
+    [Fact]
+    public void PublishedRoslynNestedCapturingLambda_PreservesSharedHostLocalScope()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "PdbNestedLambda",
+            "Microsoft.CodeAnalysis.dll");
+        Assert.Equal(
+            "10F489DB67B8AC7489E58D392166C928302BA5698506DD652311DA5D89F0A0F8",
+            System.Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
+        using var metadata = CorpusMetadata.Create([path]);
+        using var source = MetadataSource.Open(path, context: metadata);
+        var function = IrImporter.Import(
+            source,
+            "Microsoft.CodeAnalysis.Compilation",
+            "CreateDebugDocuments");
+        Assert.NotNull(function);
+        Assert.Equal(DecompilerSymbolSource.Sidecar, source.Symbols);
+        Assert.Contains(
+            function!.LocalNames
+                .Where(name => name is not null)
+                .GroupBy(name => name, StringComparer.Ordinal),
+            group => group.Skip(1).Any());
+
+        var result = CSharpPrinter.PrintRaised(
+            function,
+            method => IrImporter.Import(source, method));
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.Contains("=>", result.Output);
+        function.CheckInvariant();
+    }
+
     [Theory]
     [InlineData("Microsoft.CodeAnalysis.CSharp.ConversionsBase", "GetExplicitTupleLiteralConversion")]
     [InlineData("Microsoft.CodeAnalysis.CSharp.ConversionsBase", "GetImplicitTupleLiteralConversion")]

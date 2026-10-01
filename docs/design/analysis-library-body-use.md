@@ -4,7 +4,7 @@
 
 This focused `ILInspector.Analysis` design is tracked by
 [#8864](https://github.com/richlander/dotnet-inspect/issues/8864). It supplies
-the body-use producer required by the
+the body-use producer available to the future depth mode of the
 [Library Metrics Type structural-leverage extension](library-structural-report.md#type-structural-leverage).
 
 **Analysis Library Body Use** is the single normative owner established here.
@@ -275,18 +275,23 @@ the same semantics.
 
 ## Consumer boundary
 
-Research consumes the detached result and:
+The future Research depth mode may consume the detached result and:
 
 - maps canonical Types to Graph nodes;
 - maps complete logical occurrences to typed Graph relationships;
-- selects body outgoing distinct-neighbor degree;
+- selects body incoming and body outgoing distinct-neighbor degree;
 - applies its explicit self-loop policy;
-- combines body and Metadata signature evidence into rankings and roles; and
+- keeps body evidence distinct from the Metadata signature surface mode; and
 - preserves Analysis qualification in the report.
 
 Research does not turn physical-only evidence into logical relationships,
 repair incomplete evidence, infer identity from display text, or treat a
 missing relationship as an examined zero.
+
+The current Type structural-leverage surface mode does not acquire this
+body-use population. Adopting the depth mode requires separate cost and
+qualification evidence and must not silently change the meaning of the
+signature-only surface rankings.
 
 The later QuerySpace adoption may push selected relationship demand into
 acquisition. It must preserve this closed-document result's identities,
