@@ -19,11 +19,14 @@ depth is too coarse, generated-body and referenced-callee work are not
 source requests, and its receipt does not prove which physical methods were
 examined or acquired.
 
-Every property below is **unverified** until its named Release gate lands. The
-first implementation slice replaces the Assembly Analysis service's direct
-call to the interim executor with this owner-issued source while preserving
-the existing unsafe-evidence `Exists` behavior. Sparse breadth, generated-body
-expansion, and migrated body producers land as later focused slices.
+The first implementation slice routes the Assembly Analysis service through
+this owner-issued source for the all-MethodDef unsafe-evidence `Exists`
+request. The source owns resource-free planning, exact subject binding, serial
+reference execution, source-receipt translation, and detached publication
+while delegating producer work to the interim executor. The first-slice
+Release gates are named in [Required evidence](#required-evidence). Sparse
+breadth, generated-body expansion, body packets, exact source-failure
+classification, and collapsed request groups remain **unverified**.
 
 ## Demo and pathological case
 
@@ -442,10 +445,10 @@ designs before adoption.
 Migration is incremental:
 
 1. Introduce the owner-issued source plan, execution, and receipt behind
-   `AssemblyAnalysisService`.
+   `AssemblyAnalysisService`. This slice is implemented.
 2. Move unsafe-evidence presence from direct
    `MethodDefinitionExecution.Execute` to the source without changing its
-   all-definitions `Exists` result.
+   all-definitions `Exists` result. This slice is implemented.
 3. Add exact-method and exact-type breadth with exact coverage receipts.
 4. Move one sparse production body producer and its real CLI consumer,
    preserving its focused result rather than filtering a legacy aggregate.
@@ -462,12 +465,17 @@ MethodDef seed is not adoption.
 
 ## Required evidence
 
-The contract is gated in Release:
+The first implementation slice is gated in Release:
 
 - `MethodQuerySource_PlanningDoesNotReadSubject`
 - `MethodQuerySource_BindsExactPlanSubjectAndReceipt`
 - `MethodQuerySource_SequentialReferenceMatchesInterimExecutor`
 - `MethodQuerySource_ExistsStopsAtFirstSettledMethod`
+- `MethodQuerySource_ProducerFailureDoesNotBecomeSuccessfulAbsence`
+- `MethodQuerySource_ReleasedExecutionRetainsNoSubjectAuthority`
+
+The following deeper-source gates remain **unverified**:
+
 - `MethodQuerySource_ExactMethodBreadthVisitsOnlySelectedMethods`
 - `MethodQuerySource_ExactTypeBreadthVisitsOnlyDeclaredMethods`
 - `MethodQuerySource_GeneratedExpansionVisitsOnlyAuthenticatedBodies`
@@ -476,7 +484,6 @@ The contract is gated in Release:
 - `MethodQuerySource_DeepestTerminalLayerIsAcquiredOncePerMethod`
 - `MethodQuerySource_ReceiptSeparatesExaminedSelectedAndAcquiredWork`
 - `MethodQuerySource_SourceFailureDoesNotBecomeSuccessfulAbsence`
-- `MethodQuerySource_ReleasedExecutionRetainsNoSubjectAuthority`
 
 The sparse-breadth pathological gate uses the pinned System.Text.Json asset.
 It compares one exact MethodDef, the seven `JsonDocument.Parse` MethodDefs,
