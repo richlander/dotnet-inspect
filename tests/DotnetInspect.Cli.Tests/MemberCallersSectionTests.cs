@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Fixtures;
 using System.Text.Json;
 
 namespace DotnetInspect.Cli.Tests;
@@ -416,32 +417,31 @@ public class MemberCallersSectionTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
     public async Task CallGraph_CrossAssembly_IncorporatesExternalCallersTaggedWithSource()
     {
-        // Target a product member (in dotnet-inspect.dll) and scope the test bin directory,
-        // which contains the test assembly that calls it. The external caller is incorporated
-        // into the bidirectional graph and annotated with its source assembly (#1337).
-        var ownAssembly = typeof(MemberCommand).Assembly.Location;
-        var scopeDir = Path.GetDirectoryName(typeof(MemberCallersSectionTests).Assembly.Location)!;
-        var testAssemblyName = Path.GetFileNameWithoutExtension(
-            typeof(MemberCallersSectionTests).Assembly.Location);
+        string targetAssembly =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string callerAssembly =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string callerAssemblyName =
+            Path.GetFileNameWithoutExtension(callerAssembly);
 
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
-            TypeName = typeof(MemberCommand).FullName!,
-            AssemblyPath = ownAssembly,
-            MemberFilter = [nameof(MemberCommand.ExecuteAsync)],
+            TypeName = "Target.Api",
+            AssemblyPath = targetAssembly,
+            MemberFilter = ["Ping"],
             OverloadIndex = 1,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Call Graph" },
-            CallerScopeDirectories = [scopeDir],
+            CallerScopeDirectories =
+                [Path.GetDirectoryName(callerAssembly)!],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Normal,
         }));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Call Graph", result.Output);
-        Assert.Contains($"from {testAssemblyName}", result.Output);
+        Assert.Contains($"from {callerAssemblyName}", result.Output);
     }
 
     [Fact]
