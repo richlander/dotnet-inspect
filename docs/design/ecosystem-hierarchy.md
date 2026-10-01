@@ -149,11 +149,21 @@ selection whose lineage contains the layer decides. For example:
 --ecosystem all              -> every pack, each before its parent, product order otherwise
 ```
 
-Each layer drains completely before the next one starts, and a finite `-n`
-stops at a layer boundary. So `find .Add* --ecosystem aspire -n 20` loads no
-platform population when Aspire's own layer fills the window. This is
+Layered order governs each layer's bounded populations: its named platform
+families, core packages, and explicit Packages and Libraries. Each layer's
+bounded populations drain completely before the next layer starts, and a
+finite `-n` stops at a layer boundary. So `find '.Add*' --ecosystem aspire -n 20`
+loads no platform population when Aspire's own layer fills the window. This is
 ordinary nearest-scope-first lookup: a weak match in a nearer layer ranks
 ahead of an exact match in a farther one.
+
+Package-prefix discovery keeps the global barrier of [Ecosystem Find
+Search](ecosystem-find-search.md#phase-contract): when prefix work is
+demanded, it starts only after every started layer's bounded populations
+settle. Its blocks carry the same layer ordinals, so blocking output stays
+layered. A streaming consumer may receive an ancestor's bounded rows before a
+nearer layer's prefix rows; ordinals, not arrival, convey rank. A row window
+that stops the bounded phase starts no prefix work.
 
 The output keeps layer boundaries visible, using the existing per-Ecosystem
 blocks of [Ecosystem Find Search](ecosystem-find-search.md). When `-n` stops
