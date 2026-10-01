@@ -1203,3 +1203,4 @@ export async function queryPlatformTypeImplementationHeat(targetFramework: strin
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeImplementationHeat;
 }
+

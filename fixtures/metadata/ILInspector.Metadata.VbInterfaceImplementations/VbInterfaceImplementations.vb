@@ -13,6 +13,7 @@ End Interface
 
 Friend Interface IVbLocalInternal
     Sub LocalInternalMember()
+    ReadOnly Property LocalInternalValue As Integer
 End Interface
 
 Public Class VbImplementations
@@ -37,4 +38,11 @@ Public Class VbImplementations
     ' Private body, same-assembly internal interface: internal.
     Private Sub PrivateImplementsLocalInternal() Implements IVbLocalInternal.LocalInternalMember
     End Sub
+
+    ' VB accessor names are implementation-local rather than interface-qualified.
+    Private ReadOnly Property PrivateImplementsLocalInternalProperty As Integer Implements IVbLocalInternal.LocalInternalValue
+        Get
+            Return 42
+        End Get
+    End Property
 End Class

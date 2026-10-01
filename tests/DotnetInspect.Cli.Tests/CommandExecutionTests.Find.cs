@@ -699,6 +699,30 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_BroadenedMemberFallbackReusesExplicitWorkspace()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentReview8977-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "DefinitelyAbsentReview8977",
+            "--library",
+            missing,
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("[]", output.Trim());
+        string diagnostic =
+            $"Library not found '{missing}', skipping.";
+        Assert.Contains(diagnostic, error, StringComparison.Ordinal);
+        Assert.Equal(
+            error.IndexOf(diagnostic, StringComparison.Ordinal),
+            error.LastIndexOf(diagnostic, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Find_ColumnProjectionWithJsonl_IsHonored()
     {
         // Boundary: the row-oriented formats project columns, and must keep doing so now that
