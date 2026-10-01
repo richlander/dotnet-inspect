@@ -62,6 +62,30 @@ public sealed class MethodBodyIdentityTests
     }
 
     [Fact]
+    public void MethodBodyIdentity_PreservesPhysicalReturnType()
+    {
+        MethodIdentity returnsString = Method(
+            Guid.Empty,
+            0x06000001,
+            TypeRef.CoreLib("System", "Int32"),
+            "T");
+        MethodIdentity returnsInt32 = returnsString with
+        {
+            ReturnType = TypeRef.CoreLib("System", "Int32"),
+            MetadataToken = 0x06000002,
+        };
+
+        Assert.True(MethodBodyIdentityFactory.TryCreate(
+            returnsString,
+            out var stringIdentity));
+        Assert.True(MethodBodyIdentityFactory.TryCreate(
+            returnsInt32,
+            out var int32Identity));
+
+        Assert.NotEqual(stringIdentity, int32Identity);
+    }
+
+    [Fact]
     public void MethodBodyIdentity_PreservesCustomModifierShape()
     {
         TypeRef modifier = TypeRef.Definition(

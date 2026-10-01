@@ -203,7 +203,7 @@ public sealed class MethodBodyIdentity :
         string name,
         int genericArity,
         ImmutableArray<MethodBodyTypeIdentity> parameterTypes,
-        MethodBodyTypeIdentity? conversionReturnType,
+        MethodBodyTypeIdentity returnType,
         bool isExtension)
     {
         ArgumentNullException.ThrowIfNull(declaringType);
@@ -219,7 +219,7 @@ public sealed class MethodBodyIdentity :
         Name = name;
         GenericArity = genericArity;
         ParameterTypes = [.. parameterTypes];
-        ConversionReturnType = conversionReturnType;
+        ReturnType = returnType;
         IsExtension = isExtension;
         CanonicalIdentity = Encode(this);
     }
@@ -239,11 +239,8 @@ public sealed class MethodBodyIdentity :
     /// <summary>The exact open MethodDef parameter types.</summary>
     public ImmutableArray<MethodBodyTypeIdentity> ParameterTypes { get; }
 
-    /// <summary>
-    /// The exact open return type for a conversion operator; otherwise
-    /// <see langword="null"/>.
-    /// </summary>
-    public MethodBodyTypeIdentity? ConversionReturnType { get; }
+    /// <summary>The exact open physical return type.</summary>
+    public MethodBodyTypeIdentity ReturnType { get; }
 
     /// <summary>Whether Analysis identified this physical method as an extension.</summary>
     public bool IsExtension { get; }
@@ -262,9 +259,7 @@ public sealed class MethodBodyIdentity :
             || !DeclaringType.Equals(other.DeclaringType)
             || !string.Equals(Name, other.Name, StringComparison.Ordinal)
             || GenericArity != other.GenericArity
-            || !Equals(
-                ConversionReturnType,
-                other.ConversionReturnType)
+            || !ReturnType.Equals(other.ReturnType)
             || IsExtension != other.IsExtension
             || ParameterTypes.Length != other.ParameterTypes.Length)
         {
@@ -291,7 +286,7 @@ public sealed class MethodBodyIdentity :
         hash.Add(GenericArity);
         foreach (MethodBodyTypeIdentity parameterType in ParameterTypes)
             hash.Add(parameterType);
-        hash.Add(ConversionReturnType);
+        hash.Add(ReturnType);
         hash.Add(IsExtension);
         return hash.ToHashCode();
     }
@@ -306,15 +301,7 @@ public sealed class MethodBodyIdentity :
         foreach (MethodBodyTypeIdentity parameterType
             in identity.ParameterTypes)
             AppendType(builder, parameterType, depth: 0);
-        if (identity.ConversionReturnType is { } returnType)
-        {
-            builder.Append("return;");
-            AppendType(builder, returnType, depth: 0);
-        }
-        else
-        {
-            builder.Append("no-return;");
-        }
+        AppendType(builder, identity.ReturnType, depth: 0);
         builder.Append(identity.IsExtension ? "extension;" : "method;");
         return builder.ToString();
     }
@@ -420,14 +407,14 @@ public static class MethodBodyIdentityFactory
         string name,
         int genericArity,
         ImmutableArray<MethodBodyTypeIdentity> parameterTypes,
-        MethodBodyTypeIdentity? conversionReturnType,
+        MethodBodyTypeIdentity returnType,
         bool isExtension)
         => new(
             declaringType,
             name,
             genericArity,
             parameterTypes,
-            conversionReturnType,
+            returnType,
             isExtension);
 
     public static bool TryCreate(
@@ -441,9 +428,7 @@ public static class MethodBodyIdentityFactory
             method.Name,
             method.GenericArity,
             method.ParameterTypes,
-            ApiMemberIdentity.IsConversionOperator(method.Name)
-                ? method.ReturnType
-                : null,
+            method.ReturnType,
             method.IsExtension,
             out identity);
     }
@@ -501,9 +486,7 @@ public static class MethodBodyIdentityFactory
             name,
             method.GetGenericParameters().Count,
             signature.ParameterTypes,
-            ApiMemberIdentity.IsConversionOperator(name)
-                ? signature.ReturnType
-                : null,
+            signature.ReturnType,
             isExtension,
             out identity);
     }
@@ -513,12 +496,13 @@ public static class MethodBodyIdentityFactory
         string name,
         int genericArity,
         ImmutableArray<TypeRef> sourceParameterTypes,
-        TypeRef? sourceConversionReturnType,
+        TypeRef sourceReturnType,
         bool isExtension,
         [NotNullWhen(true)]
         out MethodBodyIdentity? identity)
     {
         ArgumentNullException.ThrowIfNull(declaringType);
+        ArgumentNullException.ThrowIfNull(sourceReturnType);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         if (genericArity < 0)
             throw new ArgumentOutOfRangeException(nameof(genericArity));
@@ -554,12 +538,10 @@ public static class MethodBodyIdentityFactory
             projectedParameterTypes.Add(parameterType);
         }
 
-        MethodBodyTypeIdentity? projectedConversionReturnType = null;
-        if (sourceConversionReturnType is not null
-            && !TryProjectType(
-                sourceConversionReturnType,
+        if (!TryProjectType(
+                sourceReturnType,
                 depth: 0,
-                out projectedConversionReturnType))
+                out MethodBodyTypeIdentity? projectedReturnType))
         {
             identity = null;
             return false;
@@ -570,7 +552,7 @@ public static class MethodBodyIdentityFactory
             name,
             genericArity,
             projectedParameterTypes.MoveToImmutable(),
-            projectedConversionReturnType,
+            projectedReturnType,
             isExtension);
         return true;
     }

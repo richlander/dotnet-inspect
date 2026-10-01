@@ -17,6 +17,7 @@ static class ResearchTargetBodyIdentityProjection
         ArgumentNullException.ThrowIfNull(target);
 
         ImmutableArray<TypeRef> parameterTypes = method.ParameterTypes;
+        TypeRef returnType = method.ReturnType;
         string name = method.Name;
         if (role
             is ResearchTargetRelationshipRole.Getter
@@ -33,6 +34,7 @@ static class ResearchTargetBodyIdentityProjection
                 identity = null;
                 return false;
             }
+            returnType = parameterTypes[^1];
             parameterTypes = parameterTypes.RemoveAt(parameterTypes.Length - 1);
         }
 
@@ -41,9 +43,7 @@ static class ResearchTargetBodyIdentityProjection
             name,
             method.GenericArity,
             parameterTypes,
-            ApiMemberIdentity.IsConversionOperator(method.Name)
-                ? method.ReturnType
-                : null,
+            returnType,
             method.IsExtension,
             out identity);
     }
