@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed. This focused design extends
+Proposed; tracked by [#9084](https://github.com/richlander/dotnet-inspect/issues/9084). This focused design extends
 [Static Ecosystem Packs](ecosystem-packs.md). It changes exactly one claim
 owned by the [Workspace ecosystem registration
 handoff](workspace-ecosystem-registration-handoff.md): selected-set
