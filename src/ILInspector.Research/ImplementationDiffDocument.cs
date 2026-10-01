@@ -23,7 +23,11 @@ public sealed record ImplementationDiffDocumentRequest(
     ImplementationDiffDocumentScope Scope,
     IReadOnlyList<ImplementationDiffDocumentMechanism> Mechanisms,
     IReadOnlyList<string> TypeFilters,
-    IReadOnlyList<string> MemberTargetIdentities);
+    IReadOnlyList<ImplementationDiffDocumentMemberSelection> MemberSelections);
+
+public sealed record ImplementationDiffDocumentMemberSelection(
+    string DeclaringType,
+    string Selector);
 
 public enum ImplementationDiffEndpointProvenanceKind
 {
@@ -169,6 +173,26 @@ public static partial class ImplementationDiff
             [oldAssembly],
             [newAssembly],
             options);
+        return CreateExactPairDocument(
+            oldAssembly,
+            newAssembly,
+            result,
+            options,
+            memberSelections: null);
+    }
+
+    public static ImplementationDiffDocument CreateExactPairDocument(
+        ImplementationAssemblyInput oldAssembly,
+        ImplementationAssemblyInput newAssembly,
+        ImplementationDiffResult result,
+        ImplementationDiffOptions? options = null,
+        IReadOnlyList<ImplementationDiffDocumentMemberSelection>?
+            memberSelections = null)
+    {
+        ArgumentNullException.ThrowIfNull(oldAssembly);
+        ArgumentNullException.ThrowIfNull(newAssembly);
+        ArgumentNullException.ThrowIfNull(result);
+        options ??= new ImplementationDiffOptions();
 
         var members = result.Members.ToDictionary(
             member => member.Subject.Id,
@@ -190,7 +214,7 @@ public static partial class ImplementationDiff
             .DistinctBy(subject => subject.Id, StringComparer.Ordinal);
 
         return new ImplementationDiffDocument(
-            CreateRequest(options),
+            CreateRequest(options, memberSelections),
             CreateEndpoint(oldAssembly),
             CreateEndpoint(newAssembly),
             [.. subjects
@@ -210,7 +234,9 @@ public static partial class ImplementationDiff
     }
 
     static ImplementationDiffDocumentRequest CreateRequest(
-        ImplementationDiffOptions options)
+        ImplementationDiffOptions options,
+        IReadOnlyList<ImplementationDiffDocumentMemberSelection>?
+            memberSelections)
     {
         var mechanisms =
             new List<ImplementationDiffDocumentMechanism>(3);
@@ -224,7 +250,9 @@ public static partial class ImplementationDiff
             ImplementationDiffDocumentScope.ExactLibraryPair,
             mechanisms,
             Sorted(options.TypeFilters),
-            Sorted(options.MemberTargetIdentities));
+            memberSelections is null
+                ? []
+                : [.. memberSelections]);
     }
 
     static IReadOnlyList<string> Sorted(IReadOnlySet<string>? values)

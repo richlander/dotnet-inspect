@@ -1,7 +1,9 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
+using DotnetInspector.ResearchSections;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -14,6 +16,20 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class ImplementationComparisonQueryTests
 {
+    static readonly string SystemTextJson9 = Path.Combine(
+        AppContext.BaseDirectory,
+        "RealAssets",
+        "BodySignalComparison",
+        "9.0.0",
+        "System.Text.Json.dll");
+
+    static readonly string SystemTextJson10 = Path.Combine(
+        AppContext.BaseDirectory,
+        "RealAssets",
+        "BodySignalComparison",
+        "10.0.0",
+        "System.Text.Json.dll");
+
     [Fact]
     public void Execute_UsesSuppliedAssemblyContentForCSharpAndIlEvidence()
     {
@@ -21,7 +37,7 @@ public sealed class ImplementationComparisonQueryTests
         string newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
 
         ImplementationDiffResult result =
-            ImplementationComparisonQuery.Execute(
+            Compare(
                 new ImplementationComparisonInput(
                     [StreamBackedInput(oldPath, "old.dll")],
                     [StreamBackedInput(newPath, "new.dll")],
@@ -67,7 +83,7 @@ public sealed class ImplementationComparisonQueryTests
             StreamBackedInput(oldPath, "old.dll");
 
         var error = Assert.Throws<ArgumentException>(() =>
-            ImplementationComparisonQuery.Execute(
+            Compare(
                 new ImplementationComparisonInput(
                     [
                         oldContent with
@@ -81,6 +97,209 @@ public sealed class ImplementationComparisonQueryTests
             "does not match assembly content",
             error.Message,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Serialize:6", true)]
+    [InlineData("Serialize:8", false)]
+    public void Execute_TargetsSystemTextJsonMembersByTypedCorrespondence(
+        string selector,
+        bool generic)
+    {
+        var compared = Assert.IsType<ImplementationComparisonResult.Compared>(
+            ImplementationComparisonQuery.Execute(
+                new ImplementationComparisonInput(
+                    [StreamBackedInput(SystemTextJson9, "before.dll")],
+                    [StreamBackedInput(SystemTextJson10, "after.dll")],
+                    MemberSelections:
+                    [
+                        new ComparisonMemberSelection(
+                            TypeName("System.Text.Json.JsonSerializer"),
+                            MemberTargetSelector.Parse(selector)),
+                    ]),
+                TestContext.Current.CancellationToken));
+
+        Assert.NotNull(compared.Resolution);
+        Assert.NotNull(compared.ProducerCompletion);
+        RetainedFindingComparison<CanonicalIlOperation> il = Assert.Single(
+            compared.Comparison.Research.RetainedComparisons.Get<
+                CanonicalIlOperation>(IlFindings.OperationDescriptor));
+        var complete = Assert.IsType<
+            FindingComparison<CanonicalIlOperation>.Complete>(
+                il.Comparison.Value);
+        Assert.NotEmpty(complete.Pairs);
+        Assert.Equal(
+            generic,
+            compared.Resolution.Attempts
+                .Select(attempt =>
+                    attempt.Outcome as ResearchTargetOutcome.Resolved)
+                .Where(target => target is not null)
+                .Any(target => target!.BodyIdentity?.GenericArity > 0));
+    }
+
+    [Fact]
+    public void Execute_TargetWithoutAnalysisMethod_ReturnsTypedFailure()
+    {
+        ImplementationAssemblyInput before = StreamBackedInput(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            "before.dll");
+        ImplementationAssemblyInput after = StreamBackedInput(
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            "after.dll");
+        before = before with
+        {
+            MethodPopulation = EmptyPopulation(before.MethodPopulation),
+        };
+        after = after with
+        {
+            MethodPopulation = EmptyPopulation(after.MethodPopulation),
+        };
+
+        ImplementationComparisonResult result =
+            ImplementationComparisonQuery.Execute(
+                new ImplementationComparisonInput(
+                    [before],
+                    [after],
+                    MemberSelections:
+                    [
+                        new ComparisonMemberSelection(
+                            TypeName("DiffFixtureSample.DiffSample"),
+                            MemberTargetSelector.Parse("RegressesAllocInLoop")),
+                    ]),
+                TestContext.Current.CancellationToken);
+
+        var failed = Assert.IsType<
+            ImplementationComparisonResult.TargetFailed>(result);
+        Assert.Contains(
+            "did not resolve to an Analysis method",
+            failed.Summary,
+            StringComparison.Ordinal);
+        Assert.NotEmpty(failed.Resolution.Attempts);
+
+        static LibraryCallGraphAnalysisResult EmptyPopulation(
+            LibraryCallGraphAnalysisResult source)
+        {
+            MethodInfo factory = typeof(LibraryBodyIndex).GetMethod(
+                "FromEvidence",
+                BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException(
+                    "LibraryBodyIndex synthetic evidence factory is unavailable.");
+            var index = (LibraryBodyIndex)factory.Invoke(
+                null,
+                [
+                    ImmutableArray<MethodIdentity>.Empty,
+                    ImmutableArray<UnsafeEvidence>.Empty,
+                    Type.Missing,
+                    Type.Missing,
+                    Type.Missing,
+                    Type.Missing,
+                    Type.Missing,
+                    Type.Missing,
+                    Type.Missing,
+                    Type.Missing,
+                    source.ModuleIdentity,
+                ])!;
+            return index.CallGraphAnalysis;
+        }
+    }
+
+    [Fact]
+    public void Execute_MixedResolvedAndMissingScopes_ReturnsTypedFailure()
+    {
+        ImplementationComparisonResult result =
+            ImplementationComparisonQuery.Execute(
+                new ImplementationComparisonInput(
+                    [
+                        StreamBackedInput(
+                            FixtureCatalog.DiffPair.OldAssemblyPath(),
+                            "before.dll"),
+                    ],
+                    [
+                        StreamBackedInput(
+                            FixtureCatalog.DiffPair.NewAssemblyPath(),
+                            "after.dll"),
+                    ],
+                    MemberSelections:
+                    [
+                        new ComparisonMemberSelection(
+                            TypeName("DiffFixtureSample.DiffSample"),
+                            MemberTargetSelector.Parse("RegressesAllocInLoop")),
+                        new ComparisonMemberSelection(
+                            TypeName("DiffFixtureSample.DiffSample"),
+                            MemberTargetSelector.Parse("DefinitelyMissing")),
+                    ]),
+                TestContext.Current.CancellationToken);
+
+        var failed = Assert.IsType<
+            ImplementationComparisonResult.TargetFailed>(result);
+        Assert.Contains(
+            failed.Resolution.Attempts,
+            attempt => attempt.Outcome is ResearchTargetOutcome.Resolved
+            {
+                BodyIdentity: not null,
+            });
+        Assert.Contains(
+            failed.Resolution.Attempts,
+            attempt => attempt.Outcome is ResearchTargetOutcome.NotFound);
+    }
+
+    [Fact]
+    public void ResearchImplementationTargetPath_HasNoStringKeyedIdentityBag()
+    {
+        Type[] implementationRequestTypes =
+        [
+            typeof(ImplementationComparisonInput),
+            typeof(ImplementationDiffDocumentRequest),
+            typeof(ImplementationComplexityComparisonRequest),
+            typeof(ImplementationDiffOptions),
+            typeof(ResearchDiffOptions),
+        ];
+
+        Assert.All(
+            implementationRequestTypes,
+            type => Assert.DoesNotContain(
+                type.GetProperties(BindingFlags.Public | BindingFlags.Instance),
+                property => property.Name.Contains(
+                    "MemberTargetIdentit",
+                    StringComparison.Ordinal)));
+        Assert.Equal(
+            typeof(IReadOnlyList<ComparisonMemberSelection>),
+            typeof(ImplementationComparisonInput)
+                .GetProperty(nameof(ImplementationComparisonInput.MemberSelections))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(IReadOnlyList<ImplementationDiffDocumentMemberSelection>),
+            typeof(ImplementationDiffDocumentRequest)
+                .GetProperty(nameof(ImplementationDiffDocumentRequest.MemberSelections))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(ResearchTargetResolution),
+            typeof(ImplementationComplexityComparisonRequest)
+                .GetProperty(
+                    nameof(ImplementationComplexityComparisonRequest.TargetResolution))!
+                .PropertyType);
+
+        PropertyInfo[] analysisProperties =
+            typeof(DiffAnalysisInput).GetProperties(
+                BindingFlags.Public | BindingFlags.Instance);
+        Assert.Contains(
+            analysisProperties,
+            property => property.Name == nameof(
+                DiffAnalysisInput.PrepareImplementation));
+        PropertyInfo apiIdentities = Assert.Single(
+            analysisProperties,
+            property => property.Name.Contains(
+                "MemberTargetIdentit",
+                StringComparison.Ordinal));
+        Assert.Equal(
+            nameof(DiffAnalysisInput.ApiMemberTargetIdentities),
+            apiIdentities.Name);
+        Assert.DoesNotContain(
+            typeof(ResearchMemberIdentity).GetMethods(
+                BindingFlags.Public | BindingFlags.Static),
+            method => method.Name.Contains(
+                "TargetIdentity",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -655,14 +874,13 @@ public sealed class ImplementationComparisonQueryTests
             oldStringValue: "old",
             newIntValue: 2,
             newStringValue: "new");
-        string selectedId = unfiltered.Members
+        ImplementationDiffDocumentMember selectedMember = unfiltered.Members
             .Where(member => member.Subject.MemberName == "Selected")
-            .Select(member => member.Subject.Id)
-            .Order(StringComparer.Ordinal)
+            .OrderBy(member => member.Subject.Id, StringComparer.Ordinal)
             .First();
+        string selectedId = selectedMember.Subject.Id;
         int returnSeparator = selectedId.LastIndexOf('~');
         Assert.True(returnSeparator > 0);
-        string apiId = selectedId[..returnSeparator];
 
         ImplementationDiffDocument filtered = CompareReturnTypeOverloads(
             methodName: "Selected",
@@ -670,14 +888,14 @@ public sealed class ImplementationComparisonQueryTests
             oldStringValue: "old",
             newIntValue: 2,
             newStringValue: "new",
-            memberTargetIdentities: new HashSet<string>(
-                [apiId, selectedId],
-                StringComparer.Ordinal));
+            memberSelector: "Selected:1");
 
         ImplementationDiffDocumentMember member = Assert.Single(
             filtered.Members,
             member => member.Subject.MemberName == "Selected");
-        Assert.Equal(selectedId, member.Subject.Id);
+        Assert.Contains(
+            member.Subject.Id,
+            unfiltered.Members.Select(candidate => candidate.Subject.Id));
     }
 
     [Fact]
@@ -717,14 +935,14 @@ public sealed class ImplementationComparisonQueryTests
         Assert.True(returnSeparator > 0);
         ImplementationDiffDocument filtered =
             CompareGenericReturnTypeOverloads(
-                new HashSet<string>(
-                    [selectedId[..returnSeparator], selectedId],
-                    StringComparer.Ordinal));
+                "Changed<T>:1");
 
         ImplementationDiffDocumentMember selected = Assert.Single(
             filtered.Members,
             member => member.Subject.MemberName == "Changed");
-        Assert.Equal(selectedId, selected.Subject.Id);
+        Assert.Contains(
+            selected.Subject.Id,
+            members.Select(member => member.Subject.Id));
         Assert.Contains(
             selected.Evidence,
             evidence => evidence.Mechanism
@@ -769,14 +987,14 @@ public sealed class ImplementationComparisonQueryTests
         Assert.True(returnSeparator > 0);
         ImplementationDiffDocument filtered =
             CompareConstructedGenericReturnTypeOverloads(
-                new HashSet<string>(
-                    [selectedId[..returnSeparator], selectedId],
-                    StringComparer.Ordinal));
+                "Changed:1");
 
         ImplementationDiffDocumentMember selected = Assert.Single(
             filtered.Members,
             member => member.Subject.MemberName == "Changed");
-        Assert.Equal(selectedId, selected.Subject.Id);
+        Assert.Contains(
+            selected.Subject.Id,
+            members.Select(member => member.Subject.Id));
     }
 
     [Fact]
@@ -818,14 +1036,14 @@ public sealed class ImplementationComparisonQueryTests
         Assert.True(returnSeparator > 0);
         ImplementationDiffDocument filtered =
             CompareNestedReturnTypeOverloads(
-                new HashSet<string>(
-                    [selectedId[..returnSeparator], selectedId],
-                    StringComparer.Ordinal));
+                "Changed:1");
 
         ImplementationDiffDocumentMember selected = Assert.Single(
             filtered.Members,
             member => member.Subject.MemberName == "Changed");
-        Assert.Equal(selectedId, selected.Subject.Id);
+        Assert.Contains(
+            selected.Subject.Id,
+            members.Select(member => member.Subject.Id));
         Assert.Contains(
             selected.Evidence,
             evidence => evidence.Mechanism
@@ -886,14 +1104,14 @@ public sealed class ImplementationComparisonQueryTests
         Assert.True(returnSeparator > 0);
         ImplementationDiffDocument filtered =
             CompareFunctionPointerReturnTypeOverloads(
-                new HashSet<string>(
-                    [selectedId[..returnSeparator], selectedId],
-                    StringComparer.Ordinal));
+                "Changed:1");
 
         ImplementationDiffDocumentMember selected = Assert.Single(
             filtered.Members,
             member => member.Subject.MemberName == "Changed");
-        Assert.Equal(selectedId, selected.Subject.Id);
+        Assert.Contains(
+            selected.Subject.Id,
+            members.Select(member => member.Subject.Id));
     }
 
     [Fact]
@@ -952,14 +1170,14 @@ public sealed class ImplementationComparisonQueryTests
         Assert.True(returnSeparator > 0);
         ImplementationDiffDocument filtered =
             CompareFunctionPointerConventionReturnTypeOverloads(
-                new HashSet<string>(
-                    [selectedId[..returnSeparator], selectedId],
-                    StringComparer.Ordinal));
+                "Changed:1");
 
         ImplementationDiffDocumentMember selected = Assert.Single(
             filtered.Members,
             member => member.Subject.MemberName == "Changed");
-        Assert.Equal(selectedId, selected.Subject.Id);
+        Assert.Contains(
+            selected.Subject.Id,
+            members.Select(member => member.Subject.Id));
     }
 
     [Theory]
@@ -1054,15 +1272,15 @@ public sealed class ImplementationComparisonQueryTests
         Assert.True(returnSeparator > 0);
         ImplementationDiffDocument filtered =
             CompareFunctionPointerConventionReturnTypeOverloads(
-                new HashSet<string>(
-                    [selectedId[..returnSeparator], selectedId],
-                    StringComparer.Ordinal),
+                "Changed:1",
                 identityCase);
 
         ImplementationDiffDocumentMember selected = Assert.Single(
             filtered.Members,
             member => member.Subject.MemberName == "Changed");
-        Assert.Equal(selectedId, selected.Subject.Id);
+        Assert.Contains(
+            selected.Subject.Id,
+            members.Select(member => member.Subject.Id));
         Assert.Contains(
             selected.Evidence,
             evidence => evidence.Mechanism
@@ -1075,7 +1293,7 @@ public sealed class ImplementationComparisonQueryTests
 
     static ImplementationDiffDocument
         CompareConstructedGenericReturnTypeOverloads(
-            IReadOnlySet<string>? memberTargetIdentities = null)
+            string? memberSelector = null)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -1100,7 +1318,9 @@ public sealed class ImplementationComparisonQueryTests
                     {
                         "ConstructedGenericReturnSample",
                     },
-                    MemberTargetIdentities: memberTargetIdentities));
+                    MemberSelections: TargetSelections(
+                        "ConstructedGenericReturnSample",
+                        memberSelector)));
         }
         finally
         {
@@ -1162,7 +1382,7 @@ public sealed class ImplementationComparisonQueryTests
 
     static ImplementationDiffDocument
         CompareFunctionPointerReturnTypeOverloads(
-            IReadOnlySet<string>? memberTargetIdentities = null)
+            string? memberSelector = null)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -1187,7 +1407,9 @@ public sealed class ImplementationComparisonQueryTests
                     {
                         "FunctionPointerReturnSample",
                     },
-                    MemberTargetIdentities: memberTargetIdentities));
+                    MemberSelections: TargetSelections(
+                        "FunctionPointerReturnSample",
+                        memberSelector)));
         }
         finally
         {
@@ -1277,7 +1499,7 @@ public sealed class ImplementationComparisonQueryTests
 
     static ImplementationDiffDocument
         CompareFunctionPointerConventionReturnTypeOverloads(
-            IReadOnlySet<string>? memberTargetIdentities = null,
+            string? memberSelector = null,
             FunctionPointerConventionReturnOverloadFixture.IdentityCase
                 identityCase =
                     FunctionPointerConventionReturnOverloadFixture
@@ -1312,7 +1534,10 @@ public sealed class ImplementationComparisonQueryTests
                         FunctionPointerConventionReturnOverloadFixture
                             .GetTypeName(identityCase),
                     },
-                    MemberTargetIdentities: memberTargetIdentities));
+                    MemberSelections: TargetSelections(
+                        FunctionPointerConventionReturnOverloadFixture
+                            .GetTypeName(identityCase),
+                        memberSelector)));
         }
         finally
         {
@@ -1321,7 +1546,7 @@ public sealed class ImplementationComparisonQueryTests
     }
 
     static ImplementationDiffDocument CompareNestedReturnTypeOverloads(
-        IReadOnlySet<string>? memberTargetIdentities = null)
+        string? memberSelector = null)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -1346,7 +1571,9 @@ public sealed class ImplementationComparisonQueryTests
                     {
                         "NestedReturnSample",
                     },
-                    MemberTargetIdentities: memberTargetIdentities));
+                    MemberSelections: TargetSelections(
+                        "NestedReturnSample",
+                        memberSelector)));
         }
         finally
         {
@@ -1424,7 +1651,7 @@ public sealed class ImplementationComparisonQueryTests
     }
 
     static ImplementationDiffDocument CompareGenericReturnTypeOverloads(
-        IReadOnlySet<string>? memberTargetIdentities = null)
+        string? memberSelector = null)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -1451,7 +1678,9 @@ public sealed class ImplementationComparisonQueryTests
                     {
                         "GenericReturnSample",
                     },
-                    MemberTargetIdentities: memberTargetIdentities));
+                    MemberSelections: TargetSelections(
+                        "GenericReturnSample",
+                        memberSelector)));
         }
         finally
         {
@@ -1519,7 +1748,7 @@ public sealed class ImplementationComparisonQueryTests
         string newStringValue,
         bool newIncludesInt = true,
         bool newIncludesString = true,
-        IReadOnlySet<string>? memberTargetIdentities = null)
+        string? memberSelector = null)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -1550,7 +1779,9 @@ public sealed class ImplementationComparisonQueryTests
                     {
                         "ReturnTypeOverloadSample",
                     },
-                    MemberTargetIdentities: memberTargetIdentities));
+                    MemberSelections: TargetSelections(
+                        "ReturnTypeOverloadSample",
+                        memberSelector)));
         }
         finally
         {
@@ -1628,4 +1859,26 @@ public sealed class ImplementationComparisonQueryTests
             MetadataSource.DefaultAssemblyReferenceResolver(path),
             LibraryBodyIndex.Open(path).CallGraphAnalysis);
     }
+
+    static ImplementationDiffResult Compare(
+        ImplementationComparisonInput input)
+        => Assert.IsType<ImplementationComparisonResult.Compared>(
+            ImplementationComparisonQuery.Execute(input)).Comparison;
+
+    static MetadataTypeDefinitionName TypeName(string serialized)
+        => Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.ParseSerialized(serialized)).Name;
+
+    static IReadOnlyList<ComparisonMemberSelection>? TargetSelections(
+        string declaringType,
+        string? selector)
+        => selector is null
+            ? null
+            :
+            [
+                new ComparisonMemberSelection(
+                    TypeName(declaringType),
+                    MemberTargetSelector.Parse(selector)),
+            ];
+
 }

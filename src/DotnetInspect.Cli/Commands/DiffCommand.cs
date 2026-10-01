@@ -453,8 +453,10 @@ public partial class DiffCommand
 
                 if (SelectsComplexityContext(options))
                 {
-                    ImplementationDiffResult result = queryResults.Get(
-                        ImplementationComparisonQuery.Definition);
+                    ImplementationDiffResult result =
+                        RequireImplementationComparison(
+                            queryResults.Get(
+                                ImplementationComparisonQuery.Definition));
                     ComplexityContextView view =
                         DiffOutputFormatter.BuildComplexityContextView(
                             inputs.Name,
@@ -491,8 +493,10 @@ public partial class DiffCommand
                 }
                 if (SelectsStructuralContext(options))
                 {
-                    ImplementationDiffResult result = queryResults.Get(
-                        ImplementationComparisonQuery.Definition);
+                    ImplementationDiffResult result =
+                        RequireImplementationComparison(
+                            queryResults.Get(
+                                ImplementationComparisonQuery.Definition));
                     StructuralContextView view =
                         DiffOutputFormatter.BuildStructuralContextView(
                             inputs.Name,
@@ -550,8 +554,9 @@ public partial class DiffCommand
                     {
                         var implementation =
                             await BuildImplementationDiffWithSourceAsync(
-                                queryResults.Get(
-                                    ImplementationComparisonQuery.Definition),
+                                RequireImplementationComparison(
+                                    queryResults.Get(
+                                        ImplementationComparisonQuery.Definition)),
                                 inputs.FromPaths,
                                 inputs.ToPaths,
                                 options,
@@ -1254,8 +1259,9 @@ public partial class DiffCommand
             {
                 var implementation =
                     await BuildImplementationDiffWithSourceAsync(
-                        queryResults.Get(
-                            ImplementationComparisonQuery.Definition),
+                        RequireImplementationComparison(
+                            queryResults.Get(
+                                ImplementationComparisonQuery.Definition)),
                         inputs.FromPaths,
                         inputs.ToPaths,
                         options,
@@ -1278,8 +1284,10 @@ public partial class DiffCommand
         ComplexityContextView? complexityContextView = null;
         if (selected.Contains(DiffSections.ComplexityContext.Name))
         {
-            ImplementationDiffResult result = queryResults.Get(
-                ImplementationComparisonQuery.Definition);
+            ImplementationDiffResult result =
+                RequireImplementationComparison(
+                    queryResults.Get(
+                        ImplementationComparisonQuery.Definition));
             complexityContextView =
                 DiffOutputFormatter.BuildComplexityContextView(
                     inputs.Name,
@@ -1291,8 +1299,10 @@ public partial class DiffCommand
         StructuralContextView? structuralContextView = null;
         if (selected.Contains(DiffSections.StructuralContext.Name))
         {
-            ImplementationDiffResult result = queryResults.Get(
-                    ImplementationComparisonQuery.Definition);
+            ImplementationDiffResult result =
+                RequireImplementationComparison(
+                    queryResults.Get(
+                        ImplementationComparisonQuery.Definition));
             structuralContextView =
                     DiffOutputFormatter.BuildStructuralContextView(
                         inputs.Name,
@@ -1580,13 +1590,14 @@ public partial class DiffCommand
         DiffOptions options,
         ApiSurface? fromSurface = null,
         ApiSurface? toSurface = null)
-        => ImplementationComparisonQuery.Execute(
-            CreateImplementationComparisonInput(
-                fromPaths,
-                toPaths,
-                options,
-                fromSurface,
-                toSurface));
+        => RequireImplementationComparison(
+            ImplementationComparisonQuery.Execute(
+                CreateImplementationComparisonInput(
+                    fromPaths,
+                    toPaths,
+                    options,
+                    fromSurface,
+                    toSurface)));
 
     private static ImplementationComparisonInput
         CreateImplementationComparisonInput(
@@ -1615,58 +1626,30 @@ public partial class DiffCommand
         [
             .. toPaths.Select(CreateImplementationAssemblyInput),
         ];
-        bool useExactBodyReturnIdentities =
-            oldAssemblies.Length == 1
-            && newAssemblies.Length == 1;
-        ResolvedDiffMemberTargets? targets =
-            options.MemberFilter.Count == 0
-                ? null
-                : ResolveMemberTargetIdentities(
-                fromSurface ?? AssemblySetSurfaceBuilder.Build(fromPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
-                toSurface ?? AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
-                options.MemberFilter,
-                options.TypeFilter,
-                requireBodyTargets: true,
-                includeReturnTypeBodyIdentities:
-                    !useExactBodyReturnIdentities,
-                bodySectionName: SelectsComplexityContext(options)
-                    ? "Complexity Context"
-                    : SelectsStructuralContext(options)
-                        ? "Structural Context"
-                        : "Implementation Diff");
-        if (targets is not null && useExactBodyReturnIdentities)
+        IReadOnlyList<ComparisonMemberSelection>? memberSelections = null;
+        if (options.MemberFilter.Count > 0)
         {
-            AddReturnTypeTargetIdentities(
-                oldAssemblies[0],
-                targets.OldBodyMetadataTokens,
-                targets.MemberIdentities);
-            AddReturnTypeTargetIdentities(
-                newAssemblies[0],
-                targets.NewBodyMetadataTokens,
-                targets.MemberIdentities);
+            ApiSurface oldSurface = fromSurface
+                ?? AssemblySetSurfaceBuilder.Build(
+                    fromPaths,
+                    includeAll: options.IncludeAll)
+                ?? new ApiSurface();
+            ApiSurface newSurface = toSurface
+                ?? AssemblySetSurfaceBuilder.Build(
+                    toPaths,
+                    includeAll: options.IncludeAll)
+                ?? new ApiSurface();
+            memberSelections = ResolveComparisonMemberSelections(
+                oldSurface,
+                newSurface,
+                options);
         }
 
         return new ImplementationComparisonInput(
             oldAssemblies,
             newAssemblies,
             options.TypeFilter,
-            targets?.MemberIdentities);
-    }
-
-    static void AddReturnTypeTargetIdentities(
-        ImplementationAssemblyInput assembly,
-        IReadOnlySet<int> metadataTokens,
-        ISet<string> identities)
-    {
-        foreach (MethodIdentity method in assembly.MethodPopulation.DeclaredMethods)
-        {
-            if (metadataTokens.Contains(method.MetadataToken))
-            {
-                ResearchMemberIdentity.AddReturnTypeTargetIdentity(
-                    method,
-                    identities);
-            }
-        }
+            memberSelections);
     }
 
     static ImplementationAssemblyInput CreateImplementationAssemblyInput(
@@ -1830,9 +1813,45 @@ public partial class DiffCommand
             result,
             comparisons,
             new ImplementationDiffOptions(
-                TypeFilters: options.TypeFilter,
-                MemberTargetIdentities: subjects.Keys.ToHashSet(StringComparer.Ordinal))));
+                TypeFilters: options.TypeFilter)));
     }
+
+    static ImplementationDiffResult RequireImplementationComparison(
+        ImplementationComparisonResult result)
+        => result switch
+        {
+            ImplementationComparisonResult.Compared compared =>
+                compared.Comparison,
+            ImplementationComparisonResult.TargetFailed failed =>
+                throw new InvalidOperationException(failed.Summary),
+            ImplementationComparisonResult.PopulationRejected rejected =>
+                throw new InvalidOperationException(
+                    $"Implementation comparison population was rejected "
+                        + $"({rejected.Rejection.Kind})."),
+            ImplementationComparisonResult.ProjectionRejected rejected =>
+                throw new InvalidOperationException(
+                    $"Implementation comparison projection was rejected "
+                        + $"({rejected.Reason})."),
+            ImplementationComparisonResult.AdmissionRejected rejected =>
+                throw new InvalidOperationException(
+                    $"Implementation comparison admission was rejected "
+                        + $"({rejected.Rejection.Kind})."),
+            ImplementationComparisonResult.PlanningRejected rejected =>
+                throw new InvalidOperationException(
+                    $"Implementation target planning was rejected "
+                        + $"({rejected.Rejection.Kind})."),
+            ImplementationComparisonResult.ProducerRejected rejected =>
+                throw new InvalidOperationException(
+                    $"Implementation producer session was rejected "
+                        + $"({rejected.Rejection.Kind})."),
+            ImplementationComparisonResult.ProducerFailed failed =>
+                throw new InvalidOperationException(
+                    failed.Diagnostic.Summary),
+            ImplementationComparisonResult.Cancelled =>
+                throw new OperationCanceledException(),
+            _ => throw new InvalidOperationException(
+                "Implementation comparison returned an unknown outcome."),
+        };
 
     sealed record PdbSourceEndpointIndex(
         ImmutableDictionary<string, MethodIdentity> Methods,
@@ -2732,9 +2751,7 @@ public partial class DiffCommand
 
     sealed record ResolvedDiffMemberTargets(
         HashSet<string> MemberIdentities,
-        HashSet<string> TypeNames,
-        HashSet<int> OldBodyMetadataTokens,
-        HashSet<int> NewBodyMetadataTokens);
+        HashSet<string> TypeNames);
 
     static bool MatchesMemberTarget(string typeFullName, ApiChange change, ResolvedDiffMemberTargets targets)
         => change.Subject?.Kind == ApiChangeSubjectKind.Member
@@ -2752,15 +2769,10 @@ public partial class DiffCommand
         ApiSurface fromSurface,
         ApiSurface toSurface,
         IReadOnlyCollection<string> memberTargets,
-        IReadOnlyCollection<string> typeFilters,
-        bool requireBodyTargets = false,
-        bool includeReturnTypeBodyIdentities = false,
-        string bodySectionName = "Analysis Diff")
+        IReadOnlyCollection<string> typeFilters)
     {
         HashSet<string> identities = new(StringComparer.Ordinal);
         HashSet<string> typeNames = new(StringComparer.Ordinal);
-        HashSet<int> oldBodyMetadataTokens = [];
-        HashSet<int> newBodyMetadataTokens = [];
         foreach (var rawTarget in memberTargets)
         {
             var parsed = ParseDiffMemberTarget(rawTarget, fromSurface, toSurface, typeFilters);
@@ -2773,7 +2785,6 @@ public partial class DiffCommand
             }
 
             var found = false;
-            var bodyFound = false;
             MemberTargetDiagnostic? diagnostic = null;
             MemberTargetDiagnostic? nonFatalDiagnostic = null;
             ApiType? oldType = FindSelectedType(
@@ -2795,12 +2806,8 @@ public partial class DiffCommand
                 var oldResult = AddResolvedIdentities(
                     oldType,
                     parsed.Selector,
-                    identities,
-                    includeReturnTypeBodyIdentities);
+                    identities);
                 found |= oldResult.Found;
-                bodyFound |= oldResult.BodyFound;
-                if (oldResult.BodyMetadataToken is { } oldToken)
-                    oldBodyMetadataTokens.Add(oldToken);
                 if (oldResult.Diagnostic is { } oldDiagnostic)
                 {
                     if (IsFatalTargetDiagnostic(oldDiagnostic.Kind))
@@ -2816,12 +2823,8 @@ public partial class DiffCommand
                 var newResult = AddResolvedIdentities(
                     newType,
                     parsed.Selector,
-                    identities,
-                    includeReturnTypeBodyIdentities);
+                    identities);
                 found |= newResult.Found;
-                bodyFound |= newResult.BodyFound;
-                if (newResult.BodyMetadataToken is { } newToken)
-                    newBodyMetadataTokens.Add(newToken);
                 if (newResult.Diagnostic is { } newDiagnostic)
                 {
                     if (IsFatalTargetDiagnostic(newDiagnostic.Kind))
@@ -2837,50 +2840,29 @@ public partial class DiffCommand
                 throw new InvalidOperationException(diagnostic.Message);
             if (!found)
                 throw new InvalidOperationException(nonFatalDiagnostic?.Message ?? $"Member target '{rawTarget}' did not resolve in either diff input.");
-            if (requireBodyTargets && !bodyFound)
-                throw new InvalidOperationException($"{bodySectionName} --member requires a method-like target; '{rawTarget}' resolved to a member with no method body.");
         }
 
         return new ResolvedDiffMemberTargets(
             identities,
-            typeNames,
-            oldBodyMetadataTokens,
-            newBodyMetadataTokens);
+            typeNames);
     }
 
     static (
         bool Found,
-        bool BodyFound,
-        int? BodyMetadataToken,
         MemberTargetDiagnostic? Diagnostic)
         AddResolvedIdentities(
             ApiType type,
             MemberTargetSelector selector,
-            HashSet<string> identities,
-            bool includeReturnTypeBodyIdentity)
+            HashSet<string> identities)
     {
         var resolution = MemberTargetResolver.Resolve(type, selector);
         if (!resolution.Found)
-            return (false, false, null, resolution.Diagnostic);
+            return (false, resolution.Diagnostic);
 
         identities.Add(resolution.Target!.Anchor.StableSelector);
         identities.Add(resolution.Target.Anchor.CanonicalSignature);
-        var bodyFound = AddResearchBodyIdentity(resolution.Target, identities);
-        if (includeReturnTypeBodyIdentity)
-        {
-            ResearchMemberIdentity.TryAddReturnTypeTargetIdentity(
-                resolution.Target,
-                identities);
-        }
-        return (
-            true,
-            bodyFound,
-            resolution.Target.Body?.MetadataToken,
-            null);
+        return (true, null);
     }
-
-    internal static bool AddResearchBodyIdentity(ResolvedMemberTarget target, HashSet<string> identities)
-        => ResearchMemberIdentity.TryAddTargetIdentity(target, identities);
 
     static WorkspaceImplementationTarget?
         TryCreateWorkspaceImplementationTarget(

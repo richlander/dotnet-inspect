@@ -468,7 +468,7 @@ PDB source is unavailable.
 ## Research admission and target-correspondence boundary
 
 **Status:** target design for #4771 with the Research target-resolution boundary
-implemented through complete correspondence.
+implemented through complete correspondence and producer-session execution.
 [Research admission and identity](#research-admission-and-identity) and
 [Side-local requests and attempts](#side-local-requests-and-attempts), plus
 complete census, correspondence keys and outcomes, positive absence proof, and
@@ -479,7 +479,7 @@ implemented and verified by their named gates in
 and the owning sections. The native C# and IL producer adapters and their
 inspection-topology classification are implemented and verified by their
 owning sections. The Research local producer-session and completion boundary
-is specified below but remains unimplemented.
+is implemented for typed implementation comparison.
 
 This design proposes one place to answer the target question before comparison
 work begins: which member, if any, did each side select; can those targets
@@ -502,36 +502,40 @@ owns Queries population sealing and the correspondence receipt.
 imports those typed facts; it does not parse their display text, reconstruct
 their identity, or change their failure meaning.
 
-### Current target-resolution gap
+### Delivered target-resolution boundary
 
-The current CLI resolves one member selector independently against the old and
-new `ApiSurface` values, then flattens stable selectors, canonical signatures,
-and Research body aliases into one `HashSet<string>`.
-`ImplementationComparisonInput`, `ImplementationDiffOptions`, and
-`ResearchDiffOptions` pass that untyped set through to mechanism-specific
-filters. This loses the selection occurrence, side, admitted input, resolution
-attempt, typed diagnostic, accessor role, and proof that a one-sided target is
-absent rather than unavailable. For generic members, the rebuilt text also
-fails to match the method side's own identity, so the member is silently
-dropped ([#8570](https://github.com/richlander/dotnet-inspect/issues/8570)).
-Body-signal targeting has left this path. Implementation, complexity, and the
-IL and C# Finding routes remain on it until they migrate.
+Implementation comparison, Complexity and Structural Context, the exact-pair
+document, and retained C# and IL Finding routes now carry semantic
+`ComparisonMemberSelection` values into the Queries-owned population boundary.
+Queries seals the population, invokes `QueryResearchTargetPlanner`, and passes
+one `ResearchTargetResolution` to the Research producer session. C# and IL run
+over the same correspondence work bases; their native completion is projected
+to one correspondence-issued subject. Complexity filters Analysis evidence by
+the resolved module and MethodDef address rather than by display identity.
 
-The body paths then disagree about missing evidence. Semantic IL comparison
-intersects method keys and can omit a one-sided member; retained IL Finding
-comparison unions them and synthesizes absence. A method whose RVA is zero is
-reported as a decode failure in one path, while another path translates
-old-body-missing and new-body-missing failures into added and removed changes.
-Properties and events are excluded from the body-identity bridge rather than
-preserving the selected accessor.
+Every requested member scope must resolve to an Analysis-issued body identity
+on at least one endpoint. Otherwise `ImplementationComparisonQuery` returns the
+typed `ImplementationComparisonResult.TargetFailed` arm with the side-local
+attempt outcomes. It never returns an empty successful comparison for that
+request. The CLI turns that typed non-success into a visible request failure;
+the exact-pair inspection creates no document or envelope for a pre-comparison
+failure.
 
-Those body decisions are producer inspection topology, not cross-input target
+`ImplementationComparisonInput`, `ImplementationDiffOptions`,
+`ResearchDiffOptions`, and the exact-pair document expose no string-keyed
+implementation member identity bag. Generic Diff's retained C# and IL routes
+consume the same typed implementation result through their host callback.
+API comparison remains separate: `DiffAnalysisInput.ApiMemberTargetIdentities`
+contains only Metadata/API presentation identities and is never consumed by
+implementation, complexity, C#, or IL targeting.
+
+Producer inspection topology remains distinct from cross-input target
 correspondence. The shared
 [Finding inspection topology](finding-nomenclature.md#typed-inspection-topology)
 distinguishes a proven missing subject from an existing subject with no
 applicable producer input. The target contract supplies exact endpoint or
-absence evidence to that lower contract; it does not replace the current result
-or producer models in this slice.
+absence evidence to that lower contract; it does not replace native producer
+results.
 
 ### Research admission and identity
 
@@ -1085,10 +1089,11 @@ Migration preserves owner and dependency direction:
    design is specified below, but its Research implementation remains
    unimplemented. Producer adapters classify endpoint topology and retain their
    native typed results; Research adds no generic body disposition.
-6. Body-signal targeting migrates to the typed target path, and its
-   string-keyed identity bag is removed. Rank 6 later migrates the
-   implementation-comparison public path, and the IL and C# Finding routes,
-   from string target identities and publishes the outer result.
+6. Body-signal targeting and the implementation-comparison public path have
+   migrated to the typed target path. Their string-keyed identity bags are
+   removed. The exact-pair document, Complexity and Structural Context, and the
+   IL and C# Finding routes consume the same correspondence result, and
+   implementation comparison publishes its typed outer result.
 
 The admission, scope, domain, request, and attempt gates have landed and are
 listed under

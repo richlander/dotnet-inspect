@@ -17,8 +17,7 @@ public sealed record ResearchDiffOptions(
     ResearchChangeMechanism Mechanisms = ResearchChangeMechanism.AllAvailable,
     bool IncludeAllApi = false,
     ApiDiffScope ApiScope = ApiDiffScope.Signature,
-    IReadOnlySet<string>? TypeFilters = null,
-    IReadOnlySet<string>? MemberTargetIdentities = null)
+    IReadOnlySet<string>? TypeFilters = null)
 {
     public ImmutableHashSet<string> RetainedComparisonDescriptorIds { get; init; } =
         ImmutableHashSet.Create<string>(StringComparer.Ordinal);
@@ -82,10 +81,15 @@ public static partial class ResearchDiff
     }
 
     public static ResearchComparison FromIlBodyDiff(IlBodyDiffResult diff)
+        => FromIlBodyDiff(diff, UnknownMemberSubject("il-body"));
+
+    internal static ResearchComparison FromIlBodyDiff(
+        IlBodyDiffResult diff,
+        ResearchSubjectKey subject)
     {
         ArgumentNullException.ThrowIfNull(diff);
+        ArgumentNullException.ThrowIfNull(subject);
         var changes = ImmutableArray.CreateBuilder<ResearchChange>();
-        var subject = UnknownMemberSubject("il-body");
         if (!diff.FailureRows.IsDefaultOrEmpty)
         {
             changes.AddRange(diff.FailureRows.Select(row =>
@@ -140,6 +144,141 @@ public static partial class ResearchDiff
         }
 
         return new ResearchComparison(changes.ToImmutable());
+    }
+
+    public static ResearchComparison FromProducerCompletion(
+        ResearchProducerCompletion completion,
+        ResearchTargetResolution resolution,
+        ResearchAdmittedPopulation population)
+    {
+        ArgumentNullException.ThrowIfNull(completion);
+        ArgumentNullException.ThrowIfNull(resolution);
+        ArgumentNullException.ThrowIfNull(population);
+        if (!ReferenceEquals(completion.Operation, resolution.Operation))
+        {
+            throw new ArgumentException(
+                "The producer completion and target resolution must belong "
+                    + "to the same Research operation.",
+                nameof(completion));
+        }
+
+        var comparisons = new List<ResearchComparison>();
+        var retained = ImmutableArray.CreateBuilder<RetainedFindingComparison>();
+        foreach (ResearchProducerWorkResult work in completion.Results)
+        {
+            ResearchSubjectKey subject = SubjectFromWorkBasis(
+                resolution,
+                population,
+                work.Item.Basis);
+            switch (work.Outcome)
+            {
+                case ResearchProducerWorkOutcome.ProducedCSharp produced:
+                    retained.Add(new RetainedFindingComparison<CSharpCanonicalLine>(
+                        subject,
+                        CSharpFindings.LineDescriptor,
+                        produced.Result.Findings));
+                    if (produced.Result.BodyDiff is { } csharp)
+                    {
+                        ResearchComparison projected =
+                            FromCSharpBodyDiff(csharp);
+                        comparisons.Add(new ResearchComparison(
+                            [.. projected.Changes.Select(
+                                change => change.WithSubject(subject))],
+                            projected.ApiDiff,
+                            projected.ApiComparison,
+                            projected.RetainedComparisons));
+                    }
+                    break;
+                case ResearchProducerWorkOutcome.ProducedIlBody produced:
+                    retained.Add(new RetainedFindingComparison<CanonicalIlOperation>(
+                        subject,
+                        IlFindings.OperationDescriptor,
+                        produced.Result.Findings));
+                    if (produced.Result.MemberDiff is { } il)
+                        comparisons.Add(FromIlBodyDiff(il.Diff, subject));
+                    break;
+            }
+        }
+
+        ResearchComparison combined = comparisons.Count == 0
+            ? new ResearchComparison([])
+            : Combine([.. comparisons]);
+        return new ResearchComparison(
+            combined.Changes,
+            combined.ApiDiff,
+            combined.ApiComparison,
+            new RetainedFindingComparisonSet(retained));
+    }
+
+    static ResearchSubjectKey SubjectFromWorkBasis(
+        ResearchTargetResolution resolution,
+        ResearchAdmittedPopulation population,
+        ResearchProducerWorkBasis basis)
+    {
+        ResearchTargetAttempt? attempt = basis switch
+        {
+            ResearchProducerWorkBasis.DesignatedPair designated =>
+                designated.Pair.After.Outcome
+                    is ResearchTargetOutcome.Resolved
+                        ? designated.Pair.After
+                        : designated.Pair.Before,
+            ResearchProducerWorkBasis.Correspondence
+                {
+                    Outcome: ResearchTargetCorrespondenceOutcome.Paired paired,
+                } => paired.After.Attempt,
+            ResearchProducerWorkBasis.Correspondence
+                {
+                    Outcome:
+                        ResearchTargetCorrespondenceOutcome.BeforeOnly beforeOnly,
+                } => beforeOnly.Before.Attempt,
+            ResearchProducerWorkBasis.Correspondence
+                {
+                    Outcome:
+                        ResearchTargetCorrespondenceOutcome.AfterOnly afterOnly,
+                } => afterOnly.After.Attempt,
+            _ => null,
+        };
+        if (attempt?.Outcome is ResearchTargetOutcome.Resolved
+            {
+                Address: { } address,
+            } target)
+        {
+            var occurrence =
+                (ImplementationComparisonInputOccurrence)
+                population.GetInput(attempt.Request.Input).Occurrence;
+            MethodIdentity? method =
+                occurrence.MethodPopulation.DeclaredMethods.FirstOrDefault(
+                    method => method.MetadataToken == address.Token);
+            if (method is not null)
+            {
+                ResearchSubjectKey baseSubject =
+                    ResearchMemberIdentity.SubjectFromMethod(method);
+                bool includeReturnType =
+                    ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
+                        occurrence.MethodPopulation.DeclaredMethods)
+                    .Contains(baseSubject.Id);
+                return ResearchMemberIdentity.SubjectFromMethod(
+                    method,
+                    includeReturnType);
+            }
+
+            return ResearchMemberIdentity.SubjectFromAnchor(
+                target.Anchor,
+                target.Anchor.CanonicalSignature);
+        }
+
+        ResearchTargetScopeId scopeId =
+            ((ResearchProducerWorkBasis.Correspondence)basis).Outcome.Scope;
+        ResearchTargetScope scope = resolution.Scopes.Single(
+            scope => ReferenceEquals(scope.Id, scopeId));
+        string display =
+            $"{scope.DeclaringTypeFullName}.{scope.Selector.RequestedText}";
+        return new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            display,
+            display,
+            scope.DeclaringTypeFullName,
+            scope.Selector.RequestedText);
     }
 
     public static ResearchComparison FromCSharpBodyDiff(CSharpBodyDiffResult diff)
@@ -257,16 +396,6 @@ public static partial class ResearchDiff
 
         if (options.Mechanisms.HasFlag(ResearchChangeMechanism.BodySignals))
         {
-            if (options.MemberTargetIdentities is { Count: > 0 })
-            {
-                throw new ArgumentException(
-                    "Body-signal member targeting is resolved only through "
-                        + "BodySignalTargetComparison over Research "
-                        + "correspondence outcomes; a whole-assembly "
-                        + "body-signal comparison takes no member identities.",
-                    nameof(options));
-            }
-
             AddBodySignalDiff(
                 builder,
                 oldInput,
@@ -282,7 +411,6 @@ public static partial class ResearchDiff
                 oldInput,
                 newInput,
                 options.TypeFilters,
-                options.MemberTargetIdentities,
                 options.RetainedComparisonDescriptorIds);
         }
 
@@ -293,7 +421,6 @@ public static partial class ResearchDiff
                 oldInput,
                 newInput,
                 options.TypeFilters,
-                options.MemberTargetIdentities,
                 options.RetainedComparisonDescriptorIds);
         }
 
@@ -432,7 +559,6 @@ public static partial class ResearchDiff
         ResearchDiffInput oldInput,
         ResearchDiffInput newInput,
         IReadOnlySet<string>? typeFilters,
-        IReadOnlySet<string>? memberTargetIdentities,
         IReadOnlySet<string> retainedComparisonDescriptorIds)
     {
         bool retainOperations = retainedComparisonDescriptorIds.Contains(
@@ -442,8 +568,7 @@ public static partial class ResearchDiff
                 builder,
                 oldInput,
                 newInput,
-                typeFilters,
-                memberTargetIdentities)
+                typeFilters)
             : new Dictionary<string, FindingComparison<CanonicalIlOperation>>(
                 StringComparer.Ordinal);
 
@@ -466,8 +591,6 @@ public static partial class ResearchDiff
                     newMethod,
                     returnTypeCollisions);
                 if (!MatchesTypeFilters(subject.TypeName ?? "", typeFilters))
-                    continue;
-                if (!MatchesMemberTargets(subject, memberTargetIdentities))
                     continue;
 
                 retainedComparisons.TryGetValue(
@@ -566,8 +689,7 @@ public static partial class ResearchDiff
             ResultBuilder builder,
             ResearchDiffInput oldInput,
             ResearchDiffInput newInput,
-            IReadOnlySet<string>? typeFilters,
-            IReadOnlySet<string>? memberTargetIdentities)
+            IReadOnlySet<string>? typeFilters)
     {
         var retained = new Dictionary<string, FindingComparison<CanonicalIlOperation>>(
             StringComparer.Ordinal);
@@ -604,8 +726,7 @@ public static partial class ResearchDiff
                 newMethods.TryGetValue(key, out var newMethod);
                 var representative = newMethod ?? oldMethod!;
                 var subject = representative.Subject;
-                if (!MatchesTypeFilters(subject.TypeName ?? "", typeFilters)
-                    || !MatchesMemberTargets(subject, memberTargetIdentities))
+                if (!MatchesTypeFilters(subject.TypeName ?? "", typeFilters))
                 {
                     continue;
                 }
@@ -776,7 +897,6 @@ public static partial class ResearchDiff
         ResearchDiffInput oldInput,
         ResearchDiffInput newInput,
         IReadOnlySet<string>? typeFilters,
-        IReadOnlySet<string>? memberTargetIdentities,
         IReadOnlySet<string> retainedComparisonDescriptorIds)
     {
         var oldContents = oldInput.AssemblyContents;
@@ -794,13 +914,11 @@ public static partial class ResearchDiff
             ? CSharpBodyDiff.CompareAssemblies(
                 oldContents!.Select(content => content.Source).ToArray(),
                 newContents!.Select(content => content.Source).ToArray(),
-                typeFilters: typeFilters,
-                memberTargetIdentities: memberTargetIdentities)
+                typeFilters: typeFilters)
             : CSharpBodyDiff.CompareAssemblies(
                 oldInput.AssemblyPaths,
                 newInput.AssemblyPaths,
-                typeFilters: typeFilters,
-                memberTargetIdentities: memberTargetIdentities);
+                typeFilters: typeFilters);
         foreach (var failure in diff.IdentityFailures.IsDefault
             ? []
             : diff.IdentityFailures)
@@ -831,8 +949,7 @@ public static partial class ResearchDiff
             var subject = ResearchMemberIdentity.SubjectFromAnchor(
                 failure.BodyAnchor ?? failure.Anchor,
                 failure.Member);
-            if (MatchesMemberTargets(subject, memberTargetIdentities))
-                AddCSharpFailureEvidence(builder, subject, failure);
+            AddCSharpFailureEvidence(builder, subject, failure);
         }
 
         foreach (var row in diff.Rows)
@@ -843,8 +960,6 @@ public static partial class ResearchDiff
             var subject = ResearchMemberIdentity.SubjectFromAnchor(
                 row.BodyAnchor ?? row.Anchor,
                 row.Member);
-            if (!MatchesMemberTargets(subject, memberTargetIdentities))
-                continue;
             var kind = row.Kind switch
             {
                 CSharpDiffKind.Add => ResearchChangeKind.Added,
@@ -873,13 +988,11 @@ public static partial class ResearchDiff
             ? CSharpFindings.CompareAssemblies(
                 oldContents!.Select(content => content.Source).ToArray(),
                 newContents!.Select(content => content.Source).ToArray(),
-                typeFilters: typeFilters,
-                memberTargetIdentities: memberTargetIdentities)
+                typeFilters: typeFilters)
             : CSharpFindings.CompareAssemblies(
                 oldInput.AssemblyPaths,
                 newInput.AssemblyPaths,
-                typeFilters: typeFilters,
-                memberTargetIdentities: memberTargetIdentities);
+                typeFilters: typeFilters);
         foreach (var failure in findingComparisons.IdentityFailures)
         {
             string token = $"0x{failure.SubjectToken:X8}";
@@ -1228,11 +1341,6 @@ public static partial class ResearchDiff
                 methodPopulation);
         }
     }
-
-    static bool MatchesMemberTargets(ResearchSubjectKey subject, IReadOnlySet<string>? memberTargetIdentities)
-        => memberTargetIdentities is null
-           || memberTargetIdentities.Count == 0
-           || memberTargetIdentities.Contains(subject.Id);
 
     static ResearchSubjectKey ApiSubject(string typeName, ApiChange change)
     {

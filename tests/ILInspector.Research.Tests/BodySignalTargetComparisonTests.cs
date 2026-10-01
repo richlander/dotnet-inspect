@@ -318,20 +318,6 @@ public sealed class BodySignalTargetComparisonTests
         }
     }
 
-    [Fact]
-    public void ResearchDiff_BodySignalsRejectStringMemberTargets()
-    {
-        var exception = Assert.Throws<ArgumentException>(
-            () => ResearchDiff.Compare(
-                new ResearchDiffInput([]) { BodySignalAnalyses = [] },
-                new ResearchDiffInput([]) { BodySignalAnalyses = [] },
-                new ResearchDiffOptions(
-                    ResearchChangeMechanism.BodySignals,
-                    MemberTargetIdentities:
-                        new HashSet<string>(StringComparer.Ordinal) { "member" })));
-        Assert.Contains(nameof(BodySignalTargetComparison), exception.Message, StringComparison.Ordinal);
-    }
-
     static void MetadataMethodAddressAssert(
         ResearchTargetOutcome.Resolved resolved,
         BodySignalComparisonInputOccurrence occurrence)

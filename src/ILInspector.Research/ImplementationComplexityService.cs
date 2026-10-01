@@ -10,7 +10,7 @@ public sealed record ImplementationComplexityComparisonRequest(
     IReadOnlyList<LibraryImplementationProfileAnalysisResult?> OldProfiles,
     IReadOnlyList<LibraryImplementationProfileAnalysisResult?> NewProfiles,
     IReadOnlySet<string>? TypeFilters = null,
-    IReadOnlySet<string>? MemberTargetIdentities = null);
+    ResearchTargetResolution? TargetResolution = null);
 
 /// <summary>
 /// Compares Analysis-owned implementation profiles without reopening or
@@ -110,7 +110,12 @@ public static class ImplementationComplexityService
                 newByAssembly.TryGetValue(key, out var newAssembly)
                     ? newAssembly.Profiles
                     : [];
-            changes.AddRange(CompareProfiles(oldProfiles, newProfiles, request));
+            changes.AddRange(CompareProfiles(
+                oldProfiles,
+                newProfiles,
+                request,
+                oldAssembly?.Receipt.ModuleIdentity.ModuleVersionId,
+                newAssembly?.Receipt.ModuleIdentity.ModuleVersionId));
         }
 
         return new ImplementationComplexityDiff(true, null, WithLocalContext(changes));
@@ -209,7 +214,9 @@ public static class ImplementationComplexityService
     static IReadOnlyList<ImplementationComplexityChange> CompareProfiles(
         IReadOnlyList<MethodImplementationProfile> oldProfiles,
         IReadOnlyList<MethodImplementationProfile> newProfiles,
-        ImplementationComplexityComparisonRequest request)
+        ImplementationComplexityComparisonRequest request,
+        Guid? oldModuleVersionId,
+        Guid? newModuleVersionId)
     {
         IReadOnlySet<string> returnTypeCollisions =
             ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
@@ -219,13 +226,19 @@ public static class ImplementationComplexityService
             .Select(profile => CreateProfileEntry(
                 profile,
                 returnTypeCollisions))
-            .Where(entry => MatchesFilters(entry.Subject, request))
+            .Where(entry => MatchesFilters(
+                entry,
+                oldModuleVersionId,
+                request))
             .ToArray();
         var newEntries = newProfiles
             .Select(profile => CreateProfileEntry(
                 profile,
                 returnTypeCollisions))
-            .Where(entry => MatchesFilters(entry.Subject, request))
+            .Where(entry => MatchesFilters(
+                entry,
+                newModuleVersionId,
+                request))
             .ToArray();
         var oldByKey = oldEntries.ToDictionary(
             entry => entry.Key,
@@ -369,14 +382,23 @@ public static class ImplementationComplexityService
             + $"{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
     static bool MatchesFilters(
-        ResearchSubjectKey subject,
+        ComplexityProfileEntry entry,
+        Guid? moduleVersionId,
         ImplementationComplexityComparisonRequest request)
         => ResearchDiff.MatchesTypeFilters(
-               subject.TypeName ?? "",
+               entry.Subject.TypeName ?? "",
                request.TypeFilters)
-           && (request.MemberTargetIdentities is null
-               || request.MemberTargetIdentities.Count == 0
-               || request.MemberTargetIdentities.Contains(subject.Id));
+           && (request.TargetResolution is null
+               ? true
+               : moduleVersionId is not null
+                   && request.TargetResolution.Attempts.Any(attempt =>
+                       attempt.Outcome is ResearchTargetOutcome.Resolved
+                       {
+                           Address: { } address,
+                       }
+                       && address.ModuleVersionId == moduleVersionId
+                       && address.Token
+                           == entry.Profile.EvidenceMethod.MetadataToken));
 
     static ImplementationComplexityDiff Unavailable(string reason)
         => new(false, reason, []);
