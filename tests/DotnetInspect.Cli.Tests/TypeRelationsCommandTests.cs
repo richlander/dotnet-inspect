@@ -216,6 +216,31 @@ public sealed class TypeRelationsCommandTests
     }
 
     [Fact]
+    public async Task
+        PinnedPlatformBorrowedFacadeCoordinateFollowsForwarder()
+    {
+        var (_, _, version, error) = PlatformResolver.ResolveAssembly(
+            "System.IO",
+            "runtime");
+        Assert.Null(error);
+        Assert.NotNull(version);
+        var result = await ExecuteAsync(
+            "type",
+            typeof(Stream).FullName!,
+            "--platform",
+            "System.IO",
+            "--framework",
+            $"runtime@{version!}",
+            "-S",
+            "Derived Types",
+            "--count");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal("19", result.Output.Trim());
+    }
+
+    [Fact]
     public async Task ProjectedJsonHonorsSelectedColumns()
     {
         var result = await ExecuteAsync(

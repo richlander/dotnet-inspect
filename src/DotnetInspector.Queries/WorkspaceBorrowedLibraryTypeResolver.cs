@@ -10,7 +10,9 @@ internal abstract record WorkspaceBorrowedLibraryTypeResolution
     {
     }
 
-    internal sealed record Resolved(AssemblyReferenceIdentity Assembly)
+    internal sealed record Resolved(
+        AssemblyReferenceIdentity Assembly,
+        WorkspaceDeclarationOccurrence DefinitionOccurrence)
         : WorkspaceBorrowedLibraryTypeResolution;
 
     internal sealed record Unavailable
@@ -87,7 +89,8 @@ internal sealed class WorkspaceBorrowedLibraryTypeResolver
             if (definition)
             {
                 return new WorkspaceBorrowedLibraryTypeResolution.Resolved(
-                    library.Assembly);
+                    library.Assembly,
+                    library.Occurrence);
             }
 
             current = target!;
@@ -143,6 +146,7 @@ internal sealed class WorkspaceBorrowedLibraryTypeResolver
         {
             return new(
                 correspondence.AssemblyIdentity,
+                member.Occurrence,
                 correspondence.Inventory.Definitions.ToImmutableHashSet(),
                 ImmutableDictionary<
                     MetadataTypeDefinitionName,
@@ -198,12 +202,14 @@ internal sealed class WorkspaceBorrowedLibraryTypeResolver
         }
         return new(
             correspondence.AssemblyIdentity,
+            member.Occurrence,
             correspondence.Inventory.Definitions.ToImmutableHashSet(),
             forwarders.ToImmutable());
     }
 
     private sealed record LibraryDeclarations(
         AssemblyReferenceIdentity Assembly,
+        WorkspaceDeclarationOccurrence Occurrence,
         ImmutableHashSet<MetadataTypeDefinitionName> Definitions,
         ImmutableDictionary<
             MetadataTypeDefinitionName,

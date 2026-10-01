@@ -219,35 +219,73 @@ public static class WorkspaceExactTypeFocusQuery
                 member.Occurrence,
                 match.Type);
         }
-        if (!population.TryGetAccess(
+        if (population.TryGetAccess(
                 member.Occurrence,
                 out _,
                 out AssemblyContextGroup? group,
                 out ResolvedAssemblyReference? assembly)
-            || group is null
-            || assembly is null)
+            && group is not null
+            && assembly is not null)
         {
-            return new WorkspaceExactTypeFocusOutcome.Unavailable(
-                "The requested Library forwarding chain is unavailable.",
-                [new(member, IsComplete: false)]);
+            AssemblyContextParticipant participant =
+                group.Participants.Single(candidate =>
+                    ReferenceEquals(
+                        candidate.Assembly.Registration,
+                        assembly.Registration));
+            AssemblyContextTypeResolutionResult resolution =
+                AssemblyContextTypeResolutionQuery.Execute(
+                    group,
+                    participant,
+                    match.Type,
+                    AssemblyResolutionScope.Any);
+            if (resolution
+                is not AssemblyContextTypeResolutionResult.Available
+                {
+                    Outcome: TypeResolutionOutcome.Resolved resolved,
+                })
+            {
+                return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                    "The requested Library forwarding chain could not "
+                        + "establish the selected exact Type.",
+                    [new(member, IsComplete: false)]);
+            }
+
+            ResolvedAssemblyReference definitionAssembly =
+                resolved.Definition.Assembly.Assembly;
+            return new WorkspaceExactTypeFocusOutcome.Found(
+                definitionAssembly.Identity,
+                population.FindOccurrence(definitionAssembly.Registration),
+                resolved.Definition.Type);
         }
 
-        AssemblyContextParticipant participant =
-            group.Participants.Single(candidate =>
-                ReferenceEquals(
-                    candidate.Assembly.Registration,
-                    assembly.Registration));
-        AssemblyContextTypeResolutionResult resolution =
-            AssemblyContextTypeResolutionQuery.Execute(
-                group,
-                participant,
+        WorkspaceDeclarationMember[] borrowedMembers =
+        [
+            .. population.ReadLibraryAccesses().Select(
+                static access => access.Member),
+        ];
+        var resolver = new WorkspaceBorrowedLibraryTypeResolver(
+            population,
+            borrowedMembers);
+        WorkspaceBorrowedLibraryTypeResolution borrowedResolution =
+            resolver.Resolve(
+                member.AssemblyIdentity,
                 match.Type,
-                AssemblyResolutionScope.Any);
-        if (resolution
-            is not AssemblyContextTypeResolutionResult.Available
+                cancellationToken);
+        if (borrowedResolution
+            is WorkspaceBorrowedLibraryTypeResolution.Resolved
             {
-                Outcome: TypeResolutionOutcome.Resolved resolved,
+                Assembly: var terminal,
+                DefinitionOccurrence: var definitionOccurrence,
             })
+        {
+            return new WorkspaceExactTypeFocusOutcome.Found(
+                terminal,
+                definitionOccurrence,
+                match.Type);
+        }
+
+        if (borrowedMembers.Any(candidate =>
+                ReferenceEquals(candidate.Occurrence, member.Occurrence)))
         {
             return new WorkspaceExactTypeFocusOutcome.Unavailable(
                 "The requested Library forwarding chain could not "
@@ -255,12 +293,9 @@ public static class WorkspaceExactTypeFocusQuery
                 [new(member, IsComplete: false)]);
         }
 
-        ResolvedAssemblyReference definitionAssembly =
-            resolved.Definition.Assembly.Assembly;
-        return new WorkspaceExactTypeFocusOutcome.Found(
-            definitionAssembly.Identity,
-            population.FindOccurrence(definitionAssembly.Registration),
-            resolved.Definition.Type);
+        return new WorkspaceExactTypeFocusOutcome.Unavailable(
+            "The requested Library forwarding chain is unavailable.",
+            [new(member, IsComplete: false)]);
     }
 
     public static WorkspaceExactTypeFocusOutcome Execute(

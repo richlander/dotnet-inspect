@@ -668,6 +668,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                     is WorkspaceBorrowedLibraryTypeResolution.Resolved
                     {
                         Assembly: var terminal,
+                        DefinitionOccurrence: _,
                     })
                 {
                     examined++;
