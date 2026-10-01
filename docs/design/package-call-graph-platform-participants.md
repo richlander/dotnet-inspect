@@ -81,11 +81,13 @@ adds only the consumer slice that joins them.
 For one `PackageDependencyMemberCallGraphInspectionRequest` whose effective
 focal length admits a registered Platform population, the inspection:
 
-1. derives the exact `PlatformFamilyTarget` for the traversal target from the
-   focal scope receipt's registered Platform population, and realizes and
-   admits that exact-target population;
+1. for each registered Platform population in the focal scope receipt,
+   requests one exact `PlatformFamilyTarget` at the traversal target
+   framework from the Platform owner, and realizes and admits that family's
+   population;
 2. builds one graph context that contains the package participants plus the
-   certified Platform participants admitted for that exact target;
+   certified Platform participants admitted for every selected family
+   target;
 3. when the package-only context reports intrinsic CoreLib non-participation,
    runs `IntrinsicCoreLibraryWorkspaceContinuationOperation` once and, if it
    publishes, restarts the graph in the successor Workspace generation; and
@@ -102,13 +104,27 @@ pruning from an assembly name, namespace, package id, or display text.
 
 ### Target alignment
 
-The traversal target, the pruning target, and the Platform population target
-are one exact target. If the Workspace's Platform population was realized for
-a different target, such as the CLI's versionless family default, the
-inspection requests the exact traversal target from the Platform population
-owner. It does not reuse a population for another target. If the exact target
-is unavailable, the graph stays package-only and reports that typed
-unavailability.
+All Platform work shares one target framework: the traversal target. Within
+it, each selected family keeps its own exact target.
+
+- The focal scope receipt names families, not versions. The inspection
+  requests each family's exact target from the Platform owner, which selects
+  the version. The default curated Workspace selects both `DotNetRuntime` and
+  `AspNetCore`, which produce independent House requests and two exact family
+  targets, as
+  [PlatformHouse reference processing](platform-house-reference-processing.md)
+  requires. Equal version text never merges them.
+- The prune inventory is the union of the per-family inventories for the
+  families admitted into this graph context, all at the traversal target
+  framework, composed as
+  [Platform package pruning](platform-package-pruning.md) specifies. Each
+  family's inventory matches that family's exact target.
+- A population realized for another target, such as the CLI's versionless
+  family default, is not reused.
+- If one family's exact target is unavailable, that family contributes no
+  participants and no pruning inventory, and its typed unavailability is
+  reported. The other families proceed. If no family is available, the
+  graph stays package-only.
 
 ### Pruning precondition
 
