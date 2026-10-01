@@ -106,17 +106,20 @@ public sealed class MetadataMethodGroupAnalysisProjectionTests
                 from phase in new[] { "Kernel", "Composed" }
                 from column in new[]
                 {
-                    (Name: "LINQ", Allocation: 360L),
-                    (Name: "NLinq", Allocation: 240L),
-                    (Name: "Planner", Allocation: 112L),
+                    (Name: "LINQ", Time: 4d, Allocation: 360L),
+                    (Name: "NLinq", Time: 2d, Allocation: 240L),
+                    (Name: "Planner", Time: 1d, Allocation: 112L),
                 }
                 select new MemberGroupScorecardCell(
                     scenario.Name,
                     terminal,
                     phase,
                     column.Name,
-                    Microseconds: 1,
-                    column.Allocation)];
+                    Microseconds:
+                        column.Time
+                        * (terminal == "Rows" ? 3 : 1),
+                    column.Allocation
+                        * (terminal == "Rows" ? 3 : 1))];
         var result = new MemberGroupScorecardResult(
             new(
                 Compared: 0,
@@ -132,6 +135,19 @@ public sealed class MetadataMethodGroupAnalysisProjectionTests
             StringComparison.Ordinal);
         Assert.Contains(
             "| 360 B | 240 B | 112 B |",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| 4.00x (4.000 us) | 2.00x (2.000 us) | "
+                + "1.00x (1.000 us) |",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Planner | Kernel | Time | 1.00x | 3.00x |",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Planner | Kernel | Allocation | 1.00x | 3.00x |",
             report,
             StringComparison.Ordinal);
     }

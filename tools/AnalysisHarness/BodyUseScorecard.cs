@@ -385,7 +385,7 @@ public static class BodyUseScorecard
     {
         var text = new StringBuilder();
         text.AppendLine(
-            "Terminal ratios to NLinq: geometric mean across assets "
+            "Implementation ratios to Planner: geometric mean across assets "
                 + "(min-max); lower is faster.");
         text.AppendLine();
         text.AppendLine(
@@ -404,6 +404,30 @@ public static class BodyUseScorecard
                 text,
                 cells,
                 closing,
+                "Allocation",
+                static cell => cell.MedianAllocatedBytes);
+        }
+        text.AppendLine();
+        text.AppendLine(
+            "Terminal ratios to Count: geometric mean across assets "
+                + "(min-max); lower is faster.");
+        text.AppendLine();
+        text.AppendLine(
+            "| Implementation | Metric | Assets | Exists | Count | Rows |");
+        text.AppendLine(
+            "| --- | --- | ---: | ---: | ---: | ---: |");
+        foreach (BodyUseScorecardColumn column in Columns)
+        {
+            AppendTerminalRatioRow(
+                text,
+                cells,
+                column,
+                "Time",
+                static cell => cell.MedianMicroseconds);
+            AppendTerminalRatioRow(
+                text,
+                cells,
+                column,
                 "Allocation",
                 static cell => cell.MedianAllocatedBytes);
         }
@@ -1042,7 +1066,7 @@ public static class BodyUseScorecard
             .Append(" |");
         foreach (BodyUseScorecardColumn column in Columns)
         {
-            if (column == BodyUseScorecardColumn.NLinq)
+            if (column == BodyUseScorecardColumn.Planner)
             {
                 text.Append(" 1.00x |");
                 continue;
@@ -1053,15 +1077,85 @@ public static class BodyUseScorecard
                     .Where(cell => cell.Column == column)
                     .Select(cell =>
                     {
-                        BodyUseScorecardCell oracle =
+                        BodyUseScorecardCell baseline =
                             terminalCells.Single(candidate =>
                                 candidate.AssetIndex
                                     == cell.AssetIndex
                                 && candidate.Column
-                                    == BodyUseScorecardColumn.NLinq);
-                        return value(cell) / value(oracle);
+                                    == BodyUseScorecardColumn.Planner);
+                        return value(cell) / value(baseline);
                     }),
             ];
+            text.Append(' ')
+                .Append(
+                    Math.Exp(ratios.Average(Math.Log)).ToString(
+                        "0.00",
+                        CultureInfo.InvariantCulture))
+                .Append("x (")
+                .Append(
+                    ratios.Min().ToString(
+                        "0.00",
+                        CultureInfo.InvariantCulture))
+                .Append('-')
+                .Append(
+                    ratios.Max().ToString(
+                        "0.00",
+                        CultureInfo.InvariantCulture))
+                .Append(") |");
+        }
+        text.AppendLine();
+    }
+
+    static void AppendTerminalRatioRow(
+        StringBuilder text,
+        IReadOnlyList<BodyUseScorecardCell> cells,
+        BodyUseScorecardColumn column,
+        string metric,
+        Func<BodyUseScorecardCell, double> value)
+    {
+        BodyUseScorecardCell[] implementationCells =
+        [
+            .. cells.Where(cell => cell.Column == column),
+        ];
+        Dictionary<int, BodyUseScorecardCell> counts =
+            implementationCells
+                .Where(cell =>
+                    cell.Closing == BodyUseScorecardClosing.Count)
+                .ToDictionary(cell => cell.AssetIndex);
+        text.Append("| ")
+            .Append(Name(column))
+            .Append(" | ")
+            .Append(metric)
+            .Append(" | ")
+            .Append(
+                counts.Values.Count(count => value(count) > 0)
+                    .ToString(CultureInfo.InvariantCulture))
+            .Append(" |");
+        foreach (BodyUseScorecardClosing closing in Closings)
+        {
+            if (closing == BodyUseScorecardClosing.Count)
+            {
+                text.Append(" 1.00x |");
+                continue;
+            }
+            double[] ratios =
+            [
+                .. implementationCells
+                    .Where(cell =>
+                        cell.Closing == closing
+                        && counts.TryGetValue(
+                            cell.AssetIndex,
+                            out BodyUseScorecardCell? count)
+                        && value(count) > 0)
+                    .Select(cell =>
+                        value(cell)
+                            / value(counts[cell.AssetIndex])),
+            ];
+            if (ratios.Length == 0)
+            {
+                text.Append(" - |");
+                continue;
+            }
             text.Append(' ')
                 .Append(
                     Math.Exp(ratios.Average(Math.Log)).ToString(

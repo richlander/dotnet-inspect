@@ -142,6 +142,16 @@ public sealed class MemberBodySizeScorecardTests
         Assert.Contains(
             "2.83x (2.00-4.00x)",
             report);
+        Assert.Contains(
+            "| Closing | Old/Planner geo mean (range) |",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Planner (experimental) | Time | "
+                + "1.00x (1.00-1.00x) | 1.00x | "
+                + "1.00x (1.00-1.00x) |",
+            report,
+            StringComparison.Ordinal);
 
         static MemberBodySizeScorecardCell Cell(
             int scenarioIndex,

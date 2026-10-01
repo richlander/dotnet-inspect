@@ -283,9 +283,9 @@ public static class MemberBodySizeScorecard
                         cell.ScenarioIndex == index
                         && cell.Closing == closing),
                 ];
-                MemberBodySizeScorecardCell oracle =
+                MemberBodySizeScorecardCell baseline =
                     selected.Single(static cell =>
-                        cell.Column == "NLinq");
+                        cell.Column == "Planner (experimental)");
                 writer.Write(
                     $"| {scenario} | {s_shape.Label(closing)} |");
                 foreach (string column
@@ -304,7 +304,7 @@ public static class MemberBodySizeScorecard
                     {
                         writer.Write(" fail | fail |");
                     }
-                    else if (column == "NLinq")
+                    else if (column == "Planner (experimental)")
                     {
                         writer.Write(
                             $" 1.00x ({cell.Microseconds:F3} us) | "
@@ -313,7 +313,7 @@ public static class MemberBodySizeScorecard
                     else
                     {
                         writer.Write(
-                            $" {cell.Microseconds / oracle.Microseconds:F2}x "
+                            $" {cell.Microseconds / baseline.Microseconds:F2}x "
                             + $"({cell.Microseconds:F3} us) | "
                             + $"{cell.AllocatedBytes:N0} B |");
                     }
@@ -344,10 +344,10 @@ public static class MemberBodySizeScorecard
 
         writer.WriteLine();
         writer.WriteLine(
-            "| Closing | Old geo mean (range) | "
-            + "LINQ geo mean (range) | "
-            + "Planner geo mean (range) |");
-        writer.WriteLine("| --- | ---: | ---: | ---: |");
+            "| Closing | Old/Planner geo mean (range) | "
+            + "LINQ/Planner geo mean (range) | "
+            + "NLinq/Planner geo mean (range) | Planner |");
+        writer.WriteLine("| --- | ---: | ---: | ---: | ---: |");
         foreach (ScorecardClosing closing
             in Scorecard.Closings)
         {
@@ -364,7 +364,48 @@ public static class MemberBodySizeScorecard
                 + $"{FormatRatio(RatioSummary(
                     result.Cells,
                     closing,
-                    "Planner (experimental)"))} |");
+                    "NLinq"))} | "
+                + "1.00x |");
+        }
+        writer.WriteLine();
+        writer.WriteLine(
+            "| Implementation | Metric | Exists | Count | Rows |");
+        writer.WriteLine("| --- | --- | ---: | ---: | ---: |");
+        foreach (string column
+            in new[]
+            {
+                "Old",
+                "LINQ",
+                "NLinq",
+                "Planner (experimental)",
+            })
+        {
+            writer.WriteLine(
+                $"| {column} | Time | "
+                    + $"{FormatRatio(TerminalRatioSummary(
+                        result.Cells,
+                        column,
+                        ScorecardClosing.Exists,
+                        static cell => cell.Microseconds))} | "
+                    + "1.00x | "
+                    + $"{FormatRatio(TerminalRatioSummary(
+                        result.Cells,
+                        column,
+                        ScorecardClosing.Rows,
+                        static cell => cell.Microseconds))} |");
+            writer.WriteLine(
+                $"| {column} | Allocation | "
+                    + $"{FormatRatio(TerminalRatioSummary(
+                        result.Cells,
+                        column,
+                        ScorecardClosing.Exists,
+                        static cell => cell.AllocatedBytes))} | "
+                    + "1.00x | "
+                    + $"{FormatRatio(TerminalRatioSummary(
+                        result.Cells,
+                        column,
+                        ScorecardClosing.Rows,
+                        static cell => cell.AllocatedBytes))} |");
         }
         return writer.ToString();
     }
@@ -1229,7 +1270,8 @@ public static class MemberBodySizeScorecard
         {
             double oracle =
                 scenario.Single(static cell =>
-                        cell.Column == "NLinq")
+                        cell.Column
+                            == "Planner (experimental)")
                     .Microseconds;
             double ratio =
                 scenario.Single(cell =>
@@ -1247,12 +1289,51 @@ public static class MemberBodySizeScorecard
                 ratios.Max());
     }
 
+    static RatioStatistics TerminalRatioSummary(
+        IReadOnlyList<MemberBodySizeScorecardCell> cells,
+        string column,
+        ScorecardClosing closing,
+        Func<MemberBodySizeScorecardCell, double> value)
+    {
+        var ratios = new List<double>();
+        foreach (IGrouping<int, MemberBodySizeScorecardCell>
+            scenario in cells
+                .Where(cell =>
+                    cell.Column == column
+                    && !cell.WindowFailed
+                    && (cell.Closing == closing
+                        || cell.Closing == ScorecardClosing.Count))
+                .GroupBy(static cell =>
+                    cell.ScenarioIndex))
+        {
+            double baseline =
+                value(
+                    scenario.Single(cell =>
+                        cell.Closing == ScorecardClosing.Count));
+            if (baseline <= 0)
+                continue;
+            ratios.Add(
+                value(
+                    scenario.Single(cell =>
+                        cell.Closing == closing))
+                    / baseline);
+        }
+        return ratios.Count == 0
+            ? new(double.NaN, double.NaN, double.NaN)
+            : new(
+                Math.Exp(ratios.Average(Math.Log)),
+                ratios.Min(),
+                ratios.Max());
+    }
+
     static string FormatRatio(
         RatioStatistics ratio) =>
-        string.Create(
-            CultureInfo.InvariantCulture,
-            $"{ratio.GeometricMean:F2}x "
-            + $"({ratio.Minimum:F2}-{ratio.Maximum:F2}x)");
+        double.IsNaN(ratio.GeometricMean)
+            ? "-"
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"{ratio.GeometricMean:F2}x "
+                + $"({ratio.Minimum:F2}-{ratio.Maximum:F2}x)");
 
     static void ValidateTiming(
         MemberBodySizeScorecardTiming timing)

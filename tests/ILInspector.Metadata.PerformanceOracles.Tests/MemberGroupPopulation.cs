@@ -280,10 +280,11 @@ public static partial class MemberGroupPopulation
                             cell.Column == "Planner");
                     writer.WriteLine(
                         $"| {scenario.Name} | {terminal} | {phase} | "
-                            + $"{linq.Microseconds / nlinq.Microseconds:F2}x "
+                            + $"{linq.Microseconds / planner.Microseconds:F2}x "
                             + $"({linq.Microseconds:F3} us) | "
-                            + $"1.00x ({nlinq.Microseconds:F3} us) | "
-                            + $"{planner.Microseconds / nlinq.Microseconds:F2}x "
+                            + $"{nlinq.Microseconds / planner.Microseconds:F2}x "
+                            + $"({nlinq.Microseconds:F3} us) | "
+                            + $"1.00x "
                             + $"({planner.Microseconds:F3} us) | "
                             + $"{linq.AllocatedBytes:N0} B | "
                             + $"{nlinq.AllocatedBytes:N0} B | "
@@ -305,8 +306,9 @@ public static partial class MemberGroupPopulation
         }
         writer.WriteLine();
         writer.WriteLine(
-            "| Terminal | Phase | LINQ geo mean | Planner geo mean |");
-        writer.WriteLine("| --- | --- | ---: | ---: |");
+            "| Terminal | Phase | LINQ/Planner geo mean | "
+                + "NLinq/Planner geo mean | Planner |");
+        writer.WriteLine("| --- | --- | ---: | ---: | ---: |");
         foreach (string terminal in new[] { "Count", "Rows" })
         {
             foreach (string phase in new[] { "Kernel", "Composed" })
@@ -317,8 +319,44 @@ public static partial class MemberGroupPopulation
                         && cell.Phase == phase)];
                 writer.WriteLine(
                     $"| {terminal} | {phase} | "
-                        + $"{GeometricRatio(selected, "LINQ"):F2}x | "
-                        + $"{GeometricRatio(selected, "Planner"):F2}x |");
+                        + $"{GeometricRatio(
+                            selected,
+                            "LINQ",
+                            "Planner"):F2}x | "
+                        + $"{GeometricRatio(
+                            selected,
+                            "NLinq",
+                            "Planner"):F2}x | "
+                        + "1.00x |");
+            }
+        }
+        writer.WriteLine();
+        writer.WriteLine(
+            "| Implementation | Phase | Metric | Count | Rows |");
+        writer.WriteLine("| --- | --- | --- | ---: | ---: |");
+        foreach (string column
+            in new[] { "LINQ", "NLinq", "Planner" })
+        {
+            foreach (string phase in new[] { "Kernel", "Composed" })
+            {
+                writer.WriteLine(
+                    $"| {column} | {phase} | Time | 1.00x | "
+                        + $"{FormatTerminalRatio(
+                            result.Cells,
+                            column,
+                            phase,
+                            "Rows",
+                            static cell =>
+                                cell.Microseconds)}x |");
+                writer.WriteLine(
+                    $"| {column} | {phase} | Allocation | 1.00x | "
+                        + $"{FormatTerminalRatio(
+                            result.Cells,
+                            column,
+                            phase,
+                            "Rows",
+                            static cell =>
+                                cell.AllocatedBytes)}x |");
             }
         }
         return writer.ToString();
@@ -689,7 +727,8 @@ public static partial class MemberGroupPopulation
 
     private static double GeometricRatio(
         MemberGroupScorecardCell[] cells,
-        string column)
+        string column,
+        string baseline)
     {
         double logarithms = 0;
         int count = 0;
@@ -699,7 +738,7 @@ public static partial class MemberGroupPopulation
         {
             double oracle =
                 scenario.Single(cell =>
-                        cell.Column == "NLinq")
+                        cell.Column == baseline)
                     .Microseconds;
             logarithms += Math.Log(
                 scenario.Single(cell =>
@@ -709,6 +748,60 @@ public static partial class MemberGroupPopulation
             count++;
         }
         return Math.Exp(logarithms / count);
+    }
+
+    private static double GeometricTerminalRatio(
+        IReadOnlyList<MemberGroupScorecardCell> cells,
+        string column,
+        string phase,
+        string terminal,
+        Func<MemberGroupScorecardCell, double> value)
+    {
+        double logarithms = 0;
+        int count = 0;
+        foreach (IGrouping<string, MemberGroupScorecardCell>
+            scenario in cells
+                .Where(cell =>
+                    cell.Column == column
+                    && cell.Phase == phase)
+                .GroupBy(static cell => cell.Scenario))
+        {
+            double baseline =
+                value(
+                    scenario.Single(cell =>
+                        cell.Terminal == "Count"));
+            if (baseline <= 0)
+                continue;
+            logarithms += Math.Log(
+                value(
+                    scenario.Single(cell =>
+                        cell.Terminal == terminal))
+                    / baseline);
+            count++;
+        }
+        return count == 0
+            ? double.NaN
+            : Math.Exp(logarithms / count);
+    }
+
+    private static string FormatTerminalRatio(
+        IReadOnlyList<MemberGroupScorecardCell> cells,
+        string column,
+        string phase,
+        string terminal,
+        Func<MemberGroupScorecardCell, double> value)
+    {
+        double ratio = GeometricTerminalRatio(
+            cells,
+            column,
+            phase,
+            terminal,
+            value);
+        return double.IsNaN(ratio)
+            ? "-"
+            : ratio.ToString(
+                "F2",
+                System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private sealed record Column(

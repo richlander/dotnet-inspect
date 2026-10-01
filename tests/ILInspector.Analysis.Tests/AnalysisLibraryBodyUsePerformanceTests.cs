@@ -15,6 +15,77 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
     ITestOutputHelper output)
 {
     [Fact]
+    public void ScorecardReportSeparatesPlannerAndCountBaselines()
+    {
+        var cells = new List<BodyUseScorecardCell>();
+        foreach (BodyUseScorecardClosing closing
+            in Enum.GetValues<BodyUseScorecardClosing>())
+        {
+            double plannerTime = closing switch
+            {
+                BodyUseScorecardClosing.Exists => 2,
+                BodyUseScorecardClosing.Count => 4,
+                BodyUseScorecardClosing.Rows => 12,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(closing)),
+            };
+            long plannerAllocation = checked(
+                (long)plannerTime * 25);
+            Add(
+                BodyUseScorecardColumn.Direct,
+                plannerTime * 4,
+                plannerAllocation * 4);
+            Add(
+                BodyUseScorecardColumn.Linq,
+                plannerTime * 3,
+                plannerAllocation * 3);
+            Add(
+                BodyUseScorecardColumn.NLinq,
+                plannerTime * 2,
+                plannerAllocation * 2);
+            Add(
+                BodyUseScorecardColumn.Planner,
+                plannerTime,
+                plannerAllocation);
+
+            void Add(
+                BodyUseScorecardColumn column,
+                double microseconds,
+                long allocatedBytes) =>
+                cells.Add(
+                    new(
+                        0,
+                        "asset",
+                        closing,
+                        column,
+                        [microseconds],
+                        [allocatedBytes]));
+        }
+
+        string report = BodyUseScorecard.Report(cells);
+
+        Assert.Contains(
+            "Implementation ratios to Planner",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Count | Time | 1 | 4.00x (4.00-4.00) | "
+                + "3.00x (3.00-3.00) | 2.00x (2.00-2.00) | "
+                + "1.00x |",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Terminal ratios to Count",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Planner | Time | 1 | 0.50x (0.50-0.50) | "
+                + "1.00x | 3.00x (3.00-3.00) |",
+            report,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void DirectAndProductRoutesRemainEquivalentWithMeasuredCost()
     {
