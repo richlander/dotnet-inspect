@@ -359,6 +359,7 @@ public sealed class MethodDefinitionExecution
                 PassUnitsVisited = visited;
                 int unitToken = MetadataTokens.GetToken(methodHandle);
                 bool anyActive = false;
+                bool anyActiveInType = false;
                 foreach (ProducerState state in visiting)
                 {
                     // Only a producer with dependencies can gain a failed
@@ -368,12 +369,18 @@ public sealed class MethodDefinitionExecution
                     if (!state.IsActive)
                         continue;
 
-                    // A unit outside the producer's type scope or a declared
-                    // scope guard is not visited.
-                    if (!state.TypeInScopeNow
-                        || (state.GuardStates.Length != 0 && !InScope(state, unitToken)))
+                    if (!state.TypeInScopeNow)
                     {
                         anyActive = true;
+                        continue;
+                    }
+
+                    state.SourceOrdinal++;
+                    if (state.GuardStates.Length != 0
+                        && !InScope(state, unitToken))
+                    {
+                        anyActive = true;
+                        anyActiveInType = true;
                         continue;
                     }
 
@@ -385,12 +392,14 @@ public sealed class MethodDefinitionExecution
                         if (!accepted.Value)
                         {
                             anyActive = true;
+                            anyActiveInType = true;
                             continue;
                         }
                     }
 
                     VisitUnit(ref unit, state);
                     anyActive |= state.IsActive;
+                    anyActiveInType |= state.IsActive;
                 }
 
                 // Stop before advancing either enumerator: the next read is
@@ -400,6 +409,12 @@ public sealed class MethodDefinitionExecution
                 // producer's final activity for this unit.
                 if (!anyActive)
                     return visited;
+
+                // Producers excluded from this whole type can still be active
+                // for later types. Stop this type before advancing its method
+                // enumerator once no in-scope producer remains.
+                if (!anyActiveInType)
+                    break;
             }
         }
 
@@ -778,6 +793,12 @@ public sealed class MethodDefinitionExecution
         public int UnitsCompleted { get; set; }
 
         public int UnitsFailed { get; set; }
+
+        /// <summary>
+        /// The unit's position in this producer's independently scoped source
+        /// traversal.
+        /// </summary>
+        public int SourceOrdinal { get; set; } = -1;
 
         /// <summary>Units in which the body layer was acquired.</summary>
         public int BodyAcquisitions;

@@ -1,8 +1,10 @@
 using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 
+using ILInspector.Analysis.Classification;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Queries;
 using QuerySpace.Composition;
 using QuerySpace.Operations;
@@ -494,6 +496,138 @@ public partial class UnsafeEvidencePresenceTests
     }
 
     [Fact]
+    public void
+        CollapsePreservesSettledResultAcrossLaterSourceEnumeration()
+    {
+        byte[] image = MetadataMethodPtrFixture.BuildTrailingOutOfRange(
+            [0x0A, 0xFE, 0x0F]);
+        MethodDefinitionSourceRequest<int> independentUnsafe =
+            CreateSourceRequest(
+                MethodDefinitionSourceBinding.Create(),
+                UnsafeEvidencePresenceProducer.Instance,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceRequest<
+            ClosedQueryResult<ClassifiedMethodRow>> independentPInvoke =
+                CreateSourceRequest(
+                    MethodDefinitionSourceBinding.Create(),
+                    PInvokeAnalyzer.Instance,
+                    ProducerTerminal.Rows);
+        MethodDefinitionSourceBinding sharedBinding =
+            MethodDefinitionSourceBinding.Create();
+        MethodDefinitionSourceRequest<int> sharedUnsafe =
+            CreateSourceRequest(
+                sharedBinding,
+                UnsafeEvidencePresenceProducer.Instance,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceRequest<
+            ClosedQueryResult<ClassifiedMethodRow>> sharedPInvoke =
+                CreateSourceRequest(
+                    sharedBinding,
+                    PInvokeAnalyzer.Instance,
+                    ProducerTerminal.Rows);
+
+        (_, AssemblyAnalysisExecution independent) =
+            ExecuteRequests(
+                ImmutableArray.Create(image),
+                independentUnsafe,
+                independentPInvoke);
+        (_, AssemblyAnalysisExecution shared) =
+            ExecuteRequests(
+                ImmutableArray.Create(image),
+                sharedUnsafe,
+                sharedPInvoke);
+
+        Assert.Equal(
+            independent.ResultOf(independentUnsafe),
+            shared.ResultOf(sharedUnsafe));
+        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>>
+            independentPInvokeResult =
+                independent.ResultOf(independentPInvoke);
+        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>>
+            sharedPInvokeResult =
+                shared.ResultOf(sharedPInvoke);
+        Assert.Equal(
+            independentPInvokeResult.Outcome,
+            sharedPInvokeResult.Outcome);
+        Assert.Equal(
+            independentPInvokeResult.Value!.Count,
+            sharedPInvokeResult.Value!.Count);
+        Assert.Equal(
+            independentPInvokeResult.Value!.Rows.ToArray(),
+            sharedPInvokeResult.Value!.Rows.ToArray());
+        Assert.Equal(
+            independent.SourceReceiptOf(independentUnsafe).Completion,
+            shared.SourceReceiptOf(sharedUnsafe).Completion);
+        Assert.Equal(
+            independent.SourceReceiptOf(independentPInvoke).Completion,
+            shared.SourceReceiptOf(sharedPInvoke).Completion);
+        Assert.Equal(
+            ProducerOutcome.Stopped,
+            shared.ResultOf(sharedUnsafe).Outcome);
+        Assert.Empty(sharedPInvokeResult.Value!.Rows);
+    }
+
+    [Fact]
+    public void CollapsePreservesTypedRowsAcrossDifferentTypeScopes()
+    {
+        ImmutableArray<byte> image =
+            [.. File.ReadAllBytes(
+                FixtureCatalog.AnalysisRequestSetCollapse.AssemblyPath())];
+        MethodDefinitionSourceRequest<int> independentUnsafe =
+            CreateSourceRequest(
+                MethodDefinitionSourceBinding.Create(),
+                UnsafeEvidencePresenceProducer.Instance,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceRequest<
+            ClosedQueryResult<ClassifiedMethodRow>> independentPInvoke =
+                CreateSourceRequest(
+                    MethodDefinitionSourceBinding.Create(),
+                    PInvokeAnalyzer.Instance,
+                    ProducerTerminal.Rows);
+        MethodDefinitionSourceBinding sharedBinding =
+            MethodDefinitionSourceBinding.Create();
+        MethodDefinitionSourceRequest<int> sharedUnsafe =
+            CreateSourceRequest(
+                sharedBinding,
+                UnsafeEvidencePresenceProducer.Instance,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceRequest<
+            ClosedQueryResult<ClassifiedMethodRow>> sharedPInvoke =
+                CreateSourceRequest(
+                    sharedBinding,
+                    PInvokeAnalyzer.Instance,
+                    ProducerTerminal.Rows);
+
+        (_, AssemblyAnalysisExecution independent) =
+            ExecuteRequests(
+                image,
+                independentUnsafe,
+                independentPInvoke);
+        (_, AssemblyAnalysisExecution shared) =
+            ExecuteRequests(
+                image,
+                sharedUnsafe,
+                sharedPInvoke);
+
+        Assert.Equal(
+            independent.ResultOf(independentUnsafe),
+            shared.ResultOf(sharedUnsafe));
+        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>>
+            independentPInvokeResult =
+                independent.ResultOf(independentPInvoke);
+        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>>
+            sharedPInvokeResult =
+                shared.ResultOf(sharedPInvoke);
+        Assert.Equal(
+            independentPInvokeResult.Outcome,
+            sharedPInvokeResult.Outcome);
+        Assert.Equal(
+            independentPInvokeResult.Value!.Rows.ToArray(),
+            sharedPInvokeResult.Value!.Rows.ToArray());
+        Assert.Single(sharedPInvokeResult.Value!.Rows);
+    }
+
+    [Fact]
     public void RequestSetPublishesEveryAssociationExactlyOnce()
     {
         var producer = new SettlingReferenceProducer();
@@ -574,16 +708,16 @@ public partial class UnsafeEvidencePresenceTests
             source);
     }
 
-    static MethodDefinitionSourceRequest<int> CreateSourceRequest(
+    static MethodDefinitionSourceRequest<TResult> CreateSourceRequest<TResult>(
         MethodDefinitionSourceBinding binding,
-        ProducerDeclaration<int> producer,
+        ProducerDeclaration<TResult> producer,
         ProducerTerminal terminal)
     {
         WorkDescription work =
             Assert.IsType<ProducerPlanResult.Accepted>(
                     ProducerPlanner.Plan([new(producer, terminal)]))
                 .Description;
-        return MethodDefinitionSourceRequest<int>.Create(
+        return MethodDefinitionSourceRequest<TResult>.Create(
             CreateReferenceRequest(terminal),
             binding,
             work,
@@ -637,16 +771,25 @@ public partial class UnsafeEvidencePresenceTests
         AssemblyAnalysisExecution Execution)
         ExecuteRequests(
             params ReadOnlySpan<MethodDefinitionSourceRequest> requests)
+        => ExecuteRequests(
+            BuildGuardRejectedUnsafeAssembly(
+                GuardRejectedSignatureKind.Local,
+                appendUnsafeBody: true),
+            requests);
+
+    static (
+        AssemblyAnalysisOperation Operation,
+        AssemblyAnalysisExecution Execution)
+        ExecuteRequests(
+            ImmutableArray<byte> image,
+            params ReadOnlySpan<MethodDefinitionSourceRequest> requests)
     {
         AssemblyAnalysisOperation operation =
             AssemblyAnalysisOperation.Create(
                 "RequestSet.dll",
                 requests);
         using AssemblyInspectionSession session =
-            OpenSession(
-                BuildGuardRejectedUnsafeAssembly(
-                    GuardRejectedSignatureKind.Local,
-                    appendUnsafeBody: true));
+            OpenSession(image);
         AssemblyAnalysisExecution execution =
             Assert.IsType<AssemblyAnalysisServiceResult.Completed>(
                     session.SnapshotOperation(

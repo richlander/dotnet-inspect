@@ -119,6 +119,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
                 foreach (MethodDefinitionHandle methodHandle in typeDefinition.GetMethods())
                 {
                     unit.MoveTo(typeHandle, typeDefinition, methodHandle);
+                    state.SourceOrdinal++;
                     visited++;
                 state.Execution.PassUnitsVisited = visited;
                     if (sourceGate is not null)
@@ -374,6 +375,7 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
                 foreach (MethodDefinitionHandle methodHandle in typeDefinition.GetMethods())
                 {
                     unit.MoveTo(typeHandle, typeDefinition, methodHandle);
+                    state.SourceOrdinal++;
                     visited++;
                 state.Execution.PassUnitsVisited = visited;
                     if (gateTests.Gated)

@@ -319,10 +319,11 @@ public readonly ref struct MethodDefinitionView
     internal ProducerTerminal Terminal => Producer.Terminal;
 
     /// <summary>
-    /// The unit's position in the source's traversal order, which follows
-    /// MethodPtr indirection where present, so it can differ from token order.
+    /// The unit's position in this producer's independently scoped source
+    /// traversal, which follows MethodPtr indirection where present, so it can
+    /// differ from token order.
     /// </summary>
-    public int Ordinal => _unit.Ordinal;
+    public int Ordinal => _producer?.SourceOrdinal ?? _unit.Ordinal;
 
     // Raw rows are for producers with a domain layer, whose own probes read
     // them; every other reader goes through the gate's accessors.

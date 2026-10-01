@@ -142,6 +142,8 @@ public static class FixtureIds
         "analysis.allocation-lifetime";
     public const string AnalysisStringMaterialization =
         "analysis.string-materialization";
+    public const string AnalysisRequestSetCollapse =
+        "analysis.request-set-collapse";
 
     public const string DecompilerCheckedArithmetic = "decompiler.checked-arithmetic";
     public const string DecompilerAuthoredRebuild = "decompiler.authored-rebuild";
@@ -728,6 +730,13 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.CompilerLowering),
         "analysis", "string-literals");
 
+    public static readonly FixtureDefinition AnalysisRequestSetCollapse =
+        Fixture(
+            FixtureIds.AnalysisRequestSetCollapse,
+            "ILInspector.Analysis.Fixtures",
+            "ILInspector.Analysis.Fixtures.dll",
+            "analysis", "request-set", "collapse");
+
     public static readonly FixtureDefinition
         AnalysisAllocationLifetime = Fixture(
             FixtureIds.AnalysisAllocationLifetime,
@@ -1219,6 +1228,7 @@ public static class FixtureCatalog
         AnalysisOverloadFamilyLens,
         AnalysisLocalThrows,
         AnalysisStringLiterals,
+        AnalysisRequestSetCollapse,
         AnalysisAllocationLifetime,
         AnalysisStringMaterialization,
         AnalysisCrossAsmCollision,
@@ -1311,6 +1321,7 @@ public static class FixtureCatalog
             AnalysisCallGenericScope,
             AnalysisCallFunctionPointerScope,
             AnalysisStringLiterals,
+            AnalysisRequestSetCollapse,
             AnalysisAllocationLifetime,
             AnalysisStringMaterialization,
             AnalysisTopLevelAsync,
