@@ -208,14 +208,7 @@ public static class PackageArchiveValidator
                 "the archive directory entry count is inconsistent");
         }
 
-        int entryCount = 0;
-        long declaredBytes = 0;
-        var explicitDestinations = new HashSet<string>(
-            StringComparer.OrdinalIgnoreCase);
-        var fileDestinations = new HashSet<string>(
-            StringComparer.OrdinalIgnoreCase);
-        var requiredDirectories = new HashSet<string>(
-            StringComparer.OrdinalIgnoreCase);
+        var admission = new PackageArchiveDirectoryAdmission(limits);
         var entries = new PackageArchiveEntry[zip.Entries.Count];
         for (int entryIndex = 0;
             entryIndex < zip.Entries.Count;
@@ -224,61 +217,15 @@ public static class PackageArchiveValidator
             ZipArchiveEntry entry = zip.Entries[entryIndex];
             ZipEntryDescriptor descriptor = descriptors[entryIndex];
             cancellationToken.ThrowIfCancellationRequested();
-            if (++entryCount > limits.MaxEntryCount)
-            {
-                // Defense in depth behind the preflight, which has already
-                // refused a directory declaring more than this. It fires only
-                // if an archive's directory under-reports its own contents,
-                // which the decoder independently refuses.
-                return new PackageArchiveValidation.Rejected(
-                    $"the archive contains more than {limits.MaxEntryCount} entries");
-            }
-
-            if (!IsPublishableEntryPath(
+            if (admission.TryAdd(
                     entry.FullName,
-                    out bool isDirectory))
+                    descriptor.UncompressedSize,
+                    out bool isDirectory) is { } admissionProblem)
             {
                 return new PackageArchiveValidation.Rejected(
-                    "an archive entry has a path that cannot address stored content safely");
+                    admissionProblem);
             }
 
-            string destination = isDirectory
-                ? entry.FullName[..^1]
-                : entry.FullName;
-            if (TryRegisterDestination(
-                    destination,
-                    isDirectory,
-                    explicitDestinations,
-                    fileDestinations,
-                    requiredDirectories,
-                    limits.MaxUniqueDirectories) is { } destinationProblem)
-            {
-                return new PackageArchiveValidation.Rejected(destinationProblem);
-            }
-
-            // A directory-shaped entry is a name, not content: every store
-            // treats it as a directory and no consumer reads it. An entry that
-            // declares content while shaped like a directory is therefore
-            // content nothing will account for, which is exactly how a payload
-            // would smuggle expansion past a budget — so it is refused rather
-            // than skipped. Ordinary empty directory entries still pass.
-            if (isDirectory && descriptor.UncompressedSize != 0)
-            {
-                return new PackageArchiveValidation.Rejected(
-                    "a directory-shaped archive entry declares content");
-            }
-
-            // Compared rather than added: the sum of attacker-declared lengths
-            // is the one place this validator could overflow, and a wrapped
-            // total would compare below the limit.
-            if (descriptor.UncompressedSize
-                > (ulong)(limits.MaxExpandedBytes - declaredBytes))
-            {
-                return new PackageArchiveValidation.Rejected(
-                    $"the archive declares more than {limits.MaxExpandedBytes} bytes of expanded content");
-            }
-
-            declaredBytes += (long)descriptor.UncompressedSize;
             entries[entryIndex] = new PackageArchiveEntry(
                 entry.FullName,
                 isDirectory,
@@ -293,8 +240,8 @@ public static class PackageArchiveValidator
             new PackageArchivePayload(
                 archive,
                 entries,
-                declaredBytes,
-                requiredDirectories.Count,
+                admission.DeclaredExpandedBytes,
+                admission.UniqueDirectoryCount,
                 limits));
     }
 
@@ -303,7 +250,7 @@ public static class PackageArchiveValidator
     /// rejection reason on collision or when unique intermediate directories
     /// would exceed <paramref name="maxUniqueDirectories"/>.
     /// </summary>
-    static string? TryRegisterDestination(
+    internal static string? TryRegisterDestination(
         string destination,
         bool isDirectory,
         HashSet<string> explicitDestinations,
@@ -385,6 +332,77 @@ public static class PackageArchiveValidator
 
     static bool IsDirectoryEntry(string entryPath) =>
         entryPath.EndsWith('/');
+}
+
+/// <summary>
+/// Applies package archive admission to one directory entry sequence,
+/// independent of whether the directory came from a complete or ranged read.
+/// </summary>
+internal sealed class PackageArchiveDirectoryAdmission
+{
+    private readonly PackagePayloadLimits _limits;
+    private readonly HashSet<string> _explicitDestinations =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _fileDestinations =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _requiredDirectories =
+        new(StringComparer.OrdinalIgnoreCase);
+    private int _entryCount;
+
+    internal PackageArchiveDirectoryAdmission(PackagePayloadLimits limits) =>
+        _limits = limits ?? throw new ArgumentNullException(nameof(limits));
+
+    internal long DeclaredExpandedBytes { get; private set; }
+
+    internal int UniqueDirectoryCount => _requiredDirectories.Count;
+
+    internal string? TryAdd(
+        string entryPath,
+        ulong expandedLength,
+        out bool isDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(entryPath);
+        if (++_entryCount > _limits.MaxEntryCount)
+        {
+            isDirectory = false;
+            return $"the archive contains more than {_limits.MaxEntryCount} entries";
+        }
+
+        if (!PackageArchiveValidator.IsPublishableEntryPath(
+                entryPath,
+                out isDirectory))
+        {
+            return "an archive entry has a path that cannot address stored content safely";
+        }
+
+        string destination = isDirectory
+            ? entryPath[..^1]
+            : entryPath;
+        if (PackageArchiveValidator.TryRegisterDestination(
+                destination,
+                isDirectory,
+                _explicitDestinations,
+                _fileDestinations,
+                _requiredDirectories,
+                _limits.MaxUniqueDirectories) is { } destinationProblem)
+        {
+            return destinationProblem;
+        }
+
+        // Directory-shaped entries are names, not readable content.
+        if (isDirectory && expandedLength != 0)
+            return "a directory-shaped archive entry declares content";
+
+        // Compare before adding so an attacker-controlled total cannot wrap.
+        if (expandedLength
+            > (ulong)(_limits.MaxExpandedBytes - DeclaredExpandedBytes))
+        {
+            return $"the archive declares more than {_limits.MaxExpandedBytes} bytes of expanded content";
+        }
+
+        DeclaredExpandedBytes += (long)expandedLength;
+        return null;
+    }
 }
 
 /// <summary>

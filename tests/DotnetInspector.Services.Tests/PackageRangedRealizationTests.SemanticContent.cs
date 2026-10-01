@@ -184,17 +184,26 @@ public sealed partial class PackageRangedRealizationTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task SemanticFilesAndFileList_RangedUnsafeDirectoryIsRejected(
-        bool cacheDirectory)
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task SemanticFilesAndFileList_RangedInadmissibleDirectoryIsRejected(
+        bool cacheDirectory,
+        bool unsafePath)
     {
         const string PackageId = "Rejected.Directory";
         const string Version = "1.0.0";
-        byte[] archive = TestPackageArchive.CreateWithContent(
-            ("README.md", "valid"u8.ToArray()),
-            ("../escape.txt", "invalid"u8.ToArray()),
-            ($"{PackageId}.nuspec", "<package />"u8.ToArray()));
+        byte[] archive = unsafePath
+            ? TestPackageArchive.CreateWithContent(
+                ("README.md", "valid"u8.ToArray()),
+                ("../escape.txt", "invalid"u8.ToArray()),
+                ($"{PackageId}.nuspec", "<package />"u8.ToArray()))
+            : TestPackageArchive.CreateWithContent(
+                ("README.md", "valid"u8.ToArray()),
+                ("content", "file"u8.ToArray()),
+                ("content/readme.txt", "descendant"u8.ToArray()),
+                ($"{PackageId}.nuspec", "<package />"u8.ToArray()));
         var store = new InMemoryPackageStore();
         IPackageEntryStore entryStore = store;
         if (cacheDirectory)
@@ -279,7 +288,7 @@ public sealed partial class PackageRangedRealizationTests
     }
 
     [Fact]
-    public async Task SemanticFiles_CaseAmbiguousEntryIsReported()
+    public async Task SemanticFiles_CaseAliasedArchiveIsRejectedBeforeSelection()
     {
         const string PackageId = "Ambiguous.Files";
         const string Version = "1.0.0";
@@ -288,19 +297,13 @@ public sealed partial class PackageRangedRealizationTests
             RangedEnvironment.Create(
                 new RangeFeed(PackageId, Version, archive));
 
-        var houseResult = Assert.IsType<PackageHouseSettlement.Acquired>(
+        var houseResult = Assert.IsType<PackageHouseSettlement.ResourceFree>(
             await environment.AcquireContentAsync(
                 new InMemoryPackageStore(),
                 PackageHouseContentQuery.PackageFiles(["README.md"]),
                 packageId: PackageId,
                 version: Version));
-        PackageHouseResult.NoMatch noMatch =
-            Assert.IsType<PackageHouseResult.NoMatch>(houseResult.Result);
-        Assert.Contains(
-            "more than one entry",
-            noMatch.Reason.ToString(),
-            StringComparison.Ordinal);
-        Assert.Empty(houseResult.Payload.Content.EnumerateEntries());
+        Assert.IsType<PackageHouseResult.Rejected>(houseResult.Result);
 
         PackageFileAcquisitionResult result =
             await environment.AcquireFileAsync(
@@ -311,12 +314,23 @@ public sealed partial class PackageRangedRealizationTests
 
         Assert.IsType<PackageFileAcquisitionResult.Unavailable>(result);
         Assert.Equal(
-            PackageFileAcquisitionStatus.Ambiguous,
+            PackageFileAcquisitionStatus.NotSettled,
             result.Status);
-        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+        Assert.IsType<PackageHouseSettlement.ResourceFree>(
             result.Settlement);
-        Assert.IsType<PackageHouseResult.NoMatch>(acquired.Result);
-        Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+    }
+
+    [Fact]
+    public void SemanticFiles_AdmittedCaseAmbiguityIsReported()
+    {
+        var files = new PackageHouseContentTerminal.Files(["README.md"]);
+
+        PackageHouseFilesResolution resolution =
+            files.Resolve(["README.md", "readme.md"]);
+
+        Assert.Empty(resolution.SelectedEntries);
+        Assert.Empty(resolution.MissingEntries);
+        Assert.Equal(["README.md"], resolution.AmbiguousEntries);
     }
 
     [Fact]

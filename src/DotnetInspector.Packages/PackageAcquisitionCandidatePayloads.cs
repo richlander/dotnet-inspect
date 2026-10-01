@@ -641,6 +641,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             }
             if (TryGetDirectoryEntries(
                     reader.Directory,
+                    limits,
                     out IReadOnlyList<PackageContentEntry> entries)
                 is { } directoryProblem)
             {
@@ -854,6 +855,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
 
         if (TryGetDirectoryEntries(
                 directory,
+                limits,
                 out IReadOnlyList<PackageContentEntry> entries)
             is { } directoryProblem)
         {
@@ -979,18 +981,21 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
 
     private static string? TryGetDirectoryEntries(
         ZipDirectory directory,
+        PackagePayloadLimits limits,
         out IReadOnlyList<PackageContentEntry> entries)
     {
+        var admission = new PackageArchiveDirectoryAdmission(limits);
         var admitted = new List<PackageContentEntry>(
             directory.Entries.Count);
         foreach (ZipEntry entry in directory.Entries)
         {
-            if (!PackageArchiveValidator.IsPublishableEntryPath(
+            if (admission.TryAdd(
                     entry.Name,
-                    out bool isDirectory))
+                    entry.ExpandedLength,
+                    out bool isDirectory) is { } admissionProblem)
             {
                 entries = [];
-                return "an archive entry has a path that cannot address stored content safely";
+                return admissionProblem;
             }
             if (!isDirectory)
             {
