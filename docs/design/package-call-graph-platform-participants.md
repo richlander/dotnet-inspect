@@ -49,9 +49,10 @@ Two independent gaps cause the result:
    builds its graph context only from the realized package roles, so the
    operation returns `IntrinsicCoreLibraryContextNonParticipation`. Targets
    in `corelib` (`Interlocked`, `Volatile`, `Span<T>` helpers, and others)
-   stay unclassified, even when the Workspace has already admitted the
-   .NET Runtime Platform population through its default ecosystem
-   registrations.
+   stay unclassified, even though the Workspace's default ecosystem
+   registrations declare the .NET Runtime Platform population. Registration
+   only makes that population eligible; it must still be realized for the
+   exact target and admitted before a graph can use it.
 
 `System.Text.Json.JsonDocument.Dispose`, the motivating case in the
 [ladder](assembly-reference-resolution-ladder.md#intrinsic-corelib-from-a-package-context)
@@ -81,18 +82,20 @@ For one `PackageDependencyMemberCallGraphInspectionRequest` whose effective
 focal length admits a registered Platform population, the inspection:
 
 1. derives the exact `PlatformFamilyTarget` for the traversal target from the
-   focal scope receipt's Platform population and passes it with the matching
-   `PlatformPruneInventory` to edge realization;
-2. graphs pruned dependencies as the existing
-   `PackageDependencyMemberCallGraphDestination.Platform` route, not as
-   package participants;
-3. builds one graph context that contains the package participants plus the
+   focal scope receipt's registered Platform population, and realizes and
+   admits that exact-target population;
+2. builds one graph context that contains the package participants plus the
    certified Platform participants admitted for that exact target;
-4. when the package-only context reports intrinsic CoreLib non-participation,
+3. when the package-only context reports intrinsic CoreLib non-participation,
    runs `IntrinsicCoreLibraryWorkspaceContinuationOperation` once and, if it
    publishes, restarts the graph in the successor Workspace generation; and
-5. classifies every node owned by a certified Platform participant as a
-   Platform node in the outcome, alongside Package nodes.
+4. classifies every node owned by a certified Platform participant as a
+   Platform node in the outcome, alongside Package nodes; and
+5. passes the matching `PlatformPruneInventory` to edge realization only
+   under the [pruning precondition](#pruning-precondition), so pruned
+   dependencies become the existing
+   `PackageDependencyMemberCallGraphDestination.Platform` route rather than
+   package participants.
 
 The inspection never infers Platform membership, CoreLib entitlement, or
 pruning from an assembly name, namespace, package id, or display text.
@@ -106,6 +109,22 @@ inspection requests the exact traversal target from the Platform population
 owner. It does not reuse a population for another target. If the exact target
 is unavailable, the graph stays package-only and reports that typed
 unavailability.
+
+### Pruning precondition
+
+Pruning removes a package participant. It is safe only when the graph can
+reach the replacement, so the inspection prunes only when both hold:
+
+- the exact-target certified Platform population is admitted into this graph
+  context; and
+- package-origin `AssemblyRef` to Platform binding (#8466) is available, so a
+  call from a package into a pruned package's assembly binds to the Platform
+  participant.
+
+Otherwise the inspection does not prune, and keeps today's behavior: subsumed
+packages remain package participants. A pruned call never simply disappears
+from the graph. If binding still fails after pruning, the call target carries
+#8466's typed binding outcome.
 
 ### Generation restart
 
@@ -147,15 +166,15 @@ Hosts lower these facts at their existing call-graph boundaries, following
 lowering boundary is `ExternalCallGraphOutputAdapter`, which today receives
 only the `InspectionGraphDocument`. The CLI adoption slice passes the typed
 node classifications to that adapter beside the document, and the adapter
-lowers them to Markout for every format. Inspect Web renders the same
+emits them in every format: through Markout for the formats it lowers
+through Markout, and in the direct JSON and JSONL serialization. Inspect Web renders the same
 host-neutral outcome. This document adds no new host-specific rendering path
 and does not change projection or lowering rules.
 
 ## Non-claims
 
 - Implementing package-origin `AssemblyRef` to Platform binding (#8466).
-  Pruning alone may leave a package-to-pruned-package call edge unresolved
-  until #8466 lands. That reason must be typed and visible.
+  Pruning waits for it, per the [pruning precondition](#pruning-precondition).
 - Implementing the CoreLib binding capability. This document consumes
   PlatformHouse stage 4 and does not add a name-based substitute.
 - Changing pruning policy, Platform realization policy, or focal-length
@@ -181,25 +200,24 @@ Each slice is one reviewed PR with a production consumer, checked off on
 [#9072](https://github.com/richlander/dotnet-inspect/issues/9072). The order keeps the
 product usable after every slice.
 
-1. **Pruning inputs (CLI).** Supply the exact family target and prune
-   inventory to edge realization through the inspection request; adopt in
-   `graph calls`. This change is visible on its own: subsumed packages are
-   no longer realized or graphed as package participants and appear as
-   Platform routes. Dependency traversal may still read their manifests,
-   because `PackageDependencyTraversalRequest` takes no pruning input.
-   Pruning during traversal is a separate traversal-owner change and is not
-   claimed here.
-2. **Pruning inputs (Web).** Supply the same inputs from
-   `PackagePruningExports`; verify the motivating URL realizes the same
-   set.
-3. **Mixed graph context.** Depends on PlatformHouse stage 4. Admit the
-   certified exact-target Platform participants into the graph context, run
-   the continuation and restart, and classify Platform nodes. Adopt in the
-   CLI, including passing node classifications to
-   `ExternalCallGraphOutputAdapter`, with the `Serialize~faeffed6d4` and `JsonDocument.Dispose` tests.
-4. **Web adoption.** Adopt the same inspection outcome in Inspect Web,
-   preserving the motivating URL, and hand off expansion-loop retirement to
-   the ladder's stage 8.
+1. **Mixed graph context (CLI).** Depends on PlatformHouse stage 4.
+   Realize and admit the certified exact-target Platform participants into
+   the graph context, run the continuation and restart, and classify
+   Platform nodes. Pass node classifications to
+   `ExternalCallGraphOutputAdapter`. No pruning yet. Adopt in `graph calls`
+   with the `Serialize~faeffed6d4` and `JsonDocument.Dispose` tests.
+2. **Mixed graph context (Web).** Adopt the same inspection outcome in
+   Inspect Web, preserving the motivating URL, and hand off expansion-loop
+   retirement to the ladder's stage 8.
+3. **Pruning (CLI).** Depends on slice 1 and #8466. Supply the prune
+   inventory to edge realization under the pruning precondition. Subsumed
+   packages are no longer realized or graphed as package participants, and
+   their calls bind to Platform participants. Dependency traversal may still
+   read their manifests, because `PackageDependencyTraversalRequest` takes no
+   pruning input. Pruning during traversal is a separate traversal-owner
+   change and is not claimed here.
+4. **Pruning (Web).** Supply the same inputs from `PackagePruningExports`
+   and verify the motivating URL realizes the same set as the CLI.
 
 Shared CLI and Browser/Wasm slices show both the C# and TypeScript call
 sites in their PR demos.
@@ -208,11 +226,12 @@ sites in their PR demos.
 
 | Case | Expected |
 | --- | --- |
-| STJ `netstandard2.0`, traversal `net11.0`, `Everything` | Subsumed packages pruned to Platform routes; zero unclassified CoreLib targets |
+| STJ `netstandard2.0`, traversal `net11.0`, `Everything` | Zero unclassified CoreLib targets (slice 1); subsumed packages pruned and their calls bound to Platform participants (slice 3) |
 | `JsonDocument.Dispose`, same root | `Interlocked` and `Volatile` resolve to the exact certified CoreLib participant |
 | Same root, `Self` | Package-only graph; intrinsic targets `OutsideOperationScope` |
 | Exact Platform target unavailable | Package-only graph plus a typed unavailability; no fallback target |
 | Continuation rejected or failed | Package-only graph plus the typed continuation outcome |
+| Pruning precondition unmet | No pruning; subsumed packages stay package participants |
 | Equivalent CLI and Web inputs | Equal host-neutral outcomes |
 
 Each slice classifies its tests as PR-fast or slow. Tests that need an exact
