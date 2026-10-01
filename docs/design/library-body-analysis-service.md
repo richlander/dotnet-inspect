@@ -94,6 +94,11 @@ default compatibility index to one allocation-only path execution. It consumes
 identity and the existing visible file/image failure boundary without running
 unrequested optimization or async-sibling producers.
 
+The Analysis Harness allocation-readout adoption executes the allocation and
+optimization producers once per corpus assembly. It consumes method identities,
+allocation occurrences, and completed optimization opportunities from their
+focused results while preserving aggregate buckets and failed-open accounting.
+
 `LibraryBodyIndex.Open*` remains a temporary compatibility facade for
 unmigrated consumers. `LibraryBodyIndex` itself is also a temporary aggregate
 for those consumers, not the destination for new producer evidence or query
