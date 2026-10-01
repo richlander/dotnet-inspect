@@ -2152,10 +2152,6 @@ kbd {
   padding: 0;
   border: 0;
 }
-.member-diff-source-endpoint-evidence { margin-top: 12px; }
-.member-diff-source-endpoint-evidence .member-diff-source-endpoints {
-  margin: 10px 0 0;
-}
 .diff-analysis-notices {
   margin: 12px 18px 24px;
   padding: 10px 12px;
@@ -5550,24 +5546,6 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 .library-api-diff-endpoint dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .library-api-diff-absent { font-style: italic; }
 .library-api-diff-note { margin: 12px 18px 24px; color: var(--dim); font: 10px/1.5 var(--mono); overflow-wrap: anywhere; }
-.library-api-diff-member-summary {
-  margin: 0;
-  padding: 14px 18px 6px;
-  color: var(--muted);
-  font: 10px/1.5 var(--mono);
-}
-.library-api-diff-member-evidence {
-  margin: 10px 18px 24px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font: 10px/1.5 var(--mono);
-}
-.library-api-diff-member-evidence > summary {
-  width: max-content;
-  color: var(--text);
-  cursor: pointer;
-}
 .compare-clone-workbench {
   min-width: 0;
   display: grid;
@@ -5609,8 +5587,6 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
   .compare-head { flex-wrap: wrap; padding: 8px 12px 0; }
   .compare-mode-tabs { width: 100%; }
   .library-api-diff-members { padding-inline: 12px; }
-  .library-api-diff-member-summary { padding-inline: 12px; }
-  .library-api-diff-member-evidence { margin-inline: 12px; }
   .library-api-diff-note { margin-inline: 12px; }
   .compare-clone-workbench { padding-inline: 12px; }
   .library-api-diff-row { grid-template-columns: 1fr; gap: 6px; padding: 12px 10px; }
@@ -5654,10 +5630,9 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
   background: transparent;
 }
 .library-api-diff-change-copy { min-width: 0; display: grid; gap: 4px; color: var(--muted); font: 10px/1.5 var(--mono); }
-.library-api-diff-change-copy strong { color: var(--text); font-size: 11px; text-transform: capitalize; }
+.library-api-diff-change-message { color: var(--text); font-size: 11px; }
 .library-api-diff-change-values { overflow-wrap: anywhere; }
 .library-api-diff-change-values code { color: var(--text); }
-.library-api-diff-change-category { color: var(--dim); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
 .library-api-diff-change-section { min-width: 0; padding: 0 0 4px; }
 .library-api-diff-change-section h2 {
   margin: 4px 18px 8px;

@@ -410,6 +410,7 @@ function mappedChangeEvidence(
 export function renderMemberSourceDiff(
   diff: BrowserSourceDiff,
   escapeHtml: (value: unknown) => string,
+  compact = false,
 ): string {
   const rows: string[] = [];
   const relations = sourceRelationLookup(diff);
@@ -457,17 +458,23 @@ export function renderMemberSourceDiff(
   }
   contextRows(diff.before.lines.length, diff.after.lines.length);
   const statistics = diff.statistics;
-  return `<div class="member-diff-source-summary" aria-label="Source diff statistics">
+  const summary = compact
+    ? ""
+    : `<div class="member-diff-source-summary" aria-label="Source diff statistics">
     <span>${statistics.added.toLocaleString()} added</span>
     <span>${statistics.removed.toLocaleString()} removed</span>
     <span>${statistics.changedBefore.toLocaleString()} Before changed</span>
     <span>${statistics.changedAfter.toLocaleString()} After changed</span>
     <span>${statistics.movedBefore.toLocaleString()} Before moved</span>
     <span>${statistics.movedAfter.toLocaleString()} After moved</span>
-  </div>
-  <div class="member-diff-source-diff" role="table" aria-label="Unified authored Source diff">${rows.join("")}</div>
-  <p class="member-diff-source-terminators">Final line terminators: Before ${escapeHtml(diff.before.finalLineTerminator)}; After ${escapeHtml(diff.after.finalLineTerminator)}.</p>
+  </div>`;
+  const supportingEvidence = compact
+    ? ""
+    : `<p class="member-diff-source-terminators">Final line terminators: Before ${escapeHtml(diff.before.finalLineTerminator)}; After ${escapeHtml(diff.after.finalLineTerminator)}.</p>
   ${mappedChangeEvidence(diff, escapeHtml)}`;
+  return `${summary}
+  <div class="member-diff-source-diff" role="table" aria-label="Unified authored Source diff">${rows.join("")}</div>
+  ${supportingEvidence}`;
 }
 
 export function renderInlineMemberSourceDiff(
@@ -523,13 +530,6 @@ function requestedEndpoints(
   </div>`;
 }
 
-function sourceEndpointEvidence(endpoints: string): string {
-  return `<details class="member-diff-source-evidence member-diff-source-endpoint-evidence">
-    <summary>Source evidence</summary>
-    ${endpoints}
-  </details>`;
-}
-
 function renderComparedSource(
   value: BrowserSourceComparison,
   context: LibraryApiDiffMemberExploreContext,
@@ -538,17 +538,17 @@ function renderComparedSource(
 ): string {
   const exact = value.isExact
     ? '<span class="member-diff-source-exact">Authored Source is identical</span>'
-    : '<span class="member-diff-source-inexact">Authored Source changed</span>';
+    : compact
+      ? ""
+      : '<span class="member-diff-source-inexact">Authored Source changed</span>';
   const endpointCards = `<div class="member-diff-source-endpoints">
     ${endpointStatus(value.before, context.destination.target, "Before", escapeHtml)}
     ${endpointStatus(value.after, context.destination.current, "After", escapeHtml)}
   </div>`;
-  const endpoints = compact
-    ? sourceEndpointEvidence(endpointCards)
-    : endpointCards;
+  const endpoints = compact ? "" : endpointCards;
   if (value.status === "Compared" && value.diff !== null) {
     return compact
-      ? `${exact}${renderMemberSourceDiff(value.diff, escapeHtml)}${endpoints}`
+      ? `${exact}${renderMemberSourceDiff(value.diff, escapeHtml, true)}`
       : `${exact}${endpoints}${renderMemberSourceDiff(value.diff, escapeHtml)}`;
   }
   if (value.status === "Failed") {
@@ -570,17 +570,16 @@ function renderSourcePane(
   compact = false,
 ): string {
   const endpointContext = (stateText: string): string => {
-    const endpoints = requestedEndpoints(context, stateText, escapeHtml);
-    return compact ? sourceEndpointEvidence(endpoints) : endpoints;
+    return compact ? "" : requestedEndpoints(context, stateText, escapeHtml);
   };
   switch (state.status) {
     case "idle":
     case "loading":
       return `${compact ? "" : endpointContext("Loading authored Source…")}<p class="member-diff-source-loading" role="status">Loading authored Source…</p>`;
     case "failed":
-      return `${compact ? "" : endpointContext("Authored Source request failed.")}<p class="member-diff-source-failure">${escapeHtml(state.error)}</p>${retryButton()}${compact ? endpointContext("Authored Source request failed.") : ""}`;
+      return `${endpointContext("Authored Source request failed.")}<p class="member-diff-source-failure">${escapeHtml(state.error)}</p>${retryButton()}`;
     case "canceled":
-      return `${compact ? "" : endpointContext("Authored Source request canceled.")}<p class="member-diff-source-canceled">${escapeHtml(state.reason)}</p>${retryButton()}${compact ? endpointContext("Authored Source request canceled.") : ""}`;
+      return `${endpointContext("Authored Source request canceled.")}<p class="member-diff-source-canceled">${escapeHtml(state.reason)}</p>${retryButton()}`;
     case "ready": {
       const result = state.result;
       if (result.kind === "Succeeded" && result.value !== null) {
@@ -591,18 +590,18 @@ function renderSourcePane(
         const endpoints = endpointContext(
           "Authored Source comparison exceeded capacity.",
         );
-        return compact ? `${failure}${endpoints}` : `${endpoints}${failure}`;
+        return `${endpoints}${failure}`;
       }
       if (result.kind === "Canceled") {
         const canceled = `<p class="member-diff-source-canceled">${escapeHtml(result.reason ?? "Authored Source was canceled.")}</p>${retryButton()}`;
         const endpoints = endpointContext("Authored Source request canceled.");
-        return compact ? `${canceled}${endpoints}` : `${endpoints}${canceled}`;
+        return `${endpoints}${canceled}`;
       }
       const failure = `<p class="member-diff-source-failure">${escapeHtml(
         result.error ?? result.reason ?? "Authored Source failed.",
       )}</p>${retryButton()}`;
       const endpoints = endpointContext("Authored Source request failed.");
-      return compact ? `${failure}${endpoints}` : `${endpoints}${failure}`;
+      return `${endpoints}${failure}`;
     }
   }
   const exhaustive: never = state;

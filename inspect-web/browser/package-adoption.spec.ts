@@ -3094,7 +3094,11 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(changeRows.first().locator(".library-api-diff-change-chip"))
       .toHaveText("Breaking");
     await expect(changeRows.first().locator(".library-api-diff-change-category"))
-      .toHaveText("Signature");
+      .toHaveCount(0);
+    await expect(panel.locator(".library-api-diff-member-summary"))
+      .toHaveCount(0);
+    await expect(panel.locator(".library-api-diff-member-evidence"))
+      .toHaveCount(0);
     await expect(explore).toBeVisible();
     await explore.click();
     await expect(memberDiffExplorer).toBeVisible();

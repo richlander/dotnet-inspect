@@ -1386,8 +1386,9 @@ export function renderLibraryApiDiffChangeChips(
     )}</span>`).join("")}</span>`;
 }
 
-// One row per Metadata-issued compatibility change. The classification and
-// message come from the producer; the Browser never re-derives either.
+// One row per Metadata-issued compatibility change. The classification,
+// message, and changed values come from the producer; the Browser never
+// re-derives them or repeats producer taxonomy beside the explanation.
 function renderChangeRows(
   changes: readonly BrowserLibraryApiDiffChange[],
   escapeHtml: (value: unknown) => string,
@@ -1404,10 +1405,8 @@ function renderChangeRows(
     return `<li class="library-api-diff-change">
       <span class="library-api-diff-change-chip ${classificationClass(change.classification)}">${escapeHtml(classificationLabel(change.classification))}</span>
       <span class="library-api-diff-change-copy">
-        <strong>${escapeHtml(changeKindLabel(change.kind))}</strong>
-        <span>${escapeHtml(change.message)}</span>
+        <span class="library-api-diff-change-message">${escapeHtml(change.message)}</span>
         ${values}
-        <span class="library-api-diff-change-category">${escapeHtml(String(change.category))}</span>
       </span>
     </li>`;
   }).join("")}</ol>`;
@@ -1497,29 +1496,6 @@ function renderMemberRow(
       ? `<button type="button" class="library-api-diff-row" data-compare-member-fingerprint="${attributeText(fingerprint, escapeHtml)}" aria-label="Open ${escapeHtml(display)} Compare">${state}${copy}</button>`
       : `<div class="library-api-diff-row" aria-disabled="true">${state}${copy}</div>${openCounterpart}`
   }</li>`;
-}
-
-function memberIdentityEvidence(
-  label: string,
-  identity: BrowserLibraryApiDiffMemberIdentity | null,
-  escapeHtml: (value: unknown) => string,
-): string {
-  if (identity === null) {
-    return `<section class="library-api-diff-endpoint">
-      <h2>${escapeHtml(label)}</h2>
-      <p class="library-api-diff-absent">Not present on this side.</p>
-    </section>`;
-  }
-  return `<section class="library-api-diff-endpoint">
-    <h2>${escapeHtml(label)}</h2>
-    <p><code>${escapeHtml(identity.display)}</code></p>
-    <dl>
-      <div><dt>Declaring type</dt><dd><code>${escapeHtml(identity.typeFullName)}</code></dd></div>
-      <div><dt>Stable selector</dt><dd><code>${escapeHtml(identity.stableSelector)}</code></dd></div>
-      <div><dt>Canonical signature</dt><dd><code>${escapeHtml(identity.canonicalSignature)}</code></dd></div>
-      <div><dt>Digest</dt><dd><code>${escapeHtml(identity.fingerprint)}</code></dd></div>
-    </dl>
-  </section>`;
 }
 
 function findType(
@@ -1814,23 +1790,14 @@ function renderMemberSubject(
       ),
     };
   }
-  const classification = [
-    `${libraryApiDiffMemberStateLabel(member)} Member`,
-    `Relation ${String(member.role)}`,
-    ...member.changes.map(change =>
-      `${classificationLabel(change.classification)} · ${changeKindLabel(change.kind)}`),
-    type.typeDefinitionChanged === true ? "Type definition changed" : "",
-  ].filter(Boolean);
   const counterpart = counterpartType(member);
-  const correspondence = [
-    matchText(member),
+  const correspondence =
     counterpart !== null && member.before !== null && member.after !== null
       ? `Moved from ${member.before.typeFullName} to ${member.after.typeFullName}`
-      : "",
-  ].filter(Boolean);
-  const correspondenceHtml = correspondence.length === 0
+      : "";
+  const correspondenceHtml = correspondence === ""
     ? ""
-    : `<p class="library-api-diff-note library-api-diff-correspondence">${correspondence.map(escapeHtml).join(" · ")}</p>`;
+    : `<p class="library-api-diff-note library-api-diff-correspondence">${escapeHtml(correspondence)}</p>`;
   const changes = renderLibraryApiDiffMemberChanges(
     type,
     member,
@@ -1838,20 +1805,12 @@ function renderMemberSubject(
   );
   return {
     status: `Comparison complete. Member ${libraryApiDiffMemberStateLabel(member).toLowerCase()}.`,
-    content: `<p class="library-api-diff-member-summary">${classification.map(escapeHtml).join(" · ")}</p>
-      ${correspondenceHtml}
+    content: `${correspondenceHtml}
       <section class="library-api-diff-change-section" aria-labelledby="library-api-diff-changes-title">
         <h2 id="library-api-diff-changes-title">What changed</h2>
         ${changes}
       </section>
-      ${options.memberDiffSection ?? ""}
-      <details class="library-api-diff-member-evidence">
-        <summary>Member evidence</summary>
-        <div class="library-api-diff-member-detail">
-          ${memberIdentityEvidence("Before", member.before, escapeHtml)}
-          ${memberIdentityEvidence("After", member.after, escapeHtml)}
-        </div>
-      </details>`,
+      ${options.memberDiffSection ?? ""}`,
   };
 }
 

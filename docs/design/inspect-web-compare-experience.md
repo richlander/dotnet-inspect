@@ -269,26 +269,17 @@ API-change evidence carried there, in this order:
 result status · effective target · Change target
 What changed        classified API changes of the relation
 Authored Source     inline diff viewer                   Explore
-Member evidence     collapsed endpoint details
 ```
 
-- **What changed** renders the relation's classified changes. When the
-  relation has none, it says the change belongs to the containing Type.
-- **Member evidence** is collapsed after the comparison content. Its
-  **Before** and **After** details name each endpoint's version and Member. An
-  absent endpoint says **Not present on this side** and is not a link. A
-  present endpoint is a link only through an owner-issued destination, never
-  one built from displayed text:
-  - The **After** endpoint is the current subject in the retained Package
-    model, so its card opens that Member through the Member lens
-    destinations Inspection Subject Navigation already issues for it.
-  - The **Before** endpoint is the Diff baseline version, which may be older,
-    newer, or equal to the current version but is never the retained Package
-    model. Its card is a link only when Navigation issues a
-    canonical location for that package version and exact Member anchor. The
-    link opens a new browsing context, so this Compare state is kept. Until
-    Navigation issues that location, the Before card is not a link; that
-    issuance is a recorded prerequisite, not a Compare concern.
+- **What changed** renders each relation change once: classification, the
+  producer's explanation, and distinct Before/After values when they add
+  information. Producer kind and category taxonomy do not repeat the same
+  claim. When the relation has no classified change, the section says that the
+  change belongs to the containing Type.
+- Compare does not append endpoint selectors, digests, canonical signatures,
+  line terminators, mapped-range receipts, or other supporting evidence. The
+  visible API and Source documents contain the relevant comparison data;
+  detailed evidence remains available through CLI output.
 - **Authored Source** appears only when the relation carries an owner-issued
   Member diff destination whose present endpoints are method anchors, the
   domain of the paired authored-Source query. Fetching authored Source for
@@ -300,7 +291,9 @@ Member evidence     collapsed endpoint details
   absent endpoint shows **Not present on this side** from the relation, not
   the query's unrequested outcome; an endpoint without authored Source shows
   its typed reason. The section never substitutes decompiled text or an
-  empty diff.
+  empty diff. Once loaded, the inline view presents the Source document
+  directly without endpoint cards, statistics, line-terminator facts, or
+  mapped-range receipts.
 - **Explore** opens the Member diff destination owned by
   [Inspect Web Compare Explore](inspect-web-compare-explore.md) and appears
   whenever that destination is issued, whether or not authored Source was

@@ -461,7 +461,7 @@ test("inline Member Diff keeps source work explicit", () => {
   assert.doesNotMatch(html, /Loading authored Source/);
 });
 
-test("inline Member Diff renders the diff before collapsed Source evidence", () => {
+test("inline Member Diff renders only the authored Source document", () => {
   const value = context();
   const html = renderInlineMemberSourceDiff(
     value,
@@ -470,10 +470,11 @@ test("inline Member Diff renders the diff before collapsed Source evidence", () 
   );
 
   const diff = html.indexOf('class="member-diff-source-diff"');
-  const evidence = html.indexOf("Source evidence");
-  const endpoints = html.indexOf('class="member-diff-source-endpoints"');
-  assert.ok(diff >= 0 && evidence > diff && endpoints > evidence);
-  assert.match(html, /<details class="member-diff-source-evidence member-diff-source-endpoint-evidence">/);
+  assert.ok(diff >= 0);
+  assert.doesNotMatch(
+    html,
+    /Authored Source changed|Source evidence|member-diff-source-endpoints|Source diff statistics|Final line terminators|Mapped change evidence/,
+  );
 });
 
 test("inline Member Diff starts the shared comparison only on request", () => {
@@ -912,7 +913,7 @@ test("reopening Explore retries a failed Source comparison", async () => {
   pending.resolve(sourceResult(value));
   await Promise.resolve();
   await Promise.resolve();
-  assert.match(dom.dialogs[1]?.innerHTML ?? "", /Authored Source changed/);
+  assert.match(dom.dialogs[1]?.innerHTML ?? "", /member-diff-source-diff/);
   controller.dispose();
 });
 
@@ -944,7 +945,7 @@ test("closing Explore keeps a pending inline Source comparison alive", async () 
   pending.resolve(sourceResult(value));
   await Promise.resolve();
   await Promise.resolve();
-  assert.match(controller.renderInline(value), /Authored Source changed/);
+  assert.match(controller.renderInline(value), /member-diff-source-diff/);
   controller.dispose();
 });
 
