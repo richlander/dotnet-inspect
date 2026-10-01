@@ -31,6 +31,24 @@ public sealed record WorkspaceExactTypeFocusMemberOutcome(
     WorkspaceDeclarationMember Member,
     bool IsComplete);
 
+internal abstract record WorkspaceAcquiredTypeResolutionOutcome
+{
+    private protected WorkspaceAcquiredTypeResolutionOutcome()
+    {
+    }
+
+    internal sealed record Resolved(
+        ResolvedTypeDefinition Definition)
+        : WorkspaceAcquiredTypeResolutionOutcome;
+
+    internal sealed record PlatformAssemblyRequired(
+        AssemblyReferenceIdentity Assembly)
+        : WorkspaceAcquiredTypeResolutionOutcome;
+
+    internal sealed record Unavailable
+        : WorkspaceAcquiredTypeResolutionOutcome;
+}
+
 /// <summary>
 /// Locates one exact Type definition or hierarchy target for a captured
 /// Workspace population without projecting an API surface.
@@ -349,27 +367,41 @@ public static class WorkspaceExactTypeFocusQuery
                     is ExactLibrarySourceCoordinate.Platform
                 && unbound.TerminalAssemblyIdentity is { } required)
             {
-                if (TryGetAcquiredDefinition(
+                WorkspaceAcquiredTypeResolutionOutcome acquired =
+                    ResolveAcquiredPlatformType(
                         population,
                         required,
                         match.Type,
-                        out WorkspaceDeclarationOccurrence?
-                            acquiredOccurrence,
-                        out bool assemblyPresent))
+                        unbound.Hops.Length);
+                if (acquired
+                    is WorkspaceAcquiredTypeResolutionOutcome.Resolved
+                        acquiredResolved)
                 {
+                    ResolvedTypeDefinition acquiredDefinition =
+                        acquiredResolved.Definition;
                     AddResolved(
                         new(
-                            required,
-                            acquiredOccurrence,
-                            match.Type));
+                            acquiredDefinition.Assembly.Assembly.Identity,
+                            DefinitionOccurrence(
+                                population,
+                                acquiredDefinition.Assembly.Assembly
+                                    .Registration),
+                            acquiredDefinition.Type));
                     continue;
                 }
-                if (assemblyPresent)
+                if (acquired
+                    is WorkspaceAcquiredTypeResolutionOutcome
+                        .PlatformAssemblyRequired assemblyRequired)
+                {
+                    return new WorkspaceExactTypeFocusOutcome
+                        .PlatformAssemblyRequired(
+                            assemblyRequired.Assembly,
+                            outcomes.ToImmutable());
+                }
+                else
+                {
                     return Unavailable();
-                return new WorkspaceExactTypeFocusOutcome
-                    .PlatformAssemblyRequired(
-                        required,
-                        outcomes.ToImmutable());
+                }
             }
             if (resolution
                 is not AssemblyContextTypeResolutionResult.Available
@@ -425,44 +457,89 @@ public static class WorkspaceExactTypeFocusQuery
         }
     }
 
-    private static bool TryGetAcquiredDefinition(
-        WorkspaceDeclarationPopulation population,
-        AssemblyReferenceIdentity assembly,
-        MetadataTypeDefinitionName type,
-        out WorkspaceDeclarationOccurrence? occurrence,
-        out bool assemblyPresent)
+    internal static WorkspaceAcquiredTypeResolutionOutcome
+        ResolveAcquiredPlatformType(
+            WorkspaceDeclarationPopulation population,
+            AssemblyReferenceIdentity required,
+            MetadataTypeDefinitionName type,
+            int forwarderHops = 0,
+            CancellationToken cancellationToken = default)
     {
-        occurrence = null;
-        assemblyPresent = false;
-        foreach (WorkspaceDeclarationMember member
-            in population.Receipt.Members)
+        ArgumentOutOfRangeException.ThrowIfNegative(forwarderHops);
+        var visited = new HashSet<AssemblyReferenceIdentity>(
+            AssemblyReferenceIdentity.EquivalentComparer);
+        while (forwarderHops
+            <= TypeResolutionContextOptions.DefaultMaxForwarderHops)
         {
-            if (!member.AssemblyIdentity.IsEquivalentTo(assembly))
-                continue;
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!visited.Add(required))
+            {
+                return new WorkspaceAcquiredTypeResolutionOutcome
+                    .Unavailable();
+            }
 
-            assemblyPresent = true;
-            WorkspaceDeclarationInventoryOutcome outcome =
-                population.ReadDeclarations(member.Occurrence);
-            if (outcome
-                is not WorkspaceDeclarationInventoryOutcome.Inspected
+            var matches = population.ReadAccesses()
+                .Where(access =>
+                    access.Member.AssemblyIdentity.IsEquivalentTo(required))
+                .GroupBy(
+                    static access => access.Assembly.Registration,
+                    ReferenceEqualityComparer.Instance)
+                .Select(static group => group.First())
+                .ToArray();
+            if (matches.Length == 0)
+            {
+                return new WorkspaceAcquiredTypeResolutionOutcome
+                    .PlatformAssemblyRequired(required);
+            }
+            if (matches.Length != 1)
+            {
+                return new WorkspaceAcquiredTypeResolutionOutcome
+                    .Unavailable();
+            }
+
+            var match = matches[0];
+            AssemblyContextParticipant participant =
+                match.Group.Participants.Single(candidate =>
+                    ReferenceEquals(
+                        candidate.Assembly.Registration,
+                        match.Assembly.Registration));
+            AssemblyContextTypeResolutionResult resolution =
+                AssemblyContextTypeResolutionQuery.Execute(
+                    match.Group,
+                    participant,
+                    type,
+                    match.Member.Coordinate
+                        is ExactLibrarySourceCoordinate.Platform
+                            ? AssemblyResolutionScope.Platform
+                            : AssemblyResolutionScope.Any);
+            if (resolution
+                is AssemblyContextTypeResolutionResult.Available
                 {
-                    Outcome:
-                        AssemblyTypeDeclarationInventoryOutcome.Read read,
+                    Outcome: TypeResolutionOutcome.Resolved resolved,
                 })
             {
+                return new WorkspaceAcquiredTypeResolutionOutcome.Resolved(
+                    resolved.Definition);
+            }
+            if (resolution
+                is AssemblyContextTypeResolutionResult.Available
+                {
+                    Outcome: TypeResolutionOutcome.UnboundBinding unbound,
+                }
+                && match.Member.Coordinate
+                    is ExactLibrarySourceCoordinate.Platform
+                && unbound.TerminalAssemblyIdentity is { } next)
+            {
+                forwarderHops = checked(
+                    forwarderHops + unbound.Hops.Length);
+                required = next;
                 continue;
             }
-            if (read.Inventory.GetDeclarations(includeAll: true)
-                .Any(declaration =>
-                    declaration.Kind
-                        == AssemblyTypeDeclarationKind.Definition
-                    && declaration.Name == type))
-            {
-                occurrence = member.Occurrence;
-                return true;
-            }
+
+            return new WorkspaceAcquiredTypeResolutionOutcome.Unavailable();
         }
-        return false;
+
+        return new WorkspaceAcquiredTypeResolutionOutcome.Unavailable();
     }
 
     private static WorkspaceDeclarationOccurrence? DefinitionOccurrence(

@@ -200,8 +200,9 @@ public static class WorkspaceTypeRelationsInspectionOperation
             .. relations.Rows.Where(plan.Selection.Matches),
         ];
         ImmutableArray<WorkspaceTypeRelationCandidateRow> candidates =
-            OrderCandidates(
-                ProjectCandidates(selected));
+            ProjectCandidates(selected);
+        if (discoveryHead is null)
+            candidates = OrderCandidates(candidates);
         int? selectedCount = null;
         if (countSelectionNeedsNoRows)
         {
@@ -254,6 +255,8 @@ public static class WorkspaceTypeRelationsInspectionOperation
                 .. selection.RowSets.SelectMany(
                     static set => set.Values),
             ];
+            if (discoveryHead is not null)
+                candidates = OrderCandidates(candidates);
             if (rows is not null
                 && candidates.Length > rows.MaximumRows)
             {
@@ -364,8 +367,9 @@ public static class WorkspaceTypeRelationsInspectionOperation
                     ];
                     int next = checked(start + candidateRows.Length);
                     SubjectRelationPopulationContinuation? continuation =
-                        next < populationCount
-                        || !selectedPopulationIsComplete
+                        !appliesRowSelection
+                        && (next < populationCount
+                            || !selectedPopulationIsComplete)
                             ? new(
                                 new InertString(
                                     TextPolicy.Field,

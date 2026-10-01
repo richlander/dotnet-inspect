@@ -410,6 +410,143 @@ public sealed partial class ExactTypeInspectionOperationTests
 
     [Fact]
     public async Task
+        PlatformForwardingChainRetainsOriginalImplementers()
+    {
+        const string runtimeVersion = "11.0.0";
+        const string facade = "Facade";
+        const string middle = "Middle";
+        const string terminal = "Terminal";
+        var middleIdentity = new AssemblyReferenceIdentity(
+            middle,
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        var terminalIdentity = new AssemblyReferenceIdentity(
+            terminal,
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        byte[] facadeAssembly = BuildForwardingHierarchyAssembly(
+            facade,
+            middleIdentity,
+            definesImplementation: true);
+        byte[] middleAssembly = BuildForwardingHierarchyAssembly(
+            middle,
+            terminalIdentity,
+            definesImplementation: false);
+        byte[] terminalAssembly = BuildMetadataAssembly(
+            terminal,
+            Guid.NewGuid(),
+            definesType: true,
+            "Relations",
+            "IContract");
+        AssemblyReferenceIdentity facadeIdentity;
+        using (var pe = new PEReader(
+            new MemoryStream(facadeAssembly, writable: false)))
+        {
+            facadeIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    pe.GetMetadataReader());
+        }
+        var requestedAssemblies = new List<string>();
+        PlatformLibraryRealizationSource platformSource =
+            CreatePlatformSource(
+                new Dictionary<string, byte[]>(
+                    StringComparer.OrdinalIgnoreCase)
+                {
+                    [facade] = facadeAssembly,
+                    [middle] = middleAssembly,
+                    [terminal] = terminalAssembly,
+                },
+                requestedAssemblies);
+        var input = new WorkspaceContextInput
+        {
+            Framework = Framework,
+            Members =
+            [
+                WorkspaceMemberCoordinate.Platform(
+                    "runtime",
+                    facade,
+                    runtimeVersion,
+                    Framework),
+            ],
+        };
+        ExactLibrarySourceCoordinate focusLibrary =
+            new ExactLibrarySourceCoordinate.Platform(
+                new PlatformLibraryPopulationDeclaration(
+                    PlatformFamily.DotNetRuntime),
+                new ManagedMetadataIdentity.Assembly(
+                    facadeIdentity));
+        SubjectRelationsQueryPlan plan = Assert.IsType<
+            SubjectRelationsQueryPlanResult.Accepted>(
+                SubjectRelationsQuery.ResolveIntent(
+                    SubjectRelationsRouteKind.Type,
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                SubjectRelationsQuery.DirectionTermKey,
+                                PortableQueryOperator.Equal,
+                                "incoming"),
+                            new(
+                                SubjectRelationsQuery.FormTermKey,
+                                PortableQueryOperator.Equal,
+                                "interface"),
+                        ],
+                        [],
+                        [],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+        using var client = new HttpClient(new FailingHandler());
+
+        ExactTypeRelationsInspectionOutcome outcome =
+            await ExactTypeRelationsInspectionOperation.ExecuteAsync(
+                new TypeRelationsInspectionRequest(
+                    input,
+                    "Relations.IContract",
+                    FocusAssemblyName: facade,
+                    FocusLibrary: focusLibrary),
+                LoadOptions(client, new InMemoryPackageStore()),
+                plan,
+                count: new SubjectRelationPopulationCountRequest(),
+                rows: new SubjectRelationPopulationRowsRequest(10),
+                platformImplementationSource: platformSource,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        if (outcome
+            is ExactTypeRelationsInspectionOutcome.Unavailable unavailable)
+        {
+            Assert.Fail(
+                unavailable.Detail
+                    + " Requested: "
+                    + string.Join(", ", requestedAssemblies));
+        }
+        var available = Assert.IsType<
+            ExactTypeRelationsInspectionOutcome.Available>(outcome);
+        Assert.Equal(
+            1,
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    available.Relations.Population.Count).Value);
+        WorkspaceTypeRelationCandidateRow candidate =
+            Assert.Single(available.Relations.Candidates);
+        Assert.Equal(
+            "Relations.Implementation",
+            MetadataTypeNameFormatter.FormatFullName(
+                Assert.IsType<
+                    InspectionGraphTypeIdentity.AcquiredDefinition>(
+                        candidate.Candidate.Identity).Type));
+        Assert.Equal(
+            [facade, middle, terminal],
+            available.Relations.Relations.Sources
+                .Select(static source => source.Assembly.Name));
+        Assert.Equal(
+            [facade, middle, terminal],
+            requestedAssemblies);
+    }
+
+    [Fact]
+    public async Task
         FailedCapturedContextMakesCountIncompleteWhileRowsRemainUseful()
     {
         byte[] assembly = BuildHierarchyAssembly();
@@ -583,6 +720,32 @@ public sealed partial class ExactTypeInspectionOperationTests
         Assert.False(
             selectedBothFormsCount.Population.Evidence.IsComplete);
 
+        WorkspaceTypeRelationsInspectionResult selectedRows =
+            WorkspaceTypeRelationsInspectionOperation.Execute(
+                workspace,
+                population,
+                new(
+                    member.AssemblyIdentity,
+                    member.Occurrence,
+                    focusType),
+                plan,
+                rows: new SubjectRelationPopulationRowsRequest(3),
+                rowSelection:
+                    RowSelectionIntent<string>.Create(
+                        [
+                            RowSelectionIntentOperation<string>.Head(3),
+                        ]),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var partialRows = Assert.IsType<
+            SubjectRelationPopulationRowsOutcome.Read>(
+                selectedRows.Population.Rows);
+        Assert.Equal(2, partialRows.Items.Length);
+        Assert.Null(partialRows.Continuation);
+        Assert.Null(selectedRows.ContinuationAuthority);
+        Assert.False(selectedRows.Population.Evidence.IsComplete);
+
         await using var reversedWorkspace =
             new InspectionWorkspace(
                 new WorkspacePlan([], [failedInput, healthyInput]));
@@ -690,6 +853,161 @@ public sealed partial class ExactTypeInspectionOperationTests
             static producer =>
                 producer.Disposition
                     == SubjectRelationProducerDisposition.Stopped);
+    }
+
+    [Fact]
+    public async Task
+        ForwardWindowSelectsDiscoveryOrderBeforeDisplayOrdering()
+    {
+        byte[] assembly = BuildHierarchyAssembly();
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Hierarchy.dll", assembly));
+        using var client = new HttpClient(new FailingHandler());
+        SubjectRelationsQueryPlan plan = Assert.IsType<
+            SubjectRelationsQueryPlanResult.Accepted>(
+                SubjectRelationsQuery.ResolveIntent(
+                    SubjectRelationsRouteKind.Type,
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                SubjectRelationsQuery.DirectionTermKey,
+                                PortableQueryOperator.Equal,
+                                "incoming"),
+                            new(
+                                SubjectRelationsQuery.FormTermKey,
+                                PortableQueryOperator.Equal,
+                                "interface"),
+                        ],
+                        [],
+                        [],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+
+        ExactTypeRelationsInspectionOutcome outcome =
+            await ExactTypeRelationsInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "Relations.IContract"),
+                LoadOptions(client, store),
+                plan,
+                count: new SubjectRelationPopulationCountRequest(),
+                rows: new SubjectRelationPopulationRowsRequest(1),
+                rowSelection:
+                    RowSelectionIntent<string>.Create(
+                        [
+                            RowSelectionIntentOperation<string>.Window(
+                                2,
+                                2),
+                        ]),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var available = Assert.IsType<
+            ExactTypeRelationsInspectionOutcome.Available>(outcome);
+        Assert.Equal(
+            "Relations.First",
+            MetadataTypeNameFormatter.FormatFullName(
+                Assert.IsType<
+                    InspectionGraphTypeIdentity.AcquiredDefinition>(
+                        Assert.Single(
+                            available.Relations.Candidates)
+                            .Candidate.Identity).Type));
+        Assert.Equal(
+            1,
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    available.Relations.Population.Count).Value);
+        Assert.True(available.Relations.Population.Evidence.IsSatisfied);
+    }
+
+    [Fact]
+    public async Task IncludeNonPublicReachesHierarchyProducer()
+    {
+        byte[] assembly = BuildVisibilityHierarchyAssembly();
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Hierarchy.dll", assembly));
+        using var client = new HttpClient(new FailingHandler());
+        SubjectRelationsQueryPlan plan = Assert.IsType<
+            SubjectRelationsQueryPlanResult.Accepted>(
+                SubjectRelationsQuery.ResolveIntent(
+                    SubjectRelationsRouteKind.Type,
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                SubjectRelationsQuery.DirectionTermKey,
+                                PortableQueryOperator.Equal,
+                                "incoming"),
+                            new(
+                                SubjectRelationsQuery.FormTermKey,
+                                PortableQueryOperator.Equal,
+                                "interface"),
+                        ],
+                        [],
+                        [],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+
+        ExactTypeRelationsInspectionOutcome publicOutcome =
+            await ExactTypeRelationsInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "Relations.IContract"),
+                LoadOptions(client, store),
+                plan,
+                count: new SubjectRelationPopulationCountRequest(),
+                rows: new SubjectRelationPopulationRowsRequest(10),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        ExactTypeRelationsInspectionOutcome allOutcome =
+            await ExactTypeRelationsInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "Relations.IContract"),
+                LoadOptions(client, store),
+                plan,
+                count: new SubjectRelationPopulationCountRequest(),
+                rows: new SubjectRelationPopulationRowsRequest(10),
+                includeNonPublic: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var publicAvailable = Assert.IsType<
+            ExactTypeRelationsInspectionOutcome.Available>(publicOutcome);
+        var allAvailable = Assert.IsType<
+            ExactTypeRelationsInspectionOutcome.Available>(allOutcome);
+        Assert.Equal(
+            1,
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    publicAvailable.Relations.Population.Count).Value);
+        Assert.Equal(
+            2,
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    allAvailable.Relations.Population.Count).Value);
+        Assert.Equal(
+            ["Relations.PublicImplementation"],
+            publicAvailable.Relations.Candidates.Select(
+                static candidate =>
+                    MetadataTypeNameFormatter.FormatFullName(
+                        ((InspectionGraphTypeIdentity.AcquiredDefinition)
+                            candidate.Candidate.Identity).Type)));
+        Assert.Equal(
+            [
+                "Relations.InternalImplementation",
+                "Relations.PublicImplementation",
+            ],
+            allAvailable.Relations.Candidates.Select(
+                static candidate =>
+                    MetadataTypeNameFormatter.FormatFullName(
+                        ((InspectionGraphTypeIdentity.AcquiredDefinition)
+                            candidate.Candidate.Identity).Type)));
     }
 
     [Fact]
@@ -1353,6 +1671,203 @@ public sealed partial class ExactTypeInspectionOperationTests
         var image = new BlobBuilder();
         builder.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildForwardingHierarchyAssembly(
+        string assemblyName,
+        AssemblyReferenceIdentity forwardTarget,
+        bool definesImplementation)
+    {
+        const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString($"{assemblyName}.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyReferenceHandle target =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(forwardTarget.Name),
+                forwardTarget.Version!,
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        if (definesImplementation)
+        {
+            TypeReferenceHandle contract =
+                metadata.AddTypeReference(
+                    target,
+                    metadata.GetOrAddString("Relations"),
+                    metadata.GetOrAddString("IContract"));
+            TypeDefinitionHandle implementation =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Relations"),
+                    metadata.GetOrAddString("Implementation"),
+                    baseType: default,
+                    fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                    methodList: MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddInterfaceImplementation(
+                implementation,
+                contract);
+        }
+        metadata.AddExportedType(
+            TypeAttributes.Public | Forwarder,
+            metadata.GetOrAddString("Relations"),
+            metadata.GetOrAddString("IContract"),
+            target,
+            typeDefinitionId: 0);
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildVisibilityHierarchyAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Hierarchy.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Hierarchy"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle contract =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString("Relations"),
+                metadata.GetOrAddString("IContract"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle publicImplementation =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Relations"),
+                metadata.GetOrAddString("PublicImplementation"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle internalImplementation =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString("Relations"),
+                metadata.GetOrAddString("InternalImplementation"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddInterfaceImplementation(
+            publicImplementation,
+            contract);
+        metadata.AddInterfaceImplementation(
+            internalImplementation,
+            contract);
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    static PlatformLibraryRealizationSource CreatePlatformSource(
+        IReadOnlyDictionary<string, byte[]> assemblies,
+        ICollection<string> requests)
+    {
+        PlatformSourceCapabilityIdentity capability =
+            PlatformSourceCapabilityIdentity.Create(
+                "test-platform-implementation");
+        return new(
+            capability,
+            PlatformSourceFacet.Implementation,
+            (request, target, _, association) =>
+            {
+                Assert.Null(association);
+                var binding = Assert.IsType<
+                    PlatformLibraryDemand.AssemblyReferenceBinding>(
+                        Assert.IsType<PlatformPopulationDemand.Library>(
+                            ((PlatformHouseOperation.Realize)
+                                request.Operation).Population).Value);
+                requests.Add(binding.Identity.Name);
+                byte[] content = assemblies[binding.Identity.Name];
+                using var pe = new PEReader(
+                    new MemoryStream(content, writable: false));
+                AssemblyReferenceIdentity identity =
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(
+                        pe.GetMetadataReader());
+                var contribution =
+                    new PlatformSourceContribution.Realization(
+                        PlatformSourceFacet.Implementation,
+                        capability,
+                        request.Snapshot,
+                        PlatformSourceGeneration.Create("generation-1"),
+                        target,
+                        PlatformSourceCoordinateIdentity.Create(
+                            binding.Identity.Name),
+                        ((PlatformHouseOperation.Realize)
+                            request.Operation).Population,
+                        PlatformSourceContributionCompleteness
+                            .Authoritative);
+                var item =
+                    new PlatformLibraryArtifactMaterializationItem(
+                        contribution,
+                        new TestArtifactProvenance(
+                            binding.Identity.Name),
+                        identity,
+                        content.LongLength,
+                        _ => new MemoryStream(
+                            content,
+                            writable: false));
+                return ValueTask.FromResult<
+                    PlatformLibraryRealizationSourceAttempt>(
+                        new PlatformLibraryRealizationSourceAttempt
+                            .Succeeded(
+                                contribution,
+                                PlatformHouseCandidateIdentity.Create(
+                                    binding.Identity.Name),
+                                item));
+            });
     }
 
     private sealed record TestArtifactProvenance(string Name) :

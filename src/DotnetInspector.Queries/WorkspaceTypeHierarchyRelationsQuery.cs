@@ -229,6 +229,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         {
             cancellationToken.ThrowIfCancellationRequested();
             foreach (ParticipantScan scan in ScanContext(
+                    population,
                     context.Key,
                     context,
                     focusSelection,
@@ -371,6 +372,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
     }
 
     private static IEnumerable<ParticipantScan> ScanContext(
+        WorkspaceDeclarationPopulation population,
         AssemblyContextGroup group,
         IEnumerable<(
             WorkspaceDeclarationMember Member,
@@ -409,7 +411,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                         new(
                             [MetadataRelationFamily.Hierarchy],
                             MetadataOperationPolicy.Unbounded,
-                            includeNonPublic: false,
+                            includeNonPublic: includeNonPublic,
                             hierarchyTarget:
                                 new(
                                     focus.Type,
@@ -601,14 +603,36 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 {
                     TypeResolutionOutcome outcome =
                         resolution.Resolve(candidate.Request);
-                    if (outcome is not TypeResolutionOutcome.Resolved resolved)
+                    ResolvedTypeDefinition? definition =
+                        (outcome as TypeResolutionOutcome.Resolved)
+                            ?.Definition;
+                    if (definition is null
+                        && outcome
+                            is TypeResolutionOutcome.UnboundBinding unbound
+                        && unbound.TerminalAssemblyIdentity
+                            is { } required)
+                    {
+                        WorkspaceAcquiredTypeResolutionOutcome acquired =
+                            WorkspaceExactTypeFocusQuery
+                                .ResolveAcquiredPlatformType(
+                                    population,
+                                    required,
+                                    candidate.Request.Type,
+                                    unbound.Hops.Length,
+                                    cancellationToken);
+                        definition =
+                            (acquired
+                                as WorkspaceAcquiredTypeResolutionOutcome
+                                    .Resolved)?.Definition;
+                    }
+                    if (definition is null)
                     {
                         unavailable++;
                         continue;
                     }
                     examined++;
-                    if (resolved.Definition.Type.Equals(focus.Type)
-                        && resolved.Definition.Assembly.Assembly.Identity
+                    if (definition.Type.Equals(focus.Type)
+                        && definition.Assembly.Assembly.Identity
                             .IsEquivalentTo(focus.Assembly))
                     {
                         matches.Add(
@@ -617,7 +641,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                                 new(
                                     focus.Assembly,
                                     focus.Type,
-                                    resolved.Definition)));
+                                    definition)));
                     }
                 }
             }
