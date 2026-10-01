@@ -147,6 +147,77 @@ public sealed partial class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task
+        ExactTypeFocus_EmptySimpleNameSearchAvoidsUnrelatedInventory()
+    {
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationContext context =
+            await LocatorContext(
+                workspace,
+                LocatorImage(
+                    "Targeted",
+                    metadata =>
+                    {
+                        AssemblyReferenceHandle contracts =
+                            metadata.AddAssemblyReference(
+                                metadata.GetOrAddString("Contracts"),
+                                new Version(1, 0, 0, 0),
+                                culture: default,
+                                publicKeyOrToken: default,
+                                flags: default,
+                                hashValue: default);
+                        TypeReferenceHandle contract =
+                            metadata.AddTypeReference(
+                                contracts,
+                                metadata.GetOrAddString("Remote"),
+                                metadata.GetOrAddString("IContract"));
+                        TypeDefinitionHandle implementation =
+                            LocatorDefinition(
+                                metadata,
+                                "Probe",
+                                "Implementation");
+                        metadata.AddInterfaceImplementation(
+                            implementation,
+                            contract);
+                        LocatorDefinition(
+                            metadata,
+                            "Other",
+                            "Duplicate");
+                        LocatorDefinition(
+                            metadata,
+                            "Other",
+                            "Duplicate");
+                    }));
+        WorkspaceDeclarationPopulation population =
+            CaptureDeclarations(workspace, context);
+
+        var found =
+            Assert.IsType<WorkspaceExactTypeFocusOutcome.Found>(
+                WorkspaceExactTypeFocusQuery.Execute(
+                    population,
+                    "IContract",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        Assert.Equal("Contracts", found.Assembly.Name);
+        Assert.Null(found.DefinitionOccurrence);
+        Assert.Equal(
+            "Remote.IContract",
+            found.Type.ToMetadataFullName());
+        WorkspaceTypeHierarchyRelationsResult relations =
+            WorkspaceTypeHierarchyRelationsQuery.Execute(
+                workspace,
+                population,
+                found,
+                form: SubjectRelationForm.Interface,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(1, relations.CandidateCount);
+        Assert.True(relations.Evidence.IsComplete);
+        Assert.Single(relations.Rows);
+    }
+
+    [Fact]
     public async Task TypeHierarchyRelations_ResolveExactCrossAssemblyInterface()
     {
         string contractsPath =

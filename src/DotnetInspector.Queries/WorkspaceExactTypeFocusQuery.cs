@@ -77,17 +77,16 @@ public static class WorkspaceExactTypeFocusQuery
                 nameof(type));
         }
         cancellationToken.ThrowIfCancellationRequested();
-        if (IsSimpleAsciiMetadataName(type)
-            && TrySelectSimpleName(
+        if (IsSimpleAsciiMetadataName(type))
+        {
+            return SelectSimpleName(
                 population,
                 type,
                 selectionKind,
                 assemblyName,
                 library,
-                cancellationToken)
-                is { } simpleSelection)
-        {
-            return simpleSelection;
+                includeAll,
+                cancellationToken);
         }
 
         var matches = new List<DefinitionFocusCandidate>();
@@ -183,55 +182,25 @@ public static class WorkspaceExactTypeFocusQuery
         }
         if (selected.Count > 0)
             return ResolveSelected(population, selected, outcomes);
-        if (library is not null)
-        {
-            return new WorkspaceExactTypeFocusOutcome.Unavailable(
-                "The exact Type focus could not be resolved in the "
-                    + "candidate context.",
-                outcomes.ToImmutable());
-        }
-
-        ReferencedFocusScan referenced = ScanReferencedHierarchyTargets(
+        return SelectReferencedFocus(
             population,
-            assemblyName,
-            includeAll,
-            cancellationToken);
-        if (!referenced.IsComplete)
-        {
-            return new WorkspaceExactTypeFocusOutcome.Unavailable(
-                "The exact Type focus could not be established because "
-                    + "the candidate hierarchy evidence is incomplete.",
-                outcomes.ToImmutable());
-        }
-        List<ReferencedFocusCandidate> referencedSelection = Select(
-            referenced.Candidates,
             type,
-            selectionKind);
-        return referencedSelection switch
-        {
-            [var match] => new WorkspaceExactTypeFocusOutcome.Found(
-                match.Assembly,
-                DefinitionOccurrence: null,
-                match.Type),
-            [] => new WorkspaceExactTypeFocusOutcome.Unavailable(
-                "The exact Type focus could not be resolved in the "
-                    + "candidate context.",
-                outcomes.ToImmutable()),
-            _ => new WorkspaceExactTypeFocusOutcome.Unavailable(
-                "The exact Type focus is ambiguous in the candidate "
-                    + "context.",
-                outcomes.ToImmutable()),
-        };
+            selectionKind,
+            assemblyName,
+            library,
+            includeAll,
+            outcomes,
+            cancellationToken);
     }
 
-    private static WorkspaceExactTypeFocusOutcome?
-        TrySelectSimpleName(
-            WorkspaceDeclarationPopulation population,
-            string type,
-            ExactTypeSelectionKind selectionKind,
-            string? assemblyName,
-            ExactLibrarySourceCoordinate? library,
-            CancellationToken cancellationToken)
+    private static WorkspaceExactTypeFocusOutcome SelectSimpleName(
+        WorkspaceDeclarationPopulation population,
+        string type,
+        ExactTypeSelectionKind selectionKind,
+        string? assemblyName,
+        ExactLibrarySourceCoordinate? library,
+        bool includeAll,
+        CancellationToken cancellationToken)
     {
         var matches = new List<DefinitionFocusCandidate>();
         var outcomes =
@@ -278,6 +247,14 @@ public static class WorkspaceExactTypeFocusQuery
             }
         }
 
+        if (library is not null && outcomes.Count == 0)
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact focused Library is not present in the "
+                    + "candidate context.",
+                []);
+        }
+
         if ((library is null
                 && !population.Receipt.IsRealizationComplete)
             || outcomes.Any(static outcome => !outcome.IsComplete))
@@ -287,8 +264,6 @@ public static class WorkspaceExactTypeFocusQuery
                     + "the candidate context is incomplete.",
                 outcomes.ToImmutable());
         }
-        if (matches.Count == 0)
-            return null;
 
         List<DefinitionFocusCandidate> selected =
             Select(matches, type, selectionKind);
@@ -312,7 +287,66 @@ public static class WorkspaceExactTypeFocusQuery
         if (selected.Count > 0)
             return ResolveSelected(population, selected, outcomes);
 
-        return null;
+        return SelectReferencedFocus(
+            population,
+            type,
+            selectionKind,
+            assemblyName,
+            library,
+            includeAll,
+            outcomes,
+            cancellationToken);
+    }
+
+    private static WorkspaceExactTypeFocusOutcome SelectReferencedFocus(
+        WorkspaceDeclarationPopulation population,
+        string type,
+        ExactTypeSelectionKind selectionKind,
+        string? assemblyName,
+        ExactLibrarySourceCoordinate? library,
+        bool includeAll,
+        ImmutableArray<WorkspaceExactTypeFocusMemberOutcome>.Builder outcomes,
+        CancellationToken cancellationToken)
+    {
+        if (library is not null)
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact Type focus could not be resolved in the "
+                    + "candidate context.",
+                outcomes.ToImmutable());
+        }
+
+        ReferencedFocusScan referenced = ScanReferencedHierarchyTargets(
+            population,
+            assemblyName,
+            includeAll,
+            cancellationToken);
+        if (!referenced.IsComplete)
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact Type focus could not be established because "
+                    + "the candidate hierarchy evidence is incomplete.",
+                outcomes.ToImmutable());
+        }
+        List<ReferencedFocusCandidate> referencedSelection = Select(
+            referenced.Candidates,
+            type,
+            selectionKind);
+        return referencedSelection switch
+        {
+            [var match] => new WorkspaceExactTypeFocusOutcome.Found(
+                match.Assembly,
+                DefinitionOccurrence: null,
+                match.Type),
+            [] => new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact Type focus could not be resolved in the "
+                    + "candidate context.",
+                outcomes.ToImmutable()),
+            _ => new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact Type focus is ambiguous in the candidate "
+                    + "context.",
+                outcomes.ToImmutable()),
+        };
     }
 
     private static WorkspaceExactTypeFocusOutcome ResolveSelected(
