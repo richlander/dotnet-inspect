@@ -949,8 +949,9 @@ The next sequence-5 slice moves `ILOffsetProjectionProducer` to allocation,
 safety, and call-graph results from one exact receipt. CLI single-coordinate
 execution prepares one token-scoped input; coordinate-file execution prepares
 one input for the union of selected physical MethodDef tokens. This preserves
-the existing point-fact output and typed failure boundary while removing both
-`AnalysisIndexCache` and `LibraryBodyIndex` from IL-offset production.
+the existing point-fact output and typed failure boundary while removing the
+remaining `LibraryBodyIndex` dependency from IL-offset production;
+`AnalysisIndexCache` is already retired.
 
 The implementation-profile population slice adds the coverage receipt required
 by Library Metrics without changing existing Member Metrics rows. It preserves

@@ -5,7 +5,7 @@
 # Usage: measure-find-scope-cost.sh <dotnet-inspect-binary> <work-dir> [warm-samples] [cold-samples]
 #
 # Set ONLY="scenario ..." to run a subset. Set
-# TERMINALS="markdown json jsonl tsv table count rows" to measure every
+# TERMINALS="markdown json jsonl tsv table count rows head" to measure every
 # supported Find output terminal; the default remains "tsv".
 # Scenarios (each with a direct hit, a miss that forces the census and
 # similarity path, a zero-result miss, and a member search):
@@ -49,6 +49,7 @@ terminal_args() {
     table) printf '%s\0' --table ;;
     count) printf '%s\0' --count ;;
     rows) printf '%s\0' --tsv -n 3 ;;
+    head) printf '%s\0' --tsv -n 1 ;;
     *)
       printf 'Unknown terminal: %s\n' "$1" >&2
       return 1
@@ -81,7 +82,7 @@ with open(sys.argv[1], "wb") as o, open(sys.argv[2], "wb") as e:
     jsonl)
       rows=$(($(wc -l <"$out")))
       ;;
-    tsv|rows)
+    tsv|rows|head)
       rows=$(($(wc -l <"$out") > 0 ? $(wc -l <"$out") - 1 : 0))
       ;;
     count)

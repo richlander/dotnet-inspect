@@ -47,7 +47,7 @@ public sealed record LibraryStructuralReportDocument(
     ImmutableArray<LibraryStructuralTypeSummary> TypeSummaries,
     ImmutableArray<LibraryStructuralTypeRelationship> EntangledRelationships,
     ImmutableArray<AnalysisDiagnostic> Diagnostics,
-    LibraryStructuralTypeLeverageDocument? TypeLeverage = null);
+    LibraryStructuralSalienceDocument? StructuralSalience = null);
 
 public sealed record LibraryStructuralTypeSummary(
     TypeRef Type,
@@ -105,7 +105,7 @@ public sealed record LibraryStructuralBooleanDisposition(
 public static partial class LibraryStructuralReport
 {
     private const string LegacyMethodologyVersion = "library-metrics.v1";
-    public const string CurrentMethodologyVersion = "library-metrics.v2";
+    public const string CurrentMethodologyVersion = "library-metrics.v3";
     public const int MaximumEntangledTypeCount = 24;
 
     public static LibraryStructuralReportResult Execute(
@@ -119,55 +119,67 @@ public static partial class LibraryStructuralReport
 
     public static LibraryStructuralReportResult Execute(
         LibraryBodyAnalysisExecution analysis,
-        MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse)
+        LibraryStructuralSalienceDocument structuralSalience)
     {
         ArgumentNullException.ThrowIfNull(analysis);
-        ArgumentNullException.ThrowIfNull(signatureUse);
-        ArgumentNullException.ThrowIfNull(bodyUse);
+        ArgumentNullException.ThrowIfNull(structuralSalience);
 
-        return WithTypeLeverage(
+        return WithStructuralSalience(
             Execute(
                 analysis.ImplementationProfiles,
                 analysis.CallGraph),
             analysis.Receipt,
-            signatureUse,
-            bodyUse);
+            structuralSalience);
     }
 
     public static LibraryStructuralReportResult Execute(
         LibraryImplementationProfileAnalysisResult analysis,
-        MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse)
+        LibraryStructuralSalienceDocument structuralSalience)
     {
         ArgumentNullException.ThrowIfNull(analysis);
-        ArgumentNullException.ThrowIfNull(signatureUse);
-        ArgumentNullException.ThrowIfNull(bodyUse);
+        ArgumentNullException.ThrowIfNull(structuralSalience);
 
-        return WithTypeLeverage(
+        return WithStructuralSalience(
             Execute(analysis, callGraph: null),
             analysis.Receipt,
-            signatureUse,
-            bodyUse);
+            structuralSalience);
     }
 
-    private static LibraryStructuralReportResult WithTypeLeverage(
+    private static LibraryStructuralReportResult WithStructuralSalience(
         LibraryStructuralReportResult result,
         LibraryBodyAnalysisReceipt analysisReceipt,
-        MetadataLibrarySignatureUseResult signatureUse,
-        AnalysisLibraryBodyUseResult bodyUse)
+        LibraryStructuralSalienceDocument structuralSalience)
     {
+        ValidateStructuralSalienceCorrespondence(
+            analysisReceipt,
+            structuralSalience);
         return result is LibraryStructuralReportResult.Available available
             ? new LibraryStructuralReportResult.Available(
                 available.Document with
                 {
                     MethodologyVersion = CurrentMethodologyVersion,
-                    TypeLeverage = TypeLeverage(
-                        analysisReceipt,
-                        signatureUse,
-                        bodyUse),
+                    StructuralSalience = structuralSalience,
                 })
             : result;
+    }
+
+    private static void ValidateStructuralSalienceCorrespondence(
+        LibraryBodyAnalysisReceipt analysisReceipt,
+        LibraryStructuralSalienceDocument structuralSalience)
+    {
+        LibraryBodyModuleIdentity identity = analysisReceipt.ModuleIdentity;
+        MetadataLibrarySignatureUseReceipt signatureReceipt =
+            structuralSalience.NamespaceIndex.SignatureUse.Receipt;
+        if (identity.AssemblyIdentity is null
+            || identity.ModuleVersionId
+                != signatureReceipt.ModuleVersionId
+            || identity.AssemblyIdentity
+                != signatureReceipt.Assembly)
+        {
+            throw new ArgumentException(
+                "Structural salience evidence must describe the exact "
+                    + "Library generation in the Analysis report.");
+        }
     }
 
     public static LibraryStructuralReportResult Execute(
