@@ -4755,6 +4755,7 @@ const memberDiffExplorer = createMemberDiffExplorer({
     );
     return undefined;
   },
+  renderPage: render,
 });
 const compareClone = createCompareCloneCoordinator({
   state,
@@ -6848,8 +6849,8 @@ function selectLibraryLens(lens: LibraryLens) {
 
 // The exact subject Compare is presenting, or null when Compare is not the
 // active working surface. Library, Type, and Member share one inspector; Diff
-// projects the Library-root document at each level and Clone runs the
-// subject's own scoped query.
+// runs the subject's registered analyses while its specialized API view keeps
+// the complete Library-root document, and Clone runs its own scoped query.
 type CompareSubject =
   | {
       readonly kind: "library";
@@ -6928,6 +6929,10 @@ function typeIdentifierOf(type: AppTypeSurface): string {
   return type.definitionId ?? type.id;
 }
 
+function typeQueryIdentifierOf(type: AppTypeSurface): string {
+  return type.queryId ?? type.id;
+}
+
 function typeFullDisplay(type: AppTypeSurface): string {
   const name = typeDisplayName(type);
   return type.namespace ? `${type.namespace}.${name}` : name;
@@ -6946,6 +6951,13 @@ function compareSubjectLabel(subject: CompareSubject): string {
 function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
   const subject = currentCompareSubject();
   if (!subject || currentCompareMode() !== "diff") return null;
+  if (subject.kind === "member"
+    && (!subject.overload
+      || !subject.overload.anchorDigest
+      || !subject.overload.stableSelector
+      || !subject.overload.anchorTypeFullName)) {
+    return null;
+  }
   const { pkg, library } = subject;
   return {
     packageModel: pkg,
@@ -6953,6 +6965,52 @@ function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
     currentVersion: pkg.version,
     targetFramework: pkg.activeFramework,
     compileAssetId: library.id,
+    query: (() => {
+      switch (subject.kind) {
+        case "library":
+          return {
+            surface: "Library",
+            analyses: ["api"],
+            views: "Changes",
+            typeNames: [],
+            memberTargetIdentities: [],
+          };
+        case "type":
+          return {
+            surface: "Type",
+            analyses: ["api", "api-attribute"],
+            views: "Changes, Summary, Transitions",
+            typeNames: [typeQueryIdentifierOf(subject.type)],
+            memberTargetIdentities: [],
+          };
+        case "member": {
+          const overload = subject.overload;
+          if (!overload?.anchorDigest
+            || !overload.stableSelector
+            || !overload.anchorTypeFullName) {
+            throw new Error(
+              "Member Diff requires one complete owner-issued Member identity.",
+            );
+          }
+          return {
+            surface: "Member",
+            analyses: [
+              "api",
+              "allocation",
+              "call-site",
+              "unsafety",
+              "csharp",
+              "il",
+            ],
+            views: "Changes, Summary, Transitions",
+            typeNames: [overload.anchorTypeFullName],
+            memberTargetIdentities: [overload.stableSelector],
+          };
+        }
+        default:
+          return assertNever(subject, "Compare Diff subject");
+      }
+    })(),
     target: resolveEffectiveDiffTarget(
       packageComparisonTargets.get(pkg).diff,
       catalogRequests.packageVersions(pkg),
@@ -7196,10 +7254,18 @@ function renderCompareSurface(): string {
       selectedRank: state.compareCloneSelectedRank,
     });
   }
+  const options = libraryApiDiffRenderOptions(subject);
+  const memberContext = libraryApiDiffMemberExploreContext(
+    state.libraryApiDiff,
+    options,
+  );
   return renderLibraryApiDiff(state.libraryApiDiff, escapeHtml, {
-    ...libraryApiDiffRenderOptions(subject),
+    ...options,
     subjectLabel,
     targetText,
+    ...(memberContext === null
+      ? {}
+      : { memberDiffSection: memberDiffExplorer.renderInline(memberContext) }),
   });
 }
 
@@ -14064,6 +14130,7 @@ function bindCompareEvents() {
     activateType: activateCompareType,
     activateMember: activateCompareMember,
   });
+  memberDiffExplorer.bindInline(document);
   const memberExplore = document.querySelector<HTMLElement>(
     "[data-member-diff-explore]",
   );
