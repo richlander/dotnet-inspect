@@ -13,6 +13,9 @@ traversal, pruning, Platform realization, Platform certification, binding,
 Workspace replacement, or call-graph topology. Each of those has its own
 owner, listed under [Owners consumed](#owners-consumed).
 
+Implementation and every adoption slice are tracked end to end by
+[#9072](https://github.com/richlander/dotnet-inspect/issues/9072).
+
 ## Motivating case
 
 The production Inspect Web view of
@@ -132,6 +135,20 @@ the motivating case must report zero unclassified CoreLib targets. Any
 remaining unclassified targets must carry a typed reason, such as an
 `AssemblyRef` binding pending under #8466, rather than a generic count.
 
+### Presentation boundary
+
+The inspection outcome gains one typed fact per node: a Package or Platform
+classification, where a Platform node carries its exact `PlatformFamilyTarget`
+and certified Library identity. Pruned dependencies keep the existing typed
+`Platform` destination route. Neither fact carries display text.
+
+Hosts lower these facts through the existing
+[call-graph projection](call-graph-projection.md) boundary. The CLI lowers
+them in `CallGraphSectionAdapter` to a Markout `Graph`, so every format gets
+them. Inspect Web renders the same host-neutral outcome. This document adds
+no host-specific rendering path and does not change projection or lowering
+rules.
+
 ## Non-claims
 
 - Implementing package-origin `AssemblyRef` to Platform binding (#8466).
@@ -158,7 +175,8 @@ remaining unclassified targets must carry a typed reason, such as an
 
 ## Adoption plan
 
-Each slice is one reviewed PR with a production consumer. The order keeps the
+Each slice is one reviewed PR with a production consumer, checked off on
+[#9072](https://github.com/richlander/dotnet-inspect/issues/9072). The order keeps the
 product usable after every slice.
 
 1. **Pruning inputs (CLI).** Supply the exact family target and prune
