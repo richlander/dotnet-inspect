@@ -1386,8 +1386,9 @@ export function renderLibraryApiDiffChangeChips(
     )}</span>`).join("")}</span>`;
 }
 
-// One row per Metadata-issued compatibility change. The classification and
-// message come from the producer; the Browser never re-derives either.
+// One row per Metadata-issued compatibility change. The classification,
+// message, and changed values come from the producer; the Browser never
+// re-derives them or repeats producer taxonomy beside the explanation.
 function renderChangeRows(
   changes: readonly BrowserLibraryApiDiffChange[],
   escapeHtml: (value: unknown) => string,
@@ -1404,10 +1405,8 @@ function renderChangeRows(
     return `<li class="library-api-diff-change">
       <span class="library-api-diff-change-chip ${classificationClass(change.classification)}">${escapeHtml(classificationLabel(change.classification))}</span>
       <span class="library-api-diff-change-copy">
-        <strong>${escapeHtml(changeKindLabel(change.kind))}</strong>
-        <span>${escapeHtml(change.message)}</span>
+        <span class="library-api-diff-change-message">${escapeHtml(change.message)}</span>
         ${values}
-        <span class="library-api-diff-change-category">${escapeHtml(String(change.category))}</span>
       </span>
     </li>`;
   }).join("")}</ol>`;
@@ -1497,29 +1496,6 @@ function renderMemberRow(
       ? `<button type="button" class="library-api-diff-row" data-compare-member-fingerprint="${attributeText(fingerprint, escapeHtml)}" aria-label="Open ${escapeHtml(display)} Compare">${state}${copy}</button>`
       : `<div class="library-api-diff-row" aria-disabled="true">${state}${copy}</div>${openCounterpart}`
   }</li>`;
-}
-
-function memberIdentityEvidence(
-  label: string,
-  identity: BrowserLibraryApiDiffMemberIdentity | null,
-  escapeHtml: (value: unknown) => string,
-): string {
-  if (identity === null) {
-    return `<section class="library-api-diff-endpoint">
-      <h2>${escapeHtml(label)}</h2>
-      <p class="library-api-diff-absent">Not present on this side.</p>
-    </section>`;
-  }
-  return `<section class="library-api-diff-endpoint">
-    <h2>${escapeHtml(label)}</h2>
-    <p><code>${escapeHtml(identity.display)}</code></p>
-    <dl>
-      <div><dt>Declaring type</dt><dd><code>${escapeHtml(identity.typeFullName)}</code></dd></div>
-      <div><dt>Stable selector</dt><dd><code>${escapeHtml(identity.stableSelector)}</code></dd></div>
-      <div><dt>Canonical signature</dt><dd><code>${escapeHtml(identity.canonicalSignature)}</code></dd></div>
-      <div><dt>Digest</dt><dd><code>${escapeHtml(identity.fingerprint)}</code></dd></div>
-    </dl>
-  </section>`;
 }
 
 function findType(
@@ -1663,22 +1639,11 @@ function renderDiffAnalysisPresentation(
 ): string {
   const content = diffPresentationContent(result);
   if (content === null) return specializedContent;
-  const outcomes = content.outcomes.map(outcome => {
-    const detail = outcome.detail === null
-      ? outcome.kind === "Compared"
-        ? `${outcome.findings.length.toLocaleString()} Finding ${
-          outcome.findings.length === 1 ? "kind" : "kinds"
-        }`
-        : ""
-      : outcome.detail;
-    return `<li class="diff-analysis-outcome diff-analysis-outcome-${outcome.kind.toLowerCase()}" data-diff-analysis="${attributeText(outcome.analysis, escapeHtml)}">
-      <span class="diff-analysis-name">${escapeHtml(analysisTitle(outcome.analysis))}</span>
-      <strong>${escapeHtml(outcome.kind)}</strong>
-      ${detail === "" ? "" : `<span>${escapeHtml(detail)}</span>`}
-    </li>`;
-  }).join("");
-  const views = content.views.map(view =>
-    `<span class="diff-analysis-view">${escapeHtml(view)}</span>`).join("");
+  const isRegistered = (outcome: DiffAnalysisOutcomePresentation): boolean =>
+    diffPresentationRegistry.some(registration =>
+      registration.kind === "library-api"
+      && registration.analysis === outcome.analysis
+      && content.views.includes(registration.view));
   const hasRegisteredPresentation = diffPresentationRegistry.some(registration =>
       registration.kind === "library-api"
       && content.views.includes(registration.view)
@@ -1688,14 +1653,18 @@ function renderDiffAnalysisPresentation(
   const specialized = result.kind !== "Succeeded" || hasRegisteredPresentation
     ? specializedContent
     : "";
-  return `<section class="diff-analysis-presentation" aria-labelledby="diff-analysis-title">
-    <header>
-      <h2 id="diff-analysis-title">Diff analyses</h2>
-      <div class="diff-analysis-views" aria-label="Selected Diff views">${views}</div>
-    </header>
-    <ol class="diff-analysis-outcomes">${outcomes}</ol>
-  </section>
-  ${specialized}`;
+  const notices = content.outcomes.filter(outcome =>
+    outcome.kind === "Failed"
+    || (outcome.kind === "Unavailable" && isRegistered(outcome)));
+  if (notices.length === 0) return specialized;
+  return `${specialized}
+  <section class="diff-analysis-notices" aria-labelledby="diff-analysis-notices-title">
+    <h2 id="diff-analysis-notices-title">Comparison notices</h2>
+    <ul>${notices.map(outcome => `<li data-diff-analysis="${attributeText(outcome.analysis, escapeHtml)}">
+      <strong>${escapeHtml(analysisTitle(outcome.analysis))} ${escapeHtml(outcome.kind.toLowerCase())}</strong>
+      ${outcome.detail === null ? "" : `<span>${escapeHtml(outcome.detail)}</span>`}
+    </li>`).join("")}</ul>
+  </section>`;
 }
 
 function renderLibrarySubject(
@@ -1821,23 +1790,14 @@ function renderMemberSubject(
       ),
     };
   }
-  const classification = [
-    `${libraryApiDiffMemberStateLabel(member)} Member`,
-    `Relation ${String(member.role)}`,
-    ...member.changes.map(change =>
-      `${classificationLabel(change.classification)} · ${changeKindLabel(change.kind)}`),
-    type.typeDefinitionChanged === true ? "Type definition changed" : "",
-  ].filter(Boolean);
   const counterpart = counterpartType(member);
-  const correspondence = [
-    matchText(member),
+  const correspondence =
     counterpart !== null && member.before !== null && member.after !== null
       ? `Moved from ${member.before.typeFullName} to ${member.after.typeFullName}`
-      : "",
-  ].filter(Boolean);
-  const correspondenceHtml = correspondence.length === 0
+      : "";
+  const correspondenceHtml = correspondence === ""
     ? ""
-    : `<p class="library-api-diff-note library-api-diff-correspondence">${correspondence.map(escapeHtml).join(" · ")}</p>`;
+    : `<p class="library-api-diff-note library-api-diff-correspondence">${escapeHtml(correspondence)}</p>`;
   const changes = renderLibraryApiDiffMemberChanges(
     type,
     member,
@@ -1845,17 +1805,11 @@ function renderMemberSubject(
   );
   return {
     status: `Comparison complete. Member ${libraryApiDiffMemberStateLabel(member).toLowerCase()}.`,
-    content: `<div class="library-api-diff-metrics">${classification.map(metric =>
-      `<span>${escapeHtml(metric)}</span>`).join("")}</div>
-      ${correspondenceHtml}
+    content: `${correspondenceHtml}
       <section class="library-api-diff-change-section" aria-labelledby="library-api-diff-changes-title">
         <h2 id="library-api-diff-changes-title">What changed</h2>
         ${changes}
       </section>
-      <div class="library-api-diff-member-detail">
-        ${memberIdentityEvidence("Before", member.before, escapeHtml)}
-        ${memberIdentityEvidence("After", member.after, escapeHtml)}
-      </div>
       ${options.memberDiffSection ?? ""}`,
   };
 }
@@ -1981,7 +1935,8 @@ export function renderLibraryApiDiff(
   }
 
   const { input, result } = state;
-  const diagnostics = result.inspection?.diagnostics ?? [];
+  const diagnostics = (result.inspection?.diagnostics ?? [])
+    .filter(diagnostic => diagnostic.code !== "diff-analysis.unavailable");
   const diagnosticHtml = diagnostics.length === 0 ? "" :
     `<details class="library-api-diff-evidence">
       <summary>Inspection diagnostics (${diagnostics.length})</summary>

@@ -146,9 +146,10 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     MethodDefinitionExecution.ProducerState IMethodDefinitionProducer.CreateState(
         MethodDefinitionExecution execution,
         ProducerTerminal terminal,
+        int? rowLimit,
         ImmutableArray<int> dependencies,
         UnitFactRetention retention) =>
-        new State(this, execution, terminal, dependencies, retention);
+        new State(this, execution, terminal, rowLimit, dependencies, retention);
 
     /// <summary>
     /// A producer's per-execution state, typed by its fact, accumulator, and
@@ -175,9 +176,16 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
             MethodDefinitionProducer<TFact, TAccumulator, TResult> producer,
             MethodDefinitionExecution execution,
             ProducerTerminal terminal,
+            int? rowLimit,
             ImmutableArray<int> dependencies,
             UnitFactRetention retention)
-            : base(execution, producer, producer.LayersFor(terminal), terminal, dependencies)
+            : base(
+                execution,
+                producer,
+                producer.LayersFor(terminal),
+                terminal,
+                rowLimit,
+                dependencies)
         {
             _producer = producer;
             _accumulator = producer.Seed();
@@ -272,6 +280,7 @@ internal interface IMethodDefinitionProducer
     MethodDefinitionExecution.ProducerState CreateState(
         MethodDefinitionExecution execution,
         ProducerTerminal terminal,
+        int? rowLimit,
         ImmutableArray<int> dependencies,
         UnitFactRetention retention);
 }

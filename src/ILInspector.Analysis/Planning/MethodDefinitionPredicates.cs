@@ -16,9 +16,10 @@ public interface IMethodDefinitionPredicate
 
 /// <summary>
 /// A producer for an open query. The request's terminal closes it: Exists
-/// stops at the first unit that satisfies the predicate; otherwise the result
-/// is the number of units that do. A pass that visits only this producer runs
-/// as a closed-query kernel specialized to the predicate and the terminal.
+/// stops at the first unit that satisfies the predicate; a Rows row limit
+/// stops at its Nth match; otherwise the result is the number of units that
+/// satisfy it. A pass that visits only this producer runs as a closed-query
+/// kernel specialized to the predicate and the terminal.
 /// </summary>
 public abstract class MethodDefinitionPredicateProducer<TPredicate>
     : MethodDefinitionProducer<bool, int, int>
@@ -63,7 +64,48 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
         if (!AllowsKernel)
             return false;
 
-        bool exists = state.Terminal == ProducerTerminal.Exists;
+        if (state.RowLimit is int rowLimit)
+        {
+            return RunKernelCore(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                new HeadKernelStop(rowLimit),
+                out unitsVisited);
+        }
+
+        return state.Terminal == ProducerTerminal.Exists
+            ? RunKernelCore(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                default(ExistsKernelStop),
+                out unitsVisited)
+            : RunKernelCore(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                default(ExhaustiveKernelStop),
+                out unitsVisited);
+    }
+
+    bool RunKernelCore<TStop>(
+        MethodDefinitionExecution.ProducerState state,
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
+        TStop stop,
+        out int unitsVisited)
+        where TStop : struct, IKernelStop
+    {
+        unitsVisited = 0;
         bool typeScoped = HasTypeScope;
         SourceGateGuard? sourceGate = SourceGate;
         TPredicate predicate = default;
@@ -125,7 +167,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
                 {
                     unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                     visited++;
-                state.Execution.PassUnitsVisited = visited;
+                    state.Execution.PassUnitsVisited = visited;
                     if (sourceGate is not null)
                     {
                         bool? accepted = MethodDefinitionExecution.GateAccepts(ref unit, state, sourceGate);
@@ -154,9 +196,9 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
                         continue;
                     count++;
 
-                    // Stop before advancing either enumerator, as the reference
-                    // executor does, once the Exists terminal is settled.
-                    if (exists)
+                    // Stop before advancing either enumerator once the
+                    // requested closing is settled.
+                    if (stop.ShouldStop(count))
                     {
                         state.Outcome = ProducerOutcome.Stopped;
                         state.IsActive = false;
@@ -195,8 +237,8 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
 
 /// <summary>
 /// A projection of one unit that satisfies an open query, read only under the
-/// <see cref="ProducerTerminal.Rows"/> closing. A struct, so a kernel
-/// specialized to it calls it directly.
+/// <see cref="ProducerTerminal.Rows"/> closing, including Head(N). A struct,
+/// so a kernel specialized to it calls it directly.
 /// </summary>
 public interface IMethodDefinitionProjection<TRow>
 {
@@ -205,8 +247,9 @@ public interface IMethodDefinitionProjection<TRow>
 
 /// <summary>
 /// A closed open query's result: how many units satisfy it, and, under the
-/// Rows closing, their projected rows in unit order. Count and Exists derived
-/// from Rows are the same count.
+/// Rows closing, their projected rows in unit order. A limited Rows closing
+/// contains at most its requested Head(N). Count and Exists derived from these
+/// rows are the selected-row count and presence.
 /// </summary>
 public sealed record ClosedQueryResult<TRow>(int Count, ImmutableArray<TRow> Rows)
 {
@@ -227,11 +270,12 @@ public sealed class QueryAccumulator<TRow>
 
 /// <summary>
 /// An open query whose request chooses its closing: Exists stops at the first
-/// unit that satisfies the predicate, Complete counts them, and Rows also projects
-/// each one. The projection's fields, such as identity text, are declared
-/// only for the Rows closing, so Count and Exists never read them. A pass that
-/// visits only this producer runs as a closed-query kernel specialized to the
-/// predicate, the projection, and the closing.
+/// unit that satisfies the predicate, Complete counts them, Rows projects each
+/// match, and a limited Rows request stops at its Nth projected match. The
+/// projection's fields, such as identity text, are declared only for the Rows
+/// closing, so Count and Exists never read them. A pass that visits only this
+/// producer runs as a closed-query kernel specialized to the predicate, the
+/// projection, and the closing.
 /// </summary>
 public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRow>
     : MethodDefinitionProducer<QueryFact<TRow>, QueryAccumulator<TRow>, ClosedQueryResult<TRow>>
@@ -304,7 +348,14 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         if (!AllowsKernel)
             return false;
         if (SourceGate is not { } sourceGate)
-            return RunKernelCore<UngatedKernel>(state, reader, peReader, lookup, gate, null!, out unitsVisited);
+            return RunKernelForStop<UngatedKernel>(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                null!,
+                out unitsVisited);
         return RunGatedKernel(state, reader, peReader, lookup, gate, sourceGate, out unitsVisited);
     }
 
@@ -321,15 +372,16 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         MethodRowGate gate,
         SourceGateGuard sourceGate,
         out int unitsVisited) =>
-        RunKernelCore<CachedGateKernel>(state, reader, peReader, lookup, gate, sourceGate, out unitsVisited);
+        RunKernelForStop<CachedGateKernel>(
+            state,
+            reader,
+            peReader,
+            lookup,
+            gate,
+            sourceGate,
+            out unitsVisited);
 
-    /// <summary>
-    /// The closed-query kernel: one loop specialized to the producer's gate,
-    /// predicate, and projection. The gate strategy decides only how scope
-    /// and class are tested; containment, early stop, and receipts are the
-    /// same for every strategy.
-    /// </summary>
-    private protected bool RunKernelCore<TGate>(
+    private protected bool RunKernelForStop<TGate>(
         MethodDefinitionExecution.ProducerState state,
         MetadataReader reader,
         PEReader peReader,
@@ -339,7 +391,58 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         out int unitsVisited)
         where TGate : struct, IKernelGate
     {
-        bool exists = state.Terminal == ProducerTerminal.Exists;
+        if (state.RowLimit is int rowLimit)
+        {
+            return RunKernelCore<TGate, HeadKernelStop>(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                sourceGate,
+                new HeadKernelStop(rowLimit),
+                out unitsVisited);
+        }
+
+        return state.Terminal == ProducerTerminal.Exists
+            ? RunKernelCore<TGate, ExistsKernelStop>(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                sourceGate,
+                default,
+                out unitsVisited)
+            : RunKernelCore<TGate, ExhaustiveKernelStop>(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                sourceGate,
+                default,
+                out unitsVisited);
+    }
+
+    /// <summary>
+    /// The closed-query kernel: one loop specialized to the producer's gate,
+    /// predicate, and projection. The gate strategy decides only how scope
+    /// and class are tested; containment, early stop, and receipts are the
+    /// same for every strategy.
+    /// </summary>
+    private protected bool RunKernelCore<TGate, TStop>(
+        MethodDefinitionExecution.ProducerState state,
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
+        SourceGateGuard sourceGate,
+        TStop stop,
+        out int unitsVisited)
+        where TGate : struct, IKernelGate
+        where TStop : struct, IKernelStop
+    {
         bool rows = state.Terminal == ProducerTerminal.Rows;
         bool typeScoped = HasTypeScope;
         TPredicate predicate = default;
@@ -398,12 +501,15 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
                     try
                     {
                         var view = new MethodDefinitionView(ref unit, state);
-                        if (predicate.Test(view))
+                        if (!predicate.Test(view))
                         {
-                            accumulator.Count++;
-                            if (rows)
-                                (accumulator.Rows ??= []).Add(projection.Project(view));
+                            completed++;
+                            continue;
                         }
+
+                        accumulator.Count++;
+                        if (rows)
+                            (accumulator.Rows ??= []).Add(projection.Project(view));
                     }
                     catch (Exception ex)
                         when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
@@ -415,9 +521,9 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
 
                     completed++;
 
-                    // Stop before advancing either enumerator, as the reference
-                    // executor does, once the Exists terminal is settled.
-                    if (exists && accumulator.Count > 0)
+                    // Stop before advancing either enumerator once the
+                    // requested closing is settled.
+                    if (stop.ShouldStop(accumulator.Count))
                     {
                         state.Outcome = ProducerOutcome.Stopped;
                         state.IsActive = false;
@@ -453,6 +559,26 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         state.Failure = new ProducerFailure(token, unit, $"{ex.GetType().Name}: {ex.Message}");
         state.IsActive = false;
     }
+}
+
+internal interface IKernelStop
+{
+    bool ShouldStop(int count);
+}
+
+internal readonly struct ExhaustiveKernelStop : IKernelStop
+{
+    public bool ShouldStop(int count) => false;
+}
+
+internal readonly struct ExistsKernelStop : IKernelStop
+{
+    public bool ShouldStop(int count) => true;
+}
+
+internal readonly struct HeadKernelStop(int limit) : IKernelStop
+{
+    public bool ShouldStop(int count) => count >= limit;
 }
 
 /// <summary>How a closed-query kernel tests its source gate.</summary>
@@ -585,6 +711,13 @@ public abstract class MethodDefinitionQueryProducer<TGate, TPredicate, TProjecti
         SourceGateGuard sourceGate,
         out int unitsVisited) =>
         ReferenceEquals(sourceGate.Classifier, GateClassifier)
-            ? RunKernelCore<TypedGateKernel<TGate>>(state, reader, peReader, lookup, gate, sourceGate, out unitsVisited)
+            ? RunKernelForStop<TypedGateKernel<TGate>>(
+                state,
+                reader,
+                peReader,
+                lookup,
+                gate,
+                sourceGate,
+                out unitsVisited)
             : base.RunGatedKernel(state, reader, peReader, lookup, gate, sourceGate, out unitsVisited);
 }
