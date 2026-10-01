@@ -2020,13 +2020,14 @@ kbd {
 .member-diff-source-text { margin: 8px 0 0; padding: 8px; overflow-x: auto; background: var(--code-bg); }
 .member-diff-source-summary { display: flex; min-width: 0; flex-wrap: wrap; gap: 5px 12px; padding: 8px 10px; border: 1px solid var(--line); border-bottom: 0; color: var(--muted); font: 10px var(--mono); }
 .member-diff-source-diff { min-width: 0; max-width: 100%; overflow-x: auto; border: 1px solid var(--line); background: var(--code-bg); font: 12px/1.55 var(--mono); }
-.member-diff-source-line { display: grid; min-width: max-content; grid-template-columns: 44px 44px 18px minmax(0, 1fr); }
+.member-diff-source-line { display: grid; min-width: max-content; grid-template-columns: 44px 44px 18px minmax(0, 1fr) auto; }
 .member-diff-source-line-context { background: transparent; }
 .member-diff-source-line-removal { background: color-mix(in srgb, var(--red) 9%, transparent); }
 .member-diff-source-line-addition { background: color-mix(in srgb, var(--green) 9%, transparent); }
 .member-diff-source-relation { border-block-start: 1px solid var(--line); }
 .member-diff-source-relation:first-child { border-block-start: 0; }
-.member-diff-source-relation-label { padding: 3px 10px; background: var(--panel-raised); color: var(--muted); font-size: 10px; }
+.member-diff-source-relations { display: flex; align-items: center; gap: 4px; padding: 0 6px; border-left: 1px solid var(--line); }
+.member-diff-source-relation-label { padding: 1px 5px; border-radius: 3px; background: var(--panel-raised); color: var(--muted); font-size: 10px; white-space: nowrap; }
 .member-diff-source-line-correspondence { background: transparent; }
 .member-diff-source-number { padding: 0 6px; border-right: 1px solid var(--line); color: var(--dim); text-align: right; user-select: none; }
 .member-diff-source-marker { padding-left: 6px; color: var(--muted); user-select: none; }

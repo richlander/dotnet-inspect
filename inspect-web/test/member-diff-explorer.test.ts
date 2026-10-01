@@ -333,6 +333,14 @@ test("unified Source rendering walks mapped changes in positional order", () => 
   assert.match(html, /Mapped change evidence/);
   assert.match(html, /Before 0:1 → After 0:1/);
   assert.match(html, /Warning/);
+  assert.equal(
+    (html.match(/data-relation-content="Changed" data-relation-placement="Stable"/g) ?? []).length,
+    2,
+  );
+  assert.equal(
+    (html.match(/data-relation-content="Unchanged" data-relation-placement="Stable"/g) ?? []).length,
+    1,
+  );
 });
 
 test("a middle insertion renders once between its surrounding context", () => {
@@ -378,6 +386,7 @@ test("a middle insertion renders once between its surrounding context", () => {
   assert.equal((html.match(/<code>a<\/code>/g) ?? []).length, 1);
   assert.equal((html.match(/<code>b<\/code>/g) ?? []).length, 1);
   assert.equal((html.match(/<code>c<\/code>/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /member-diff-source-relations/);
 });
 
 test("decoded N:M correspondence cannot override mapped presentation order", () => {
@@ -429,7 +438,14 @@ test("decoded N:M correspondence cannot override mapped presentation order", () 
   const html = renderMemberSourceDiff(decoded.value.value.diff, String);
   assert.equal((html.match(/data-row-kind="removal"/g) ?? []).length, 2);
   assert.equal((html.match(/data-row-kind="addition"/g) ?? []).length, 1);
-  assert.doesNotMatch(html, /correspondence|Moved/);
+  assert.equal(
+    (html.match(/data-relation-content="Unchanged" data-relation-placement="Moved"/g) ?? []).length,
+    3,
+  );
+  assert.equal(
+    (html.match(/>Unchanged · Moved<\/span>/g) ?? []).length,
+    3,
+  );
   assert.match(html, /2 Before moved/);
   assert.match(html, /1 After moved/);
 });

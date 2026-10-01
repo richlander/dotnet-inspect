@@ -285,12 +285,67 @@ function highlightedLine(
   return parts.join("");
 }
 
+type BrowserSourceDiffRelation = BrowserSourceDiff["relations"][number];
+
+interface SourceRelationLookup {
+  readonly before: ReadonlyMap<number, readonly BrowserSourceDiffRelation[]>;
+  readonly after: ReadonlyMap<number, readonly BrowserSourceDiffRelation[]>;
+}
+
+function sourceRelationLookup(diff: BrowserSourceDiff): SourceRelationLookup {
+  const before = new Map<number, BrowserSourceDiffRelation[]>();
+  const after = new Map<number, BrowserSourceDiffRelation[]>();
+  const add = (
+    index: Map<number, BrowserSourceDiffRelation[]>,
+    coordinate: number,
+    relation: BrowserSourceDiffRelation,
+  ): void => {
+    const relations = index.get(coordinate);
+    if (relations === undefined) index.set(coordinate, [relation]);
+    else relations.push(relation);
+  };
+  for (const relation of diff.relations) {
+    for (const coordinate of relation.beforeCoordinates)
+      add(before, coordinate, relation);
+    for (const coordinate of relation.afterCoordinates)
+      add(after, coordinate, relation);
+  }
+  return { before, after };
+}
+
+function relationDecorations(
+  beforeIndex: number | null,
+  afterIndex: number | null,
+  lookup: SourceRelationLookup,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const relations = new Set<BrowserSourceDiffRelation>();
+  if (beforeIndex !== null) {
+    for (const relation of lookup.before.get(beforeIndex) ?? [])
+      relations.add(relation);
+  }
+  if (afterIndex !== null) {
+    for (const relation of lookup.after.get(afterIndex) ?? [])
+      relations.add(relation);
+  }
+  const labels = [...relations].flatMap(relation => {
+    const facts = [relation.content, relation.placement]
+      .filter(fact => fact !== null);
+    if (facts.length === 0) return [];
+    return [`<span class="member-diff-source-relation-label" data-relation-kind="${escapeHtml(relation.kind)}" data-relation-content="${escapeHtml(relation.content ?? "")}" data-relation-placement="${escapeHtml(relation.placement ?? "")}">${facts.map(escapeHtml).join(" · ")}</span>`];
+  });
+  return labels.length === 0
+    ? ""
+    : `<span class="member-diff-source-relations" aria-label="Relation facts">${labels.join("")}</span>`;
+}
+
 function diffLine(
   kind: "context" | "removal" | "addition",
   beforeIndex: number | null,
   afterIndex: number | null,
   diff: BrowserSourceDiff,
   change: BrowserSourceDiffChange | null,
+  relations: SourceRelationLookup,
   escapeHtml: (value: unknown) => string,
 ): string {
   const side = kind === "addition" ? "after" : "before";
@@ -309,6 +364,12 @@ function diffLine(
       changedSpans(change, side, index),
       escapeHtml,
     )}</code>
+    ${relationDecorations(
+      beforeIndex,
+      afterIndex,
+      relations,
+      escapeHtml,
+    )}
   </div>`;
 }
 
@@ -351,6 +412,7 @@ export function renderMemberSourceDiff(
   escapeHtml: (value: unknown) => string,
 ): string {
   const rows: string[] = [];
+  const relations = sourceRelationLookup(diff);
   let beforeCursor = 0;
   let afterCursor = 0;
   const contextRows = (beforeEnd: number, afterEnd: number): void => {
@@ -361,6 +423,7 @@ export function renderMemberSourceDiff(
         afterCursor++,
         diff,
         null,
+        relations,
         escapeHtml,
       ));
     }
@@ -375,6 +438,7 @@ export function renderMemberSourceDiff(
         null,
         diff,
         change,
+        relations,
         escapeHtml,
       ));
     }
@@ -386,6 +450,7 @@ export function renderMemberSourceDiff(
         afterCursor++,
         diff,
         change,
+        relations,
         escapeHtml,
       ));
     }
