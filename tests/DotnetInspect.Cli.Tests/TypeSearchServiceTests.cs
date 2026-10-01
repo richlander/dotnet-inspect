@@ -224,9 +224,12 @@ public class TypeSearchServiceTests
                 TestContext.Current.CancellationToken);
 
         Assert.False(result.HasFailures);
-        Assert.Single(result.Rows);
-        Assert.Equal("class", result.Rows[0].Kind);
-        Assert.Equal("System.Text.Json", result.Rows[0].Source);
+        TypeFindResult package = Assert.Single(
+            result.Rows,
+            static row =>
+                row.Match == TypeFindMatchKind.Exact);
+        Assert.Equal("class", package.Kind);
+        Assert.Equal("System.Text.Json", package.Source);
         InspectionEnvelope<TypeDeclarationLocatorSectionResult> inspection =
             Assert.Single(result.LocatorInspections);
         TypeDeclarationLocatorSectionResult.Evaluated section =
@@ -236,14 +239,13 @@ public class TypeSearchServiceTests
         Assert.Empty(inspection.Diagnostics);
         TypeDeclarationLocatorSectionAnswer answer =
             Assert.Single(section.Answers);
-        Assert.Equal(1, answer.AvailableCandidateCount);
-        Assert.Single(answer.Candidates);
+        Assert.True(answer.AvailableCandidateCount > 1);
+        Assert.True(answer.Candidates.Length > 1);
         Assert.All(result.Rows, row =>
         {
             Assert.NotNull(row.Location);
         });
 
-        TypeFindResult package = Assert.Single(result.Rows);
         Assert.IsType<
             TypeDeclarationLocatorSectionCoordinate.PackageCoordinate>(
                 package.Location?.Coordinate);
@@ -353,9 +355,15 @@ public class TypeSearchServiceTests
                 TestContext.Current.CancellationToken);
 
         Assert.False(result.HasFailures);
-        Assert.Equal(2, result.Rows.Count);
+        TypeFindResult[] direct =
+        [
+            .. result.Rows.Where(
+                static row =>
+                    row.Match == TypeFindMatchKind.Exact),
+        ];
+        Assert.Equal(2, direct.Length);
         Assert.All(
-            result.Rows,
+            direct,
             static row =>
             {
                 Assert.Equal(
@@ -387,7 +395,10 @@ public class TypeSearchServiceTests
                 TestContext.Current.CancellationToken);
 
         Assert.False(result.HasFailures);
-        TypeFindResult row = Assert.Single(result.Rows);
+        TypeFindResult row = Assert.Single(
+            result.Rows,
+            static row =>
+                row.Match == TypeFindMatchKind.Exact);
         TypeDeclarationLocatorSelection.PackageSelection selection =
             Assert.IsType<
                 TypeDeclarationLocatorSelection.PackageSelection>(
@@ -412,7 +423,7 @@ public class TypeSearchServiceTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task FindTypesAsync_PrefixMatchDoesNotRetainWildcardCensus()
+    public async Task FindTypesAsync_NaturalClassificationUsesOneCensus()
     {
         using var httpClient = new HttpClient();
         var options = new FindOptions
@@ -432,25 +443,9 @@ public class TypeSearchServiceTests
 
         Assert.False(result.HasFailures);
         Assert.NotEmpty(result.Rows);
-        Assert.All(
-            result.Rows,
-            static row =>
-                Assert.StartsWith(
-                    "System.Text",
-                    row.FullName,
-                    StringComparison.Ordinal));
-        Assert.Collection(
-            result.LocatorSections,
-            section => Assert.Equal(
-                "System.Text",
-                SinglePatternRequest(section)),
-            section => Assert.Equal(
-                "System.Text*",
-                SinglePatternRequest(section)));
-        Assert.DoesNotContain(
-            result.LocatorSections,
-            static section =>
-                SinglePatternRequest(section) == "*");
+        TypeDeclarationLocatorSectionResult section =
+            Assert.Single(result.LocatorSections);
+        Assert.Equal("*", SinglePatternRequest(section));
     }
 
     [Fact]
@@ -480,7 +475,7 @@ public class TypeSearchServiceTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task FindTypesAsync_LimitDoesNotBoundLocatorInventory()
+    public async Task FindTypesAsync_LimitSelectsNaturalLocatorHead()
     {
         using var httpClient = new HttpClient();
         var options = new FindOptions
