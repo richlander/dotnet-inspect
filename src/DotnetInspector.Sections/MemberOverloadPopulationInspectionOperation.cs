@@ -282,6 +282,7 @@ public static class MemberOverloadPopulationInspectionOperation
                                     Field(row.CanonicalSignature),
                                     Field(row.DocumentationId),
                                     Field(row.Fingerprint),
+                                    row.Anchor,
                                     Field(row.Accessibility),
                                     subject.Role,
                                     row.Receiver switch

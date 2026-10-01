@@ -151,6 +151,7 @@ public static class MemberGroupDocumentInspectionOperation
                         row.MetadataToken,
                         row.BaselineOrdinal,
                         row.Fingerprint,
+                        row.Anchor,
                         row.DocumentationId)),
             ];
         MemberDocumentationAttachmentResult attachment =

@@ -1268,6 +1268,29 @@ public static class MemberCommand
                         context.HttpClient);
             }
 
+            if (MemberDocumentOutput.IsSourceSelected(
+                    apiType,
+                    effectiveOptions,
+                    executionPlan))
+            {
+                string? memberAssemblyPath =
+                    apiType.SourceAssemblyPath
+                    ?? sourceAssembly?.Path
+                    ?? apiDllPath;
+                if (memberAssemblyPath is null)
+                {
+                    CommandError.Write(
+                        "The exact Member's defining Library has no local "
+                            + "inspection path.");
+                    return 1;
+                }
+                return await MemberDocumentOutput.WriteAsync(
+                    apiType,
+                    effectiveOptions,
+                    memberAssemblyPath,
+                    CancellationToken.None);
+            }
+
             if (effectiveOptions.EffectiveDiscovery)
             {
                 if (terminalPlan is not null

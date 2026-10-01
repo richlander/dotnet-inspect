@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using InertText;
 
 namespace DotnetInspector.Sections;
@@ -341,6 +342,7 @@ public sealed record MemberOverloadShape(
     InertString DocumentationId,
     [property: JsonConverter(typeof(InertStringJsonConverter))]
     InertString Fingerprint,
+    MemberAnchor Anchor,
     [property: JsonConverter(typeof(InertStringJsonConverter))]
     InertString Accessibility,
     MemberGroupRole Role,

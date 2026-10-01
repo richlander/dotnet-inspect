@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using CSharpText;
+using DotnetInspector.Libraries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -10,6 +11,7 @@ using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using InertText;
 
 using DotnetInspect.Web;
@@ -124,25 +126,24 @@ public static partial class SourceExports
                 metadataToken,
                 contextId,
                 operation.CancellationToken);
-        AssemblyMemberSourceRequest request = MemberSourceRequest(
+        ApiMember selectedMember = SelectSourceMember(
             resolved.Member,
             typeIdentity,
-            memberName,
-            styleOptionsJson,
-            includeParts: true);
-        InspectionEnvelope<AssemblyMemberSourceEntry> inspection =
+            memberName);
+        BrowserMemberSource source =
             await resolved.Scope.UseParticipant(
                 resolved.Participant,
-                (group, participant) => MemberSourceInspection.ExecuteAsync(
-                    group,
-                    participant,
-                    request,
-                    BrowserSourceQueryContext.Create(),
-                    operation.CancellationToken));
-        BrowserMemberSource source = AdaptMember(
-            inspection.Content,
-            resolved.Participant,
-            includeParts: true);
+                (group, participant) =>
+                    ExecuteAttachedMemberSourceAsync(
+                        group,
+                        participant,
+                        DecompiledProvenance(resolved.Participant),
+                        resolved.Member.Type,
+                        selectedMember,
+                        BrowserStyleOptions.Resolve(styleOptionsJson),
+                        includeParts: true,
+                        BrowserSourceQueryContext.Create(),
+                        operation.CancellationToken));
         return source;
     }
 
@@ -659,31 +660,32 @@ public static partial class SourceExports
         operation.CancellationToken.ThrowIfCancellationRequested();
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             BrowserPackageWorkspace.LeaseScope(scope);
-        AssemblyMemberSourceRequest request = MemberSourceRequest(
+        ApiMember selectedMember = SelectSourceMember(
             resolution,
             typeIdentity,
-            memberName,
-            styleOptionsJson,
-            includeParts);
-        InspectionEnvelope<AssemblyMemberSourceEntry> inspection =
+            memberName);
+        BrowserMemberSource source =
             await scope.UseImplementationParticipant(
                 participant,
-                (group, member) => MemberSourceInspection.ExecuteAsync(
-                    group,
-                    member,
-                    request,
-                    BrowserSourceQueryContext.Create(),
-                    operation.CancellationToken));
+                (group, member) =>
+                    ExecuteAttachedMemberSourceAsync(
+                        group,
+                        member,
+                        DecompiledProvenance(participant),
+                        resolution.Type,
+                        selectedMember,
+                        BrowserStyleOptions.Resolve(styleOptionsJson),
+                        includeParts,
+                        BrowserSourceQueryContext.Create(),
+                        operation.CancellationToken));
 
-        return AdaptMember(inspection.Content, participant, includeParts);
+        return source;
     }
 
-    static AssemblyMemberSourceRequest MemberSourceRequest(
+    static ApiMember SelectSourceMember(
         CallGraphMemberResolution resolution,
         string typeIdentity,
-        string memberName,
-        string styleOptionsJson,
-        bool includeParts)
+        string memberName)
     {
         ApiMember selectedMember = resolution.Member;
         if (selectedMember.MetadataToken != resolution.BodyToken)
@@ -698,14 +700,212 @@ public static partial class SourceExports
                     + "the selected body has no exact physical accessor projection.");
         }
 
-        AssemblyMemberSourceRequest request = AssemblyMemberSourceRequest.From(
-            resolution.Type,
-            selectedMember,
-            BrowserStyleOptions.Resolve(styleOptionsJson));
-        return includeParts
-            ? request.WithAuthoredParts(allowDecompiledFallback: true)
-            : request;
+        return selectedMember;
     }
+
+    private const long MemberSourceMaxAssemblyImageBytes =
+        64L * 1024 * 1024;
+
+    private static readonly ApiSurfaceExtractionBounds
+        s_memberSourceDocumentBounds =
+            new(
+                maxTypes: BrowserApiSurfacePolicy.MaxTypes,
+                maxMembers: BrowserApiSurfacePolicy.MaxMembers,
+                maxInspectionFailures:
+                    BrowserApiSurfacePolicy.MaxInspectionFailures,
+                maxTypeForwarders:
+                    BrowserApiSurfacePolicy.MaxTypeForwarders,
+                maxMetadataRows:
+                    BrowserApiSurfacePolicy.MaxMetadataRows,
+                maxRetainedTextCharacters:
+                    BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
+
+    private static readonly AssemblyContextLibraryMaterializationLimits
+        s_memberSourceMaterializationLimits =
+            new(
+                MemberSourceMaxAssemblyImageBytes,
+                MemberSourceMaxAssemblyImageBytes);
+
+    private static async Task<BrowserMemberSource>
+        ExecuteAttachedMemberSourceAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            InertString decompiledProvenance,
+            ApiType type,
+            ApiMember member,
+            PrinterOptions printerOptions,
+            bool includeParts,
+            AssemblyContextSourceQueryContext sourceContext,
+            CancellationToken cancellationToken)
+    {
+        MemberAnchor anchor =
+            ApiMemberIdentity.GetMemberAnchor(type, member);
+        string methodName =
+            ApiMemberIdentity.GetMemberSelectorName(member);
+        if (!IsOrdinaryMethodName(methodName)
+            || member.MethodSemantics
+                is not null and not ApiMethodSemanticsKind.None)
+        {
+            AssemblyMemberSourceRequest legacyRequest =
+                AssemblyMemberSourceRequest.From(
+                    type,
+                    member,
+                    printerOptions);
+            if (includeParts)
+            {
+                legacyRequest = legacyRequest.WithAuthoredParts(
+                    allowDecompiledFallback: true);
+            }
+            InspectionEnvelope<AssemblyMemberSourceEntry> legacy =
+                await MemberSourceInspection.ExecuteAsync(
+                        group,
+                        participant,
+                        legacyRequest,
+                        sourceContext,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            return AdaptMember(
+                legacy.Content,
+                decompiledProvenance,
+                includeParts);
+        }
+
+        var plan = new MemberDocumentInspectionPlan(
+            new(
+                type.DefinitionName
+                    ?? throw new InvalidOperationException(
+                        "The exact Member source Type has no metadata "
+                            + "definition identity."),
+                methodName),
+            new(fingerprintPrefix: anchor.Fingerprint),
+            s_memberSourceDocumentBounds,
+            source:
+                new(
+                    includeParts
+                        ? MemberSourceAttachmentDemand
+                            .SourceWithAuthoredParts
+                        : MemberSourceAttachmentDemand.Source));
+        AssemblyContextLibraryInspectionRun<
+            InspectionEnvelope<MemberDocumentInspectionOutcome>> run =
+                await AssemblyContextLibraryInspection
+                    .ExecuteComposedAsync(
+                        AssemblyContextLibraryAdapter.MaterializeAsync(
+                            group,
+                            participant,
+                            AssemblyContextLibraryRole.Implementation,
+                            s_memberSourceMaterializationLimits,
+                            cancellationToken),
+                        async (reference, owner) =>
+                        {
+                            if (owner.IssueOperationLease(reference)
+                                is not LibraryOperationLeaseIssueOutcome
+                                    .Issued issued)
+                            {
+                                return null;
+                            }
+
+                            using LibraryOperationLease lease =
+                                issued.Lease;
+                            return await MemberDocumentInspectionOperation
+                                .ExecuteAsync(
+                                    new(reference, plan),
+                                    lease,
+                                    documentationProvider: null,
+                                    async (
+                                        subject,
+                                        request,
+                                        token) =>
+                                    {
+                                        AssemblyMemberSourceRequest
+                                            sourceRequest =
+                                                new(
+                                                    subject.Group
+                                                        .DeclaringType,
+                                                    subject.Anchor,
+                                                    subject.MetadataToken,
+                                                    printerOptions);
+                                        if (request.Demand
+                                            is MemberSourceAttachmentDemand
+                                                .SourceWithAuthoredParts)
+                                        {
+                                            sourceRequest =
+                                                sourceRequest
+                                                    .WithAuthoredParts(
+                                                        request
+                                                            .AllowDecompiledFallback);
+                                        }
+                                        else if (!request
+                                            .AllowDecompiledFallback)
+                                        {
+                                            sourceRequest =
+                                                sourceRequest
+                                                    .WithoutDecompiledFallback();
+                                        }
+
+                                        InspectionEnvelope<
+                                            AssemblyMemberSourceEntry>
+                                            source =
+                                                await MemberSourceInspection
+                                                    .ExecuteAsync(
+                                                        group,
+                                                        participant,
+                                                        sourceRequest,
+                                                        sourceContext,
+                                                        token)
+                                                    .ConfigureAwait(false);
+                                        return new(
+                                            subject,
+                                            source.Content);
+                                    },
+                                    cancellationToken)
+                                .ConfigureAwait(false);
+                        })
+                    .ConfigureAwait(false);
+        if (run.Failure is { } failure)
+        {
+            throw new InvalidOperationException(
+                $"The Member Library could not be materialized: {failure}");
+        }
+        if (!run.CleanupFailures.IsEmpty)
+        {
+            throw new InvalidOperationException(
+                string.Join(" ", run.CleanupFailures));
+        }
+        MemberDocument document =
+            run.Result?.Content
+                is MemberDocumentInspectionOutcome.Available available
+                ? available.Document
+                : throw new InvalidOperationException(
+                    DescribeMemberDocumentFailure(run.Result?.Content));
+        MemberSourceAttachment sourceAttachment =
+            document.Source
+            ?? throw new InvalidOperationException(
+                "The exact Member document omitted requested source.");
+        return AdaptMember(
+            sourceAttachment.Outcome,
+            decompiledProvenance,
+            includeParts);
+    }
+
+    private static bool IsOrdinaryMethodName(string name) =>
+        name is not ".ctor" and not ".cctor"
+        && !name.StartsWith("operator:", StringComparison.Ordinal)
+        && !name.StartsWith("explicit:", StringComparison.Ordinal);
+
+    private static string DescribeMemberDocumentFailure(
+        MemberDocumentInspectionOutcome? outcome) =>
+        outcome switch
+        {
+            MemberDocumentInspectionOutcome.Rejected rejected =>
+                $"The exact Member document was rejected ({rejected.Reason}).",
+            MemberDocumentInspectionOutcome.Incomplete incomplete =>
+                $"The exact Member document reached {incomplete.Bound} "
+                    + $"({incomplete.Measured} > {incomplete.Limit}).",
+            MemberDocumentInspectionOutcome.Failed failed =>
+                $"The exact Member document failed ({failed.Reason}).",
+            null => "The exact Member owner could not issue an inspection lease.",
+            _ => "The exact Member document returned an unknown outcome.",
+        };
 
     static async Task<(
         BrowserScopeLease<BrowserInspectionScope> ScopeLease,

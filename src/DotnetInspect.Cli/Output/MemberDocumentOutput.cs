@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.DocumentationHouse;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -80,6 +81,21 @@ internal static class MemberDocumentOutput
                 memberName) is not null;
     }
 
+    internal static bool IsSourceSelected(
+        ApiType type,
+        MemberOptions options,
+        ResolvedMemberInspectionPlan plan) =>
+        options.IncludeSections is { Count: 1 } sections
+        && sections.Contains(SectionNames.Source)
+        && options.MemberSourceInspection is not null
+        && IsSelected(
+            type,
+            options with
+            {
+                IncludeSections = null,
+            },
+            plan);
+
     internal static async Task<int> WriteAsync(
         ApiType type,
         MemberOptions options,
@@ -112,9 +128,23 @@ internal static class MemberDocumentOutput
             documentation:
                 options.ShowDocs
                     ? new(DocumentationDemand.CompiledXml)
+                    : null,
+            source:
+                options.IncludeSections is { Count: 1 } sections
+                    && sections.Contains(SectionNames.Source)
+                    && options.MemberSourceInspection is not null
+                    ? new()
                     : null);
+        MemberSourceAttachmentProvider? sourceProvider =
+            plan.Source is null
+                ? null
+                : (subject, _, _) =>
+                    ValueTask.FromResult(
+                        new MemberSourceAttachment(
+                            subject,
+                            options.MemberSourceInspection!.Content));
         InspectionEnvelope<MemberDocumentInspectionOutcome>? inspection =
-            plan.Documentation is null
+            plan.Documentation is null && plan.Source is null
                 ? await ExactLibraryInspectionExecutor.ExecuteAsync<
                     InspectionEnvelope<MemberDocumentInspectionOutcome>>(
                     assemblyPath,
@@ -131,6 +161,7 @@ internal static class MemberDocumentOutput
                     session =>
                         session.ExecuteMemberDocumentAsync(
                             plan,
+                            sourceProvider,
                             cancellationToken),
                     cancellationToken);
         if (inspection is null)
@@ -149,6 +180,9 @@ internal static class MemberDocumentOutput
         }
 
         MemberDocument document = available.Document;
+        if (document.Source is { } source)
+            return WriteSource(source.Outcome);
+
         string signature =
             $"{document.Accessibility} "
                 + ReceiverPrefix(document.Receiver)
@@ -181,6 +215,36 @@ internal static class MemberDocumentOutput
                 DescribeDocumentation(documentation.Outcome));
         }
         writer.Flush();
+        return 0;
+    }
+
+    private static int WriteSource(
+        AssemblyMemberSourceEntry outcome)
+    {
+        if (outcome
+            is not AssemblyMemberSourceEntry.Available available)
+        {
+            CommandError.Write(
+                outcome switch
+                {
+                    AssemblyMemberSourceEntry.Rejected rejected =>
+                        $"Member source was rejected "
+                            + $"({rejected.Failure.Kind}).",
+                    AssemblyMemberSourceEntry.Unavailable unavailable =>
+                        unavailable.Failure.Detail,
+                    _ => "Member source returned an unknown outcome.",
+                });
+            return 1;
+        }
+
+        MarkoutSerializer.Serialize(
+            new ExactMemberSourceView(
+                new CodeSection(
+                    "csharp",
+                    available.Source.Text)),
+            Console.Out,
+            new MarkdownFormatter(),
+            ExactMemberSourceViewContext.Default);
         return 0;
     }
 
@@ -255,3 +319,11 @@ internal static class MemberDocumentOutput
                 "Unknown compiled documentation outcome."),
         };
 }
+
+internal sealed record ExactMemberSourceView(
+    [property: MarkoutSection(Name = SectionNames.Source)]
+    CodeSection Source);
+
+[MarkoutContext(typeof(ExactMemberSourceView))]
+internal partial class ExactMemberSourceViewContext :
+    MarkoutSerializerContext;
