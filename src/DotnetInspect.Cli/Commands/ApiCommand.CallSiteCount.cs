@@ -20,6 +20,9 @@ public partial class ApiCommand
             || options.RouterDeferredTypeOrMember
             || !options.IncludeAll
             || options.HasCallerScope
+            || options.EffectiveDiscovery
+            || options.Columns is { Length: > 0 }
+            || options.Fields is { Length: > 0 }
             || options.KindFilter.Count != 0
             || options.UnsafeOnly
             || options.MemberDigest is not null

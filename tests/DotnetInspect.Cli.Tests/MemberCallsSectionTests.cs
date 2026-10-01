@@ -94,6 +94,58 @@ public class MemberCallsSectionTests
     }
 
     [Fact]
+    public async Task CallsSection_CountWithDiscoveryCountsDiscoveredRows()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.CallsWriteLineTwice),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "-D",
+            SectionNames.Calls,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal("6", result.Output.Trim());
+    }
+
+    [Theory]
+    [InlineData("--columns", "No columns matched projection")]
+    [InlineData("--fields", "No fields matched projection")]
+    public async Task CallsSection_CountWithUnmatchedProjectionFails(
+        string projectionOption,
+        string expectedError)
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.CallsWriteLineTwice),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            projectionOption,
+            "NoSuchProjection",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(expectedError, result.Error);
+    }
+
+    [Fact]
     public async Task CallsSection_SemanticTailSelectsTheSameCallSiteAcrossFormats()
     {
         string[] args =
