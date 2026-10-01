@@ -510,16 +510,22 @@ document, and retained C# and IL Finding routes now carry semantic
 Queries seals the population, invokes `QueryResearchTargetPlanner`, and passes
 one `ResearchTargetResolution` to the Research producer session. C# and IL run
 over the same correspondence work bases; their native completion is projected
-to one correspondence-issued subject. Complexity filters Analysis evidence by
-the resolved module and MethodDef address rather than by display identity.
+to one correspondence-issued subject, including one-sided Findings and
+unavailable or failed inspection topology when no two-sided semantic diff
+exists. Complexity matches the resolved module and MethodDef address to each
+profile's Analysis-issued logical owner, then retains every associated physical
+evidence method, including generated state-machine bodies.
 
 Every requested member scope must resolve to an Analysis-issued body identity
-on at least one endpoint. Otherwise `ImplementationComparisonQuery` returns the
-typed `ImplementationComparisonResult.TargetFailed` arm with the side-local
-attempt outcomes. It never returns an empty successful comparison for that
-request. The CLI turns that typed non-success into a visible request failure;
-the exact-pair inspection creates no document or envelope for a pre-comparison
-failure.
+on at least one endpoint and must produce evaluable correspondence rather than
+`CounterpartUnavailable` or `DomainUnavailable`. Otherwise
+`ImplementationComparisonQuery` returns the typed
+`ImplementationComparisonResult.TargetFailed` arm with the side-local attempt
+and correspondence outcomes. It never returns an empty successful comparison
+for that request. The CLI completes this preflight before dispatching any
+selected generic Diff producer and turns typed non-success into a visible
+request failure; the exact-pair inspection creates no document or envelope for
+a pre-comparison failure.
 
 `ImplementationComparisonInput`, `ImplementationDiffOptions`,
 `ResearchDiffOptions`, and the exact-pair document expose no string-keyed
