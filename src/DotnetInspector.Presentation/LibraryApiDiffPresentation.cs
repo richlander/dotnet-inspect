@@ -228,17 +228,21 @@ public sealed record LibraryApiMemberIdentity
     public LibraryApiMemberIdentity(
         LibraryApiTypeIdentity DeclaringType,
         MemberAnchor Anchor,
+        string Kind,
         string Display)
     {
         this.DeclaringType =
             DeclaringType ?? throw new ArgumentNullException(nameof(DeclaringType));
         this.Anchor = Anchor ?? throw new ArgumentNullException(nameof(Anchor));
+        ArgumentException.ThrowIfNullOrWhiteSpace(Kind);
+        this.Kind = Kind;
         ArgumentException.ThrowIfNullOrWhiteSpace(Display);
         this.Display = Display;
     }
 
     public LibraryApiTypeIdentity DeclaringType { get; }
     public MemberAnchor Anchor { get; }
+    public string Kind { get; }
     public string Display { get; }
 }
 
@@ -1718,6 +1722,7 @@ public static class LibraryApiDiffPresentationAdapter
         identity = new LibraryApiMemberIdentity(
             declaringType,
             anchor,
+            handle.Member.Kind,
             handle.MemberName);
         return true;
     }

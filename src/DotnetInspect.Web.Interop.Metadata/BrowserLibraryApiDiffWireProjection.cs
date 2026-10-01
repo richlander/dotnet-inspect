@@ -576,8 +576,17 @@ internal static class BrowserLibraryApiDiffWireProjection
                 : new BrowserLibraryApiDiffMatch(
                     member.Relation.Match.Tier.Id,
                     member.Relation.Match.Confidence),
-            Explore(target, current, before, after));
+            HasTextMode(member.Relation)
+                ? Explore(target, current, before, after)
+                : null);
     }
+
+    static bool HasTextMode(LibraryApiMemberRelation relation) =>
+        SupportsTextMode(relation.Before)
+        || SupportsTextMode(relation.After);
+
+    static bool SupportsTextMode(LibraryApiMemberIdentity? member) =>
+        member?.Kind is "method" or "constructor";
 
     static BrowserLibraryApiDiffMemberExploreDestination? Explore(
         BrowserLibraryApiDiffEndpoint target,

@@ -862,6 +862,25 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.NotNull(result.Inspection);
     }
 
+    [Theory]
+    [InlineData("property")]
+    [InlineData("field")]
+    [InlineData("event")]
+    public void MembersWithoutATextModeDoNotReceiveExploreDestinations(
+        string memberKind)
+    {
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                Request("Transport.Package"),
+                AvailableWithMembers(memberCount: 1, memberKind: memberKind),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        BrowserLibraryApiDiffMember member = Assert.Single(
+            Assert.Single(result.Value!.Types).Members);
+        Assert.Null(member.Explore);
+    }
+
     [Fact]
     public void CompleteMemberBaselineCanExceedTransportBeforeViewProjection()
     {
@@ -1506,7 +1525,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
 
     static InspectionEnvelope<DiffAnalysisDocument> AvailableWithMembers(
         int memberCount,
-        string? memberDisplay = null)
+        string? memberDisplay = null,
+        string memberKind = "method")
     {
         AssemblyReferenceIdentity identity = AssemblyIdentity();
         var endpoint = new LibraryApiDiffEndpointSummary(
@@ -1534,6 +1554,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 var memberIdentity = new LibraryApiMemberIdentity(
                     typeIdentity,
                     anchor,
+                    memberKind,
                     memberDisplay ?? memberName);
                 return new LibraryApiMemberDiff(
                     new LibraryApiMemberRelation(
