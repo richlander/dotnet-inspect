@@ -188,8 +188,15 @@ requested bounded answer. If Type rows do not fill the budget, implicit Member
 fallback may still contribute and its rows precede weak Type rows in the
 presented answer. The current reverse-locator package route applies Head after
 its complete resident census; other compatibility and Platform routes stop
-metadata traversal directly. `--tail` and row windows remain exhaustive before
-selection.
+metadata traversal directly.
+
+A sole finite `--rows A..B` or `--rows ..B` similarly stops after accepted row
+B for explicit Member Find and for Type patterns that cannot enter implicit
+Member fallback, such as wildcard or dotted patterns. The strict window still
+fails when row B does not exist. Ordinary undotted Type patterns remain
+exhaustive because fallback Member rows can precede Type rows and suppress weak
+Type matches. `--tail`, open-ended windows, and multi-stage row selection also
+remain exhaustive.
 
 ### Library namespace Type listings
 
@@ -301,6 +308,7 @@ stderr rather than mixed into structured output.
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
+| Library vocabulary | `library -S "Name Families"` | Ranked one- and two-word Type-name suffix families, exact supporting Type evidence, and optional source-provenance populations. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
 | Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
@@ -1357,6 +1365,35 @@ summaries carry exact metadata keys separately from display labels, and every
 relationship endpoint names a retained summary, so a Copilot App can render an
 SVG without recovering identity from display text. Library Metrics Share is
 currently `nonProjectable`.
+
+Exact `library ... -S "Name Families"` reports the most prevalent one- and
+two-word Type-name suffix families in one Library. The default `all`
+population covers every Type definition. `--name-family-population` selects
+`ordinary`, `generated`, `mixed`, or `unknown` when exactly bound source
+provenance is available:
+
+```bash
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Name Families" -n 10 --head
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Name Families" --name-family-population ordinary --count
+```
+
+`-n`, `--head`, `--tail`, and `--rows` are semantic QuerySpace selection over
+family rows; `--count` executes the corresponding QuerySpace Count terminal.
+The section is explicit-only and is not added by verbosity or category
+selection.
+
+Exact `-S "Name Families" --json` emits complete Content: every Type word and
+residual row, every population and family member address, methodology and
+oracle identity, provenance qualification, and partition receipts.
+`--envelope` emits the same Content plus a currently `nonProjectable` Share.
+These complete transports accept the population selector but reject row,
+field, column, Count, discovery, print, and shape projection. Markdown, table,
+TSV, and JSONL lower only the already selected family rows and show at most
+five labeled Type examples per family.
 
 See [API and implementation population scope](design/api-population-scope.md)
 for the distinction between API visibility, implementation completeness, and
