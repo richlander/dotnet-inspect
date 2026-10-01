@@ -402,6 +402,15 @@ public sealed class WorkspaceDeclarationPopulation
     public WorkspaceDeclarationInventoryOutcome ReadDeclarations(
         WorkspaceDeclarationOccurrence occurrence,
         CancellationToken cancellationToken = default)
+        => ReadDeclarations(
+            occurrence,
+            rows: null,
+            cancellationToken: cancellationToken);
+
+    internal WorkspaceDeclarationInventoryOutcome ReadDeclarations(
+        WorkspaceDeclarationOccurrence occurrence,
+        LibraryTypeDeclarationRowsInspectionRequest? rows,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(occurrence);
         cancellationToken.ThrowIfCancellationRequested();
@@ -421,7 +430,10 @@ public sealed class WorkspaceDeclarationPopulation
                 WorkspaceDeclarationMemberAccess.AssemblyContext group =>
                     ReadFromAssemblyContext(group, cancellationToken),
                 WorkspaceDeclarationMemberAccess.LibraryOccurrence library =>
-                    ReadFromLibraryOccurrence(library, cancellationToken),
+                    ReadFromLibraryOccurrence(
+                        library,
+                        rows,
+                        cancellationToken),
                 _ => throw new InvalidOperationException(
                     "Unknown Workspace declaration member access."),
             };
@@ -556,6 +568,7 @@ public sealed class WorkspaceDeclarationPopulation
 
     WorkspaceDeclarationInventoryOutcome ReadFromLibraryOccurrence(
         WorkspaceDeclarationMemberAccess.LibraryOccurrence access,
+        LibraryTypeDeclarationRowsInspectionRequest? rows,
         CancellationToken cancellationToken)
     {
         WorkspaceLibraryOperationIssueOutcome issued =
@@ -573,7 +586,8 @@ public sealed class WorkspaceDeclarationPopulation
                 LibraryTypeDeclarationInventoryInspection.Execute(
                     new(
                         access.Occurrence.Library,
-                        access.Bounds),
+                        access.Bounds,
+                        rows),
                     available.Lease,
                     cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();

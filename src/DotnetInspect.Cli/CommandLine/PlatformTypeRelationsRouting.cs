@@ -20,6 +20,7 @@ internal static class PlatformTypeRelationsRouting
             SubjectRelationPopulationRowsRequest? rows,
             RowSelectionIntent<string>? rowSelection,
             bool includeNonPublic,
+            WorkspaceContextLoadOptions capabilities,
             CommandContext context,
             NuGetSourceOptions sourceOptions,
             CancellationToken cancellationToken)
@@ -27,6 +28,7 @@ internal static class PlatformTypeRelationsRouting
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(capabilities);
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(sourceOptions);
 
@@ -57,6 +59,53 @@ internal static class PlatformTypeRelationsRouting
         bool workspaceClosed = false;
         try
         {
+            WorkspaceDeclarationContext focusContext =
+                await WorkspaceContextLoader.LoadDeclarationContextAsync(
+                        workspace,
+                        request.Context,
+                        capabilities,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            if (focusContext.Group is null)
+            {
+                ExactTypeRelationsInspectionOutcome.Unavailable unavailable =
+                    await CloseUnavailableAsync(
+                        workspace,
+                        "The requested Platform Library could not be loaded.")
+                    .ConfigureAwait(false);
+                workspaceClosed = true;
+                return unavailable;
+            }
+            WorkspaceDeclarationPopulation focusPopulation =
+                workspace.CaptureDeclarationPopulation([focusContext])
+                    is WorkspaceDeclarationPopulationCapture.Captured
+                        focusCapture
+                    ? focusCapture.Population
+                    : throw new InvalidOperationException(
+                        "The requested Platform Library could not be captured "
+                            + "as an exact focus population.");
+            WorkspaceExactTypeFocusOutcome focus =
+                WorkspaceExactTypeFocusQuery.Execute(
+                    focusPopulation,
+                    request.Type,
+                    request.SelectionKind,
+                    request.FocusAssemblyName,
+                    request.FocusLibrary,
+                    cancellationToken: cancellationToken);
+            if (focus
+                is not WorkspaceExactTypeFocusOutcome.Found found)
+            {
+                var focusUnavailable =
+                    (WorkspaceExactTypeFocusOutcome.Unavailable)focus;
+                ExactTypeRelationsInspectionOutcome.Unavailable unavailable =
+                    await CloseUnavailableAsync(
+                        workspace,
+                        focusUnavailable.Detail)
+                    .ConfigureAwait(false);
+                workspaceClosed = true;
+                return unavailable;
+            }
+
             WorkspaceRegistrationRevision registrations =
                 RegistrationSnapshot(workspace);
             WorkspaceLibraryAdmissionOutcome libraryAdmission =
@@ -107,7 +156,14 @@ internal static class PlatformTypeRelationsRouting
                 ExactTypeRelationsInspectionOperation.Execute(
                     workspace,
                     admitted.Context,
-                    request,
+                    request with
+                    {
+                        Type = found.Type.ToEscapedFullName(),
+                        SelectionKind =
+                            ExactTypeSelectionKind.DefinitionIdentity,
+                        FocusAssemblyName = null,
+                        FocusLibrary = null,
+                    },
                     plan,
                     count,
                     rows,
@@ -125,14 +181,20 @@ internal static class PlatformTypeRelationsRouting
         }
         finally
         {
-            if (!resourcesSettled)
+            try
             {
-                await PlatformTypeCatalogRouting.RetireAsync(completed)
-                    .ConfigureAwait(false);
+                if (!resourcesSettled)
+                {
+                    await PlatformTypeCatalogRouting.RetireAsync(completed)
+                        .ConfigureAwait(false);
+                }
             }
-            else if (!workspaceClosed)
+            finally
             {
-                await workspace.CloseAsync().ConfigureAwait(false);
+                if (!workspaceClosed)
+                {
+                    await workspace.CloseAsync().ConfigureAwait(false);
+                }
             }
         }
     }
@@ -147,6 +209,21 @@ internal static class PlatformTypeRelationsRouting
                 "A new Workspace must expose its initial registration "
                     + "revision."),
         };
+
+    private static async ValueTask<
+        ExactTypeRelationsInspectionOutcome.Unavailable>
+        CloseUnavailableAsync(
+            InspectionWorkspace workspace,
+            string detail)
+    {
+        InspectionWorkspaceCloseReport report =
+            await workspace.CloseAsync().ConfigureAwait(false);
+        return new(
+            report.Succeeded
+                ? detail
+                : $"{detail} The Platform focus Workspace could not be "
+                    + "retired.");
+    }
 
     private static string Describe(
         CliPlatformTypeCatalogOutcome.NotCompleted failure) =>

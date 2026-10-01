@@ -268,6 +268,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             WorkspaceDeclarationMember Member,
             WorkspaceLibraryOccurrence Occurrence)[] libraryAccesses =
             [.. population.ReadLibraryAccesses()];
+        WorkspaceBorrowedLibraryTypeResolver? libraryTypeResolver = null;
         int totalAccessCount =
             checked(accesses.Length + libraryAccesses.Length);
         var sources =
@@ -338,6 +339,8 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 cancellationToken.ThrowIfCancellationRequested();
                 ParticipantScan scan = ScanLibrary(
                     population,
+                    libraryAccesses,
+                    ref libraryTypeResolver,
                     member,
                     occurrence,
                     focusSelection,
@@ -559,6 +562,10 @@ public static class WorkspaceTypeHierarchyRelationsQuery
 
     private static ParticipantScan ScanLibrary(
         WorkspaceDeclarationPopulation population,
+        IReadOnlyList<(
+            WorkspaceDeclarationMember Member,
+            WorkspaceLibraryOccurrence Occurrence)> libraryAccesses,
+        ref WorkspaceBorrowedLibraryTypeResolver? typeResolver,
         WorkspaceDeclarationMember member,
         WorkspaceLibraryOccurrence occurrence,
         WorkspaceExactTypeFocusOutcome.Found focus,
@@ -634,14 +641,48 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             }
 
             examined++;
-            if (targetType == focus.Type
-                && targetAssembly.IsEquivalentTo(focus.Assembly))
+            if (targetType != focus.Type)
+                continue;
+
+            AssemblyReferenceIdentity? resolvedAssembly = null;
+            if (targetAssembly.IsEquivalentTo(focus.Assembly))
+            {
+                resolvedAssembly = targetAssembly;
+            }
+            else
+            {
+                typeResolver ??=
+                    new WorkspaceBorrowedLibraryTypeResolver(
+                        population,
+                        libraryAccesses.Select(
+                            static access => access.Member));
+                WorkspaceBorrowedLibraryTypeResolution resolution =
+                    typeResolver.Resolve(
+                        targetAssembly,
+                        targetType,
+                        cancellationToken);
+                if (resolution
+                    is WorkspaceBorrowedLibraryTypeResolution.Resolved
+                    {
+                        Assembly: var terminal,
+                    })
+                {
+                    if (terminal.IsEquivalentTo(focus.Assembly))
+                        resolvedAssembly = terminal;
+                }
+                else
+                {
+                    unavailable++;
+                }
+            }
+
+            if (resolvedAssembly is not null)
             {
                 matches.Add(
                     new(
                         graphOccurrence,
                         new(
-                            targetAssembly,
+                            resolvedAssembly,
                             targetType,
                             Definition: null)));
             }

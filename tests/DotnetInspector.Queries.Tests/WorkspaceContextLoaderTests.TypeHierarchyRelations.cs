@@ -2,7 +2,9 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using DotnetInspector.Fixtures;
+using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Packages;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGetFetch;
 
@@ -215,48 +217,8 @@ public sealed partial class WorkspaceContextLoaderTests
     [Fact]
     public async Task TypeHierarchyRelations_ResolveForwardedInterface()
     {
-        const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
-        const string TerminalAssembly = "Forwarded.Terminal";
-        const string FacadeAssembly = "Forwarded.Facade";
-        byte[] terminal = LocatorImage(
-            TerminalAssembly,
-            metadata => LocatorDefinition(
-                metadata,
-                "N",
-                "IContract",
-                TypeAttributes.Public
-                    | TypeAttributes.Interface
-                    | TypeAttributes.Abstract));
-        byte[] facade = LocatorImage(
-            FacadeAssembly,
-            metadata =>
-            {
-                AssemblyReferenceHandle terminalReference =
-                    AddAssemblyReference(metadata, TerminalAssembly);
-                metadata.AddExportedType(
-                    Forwarder,
-                    metadata.GetOrAddString("N"),
-                    metadata.GetOrAddString("IContract"),
-                    terminalReference,
-                    typeDefinitionId: 0);
-            });
-        byte[] candidate = LocatorImage(
-            "Forwarded.Candidate",
-            metadata =>
-            {
-                AssemblyReferenceHandle facadeReference =
-                    AddAssemblyReference(metadata, FacadeAssembly);
-                TypeReferenceHandle contract =
-                    metadata.AddTypeReference(
-                        facadeReference,
-                        metadata.GetOrAddString("N"),
-                        metadata.GetOrAddString("IContract"));
-                TypeDefinitionHandle implementation =
-                    LocatorDefinition(metadata, "N", "Implementation");
-                metadata.AddInterfaceImplementation(
-                    implementation,
-                    contract);
-            });
+        var (terminal, facade, candidate) =
+            ForwardedHierarchyImages();
         await using var workspace = new InspectionWorkspace();
         WorkspaceDeclarationPopulation population =
             CaptureDeclarations(
@@ -268,7 +230,8 @@ public sealed partial class WorkspaceContextLoaderTests
                     candidate));
         WorkspaceDeclarationMember terminalMember = Assert.Single(
             population.Receipt.Members,
-            member => member.AssemblyIdentity.Name == TerminalAssembly);
+            member =>
+                member.AssemblyIdentity.Name == "Forwarded.Terminal");
 
         WorkspaceTypeHierarchyRelationsResult result =
             WorkspaceTypeHierarchyRelationsQuery.Execute(
@@ -293,17 +256,105 @@ public sealed partial class WorkspaceContextLoaderTests
             "N.Implementation",
             source.Type.ToMetadataFullName());
         Assert.True(result.Evidence.IsComplete);
+    }
 
-        static AssemblyReferenceHandle AddAssemblyReference(
-            MetadataBuilder metadata,
-            string name) =>
-            metadata.AddAssemblyReference(
-                metadata.GetOrAddString(name),
-                new Version(1, 0, 0, 0),
-                culture: default,
-                publicKeyOrToken: default,
-                flags: default,
-                hashValue: default);
+    [Fact]
+    public async Task
+        TypeHierarchyRelations_BorrowedLibrariesResolveForwardedInterface()
+    {
+        var (terminal, facade, candidate) =
+            ForwardedHierarchyImages();
+        var images = new Dictionary<string, byte[]>(
+            StringComparer.Ordinal)
+        {
+            ["Forwarded.Terminal"] = terminal,
+            ["Forwarded.Facade"] = facade,
+            ["Forwarded.Candidate"] = candidate,
+        };
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationContext loaded = await LocatorContext(
+            workspace,
+            terminal,
+            facade,
+            candidate);
+        var contexts = new List<WorkspaceDeclarationContext>();
+        foreach (AssemblyContextParticipant participant
+            in loaded.Group!.Participants)
+        {
+            byte[] image = images[participant.Assembly.Identity.Name];
+            var materialized = Assert.IsType<
+                AssemblyContextLibraryAdapterResult.Completed>(
+                    await AssemblyContextLibraryAdapter.MaterializeAsync(
+                        loaded.Group,
+                        participant,
+                        AssemblyContextLibraryRole.ApiOnly,
+                        new(image.Length, image.Length),
+                        TestContext.Current.CancellationToken));
+            WorkspaceRegistrationRevision registrations =
+                Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                    workspace.GetRegistrationSnapshot()).Revision;
+            var accepted = Assert.IsType<
+                WorkspaceLibraryAdmissionOutcome.Accepted>(
+                    await workspace.AdmitLibraryBatchAsync(
+                        registrations,
+                        materialized.Artifacts,
+                        [materialized.Owner]));
+            WorkspaceDeclarationMember original = Assert.Single(
+                loaded.Receipt.Members,
+                member => member.AssemblyIdentity.IsEquivalentTo(
+                    participant.Assembly.Identity));
+            var admitted = Assert.IsType<
+                WorkspaceLibraryDeclarationContextAdmissionOutcome.Admitted>(
+                    WorkspaceLibraryDeclarationContextAdmission.Admit(
+                        workspace,
+                        accepted.Receipt,
+                        loaded.Receipt.Request,
+                        [
+                            new(
+                                new ExactLibrarySourceCoordinate.Local(
+                                    new ManagedMetadataIdentity.Assembly(
+                                        participant.Assembly.Identity)),
+                                participant.Assembly.Identity,
+                                original.Origin,
+                                original.Selection),
+                        ],
+                        new(
+                            maximumAssemblyBytes: image.Length,
+                            maximumRetainedDeclarations: 100,
+                            maximumMetadataRows: 1_000,
+                            maximumRetainedTextCharacters: 10_000)));
+            contexts.Add(admitted.Context);
+        }
+
+        WorkspaceDeclarationPopulation population =
+            CaptureDeclarations(workspace, [.. contexts]);
+        WorkspaceDeclarationMember terminalMember = Assert.Single(
+            population.Receipt.Members,
+            member =>
+                member.AssemblyIdentity.Name == "Forwarded.Terminal");
+
+        WorkspaceTypeHierarchyRelationsResult result =
+            WorkspaceTypeHierarchyRelationsQuery.Execute(
+                workspace,
+                population,
+                new(
+                    terminalMember.AssemblyIdentity,
+                    terminalMember.Occurrence,
+                    LocatorName("N", "IContract")),
+                form: SubjectRelationForm.Interface,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        SubjectRelationRow row = Assert.Single(result.Rows);
+        var source = Assert.IsType<
+            InspectionGraphTypeIdentity.AcquiredDefinition>(
+                Assert.IsType<InspectionGraphSubject.TypeSubject>(
+                    row.Source).Identity);
+        Assert.Equal(
+            "N.Implementation",
+            source.Type.ToMetadataFullName());
+        Assert.True(result.Evidence.IsComplete);
+        Assert.Equal(1, result.CandidateCount);
     }
 
     [Fact]
@@ -398,5 +449,64 @@ public sealed partial class WorkspaceContextLoaderTests
                         implementation,
                         contract);
                 });
+    }
+
+    private static (byte[] Terminal, byte[] Facade, byte[] Candidate)
+        ForwardedHierarchyImages()
+    {
+        const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
+        const string terminalAssembly = "Forwarded.Terminal";
+        const string facadeAssembly = "Forwarded.Facade";
+        byte[] terminal = LocatorImage(
+            terminalAssembly,
+            metadata => LocatorDefinition(
+                metadata,
+                "N",
+                "IContract",
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract));
+        byte[] facade = LocatorImage(
+            facadeAssembly,
+            metadata =>
+            {
+                AssemblyReferenceHandle terminalReference =
+                    AddAssemblyReference(metadata, terminalAssembly);
+                metadata.AddExportedType(
+                    Forwarder,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("IContract"),
+                    terminalReference,
+                    typeDefinitionId: 0);
+            });
+        byte[] candidate = LocatorImage(
+            "Forwarded.Candidate",
+            metadata =>
+            {
+                AssemblyReferenceHandle facadeReference =
+                    AddAssemblyReference(metadata, facadeAssembly);
+                TypeReferenceHandle contract =
+                    metadata.AddTypeReference(
+                        facadeReference,
+                        metadata.GetOrAddString("N"),
+                        metadata.GetOrAddString("IContract"));
+                TypeDefinitionHandle implementation =
+                    LocatorDefinition(metadata, "N", "Implementation");
+                metadata.AddInterfaceImplementation(
+                    implementation,
+                    contract);
+            });
+        return (terminal, facade, candidate);
+
+        static AssemblyReferenceHandle AddAssemblyReference(
+            MetadataBuilder metadata,
+            string name) =>
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(name),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
     }
 }

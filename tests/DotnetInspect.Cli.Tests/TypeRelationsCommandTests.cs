@@ -111,6 +111,33 @@ public sealed class TypeRelationsCommandTests
     }
 
     [Fact]
+    public async Task PinnedPlatformCoordinateRetainsRequestedLibraryFocus()
+    {
+        var (_, _, version, error) = PlatformResolver.ResolveAssembly(
+            "System.Private.CoreLib",
+            "runtime");
+        Assert.Null(error);
+        Assert.NotNull(version);
+        var result = await ExecuteAsync(
+            "type",
+            typeof(Stream).FullName!,
+            "--platform",
+            "System.Linq",
+            "--framework",
+            $"runtime@{version!}",
+            "-S",
+            "Derived Types",
+            "--count");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "exact Type focus could not be resolved",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ProjectedJsonHonorsSelectedColumns()
     {
         var result = await ExecuteAsync(
