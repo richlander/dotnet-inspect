@@ -82,7 +82,9 @@ For one `PackageDependencyMemberCallGraphInspectionRequest` whose effective
 focal length admits a registered Platform population, the inspection:
 
 1. builds the package-only predecessor graph through
-   `PackageDependencyMemberCallGraphOperation`, as today;
+   `PackageDependencyMemberCallGraphOperation`, as today, passing the
+   `DotNetRuntime` prune inputs to edge realization when the
+   [pruning precondition](#pruning-precondition) holds;
 2. when that graph reports intrinsic CoreLib non-participation and the focal
    scope admits the `DotNetRuntime` population, evaluates
    `IntrinsicCoreLibraryPlatformApplicabilityQuery` for the exact
@@ -95,11 +97,10 @@ focal length admits a registered Platform population, the inspection:
    package participants plus the certified `DotNetRuntime` participants;
 4. classifies every node owned by a certified Platform participant as a
    Platform node in the outcome, alongside Package nodes; and
-5. passes the `DotNetRuntime` `PlatformPruneInventory` to edge realization
-   only under the [pruning precondition](#pruning-precondition), so pruned
-   dependencies become the existing
-   `PackageDependencyMemberCallGraphDestination.Platform` route rather than
-   package participants.
+5. under that precondition, never realizes or graphs pruned dependencies as
+   package participants in either graph. They are the existing
+   `PackageDependencyMemberCallGraphDestination.Platform` route; the mixed
+   graph binds calls into them to Platform participants.
 
 The inspection never infers Platform membership, CoreLib entitlement, or
 pruning from an assembly name, namespace, package id, or display text.
@@ -130,22 +131,36 @@ it, each selected family keeps its own exact target.
 
 ### Pruning precondition
 
-Pruning removes a package participant. It is safe only when the graph can
-reach the replacement, so the inspection prunes only when all hold:
+Pruning removes a package participant, and it must also avoid that package's
+acquisition. So the inspection decides once, before it realizes the
+predecessor, using only request-time facts. It prunes only when all of these
+hold:
 
 - the exact Workspace revision contains the selected `ecosystem.runtime`
   registration, which is the only pruning switch defined by
   [Platform package pruning](platform-package-pruning.md#explicit-net-runtime-ecosystem-presence-is-the-switch);
-- the exact-target certified `DotNetRuntime` population is admitted into this
-  graph context; and
+- the focal scope admits the `DotNetRuntime` population, and the host
+  supplies its prune inventory for the exact `DotNetRuntime` target at the
+  traversal framework; and
 - package-origin `AssemblyRef` to Platform binding (#8466) is available, so a
-  call from a package into a pruned package's assembly binds to the Platform
+  call from a package into a pruned package's assembly can bind to a Platform
   participant.
 
 Otherwise the inspection does not prune, and keeps today's behavior: subsumed
-packages remain package participants. A pruned call never simply disappears
-from the graph. If binding still fails after pruning, the call target carries
-the typed binding outcome from #8466.
+packages remain package participants in both graphs.
+
+The decision does not wait for Platform admission, because admission happens
+only after the predecessor is built. The predecessor and the mixed graph use
+the same pruned realization set, and neither ever realizes a pruned package.
+A pruned call never simply disappears and is never counted as generically
+unclassified:
+
+- In the mixed graph, it binds to the admitted Platform participant, or
+  carries the typed binding outcome from #8466.
+- When the predecessor is the result, it carries its typed `Platform` route
+  plus the reason the Platform was not admitted. That reason is the
+  continuation outcome, exact-target unavailability, or no intrinsic CoreLib
+  non-participation to continue from.
 
 ### Generation restart
 
@@ -239,9 +254,10 @@ product usable after every slice.
    Inspect Web, preserving the motivating URL, and hand off expansion-loop
    retirement to the ladder's stage 8.
 3. **Pruning (CLI).** Depends on slice 1 and #8466. Supply the
-   `DotNetRuntime` prune inventory and exact target to edge realization under the pruning precondition. Subsumed
-   packages are no longer realized or graphed as package participants, and
-   their calls bind to Platform participants. Dependency traversal may still
+   `DotNetRuntime` prune inventory and exact target to the predecessor's
+   edge realization under the pruning precondition. Subsumed packages are no
+   longer realized or graphed as package participants in either graph, and
+   their calls bind to Platform participants in the mixed graph. Dependency traversal may still
    read their manifests, because `PackageDependencyTraversalRequest` takes no
    pruning input. Pruning during traversal is a separate traversal-owner
    change and is not claimed here.
@@ -262,6 +278,7 @@ sites in their PR demos.
 | Continuation rejected or failed | Predecessor graph plus the typed continuation outcome |
 | Cancelled during any phase | Cancellation propagates; no envelope |
 | Pruning precondition unmet, including no `ecosystem.runtime` registration | No pruning; subsumed packages stay package participants |
+| Pruned, then continuation does not publish | Pruned packages never realized; their calls carry the typed `Platform` route and non-admission reason |
 | `AspNetCore`-subsumed package dependency | Not pruned; remains a package participant |
 | Equivalent CLI and Web inputs | Equal host-neutral outcomes |
 
