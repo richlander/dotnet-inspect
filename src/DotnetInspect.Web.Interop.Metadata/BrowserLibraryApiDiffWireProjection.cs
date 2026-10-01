@@ -582,11 +582,11 @@ internal static class BrowserLibraryApiDiffWireProjection
     }
 
     static bool HasTextMode(LibraryApiMemberRelation relation) =>
-        SupportsTextMode(relation.Before)
-        || SupportsTextMode(relation.After);
+        (relation.Before is null || SupportsTextMode(relation.Before))
+        && (relation.After is null || SupportsTextMode(relation.After));
 
-    static bool SupportsTextMode(LibraryApiMemberIdentity? member) =>
-        member?.Kind is "method" or "constructor";
+    static bool SupportsTextMode(LibraryApiMemberIdentity member) =>
+        member.AnchorKind is ApiMemberAnchorKind.Method;
 
     static BrowserLibraryApiDiffMemberExploreDestination? Explore(
         BrowserLibraryApiDiffEndpoint target,
