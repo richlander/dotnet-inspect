@@ -398,7 +398,7 @@ public static class ImplementationComplexityService
                        }
                        && address.ModuleVersionId == moduleVersionId
                        && address.Token
-                           == entry.Profile.EvidenceMethod.MetadataToken));
+                           == entry.Profile.Method.MetadataToken));
 
     static ImplementationComplexityDiff Unavailable(string reason)
         => new(false, reason, []);

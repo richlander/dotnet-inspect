@@ -201,7 +201,7 @@ public static partial class ImplementationDiff
             .Get<CanonicalIlOperation>(IlFindings.OperationDescriptor)
             .Select(comparison => (
                 comparison.Subject,
-                Comparison: CreateOneSidedIlComparison(
+                Comparison: CreateNonPairedIlComparison(
                     comparison.Comparison)))
             .Where(item => item.Comparison is not null)
             .ToDictionary(
@@ -310,15 +310,13 @@ public static partial class ImplementationDiff
                 : [.. member.Changes.Select(CreateEvidence)],
             ilFindingComparison);
 
-    static ImplementationDiffIlFindingComparison? CreateOneSidedIlComparison(
+    static ImplementationDiffIlFindingComparison? CreateNonPairedIlComparison(
         FindingComparison<CanonicalIlOperation> comparison)
     {
         if (comparison.Value is not
             FindingComparison<CanonicalIlOperation>.Complete complete
-            || (complete.Transition.Old
-                    != FindingInspectionState.SubjectAbsent
-                && complete.Transition.New
-                    != FindingInspectionState.SubjectAbsent))
+            || (complete.Transition.Old == FindingInspectionState.Complete
+                && complete.Transition.New == FindingInspectionState.Complete))
         {
             return null;
         }
@@ -479,7 +477,11 @@ public static partial class ImplementationDiff
         {
             ResearchChangeMechanism.CSharp => [
                 .. changes
-                    .Where(change => change.CSharpFailureRow is not null)
+                    .Where(change =>
+                        change.CSharpFailureRow is not null
+                        || change.Descriptor.Id
+                            is "csharp.inspection.unavailable"
+                                or "csharp.producer.unavailable")
                     .Select(change => change.Subject.Id),
             ],
             ResearchChangeMechanism.IlBody => [
@@ -487,7 +489,10 @@ public static partial class ImplementationDiff
                     .Where(change =>
                         change.IlFailureRow is not null
                         || change.IlBodyDiff?.Outcome
-                            == IlBodyDiffOutcome.Unavailable)
+                            == IlBodyDiffOutcome.Unavailable
+                        || change.Descriptor.Id
+                            is "il.inspection.unavailable"
+                                or "il.producer.unavailable")
                     .Select(change => change.Subject.Id),
             ],
             _ => [],

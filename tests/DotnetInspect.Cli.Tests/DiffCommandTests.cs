@@ -2089,6 +2089,39 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void AnalysisSet_NonMethodImplementationTargetRejectsBeforeApiRuns()
+    {
+        string oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        string newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+        ApiSurface oldSurface = AssemblyReader.ExtractApiSurface(oldPath)!;
+        ApiSurface newSurface = AssemblyReader.ExtractApiSurface(newPath)!;
+
+        var error = Assert.Throws<DiffAnalysisTargetException>(() =>
+            DiffCommand.BuildAnalysisTransitions(
+                [oldPath],
+                [newPath],
+                oldSurface,
+                newSurface,
+                "v1",
+                "v2",
+                new DiffOptions
+                {
+                    Analysis = ["api", "il"],
+                    TypeFilter =
+                    [
+                        "DiffFixtureSample.DiffSample.FieldTokenHolder",
+                    ],
+                    MemberFilter = ["InstanceA"],
+                }));
+
+        Assert.Contains(
+            "method-like target",
+            error.Message,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("InstanceA", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BuildImplementationDiff_VersionPair_ProjectsCSharpAndIlEvidence()
     {
         var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();

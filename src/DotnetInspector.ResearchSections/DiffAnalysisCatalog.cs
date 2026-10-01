@@ -126,6 +126,22 @@ public static class DiffAnalysisCatalog
     /// <summary>The host-neutral capability module registering Diff's analyses.</summary>
     public static InspectionCapabilityModule ProductModule { get; }
 
+    /// <summary>
+    /// Whether the selected Compare set dispatches the retained implementation
+    /// producer route.
+    /// </summary>
+    public static bool RequiresImplementation(
+        AnalysisSetValidationResult.Accepted selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return selection.Analyses.Any(analysis =>
+            Registrations
+                .Single(registration =>
+                    ReferenceEquals(registration.Analysis, analysis))
+                .ProducerFor(selection.Operation, selection.Surface)?
+                .Participation.ProducerRoute == RetainedResearchRoute);
+    }
+
     static InspectionAnalysisRegistration RegisterBody(
         string identity,
         FindingDescriptor descriptor,

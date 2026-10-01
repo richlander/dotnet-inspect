@@ -188,6 +188,19 @@ public static partial class ResearchDiff
                             projected.ApiComparison,
                             projected.RetainedComparisons));
                     }
+                    else
+                    {
+                        comparisons.Add(new ResearchComparison(
+                            ProjectFindingComparison(
+                                produced.Result.Findings,
+                                subject,
+                                ResearchChangeMechanism.CSharp,
+                                ResearchChangeCategory.CSharp,
+                                CSharpFindings.InspectionDescriptor,
+                                "csharp",
+                                "C# line",
+                                static line => line.Text)));
+                    }
                     break;
                 case ResearchProducerWorkOutcome.ProducedIlBody produced:
                     retained.Add(new RetainedFindingComparison<CanonicalIlOperation>(
@@ -196,6 +209,37 @@ public static partial class ResearchDiff
                         produced.Result.Findings));
                     if (produced.Result.MemberDiff is { } il)
                         comparisons.Add(FromIlBodyDiff(il.Diff, subject));
+                    else
+                    {
+                        comparisons.Add(new ResearchComparison(
+                            ProjectFindingComparison(
+                                produced.Result.Findings,
+                                subject,
+                                ResearchChangeMechanism.IlBody,
+                                ResearchChangeCategory.IlBody,
+                                IlFindings.InspectionDescriptor,
+                                "il",
+                                "IL operation",
+                                static operation => operation.Display)));
+                    }
+                    break;
+                case ResearchProducerWorkOutcome.Unavailable unavailable:
+                    comparisons.Add(new ResearchComparison(
+                    [
+                        ProducerUnavailableChange(
+                            subject,
+                            work.Item.Producer,
+                            unavailable.Reason),
+                    ]));
+                    break;
+                case ResearchProducerWorkOutcome.Failed failed:
+                    comparisons.Add(new ResearchComparison(
+                    [
+                        ProducerFailedChange(
+                            subject,
+                            work.Item.Producer,
+                            failed.Diagnostic),
+                    ]));
                     break;
             }
         }
@@ -209,6 +253,190 @@ public static partial class ResearchDiff
             combined.ApiComparison,
             new RetainedFindingComparisonSet(retained));
     }
+
+    static ImmutableArray<ResearchChange> ProjectFindingComparison<T>(
+        FindingComparison<T> comparison,
+        ResearchSubjectKey subject,
+        ResearchChangeMechanism mechanism,
+        ResearchChangeCategory category,
+        FindingDescriptor failureDescriptor,
+        string descriptorPrefix,
+        string descriptorTitle,
+        Func<T, string> display)
+        where T : notnull
+    {
+        if (comparison is FindingComparison<T>.Failed)
+        {
+            var failed = (FindingComparison<T>.Failed)comparison.Value;
+            return
+            [
+                ImplementationDiff.FindingFailureChange(
+                    subject,
+                    mechanism,
+                    category,
+                    failureDescriptor,
+                    failed.Failure),
+            ];
+        }
+
+        var complete = (FindingComparison<T>.Complete)comparison.Value;
+        var changes = ImmutableArray.CreateBuilder<ResearchChange>();
+        foreach (PairFinding<T> pair in complete.Pairs)
+        {
+            switch (pair)
+            {
+                case PairFinding<T>.Added:
+                    var added = (PairFinding<T>.Added)pair.Value!;
+                    changes.Add(FindingChange(
+                        subject,
+                        mechanism,
+                        category,
+                        $"{descriptorPrefix}.finding.added",
+                        descriptorTitle,
+                        ResearchChangeKind.Added,
+                        newValue: display(added.New.Payload),
+                        detail: added.Detail));
+                    break;
+                case PairFinding<T>.Removed:
+                    var removed = (PairFinding<T>.Removed)pair.Value!;
+                    changes.Add(FindingChange(
+                        subject,
+                        mechanism,
+                        category,
+                        $"{descriptorPrefix}.finding.removed",
+                        descriptorTitle,
+                        ResearchChangeKind.Removed,
+                        oldValue: display(removed.Old.Payload),
+                        detail: removed.Detail));
+                    break;
+                case PairFinding<T>.Changed:
+                    var changed = (PairFinding<T>.Changed)pair.Value!;
+                    changes.Add(FindingChange(
+                        subject,
+                        mechanism,
+                        category,
+                        $"{descriptorPrefix}.finding.changed",
+                        descriptorTitle,
+                        ResearchChangeKind.Changed,
+                        display(changed.Old.Payload),
+                        display(changed.New.Payload),
+                        changed.Detail));
+                    break;
+            }
+        }
+
+        AddInspectionTransition(
+            changes,
+            subject,
+            mechanism,
+            category,
+            complete.Transition);
+        return changes.ToImmutable();
+    }
+
+    static ResearchChange FindingChange(
+        ResearchSubjectKey subject,
+        ResearchChangeMechanism mechanism,
+        ResearchChangeCategory category,
+        string descriptorId,
+        string descriptorTitle,
+        ResearchChangeKind kind,
+        string? oldValue = null,
+        string? newValue = null,
+        string? detail = null)
+        => new(
+            subject,
+            mechanism,
+            Descriptor(descriptorId, descriptorTitle),
+            kind,
+            oldValue,
+            newValue,
+            detail: detail,
+            category: category);
+
+    static void AddInspectionTransition(
+        ImmutableArray<ResearchChange>.Builder changes,
+        ResearchSubjectKey subject,
+        ResearchChangeMechanism mechanism,
+        ResearchChangeCategory category,
+        FindingInspectionTransition transition)
+    {
+        if (transition.IsSameTopology)
+            return;
+
+        bool unavailable =
+            transition.Old == FindingInspectionState.NoApplicableInput
+            || transition.New == FindingInspectionState.NoApplicableInput;
+        string prefix = mechanism == ResearchChangeMechanism.CSharp
+            ? "csharp"
+            : "il";
+        changes.Add(FindingChange(
+            subject,
+            mechanism,
+            category,
+            unavailable
+                ? $"{prefix}.inspection.unavailable"
+                : $"{prefix}.inspection.transition",
+            unavailable
+                ? "Inspection unavailable"
+                : "Inspection transition",
+            ResearchChangeKind.Changed,
+            transition.Old.ToString(),
+            transition.New.ToString(),
+            $"Inspection state changed from {transition.Old} "
+                + $"to {transition.New}."));
+    }
+
+    static ResearchChange ProducerUnavailableChange(
+        ResearchSubjectKey subject,
+        ResearchProducerKind producer,
+        ResearchProducerUnavailable unavailable)
+    {
+        (ResearchChangeMechanism mechanism, ResearchChangeCategory category,
+            string prefix) = ProducerClassification(producer);
+        return FindingChange(
+            subject,
+            mechanism,
+            category,
+            $"{prefix}.producer.unavailable",
+            "Producer unavailable",
+            ResearchChangeKind.Changed,
+            detail: unavailable.Summary);
+    }
+
+    static ResearchChange ProducerFailedChange(
+        ResearchSubjectKey subject,
+        ResearchProducerKind producer,
+        ResearchProducerDiagnostic diagnostic)
+    {
+        (ResearchChangeMechanism mechanism, ResearchChangeCategory category,
+            string _) = ProducerClassification(producer);
+        FindingDescriptor descriptor = producer == ResearchProducerKind.CSharp
+            ? CSharpFindings.InspectionDescriptor
+            : IlFindings.InspectionDescriptor;
+        return ImplementationDiff.FindingFailureChange(
+            subject,
+            mechanism,
+            category,
+            descriptor,
+            diagnostic.Summary);
+    }
+
+    static (ResearchChangeMechanism Mechanism,
+        ResearchChangeCategory Category,
+        string Prefix) ProducerClassification(ResearchProducerKind producer)
+        => producer switch
+        {
+            ResearchProducerKind.CSharp => (
+                ResearchChangeMechanism.CSharp,
+                ResearchChangeCategory.CSharp,
+                "csharp"),
+            ResearchProducerKind.IlBody => (
+                ResearchChangeMechanism.IlBody,
+                ResearchChangeCategory.IlBody,
+                "il"),
+            _ => throw new ArgumentOutOfRangeException(nameof(producer)),
+        };
 
     static ResearchSubjectKey SubjectFromWorkBasis(
         ResearchTargetResolution resolution,

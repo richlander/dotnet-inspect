@@ -227,6 +227,40 @@ public static class ImplementationComparisonQuery
                             })));
         }
 
+        ResearchTargetCorrespondenceOutcome[] unavailableCorrespondences =
+        [
+            .. resolved.Resolution.Correspondences.Where(correspondence =>
+                correspondence is
+                    ResearchTargetCorrespondenceOutcome.CounterpartUnavailable
+                    or ResearchTargetCorrespondenceOutcome.DomainUnavailable),
+        ];
+        if (unavailableCorrespondences.Length > 0)
+        {
+            return new ImplementationComparisonResult.TargetFailed(
+                resolved.Resolution,
+                $"{unavailableCorrespondences.Length} selected member "
+                    + "correspondence outcome(s) were unavailable. "
+                    + string.Join(
+                        "; ",
+                        unavailableCorrespondences.Select(correspondence =>
+                            correspondence switch
+                            {
+                                ResearchTargetCorrespondenceOutcome
+                                    .CounterpartUnavailable unavailable =>
+                                    $"{unavailable.Attempt.Request.Side}: "
+                                        + $"{unavailable.Target.Anchor.StableSelector}, "
+                                        + $"counterpart unavailable "
+                                        + $"({unavailable.Taint.Kind})",
+                                ResearchTargetCorrespondenceOutcome
+                                    .DomainUnavailable unavailable =>
+                                    $"domain {unavailable.Domain.Key.Identity.Name} "
+                                        + $"unavailable "
+                                        + $"({unavailable.Taint.Kind})",
+                                _ => throw new InvalidOperationException(
+                                    "Unknown unavailable correspondence outcome."),
+                            })));
+        }
+
         ResearchProducerSessionOutcome session =
             ResearchProducerSession.Run(
                 new ResearchProducerSessionRequest(

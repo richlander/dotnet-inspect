@@ -452,6 +452,28 @@ public partial class DiffCommand
             _ => [],
         };
 
+        ImplementationDiffResult? implementation = null;
+        if (DiffAnalysisCatalog.RequiresImplementation(selection))
+        {
+            try
+            {
+                implementation = RequireImplementationComparison(
+                    ImplementationComparisonQuery.Execute(
+                        CreateImplementationComparisonInput(
+                            fromPaths,
+                            toPaths,
+                            options,
+                            fromSurface,
+                            toSurface)),
+                    "--analysis");
+            }
+            catch (InvalidOperationException ex)
+                when (ex is not DiffAnalysisTargetException)
+            {
+                throw new DiffAnalysisTargetException(ex.Message);
+            }
+        }
+
         var input = new DiffAnalysisInput(
             fromSurface,
             toSurface,
@@ -471,15 +493,9 @@ public partial class DiffCommand
                         descriptors)),
                 options,
                 "--analysis"),
-            () => RequireImplementationComparison(
-                ImplementationComparisonQuery.Execute(
-                    CreateImplementationComparisonInput(
-                        fromPaths,
-                        toPaths,
-                        options,
-                        fromSurface,
-                        toSurface)),
-                "--analysis"));
+            implementation is null
+                ? null
+                : () => implementation);
         return new AnalysisSetRun(
             DiffAnalysisInspection.Execute(
                 new DiffAnalysisInspectionRequest(
