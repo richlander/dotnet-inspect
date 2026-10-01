@@ -75,51 +75,66 @@ public class FindCommand
                 CommandError.Write("No pattern specified.");
                 return new(1, RowCount: null);
             }
+            FindOptions searchOptions =
+                CreateSearchOptions(options);
 
             PlatformFindSearchWorkspace? platformWorkspace = null;
-            if (options.UsesImplicitPlatform)
+            if (searchOptions.UsesImplicitPlatform)
             {
                 logger.Log(
                     "No scope specified, defaulting to the platform Workspace");
                 platformWorkspace =
                     await PlatformFindSearchWorkspace.OpenAsync(
-                        options,
+                        searchOptions,
                         context,
                         cancellationToken);
             }
             await using PlatformFindSearchWorkspace? platformWorkspaceLifetime =
                 platformWorkspace;
+            ExplicitFindSearchWorkspace? explicitWorkspace =
+                platformWorkspace is null
+                    ? new(
+                        searchOptions,
+                        context.HttpClient,
+                        logger.Log,
+                        cancellationToken)
+                    : null;
+            await using ExplicitFindSearchWorkspace? explicitWorkspaceLifetime =
+                explicitWorkspace;
 
             if (options.Members)
             {
                 return await ExecuteMemberSearchAsync(
-                    options,
+                    searchOptions,
                     patterns,
                     rowSelection,
                     logger,
                     context.HttpClient,
                     cancellationToken,
-                    platformWorkspace);
+                    platformWorkspace,
+                    explicitWorkspace);
             }
 
             FindSearchResult<TypeFindResult> search =
                 await TypeSearchService.FindTypesAsync(
-                    options,
+                    searchOptions,
                     patterns,
                     logger,
                     context.HttpClient,
                     cancellationToken,
                     context,
-                    platformWorkspace);
+                    platformWorkspace,
+                    explicitWorkspace);
             FindSearchResult<MemberFindResult>? memberTier =
                 await FindBroadenedMembersAsync(
-                    options,
+                    searchOptions,
                     patterns,
                     search.Rows,
                     logger,
                     context.HttpClient,
                     cancellationToken,
-                    platformWorkspace);
+                    platformWorkspace,
+                    explicitWorkspace);
             List<MemberFindResult> members = memberTier?.Rows ?? [];
             List<TypeFindResult> results =
                 WithoutSupersededWeakRows(search.Rows, members);
@@ -209,11 +224,26 @@ public class FindCommand
         }
     }
 
+    private static FindOptions CreateSearchOptions(
+        FindOptions options)
+    {
+        if (options.QueryPlan?.ResultLimit is not int resultLimit)
+        {
+            return options;
+        }
+
+        int effectiveLimit =
+            options.Limit is int existingLimit
+                ? Math.Min(existingLimit, resultLimit)
+                : resultLimit;
+        return options with { Limit = effectiveLimit };
+    }
+
     /// <summary>
-    /// The broadened tier's member source (find-search-service.md#tier-ladder):
-    /// an undotted, non-wildcard pattern whose Type answer has no Direct,
-    /// Glob, Namespace, or Prefix row also runs Member Find's Direct grammar
-    /// over the same authorized sources.
+    /// The separately composed member source: an undotted, non-wildcard
+    /// pattern whose Type answer has no Exact, Direct, Glob, Namespace, or
+    /// Prefix row also runs Member Find's Direct grammar over the same
+    /// authorized sources.
     /// </summary>
     private static async Task<FindSearchResult<MemberFindResult>?>
         FindBroadenedMembersAsync(
@@ -223,11 +253,19 @@ public class FindCommand
             VerboseLogger logger,
             HttpClient httpClient,
             CancellationToken cancellationToken,
-            PlatformFindSearchWorkspace? platformWorkspace)
+            PlatformFindSearchWorkspace? platformWorkspace,
+            ExplicitFindSearchWorkspace? explicitWorkspace)
     {
+        if (options.Limit is int limit
+            && typeRows.Count >= limit)
+        {
+            return null;
+        }
+
         HashSet<string> settled = new(
             typeRows
-                .Where(static row => row.Match is TypeFindMatchKind.Direct
+                .Where(static row => row.Match is TypeFindMatchKind.Exact
+                    or TypeFindMatchKind.Direct
                     or TypeFindMatchKind.Glob
                     or TypeFindMatchKind.Namespace
                     or TypeFindMatchKind.Prefix)
@@ -249,7 +287,8 @@ public class FindCommand
             logger,
             httpClient,
             cancellationToken,
-            platformWorkspace);
+            platformWorkspace,
+            explicitWorkspace);
     }
 
     /// <summary>
@@ -308,8 +347,8 @@ public class FindCommand
     }
 
     /// <summary>
-    /// A pattern answered by member rows no longer reaches the similarity
-    /// tier, and is no longer a miss.
+    /// A pattern answered by member rows omits its weak Type rows and is no
+    /// longer a miss.
     /// </summary>
     private static List<TypeFindResult> WithoutSupersededWeakRows(
         List<TypeFindResult> typeRows,
@@ -366,7 +405,8 @@ public class FindCommand
         VerboseLogger logger,
         HttpClient httpClient,
         CancellationToken cancellationToken,
-        PlatformFindSearchWorkspace? platformWorkspace)
+        PlatformFindSearchWorkspace? platformWorkspace,
+        ExplicitFindSearchWorkspace? explicitWorkspace)
     {
         // Strip the leading '.' sentinel from each segment so ".Serialize" and "Serialize" both search
         // the member named "Serialize". ".ctor"/".cctor" are preserved (they are real member names).
@@ -388,7 +428,8 @@ public class FindCommand
                 logger,
                 httpClient,
                 cancellationToken,
-                platformWorkspace);
+                platformWorkspace,
+                explicitWorkspace);
         List<MemberFindResult> results = search.Rows;
         int observedRowCount = results.Count;
         if (!TrySelectRows(
@@ -637,4 +678,20 @@ public record class TypeSearchResult
 
     [JsonIgnore]
     public TypeDeclarationLocatorSectionCandidate? Location { get; set; }
+
+    [JsonIgnore]
+    public AssemblyAcquisitionRegistration? AcquisitionRegistration
+    {
+        get;
+        set;
+    }
+
+    [JsonIgnore]
+    internal string? ClassifiedPattern { get; set; }
+
+    [JsonIgnore]
+    internal FindTypeMatchIntent ClassifiedIntent { get; set; }
+
+    [JsonIgnore]
+    internal TypeFindResult? Classification { get; set; }
 }
