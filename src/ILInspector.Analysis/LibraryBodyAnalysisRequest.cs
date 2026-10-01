@@ -133,6 +133,18 @@ public sealed class LibraryBodyAnalysisRequest
             bodyScope);
 
     /// <summary>
+    /// Selects source-native Calls-row cardinalities for an explicit method
+    /// scope under finite work bounds.
+    /// </summary>
+    public static LibraryBodyAnalysisRequest CreateCallSiteCounts(
+        ImplementationMetricWorkLimits limits,
+        IReadOnlySet<int> bodyScope) =>
+        CreateImplementationMetrics(
+            ImplementationMetricKind.CallSiteCount,
+            limits,
+            bodyScope);
+
+    /// <summary>
     /// Selects Resource Occurrence Analysis with explicit admitted effect
     /// semantics. The producer is parameterized and therefore intentionally
     /// does not participate in <see cref="LibraryBodyAnalysisFeatures.All"/>.

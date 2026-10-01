@@ -34,6 +34,9 @@ internal sealed record ImplementationMetricControlFlow(
 internal sealed record ImplementationMetricDirectCallCount(
     int Count);
 
+internal sealed record ImplementationMetricCallSiteCount(
+    int Count);
+
 internal sealed record ImplementationMetricDirectCalls(
     int InvocationCount,
     int DistinctTargetCount,
@@ -58,6 +61,7 @@ internal sealed record MethodImplementationMetricEvidence(
     ImplementationMetricInstructionShape? InstructionShape,
     ImplementationMetricControlFlow? ControlFlow,
     ImplementationMetricDirectCallCount? DirectCallCount,
+    ImplementationMetricCallSiteCount? CallSiteCount,
     ImplementationMetricDirectCalls? DirectCalls)
 {
     internal bool DirectCallCollectionAttempted { get; init; }

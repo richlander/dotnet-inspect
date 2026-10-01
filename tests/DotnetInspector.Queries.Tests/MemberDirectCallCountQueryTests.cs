@@ -91,6 +91,30 @@ public sealed class MemberDirectCallCountQueryTests
                 available.Analysis.DeclaredMethods)
                 .MetadataToken);
     }
+
+    [Fact]
+    public void Execute_CallSiteCountIncludesFunctionLoads()
+    {
+        MethodInfo method = typeof(MemberDirectCallCountQueryFixture)
+            .GetMethod(
+                nameof(MemberDirectCallCountQueryFixture
+                    .LoadsFunctionPointer),
+                BindingFlags.Public | BindingFlags.Static)!;
+
+        var invocations =
+            Assert.IsType<MemberDirectCallCountResult.Available>(
+                MemberDirectCallCountQuery.Execute(
+                    method.DeclaringType!.Assembly.Location,
+                    method.MetadataToken));
+        var callSites =
+            Assert.IsType<MemberCallSiteCountResult.Available>(
+                MemberCallSiteCountQuery.Execute(
+                    method.DeclaringType.Assembly.Location,
+                    method.MetadataToken));
+
+        Assert.Equal(1, invocations.Count);
+        Assert.Equal(2, callSites.Count);
+    }
 }
 
 public static class MemberDirectCallCountQueryFixture
@@ -99,6 +123,12 @@ public static class MemberDirectCallCountQueryFixture
     {
         await Task.Yield();
         Console.WriteLine("done");
+    }
+
+    public static Action LoadsFunctionPointer() => Target;
+
+    private static void Target()
+    {
     }
 }
 

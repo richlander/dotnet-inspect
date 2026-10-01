@@ -39,17 +39,17 @@ public partial class ApiCommand
         if (method?.MetadataToken is not { } methodToken)
             return null;
 
-        MemberDirectCallCountResult result =
-            MemberDirectCallCountQuery.Execute(
+        MemberCallSiteCountResult result =
+            MemberCallSiteCountQuery.Execute(
                 assemblyPath,
                 methodToken);
-        if (result is MemberDirectCallCountResult.Failed failed)
+        if (result is MemberCallSiteCountResult.Failed failed)
         {
             CommandError.Write(
                 $"Direct call Count failed: {failed.Error.Message}");
             return 1;
         }
-        if (result is MemberDirectCallCountResult.Incomplete incomplete)
+        if (result is MemberCallSiteCountResult.Incomplete incomplete)
         {
             string detail = incomplete.Analysis.UnavailableBodies
                     .Select(static body => body.Diagnostic?.Message)
@@ -65,7 +65,7 @@ public partial class ApiCommand
         }
 
         var available =
-            (MemberDirectCallCountResult.Available)result;
+            (MemberCallSiteCountResult.Available)result;
         int count = available.Count;
         if (!CliSemanticRowSelection.TrySelectCount(
                 memberOptions.CallRowSelection,

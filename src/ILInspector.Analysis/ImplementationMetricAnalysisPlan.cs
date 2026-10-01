@@ -18,6 +18,7 @@ internal enum ImplementationMetricKind
     DirectReflectionCalls = 1 << 11,
     Async = 1 << 12,
     DirectCallCount = 1 << 13,
+    CallSiteCount = 1 << 14,
     All = BodySize
         | InstructionShape
         | ControlFlow
@@ -31,7 +32,8 @@ internal enum ImplementationMetricKind
         | UnsafePresence
         | DirectReflectionCalls
         | Async
-        | DirectCallCount,
+        | DirectCallCount
+        | CallSiteCount,
 }
 
 [Flags]
@@ -234,6 +236,10 @@ internal sealed record ImplementationMetricAnalysisPlan(
     internal bool IncludesDirectCallCountMetric =>
         RequestedMetrics.HasFlag(
             ImplementationMetricKind.DirectCallCount);
+
+    internal bool IncludesCallSiteCountMetric =>
+        RequestedMetrics.HasFlag(
+            ImplementationMetricKind.CallSiteCount);
 
     internal bool RequiresDirectCallDiscovery =>
         RequiredFacts.HasFlag(
@@ -482,6 +488,7 @@ internal sealed record ImplementationMetricAnalysisPlan(
         | ImplementationMetricKind.Locals
         | FocusedContextMetrics
         | ImplementationMetricKind.DirectCallCount
+        | ImplementationMetricKind.CallSiteCount
         | ImplementationMetricKind.DirectCalls
         | ImplementationMetricKind
             .SiblingOverloadRelationships;
@@ -510,6 +517,7 @@ internal sealed record ImplementationMetricAnalysisPlan(
 
     const ImplementationMetricKind MetricsRequiringDiscovery =
         ImplementationMetricKind.DirectCallCount
+        | ImplementationMetricKind.CallSiteCount
         | ImplementationMetricKind.DirectCalls;
 
     const ImplementationMetricKind MetricsRequiringLocalSignature =

@@ -80,6 +80,9 @@ public sealed class MethodCallAnalysisTests
         Assert.Equal(
             0,
             CountDirectInvocations(path, typeName, methodName));
+        Assert.True(
+            DiscoverCounts(path, typeName, methodName)
+                .CallSiteCount > 0);
     }
 
     [Fact]
@@ -865,6 +868,13 @@ public sealed class MethodCallAnalysisTests
     static int CountDirectInvocations(
         string path,
         string typeName,
+        string methodName) =>
+        DiscoverCounts(path, typeName, methodName)
+            .InvocationCount;
+
+    static MethodCallAnalysis.DiscoveryCounts DiscoverCounts(
+        string path,
+        string typeName,
         string methodName)
     {
         using FileStream stream = File.OpenRead(path);
@@ -884,7 +894,7 @@ public sealed class MethodCallAnalysisTests
                     methodName));
         MethodBodyBlock body = peReader.GetMethodBody(
             method.RelativeVirtualAddress);
-        return MethodCallAnalysis.CountDirectInvocations(body);
+        return MethodCallAnalysis.DiscoverCounts(body);
     }
 
     sealed class Resolver(

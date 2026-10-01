@@ -170,6 +170,49 @@ public sealed record LibraryDirectCallCountAnalysisResult(
 }
 
 /// <summary>
+/// Source-native Calls-row count for one authenticated physical body.
+/// </summary>
+public sealed record MethodCallSiteCountEvidence(
+    MethodIdentity Method,
+    MethodIdentity EvidenceMethod,
+    int Count);
+
+/// <summary>
+/// Physical body that could not issue a Calls-row count.
+/// </summary>
+public sealed record CallSiteCountUnavailableBody(
+    MethodIdentity EvidenceMethod,
+    AnalysisDiagnostic? Diagnostic);
+
+/// <summary>
+/// Actual Calls-row discovery participation for one execution.
+/// </summary>
+public sealed record CallSiteCountParticipationReceipt(
+    bool WasPlanned,
+    int AttemptedBodies,
+    int CompletedBodies,
+    int FailedBodies);
+
+/// <summary>
+/// Detached source-native Calls-row counts for one exact assembly execution.
+/// </summary>
+public sealed record LibraryCallSiteCountAnalysisResult(
+    LibraryBodyAnalysisReceipt Receipt,
+    bool WasRequested,
+    ImmutableArray<MethodIdentity> DeclaredMethods,
+    ImmutableArray<MethodIdentity> ManagedMethodBodies,
+    ImmutableArray<MethodCallSiteCountEvidence> Counts,
+    ImmutableArray<CallSiteCountUnavailableBody> UnavailableBodies,
+    CallSiteCountParticipationReceipt Participation,
+    ImmutableArray<AnalysisDiagnostic> Diagnostics)
+{
+    public bool IsComplete =>
+        WasRequested
+        && UnavailableBodies.IsEmpty
+        && Participation.FailedBodies == 0;
+}
+
+/// <summary>
 /// Detached terminal-resource facts produced from one resolution and body
 /// acquisition generation.
 /// </summary>
@@ -268,6 +311,11 @@ public sealed class LibraryBodyAnalysisExecution
                 Receipt,
                 ImplementationMetrics,
                 plan);
+        CallSiteCounts =
+            CreateCallSiteCountResult(
+                Receipt,
+                ImplementationMetrics,
+                plan);
         Optimization = new(
             Receipt,
             analysis,
@@ -316,6 +364,9 @@ public sealed class LibraryBodyAnalysisExecution
 
     /// <summary>Source-native direct-invocation counts.</summary>
     public LibraryDirectCallCountAnalysisResult DirectCallCounts { get; }
+
+    /// <summary>Source-native Calls-row counts.</summary>
+    public LibraryCallSiteCountAnalysisResult CallSiteCounts { get; }
 
     /// <summary>Focused optimization-opportunity result.</summary>
     public LibraryOptimizationAnalysisResult Optimization { get; }
@@ -455,23 +506,100 @@ public sealed class LibraryBodyAnalysisExecution
             LibraryImplementationMetricAnalysisResult metrics,
             LibraryBodyAnalysisPlan plan)
     {
+        CallCountProjection projection =
+            CreateCallCountProjection(
+                metrics,
+                plan,
+                ImplementationMetricKind.DirectCallCount,
+                static body => body.DirectCallCount?.Count);
+        return new(
+            receipt,
+            projection.WasRequested,
+            projection.DeclaredMethods,
+            projection.ManagedMethodBodies,
+            [
+                .. projection.Counts.Select(static body =>
+                    new MethodDirectCallCountEvidence(
+                        body.Method,
+                        body.EvidenceMethod,
+                        body.Count)),
+            ],
+            [
+                .. projection.UnavailableBodies.Select(static body =>
+                    new DirectCallCountUnavailableBody(
+                        body.EvidenceMethod,
+                        body.Diagnostic)),
+            ],
+            new(
+                projection.WasRequested,
+                projection.AttemptedBodies,
+                projection.CompletedBodies,
+                projection.FailedBodies),
+            metrics.Diagnostics);
+    }
+
+    static LibraryCallSiteCountAnalysisResult
+        CreateCallSiteCountResult(
+            LibraryBodyAnalysisReceipt receipt,
+            LibraryImplementationMetricAnalysisResult metrics,
+            LibraryBodyAnalysisPlan plan)
+    {
+        CallCountProjection projection =
+            CreateCallCountProjection(
+                metrics,
+                plan,
+                ImplementationMetricKind.CallSiteCount,
+                static body => body.CallSiteCount?.Count);
+        return new(
+            receipt,
+            projection.WasRequested,
+            projection.DeclaredMethods,
+            projection.ManagedMethodBodies,
+            [
+                .. projection.Counts.Select(static body =>
+                    new MethodCallSiteCountEvidence(
+                        body.Method,
+                        body.EvidenceMethod,
+                        body.Count)),
+            ],
+            [
+                .. projection.UnavailableBodies.Select(static body =>
+                    new CallSiteCountUnavailableBody(
+                        body.EvidenceMethod,
+                        body.Diagnostic)),
+            ],
+            new(
+                projection.WasRequested,
+                projection.AttemptedBodies,
+                projection.CompletedBodies,
+                projection.FailedBodies),
+            metrics.Diagnostics);
+    }
+
+    static CallCountProjection CreateCallCountProjection(
+        LibraryImplementationMetricAnalysisResult metrics,
+        LibraryBodyAnalysisPlan plan,
+        ImplementationMetricKind metric,
+        Func<MethodImplementationMetricEvidence, int?> selectCount)
+    {
         bool wasRequested =
             metrics.WasRequested
-            && metrics.Participation!.RequestedMetrics.HasFlag(
-                ImplementationMetricKind.DirectCallCount);
-        ImmutableArray<MethodDirectCallCountEvidence> counts =
+            && metrics.Participation!.RequestedMetrics.HasFlag(metric);
+        ImmutableArray<CallCountBody> counts =
             !wasRequested
                 ? []
                 :
                 [
-                    .. metrics.Bodies
-                        .Where(static body =>
-                            body.DirectCallCount is not null)
-                        .Select(static body =>
-                            new MethodDirectCallCountEvidence(
-                                body.Method,
-                                body.EvidenceMethod,
-                                body.DirectCallCount!.Count)),
+                    .. metrics.Bodies.Select(body => (
+                            Body: body,
+                            Count: selectCount(body)))
+                        .Where(static item =>
+                            item.Count is not null)
+                        .Select(static item =>
+                            new CallCountBody(
+                                item.Body.Method,
+                                item.Body.EvidenceMethod,
+                                item.Count!.Value)),
                 ];
         Dictionary<int, AnalysisDiagnostic> diagnostics =
             metrics.Diagnostics
@@ -499,7 +627,7 @@ public sealed class LibraryBodyAnalysisExecution
                 .Select(static diagnostic =>
                     diagnostic.MethodToken),
         ];
-        ImmutableArray<DirectCallCountUnavailableBody> unavailable =
+        ImmutableArray<CallCountUnavailable> unavailable =
             !wasRequested
                 ? []
                 :
@@ -514,7 +642,7 @@ public sealed class LibraryBodyAnalysisExecution
                                 || relevantDiagnosticTokens.Contains(
                                     method.MetadataToken)))
                         .Select(method =>
-                            new DirectCallCountUnavailableBody(
+                            new CallCountUnavailable(
                                 method,
                                 diagnostics.GetValueOrDefault(
                                     method.MetadataToken))),
@@ -533,8 +661,7 @@ public sealed class LibraryBodyAnalysisExecution
                     stage.Stage
                         == ImplementationMetricWorkStage
                             .DirectCallDiscovery);
-        return new(
-            receipt,
+        return new CallCountProjection(
             wasRequested,
             [
                 .. metrics.DeclaredMethods.Where(method =>
@@ -544,13 +671,29 @@ public sealed class LibraryBodyAnalysisExecution
             managedMethods,
             counts,
             unavailable,
-            new(
-                WasPlanned: wasRequested,
-                participation?.AttemptedBodies ?? 0,
-                participation?.CompletedBodies ?? 0,
-                participation?.FailedBodies ?? 0),
-            metrics.Diagnostics);
+            participation?.AttemptedBodies ?? 0,
+            participation?.CompletedBodies ?? 0,
+            participation?.FailedBodies ?? 0);
     }
+
+    sealed record CallCountBody(
+        MethodIdentity Method,
+        MethodIdentity EvidenceMethod,
+        int Count);
+
+    sealed record CallCountUnavailable(
+        MethodIdentity EvidenceMethod,
+        AnalysisDiagnostic? Diagnostic);
+
+    sealed record CallCountProjection(
+        bool WasRequested,
+        ImmutableArray<MethodIdentity> DeclaredMethods,
+        ImmutableArray<MethodIdentity> ManagedMethodBodies,
+        ImmutableArray<CallCountBody> Counts,
+        ImmutableArray<CallCountUnavailable> UnavailableBodies,
+        int AttemptedBodies,
+        int CompletedBodies,
+        int FailedBodies);
 
     static ImplementationMetricSiblingRelationships
         PublishSiblingRelationships(

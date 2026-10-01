@@ -763,26 +763,30 @@ the exact-base time for the two corpora, with 1.0000x and 1.0001x allocation.
 The improvement therefore comes from stopping at discovery, not from an
 unrelated row-path change or a downstream incidence optimization.
 
-The production result is host-neutral and per physical body. Each available
-entry carries the authenticated logical method, physical evidence method, and
-invocation count under the execution receipt. Unavailable bodies retain their
-typed acquisition or decode diagnostic. The result also carries the requested
-and effective scope and direct-invocation discovery participation needed to
-prove that target collection did not run. Hosts do not consume the internal
-generic metric cells.
+Discovery issues two distinct host-neutral per-physical-body scalar results
+from the same raw-body visit. Direct-invocation Count includes `call`,
+`callvirt`, and `newobj`; it excludes `calli`, `ldftn`, and `ldvirtftn`.
+Calls-row Count includes all six opcode families because each is one row in
+the existing Calls population. Each available entry carries the authenticated
+logical method, physical evidence method, and count under the execution
+receipt. Unavailable bodies retain their typed acquisition or decode
+diagnostic. Each result also carries requested and effective scope plus
+discovery participation needed to prove that target collection did not run.
+Hosts do not consume the internal generic metric cells.
 
 The first production consumer is exact-member `Calls --count`. The CLI lowers
-that terminal to the count request after exact member resolution and before
-ordinary call-row Analysis. It sums the authenticated physical-body entries for
-the selected logical member. A row window resolves against the scalar
+that terminal to Calls-row Count after exact member resolution and before
+ordinary call-row Analysis. It sums the authenticated physical-body entries
+for the selected logical member. A row window resolves against the scalar
 cardinality, so `--head`, `--tail`, and `--rows` preserve the same count they
 would have produced over the metadata-ordered Calls table without constructing
-that table. Rich Calls output and projections continue to request target rows.
+that table. This includes method-pointer and indirect-call rows. Rich Calls
+output and projections continue to request target rows.
 
 This adoption does not add a second call-row producer, make Count a
 `Rows.Length` convenience, or expose `DirectCallIncidence` as a population.
-The complete-profile compatibility projection composes the discovery count
-with separately resolved distinct-target evidence until its remaining
+The complete-profile compatibility projection composes direct-invocation
+Count with separately resolved distinct-target evidence until its remaining
 consumers move to focused results.
 
 ### Production adoption for #8450

@@ -52,11 +52,20 @@ internal interface IMethodCallResolver
 /// </summary>
 internal static partial class MethodCallAnalysis
 {
+    internal readonly record struct DiscoveryCounts(
+        int InvocationCount,
+        int CallSiteCount);
+
     internal static int CountDirectInvocations(MethodBodyBlock body)
+        => DiscoverCounts(body).InvocationCount;
+
+    internal static DiscoveryCounts DiscoverCounts(
+        MethodBodyBlock body)
     {
         ArgumentNullException.ThrowIfNull(body);
 
-        int count = 0;
+        int invocationCount = 0;
+        int callSiteCount = 0;
         InstructionDecoder.Visit(
             body,
             (opcode, _, _) =>
@@ -65,11 +74,18 @@ internal static partial class MethodCallAnalysis
                     or ILOpCode.Callvirt
                     or ILOpCode.Newobj)
                 {
-                    count++;
+                    invocationCount++;
+                    callSiteCount++;
+                }
+                else if (opcode is ILOpCode.Ldftn
+                    or ILOpCode.Ldvirtftn
+                    or ILOpCode.Calli)
+                {
+                    callSiteCount++;
                 }
                 return true;
             });
-        return count;
+        return new(invocationCount, callSiteCount);
     }
 
     internal static void CollectDirectCalls(

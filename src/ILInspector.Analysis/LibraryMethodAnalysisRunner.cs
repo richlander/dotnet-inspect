@@ -999,16 +999,16 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         plan,
                         ImplementationMetricWorkStage
                             .DirectCallDiscovery);
-                int count =
-                    MethodCallAnalysis.CountDirectInvocations(
-                        body);
+                MethodCallAnalysis.DiscoveryCounts counts =
+                    MethodCallAnalysis.DiscoverCounts(body);
                 discovery?.Complete();
                 result.ImplementationMetrics =
-                    CreateDirectCallCountMetrics(
+                    CreateDirectCallDiscoveryMetrics(
+                        plan.ImplementationMetrics!,
                         result.ImplementationMetrics,
                         result.DeclaredMethod ?? caller,
                         caller,
-                        count);
+                        counts);
             }
             using ImplementationMetricExecutionRecorder.StageAttempt?
                 localDecode = StartMetricStage(
@@ -1634,16 +1634,16 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                             plan,
                             ImplementationMetricWorkStage
                                 .DirectCallDiscovery);
-                    int count =
-                        MethodCallAnalysis.CountDirectInvocations(
-                            body);
+                    MethodCallAnalysis.DiscoveryCounts counts =
+                        MethodCallAnalysis.DiscoverCounts(body);
                     discovery?.Complete();
                     result.ImplementationMetrics =
-                        CreateDirectCallCountMetrics(
+                        CreateDirectCallDiscoveryMetrics(
+                            metricPlan,
                             result.ImplementationMetrics,
                             result.DeclaredMethod ?? caller,
                             caller,
-                            count);
+                            counts);
                 }
                 catch (Exception ex)
                     when (IsRecoverableMethodFailure(ex))
@@ -1917,18 +1917,27 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             null,
             null,
             null,
+            null,
             null);
     }
 
     static MethodImplementationMetricEvidence
-        CreateDirectCallCountMetrics(
+        CreateDirectCallDiscoveryMetrics(
+            ImplementationMetricAnalysisPlan plan,
             MethodImplementationMetricEvidence? existing,
             MethodIdentity method,
             MethodIdentity evidenceMethod,
-            int count)
+            MethodCallAnalysis.DiscoveryCounts counts)
     {
-        ImplementationMetricDirectCallCount evidence =
-            new(count);
+        ImplementationMetricDirectCallCount? invocationEvidence =
+            plan.IncludesDirectCallCountMetric
+                || plan.IncludesDirectCallMetric
+                ? new(counts.InvocationCount)
+                : null;
+        ImplementationMetricCallSiteCount? callSiteEvidence =
+            plan.IncludesCallSiteCountMetric
+                ? new(counts.CallSiteCount)
+                : null;
         return existing is null
             ? new(
                 method,
@@ -1938,9 +1947,14 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 null,
                 null,
                 null,
-                evidence,
+                invocationEvidence,
+                callSiteEvidence,
                 null)
-            : existing with { DirectCallCount = evidence };
+            : existing with
+            {
+                DirectCallCount = invocationEvidence,
+                CallSiteCount = callSiteEvidence,
+            };
     }
 
     static MethodImplementationMetricEvidence CreateLocalMetrics(
@@ -1960,6 +1974,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 null,
                 null,
                 evidence,
+                null,
                 null,
                 null,
                 null,
@@ -1983,6 +1998,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 measurements.InstructionShape,
                 measurements.ControlFlow,
                 null,
+                null,
                 null)
             : existing with
             {
@@ -2002,6 +2018,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             ?? new(
                 method,
                 evidenceMethod,
+                null,
                 null,
                 null,
                 null,

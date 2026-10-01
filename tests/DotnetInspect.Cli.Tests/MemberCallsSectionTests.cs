@@ -25,6 +25,7 @@ public class MemberCallsSectionTests
     [Theory]
     [InlineData(nameof(MemberCallsFixture.CallsWriteLineTwice))]
     [InlineData(nameof(MemberCallsFixture.CallsWriteLineAfterYield))]
+    [InlineData(nameof(MemberCallsFixture.LoadsFunctionPointer))]
     public async Task CallsSection_CountMatchesCompletedCallRows(
         string memberName)
     {
@@ -532,6 +533,9 @@ public static class MemberCallsFixture
         }
         set => Console.WriteLine(value);
     }
+
+    public static Action LoadsFunctionPointer() =>
+        CallsWriteLineTwice;
 
     // Non-public member: only selectable under --all. Regression coverage for #1323,
     // where the body-load path counted overloads public-only and so reported "no IL body"

@@ -457,6 +457,42 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void MetricPlan_CallSiteCountStopsAtDiscovery()
+    {
+        var request = new ImplementationMetricAnalysisRequest(
+            ImplementationMetricKind.CallSiteCount,
+            MetricLimits(),
+            ImplementationMetricRequestOrigin.Explicit);
+
+        ImplementationMetricAnalysisPlan plan =
+            ImplementationMetricAnalysisPlan.Create(request);
+
+        Assert.True(plan.UsesFocusedExecution);
+        Assert.True(plan.IncludesCallSiteCountMetric);
+        Assert.True(plan.RequiresDirectCallDiscovery);
+        Assert.False(plan.RequiresLocalSignatureDecode);
+        Assert.False(plan.RequiresCanonicalContext);
+        Assert.False(plan.RequiresDirectCallFacts);
+        Assert.Equal(
+            ImplementationMetricFactKind.SourceAttribution
+                | ImplementationMetricFactKind.ManagedBody
+                | ImplementationMetricFactKind.DirectCallDiscovery,
+            plan.RequiredFacts);
+        Assert.True(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .DirectCallDiscovery));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .CanonicalMethodContext));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .DirectCallCollection));
+    }
+
+    [Fact]
     public void MetricPlan_DirectCallsUsesFocusedCallCollection()
     {
         var request = new ImplementationMetricAnalysisRequest(
