@@ -43,7 +43,8 @@ public partial class CommandExecutionTests
             "Measure",
             "--library",
             FixtureCatalog.InspectWebDocumentation.AssemblyPath(),
-            "-v:d",
+            "--columns",
+            "Signature;Description",
             "--tips",
             "q");
 

@@ -27,6 +27,8 @@ internal static class MemberGroupDocumentOutput
         MemberOptions options,
         ResolvedMemberInspectionPlan plan)
     {
+        bool returnedRowDocumentation =
+            RequestsReturnedRowDocumentation(options);
         if (type.DefinitionName is null
             || options.MemberFilter.Count != 1
             || options.OverloadIndex.HasValue
@@ -64,6 +66,7 @@ internal static class MemberGroupDocumentOutput
             || options.EffectiveDiscovery
             || options.Fields is { Length: > 0 }
             || options.Columns is { Length: > 0 }
+                && !returnedRowDocumentation
             || plan.Selection.Catalog
                 != InspectionCatalogIdentity.ApiMemberOverload)
         {
@@ -114,7 +117,7 @@ internal static class MemberGroupDocumentOutput
             s_bounds);
         MemberDocumentationAttachmentRequest? documentation =
             options.ShowDocs
-                && options.Verbosity >= Verbosity.Detailed
+                && RequestsReturnedRowDocumentation(options)
                 ? new(DocumentationDemand.CompiledXml)
                 : null;
         InspectionEnvelope<MemberGroupDocumentInspectionOutcome>? inspection =
@@ -272,6 +275,16 @@ internal static class MemberGroupDocumentOutput
 
         return canonicalName;
     }
+
+    private static bool RequestsReturnedRowDocumentation(
+        MemberOptions options) =>
+        options.Columns is { Length: 2 } columns
+        && columns.Contains(
+            "Signature",
+            StringComparer.OrdinalIgnoreCase)
+        && columns.Contains(
+            "Description",
+            StringComparer.OrdinalIgnoreCase);
 
     private static string Describe(
         MemberGroupDocumentInspectionOutcome outcome) =>
