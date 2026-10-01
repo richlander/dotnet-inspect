@@ -85,6 +85,115 @@ public sealed partial class ExactTypeInspectionOperationTests
     }
 
     [Fact]
+    public async Task
+        OneShotRelationsDoNotAdvertiseUnusableContinuation()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Hierarchy.dll", BuildHierarchyAssembly()));
+        using var client = new HttpClient(new FailingHandler());
+        SubjectRelationsQueryPlan plan = Assert.IsType<
+            SubjectRelationsQueryPlanResult.Accepted>(
+                SubjectRelationsQuery.ResolveIntent(
+                    SubjectRelationsRouteKind.Type,
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                SubjectRelationsQuery.DirectionTermKey,
+                                PortableQueryOperator.Equal,
+                                "incoming"),
+                            new(
+                                SubjectRelationsQuery.FormTermKey,
+                                PortableQueryOperator.Equal,
+                                "interface"),
+                        ],
+                        [],
+                        [],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+
+        ArgumentException failure =
+            await Assert.ThrowsAsync<ArgumentException>(
+                () => ExactTypeRelationsInspectionOperation.ExecuteAsync(
+                    new ExactTypeInspectionRequest(
+                        PackageId,
+                        Version,
+                        Framework,
+                        "Relations.IContract"),
+                    LoadOptions(client, store),
+                    plan,
+                    count: new SubjectRelationPopulationCountRequest(),
+                    rows: new SubjectRelationPopulationRowsRequest(1),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        Assert.Equal("rows", failure.ParamName);
+        Assert.Contains(
+            "cannot return a resumable Rows page",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        IncludeNonPublicDiscoversInternalOnlyExternalTarget()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/HiddenExternal.dll",
+                BuildHiddenExternalHierarchyAssembly()));
+        using var client = new HttpClient(new FailingHandler());
+        SubjectRelationsQueryPlan plan = Assert.IsType<
+            SubjectRelationsQueryPlanResult.Accepted>(
+                SubjectRelationsQuery.ResolveIntent(
+                    SubjectRelationsRouteKind.Type,
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                SubjectRelationsQuery.DirectionTermKey,
+                                PortableQueryOperator.Equal,
+                                "incoming"),
+                            new(
+                                SubjectRelationsQuery.FormTermKey,
+                                PortableQueryOperator.Equal,
+                                "interface"),
+                        ],
+                        [],
+                        [],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+
+        ExactTypeRelationsInspectionOutcome outcome =
+            await ExactTypeRelationsInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "System.IDisposable"),
+                LoadOptions(client, store),
+                plan,
+                count: new SubjectRelationPopulationCountRequest(),
+                rows: new SubjectRelationPopulationRowsRequest(10),
+                includeNonPublic: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var available = Assert.IsType<
+            ExactTypeRelationsInspectionOutcome.Available>(outcome);
+        Assert.Equal(
+            1,
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    available.Relations.Population.Count).Value);
+        WorkspaceTypeRelationCandidateRow candidate =
+            Assert.Single(available.Relations.Candidates);
+        Assert.Equal(
+            "Probe.HiddenDisposable",
+            MetadataTypeNameFormatter.FormatFullName(
+                Assert.IsType<
+                    InspectionGraphTypeIdentity.AcquiredDefinition>(
+                        candidate.Candidate.Identity).Type));
+    }
+
+    [Fact]
     public async Task PlatformForwarderLoadsOnlyItsTerminalFocusContext()
     {
         const string runtimeVersion = "11.0.0";
@@ -1808,6 +1917,64 @@ public sealed partial class ExactTypeInspectionOperationTests
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildHiddenExternalHierarchyAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString("HiddenExternal.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("HiddenExternal"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyReferenceHandle runtime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle disposable =
+            metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("IDisposable"));
+        TypeDefinitionHandle hidden =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString("Probe"),
+                metadata.GetOrAddString("HiddenDisposable"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddInterfaceImplementation(hidden, disposable);
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
         return image.ToArray();
     }
 

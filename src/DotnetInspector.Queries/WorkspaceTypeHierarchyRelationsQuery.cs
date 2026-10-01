@@ -157,6 +157,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         var workspaceSubject =
             StructuralSubjectIdentity.ForWorkspace(workspace.Identity);
         StructuralSubjectIdentity focus;
+        AssemblyAcquisitionRegistration? focusRegistration = null;
         if (focusSelection.DefinitionOccurrence is { } focusOccurrence)
         {
             if (!population.TryGetAccess(
@@ -174,6 +175,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                         + "member of the captured population.",
                     nameof(focusSelection));
             }
+            focusRegistration = focusAssembly.Registration;
             var focusLibrary =
                 StructuralSubjectIdentity.ForContextLibrary(
                     workspaceSubject,
@@ -233,6 +235,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                     context.Key,
                     context,
                     focusSelection,
+                    focusRegistration,
                     includeNonPublic,
                     form,
                     () => remainingDiscoveryCandidates,
@@ -379,6 +382,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             AssemblyContextGroup Group,
             ResolvedAssemblyReference Assembly)> members,
         WorkspaceExactTypeFocusOutcome.Found focus,
+        AssemblyAcquisitionRegistration? focusRegistration,
         bool includeNonPublic,
         SubjectRelationForm? form,
         Func<int?> remainingDiscoveryCandidates,
@@ -534,8 +538,10 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                     == MetadataTypeScopeKind.CurrentModule)
                 {
                     examined++;
-                    if (participant.Assembly.Identity
-                        .IsEquivalentTo(focus.Assembly))
+                    if (MatchesFocusAssembly(
+                            participant.Assembly,
+                            focus,
+                            focusRegistration))
                     {
                         matches.Add(
                             new(
@@ -632,8 +638,10 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                     }
                     examined++;
                     if (definition.Type.Equals(focus.Type)
-                        && definition.Assembly.Assembly.Identity
-                            .IsEquivalentTo(focus.Assembly))
+                        && MatchesFocusAssembly(
+                            definition.Assembly.Assembly,
+                            focus,
+                            focusRegistration))
                     {
                         matches.Add(
                             new(
@@ -656,6 +664,16 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 RetentionFailure: null,
                 EntryFailure: null);
         }
+
+        static bool MatchesFocusAssembly(
+            ResolvedAssemblyReference candidate,
+            WorkspaceExactTypeFocusOutcome.Found focus,
+            AssemblyAcquisitionRegistration? focusRegistration) =>
+            focusRegistration is null
+                ? candidate.Identity.IsEquivalentTo(focus.Assembly)
+                : ReferenceEquals(
+                    candidate.Registration,
+                    focusRegistration);
 
         void EnsureBinding()
         {

@@ -180,6 +180,7 @@ public static class ExactTypeRelationsInspectionOperation
                             request.SelectionKind,
                             focusAssemblyName,
                             focusLibrary,
+                            includeAll: includeNonPublic,
                             cancellationToken: cancellationToken);
                     if (focus
                         is WorkspaceExactTypeFocusOutcome
@@ -246,6 +247,7 @@ public static class ExactTypeRelationsInspectionOperation
                                 rowSelection: rowSelection,
                                 includeNonPublic: includeNonPublic,
                                 cancellationToken: cancellationToken);
+                        relations = SettleOneShotRows(relations, rows);
                         outcome =
                             new ExactTypeRelationsInspectionOutcome.Available(
                                 inspection,
@@ -271,6 +273,42 @@ public static class ExactTypeRelationsInspectionOperation
         return outcome
             ?? new ExactTypeRelationsInspectionOutcome.Unavailable(
                 "The exact Type focus exceeded the platform expansion bound.");
+    }
+
+    private static WorkspaceTypeRelationsInspectionResult SettleOneShotRows(
+        WorkspaceTypeRelationsInspectionResult result,
+        SubjectRelationPopulationRowsRequest? rows)
+    {
+        if (result.ContinuationAuthority is null)
+            return result;
+        if (result.Candidates.Length
+                < result.Relations.CandidateCount
+            || result.Relations.CandidateCountIsComplete)
+        {
+            throw new ArgumentException(
+                "One-shot exact Type relations cannot return a resumable "
+                    + "Rows page. Apply semantic row selection or request "
+                    + "the complete population.",
+                nameof(rows));
+        }
+
+        if (result.Population.Rows
+            is not SubjectRelationPopulationRowsOutcome.Read read)
+        {
+            throw new InvalidOperationException(
+                "Continuation authority requires a Rows result.");
+        }
+        return result with
+        {
+            Population = result.Population with
+            {
+                Rows = new SubjectRelationPopulationRowsOutcome.Read(
+                    read.Ordering,
+                    read.Items,
+                    continuation: null),
+            },
+            ContinuationAuthority = null,
+        };
     }
 
     private static WorkspaceContextInput? CreatePlatformFocusContext(

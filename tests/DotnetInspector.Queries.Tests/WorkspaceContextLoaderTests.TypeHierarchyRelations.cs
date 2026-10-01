@@ -159,6 +159,212 @@ public sealed partial class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task
+        TypeHierarchyRelations_RequireExactAcquiredFocusRegistration()
+    {
+        const string AssemblyName = "Identity.Collision";
+        byte[] focusImage = LocatorImage(
+            AssemblyName,
+            metadata => LocatorDefinition(
+                metadata,
+                "Probe",
+                "IContract",
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract));
+        byte[] unrelatedImage = LocatorImage(
+            AssemblyName,
+            metadata =>
+            {
+                TypeDefinitionHandle contract = LocatorDefinition(
+                    metadata,
+                    "Probe",
+                    "IContract",
+                    TypeAttributes.Public
+                        | TypeAttributes.Interface
+                        | TypeAttributes.Abstract);
+                TypeDefinitionHandle implementation =
+                    LocatorDefinition(
+                        metadata,
+                        "Probe",
+                        "UnrelatedImplementation");
+                metadata.AddInterfaceImplementation(
+                    implementation,
+                    contract);
+            });
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationContext focusContext =
+            await LocatorContext(workspace, focusImage);
+        WorkspaceDeclarationMember focusMember = Assert.Single(
+            CaptureDeclarations(workspace, focusContext).Receipt.Members);
+        WorkspaceDeclarationContext unrelatedContext =
+            await LocatorContext(workspace, unrelatedImage);
+        WorkspaceDeclarationPopulation population =
+            CaptureDeclarations(
+                workspace,
+                focusContext,
+                unrelatedContext);
+
+        WorkspaceTypeHierarchyRelationsResult result =
+            WorkspaceTypeHierarchyRelationsQuery.Execute(
+                workspace,
+                population,
+                new(
+                    focusMember.AssemblyIdentity,
+                    focusMember.Occurrence,
+                    LocatorName("Probe", "IContract")),
+                form: SubjectRelationForm.Interface,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Empty(result.Rows);
+        Assert.Equal(0, result.CandidateCount);
+        Assert.True(result.Evidence.IsComplete);
+    }
+
+    [Fact]
+    public async Task
+        ExactTypeFocus_IncludesNonPublicReferencedHierarchyTargets()
+    {
+        byte[] image = LocatorImage(
+            "Hidden.Implementation",
+            metadata =>
+            {
+                AssemblyReferenceHandle runtime =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString("System.Runtime"),
+                        new Version(11, 0, 0, 0),
+                        culture: default,
+                        publicKeyOrToken: default,
+                        flags: default,
+                        hashValue: default);
+                TypeReferenceHandle disposable =
+                    metadata.AddTypeReference(
+                        runtime,
+                        metadata.GetOrAddString("System"),
+                        metadata.GetOrAddString("IDisposable"));
+                TypeDefinitionHandle hidden = LocatorDefinition(
+                    metadata,
+                    "Probe",
+                    "HiddenDisposable",
+                    TypeAttributes.NotPublic);
+                metadata.AddInterfaceImplementation(
+                    hidden,
+                    disposable);
+            });
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationPopulation population =
+            CaptureDeclarations(
+                workspace,
+                await LocatorContext(workspace, image));
+
+        Assert.IsType<WorkspaceExactTypeFocusOutcome.Unavailable>(
+            WorkspaceExactTypeFocusQuery.Execute(
+                population,
+                "System.IDisposable",
+                includeAll: false,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        var focus = Assert.IsType<
+            WorkspaceExactTypeFocusOutcome.Found>(
+                WorkspaceExactTypeFocusQuery.Execute(
+                    population,
+                    "System.IDisposable",
+                    includeAll: true,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        WorkspaceTypeHierarchyRelationsResult result =
+            WorkspaceTypeHierarchyRelationsQuery.Execute(
+                workspace,
+                population,
+                focus,
+                includeNonPublic: true,
+                form: SubjectRelationForm.Interface,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        SubjectRelationRow row = Assert.Single(result.Rows);
+        var source = Assert.IsType<
+            InspectionGraphTypeIdentity.AcquiredDefinition>(
+                Assert.IsType<InspectionGraphSubject.TypeSubject>(
+                    row.Source).Identity);
+        Assert.Equal(
+            "Probe.HiddenDisposable",
+            source.Type.ToMetadataFullName());
+        Assert.True(result.Evidence.IsComplete);
+    }
+
+    [Fact]
+    public async Task
+        AcquiredTypeResolution_ChargesSuccessfulTerminalHops()
+    {
+        const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
+        const string ForwarderAssembly = "Forwarder.Eight";
+        const string TerminalAssembly = "Forwarder.Nine";
+        byte[] forwarder = LocatorImage(
+            ForwarderAssembly,
+            metadata =>
+            {
+                AssemblyReferenceHandle terminal =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString(TerminalAssembly),
+                        new Version(1, 0, 0, 0),
+                        culture: default,
+                        publicKeyOrToken: default,
+                        flags: default,
+                        hashValue: default);
+                metadata.AddExportedType(
+                    Forwarder,
+                    metadata.GetOrAddString("Probe"),
+                    metadata.GetOrAddString("IContract"),
+                    terminal,
+                    typeDefinitionId: 0);
+            });
+        byte[] terminal = LocatorImage(
+            TerminalAssembly,
+            metadata => LocatorDefinition(
+                metadata,
+                "Probe",
+                "IContract",
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract));
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationPopulation population =
+            CaptureDeclarations(
+                workspace,
+                await LocatorContext(
+                    workspace,
+                    forwarder,
+                    terminal));
+        var required = new AssemblyReferenceIdentity(
+            ForwarderAssembly,
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        MetadataTypeDefinitionName type =
+            LocatorName("Probe", "IContract");
+
+        Assert.IsType<WorkspaceAcquiredTypeResolutionOutcome.Resolved>(
+            WorkspaceExactTypeFocusQuery.ResolveAcquiredPlatformType(
+                population,
+                required,
+                type,
+                forwarderHops: 7,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        Assert.IsType<WorkspaceAcquiredTypeResolutionOutcome.Unavailable>(
+            WorkspaceExactTypeFocusQuery.ResolveAcquiredPlatformType(
+                population,
+                required,
+                type,
+                forwarderHops: 8,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task TypeHierarchyRelations_ResolveReferencedExternalInterface()
     {
         string implementationsPath =

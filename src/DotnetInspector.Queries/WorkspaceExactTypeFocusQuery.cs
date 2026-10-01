@@ -513,25 +513,33 @@ public static class WorkspaceExactTypeFocusQuery
                             ? AssemblyResolutionScope.Platform
                             : AssemblyResolutionScope.Any);
             if (resolution
-                is AssemblyContextTypeResolutionResult.Available
-                {
-                    Outcome: TypeResolutionOutcome.Resolved resolved,
-                })
+                is not AssemblyContextTypeResolutionResult.Available
+                    available)
+            {
+                return new WorkspaceAcquiredTypeResolutionOutcome
+                    .Unavailable();
+            }
+            if (available.Outcome.Hops.Length
+                > TypeResolutionContextOptions.DefaultMaxForwarderHops
+                    - forwarderHops)
+            {
+                return new WorkspaceAcquiredTypeResolutionOutcome
+                    .Unavailable();
+            }
+            forwarderHops = checked(
+                forwarderHops + available.Outcome.Hops.Length);
+            if (available.Outcome
+                is TypeResolutionOutcome.Resolved resolved)
             {
                 return new WorkspaceAcquiredTypeResolutionOutcome.Resolved(
                     resolved.Definition);
             }
-            if (resolution
-                is AssemblyContextTypeResolutionResult.Available
-                {
-                    Outcome: TypeResolutionOutcome.UnboundBinding unbound,
-                }
+            if (available.Outcome
+                is TypeResolutionOutcome.UnboundBinding unbound
                 && match.Member.Coordinate
                     is ExactLibrarySourceCoordinate.Platform
                 && unbound.TerminalAssemblyIdentity is { } next)
             {
-                forwarderHops = checked(
-                    forwarderHops + unbound.Hops.Length);
                 required = next;
                 continue;
             }
@@ -647,7 +655,7 @@ public static class WorkspaceExactTypeFocusQuery
                         new(
                             [MetadataRelationFamily.Hierarchy],
                             MetadataOperationPolicy.Unbounded,
-                            includeNonPublic: false)
+                            includeNonPublic: includeAll)
                         {
                             IncludeHidden = includeAll,
                         },
