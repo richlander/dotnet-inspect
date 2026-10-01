@@ -92,6 +92,7 @@ internal sealed record LibraryImplementationMetricAnalysisResult(
     ImplementationMetricParticipationReceipt? Participation,
     ImmutableArray<MethodIdentity> DeclaredMethods,
     ImmutableArray<MethodIdentity> ManagedMethodBodies,
+    ImmutableArray<FailedMethodBodyAnalysis> FailedMethodBodies,
     ImmutableArray<MethodImplementationMetricEvidence> Bodies,
     ImplementationMetricSiblingRelationships? SiblingRelationships,
     ImmutableArray<AnalysisDiagnostic> Diagnostics);

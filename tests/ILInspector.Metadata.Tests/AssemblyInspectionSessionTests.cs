@@ -407,6 +407,16 @@ public class AssemblyInspectionSessionTests
                 declaringType,
                 nameof(MethodBodyFixture.Overloaded),
                 publicOnly: true));
+        Assert.Null(
+            session.MethodBodies.ResolveUniqueMethod(
+                declaringType,
+                nameof(MethodBodyFixture.Pick),
+                publicOnly: true));
+        Assert.Null(
+            session.MethodBodies.ResolveUniqueMethod(
+                declaringType,
+                nameof(MethodBodyFixture.pick),
+                publicOnly: true));
     }
 
     [Fact]
@@ -436,6 +446,21 @@ public class AssemblyInspectionSessionTests
         Assert.NotEqual(
             getter.MetadataToken,
             setter.MetadataToken);
+
+        var writeOnly =
+            session.MethodBodies.ResolveAccessorMethod(
+                declaringType,
+                nameof(MethodBodyFixture.SetterOnly),
+                accessorIndex: 0,
+                publicOnly: true);
+
+        Assert.NotNull(writeOnly);
+        Assert.Null(
+            session.MethodBodies.ResolveAccessorMethod(
+                declaringType,
+                nameof(MethodBodyFixture.SetterOnly),
+                accessorIndex: 1,
+                publicOnly: true));
     }
 
     [Fact]
@@ -583,5 +608,18 @@ public class AssemblyInspectionSessionTests
         public static string Overloaded(string value) => value;
 
         public static int Value { get; set; }
+
+        public static int SetterOnly
+        {
+            set { }
+        }
+
+        public static void Pick()
+        {
+        }
+
+        public static void pick(int value)
+        {
+        }
     }
 }

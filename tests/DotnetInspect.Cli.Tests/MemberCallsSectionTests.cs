@@ -411,6 +411,35 @@ public class MemberCallsSectionTests
     }
 
     [Theory]
+    [InlineData(1, "1")]
+    [InlineData(2, "2")]
+    public async Task
+        CallsSection_CountWithAllPreservesDisplayedOverloadOrder(
+            int overloadIndex,
+            string expected)
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.ReverseOverloaded),
+            "--index",
+            overloadIndex.ToString(),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(expected, result.Output.Trim());
+    }
+
+    [Theory]
     [InlineData(1)]
     [InlineData(2)]
     public async Task CallsSection_CountUsesSelectedPropertyAccessor(
@@ -434,6 +463,60 @@ public class MemberCallsSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Equal("1", result.Output.Trim());
+    }
+
+    [Theory]
+    [InlineData(nameof(MemberCallsFixture.Pick))]
+    [InlineData(nameof(MemberCallsFixture.pick))]
+    public async Task
+        CallsSection_CountWithAllPreservesCaseInsensitiveAmbiguity(
+            string memberName)
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            memberName,
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+    }
+
+    [Theory]
+    [InlineData(1, 0, "1")]
+    [InlineData(2, 1, "")]
+    public async Task
+        CallsSection_CountWithAllUsesPresentAccessorOrder(
+            int accessorIndex,
+            int expectedExitCode,
+            string expectedOutput)
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.SetterOnly),
+            "--index",
+            accessorIndex.ToString(),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "--tips",
+            "q");
+
+        Assert.Equal(expectedExitCode, result.ExitCode);
+        Assert.Equal(expectedOutput, result.Output.Trim());
     }
 
     [Theory]
@@ -568,6 +651,17 @@ public static class MemberCallsFixture
         Console.WriteLine(value);
     }
 
+    public static void ReverseOverloaded(string value)
+    {
+        Console.WriteLine(value);
+        Console.WriteLine(value);
+    }
+
+    public static void ReverseOverloaded(int value)
+    {
+        Console.WriteLine(value);
+    }
+
     public static int ValueWithCalls
     {
         get
@@ -577,6 +671,18 @@ public static class MemberCallsFixture
         }
         set => Console.WriteLine(value);
     }
+
+    public static int SetterOnly
+    {
+        set => Console.WriteLine(value);
+    }
+
+    public static void Pick()
+    {
+    }
+
+    public static void pick(int value) =>
+        Console.WriteLine(value);
 
     public static Action LoadsFunctionPointer() =>
         CallsWriteLineTwice;

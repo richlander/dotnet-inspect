@@ -43,16 +43,12 @@ public partial class ApiCommand
             AssemblyInspectionSession.Open(assemblyPath))
         {
             MethodBodySelection? method =
-                options.OverloadIndex is { } overloadIndex
-                    ? session.MethodBodies.ResolveMethod(
+                options.OverloadIndex is null or 1
+                    ? session.MethodBodies.ResolveUniqueMethod(
                         typeName,
                         memberName,
-                        overloadIndex - 1,
                         publicOnly: !options.IncludeAll)
-                    : session.MethodBodies.ResolveUniqueMethod(
-                        typeName,
-                        memberName,
-                        publicOnly: !options.IncludeAll);
+                    : null;
             if (method is null
                 && options.OverloadIndex is { } accessorIndex)
             {

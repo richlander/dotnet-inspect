@@ -2945,6 +2945,49 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void ExecuteImage_CallCountsRetainTokenOnlyIdentityFailures()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(LibraryBodyAnalysisExecutionTests).Assembly.Location);
+        int methodToken =
+            ReplaceMethodSignatureWithInvalidValue(image);
+        ImmutableArray<byte> immutableImage =
+            ImmutableArray.Create(image);
+        var scope = new HashSet<int> { methodToken };
+
+        LibraryDirectCallCountAnalysisResult directCalls =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "MalformedDirectCallCountSignature.dll",
+                immutableImage,
+                LibraryBodyAnalysisRequest.CreateDirectCallCounts(
+                    CountMetricLimits(),
+                    scope))
+                .DirectCallCounts;
+        LibraryCallSiteCountAnalysisResult callSites =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "MalformedCallSiteCountSignature.dll",
+                immutableImage,
+                LibraryBodyAnalysisRequest.CreateCallSiteCounts(
+                    CountMetricLimits(),
+                    scope))
+                .CallSiteCounts;
+
+        Assert.False(directCalls.IsComplete);
+        DirectCallCountUnavailableBody directUnavailable =
+            Assert.Single(directCalls.UnavailableBodies);
+        Assert.Null(directUnavailable.EvidenceMethod);
+        Assert.Equal(methodToken, directUnavailable.MethodToken);
+        Assert.NotNull(directUnavailable.Diagnostic);
+
+        Assert.False(callSites.IsComplete);
+        CallSiteCountUnavailableBody callSiteUnavailable =
+            Assert.Single(callSites.UnavailableBodies);
+        Assert.Null(callSiteUnavailable.EvidenceMethod);
+        Assert.Equal(methodToken, callSiteUnavailable.MethodToken);
+        Assert.NotNull(callSiteUnavailable.Diagnostic);
+    }
+
+    [Fact]
     public void CompatibilityIndex_PreservesFocusedProfileResults()
     {
         LibraryBodyAnalysisExecution execution =

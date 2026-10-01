@@ -363,7 +363,9 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         foreach (var handle in _reader.GetTypeDefinition(typeHandle).GetMethods())
         {
             var method = _reader.GetMethodDefinition(handle);
-            if (_reader.GetString(method.Name) != methodName)
+            if (!TypeMatcher.MatchesMemberName(
+                    _reader.GetString(method.Name),
+                    methodName))
                 continue;
             if (publicOnly
                 && (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
@@ -374,6 +376,27 @@ public sealed partial class MethodBodySource : IOperandNameResolver
                 return null;
 
             match = handle;
+        }
+        var type = _reader.GetTypeDefinition(typeHandle);
+        foreach (var handle in type.GetProperties())
+        {
+            var property = _reader.GetPropertyDefinition(handle);
+            if (TypeMatcher.MatchesMemberName(
+                    _reader.GetString(property.Name),
+                    methodName))
+            {
+                return null;
+            }
+        }
+        foreach (var handle in type.GetEvents())
+        {
+            var @event = _reader.GetEventDefinition(handle);
+            if (TypeMatcher.MatchesMemberName(
+                    _reader.GetString(@event.Name),
+                    methodName))
+            {
+                return null;
+            }
         }
         return match.IsNil ? null : match;
     }
@@ -390,49 +413,73 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         MethodDefinitionHandle match = default;
         bool found = false;
         var type = _reader.GetTypeDefinition(typeHandle);
+        foreach (var handle in type.GetMethods())
+        {
+            var method = _reader.GetMethodDefinition(handle);
+            if (TypeMatcher.MatchesMemberName(
+                    _reader.GetString(method.Name),
+                    memberName))
+            {
+                return null;
+            }
+        }
         foreach (var handle in type.GetProperties())
         {
             var property = _reader.GetPropertyDefinition(handle);
-            if (_reader.GetString(property.Name) != memberName)
+            if (!TypeMatcher.MatchesMemberName(
+                    _reader.GetString(property.Name),
+                    memberName))
                 continue;
             if (found)
                 return null;
 
             found = true;
             PropertyAccessors accessors = property.GetAccessors();
-            match = accessorIndex switch
-            {
-                0 => accessors.Getter,
-                1 => accessors.Setter,
-                _ => default,
-            };
+            match = SelectPresentAccessor(
+                accessors.Getter,
+                accessors.Setter,
+                accessorIndex);
         }
         foreach (var handle in type.GetEvents())
         {
             var @event = _reader.GetEventDefinition(handle);
-            if (_reader.GetString(@event.Name) != memberName)
+            if (!TypeMatcher.MatchesMemberName(
+                    _reader.GetString(@event.Name),
+                    memberName))
                 continue;
             if (found)
                 return null;
 
             found = true;
             EventAccessors accessors = @event.GetAccessors();
-            match = accessorIndex switch
-            {
-                0 => accessors.Adder,
-                1 => accessors.Remover,
-                _ => default,
-            };
+            match = SelectPresentAccessor(
+                accessors.Adder,
+                accessors.Remover,
+                accessorIndex);
         }
 
         if (match.IsNil)
             return null;
-        var method = _reader.GetMethodDefinition(match);
+        var selectedMethod = _reader.GetMethodDefinition(match);
         return !publicOnly
-            || (method.Attributes & MethodAttributes.MemberAccessMask)
+            || (selectedMethod.Attributes & MethodAttributes.MemberAccessMask)
                 == MethodAttributes.Public
                 ? match
                 : null;
+    }
+
+    static MethodDefinitionHandle SelectPresentAccessor(
+        MethodDefinitionHandle first,
+        MethodDefinitionHandle second,
+        int accessorIndex)
+    {
+        if (!first.IsNil)
+        {
+            if (accessorIndex == 0)
+                return first;
+            accessorIndex--;
+        }
+        return accessorIndex == 0 ? second : default;
     }
 
     MethodBodySelection CreateSelection(MethodDefinitionHandle handle)

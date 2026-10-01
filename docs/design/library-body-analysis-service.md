@@ -788,14 +788,19 @@ Hosts do not consume the internal generic metric cells.
 The first production consumer is exact-member `Calls --count`. After source
 acquisition, an explicit `--all` request allows the CLI to ask the metadata
 owner to resolve an exact MethodDef before public API extraction. An omitted
-method ordinal resolves only when the metadata name is unique; an explicit
-property or event ordinal resolves to its getter/adder or setter/remover
-MethodDef. Ordinary public-surface admission, ambiguous names, forwarded types,
-qualified selectors, and selectors outside that exact metadata subset continue
-through the ordinary public-surface resolver. Once a MethodDef is selected, the
-CLI lowers the terminal to Calls-row Count before ordinary call-row Analysis.
-It sums the authenticated physical-body entries for the selected logical
-member.
+method ordinal, or ordinal one on a unique method family, resolves only when
+the canonical case-insensitive member name is unambiguous. Overloaded method
+ordinals continue through the ordinary resolver because its displayed-signature
+order is not metadata order. An explicit property or event ordinal resolves
+over the accessors that are present, in getter/adder then setter/remover order.
+Ordinary public-surface admission, ambiguous names, forwarded types, qualified
+selectors, and selectors outside that exact metadata subset continue through
+the ordinary public-surface resolver. Once a MethodDef is selected, the CLI
+lowers the terminal to Calls-row Count before ordinary call-row Analysis. It
+sums the authenticated physical-body entries for the selected logical member.
+An identity-decode failure that cannot publish a `MethodIdentity` remains an
+unavailable physical body keyed by MethodDef token, so Count cannot convert it
+to authoritative zero.
 
 A row window resolves against the scalar cardinality, so `--head`, `--tail`,
 and `--rows` preserve the same count they would have produced over the

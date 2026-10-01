@@ -137,8 +137,20 @@ public sealed record MethodDirectCallCountEvidence(
 /// Physical body that could not issue a direct-invocation count.
 /// </summary>
 public sealed record DirectCallCountUnavailableBody(
-    MethodIdentity EvidenceMethod,
-    AnalysisDiagnostic? Diagnostic);
+    MethodIdentity? EvidenceMethod,
+    int MethodToken,
+    AnalysisDiagnostic? Diagnostic)
+{
+    public DirectCallCountUnavailableBody(
+        MethodIdentity evidenceMethod,
+        AnalysisDiagnostic? diagnostic)
+        : this(
+            evidenceMethod,
+            evidenceMethod.MetadataToken,
+            diagnostic)
+    {
+    }
+}
 
 /// <summary>
 /// Actual direct-invocation discovery participation for one execution.
@@ -183,8 +195,20 @@ public sealed record MethodCallSiteCountEvidence(
 /// Physical body that could not issue a Calls-row count.
 /// </summary>
 public sealed record CallSiteCountUnavailableBody(
-    MethodIdentity EvidenceMethod,
-    AnalysisDiagnostic? Diagnostic);
+    MethodIdentity? EvidenceMethod,
+    int MethodToken,
+    AnalysisDiagnostic? Diagnostic)
+{
+    public CallSiteCountUnavailableBody(
+        MethodIdentity evidenceMethod,
+        AnalysisDiagnostic? diagnostic)
+        : this(
+            evidenceMethod,
+            evidenceMethod.MetadataToken,
+            diagnostic)
+    {
+    }
+}
 
 /// <summary>
 /// Actual Calls-row discovery participation for one execution.
@@ -445,6 +469,7 @@ public sealed class LibraryBodyAnalysisExecution
                 Participation: null,
                 analysis.Methods.DeclaredMethods,
                 analysis.Methods.Methods,
+                analysis.Methods.FailedMethodBodies,
                 [],
                 SiblingRelationships: null,
                 metricDiagnostics);
@@ -501,6 +526,7 @@ public sealed class LibraryBodyAnalysisExecution
                 analysis.ImplementationMetricWork),
             analysis.Methods.DeclaredMethods,
             analysis.Methods.Methods,
+            analysis.Methods.FailedMethodBodies,
             bodies,
             siblingRelationships,
             metricDiagnostics);
@@ -626,6 +652,7 @@ public sealed class LibraryBodyAnalysisExecution
 
         var unavailable =
             ImmutableArray.CreateBuilder<CallCountUnavailable>();
+        var unavailableTokens = new HashSet<int>();
         if (wasRequested)
         {
             foreach (MethodIdentity method
@@ -652,9 +679,31 @@ public sealed class LibraryBodyAnalysisExecution
                     unavailable.Add(
                         new(
                             method,
+                            method.MetadataToken,
                             diagnostics.GetValueOrDefault(
                                 method.MetadataToken)));
+                    unavailableTokens.Add(method.MetadataToken);
                 }
+            }
+            foreach (FailedMethodBodyAnalysis body
+                in metrics.FailedMethodBodies)
+            {
+                bool isRelevant =
+                    requestedTokens.Contains(body.MethodToken)
+                    || body.Diagnostic.SourceMethodToken
+                        is { } sourceToken
+                        && requestedTokens.Contains(sourceToken);
+                if (!isRelevant
+                    || countedTokens.Contains(body.MethodToken)
+                    || !unavailableTokens.Add(body.MethodToken))
+                {
+                    continue;
+                }
+                unavailable.Add(
+                    new(
+                        EvidenceMethod: null,
+                        body.MethodToken,
+                        body.Diagnostic));
             }
         }
 
@@ -668,8 +717,11 @@ public sealed class LibraryBodyAnalysisExecution
         }
         foreach (CallCountUnavailable body in unavailable)
         {
-            if (managedMethodSet.Add(body.EvidenceMethod))
-                managedMethods.Add(body.EvidenceMethod);
+            if (body.EvidenceMethod is { } method
+                && managedMethodSet.Add(method))
+            {
+                managedMethods.Add(method);
+            }
         }
 
         ImplementationMetricStageParticipation? participation =
@@ -739,6 +791,7 @@ public sealed class LibraryBodyAnalysisExecution
             result.Add(
                 new(
                     body.EvidenceMethod,
+                    body.MethodToken,
                     body.Diagnostic));
         }
         return result.MoveToImmutable();
@@ -774,6 +827,7 @@ public sealed class LibraryBodyAnalysisExecution
             result.Add(
                 new(
                     body.EvidenceMethod,
+                    body.MethodToken,
                     body.Diagnostic));
         }
         return result.MoveToImmutable();
@@ -785,7 +839,8 @@ public sealed class LibraryBodyAnalysisExecution
         int Count);
 
     sealed record CallCountUnavailable(
-        MethodIdentity EvidenceMethod,
+        MethodIdentity? EvidenceMethod,
+        int MethodToken,
         AnalysisDiagnostic? Diagnostic);
 
     sealed record CallCountProjection(
