@@ -510,6 +510,12 @@ test("complete Workspace URLs use page-session retained activation", () => {
     /sourceHistoryWorkspaceAvailable = historyWorkspaceId !== null[\s\S]*workspaceFeedActivation\?\.ownsRetainedDefinition\([\s\S]*managedHistoryWorkspaceAvailable = !sourceHistoryWorkspaceAvailable[\s\S]*if \(managedHistoryWorkspaceAvailable[\s\S]*tryOpenSourceBearingWorkspace/);
   assert.match(
     history,
+    /const unavailableGlobalWorkspace =\s*historyWorkspaceReferenced\s*&& !sourceHistoryWorkspaceAvailable\s*&& !managedHistoryWorkspaceAvailable/);
+  assert.match(
+    history,
+    /if \(isProductEcosystemsPath\(location\.pathname\)\) \{[\s\S]*?return;\s*}\s*if \(isProductHomeDemosPath\(location\.pathname\)\) \{/);
+  assert.match(
+    history,
     /deferHistoryWorkspaceActivation =[\s\S]*searchParams\.has\("w"\)[\s\S]*tryOpenSourceBearingWorkspace\([\s\S]*return;[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(deferHistoryWorkspaceActivation[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)[\s\S]*const loc = await parseLocation\(\)/);
   assert.doesNotMatch(
     history.match(/const loc = await parseLocation\(\);[\s\S]*?const bareHome/)?.[0]
@@ -604,7 +610,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*invalidSnapshot,\s*null\)/);
   assert.match(
     history,
-    /if \(isCreditsPath\(location\.pathname\)\) \{[\s\S]*render\(\{[\s\S]*synchronizeUrl: !unavailableWorkspaceAdmissionRejected,[\s\S]*\}\);\s*return;\s*\}\s*if \(isProductHomeDemosPath\(location\.pathname\)\) \{[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*render\(\);[\s\S]*return;\s*\}/);
+    /if \(isCreditsPath\(location\.pathname\)\) \{[\s\S]*render\(\{[\s\S]*synchronizeUrl: !unavailableWorkspaceAdmissionRejected,[\s\S]*\}\);\s*return;\s*\}\s*if \(isProductEcosystemsPath\(location\.pathname\)\) \{[\s\S]*focusLevelOneHeading\(\)[\s\S]*return;\s*\}\s*if \(isProductHomeDemosPath\(location\.pathname\)\) \{[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*render\(\);[\s\S]*return;\s*\}/);
   assert.match(
     history,
     /isProductHomeDemosPath\(location\.pathname\)[\s\S]*const focusWorkspaceOnEntry =\s*!state\.packageQueryReturnFocusPending\s*&& !state\.packageActivityReturnFocusPending;[\s\S]*render\(\);\s*if \(state\.engineReady && focusWorkspaceOnEntry\)/);
@@ -1493,13 +1499,13 @@ test("browser history reuses available identities and publishes only unavailable
     /restoredActiveManagedWorkspace\s*&& activeRetainedWorkspacePosting\?\.canonicalPacket !== null\s*&& activeRetainedWorkspacePosting\?\.canonicalLocation === location\.href/);
   assert.match(
     history,
-    /const unavailableGlobalWorkspace =\s*historyWorkspaceReferenced\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable/);
+    /const unavailableGlobalWorkspace =\s*historyWorkspaceReferenced\s*&& !sourceHistoryWorkspaceAvailable\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable/);
   assert.match(
     history,
-    /if \(bareHome\) \{\s*if \(historyWorkspaceReferenced\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable\)/);
+    /if \(bareHome\) \{\s*if \(historyWorkspaceReferenced\s*&& !sourceHistoryWorkspaceAvailable\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable\)/);
   assert.match(
     history,
-    /if \(historyWorkspaceReferenced\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable\) \{\s*observeAsync\(\s*restoreFreshWorkspaceFromHistory\(loc, navigationSeq\)/);
+    /if \(historyWorkspaceReferenced\s*&& !sourceHistoryWorkspaceAvailable\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable\) \{\s*observeAsync\(\s*restoreFreshWorkspaceFromHistory\(loc, navigationSeq\)/);
   assert.match(
     appSource,
     /function supersedeRetainedLocationIntentForRoutedNavigation\(\): void \{\s*if \(retainedLocationIntents\.currentIntentId === null\) return;[\s\S]*admitNonBrowser\(\s*"none",[\s\S]*if \(!retainedLocationIntents\.publish\(effect, history\)\)/);

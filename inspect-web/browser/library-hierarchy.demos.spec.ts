@@ -247,6 +247,11 @@ test("Ecosystems is a first-class product catalog destination", async ({
   await expect(page).toHaveURL("/ecosystems");
   await page.reload();
   await expect(page.locator("[data-ecosystem='ecosystem.runtime']")).toBeVisible();
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await page.goBack();
+  await expect(page).toHaveURL("/ecosystems");
+  await expect(page.getByRole("heading", { name: "Ecosystems", exact: true }))
+    .toBeFocused();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() =>
     document.documentElement.scrollWidth <= document.documentElement.clientWidth))

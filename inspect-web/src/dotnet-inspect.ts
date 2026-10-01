@@ -24530,6 +24530,7 @@ window.addEventListener("popstate", () => {
   }
   const unavailableGlobalWorkspace =
     historyWorkspaceReferenced
+    && !sourceHistoryWorkspaceAvailable
     && !managedHistoryWorkspaceAvailable
     && !historyWorkspaceAvailable
     && (isDiagnosticsPath(location.pathname)
@@ -24631,27 +24632,27 @@ window.addEventListener("popstate", () => {
     });
     return;
   }
-  if (isProductHomeDemosPath(location.pathname)) {
+  if (isProductEcosystemsPath(location.pathname)) {
     clearNavigationError();
     if (!clearWorkspaceRouteFailure()) {
       render();
       return;
     }
-    if (isProductEcosystemsPath(location.pathname)) {
-      clearNavigationError();
-      if (!clearWorkspaceRouteFailure()) {
-        render();
-        return;
-      }
-      state.queryNotice = "";
-      state.queryNoticeRetryAction = null;
-      state.credits = false;
-      state.home = false;
-      state.loading = !state.engineReady;
+    state.queryNotice = "";
+    state.queryNoticeRetryAction = null;
+    state.credits = false;
+    state.home = false;
+    state.loading = !state.engineReady;
+    render();
+    if (state.engineReady) {
+      afterCurrentNavigationFrame(() => focusLevelOneHeading());
+    }
+    return;
+  }
+  if (isProductHomeDemosPath(location.pathname)) {
+    clearNavigationError();
+    if (!clearWorkspaceRouteFailure()) {
       render();
-      if (state.engineReady) {
-        afterCurrentNavigationFrame(() => focusLevelOneHeading());
-      }
       return;
     }
     const focusWorkspaceOnEntry =
@@ -24775,6 +24776,7 @@ window.addEventListener("popstate", () => {
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
     if (historyWorkspaceReferenced
+      && !sourceHistoryWorkspaceAvailable
       && !managedHistoryWorkspaceAvailable
       && !historyWorkspaceAvailable) {
       unavailableWorkspaceAdmissionRejected =
@@ -24792,6 +24794,7 @@ window.addEventListener("popstate", () => {
     return;
   }
   if (historyWorkspaceReferenced
+    && !sourceHistoryWorkspaceAvailable
     && !managedHistoryWorkspaceAvailable
     && !historyWorkspaceAvailable) {
     observeAsync(
