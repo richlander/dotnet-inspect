@@ -7,12 +7,22 @@ using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Inspectors;
 
+internal enum FindSearchCompletion
+{
+    Exhausted,
+    ResultLimitReached,
+    Incomplete,
+}
+
 internal sealed record FindSearchResult<T>(
     List<T> Rows,
     bool HasFailures,
     IReadOnlyList<string>? UnmatchedPatterns = null)
 {
     public bool SourceSelectionIncomplete { get; init; }
+
+    public FindSearchCompletion Completion { get; init; } =
+        FindSearchCompletion.Exhausted;
 
     public IReadOnlyList<
         InspectionEnvelope<TypeDeclarationLocatorSectionResult>>
