@@ -114,11 +114,11 @@ it, each selected family keeps its own exact target.
   targets, as
   [PlatformHouse reference processing](platform-house-reference-processing.md)
   requires. Equal version text never merges them.
-- The prune inventory is the union of the per-family inventories for the
-  families admitted into this graph context, all at the traversal target
-  framework, composed as
-  [Platform package pruning](platform-package-pruning.md) specifies. Each
-  family's inventory matches that family's exact target.
+- Pruning uses only the `DotNetRuntime` family's inventory and exact target.
+  `PackageHouseTargetContext` carries one Platform target, and
+  `PackageHousePruningReceipt` rejects a delegation whose supplying family
+  differs from it. Pruning `AspNetCore`-supplied packages would need a
+  separately owned PackageHouse contract change and is not claimed here.
 - A population realized for another target, such as the CLI's versionless
   family default, is not reused.
 - If one family's exact target is unavailable, that family contributes no
@@ -129,10 +129,13 @@ it, each selected family keeps its own exact target.
 ### Pruning precondition
 
 Pruning removes a package participant. It is safe only when the graph can
-reach the replacement, so the inspection prunes only when both hold:
+reach the replacement, so the inspection prunes only when all hold:
 
-- the exact-target certified Platform population is admitted into this graph
-  context; and
+- the exact Workspace revision contains the selected `ecosystem.runtime`
+  registration, which is the only pruning switch defined by
+  [Platform package pruning](platform-package-pruning.md#explicit-net-runtime-ecosystem-presence-is-the-switch);
+- the exact-target certified `DotNetRuntime` population is admitted into this
+  graph context; and
 - package-origin `AssemblyRef` to Platform binding (#8466) is available, so a
   call from a package into a pruned package's assembly binds to the Platform
   participant.
@@ -225,8 +228,8 @@ product usable after every slice.
 2. **Mixed graph context (Web).** Adopt the same inspection outcome in
    Inspect Web, preserving the motivating URL, and hand off expansion-loop
    retirement to the ladder's stage 8.
-3. **Pruning (CLI).** Depends on slice 1 and #8466. Supply the prune
-   inventory to edge realization under the pruning precondition. Subsumed
+3. **Pruning (CLI).** Depends on slice 1 and #8466. Supply the
+   `DotNetRuntime` prune inventory and exact target to edge realization under the pruning precondition. Subsumed
    packages are no longer realized or graphed as package participants, and
    their calls bind to Platform participants. Dependency traversal may still
    read their manifests, because `PackageDependencyTraversalRequest` takes no
@@ -248,7 +251,8 @@ sites in their PR demos.
 | One family's exact target unavailable | That family contributes nothing and reports typed unavailability; other families proceed; no fallback target |
 | Default curated Workspace (`DotNetRuntime` + `AspNetCore`) | Two independent exact family targets at the traversal framework |
 | Continuation rejected or failed | Package-only graph plus the typed continuation outcome |
-| Pruning precondition unmet | No pruning; subsumed packages stay package participants |
+| Pruning precondition unmet, including no `ecosystem.runtime` registration | No pruning; subsumed packages stay package participants |
+| `AspNetCore`-subsumed package dependency | Not pruned; remains a package participant |
 | Equivalent CLI and Web inputs | Equal host-neutral outcomes |
 
 Each slice classifies its tests as PR-fast or slow. Tests that need an exact
