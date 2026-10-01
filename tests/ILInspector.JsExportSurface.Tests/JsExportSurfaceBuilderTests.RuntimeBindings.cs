@@ -365,7 +365,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     extracted,
-                    OpenWireContractBodyIndex(path)));
+                    OpenWireContractBodyAnalysis(path)));
         Assert.Contains(
             "no compiler-generated runtime wrapper",
             exception.Message,
@@ -386,30 +386,30 @@ public sealed partial class JsExportSurfaceBuilderTests
             spoof.Members,
             member => member.Name
                 == nameof(TargetIdentitySpoofFixture.ReadValue));
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
         const string wrapperName =
             "__Wrapper_ReadValue_764966221";
         MethodIdentity wrapper = Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.DeclaringType.Name
                     == nameof(TargetIdentitySpoofFixture)
                 && method.Name == wrapperName);
         DirectCall wrapperCall = Assert.Single(
-            bodyIndex.DirectCalls,
+            bodyAnalysis.DirectCalls,
             call => call.EvidenceMethod.MetadataToken
                     == wrapper.MetadataToken
                 && call.Callee.Name.StartsWith(
                     $"<{wrapperName}>g____Stub|",
                     StringComparison.Ordinal));
         Assert.Contains(
-            bodyIndex.DirectCalls,
+            bodyAnalysis.DirectCalls,
             call => call.EvidenceMethod.MetadataToken
                     == wrapperCall.CalleeDefinitionToken
                 && call.CalleeDefinitionToken
                     == export.MetadataToken);
         Assert.Contains(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.DeclaringType.Name
                     != nameof(TargetIdentitySpoofFixture)
                 && method.Name == wrapperName);
@@ -423,7 +423,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     extracted,
-                    bodyIndex));
+                    bodyAnalysis));
         Assert.Contains(
             "no compiler-generated runtime wrapper",
             exception.Message,
@@ -444,8 +444,8 @@ public sealed partial class JsExportSurfaceBuilderTests
             exports.Members,
             member => member.Name
                 == nameof(PopulateExports.CountValues));
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
         RuntimeJsExportWrapperCandidate generatedCandidate =
             Assert.Single(
                 export.RuntimeJsExportWrapperCandidates!);
@@ -465,7 +465,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     extracted,
-                    bodyIndex));
+                    bodyAnalysis));
         Assert.Contains(
             "no compiler-generated runtime wrapper",
             exception.Message,
@@ -488,13 +488,13 @@ public sealed partial class JsExportSurfaceBuilderTests
                 == nameof(PopulateExports.CountValues));
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [exports];
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
 
         Assert.Single(
             JsExportSurfaceBuilder.Build(
                 extracted,
-                bodyIndex).Functions);
+                bodyAnalysis).Functions);
         export.HasRuntimeJsExportWrapperCandidate = null;
 
         Assert.Single(
@@ -503,7 +503,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     extracted,
-                    bodyIndex));
+                    bodyAnalysis));
         Assert.Contains(
             "no compiler-generated runtime wrapper",
             exception.Message,
@@ -526,8 +526,8 @@ public sealed partial class JsExportSurfaceBuilderTests
                 == nameof(PopulateExports.CountValues));
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [exports];
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
         RuntimeJsExportWrapperCandidate candidate =
             Assert.Single(
                 export.RuntimeJsExportWrapperCandidates!);
@@ -535,7 +535,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.Single(
             JsExportSurfaceBuilder.Build(
                 extracted,
-                bodyIndex).Functions);
+                bodyAnalysis).Functions);
         export.RuntimeJsExportWrapperCandidates =
         [
             candidate with
@@ -548,7 +548,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     extracted,
-                    bodyIndex));
+                    bodyAnalysis));
         Assert.Contains(
             "no compiler-generated runtime wrapper",
             exception.Message,
@@ -571,14 +571,14 @@ public sealed partial class JsExportSurfaceBuilderTests
                 == nameof(PopulateExports.CountValues));
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [exports];
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
         RuntimeJsExportWrapperCandidate candidate =
             Assert.Single(
                 export.RuntimeJsExportWrapperCandidates!);
         ImmutableArray<DirectCall> emptyMvidCalls =
         [
-            .. bodyIndex.DirectCalls.Select(call =>
+            .. bodyAnalysis.DirectCalls.Select(call =>
                 call with
                 {
                     EvidenceMethod = call.EvidenceMethod with
@@ -587,18 +587,18 @@ public sealed partial class JsExportSurfaceBuilderTests
                     },
                 }),
         ];
-        LibraryBodyIndex emptyMvidIndex =
-            LibraryBodyIndex.FromEvidence(
-                bodyIndex.Methods,
+        LibraryJsonWireContractAnalysisResult emptyMvidIndex =
+            WireContractTestAnalysis.FromEvidence(
+                bodyAnalysis.Methods,
                 [],
-                diagnostics: bodyIndex.Diagnostics,
+                diagnostics: bodyAnalysis.Diagnostics,
                 directCalls: emptyMvidCalls,
-                resultSinks: bodyIndex.ResultSinks);
+                resultSinks: bodyAnalysis.ResultSinks);
 
         Assert.Single(
             JsExportSurfaceBuilder.Build(
                 extracted,
-                bodyIndex).Functions);
+                bodyAnalysis).Functions);
         export.RuntimeJsExportWrapperCandidates =
         [
             candidate with
@@ -634,8 +634,8 @@ public sealed partial class JsExportSurfaceBuilderTests
                 == nameof(PopulateExports.CountValues));
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [exports];
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
         RuntimeJsExportWrapperCandidate candidate =
             Assert.Single(
                 export.RuntimeJsExportWrapperCandidates!);
@@ -643,7 +643,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.Single(
             JsExportSurfaceBuilder.Build(
                 extracted,
-                bodyIndex).Functions);
+                bodyAnalysis).Functions);
         export.RuntimeJsExportWrapperCandidates =
         [
             candidate with
@@ -656,7 +656,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     extracted,
-                    bodyIndex));
+                    bodyAnalysis));
         Assert.Contains(
             "no compiler-generated runtime wrapper",
             exception.Message,
@@ -685,8 +685,8 @@ public sealed partial class JsExportSurfaceBuilderTests
                 == nameof(PopulateExports.CountValues));
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [exports];
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
         RuntimeJsExportWrapperCandidate candidate =
             Assert.Single(
                 export.RuntimeJsExportWrapperCandidates!);
@@ -698,7 +698,7 @@ public sealed partial class JsExportSurfaceBuilderTests
                 trustedFrameworkAssembly));
         ImmutableArray<DirectCall> wrongAssemblyCalls =
         [
-            .. bodyIndex.DirectCalls.Select(call =>
+            .. bodyAnalysis.DirectCalls.Select(call =>
                 call.EvidenceMethod.MetadataToken
                         == candidate.WrapperMethodToken
                     ? call with
@@ -710,18 +710,18 @@ public sealed partial class JsExportSurfaceBuilderTests
                     }
                     : call),
         ];
-        LibraryBodyIndex wrongAssemblyIndex =
-            LibraryBodyIndex.FromEvidence(
-                bodyIndex.Methods,
+        LibraryJsonWireContractAnalysisResult wrongAssemblyIndex =
+            WireContractTestAnalysis.FromEvidence(
+                bodyAnalysis.Methods,
                 [],
-                diagnostics: bodyIndex.Diagnostics,
+                diagnostics: bodyAnalysis.Diagnostics,
                 directCalls: wrongAssemblyCalls,
-                resultSinks: bodyIndex.ResultSinks);
+                resultSinks: bodyAnalysis.ResultSinks);
 
         Assert.Single(
             JsExportSurfaceBuilder.Build(
                 extracted,
-                bodyIndex).Functions);
+                bodyAnalysis).Functions);
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
@@ -748,11 +748,11 @@ public sealed partial class JsExportSurfaceBuilderTests
             type => type.Name == nameof(PopulateExports));
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [exports];
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
         ImmutableArray<DirectCall> untrustedCalls =
         [
-            .. bodyIndex.DirectCalls.Select(call =>
+            .. bodyAnalysis.DirectCalls.Select(call =>
                 call.Callee.Name == "BindManagedFunction"
                     ? call with
                     {
@@ -766,18 +766,18 @@ public sealed partial class JsExportSurfaceBuilderTests
                     }
                     : call),
         ];
-        LibraryBodyIndex untrustedIndex =
-            LibraryBodyIndex.FromEvidence(
-                bodyIndex.Methods,
+        LibraryJsonWireContractAnalysisResult untrustedIndex =
+            WireContractTestAnalysis.FromEvidence(
+                bodyAnalysis.Methods,
                 [],
-                diagnostics: bodyIndex.Diagnostics,
+                diagnostics: bodyAnalysis.Diagnostics,
                 directCalls: untrustedCalls,
-                resultSinks: bodyIndex.ResultSinks);
+                resultSinks: bodyAnalysis.ResultSinks);
 
         Assert.Single(
             JsExportSurfaceBuilder.Build(
                 extracted,
-                bodyIndex).Functions);
+                bodyAnalysis).Functions);
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
@@ -803,8 +803,8 @@ public sealed partial class JsExportSurfaceBuilderTests
             member => member.Name == nameof(PopulateExports.CountValues));
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [exports];
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
         RuntimeJsExportWrapperCandidate candidate =
             Assert.Single(
                 export.RuntimeJsExportWrapperCandidates!);
@@ -815,7 +815,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             trustedFrameworkAssembly: false);
         ImmutableArray<DirectCall> untrustedCalls =
         [
-            .. bodyIndex.DirectCalls.Select(call =>
+            .. bodyAnalysis.DirectCalls.Select(call =>
                 call.EvidenceMethod.MetadataToken
                         == candidate.WrapperMethodToken
                     ? call with
@@ -827,18 +827,18 @@ public sealed partial class JsExportSurfaceBuilderTests
                     }
                     : call),
         ];
-        LibraryBodyIndex untrustedIndex =
-            LibraryBodyIndex.FromEvidence(
-                bodyIndex.Methods,
+        LibraryJsonWireContractAnalysisResult untrustedIndex =
+            WireContractTestAnalysis.FromEvidence(
+                bodyAnalysis.Methods,
                 [],
-                diagnostics: bodyIndex.Diagnostics,
+                diagnostics: bodyAnalysis.Diagnostics,
                 directCalls: untrustedCalls,
-                resultSinks: bodyIndex.ResultSinks);
+                resultSinks: bodyAnalysis.ResultSinks);
 
         Assert.Single(
             JsExportSurfaceBuilder.Build(
                 extracted,
-                bodyIndex).Functions);
+                bodyAnalysis).Functions);
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
@@ -866,14 +866,14 @@ public sealed partial class JsExportSurfaceBuilderTests
                 == nameof(PopulateExports.CountValues));
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [exports];
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
         RuntimeJsExportWrapperCandidate candidate =
             Assert.Single(
                 export.RuntimeJsExportWrapperCandidates!);
         Assert.True(candidate.RegistrationCount > 1);
         DirectCall targetCall = Assert.Single(
-            bodyIndex.DirectCalls
+            bodyAnalysis.DirectCalls
                 .Where(call =>
                     call.EvidenceMethod.MetadataToken
                         == candidate.RegistrationMethodToken
@@ -887,7 +887,7 @@ public sealed partial class JsExportSurfaceBuilderTests
                 .Single!
                 .Int32Value);
         DirectCall decoy = Assert.Single(
-            bodyIndex.DirectCalls
+            bodyAnalysis.DirectCalls
                 .Where(call =>
                     call.EvidenceMethod.MetadataToken
                         == candidate.RegistrationMethodToken
@@ -904,7 +904,7 @@ public sealed partial class JsExportSurfaceBuilderTests
                 .Take(1));
         ImmutableArray<DirectCall> duplicatedCalls =
         [
-            .. bodyIndex.DirectCalls.Select(call =>
+            .. bodyAnalysis.DirectCalls.Select(call =>
                 call.EvidenceMethod.MetadataToken
                         == decoy.EvidenceMethod.MetadataToken
                     && call.ILOffset == decoy.ILOffset
@@ -914,20 +914,20 @@ public sealed partial class JsExportSurfaceBuilderTests
                     }
                     : call),
         ];
-        LibraryBodyIndex reconstructedIndex =
-            LibraryBodyIndex.FromEvidence(
-                bodyIndex.Methods,
+        LibraryJsonWireContractAnalysisResult reconstructedIndex =
+            WireContractTestAnalysis.FromEvidence(
+                bodyAnalysis.Methods,
                 [],
-                diagnostics: bodyIndex.Diagnostics,
-                directCalls: bodyIndex.DirectCalls,
-                resultSinks: bodyIndex.ResultSinks);
-        LibraryBodyIndex duplicatedIndex =
-            LibraryBodyIndex.FromEvidence(
-                bodyIndex.Methods,
+                diagnostics: bodyAnalysis.Diagnostics,
+                directCalls: bodyAnalysis.DirectCalls,
+                resultSinks: bodyAnalysis.ResultSinks);
+        LibraryJsonWireContractAnalysisResult duplicatedIndex =
+            WireContractTestAnalysis.FromEvidence(
+                bodyAnalysis.Methods,
                 [],
-                diagnostics: bodyIndex.Diagnostics,
+                diagnostics: bodyAnalysis.Diagnostics,
                 directCalls: duplicatedCalls,
-                resultSinks: bodyIndex.ResultSinks);
+                resultSinks: bodyAnalysis.ResultSinks);
 
         Assert.Single(
             JsExportSurfaceBuilder.Build(
@@ -964,8 +964,8 @@ public sealed partial class JsExportSurfaceBuilderTests
             member => member.Name == "Foo_Bar");
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [fixture];
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
 
         Assert.False(
             foo.HasRuntimeJsExportWrapperCandidate);
@@ -975,7 +975,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     extracted,
-                    bodyIndex));
+                    bodyAnalysis));
         Assert.Contains(
             "no compiler-generated runtime wrapper",
             exception.Message,
@@ -985,7 +985,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface
             accepted = JsExportSurfaceBuilder.Build(
                 extracted,
-                bodyIndex);
+                bodyAnalysis);
         Assert.Equal("Foo_Bar", Assert.Single(
             accepted.Functions).Name);
     }
@@ -1013,7 +1013,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         JsExportFunction function = Assert.Single(
             JsExportSurfaceBuilder.Build(
                 extracted,
-                OpenWireContractBodyIndex(path))
+                OpenWireContractBodyAnalysis(path))
                 .Functions);
         Assert.Equal(
             "ILInspector.JsExportSurface.PublishabilityFixtures"
@@ -1037,13 +1037,13 @@ public sealed partial class JsExportSurfaceBuilderTests
         ];
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [fixture];
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(path);
 
         JsExportFunction[] functions =
         [
             .. JsExportSurfaceBuilder.Build(
                 extracted,
-                bodyIndex)
+                bodyAnalysis)
                 .Functions,
         ];
 
@@ -1057,7 +1057,7 @@ public sealed partial class JsExportSurfaceBuilderTests
 
         DirectCall[] registrations =
         [
-            .. bodyIndex.DirectCalls
+            .. bodyAnalysis.DirectCalls
                 .Where(call =>
                     call.Callee.Name == "BindManagedFunction"
                     && call.FirstArgumentStringLiteral?.EndsWith(
@@ -1093,7 +1093,7 @@ public sealed partial class JsExportSurfaceBuilderTests
                     candidate.WrapperMethodToken))
         {
             MethodIdentity wrapper = Assert.Single(
-                bodyIndex.Methods,
+                bodyAnalysis.Methods,
                 method => method.MetadataToken
                     == candidate.WrapperMethodToken);
             Assert.True(
@@ -1112,14 +1112,14 @@ public sealed partial class JsExportSurfaceBuilderTests
                     }
                     && unchecked((uint)hash) == wrapperHash);
             DirectCall wrapperCall = Assert.Single(
-                bodyIndex.DirectCalls,
+                bodyAnalysis.DirectCalls,
                 call => call.EvidenceMethod.MetadataToken
                         == wrapper.MetadataToken
                     && call.Callee.Name.StartsWith(
                         $"<{wrapper.Name}>g____Stub|",
                         StringComparison.Ordinal));
             DirectCall exportCall = Assert.Single(
-                bodyIndex.DirectCalls,
+                bodyAnalysis.DirectCalls,
                 call => call.EvidenceMethod.MetadataToken
                         == wrapperCall.CalleeDefinitionToken
                     && call.Callee.DeclaringType.Name
@@ -1196,11 +1196,11 @@ public sealed partial class JsExportSurfaceBuilderTests
         ];
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [fixture];
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(path);
         JsExportFunction intFunction = Assert.Single(
             JsExportSurfaceBuilder.Build(
                 extracted,
-                bodyIndex).Functions,
+                bodyAnalysis).Functions,
             function => function.Parameters is
             [
                 {
@@ -1224,7 +1224,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             candidate =>
             {
                 MethodIdentity method = Assert.Single(
-                    bodyIndex.Methods,
+                    bodyAnalysis.Methods,
                     method => method.MetadataToken
                         == candidate.WrapperMethodToken);
                 Assert.True(
@@ -1236,22 +1236,22 @@ public sealed partial class JsExportSurfaceBuilderTests
                     == unchecked((uint)originalSignatureHash);
             });
         MethodIdentity wrapper = Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.MetadataToken
                 == candidate.WrapperMethodToken);
         DirectCall wrapperCall = Assert.Single(
-            bodyIndex.DirectCalls,
+            bodyAnalysis.DirectCalls,
             call => call.EvidenceMethod.MetadataToken
                     == wrapper.MetadataToken
                 && call.Callee.Name.StartsWith(
                     $"<{wrapper.Name}>g____Stub|",
                     StringComparison.Ordinal));
         MethodIdentity stub = Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.MetadataToken
                 == wrapperCall.CalleeDefinitionToken);
         DirectCall registration = Assert.Single(
-            bodyIndex.DirectCalls,
+            bodyAnalysis.DirectCalls,
             call => call.EvidenceMethod.MetadataToken
                     == candidate.RegistrationMethodToken
                 && call.Callee.Name == "BindManagedFunction"
@@ -1303,7 +1303,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         ]);
         ImmutableArray<MethodIdentity> methods =
         [
-            .. bodyIndex.Methods.Select(method =>
+            .. bodyAnalysis.Methods.Select(method =>
                 method.MetadataToken == wrapper.MetadataToken
                     ? rewrittenWrapper
                     : method.MetadataToken == stub.MetadataToken
@@ -1312,7 +1312,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         ];
         ImmutableArray<DirectCall> calls =
         [
-            .. bodyIndex.DirectCalls.Select(call =>
+            .. bodyAnalysis.DirectCalls.Select(call =>
                 call.EvidenceMethod.MetadataToken
                         == registration.EvidenceMethod.MetadataToken
                     && call.ILOffset == registration.ILOffset
@@ -1337,13 +1337,13 @@ public sealed partial class JsExportSurfaceBuilderTests
                             }
                             : call),
         ];
-        LibraryBodyIndex rewrittenIndex =
-            LibraryBodyIndex.FromEvidence(
+        LibraryJsonWireContractAnalysisResult rewrittenIndex =
+            WireContractTestAnalysis.FromEvidence(
                 methods,
                 [],
-                diagnostics: bodyIndex.Diagnostics,
+                diagnostics: bodyAnalysis.Diagnostics,
                 directCalls: calls,
-                resultSinks: bodyIndex.ResultSinks);
+                resultSinks: bodyAnalysis.ResultSinks);
 
         JsExportFunction rewrittenFunction = Assert.Single(
             JsExportSurfaceBuilder.Build(
@@ -1387,13 +1387,13 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.Equal(2, overloads.Length);
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [fixture];
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(path);
 
         JsExportFunction[] accepted =
         [
             .. JsExportSurfaceBuilder.Build(
                 extracted,
-                bodyIndex)
+                bodyAnalysis)
                 .Functions,
         ];
         Assert.Equal(2, accepted.Length);
@@ -1414,7 +1414,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             candidate =>
             {
                 MethodIdentity wrapper = Assert.Single(
-                    bodyIndex.Methods,
+                    bodyAnalysis.Methods,
                     method => method.MetadataToken
                         == candidate.WrapperMethodToken);
                 Assert.True(
@@ -1439,7 +1439,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     extracted,
-                    bodyIndex));
+                    bodyAnalysis));
         Assert.Contains(
             "no compiler-generated runtime wrapper",
             exception.Message,
@@ -1463,7 +1463,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.Equal(2, fixture.Members.Count);
         extracted.FilteredRuntimeJsExportFacts = [];
         extracted.Types = [fixture];
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(path);
         RuntimeJsExportWrapperCandidate[] candidates =
         [
             .. fixture.Members[0].RuntimeJsExportWrapperCandidates!,
@@ -1477,7 +1477,7 @@ public sealed partial class JsExportSurfaceBuilderTests
                 candidate.RegistrationMethodToken));
         DirectCall[] targetCalls =
         [
-            .. bodyIndex.DirectCalls.Where(call =>
+            .. bodyAnalysis.DirectCalls.Where(call =>
                 call.EvidenceMethod.MetadataToken == registrationToken
                 && call.Callee.Name == "BindManagedFunction"
                 && call.FirstArgumentStringLiteral?.EndsWith(
@@ -1497,7 +1497,7 @@ public sealed partial class JsExportSurfaceBuilderTests
                         .Single!
                         .Int32Value)),
         ];
-        DirectCall decoy = bodyIndex.DirectCalls.First(call =>
+        DirectCall decoy = bodyAnalysis.DirectCalls.First(call =>
             call.EvidenceMethod.MetadataToken == registrationToken
             && call.Callee.Name == "BindManagedFunction"
             && call.FirstArgumentStringLiteral is not null
@@ -1510,7 +1510,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             && !targetHashes.Contains(hash));
         ImmutableArray<DirectCall> calls =
         [
-            .. bodyIndex.DirectCalls.Select(call =>
+            .. bodyAnalysis.DirectCalls.Select(call =>
                 call.EvidenceMethod.MetadataToken
                         == decoy.EvidenceMethod.MetadataToken
                     && call.ILOffset == decoy.ILOffset
@@ -1520,13 +1520,13 @@ public sealed partial class JsExportSurfaceBuilderTests
                     }
                     : call),
         ];
-        LibraryBodyIndex tamperedIndex =
-            LibraryBodyIndex.FromEvidence(
-                bodyIndex.Methods,
+        LibraryJsonWireContractAnalysisResult tamperedIndex =
+            WireContractTestAnalysis.FromEvidence(
+                bodyAnalysis.Methods,
                 [],
-                diagnostics: bodyIndex.Diagnostics,
+                diagnostics: bodyAnalysis.Diagnostics,
                 directCalls: calls,
-                resultSinks: bodyIndex.ResultSinks);
+                resultSinks: bodyAnalysis.ResultSinks);
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
@@ -1556,7 +1556,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         JsExportFunction function = Assert.Single(
             JsExportSurfaceBuilder.Build(
                 extracted,
-                OpenWireContractBodyIndex(path))
+                OpenWireContractBodyAnalysis(path))
                 .Functions);
         Assert.Equal(
             "ILInspector.JsExportSurface.PublishabilityFixtures"
@@ -1621,12 +1621,12 @@ public sealed partial class JsExportSurfaceBuilderTests
                 apiSurface.Types,
                 type => type.Name == nameof(HandwrittenContextExports)),
         ];
-        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = OpenWireContractBodyAnalysis(path);
         context.HasSystemTextJsonSourceGenerationMarker = true;
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(apiSurface, bodyIndex));
+                () => JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis));
         Assert.Contains(
             "no authentic source-generated implementation",
             exception.Message,
@@ -1640,7 +1640,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             ApiSurface apiSurface,
             ApiType context,
             ApiMember rootProperty,
-            LibraryBodyIndex bodyIndex) =
+            LibraryJsonWireContractAnalysisResult bodyAnalysis) =
                 ExtractSupportedScalarVectorSurface();
         TypeRef untrustedOptions = TypeRef.Definition(
             "System.Text.Json",
@@ -1649,7 +1649,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             trustedFrameworkAssembly: false);
         ImmutableArray<DirectCall> untrustedCalls =
         [
-            .. bodyIndex.DirectCalls.Select(call =>
+            .. bodyAnalysis.DirectCalls.Select(call =>
                 call.EvidenceMethod.MetadataToken
                         == rootProperty.GetterToken
                     && call.Callee.Name == "get_Options"
@@ -1662,20 +1662,20 @@ public sealed partial class JsExportSurfaceBuilderTests
                     }
                     : call),
         ];
-        LibraryBodyIndex untrustedIndex =
-            LibraryBodyIndex.FromEvidence(
-                bodyIndex.Methods,
+        LibraryJsonWireContractAnalysisResult untrustedIndex =
+            WireContractTestAnalysis.FromEvidence(
+                bodyAnalysis.Methods,
                 [],
-                diagnostics: bodyIndex.Diagnostics,
+                diagnostics: bodyAnalysis.Diagnostics,
                 directCalls: untrustedCalls,
-                resultSinks: bodyIndex.ResultSinks);
+                resultSinks: bodyAnalysis.ResultSinks);
 
         Assert.Equal(
             "int[]",
             Assert.Single(
                 JsExportSurfaceBuilder.Build(
                     apiSurface,
-                    bodyIndex).Functions)
+                    bodyAnalysis).Functions)
                 .ReturnWireType);
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
@@ -1696,10 +1696,10 @@ public sealed partial class JsExportSurfaceBuilderTests
             ApiSurface apiSurface,
             ApiType context,
             _,
-            LibraryBodyIndex bodyIndex) =
+            LibraryJsonWireContractAnalysisResult bodyAnalysis) =
                 ExtractSupportedScalarVectorSurface();
         MethodIdentity staticConstructor = Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.Name == ".cctor"
                 && method.DeclaringType.Resolution?.Type
                     == context.DefinitionName);
@@ -1710,7 +1710,7 @@ public sealed partial class JsExportSurfaceBuilderTests
             trustedFrameworkAssembly: false);
         ImmutableArray<DirectCall> untrustedCalls =
         [
-            .. bodyIndex.DirectCalls.Select(call =>
+            .. bodyAnalysis.DirectCalls.Select(call =>
                 call.EvidenceMethod.MetadataToken
                         == staticConstructor.MetadataToken
                     && call.Kind == CallKind.NewObject
@@ -1728,20 +1728,20 @@ public sealed partial class JsExportSurfaceBuilderTests
                     }
                     : call),
         ];
-        LibraryBodyIndex untrustedIndex =
-            LibraryBodyIndex.FromEvidence(
-                bodyIndex.Methods,
+        LibraryJsonWireContractAnalysisResult untrustedIndex =
+            WireContractTestAnalysis.FromEvidence(
+                bodyAnalysis.Methods,
                 [],
-                diagnostics: bodyIndex.Diagnostics,
+                diagnostics: bodyAnalysis.Diagnostics,
                 directCalls: untrustedCalls,
-                resultSinks: bodyIndex.ResultSinks);
+                resultSinks: bodyAnalysis.ResultSinks);
 
         Assert.Equal(
             "int[]",
             Assert.Single(
                 JsExportSurfaceBuilder.Build(
                     apiSurface,
-                    bodyIndex).Functions)
+                    bodyAnalysis).Functions)
                 .ReturnWireType);
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
@@ -1885,15 +1885,15 @@ public sealed partial class JsExportSurfaceBuilderTests
         const int diagnosticToken = 0x0600FFFF;
         apiSurface.FilteredRuntimeJsExportFacts = [];
         apiSurface.Types = [exports];
-        LibraryBodyIndex authenticIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult authenticIndex =
+            OpenWireContractBodyAnalysis(path);
         var diagnostic = new AnalysisDiagnostic(
             diagnosticToken,
             "Exports.Failed",
             "BadImageFormatException: invalid body",
             SourceMethodToken:
                 sourceAttributed ? exportToken : null);
-        LibraryBodyIndex bodyIndex = LibraryBodyIndex.FromEvidence(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = WireContractTestAnalysis.FromEvidence(
             authenticIndex.Methods,
             [],
             diagnostics: [diagnostic],
@@ -1905,12 +1905,12 @@ public sealed partial class JsExportSurfaceBuilderTests
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     apiSurface,
-                    bodyIndex));
+                    bodyAnalysis));
         }
         else
         {
             Assert.Single(
-                JsExportSurfaceBuilder.Build(apiSurface, bodyIndex)
+                JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis)
                     .Functions);
         }
     }
@@ -1938,17 +1938,17 @@ public sealed partial class JsExportSurfaceBuilderTests
         fixture.Members = [export];
         apiSurface.FilteredRuntimeJsExportFacts = [];
         apiSurface.Types = [fixture];
-        LibraryBodyIndex bodyIndex =
-            OpenWireContractBodyIndex(path);
+        LibraryJsonWireContractAnalysisResult bodyAnalysis =
+            OpenWireContractBodyAnalysis(path);
         MethodIdentity wrapper = Assert.Single(
-            bodyIndex.Methods,
+            bodyAnalysis.Methods,
             method => method.DeclaringType.Name
                     == nameof(WrapperPrefixCollisionFixture)
                 && RuntimeJsExportWrapperName.IsCandidateFor(
                     method.Name,
                     export.Name));
         DirectCall wrapperCall = Assert.Single(
-            bodyIndex.DirectCalls,
+            bodyAnalysis.DirectCalls,
             call => call.EvidenceMethod.MetadataToken
                     == wrapper.MetadataToken
                 && call.Callee.Name.StartsWith(
@@ -1963,18 +1963,18 @@ public sealed partial class JsExportSurfaceBuilderTests
             "BadImageFormatException: invalid body",
             SourceMethodToken:
                 sourceAttributed ? diagnosedToken : null);
-        LibraryBodyIndex diagnosedIndex =
-            LibraryBodyIndex.FromEvidence(
-                bodyIndex.Methods,
+        LibraryJsonWireContractAnalysisResult diagnosedIndex =
+            WireContractTestAnalysis.FromEvidence(
+                bodyAnalysis.Methods,
                 [],
                 diagnostics: [diagnostic],
-                directCalls: bodyIndex.DirectCalls,
-                resultSinks: bodyIndex.ResultSinks);
+                directCalls: bodyAnalysis.DirectCalls,
+                resultSinks: bodyAnalysis.ResultSinks);
 
         Assert.Single(
             JsExportSurfaceBuilder.Build(
                 apiSurface,
-                bodyIndex)
+                bodyAnalysis)
                 .Functions);
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
