@@ -253,14 +253,13 @@ public class ReferenceCoalesceBindingTests
         Assert.All(results, result =>
         {
             Assert.False(result.UsedCompileBackFloor);
-            // These two nested shapes have the same generated-identity limits
-            // at the measured base; neither is an Exact fidelity claim.
+            // These nested shapes preserve their opcode contracts but retain
+            // generated-identity operand differences; neither is Exact.
             var expected = result.Plan.TargetMethod.Method switch
             {
                 nameof(ReferenceCoalesceBindingSamples.NestedObjectOverload)
+                    or nameof(ReferenceCoalesceBindingSamples.LocalFunctionObjectOverload)
                     => FidelityCheck.CompileBackStatus.OperandDiff,
-                nameof(ReferenceCoalesceBindingSamples.LocalFunctionObjectOverload)
-                    => FidelityCheck.CompileBackStatus.NotFull,
                 _ => FidelityCheck.CompileBackStatus.Exact,
             };
             Assert.True(result.Status == expected,
