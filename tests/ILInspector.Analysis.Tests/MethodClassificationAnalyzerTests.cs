@@ -338,6 +338,42 @@ public sealed class MethodClassificationAnalyzerTests
     }
 
     [Fact]
+    public void Planner_IdenticalHeadIsAcceptedAndDistinctLimitsConflict()
+    {
+        ProducerRequest head = ProducerRequest.Head(
+            RuntimeAsyncAnalyzer.Instance,
+            2);
+        WorkDescription description = Plan(head, head);
+
+        Assert.Equal(
+            ProducerTerminal.Rows,
+            description.TerminalOf(RuntimeAsyncAnalyzer.Instance));
+        Assert.Equal(
+            2,
+            description.RowLimitOf(RuntimeAsyncAnalyzer.Instance));
+
+        ProducerContractException error =
+            Assert.Throws<ProducerContractException>(() => ProducerPlanner.Plan(
+            [
+                ProducerRequest.Head(RuntimeAsyncAnalyzer.Instance, 2),
+                ProducerRequest.Head(RuntimeAsyncAnalyzer.Instance, 3),
+            ]));
+        Assert.Contains("Head(2)", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Head(3)", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Planner_HeadRequiresAPositiveRowLimit()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ProducerRequest.Head(RuntimeAsyncAnalyzer.Instance, 0));
+        Assert.Throws<ArgumentException>(() => new ProducerRequest(
+            RuntimeAsyncAnalyzer.Instance,
+            ProducerTerminal.Complete,
+            rowLimit: 1));
+    }
+
+    [Fact]
     public void Analyzers_KernelEqualsTheInterpretedExecutor()
     {
         GateFixtureImage builder = new();
@@ -348,16 +384,26 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("D");
         ImmutableArray<byte> image = builder.Build();
 
-        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.Count, ProducerTerminal.Exists, ProducerTerminal.Rows })
+        ProducerRequest[] requests =
+        [
+            new(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Count),
+            new(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Exists),
+            new(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Rows),
+            ProducerRequest.Head(RuntimeAsyncAnalyzer.Instance, 1),
+        ];
+        foreach (ProducerRequest request in requests)
         {
             // Alone, each analyzer runs as a kernel; beside an independent
             // producer, the reference executor interprets it.
             foreach (ProducerDeclaration<ClosedQueryResult<ClassifiedMethodRow>> analyzer in Analyzers)
             {
-                MethodDefinitionExecution kernel = Execute(image, new ProducerRequest(analyzer, terminal));
+                ProducerRequest analyzerRequest = request.RowLimit is int count
+                    ? ProducerRequest.Head(analyzer, count)
+                    : new ProducerRequest(analyzer, request.Terminal);
+                MethodDefinitionExecution kernel = Execute(image, analyzerRequest);
                 MethodDefinitionExecution interpreted = Execute(
                     image,
-                    new ProducerRequest(analyzer, terminal),
+                    analyzerRequest,
                     new ProducerRequest(Independent.Instance));
 
                 ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> k = kernel.ResultOf(analyzer);

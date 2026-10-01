@@ -23,19 +23,58 @@ public enum ProducerTerminal
     Count = 3,
 
     /// <summary>
-    /// Every unit in scope contributes, and each unit that satisfies the
-    /// producer's open query is projected to a row. A producer may declare
-    /// fields it reads only for this closing, such as identity text. Planning
-    /// never derives another closing from it: a consumer that needs Count or
-    /// Exists requests that closing in its own work description.
+    /// Each unit that satisfies the producer's open query is projected to a
+    /// row. Without a row limit, every unit in scope contributes. With a
+    /// positive row limit, the request is Head(N) and stops when N matching
+    /// rows have been projected or the source is exhausted. A producer may
+    /// declare fields it reads only for this closing, such as identity text.
+    /// Planning never derives another closing from it: a consumer that needs
+    /// Count or Exists requests that closing in its own work description.
     /// </summary>
     Rows = 2,
 }
 
-/// <summary>One requested producer and the terminal the requester needs.</summary>
-public sealed record ProducerRequest(
-    ProducerDeclaration Producer,
-    ProducerTerminal Terminal = ProducerTerminal.Complete);
+/// <summary>
+/// One requested producer, the terminal the requester needs, and an optional
+/// positive limit that closes Rows as Head(N).
+/// </summary>
+public sealed record ProducerRequest
+{
+    public ProducerRequest(
+        ProducerDeclaration producer,
+        ProducerTerminal terminal = ProducerTerminal.Complete,
+        int? rowLimit = null)
+    {
+        ArgumentNullException.ThrowIfNull(producer);
+        if (rowLimit is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(rowLimit));
+        if (rowLimit is not null && terminal != ProducerTerminal.Rows)
+        {
+            throw new ArgumentException(
+                "A row limit is valid only for the Rows terminal.",
+                nameof(rowLimit));
+        }
+
+        Producer = producer;
+        Terminal = terminal;
+        RowLimit = rowLimit;
+    }
+
+    public ProducerDeclaration Producer { get; }
+
+    public ProducerTerminal Terminal { get; }
+
+    /// <summary>
+    /// The number of matching projected rows that settles this request, or
+    /// null when Rows must exhaust its source.
+    /// </summary>
+    public int? RowLimit { get; }
+
+    public static ProducerRequest Head(
+        ProducerDeclaration producer,
+        int count) =>
+        new(producer, ProducerTerminal.Rows, count);
+}
 
 public enum ProducerRejectionReason
 {
@@ -59,7 +98,8 @@ public sealed record ProducerRejection(
 /// <summary>
 /// The planner's output: the closed producer set in dependency order, the
 /// pass that holds each producer's visits and completion, and each
-/// producer's effective terminal. It is computed without reading any subject.
+/// producer's effective terminal and optional row limit. It is computed
+/// without reading any subject.
 /// </summary>
 public sealed class WorkDescription
 {
@@ -67,6 +107,7 @@ public sealed class WorkDescription
         ImmutableArray<ProducerDeclaration> producers,
         ImmutableArray<ProducerDeclaration> completionOrder,
         ImmutableDictionary<ProducerDeclaration, ProducerTerminal> terminals,
+        ImmutableDictionary<ProducerDeclaration, int>? rowLimits,
         ImmutableDictionary<ProducerDeclaration, int> visitPasses,
         ImmutableDictionary<ProducerDeclaration, int> completionPasses,
         ImmutableHashSet<ProducerDeclaration> requested)
@@ -74,6 +115,7 @@ public sealed class WorkDescription
         Producers = producers;
         CompletionOrder = completionOrder;
         _terminals = terminals;
+        _rowLimits = rowLimits;
         _visitPasses = visitPasses;
         _completionPasses = completionPasses;
         _requested = requested;
@@ -92,12 +134,19 @@ public sealed class WorkDescription
             indices[producers[i]] = i;
 
         var terminalsByIndex = new ProducerTerminal[producers.Length];
+        int?[]? rowLimitsByIndex =
+            rowLimits is null ? null : new int?[producers.Length];
         var dependencies = new ImmutableArray<int>[producers.Length];
         var unitFactRetention = new UnitFactRetention[producers.Length];
         for (int i = 0; i < producers.Length; i++)
         {
             ProducerDeclaration producer = producers[i];
             terminalsByIndex[i] = terminals[producer];
+            if (rowLimitsByIndex is not null
+                && rowLimits!.TryGetValue(producer, out int rowLimit))
+            {
+                rowLimitsByIndex[i] = rowLimit;
+            }
             ImmutableArray<ProducerDependency> declared = producer.Dependencies;
             var targets = ImmutableArray.CreateBuilder<int>(declared.Length);
             foreach (ProducerDependency dependency in declared)
@@ -149,6 +198,9 @@ public sealed class WorkDescription
 
         _indices = indices;
         TerminalByIndex = ImmutableArray.Create(terminalsByIndex);
+        RowLimitByIndex = rowLimitsByIndex is null
+            ? default
+            : ImmutableArray.Create(rowLimitsByIndex);
         DependencyIndices = ImmutableArray.Create(dependencies);
         FactRetention = ImmutableArray.Create(unitFactRetention);
         CompletionIndices = completionIndices.ToImmutable();
@@ -157,6 +209,7 @@ public sealed class WorkDescription
 
     readonly ImmutableDictionary<ProducerDeclaration, ProducerTerminal>
         _terminals;
+    readonly ImmutableDictionary<ProducerDeclaration, int>? _rowLimits;
     readonly ImmutableDictionary<ProducerDeclaration, int> _visitPasses;
     readonly ImmutableDictionary<ProducerDeclaration, int>
         _completionPasses;
@@ -165,6 +218,12 @@ public sealed class WorkDescription
 
     /// <summary>Each producer's effective terminal, by index into <see cref="Producers"/>.</summary>
     internal ImmutableArray<ProducerTerminal> TerminalByIndex { get; }
+
+    /// <summary>Each producer's optional Rows limit, by index into <see cref="Producers"/>.</summary>
+    internal ImmutableArray<int?> RowLimitByIndex { get; }
+
+    internal int? RowLimitAtIndex(int index) =>
+        RowLimitByIndex.IsDefault ? null : RowLimitByIndex[index];
 
     /// <summary>Each producer's dependency targets, by index, in declaration order.</summary>
     internal ImmutableArray<ImmutableArray<int>> DependencyIndices { get; }
@@ -207,6 +266,12 @@ public sealed class WorkDescription
 
     public ProducerTerminal TerminalOf(ProducerDeclaration producer) =>
         _terminals[producer];
+
+    public int? RowLimitOf(ProducerDeclaration producer) =>
+        _rowLimits is not null
+            && _rowLimits.TryGetValue(producer, out int rowLimit)
+                ? rowLimit
+                : null;
 
     public int VisitPassOf(ProducerDeclaration producer) =>
         _visitPasses[producer];
@@ -265,25 +330,35 @@ public static class ProducerPlanner
             ReferenceEqualityComparer.Instance);
         var terminals = new Dictionary<ProducerDeclaration, ProducerTerminal>(
             ReferenceEqualityComparer.Instance);
+        Dictionary<ProducerDeclaration, int>? rowLimits = null;
         var requested = new HashSet<ProducerDeclaration>(
             ReferenceEqualityComparer.Instance);
 
         foreach (ProducerRequest request in requests)
         {
             ArgumentNullException.ThrowIfNull(request);
-            ArgumentNullException.ThrowIfNull(request.Producer);
             requested.Add(request.Producer);
             Close(request.Producer);
 
             // Planning never ranks or merges closings; an identical
             // duplicate is the same request.
             if (terminals.TryGetValue(request.Producer, out ProducerTerminal existing)
-                && existing != request.Terminal)
+                && (existing != request.Terminal
+                    || RowLimitOf(request.Producer) != request.RowLimit))
             {
-                throw DistinctClosings(request.Producer, existing, request.Terminal);
+                throw DistinctClosings(
+                    request.Producer,
+                    ClosingName(existing, RowLimitOf(request.Producer)),
+                    ClosingName(request.Terminal, request.RowLimit));
             }
 
             terminals[request.Producer] = request.Terminal;
+            if (request.RowLimit is int rowLimit)
+            {
+                (rowLimits ??= new Dictionary<ProducerDeclaration, int>(
+                    ReferenceEqualityComparer.Instance))[request.Producer] =
+                    rowLimit;
+            }
         }
 
         // A dependency is needed in full by its dependent: that is the
@@ -303,7 +378,10 @@ public static class ProducerPlanner
                     && terminals.TryGetValue(target, out ProducerTerminal closing)
                     && closing != ProducerTerminal.Complete)
                 {
-                    throw DistinctClosings(target, closing, ProducerTerminal.Complete);
+                    throw DistinctClosings(
+                        target,
+                        ClosingName(closing, RowLimitOf(target)),
+                        ProducerTerminal.Complete.ToString());
                 }
             }
         }
@@ -327,12 +405,20 @@ public static class ProducerPlanner
                 schedule.CompletionOrder,
                 terminals.ToImmutableDictionary<ProducerDeclaration, ProducerTerminal>(
                     ReferenceEqualityComparer.Instance),
+                rowLimits?.ToImmutableDictionary<ProducerDeclaration, int>(
+                    ReferenceEqualityComparer.Instance),
                 schedule.VisitPasses.ToImmutableDictionary<ProducerDeclaration, int>(
                     ReferenceEqualityComparer.Instance),
                 schedule.CompletionPasses.ToImmutableDictionary<ProducerDeclaration, int>(
                     ReferenceEqualityComparer.Instance),
                 requested.ToImmutableHashSet<ProducerDeclaration>(
                     ReferenceEqualityComparer.Instance)));
+
+        int? RowLimitOf(ProducerDeclaration producer) =>
+            rowLimits is not null
+            && rowLimits.TryGetValue(producer, out int rowLimit)
+                ? rowLimit
+                : null;
 
         void Close(ProducerDeclaration producer)
         {
@@ -384,7 +470,16 @@ public static class ProducerPlanner
         ProducerDeclaration producer,
         ProducerTerminal first,
         ProducerTerminal second) =>
+        DistinctClosings(producer, first.ToString(), second.ToString());
+
+    static ProducerContractException DistinctClosings(
+        ProducerDeclaration producer,
+        string first,
+        string second) =>
         new($"Producer '{producer.Identity}' was requested with distinct closings {first} and {second} in one plan; request each closing in its own plan.");
+
+    static string ClosingName(ProducerTerminal terminal, int? rowLimit) =>
+        rowLimit is int count ? $"Head({count})" : terminal.ToString();
 
     sealed record StageSchedule(
         ImmutableArray<ProducerDeclaration> VisitOrder,
