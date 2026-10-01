@@ -498,6 +498,34 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void Evaluate_RoundTripsAutoPropertyDeclarationInitializer()
+    {
+        var assemblyPath = CompileFixture("""
+            public class AutoPropertyInitializerFixture
+            {
+                int Value { get; set; } = 42;
+            }
+            """);
+        try
+        {
+            var ctor = Assert.Single(
+                FidelityCheck.Evaluate(assemblyPath),
+                result => result.Type == "AutoPropertyInitializerFixture"
+                    && result.Method == ".ctor");
+
+            Assert.True(
+                ctor.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"Status: {ctor.Status}; product member: {ctor.UsedProductWholeMember}; "
+                + $"original: {ctor.OriginalOpcodes}; recompiled: {ctor.RecompiledOpcodes}; "
+                + $"detail: {ctor.Detail}");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void Evaluate_PreservesPrivateConstructorArtifactAndReportsContextFailure()
     {
         var assemblyPath = CompileFixture("""
