@@ -409,7 +409,8 @@ public static partial class WorkspaceCommand
                 request,
                 cancellationToken).ConfigureAwait(false);
 
-        if (options.ActivePackage is not null)
+        if (options.ActivePackage is not null
+            || options.ActiveEcosystem is not null)
         {
             WorkspaceNavigationCommandResult? result =
                 await EvaluateNavigationAsync(
@@ -800,18 +801,8 @@ public static partial class WorkspaceCommand
     static WorkspaceRegistration.Ecosystem ParseEcosystemRegistration(
         string value)
     {
-        string canonical = value.StartsWith(
-            "ecosystem.",
-            StringComparison.Ordinal)
-                ? value
-                : $"ecosystem.{value}";
-        if (!EcosystemPackId.TryCreate(
-            canonical,
-            out EcosystemPackId? id))
-        {
-            throw new ArgumentException(
-                $"'{value}' is not a canonical ecosystem identity.");
-        }
+        EcosystemPackId id = ParseEcosystemPackId(value);
+        string canonical = id.Value;
 
         EcosystemWorkspaceRegistrationSelectionResult selected =
             EcosystemPackCatalog.SelectWorkspaceRegistration(id);
@@ -831,6 +822,24 @@ public static partial class WorkspaceCommand
                 });
         }
         return new WorkspaceRegistration.Ecosystem(known.Declaration);
+    }
+
+    static EcosystemPackId ParseEcosystemPackId(string value)
+    {
+        string canonical = value.StartsWith(
+            "ecosystem.",
+            StringComparison.Ordinal)
+                ? value
+                : $"ecosystem.{value}";
+        if (!EcosystemPackId.TryCreate(
+            canonical,
+            out EcosystemPackId? id))
+        {
+            throw new ArgumentException(
+                $"'{value}' is not a canonical ecosystem identity.");
+        }
+
+        return id;
     }
 
     static string? NormalizePackageVersion(string? value)
@@ -1042,6 +1051,88 @@ public static partial class WorkspaceCommand
         {
             WriteInventoryFailure(inventory.Inspection);
             return null;
+        }
+
+        if (options.ActiveEcosystem is { } requestedEcosystem)
+        {
+            EcosystemPackId id;
+            try
+            {
+                id = ParseEcosystemPackId(requestedEcosystem);
+            }
+            catch (ArgumentException ex)
+            {
+                CommandError.Write(ex.Message);
+                return null;
+            }
+
+            WorkspaceTopLevelEcosystemEntry? ecosystemEntry =
+                available.Document.Entries
+                    .OfType<WorkspaceTopLevelEcosystemEntry>()
+                    .SingleOrDefault(candidate =>
+                        candidate.Id.Equals(
+                            id.Value,
+                            StringComparison.Ordinal));
+            if (ecosystemEntry is null)
+            {
+                CommandError.Write(
+                    $"--active-ecosystem {id.Value} is not registered in the Workspace.");
+                return null;
+            }
+
+            WorkspaceTopLevelInventorySelectionResolution ecosystemResolution =
+                await inventory.Selection.ResolveAsync(
+                    workspace,
+                    ecosystemEntry.Key,
+                    cancellationToken).ConfigureAwait(false);
+            if (ecosystemResolution
+                is not WorkspaceTopLevelInventorySelectionResolution.Selected
+                {
+                    Selection:
+                        WorkspaceTopLevelInventorySelection.Ecosystem
+                            selectedEcosystemOccurrence,
+                } selectedEcosystem)
+            {
+                CommandError.Write(
+                    $"Ecosystem '{id.Value}' could not be selected from the Workspace inventory receipt.",
+                    [
+                        ecosystemResolution switch
+                        {
+                            WorkspaceTopLevelInventorySelectionResolution
+                                .Stale =>
+                                "The inventory receipt is stale for the active Workspace definition.",
+                            WorkspaceTopLevelInventorySelectionResolution
+                                .Absent =>
+                                "The inventory receipt does not contain the requested Ecosystem.",
+                            _ =>
+                                "The inventory receipt returned an unsupported selection.",
+                        },
+                    ]);
+                return null;
+            }
+            if (!selectedEcosystemOccurrence.Id.Value.Equals(
+                    ecosystemEntry.Id,
+                    StringComparison.Ordinal))
+            {
+                CommandError.Write(
+                    "The Workspace inventory receipt did not retain the exact Ecosystem occurrence.");
+                return null;
+            }
+
+            NavigationWorkspaceSnapshot ecosystem =
+                NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                    new NavigationWorkspaceSnapshotRequest
+                    {
+                        Scope = selectedEcosystem.Scope,
+                        Ecosystem = new NavigationEcosystemEvaluation(
+                            selectedEcosystemOccurrence),
+                    },
+                    registry,
+                    availability);
+            return new(
+                ecosystem,
+                Descendant: null,
+                Selector: null);
         }
 
         int requestedOrder = options.ActivePackage!.Value;
@@ -1716,6 +1807,11 @@ public static partial class WorkspaceCommand
         {
             return "--active-package must be a one-based positive occurrence order.";
         }
+        if (options.ActivePackage is not null
+            && options.ActiveEcosystem is not null)
+        {
+            return "--active-package and --active-ecosystem select different structural subjects and cannot be combined.";
+        }
         bool hasNavigationSelector =
             options.Library is not null
             || options.AllLibraries
@@ -1735,10 +1831,12 @@ public static partial class WorkspaceCommand
                 + "combined with portable Workspace definition output.";
         }
         if (options.ShareFormat is not null
-            && (options.ActivePackage is not null || hasNavigationSelector))
+            && (options.ActivePackage is not null
+                || options.ActiveEcosystem is not null
+                || hasNavigationSelector))
         {
             return "--share emits a portable Workspace definition and cannot "
-                + "be combined with Package Navigation options.";
+                + "be combined with Navigation options.";
         }
         if (options.ShareFormat is not null
             && options.InventoryKinds.Length != 0)
@@ -1772,16 +1870,20 @@ public static partial class WorkspaceCommand
                 + "Workspace definition.";
         }
         if (options.Packet is not null
-            && (options.ActivePackage is not null || hasNavigationSelector))
+            && (options.ActivePackage is not null
+                || options.ActiveEcosystem is not null
+                || hasNavigationSelector))
         {
             return "Workspace packet restoration currently supports inventory "
                 + "only and cannot be combined with Navigation options.";
         }
         if (options.InventoryKinds.Length != 0
-            && (options.ActivePackage is not null || hasNavigationSelector))
+            && (options.ActivePackage is not null
+                || options.ActiveEcosystem is not null
+                || hasNavigationSelector))
         {
             return "--kind filters Workspace inventory and cannot be combined "
-                + "with Package Navigation options.";
+                + "with Navigation options.";
         }
         if (hasNavigationSelector && options.ActivePackage is null)
         {

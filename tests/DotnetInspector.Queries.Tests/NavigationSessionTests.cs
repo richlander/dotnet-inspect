@@ -53,13 +53,13 @@ public sealed partial class NavigationSessionTests
         NavigationConsumerResult member = await session.ExecuteAsync(session.Snapshot.Members[1].Navigation.Action!, TestContext.Current.CancellationToken);
         Assert.Equal("member.overview", member.Snapshot.LensOutcome.EffectiveLens!.Facet);
         string retainedMember = member.Snapshot.ActiveSubject.Id;
-        NavigationConsumerResult package = await session.ExecuteAsync(session.Snapshot.Hierarchy[1].Action!, TestContext.Current.CancellationToken);
+        NavigationConsumerResult package = await session.ExecuteAsync(session.Snapshot.Hierarchy[2].Action!, TestContext.Current.CancellationToken);
         Assert.Equal(StructuralSubjectKind.Package, package.Snapshot.ActiveSubject.Kind);
-        Assert.Equal(retainedMember, package.Snapshot.Hierarchy[4].Subject!.Id);
+        Assert.Equal(retainedMember, package.Snapshot.Hierarchy[5].Subject!.Id);
         NavigationConsumerResult workspace = await session.ExecuteAsync(session.Snapshot.Hierarchy[0].Action!, TestContext.Current.CancellationToken);
         Assert.Equal(StructuralSubjectKind.Workspace, workspace.Snapshot.ActiveSubject.Kind);
         Assert.Equal(package.Snapshot.ActivePackage, workspace.Snapshot.ActivePackage);
-        Assert.Equal(retainedMember, workspace.Snapshot.Hierarchy[4].Subject!.Id);
+        Assert.Equal(retainedMember, workspace.Snapshot.Hierarchy[5].Subject!.Id);
         NavigationConsumerResult library = await session.ExecuteAsync(session.Snapshot.Libraries[1].Navigation.Action!, TestContext.Current.CancellationToken);
         Assert.Equal(StructuralSubjectKind.Library, library.Snapshot.ActiveSubject.Kind);
         Assert.Equal("library.references", library.Snapshot.LensOutcome.EffectiveLens!.Facet);
@@ -207,7 +207,7 @@ public sealed partial class NavigationSessionTests
             member.DescendantLenses.First(item => item.Facet.Id == "member.compare").Action!, TestContext.Current.CancellationToken);
         Assert.Equal(member.Navigation.Subject!.Id, result.Snapshot.ActiveSubject.Id);
         Assert.Equal("member.compare", result.Snapshot.LensOutcome.EffectiveLens!.Facet);
-        Assert.Equal(member.DeclaringType, result.Snapshot.Hierarchy[3].Subject!.Id);
+        Assert.Equal(member.DeclaringType, result.Snapshot.Hierarchy[4].Subject!.Id);
         Assert.Empty(result.Snapshot.Types.SelectMany(item => item.DescendantLenses));
     }
 
@@ -486,11 +486,11 @@ public sealed partial class NavigationSessionTests
         NavigationTestHost session = fixture.Session;
         await session.ExecuteAsync(session.Snapshot.Members[1].Navigation.Action!, TestContext.Current.CancellationToken);
         NavigationConsumerResult workspace = await session.ExecuteAsync(session.Snapshot.Hierarchy[0].Action!, TestContext.Current.CancellationToken);
-        string retainedType = workspace.Snapshot.Hierarchy[3].Subject!.Id;
+        string retainedType = workspace.Snapshot.Hierarchy[4].Subject!.Id;
         fixture.Acknowledge(workspace);
         NavigationConsumerResult refresh = await session.RefreshAsync(TestContext.Current.CancellationToken);
         Assert.Equal(StructuralSubjectKind.Workspace, refresh.Snapshot.ActiveSubject.Kind);
-        Assert.Equal(retainedType, refresh.Snapshot.Hierarchy[3].Subject!.Id);
+        Assert.Equal(retainedType, refresh.Snapshot.Hierarchy[4].Subject!.Id);
         Assert.Equal(workspace.Authority!.Revision, refresh.Authority!.Revision);
         Assert.Same(workspace.Snapshot, refresh.Snapshot);
         Assert.All(typeof(NavigationTransitions).GetMethods().SelectMany(method => method.GetParameters()),
@@ -566,16 +566,16 @@ public sealed partial class NavigationSessionTests
         await session.ExecuteAsync(session.Snapshot.Members[1].Navigation.Action!, TestContext.Current.CancellationToken);
         NavigationConsumerResult workspace = await session.ExecuteAsync(
             session.Snapshot.Hierarchy[0].Action!, TestContext.Current.CancellationToken);
-        string retainedType = workspace.Snapshot.Hierarchy[3].Subject!.Id;
+        string retainedType = workspace.Snapshot.Hierarchy[4].Subject!.Id;
         fixture.Acknowledge(workspace);
         fixture.SetTypes(0,
             [NavigationSnapshotTestData.Type("Widget", NavigationSnapshotTestData.Member("Run"))],
             [NavigationSnapshotTestData.Type("Widget", NavigationSnapshotTestData.Member("Different"))]);
         NavigationConsumerResult refresh = await session.RefreshAsync(TestContext.Current.CancellationToken);
         Assert.Equal(StructuralSubjectKind.Workspace, refresh.Snapshot.ActiveSubject.Kind);
-        Assert.Equal(retainedType, refresh.Snapshot.Hierarchy[3].Subject!.Id);
-        Assert.Null(refresh.Snapshot.Hierarchy[4].Subject);
-        Assert.Equal(NavigationDescriptorState.SelectionRequired, refresh.Snapshot.Hierarchy[4].State);
+        Assert.Equal(retainedType, refresh.Snapshot.Hierarchy[4].Subject!.Id);
+        Assert.Null(refresh.Snapshot.Hierarchy[5].Subject);
+        Assert.Equal(NavigationDescriptorState.SelectionRequired, refresh.Snapshot.Hierarchy[5].State);
         Assert.NotEqual(workspace.Authority!.Revision, refresh.Authority!.Revision);
         Assert.Equal(NavigationSynchronizationDisposition.SynchronizationRequired, refresh.Synchronization);
     }
