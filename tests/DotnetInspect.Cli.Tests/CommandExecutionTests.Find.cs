@@ -944,6 +944,35 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Find_FilteredFiniteMemberWindowStopsBeforeLaterMemberSource()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindFilteredMemberWindow-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "*",
+            "--members",
+            "--type",
+            typeof(CommandExecutionTests).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "--rows",
+            "2..3",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2", output.Trim());
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task
         Find_FiniteWindowWithPossibleMemberFallbackRemainsExhaustive()
     {
         string missing = Path.Combine(
