@@ -280,6 +280,7 @@ import {
   type AppExplorerState,
 } from "./metadata-inspection.ts";
 import {
+  applyMemberDocumentationOutcome,
   cancelFindingCensusRequest,
   createMemberDetailInspectionCoordinator,
   type MemberFacts,
@@ -11290,6 +11291,24 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     if (exact) {
       const signature =
         `${exact.accessibility} ${memberReceiverPrefix(exact.receiver)}${exact.displaySignature}`;
+      const exactOverload = state.selectedOverloadIndex === null
+        ? null
+        : member.overloads[state.selectedOverloadIndex] ?? null;
+      const documentationKey = exactOverload
+        ? memberRequestSignature(type, exactOverload)
+        : "";
+      const documentationState = scopedRequestState(
+        state.memberDocumentationKey,
+        documentationKey,
+        state.memberDocumentationLoading,
+        state.memberDocumentationError);
+      const documentationSummary = documentationState.loading
+        ? '<p class="docs-loading">Loading compiled documentation…</p>'
+        : documentationState.error
+          ? `<p class="docs-unavailable">Documentation query failed: ${escapeHtml(documentationState.error)}</p>`
+          : exactOverload?.summary
+            ? `<p class="api-summary">${escapeHtml(exactOverload.summary)}</p>`
+            : '<p class="docs-unavailable">No summary was found in compiled XML documentation.</p>';
       return `
         <section class="member-surface" aria-labelledby="member-surface-title">
           <header class="api-surface-head member-surface-head">
@@ -11302,6 +11321,10 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
               <pre class="language-csharp signature-code"><code class="language-csharp">${highlightCSharp(signature)}</code></pre>
               <p><strong>Digest</strong> <code>${escapeHtml(exact.fingerprint)}</code></p>
               <p><strong>Canonical signature</strong> <code>${escapeHtml(exact.canonicalSignature)}</code></p>
+            </section>
+            <section class="api-section">
+              <div class="section-title"><h2>Summary</h2></div>
+              ${documentationSummary}
             </section>
           </div>
           <footer class="api-surface-footer member-surface-footer">
@@ -19481,6 +19504,7 @@ async function loadSelectedMemberDocument(
     hasFingerprint ? fingerprintPrefix.toLowerCase() : "";
   renderPreservingMemberFocus();
   const pkg = currentPackage();
+  let requiresDocumentationFallback = false;
   try {
     const result = state.rootKind === "library"
       ? inspectUploadedLibraryMemberDocument(
@@ -19531,6 +19555,20 @@ async function loadSelectedMemberDocument(
           ?? overload.metadataToken
           ?? 0) === document.metadataToken);
       state.selectedOverloadIndex = index >= 0 ? index : null;
+      const overload = index >= 0 ? member.overloads[index] : null;
+      const attachedDocumentation = document.documentation;
+      if (overload && attachedDocumentation) {
+        const signature = memberRequestSignature(type, overload);
+        state.memberDocumentationKey = signature;
+        state.memberDocumentationLoading = false;
+        state.memberDocumentationError =
+          applyMemberDocumentationOutcome(
+            overload,
+            attachedDocumentation);
+      } else {
+        requiresDocumentationFallback =
+          state.rootKind !== "library" && overload !== null;
+      }
     }
   } catch (error) {
     if (state.memberDocumentKey !== key) return;
@@ -19540,6 +19578,10 @@ async function loadSelectedMemberDocument(
       state.memberDocumentLoading = false;
       renderPreservingMemberFocus();
     }
+  }
+  if (requiresDocumentationFallback
+    && state.memberDocumentKey === key) {
+    await loadSelectedMemberDocumentation();
   }
 }
 
