@@ -28,6 +28,19 @@ using Inspector.Findings;
 using ILInspector.Metadata;
 using NuGetFetch;
 
+using BrowserMemberDocument =
+    DotnetInspect.Web.Interop.Metadata.BrowserMemberDocument;
+using BrowserMemberDocumentInspection =
+    DotnetInspect.Web.Interop.Metadata.BrowserMemberDocumentInspection;
+using BrowserMemberGroupDocument =
+    DotnetInspect.Web.Interop.Metadata.BrowserMemberGroupDocument;
+using BrowserMemberGroupDocumentInspection =
+    DotnetInspect.Web.Interop.Metadata.BrowserMemberGroupDocumentInspection;
+using BrowserMemberGroupDocumentRow =
+    DotnetInspect.Web.Interop.Metadata.BrowserMemberGroupDocumentRow;
+using MetadataExports =
+    DotnetInspect.Web.Interop.Metadata.MetadataExports;
+
 using DotnetInspect.Web.Interop.Package;
 using BrowserMetadataJsonContext = DotnetInspect.Web.Interop.Metadata.BrowserMetadataJsonContext;
 using BrowserAnalysisJsonContext = DotnetInspect.Web.Interop.Analysis.BrowserAnalysisJsonContext;
@@ -328,6 +341,24 @@ public sealed partial class BrowserEngineBoundaryTests
 
     [Fact]
     public async Task
+        QueryUnifiedPlatformMemberDocumentation_UsesSharedSettlement()
+    {
+        DocumentationQueryOutcome outcome =
+            await QueryUnifiedPlatformMemberDocumentationAsync(
+                "11.0.7148",
+                includeDocumentation: true);
+
+        var completed =
+            Assert.IsType<DocumentationQueryOutcome.Completed>(outcome);
+        Assert.Contains(
+            completed.Fields.Summary.Contributions,
+            static contribution =>
+                contribution.Value
+                    == "Reads documentation from a non-public type.");
+    }
+
+    [Fact]
+    public async Task
         QueryMemberDocumentation_BrowserAdmittedLargeSurfaceReturnsAvailable()
     {
         const string packageId =
@@ -602,6 +633,86 @@ public sealed partial class BrowserEngineBoundaryTests
 
     [Fact]
     public async Task
+        QueryMemberDocument_AttachesExactDocumentationOutcome()
+    {
+        string packageId =
+            $"Browser.MemberDocument.Documentation.{Guid.NewGuid():N}";
+        byte[] packageBytes = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                $"""
+                 <package>
+                   <metadata>
+                     <id>{packageId}</id>
+                     <version>1.0.0</version>
+                     <authors>Tests</authors>
+                     <description>Exact Member documentation attachment.</description>
+                   </metadata>
+                 </package>
+                 """)),
+            ("lib/net11.0/InspectWeb.DocumentationFixtures.dll",
+                File.ReadAllBytes(
+                    FixtureCatalog.InspectWebDocumentation.AssemblyPath())),
+            ("lib/net11.0/InspectWeb.DocumentationFixtures.xml",
+                File.ReadAllBytes(
+                    FixtureCatalog.InspectWebDocumentation.AssetPath(
+                        "documentation"))));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                packageBytes,
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        BrowserMemberGroupDocumentInspection group =
+            JsonSerializer.Deserialize(
+                await MetadataExports.QueryMemberGroupDocument(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    "InspectWeb.DocumentationFixtures.dll",
+                    "InspectWeb.DocumentationFixtures.WidgetExtensions",
+                    "Measure"),
+                BrowserMetadataJsonContext.Default
+                    .BrowserMemberGroupDocumentInspection)!;
+        BrowserMemberGroupDocumentRow row =
+            Assert.Single(
+                Assert.IsType<BrowserMemberGroupDocument>(group.Document)
+                    .Rows,
+                static candidate =>
+                    candidate.CanonicalSignature.Contains(
+                        "System.Int32",
+                        StringComparison.Ordinal));
+
+        BrowserMemberDocumentInspection inspection =
+            JsonSerializer.Deserialize(
+                await MetadataExports.QueryMemberDocument(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    "InspectWeb.DocumentationFixtures.dll",
+                    "InspectWeb.DocumentationFixtures.WidgetExtensions",
+                    "Measure",
+                    row.BaselineOrdinal,
+                    ""),
+                BrowserMetadataJsonContext.Default
+                    .BrowserMemberDocumentInspection)!;
+
+        BrowserMemberDocument document =
+            Assert.IsType<BrowserMemberDocument>(inspection.Document);
+        var completed =
+            Assert.IsType<DocumentationQueryOutcome.Completed>(
+                document.Documentation);
+        Assert.Contains(
+            completed.Fields.Summary.Contributions,
+            static contribution =>
+                contribution.Value
+                    == "Measures a widget through its declaring extension member.");
+    }
+
+    [Fact]
+    public async Task
         QueryMemberDocumentation_PublicPackagePathPublishesAuthoredDocumentation()
     {
         string packageId =
@@ -807,7 +918,52 @@ public sealed partial class BrowserEngineBoundaryTests
     private static async Task<CompiledDocumentationOutcome>
         QueryPlatformMemberDocumentationAsync(
             string version,
-            bool includeDocumentation)
+            bool includeDocumentation) =>
+        await QueryPlatformDocumentationAsync(
+            version,
+            includeDocumentation,
+            (workspaceClient, packageClient, sourceAuthorization) =>
+                BrowserPlatformWorkspace.QueryMemberDocumentationAsync(
+                    "net11.0",
+                    version,
+                    "InspectWeb.DocumentationFixtures.dll",
+                    "netcore.app",
+                    "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
+                    workspaceClient,
+                    packageClient,
+                    sourceAuthorization,
+                    TimeSpan.FromSeconds(10),
+                    TestContext.Current.CancellationToken));
+
+    private static async Task<DocumentationQueryOutcome>
+        QueryUnifiedPlatformMemberDocumentationAsync(
+            string version,
+            bool includeDocumentation) =>
+        await QueryPlatformDocumentationAsync(
+            version,
+            includeDocumentation,
+            (workspaceClient, packageClient, sourceAuthorization) =>
+                BrowserPlatformWorkspace
+                    .QueryUnifiedMemberDocumentationAsync(
+                        "net11.0",
+                        version,
+                        "InspectWeb.DocumentationFixtures.dll",
+                        "netcore.app",
+                        "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
+                        workspaceClient,
+                        packageClient,
+                        sourceAuthorization,
+                        TimeSpan.FromSeconds(10),
+                        TestContext.Current.CancellationToken));
+
+    private static async Task<T> QueryPlatformDocumentationAsync<T>(
+        string version,
+        bool includeDocumentation,
+        Func<
+            HttpClient,
+            IPackageSourceClient,
+            IPackageSourceAuthorization,
+            Task<T>> query)
     {
         const string assembly =
             "InspectWeb.DocumentationFixtures.dll";
@@ -854,18 +1010,10 @@ public sealed partial class BrowserEngineBoundaryTests
                     version,
                     referencePackage));
 
-        return await BrowserPlatformWorkspace
-            .QueryMemberDocumentationAsync(
-                "net11.0",
-                version,
-                assembly,
-                "netcore.app",
-                "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
-                workspaceClient,
-                packageClient,
-                sourceAuthorization,
-                TimeSpan.FromSeconds(10),
-                TestContext.Current.CancellationToken);
+        return await query(
+            workspaceClient,
+            packageClient,
+            sourceAuthorization);
     }
 
     private sealed class FixedPackageSourceAuthorization(

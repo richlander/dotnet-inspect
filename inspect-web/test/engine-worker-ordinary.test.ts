@@ -540,6 +540,7 @@ test("uploaded Library Member document queries use the retained exact image", as
             fingerprint: "abc123",
             accessibility: "Public",
             receiver: "This",
+            documentation: null,
           },
           diagnostics: [],
         };

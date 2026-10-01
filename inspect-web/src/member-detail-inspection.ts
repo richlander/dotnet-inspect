@@ -11,10 +11,11 @@ import type {
   CompiledDocumentationOutcome,
   DocumentationQueryFieldSettlement,
   DocumentationQueryOutcome,
-  DocumentationQueryTextFieldEvidence,
 } from "./facades/inspect-web-package.d.ts";
 import type {
   BrowserMemberDeclaration,
+  DocumentationQueryFieldSettlement as AttachedDocumentationQueryFieldSettlement,
+  DocumentationQueryOutcome as AttachedDocumentationQueryOutcome,
 } from "./facades/inspect-web-metadata.d.ts";
 import type { BrowserMemberFacts } from "./facades/inspect-web-analysis.d.ts";
 import {
@@ -149,6 +150,88 @@ export interface MemberDetailInspectionCoordinator {
   loadFacts(request: MemberFactsRequest): Promise<void>;
 }
 
+export function applyMemberDocumentationOutcome(
+  overload: DocumentableMemberSurface,
+  outcome:
+    | AttachedDocumentationQueryOutcome
+    | CompiledDocumentationOutcome
+    | DocumentationQueryOutcome,
+): string {
+  switch (outcome.kind) {
+    case "completed": {
+      const fields =
+        completeDocumentationFieldSettlement(outcome.fields);
+      if (!fields) {
+        return "The documentation response was incomplete.";
+      }
+      const parameters = new Map(
+        fields.parameters.map(
+          parameter => [
+            parameter.name ?? "",
+            firstTextContribution(parameter.evidence),
+          ]));
+      overload.summary = firstTextContribution(fields.summary);
+      overload.returns = firstTextContribution(fields.returns);
+      overload.exceptions =
+        (fields.exceptions.contributions[0]?.value ?? [])
+          .map(exception => ({
+            type: documentationExceptionType(exception.reference),
+            description: exception.description ?? "",
+          }));
+      overload.parameters = overload.parameters.map(parameter => ({
+        ...parameter,
+        description: parameters.get(parameter.name) ?? null,
+      }));
+      const error = completedDocumentationError(outcome, fields);
+      if (error) return error;
+      overload.documentationLoaded = true;
+      return "";
+    }
+    case "available": {
+      const { documentation } = outcome;
+      if (!documentation) {
+        return "The documentation response was incomplete.";
+      }
+      const parameters = new Map(
+        documentation.parameters.map(
+          parameter => [parameter.name, parameter.description]));
+      overload.summary = documentation.summary ?? null;
+      overload.returns = documentation.returns ?? null;
+      overload.exceptions = documentation.exceptions.map(exception => ({
+        type: documentationExceptionType(exception.reference),
+        description: exception.description ?? "",
+      }));
+      overload.parameters = overload.parameters.map(parameter => ({
+        ...parameter,
+        description: parameters.get(parameter.name) ?? null,
+      }));
+      overload.documentationLoaded = true;
+      return "";
+    }
+    case "absent":
+      overload.documentationLoaded = true;
+      return "";
+    case "unavailable":
+      return "Compiled documentation is unavailable.";
+    case "ambiguous":
+      return "The compiled documentation source is ambiguous.";
+    case "contributionsRejected":
+      return "Compiled documentation sources were rejected.";
+    case "malformedOrUnreadableDocument":
+      return "The compiled documentation could not be read.";
+    case "incomplete":
+      return "The documentation query did not complete.";
+    case "requestRejected":
+      return "The documentation request was rejected.";
+    case "contentAccessFailed":
+      return "The compiled documentation content could not be read.";
+    case "failed":
+      return "The documentation query failed.";
+    default:
+      return assertNever(outcome, "documentation outcome");
+  }
+}
+
 export function createMemberDetailInspectionCoordinator(
   dependencies: MemberDetailInspectionDependencies,
 ): MemberDetailInspectionCoordinator {
@@ -251,102 +334,8 @@ export function createMemberDetailInspectionCoordinator(
           await dependencies.queryDocumentation(request, documentationId);
         if (!request.isCurrent()
           || memberDocumentationRequestId !== requestId) return;
-        switch (outcome.kind) {
-          case "completed": {
-            const { fields } = outcome;
-            if (!isCompleteDocumentationFieldSettlement(fields)) {
-              state.memberDocumentationError =
-                "The documentation response was incomplete.";
-              break;
-            }
-            const parameters = new Map(
-              fields.parameters.map(
-                parameter => [
-                  parameter.name ?? "",
-                  firstTextContribution(parameter.evidence),
-                ]));
-            overload.summary = firstTextContribution(fields.summary);
-            overload.returns = firstTextContribution(fields.returns);
-            overload.exceptions =
-              (fields.exceptions.contributions[0]?.value ?? [])
-                .map(exception => ({
-                  type: documentationExceptionType(exception.reference),
-                  description: exception.description ?? "",
-                }));
-            overload.parameters = overload.parameters.map(parameter => ({
-              ...parameter,
-              description: parameters.get(parameter.name) ?? null,
-            }));
-            const completedError =
-              completedDocumentationError(outcome, fields);
-            if (completedError) {
-              state.memberDocumentationError = completedError;
-            } else {
-              overload.documentationLoaded = true;
-            }
-            break;
-          }
-          case "available": {
-            const { documentation } = outcome;
-            if (!documentation) {
-              state.memberDocumentationError =
-                "The documentation response was incomplete.";
-              break;
-            }
-            const parameters = new Map(
-              documentation.parameters.map(
-                parameter => [parameter.name, parameter.description]));
-            overload.summary = documentation.summary ?? null;
-            overload.returns = documentation.returns ?? null;
-            overload.exceptions = documentation.exceptions.map(exception => ({
-              type: documentationExceptionType(exception.reference),
-              description: exception.description ?? "",
-            }));
-            overload.parameters = overload.parameters.map(parameter => ({
-              ...parameter,
-              description: parameters.get(parameter.name) ?? null,
-            }));
-            overload.documentationLoaded = true;
-            break;
-          }
-          case "absent":
-            overload.documentationLoaded = true;
-            break;
-          case "unavailable":
-            state.memberDocumentationError =
-              "Compiled documentation is unavailable.";
-            break;
-          case "ambiguous":
-            state.memberDocumentationError =
-              "The compiled documentation source is ambiguous.";
-            break;
-          case "contributionsRejected":
-            state.memberDocumentationError =
-              "Compiled documentation sources were rejected.";
-            break;
-          case "malformedOrUnreadableDocument":
-            state.memberDocumentationError =
-              "The compiled documentation could not be read.";
-            break;
-          case "incomplete":
-            state.memberDocumentationError =
-              "The documentation query did not complete.";
-            break;
-          case "requestRejected":
-            state.memberDocumentationError =
-              "The documentation request was rejected.";
-            break;
-          case "contentAccessFailed":
-            state.memberDocumentationError =
-              "The compiled documentation content could not be read.";
-            break;
-          case "failed":
-            state.memberDocumentationError =
-              "The documentation query failed.";
-            break;
-          default:
-            assertNever(outcome, "documentation outcome");
-        }
+        state.memberDocumentationError =
+          applyMemberDocumentationOutcome(overload, outcome);
       } catch (error) {
         if (request.isCurrent()
           && memberDocumentationRequestId === requestId) {
@@ -464,49 +453,118 @@ export function createMemberDetailInspectionCoordinator(
   };
 }
 
+type CompatibleDocumentationFieldSettlement =
+  | AttachedDocumentationQueryFieldSettlement
+  | DocumentationQueryFieldSettlement;
+
+interface CompleteDocumentationTextFieldEvidence {
+  readonly contributions: ReadonlyArray<{ readonly value: string }>;
+}
+
 type CompleteDocumentationFieldSettlement =
-  Omit<
-    DocumentationQueryFieldSettlement,
-    "summary" | "remarks" | "returns" | "parameters" | "exceptions" | "samples"
-  > & {
-    readonly summary: DocumentationQueryTextFieldEvidence;
-    readonly remarks: DocumentationQueryTextFieldEvidence;
-    readonly returns: DocumentationQueryTextFieldEvidence;
-    readonly parameters: ReadonlyArray<
-      Omit<
-        DocumentationQueryFieldSettlement["parameters"][number],
-        "evidence"
-      > & {
-        readonly evidence: DocumentationQueryTextFieldEvidence;
+  {
+    readonly summary: CompleteDocumentationTextFieldEvidence;
+    readonly remarks: CompleteDocumentationTextFieldEvidence;
+    readonly returns: CompleteDocumentationTextFieldEvidence;
+    readonly parameters: ReadonlyArray<{
+      readonly name: string | null | undefined;
+      readonly evidence: CompleteDocumentationTextFieldEvidence;
+    }>;
+    readonly exceptions: {
+      readonly contributions: ReadonlyArray<{
+        readonly value: ReadonlyArray<{
+          readonly reference: string | null | undefined;
+          readonly description: string | null | undefined;
+        }>;
       }>;
-    readonly exceptions: NonNullable<
-      DocumentationQueryFieldSettlement["exceptions"]
-    >;
-    readonly samples: NonNullable<
-      DocumentationQueryFieldSettlement["samples"]
-    >;
+    };
+    readonly samples: {
+      readonly contributions: ReadonlyArray<unknown>;
+    };
   };
 
-function isCompleteDocumentationFieldSettlement(
-  fields: DocumentationQueryFieldSettlement | undefined,
-): fields is CompleteDocumentationFieldSettlement {
-  return fields !== undefined
-    && fields.summary !== undefined
-    && fields.remarks !== undefined
-    && fields.returns !== undefined
-    && fields.exceptions !== undefined
-    && fields.samples !== undefined
-    && fields.parameters.every(parameter => parameter.evidence !== undefined);
+function completeDocumentationFieldSettlement(
+  fields: CompatibleDocumentationFieldSettlement | undefined,
+): CompleteDocumentationFieldSettlement | null {
+  if (fields === undefined
+    || fields.summary === undefined
+    || fields.remarks === undefined
+    || fields.returns === undefined
+    || fields.exceptions === undefined
+    || fields.samples === undefined
+    || fields.parameters.some(
+      parameter => parameter.evidence === undefined)) {
+    return null;
+  }
+
+  const summary = completeTextFieldEvidence(fields.summary);
+  const remarks = completeTextFieldEvidence(fields.remarks);
+  const returns = completeTextFieldEvidence(fields.returns);
+  if (!summary || !remarks || !returns) return null;
+
+  const parameters: CompleteDocumentationFieldSettlement["parameters"][number][] =
+    [];
+  for (const parameter of fields.parameters) {
+  if (parameter.evidence === undefined) return null;
+  const evidence = completeTextFieldEvidence(parameter.evidence);
+    if (!evidence) return null;
+    parameters.push({
+      name: parameter.name,
+      evidence,
+    });
+  }
+
+  const exceptionContributions:
+    CompleteDocumentationFieldSettlement["exceptions"]["contributions"][number][] =
+      [];
+  for (const contribution of fields.exceptions.contributions) {
+    if (contribution.value === undefined) return null;
+    exceptionContributions.push({
+      value: contribution.value.map(exception => ({
+        reference: exception.reference,
+        description: exception.description,
+      })),
+    });
+  }
+
+  return {
+    summary,
+    remarks,
+    returns,
+    parameters,
+    exceptions: { contributions: exceptionContributions },
+    samples: { contributions: fields.samples.contributions },
+  };
+}
+
+function completeTextFieldEvidence(
+  evidence:
+    | NonNullable<
+        AttachedDocumentationQueryFieldSettlement["summary"]
+      >
+    | NonNullable<DocumentationQueryFieldSettlement["summary"]>,
+): CompleteDocumentationTextFieldEvidence | null {
+  const contributions: { readonly value: string }[] = [];
+  for (const contribution of evidence.contributions) {
+    if (contribution.value === undefined) return null;
+    contributions.push({ value: contribution.value });
+  }
+  return { contributions };
 }
 
 function firstTextContribution(
-  evidence: DocumentationQueryTextFieldEvidence,
+  evidence: CompleteDocumentationTextFieldEvidence,
 ): string | null {
   return evidence.contributions[0]?.value ?? null;
 }
 
 function completedDocumentationError(
-  outcome: Extract<DocumentationQueryOutcome, { readonly kind: "completed" }>,
+  outcome:
+    | Extract<
+        AttachedDocumentationQueryOutcome,
+        { readonly kind: "completed" }
+      >
+    | Extract<DocumentationQueryOutcome, { readonly kind: "completed" }>,
   fields: CompleteDocumentationFieldSettlement,
 ): string | null {
   if (fields.summary.contributions.length > 0
@@ -556,10 +614,15 @@ function completedDocumentationError(
 }
 
 function authoredDocumentationError(
-  outcome: Extract<
-    DocumentationQueryOutcome,
-    { readonly kind: "completed" }
-  >["authoredSource"],
+  outcome:
+    | Extract<
+        AttachedDocumentationQueryOutcome,
+        { readonly kind: "completed" }
+      >["authoredSource"]
+    | Extract<
+        DocumentationQueryOutcome,
+        { readonly kind: "completed" }
+      >["authoredSource"],
   reportUnavailable: boolean,
 ): string | null {
   switch (outcome?.kind) {
