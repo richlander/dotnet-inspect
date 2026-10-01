@@ -199,8 +199,8 @@ public static partial class GraphDocumentExecution
         for (var vertex = 0; vertex < sourceGroupIds.Length; vertex++)
             vertexBySourceGroupId.Add(sourceGroupIds[vertex], vertex);
 
-        int[] vertexByProjectedNodeId = new int[projection.Nodes.Length];
-        Array.Fill(vertexByProjectedNodeId, -1);
+        var vertexByProjectedNodeId = new Dictionary<int, int>(
+            sourceGroupIds.Length);
         var admittedSourceGroups = 0;
         foreach (GraphProjectedGroupNode node in projection.Nodes)
         {
@@ -211,7 +211,7 @@ public static partial class GraphDocumentExecution
                 continue;
             }
 
-            vertexByProjectedNodeId[node.Id] = vertex;
+            vertexByProjectedNodeId.Add(node.Id, vertex);
             admittedSourceGroups++;
         }
         if (admittedSourceGroups != sourceGroupIds.Length)
@@ -228,12 +228,15 @@ public static partial class GraphDocumentExecution
             new List<GraphProjectedEdge<TRelationship>>();
         foreach (GraphProjectedEdge<TRelationship> edge in projection.Edges)
         {
-            int fromVertex =
-                vertexByProjectedNodeId[edge.FromProjectedNodeId];
-            int toVertex =
-                vertexByProjectedNodeId[edge.ToProjectedNodeId];
-            if (fromVertex < 0 || toVertex < 0)
+            if (!vertexByProjectedNodeId.TryGetValue(
+                edge.FromProjectedNodeId,
+                out int fromVertex)
+                || !vertexByProjectedNodeId.TryGetValue(
+                    edge.ToProjectedNodeId,
+                    out int toVertex))
+            {
                 continue;
+            }
 
             inducedEdges.Add(edge);
             long arc = Pair(fromVertex, toVertex);

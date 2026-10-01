@@ -69,6 +69,32 @@ public sealed class GraphComponentAnalysisTests
 
     [Fact]
     public void
+        ComponentAnalysis_SparseSelectionAllocatesBySelectedTopology()
+    {
+        GraphGroupProjectionResult<Relationship> small =
+            Projection(groupCount: 1, []);
+        GraphGroupProjectionResult<Relationship> large =
+            Projection(groupCount: 16384, []);
+        var smallPlan = new GraphComponentAnalysisPlan(
+            small.Receipt.SourceDocument,
+            [0]);
+        var largePlan = new GraphComponentAnalysisPlan(
+            large.Receipt.SourceDocument,
+            [0]);
+
+        _ = Analyze(small, smallPlan);
+        _ = Analyze(large, largePlan);
+        long smallAllocation = MeasureAllocation(small, smallPlan);
+        long largeAllocation = MeasureAllocation(large, largePlan);
+
+        Assert.InRange(
+            largeAllocation,
+            0,
+            smallAllocation + 4096);
+    }
+
+    [Fact]
+    public void
         ComponentAnalysis_PartitionsEverySelectedGroupExactlyOnce()
     {
         GraphGroupProjectionResult<Relationship> projection =
@@ -392,6 +418,17 @@ public sealed class GraphComponentAnalysisTests
         GraphGroupProjectionResult<Relationship> projection,
         GraphComponentAnalysisPlan plan) =>
         GraphDocumentExecution.ComponentAnalysis(projection, plan);
+
+    static long MeasureAllocation(
+        GraphGroupProjectionResult<Relationship> projection,
+        GraphComponentAnalysisPlan plan)
+    {
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        GraphComponentAnalysisResult result = Analyze(projection, plan);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        GC.KeepAlive(result);
+        return allocated;
+    }
 
     static GraphGroupProjectionResult<Relationship> Projection(
         int groupCount,
