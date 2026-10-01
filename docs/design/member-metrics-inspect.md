@@ -565,7 +565,10 @@ completion reports whether the terminal result is authoritative for its exact
 request. A top result is incomplete when missing candidate evidence could
 change membership or order. Analysis-issued attribution-closure state marks
 only the affected logical rows incomplete; a lifted or async generated-body
-decode failure cannot leave a retained declared stub authoritative.
+decode failure cannot leave a retained declared stub authoritative. Metric-body
+budget exhaustion likewise names every authenticated logical source whose
+generated physical evidence was omitted, so retained stubs do not become
+false-complete while unaffected rows remain available.
 
 Diagnostics remain ordered and attributable to subject resolution, population
 validation, Analysis, row planning, selection, projection, or transport. Hosts

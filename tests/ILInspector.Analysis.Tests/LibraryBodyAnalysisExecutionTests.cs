@@ -2813,6 +2813,62 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     == generated.EvidenceMethod.MetadataToken);
     }
 
+    [Fact]
+    public void
+        GeneratedBodyBudgetExhaustion_PublishesEveryIncompleteAttributionSource()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ImplementationHeatLambdaSample)
+                .Assembly.Location);
+        int[] ownerTokens = typeof(ImplementationHeatLambdaSample)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(method =>
+                method.Name
+                    == nameof(ImplementationHeatLambdaSample.Scale))
+            .Select(static method => method.MetadataToken)
+            .Order()
+            .ToArray();
+        Assert.Equal(2, ownerTokens.Length);
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: ownerTokens.Length,
+            maximumEncodedIlBytes: long.MaxValue,
+            maximumAttributionProbeBodies: 100,
+            maximumAttributionProbeIlBytes: long.MaxValue);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "GeneratedBodyBudgetExhaustion.dll",
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricKind.BodySize,
+                        limits,
+                        ownerTokens.ToHashSet()));
+
+        ImplementationMetricAttributionClosure closure =
+            Assert.IsType<ImplementationMetricAttributionClosure>(
+                execution.ImplementationMetrics
+                    .AttributionClosure);
+        Assert.Equal(
+            ownerTokens,
+            closure.IncompleteSourceMethods
+                .Select(static source => source.MetadataToken));
+        Assert.All(
+            ownerTokens,
+            ownerToken =>
+            {
+                MethodImplementationMetricEvidence body =
+                    Assert.Single(
+                        execution.ImplementationMetrics.Bodies,
+                        body =>
+                            body.Method.MetadataToken
+                                == ownerToken);
+                Assert.Equal(
+                    ownerToken,
+                    body.EvidenceMethod.MetadataToken);
+            });
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

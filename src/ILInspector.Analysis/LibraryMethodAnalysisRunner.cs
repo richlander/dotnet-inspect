@@ -976,6 +976,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     != LibraryBodyAnalysisFeatures.None)
             {
                 metricBodyAdmitted = false;
+                RecordIncompleteImplementationMetricAttribution(
+                    result);
                 result.ImplementationMetricDiagnostic =
                     new AnalysisDiagnostic(
                         caller.MetadataToken,
@@ -1791,6 +1793,12 @@ internal sealed partial class LibraryMethodAnalysisRunner(
         catch (Exception ex)
             when (IsRecoverableMethodFailure(ex))
         {
+            if (ex is
+                ImplementationMetricWorkLimitExceededException)
+            {
+                RecordIncompleteImplementationMetricAttribution(
+                    result);
+            }
             result.Diagnostic = new AnalysisDiagnostic(
                 MetadataTokens.GetToken(methodHandle),
                 MethodLabel(
@@ -1831,16 +1839,27 @@ internal sealed partial class LibraryMethodAnalysisRunner(
         catch (Exception ex)
             when (IsRecoverableMethodFailure(ex))
         {
-            if (recordIncompleteAttribution
-                && result.DeclaredSource is { } source
-                && source.MetadataToken
-                    != caller.MetadataToken)
+            if (recordIncompleteAttribution)
             {
-                incompleteImplementationMetricAttributionSources
-                    ?.TryAdd(source.MetadataToken, source);
+                RecordIncompleteImplementationMetricAttribution(
+                    result);
             }
             throw;
         }
+    }
+
+    void RecordIncompleteImplementationMetricAttribution(
+        LibraryMethodAnalysisResult result)
+    {
+        if (result.Caller is not { } caller
+            || result.DeclaredSource is not { } source
+            || source.MetadataToken == caller.MetadataToken)
+        {
+            return;
+        }
+
+        incompleteImplementationMetricAttributionSources
+            ?.TryAdd(source.MetadataToken, source);
     }
 
     ImplementationMetricExecutionRecorder.StageAttempt?

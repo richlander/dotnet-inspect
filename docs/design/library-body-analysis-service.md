@@ -523,6 +523,11 @@ physical body fails managed-body acquisition, including async state-machine
 execution bodies. Failures in later independent producers do not alter
 completed body-header evidence.
 
+When metric-body work exhaustion omits an already-authenticated generated
+physical body, the closure records that logical source for every omitted body.
+The work receipt still names the exhausted bound and first stopping token; it
+is not the exhaustive row-local affected-source list.
+
 The execution receipt proves exact Analysis scope; it does not prove that a
 caller supplied a complete overload family. `MemberMetricsInspect` establishes
 that population fact from its Member subject and `Overloads` receipt before

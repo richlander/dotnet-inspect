@@ -556,6 +556,63 @@ public sealed class MemberMetricsInspectionOperationTests
 
     [Fact]
     public async Task
+        GeneratedBodyExhaustion_MarksEveryAffectedLogicalRowIncomplete()
+    {
+        byte[] image = await Fixture(
+            FixtureCatalog.AnalysisOverloadFamilyLens);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberGroupDocument document =
+            Document(
+                ExecuteDocument(
+                    library,
+                    Subject(
+                        "ILInspector.Analysis.ImplementationProfileFixtures",
+                        "ImplementationHeatLambdaSample",
+                        "Scale")));
+        var limits = new MemberMetricsInspectionLimits(
+            maximumAssemblyBytes: image.Length,
+            new ImplementationMetricWorkLimits(
+                maximumPhysicalBodies: 2,
+                maximumEncodedIlBytes: long.MaxValue,
+                maximumAttributionProbeBodies: 100,
+                maximumAttributionProbeIlBytes: long.MaxValue));
+
+        MemberMetricsInspectionContent content =
+            Available(
+                MemberMetricsInspectionOperation.Execute(
+                    Request(
+                        library,
+                        document,
+                        MemberMetricKind.BodySize,
+                        MemberMetricKind.BodySize,
+                        RowQueryIntent.Empty,
+                        QuerySpaceTerminalRequirement.Rows,
+                        limits),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+        ImmutableArray<MemberMetricsRow> rows =
+            Assert.IsType<MemberMetricsPopulationOutcome.Rows>(
+                    content.Population)
+                .Items;
+
+        Assert.Equal(2, rows.Length);
+        Assert.All(
+            rows,
+            static row =>
+            {
+                Assert.Equal(
+                    MemberMetricCellState.Incomplete,
+                    row.BodySize!.State);
+                Assert.NotEmpty(row.BodySize.PhysicalBodies);
+            });
+        Assert.Equal(2, content.Coverage.IncompleteCount);
+    }
+
+    [Fact]
+    public async Task
         GeneratedBodyDecodeFailure_PreventsAuthoritativeTop()
     {
         byte[] image = await Fixture(
