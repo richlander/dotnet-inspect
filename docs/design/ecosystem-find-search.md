@@ -9,7 +9,8 @@ Proposed focused design for
 
 > Given one normalized Find question and an ordered selection of exact
 > Ecosystem registrations, evaluate every selected Ecosystem's bounded
-> populations before any package-prefix population, evaluate each distinct
+> populations in order before any package-prefix population (stopping only
+> when a finite row window fills at a layer boundary), evaluate each distinct
 > concrete source's settlement, inventory, and source-local matches at most
 > once, and return ordered durable Find blocks that retain every admitting
 > Ecosystem membership, scoped failure, and completion fact.
@@ -198,6 +199,10 @@ Bounded
   -> every selected Ecosystem bounded block settles
   -> Prefix, when demand exists
   -> Completed
+
+Bounded, finite row window
+  -> layers settle in array order until the window fills at a layer boundary
+  -> Completed as RowLimitReached; later layers and Prefix do not start
 ```
 
 Cancellation may terminate either active phase. No prefix search, package

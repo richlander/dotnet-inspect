@@ -1221,8 +1221,7 @@ The initial Workspace projection is implemented under
 [the focused handoff](workspace-ecosystem-registration-handoff.md). Its
 application-owned platform order is .NET Runtime, Microsoft.Extensions, then
 ASP.NET Core: the parent-first order required by
-[the ecosystem hierarchy](ecosystem-hierarchy.md#workspace-plan-construction),
-which deliberately differs from ordinary pack discovery order. .NET Runtime requires a source-owned runtime population declaration and retains
+[the ecosystem hierarchy](ecosystem-hierarchy.md#workspace-plan-construction). .NET Runtime requires a source-owned runtime population declaration and retains
 the inert `System.` package prefix;
 ASP.NET Core requires its source-owned shared-framework population and
 retains the inert `Microsoft.AspNetCore.` package prefix; Microsoft.Extensions

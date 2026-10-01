@@ -45,7 +45,7 @@ contracts:
 
 | Owner | Amendment |
 | --- | --- |
-| [Search scope resolution](search-scope-resolution.md#explicit-composition) | For `find` only: `--ecosystem` is an explicit selector that contributes the named Ecosystem's named populations; bare `--platform` contributes the platform Workspace plan's named populations instead of three frameworks. `implements`, `extensions`, and type-mode `depends` keep today's rows until their own slices |
+| [Search scope resolution](search-scope-resolution.md#explicit-composition) | For `find` only: `--ecosystem` is an explicit selector that contributes the named populations of the named Ecosystem's [lineage](ecosystem-hierarchy.md#model), searched in [layered Find order](ecosystem-hierarchy.md#layered-find); bare `--platform` contributes the platform Workspace plan's named populations instead of three frameworks. `implements`, `extensions`, and type-mode `depends` keep today's rows until their own slices |
 | [CLI host architecture](../cli-architecture.md) (valued `--platform` disambiguation) | For `find`, a valued `--platform` equal to `runtime` or `aspnetcore` (optionally `@<version>`) lowers to that Ecosystem with its platform population pinned; `netstandard[@<version>]` lowers to the .NET Standard platform family, matching `library query --platform`; any other value names one platform Library, as today |
 
 ## Why
@@ -324,10 +324,11 @@ Breaking under CLI change classification:
 - default `find` scope drops .NET Standard (the platform Workspace plan has no
   core packages since retirement slice 3);
 - `--ecosystem` changes from inert registration to a selector: it now
-  suppresses the default and adds the Ecosystem's named populations, so
-  `find Foo --ecosystem ecosystem.aspire` searches Aspire's core packages
-  (`Aspire.Hosting`, `Aspire.Hosting.Testing`) instead of the three
-  frameworks. It also accepts short names;
+  suppresses the default and adds the named populations of the Ecosystem's
+  lineage, so `find Foo --ecosystem ecosystem.aspire` searches Aspire's core
+  packages (`Aspire.Hosting`, `Aspire.Hosting.Testing`) first, then the
+  ASP.NET Core and .NET Runtime platform populations; .NET Standard is no
+  longer searched. It also accepts short names;
 - bare `--platform` means the platform Workspace instead of three frameworks;
 - `--platform runtime[@<version>]` and `--platform aspnetcore[@<version>]`
   select Ecosystems instead of a Library of that name, and
