@@ -11,6 +11,167 @@ namespace ILInspector.Metadata.Tests;
 public sealed class MetadataMethodDeclarationEvidenceTests
 {
     [Fact]
+    public void RepeatedExactRequestReusesPostedResultWithoutAdditionalWork()
+    {
+        string path = typeof(int).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle type = reader.TypeDefinitions.First(handle =>
+        {
+            TypeDefinition candidate = reader.GetTypeDefinition(handle);
+            return reader.GetString(candidate.Name) == "Int32"
+                && reader.GetString(candidate.Namespace) == "System";
+        });
+        TypeDefinitionHandle otherType =
+            reader.TypeDefinitions.First(handle =>
+            {
+                TypeDefinition candidate =
+                    reader.GetTypeDefinition(handle);
+                return reader.GetString(candidate.Name) == "Int64"
+                    && reader.GetString(candidate.Namespace) == "System";
+            });
+        MethodDefinitionHandle method =
+            reader.GetTypeDefinition(type).GetMethods().First(handle =>
+                reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "ToString"
+                && reader.GetMethodDefinition(handle)
+                    .GetParameters().Count == 0);
+        MethodDefinitionHandle otherMethod =
+            reader.GetTypeDefinition(type).GetMethods().First(handle =>
+                reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "GetHashCode"
+                && reader.GetMethodDefinition(handle)
+                    .GetParameters().Count == 0);
+        MetadataTypeDefinitionAddress typeAddress =
+            MetadataTypeDefinitionAddress.FromHandle(reader, type);
+        MetadataTypeDefinitionAddress otherTypeAddress =
+            MetadataTypeDefinitionAddress.FromHandle(reader, otherType);
+        MetadataMethodAddress methodAddress =
+            MetadataMethodAddress.Create(reader, method);
+        MetadataMethodAddress otherMethodAddress =
+            MetadataMethodAddress.Create(reader, otherMethod);
+        using var assembly = AssemblyInspectionSession.Open(path);
+        using var operation = new MetadataOperationContext(
+            MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declarations =
+            assembly.CreateDeclarationSession(operation);
+
+        MetadataMethodDeclarationResult first =
+            declarations.PostMethodDeclaration(
+                typeAddress,
+                methodAddress,
+                TestContext.Current.CancellationToken);
+        MetadataOperationCounters counters = operation.Counters;
+        MetadataMethodDeclarationResult second =
+            declarations.PostMethodDeclaration(
+                typeAddress,
+                methodAddress,
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<MetadataMethodDeclarationResult.Posted>(first);
+        Assert.Same(first, second);
+        Assert.Equal(counters, operation.Counters);
+
+        MetadataMethodDeclarationResult other =
+            declarations.PostMethodDeclaration(
+                typeAddress,
+                otherMethodAddress,
+                TestContext.Current.CancellationToken);
+        Assert.NotSame(first, other);
+        var wrongOwner =
+            Assert.IsType<MetadataMethodDeclarationResult.Rejected>(
+                declarations.PostMethodDeclaration(
+                    otherTypeAddress,
+                    methodAddress,
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(
+            MetadataMethodDeclarationFailureReason.InvalidRequest,
+            wrongOwner.Failure.Reason);
+        Assert.NotSame(first, wrongOwner);
+        MetadataOperationCounters countersAfterDistinctRequests =
+            operation.Counters;
+        Assert.NotEqual(counters, countersAfterDistinctRequests);
+        Assert.Same(
+            first,
+            declarations.PostMethodDeclaration(
+                typeAddress,
+                methodAddress,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            countersAfterDistinctRequests,
+            operation.Counters);
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.Throws<OperationCanceledException>(
+            () => declarations.PostMethodDeclaration(
+                typeAddress,
+                methodAddress,
+                cancellation.Token));
+    }
+
+    [Fact]
+    public void RepeatedExactRequestReusesRejectedResultWithoutAdditionalWork()
+    {
+        string path = typeof(int).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle type = reader.TypeDefinitions.First(handle =>
+        {
+            TypeDefinition candidate = reader.GetTypeDefinition(handle);
+            return reader.GetString(candidate.Name) == "Int32"
+                && reader.GetString(candidate.Namespace) == "System";
+        });
+        MethodDefinitionHandle method =
+            reader.GetTypeDefinition(type).GetMethods().First(handle =>
+                reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "ToString"
+                && reader.GetMethodDefinition(handle)
+                    .GetParameters().Count == 0);
+        MethodDefinitionHandle otherMethod =
+            reader.GetTypeDefinition(type).GetMethods().First(handle =>
+                reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "GetHashCode"
+                && reader.GetMethodDefinition(handle)
+                    .GetParameters().Count == 0);
+        MetadataTypeDefinitionAddress typeAddress =
+            MetadataTypeDefinitionAddress.FromHandle(reader, type);
+        MetadataMethodAddress methodAddress =
+            MetadataMethodAddress.Create(reader, method);
+        MetadataMethodAddress otherMethodAddress =
+            MetadataMethodAddress.Create(reader, otherMethod);
+        using var assembly = AssemblyInspectionSession.Open(path);
+        using var operation = new MetadataOperationContext(
+            new MetadataOperationPolicy(maxMetadataRows: 0));
+        using MetadataDeclarationSession declarations =
+            assembly.CreateDeclarationSession(operation);
+
+        MetadataMethodDeclarationResult first =
+            declarations.PostMethodDeclaration(
+                typeAddress,
+                methodAddress,
+                TestContext.Current.CancellationToken);
+        MetadataOperationCounters counters = operation.Counters;
+        MetadataMethodDeclarationResult second =
+            declarations.PostMethodDeclaration(
+                typeAddress,
+                methodAddress,
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<MetadataMethodDeclarationResult.Rejected>(first);
+        Assert.Same(first, second);
+        Assert.Equal(counters, operation.Counters);
+        Assert.NotSame(
+            first,
+            declarations.PostMethodDeclaration(
+                typeAddress,
+                otherMethodAddress,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public void RealInt32MethodPostsExactFlagsAndSignature()
     {
         string path = typeof(int).Assembly.Location;

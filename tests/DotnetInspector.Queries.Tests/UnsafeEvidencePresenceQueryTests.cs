@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Fixtures;
 using DotnetInspector.Queries;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
@@ -69,6 +70,56 @@ public sealed class UnsafeEvidencePresenceQueryTests
         Assert.DoesNotContain(
             QuerySpaceTerminalRequirement.Count,
             descriptor.Terminals);
+    }
+
+    [Fact]
+    public void ExactTypeBreadthReceiptsOnlyTheSelectedType()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle unsafeType = FindType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "ImplementationProfileSample");
+        TypeDefinitionHandle safeType = FindType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "ImplementationProfileHiddenImplementationSample");
+        ImmutableArray<MethodDefinitionHandle> unsafeMethods =
+            MethodsOf(path, unsafeType);
+        ImmutableArray<MethodDefinitionHandle> safeMethods =
+            MethodsOf(path, safeType);
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+
+        var available =
+            Assert.IsType<UnsafeEvidencePresenceResult.Available>(
+                UnsafeEvidencePresenceQuery.ExecuteExactTypes(
+                    path,
+                    context,
+                    unsafeType));
+
+        Assert.True(available.HasEvidence);
+        Assert.Equal(
+            MethodDefinitionSourceBreadthKind.ExactTypes,
+            available.SourceReceipt.Breadth.Kind);
+        Assert.Equal(
+            [unsafeType],
+            available.SourceReceipt.Breadth.Types);
+        Assert.True(
+            available.SourceReceipt.Coverage.DefinitionsExamined.Count > 0);
+        Assert.All(
+            safeMethods,
+            method => Assert.False(
+                available.SourceReceipt.Coverage
+                    .DefinitionsExamined.Contains(method)));
+        Assert.All(
+            available.SourceReceipt.Coverage
+                .DefinitionsExamined.Ranges,
+            range =>
+            {
+                Assert.Contains(range.First, unsafeMethods);
+                Assert.Contains(range.Last, unsafeMethods);
+            });
     }
 
     [Fact]
@@ -209,5 +260,42 @@ public sealed class UnsafeEvidencePresenceQueryTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static TypeDefinitionHandle FindType(
+        string path,
+        string @namespace,
+        string name)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var image = new PEReader(stream);
+        MetadataReader reader = image.GetMetadataReader();
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            TypeDefinition definition =
+                reader.GetTypeDefinition(handle);
+            if (reader.GetString(definition.Namespace) == @namespace
+                && reader.GetString(definition.Name) == name)
+            {
+                return handle;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Type '{@namespace}.{name}' was not found.");
+    }
+
+    static ImmutableArray<MethodDefinitionHandle> MethodsOf(
+        string path,
+        TypeDefinitionHandle type)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var image = new PEReader(stream);
+        return
+        [
+            .. image.GetMetadataReader()
+                .GetTypeDefinition(type)
+                .GetMethods(),
+        ];
     }
 }
