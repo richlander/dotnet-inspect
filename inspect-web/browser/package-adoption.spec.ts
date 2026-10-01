@@ -3000,7 +3000,9 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.locator('[aria-label="Type-level changes"] .library-api-diff-change'))
       .toHaveCount(1);
     await expect(panel.locator('[aria-label="Type-level changes"]'))
-      .toContainText("type added");
+      .toContainText("Additive");
+    await expect(panel.locator('[aria-label="Type-level changes"]'))
+      .toContainText("Type 'LibraryApiDiffFixture.AddedType' was added");
     await expect(panel.locator(".library-api-diff-member .library-api-diff-change-chip"))
       .toHaveCount(0);
     expect(registry.downloadCount(libraryDiffV1)).toBe(1);
@@ -3017,8 +3019,8 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveText("LibraryApiDiffFixture.AddedType.First");
     await expect(panel.locator(".compare-status"))
       .toContainText("Member added", { timeout: 60_000 });
-    await expect(panel.locator(".library-api-diff-endpoint")).toHaveCount(2);
-    await expect(panel.locator(".library-api-diff-absent")).toHaveCount(1);
+    await expect(panel.locator(".library-api-diff-endpoint")).toHaveCount(0);
+    await expect(panel).not.toContainText("Member evidence");
     await expect(panel.locator("#library-api-diff-changes-title")).toHaveText("What changed");
     await expect(panel).toContainText(
       "No Member-level change is classified: the containing Type was added as a whole.",
@@ -3090,7 +3092,9 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await settledLocationAfter(hardChangedTypeLocation);
     const changeRows = panel.locator('[aria-label="What changed"] .library-api-diff-change');
     await expect(changeRows).toHaveCount(1);
-    await expect(changeRows.first()).toContainText("virtual removed");
+    await expect(changeRows.first())
+      .toContainText("Member 'First' is no longer virtual");
+    await expect(changeRows.first()).not.toContainText("virtual removed");
     await expect(changeRows.first().locator(".library-api-diff-change-chip"))
       .toHaveText("Breaking");
     await expect(changeRows.first().locator(".library-api-diff-change-category"))
