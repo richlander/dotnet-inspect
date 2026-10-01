@@ -774,14 +774,21 @@ diagnostic. Each result also carries requested and effective scope plus
 discovery participation needed to prove that target collection did not run.
 Hosts do not consume the internal generic metric cells.
 
-The first production consumer is exact-member `Calls --count`. The CLI lowers
-that terminal to Calls-row Count after exact member resolution and before
-ordinary call-row Analysis. It sums the authenticated physical-body entries
-for the selected logical member. A row window resolves against the scalar
-cardinality, so `--head`, `--tail`, and `--rows` preserve the same count they
-would have produced over the metadata-ordered Calls table without constructing
-that table. This includes method-pointer and indirect-call rows. Rich Calls
-output and projections continue to request target rows.
+The first production consumer is exact-member `Calls --count`. After source
+acquisition, the CLI asks the metadata owner to resolve an exact MethodDef
+before public API extraction. An omitted method ordinal resolves only when the
+visible metadata name is unique; an explicit property or event ordinal resolves
+to its getter/adder or setter/remover MethodDef. Ambiguous names, forwarded
+types, and selectors outside that exact metadata subset continue through the
+ordinary public-surface resolver. Once a MethodDef is selected, the CLI lowers
+the terminal to Calls-row Count before ordinary call-row Analysis. It sums the
+authenticated physical-body entries for the selected logical member.
+
+A row window resolves against the scalar cardinality, so `--head`, `--tail`,
+and `--rows` preserve the same count they would have produced over the
+metadata-ordered Calls table without constructing that table. This includes
+method-pointer and indirect-call rows. Rich Calls output and projections
+continue to request public-surface extraction and target rows.
 
 This adoption does not add a second call-row producer, make Count a
 `Rows.Length` convenience, or expose `DirectCallIncidence` as a population.

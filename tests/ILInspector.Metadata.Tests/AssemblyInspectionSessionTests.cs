@@ -389,6 +389,56 @@ public class AssemblyInspectionSessionTests
     }
 
     [Fact]
+    public void MethodBodies_ResolveUniqueMethodRejectsAmbiguousName()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+        string declaringType = Assert.Single(
+            session.MethodBodies.EnumerateMethods(),
+            method => method.Name == nameof(MethodBodyFixture.Echo))
+            .DeclaringType;
+
+        Assert.NotNull(
+            session.MethodBodies.ResolveUniqueMethod(
+                declaringType,
+                nameof(MethodBodyFixture.Echo),
+                publicOnly: true));
+        Assert.Null(
+            session.MethodBodies.ResolveUniqueMethod(
+                declaringType,
+                nameof(MethodBodyFixture.Overloaded),
+                publicOnly: true));
+    }
+
+    [Fact]
+    public void MethodBodies_ResolveAccessorMethodUsesAccessorOrdinal()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+        string declaringType = Assert.Single(
+            session.MethodBodies.EnumerateMethods(),
+            method => method.Name == nameof(MethodBodyFixture.Echo))
+            .DeclaringType;
+
+        var getter =
+            session.MethodBodies.ResolveAccessorMethod(
+                declaringType,
+                nameof(MethodBodyFixture.Value),
+                accessorIndex: 0,
+                publicOnly: true);
+        var setter =
+            session.MethodBodies.ResolveAccessorMethod(
+                declaringType,
+                nameof(MethodBodyFixture.Value),
+                accessorIndex: 1,
+                publicOnly: true);
+
+        Assert.NotNull(getter);
+        Assert.NotNull(setter);
+        Assert.NotEqual(
+            getter.MetadataToken,
+            setter.MetadataToken);
+    }
+
+    [Fact]
     public void MethodBodies_RejectResolverUseAfterSessionDisposal()
     {
         var session = AssemblyInspectionSession.Open(SelfPath);
@@ -527,5 +577,11 @@ public class AssemblyInspectionSessionTests
     public static class MethodBodyFixture
     {
         public static T Echo<T>(T value) => value;
+
+        public static int Overloaded(int value) => value;
+
+        public static string Overloaded(string value) => value;
+
+        public static int Value { get; set; }
     }
 }

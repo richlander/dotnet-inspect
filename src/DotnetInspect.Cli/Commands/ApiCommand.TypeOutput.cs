@@ -347,7 +347,7 @@ public partial class ApiCommand
         if (sourceJson)
             return WriteSourceJson(options);
 
-        if (TryWriteDirectCallCount(type, options, sink)
+        if (TryWriteCallSiteCount(type, options, sink)
             is { } directCallCountResult)
         {
             return directCallCountResult;

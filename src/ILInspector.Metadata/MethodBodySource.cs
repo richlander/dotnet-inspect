@@ -173,6 +173,41 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         return methodHandle is { } handle ? CreateSelection(handle) : null;
     }
 
+    public MethodBodySelection? ResolveUniqueMethod(
+        string typeName,
+        string methodName,
+        bool publicOnly)
+    {
+        _ensureAlive();
+        var typeHandle = FindType(typeName);
+        if (typeHandle.IsNil)
+            return null;
+
+        MethodDefinitionHandle? methodHandle =
+            FindUniqueMethod(typeHandle, methodName, publicOnly);
+        return methodHandle is { } handle ? CreateSelection(handle) : null;
+    }
+
+    public MethodBodySelection? ResolveAccessorMethod(
+        string typeName,
+        string memberName,
+        int accessorIndex,
+        bool publicOnly)
+    {
+        _ensureAlive();
+        var typeHandle = FindType(typeName);
+        if (typeHandle.IsNil)
+            return null;
+
+        MethodDefinitionHandle? methodHandle =
+            FindAccessorMethod(
+                typeHandle,
+                memberName,
+                accessorIndex,
+                publicOnly);
+        return methodHandle is { } handle ? CreateSelection(handle) : null;
+    }
+
     public bool ContainsType(string typeName)
     {
         _ensureAlive();
@@ -317,6 +352,87 @@ public sealed partial class MethodBodySource : IOperandNameResolver
                 return handle;
         }
         return null;
+    }
+
+    MethodDefinitionHandle? FindUniqueMethod(
+        TypeDefinitionHandle typeHandle,
+        string methodName,
+        bool publicOnly)
+    {
+        MethodDefinitionHandle match = default;
+        foreach (var handle in _reader.GetTypeDefinition(typeHandle).GetMethods())
+        {
+            var method = _reader.GetMethodDefinition(handle);
+            if (_reader.GetString(method.Name) != methodName)
+                continue;
+            if (publicOnly
+                && (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+            {
+                continue;
+            }
+            if (!match.IsNil)
+                return null;
+
+            match = handle;
+        }
+        return match.IsNil ? null : match;
+    }
+
+    MethodDefinitionHandle? FindAccessorMethod(
+        TypeDefinitionHandle typeHandle,
+        string memberName,
+        int accessorIndex,
+        bool publicOnly)
+    {
+        if (accessorIndex < 0)
+            return null;
+
+        MethodDefinitionHandle match = default;
+        bool found = false;
+        var type = _reader.GetTypeDefinition(typeHandle);
+        foreach (var handle in type.GetProperties())
+        {
+            var property = _reader.GetPropertyDefinition(handle);
+            if (_reader.GetString(property.Name) != memberName)
+                continue;
+            if (found)
+                return null;
+
+            found = true;
+            PropertyAccessors accessors = property.GetAccessors();
+            match = accessorIndex switch
+            {
+                0 => accessors.Getter,
+                1 => accessors.Setter,
+                _ => default,
+            };
+        }
+        foreach (var handle in type.GetEvents())
+        {
+            var @event = _reader.GetEventDefinition(handle);
+            if (_reader.GetString(@event.Name) != memberName)
+                continue;
+            if (found)
+                return null;
+
+            found = true;
+            EventAccessors accessors = @event.GetAccessors();
+            match = accessorIndex switch
+            {
+                0 => accessors.Adder,
+                1 => accessors.Remover,
+                _ => default,
+            };
+        }
+
+        if (match.IsNil)
+            return null;
+        var method = _reader.GetMethodDefinition(match);
+        return !publicOnly
+            || (method.Attributes & MethodAttributes.MemberAccessMask)
+                == MethodAttributes.Public
+                ? match
+                : null;
     }
 
     MethodBodySelection CreateSelection(MethodDefinitionHandle handle)
