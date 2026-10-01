@@ -470,11 +470,11 @@ public class FindCommand
             if (!CliSemanticRowSelection.TrySelectCount(
                     rowSelection,
                     observedRowCount,
-                    failure =>
+                    static (stage, required, available) =>
                         $"Find row selection stage "
-                        + $"{failure.StageNumber} requires member row "
-                        + $"{failure.RequiredPosition}, but only "
-                        + $"{failure.AvailableCount} member rows are "
+                        + $"{stage} requires member row "
+                        + $"{required}, but only "
+                        + $"{available} member rows are "
                         + "available.",
                     out int selectedCount))
             {

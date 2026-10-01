@@ -370,6 +370,8 @@ public static class NavigationLensRecommendation
         {
             StructuralSubjectIdentity.WorkspaceSubject =>
                 ViewFacetRole.WorkspaceOverview,
+            StructuralSubjectIdentity.EcosystemSubject =>
+                ViewFacetRole.EcosystemOverview,
             StructuralSubjectIdentity.PackageSubject =>
                 ViewFacetRole.PackageOverview,
             StructuralSubjectIdentity.AllLibrariesSubject

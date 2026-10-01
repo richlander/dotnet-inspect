@@ -227,50 +227,29 @@ internal static class CliSemanticRowSelection
 
     public static bool TrySelectCount(
         RowSelectionIntent<string>? intent,
-        int observedCount,
-        Func<RowWindowFailure, string> formatFailure,
+        int availableCount,
+        Func<int, int, int, string> formatFailure,
         out int selectedCount)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(observedCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(availableCount);
         ArgumentNullException.ThrowIfNull(formatFailure);
 
         if (intent is not { Operations.Count: > 0 })
         {
-            selectedCount = observedCount;
+            selectedCount = availableCount;
             return true;
         }
 
         RowSelectionPlan<string> plan =
-            RowSelectionPlan<string>.Create(
-                [
-                    .. intent.Operations.Select(
-                        static operation =>
-                            operation.Kind switch
-                            {
-                                RowSelectionStageKind.Head =>
-                                    RowSelectionStage<string>.Head(
-                                        operation.Count),
-                                RowSelectionStageKind.Tail =>
-                                    RowSelectionStage<string>.Tail(
-                                        operation.Count),
-                                RowSelectionStageKind.Window =>
-                                    RowSelectionStage<string>.Window(
-                                        operation.Start,
-                                        operation.End),
-                                _ => throw new InvalidOperationException(
-                                    "Count-only semantic row selection does "
-                                    + "not support "
-                                    + $"'{operation.Kind}'."),
-                            }),
-                ]);
+            RowsCohortExecutor.CreateUnorderedPlan(intent);
         if (!RowSelectionCountExecutor.TryApply(
-                observedCount,
+                availableCount,
                 plan,
                 out RowSelectionCountResult result))
         {
             throw new InvalidOperationException(
-                "Find resolved a row-selection plan that cannot execute "
-                + "against an accepted-row count.");
+                "An unordered row-selection plan must be "
+                    + "count-applicable.");
         }
         if (result.IsSuccess)
         {
@@ -278,7 +257,12 @@ internal static class CliSemanticRowSelection
             return true;
         }
 
-        CommandError.Write(formatFailure(result.Failure!));
+        RowWindowFailure failure = result.Failure!;
+        CommandError.Write(
+            formatFailure(
+                failure.StageNumber,
+                failure.RequiredPosition,
+                failure.AvailableCount));
         selectedCount = 0;
         return false;
     }
