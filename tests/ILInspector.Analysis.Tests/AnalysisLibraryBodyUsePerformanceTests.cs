@@ -105,6 +105,14 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
 
         string report = BodyUseScorecard.Report(cells);
 
+        Assert.DoesNotContain(
+            "NaN",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Count | Allocation | 0 | - | - | - | - |",
+            report,
+            StringComparison.Ordinal);
         Assert.Contains(
             "| Planner | Allocation | 0 | - | - | - |",
             report,

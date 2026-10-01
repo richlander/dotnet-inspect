@@ -1053,10 +1053,13 @@ public static class BodyUseScorecard
         [
             .. cells.Where(cell => cell.Closing == closing),
         ];
-        int assets = terminalCells
-            .Select(static cell => cell.AssetIndex)
-            .Distinct()
-            .Count();
+        Dictionary<int, BodyUseScorecardCell> planners =
+            terminalCells
+                .Where(cell =>
+                    cell.Column == BodyUseScorecardColumn.Planner)
+                .ToDictionary(cell => cell.AssetIndex);
+        int assets =
+            planners.Values.Count(planner => value(planner) > 0);
         text.Append("| ")
             .Append(closing)
             .Append(" | ")
@@ -1068,24 +1071,30 @@ public static class BodyUseScorecard
         {
             if (column == BodyUseScorecardColumn.Planner)
             {
-                text.Append(" 1.00x |");
+                text.Append(
+                    assets == 0
+                        ? " - |"
+                        : " 1.00x |");
                 continue;
             }
             double[] ratios =
             [
                 .. terminalCells
-                    .Where(cell => cell.Column == column)
+                    .Where(cell =>
+                        cell.Column == column
+                        && planners.TryGetValue(
+                            cell.AssetIndex,
+                            out BodyUseScorecardCell? planner)
+                        && value(planner) > 0)
                     .Select(cell =>
-                    {
-                        BodyUseScorecardCell baseline =
-                            terminalCells.Single(candidate =>
-                                candidate.AssetIndex
-                                    == cell.AssetIndex
-                                && candidate.Column
-                                    == BodyUseScorecardColumn.Planner);
-                        return value(cell) / value(baseline);
-                    }),
+                        value(cell)
+                            / value(planners[cell.AssetIndex])),
             ];
+            if (ratios.Length == 0)
+            {
+                text.Append(" - |");
+                continue;
+            }
             text.Append(' ')
                 .Append(
                     Math.Exp(ratios.Average(Math.Log)).ToString(
