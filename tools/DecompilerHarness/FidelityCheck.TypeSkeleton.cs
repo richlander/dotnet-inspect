@@ -808,10 +808,12 @@ static partial class FidelityCheck
             string backingName = AutoPropertyBackingFieldName(pname);
             string? propertyInitializer = fieldInits.FirstOrDefault(init =>
                 init.Field == pname || init.Field == backingName).Value;
+            bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
+                || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
             // A standalone whole-property artifact has no containing-constructor
-            // context, so initializer-bearing auto-properties compose below.
+            // context, so initializer-bearing non-target auto-properties compose below.
             if (!requireAutoProperty
-                && propertyInitializer is null
+                && (propertyInitializer is null || accessorIsTarget)
                 && TryGetProductWholeProperty(pa, targets, out _, out _))
             {
                 if (!pa.Getter.IsNil) orderedTargetProperties[pa.Getter] = ph;
@@ -850,15 +852,13 @@ static partial class FidelityCheck
                     && AccessorsAreCompilerGenerated(reader, pa)
                     && HasAutoPropertyBackingField(reader, typeDef, pname, ret, isStatic);
                 if (isAutoProperty
-                    && propertyInitializer is null
+                    && (propertyInitializer is null || accessorIsTarget)
                     && TryGetProductWholeProperty(pa, targets, out _, out _))
                 {
                     if (!pa.Getter.IsNil) orderedTargetProperties[pa.Getter] = ph;
                     if (!pa.Setter.IsNil) orderedTargetProperties[pa.Setter] = ph;
                     continue;
                 }
-                bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
-                    || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
                 if (accessorIsTarget && !isAutoProperty)
                 {
                     bool requiresMethodFallback = requireAutoProperty
