@@ -70,6 +70,15 @@ public sealed class IteratorReconstructionPass : IIrPass
 
         var statements = new List<IrNode>();
         var rawSwitchCandidate = context.ImportMethodBody(moveNextMethod);
+        if (rawSwitchCandidate is not null
+            && ForeachIteratorReconstruction.TryReconstructUsingResources(
+                rawSwitchCandidate, function, handoff, context, out var usingBody))
+        {
+            Transplant(function, rawSwitchCandidate, usingBody, handoff, context,
+                $"reconstruct disposal-bearing iterator '{IteratorShapes.MetadataName(handoff.Constructor.DeclaringType)}'");
+            return;
+        }
+
         if (rawSwitchCandidate is not null && SwitchIteratorReconstruction.IsCandidate(rawSwitchCandidate))
         {
             if (SwitchIteratorReconstruction.TryReconstruct(rawSwitchCandidate, function, handoff, out var switchCandidateBody))

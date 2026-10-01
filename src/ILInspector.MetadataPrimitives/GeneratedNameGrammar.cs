@@ -90,10 +90,46 @@ public static class GeneratedNameGrammar
 
     /// <summary>
     /// True when a leaf (already-unqualified) type name is an iterator or
-    /// async state machine: <c>&lt;...&gt;d__...</c>.
+    /// async state machine: <c>&lt;...&gt;d__...</c>. Iterator local functions use
+    /// their already-unique synthesized method identity directly and end in
+    /// <c>&gt;d</c>, for example
+    /// <c>&lt;&lt;M&gt;g__Local|0_0&gt;d</c>.
     /// </summary>
     public static bool IsStateMachineLeaf(string leafTypeName)
-        => leafTypeName.Contains(StateMachineInfix, StringComparison.Ordinal);
+        => (!leafTypeName.StartsWith("<<", StringComparison.Ordinal)
+                && leafTypeName.Contains(StateMachineInfix, StringComparison.Ordinal))
+            || IsLocalFunctionStateMachineLeaf(leafTypeName);
+
+    static bool IsLocalFunctionStateMachineLeaf(string leafTypeName)
+    {
+        const string suffix = ">d";
+        if (!leafTypeName.StartsWith("<<", StringComparison.Ordinal)
+            || !leafTypeName.EndsWith(suffix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        string methodName = leafTypeName[..^suffix.Length];
+        int localFunctionInfix = methodName.IndexOf(LocalFunctionInfix, 2, StringComparison.Ordinal);
+        int ordinalSeparator = methodName.LastIndexOf('|');
+        int localNameStart = localFunctionInfix + LocalFunctionInfix.Length;
+        return localFunctionInfix > 2
+            && methodName.IndexOf(LocalFunctionInfix, localNameStart, StringComparison.Ordinal) < 0
+            && methodName.AsSpan(2, localFunctionInfix - 2).IndexOfAny('<', '>', '|') < 0
+            && ordinalSeparator > localNameStart
+            && methodName.AsSpan(localNameStart, ordinalSeparator - localNameStart).IndexOfAny('<', '>', '|') < 0
+            && HasLocalFunctionOrdinal(methodName.AsSpan(ordinalSeparator + 1))
+            && ordinalSeparator == methodName.IndexOf('|');
+    }
+
+    static bool HasLocalFunctionOrdinal(ReadOnlySpan<char> ordinal)
+    {
+        int generationSeparator = ordinal.IndexOf('_');
+        return generationSeparator > 0
+            && generationSeparator < ordinal.Length - 1
+            && ordinal[..generationSeparator].IndexOfAnyExceptInRange('0', '9') < 0
+            && ordinal[(generationSeparator + 1)..].IndexOfAnyExceptInRange('0', '9') < 0;
+    }
 
     /// <summary>
     /// True when a method name carries the synthesized local-function infix

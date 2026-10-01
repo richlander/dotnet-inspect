@@ -64,8 +64,11 @@ public class LambdaRaisingPassTests
         Assert.Contains("=>", result.Output);
         Assert.DoesNotContain("___c__DisplayClass17_0", result.Output);
         Assert.DoesNotContain("__WriteColumns_b__3", result.Output);
-        Assert.Contains("___WriteColumns_g__ZipWithEmpty_17_2_d", result.Output);
-        Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
+        Assert.DoesNotContain("___WriteColumns_g__ZipWithEmpty_17_2_d", result.Output);
+        Assert.Contains("using (IEnumerator<string> enum1 = first.GetEnumerator())", result.Output);
+        Assert.Contains("using (IEnumerator<string> enum2 = second.GetEnumerator())", result.Output);
+        Assert.Contains("yield return", result.Output);
+        Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
     }
 
     [Theory]

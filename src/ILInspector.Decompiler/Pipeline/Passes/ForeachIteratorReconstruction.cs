@@ -37,9 +37,295 @@ namespace ILInspector.Decompiler.Pipeline;
 /// restructured body still carries raw control flow, an unresolved state-machine field, no
 /// yield, or no recovered <c>foreach</c>, the match is rejected and the iterator falls
 /// through to honest acknowledgment.</para>
+///
+/// <para>The same owner also handles one narrowly authenticated authored-<c>using</c>
+/// iterator shape: exactly two enumerators acquired once in source order, advanced by one
+/// bitwise lockstep loop, and disposed by two compiler helpers in reverse order. The
+/// helpers' restored states, the state-machine <c>Dispose</c> routing, field resets, and
+/// terminal state must all agree before the resources become nested
+/// <see cref="UsingStatement"/> nodes. Any missing evidence or user-authored cleanup
+/// declines without mutating the kickoff.</para>
 /// </summary>
 internal static class ForeachIteratorReconstruction
 {
+    sealed record DisposalResource(
+        FieldRef Field,
+        MethodRef Finally,
+        MethodRef Dispose,
+        int RestoredState);
+
+    public static bool TryReconstructUsingResources(
+        IrFunction work,
+        IrFunction kickoff,
+        NewObject handoff,
+        PassContext context,
+        out BlockContainer body)
+    {
+        body = null!;
+
+        var blocks = work.Body.Blocks;
+        if (blocks.Count == 0)
+            return false;
+        if (!TryGetUsingDisposalResources(work, handoff, context, out var resources))
+            return false;
+
+        var stateStore = blocks[0].Children.OfType<StoreLocal>()
+            .FirstOrDefault(s => s.Value is LoadField
+            {
+                Instance: LoadArgument { Index: 0 },
+                Field.Name: "<>1__state",
+            });
+        if (stateStore is null)
+            return false;
+        var stateLocal = stateStore.Index;
+
+        var returnLocal = -1;
+        foreach (var block in blocks)
+            if (block.Children.Count > 0 && block.Children[^1] is Return { Value: LoadLocal terminal })
+                returnLocal = terminal.Index;
+        if (returnLocal < 0)
+            return false;
+
+        var dispatchEnd = 0;
+        while (dispatchEnd < blocks.Count && TestsState(blocks[dispatchEnd], stateLocal))
+            dispatchEnd++;
+        if (dispatchEnd == 0)
+            return false;
+        if (dispatchEnd < blocks.Count && IsDefaultExit(blocks[dispatchEnd], returnLocal))
+            dispatchEnd++;
+        if (dispatchEnd >= blocks.Count)
+            return false;
+
+        var locals = new Dictionary<string, (int Index, TypeRef Type)>(StringComparer.Ordinal);
+        foreach (var node in work.Descendants)
+        {
+            var field = node switch
+            {
+                StoreField { Instance: LoadArgument { Index: 0 }, Field: var f } => f,
+                LoadField { Instance: LoadArgument { Index: 0 }, Field: var f } => f,
+                _ => null,
+            };
+            if (field is null || !GeneratedCodeIdentity.IsHoistedLocalFieldName(field.Name) || locals.ContainsKey(field.Name))
+                continue;
+            locals[field.Name] = (work.AddLocal(field.Type, ExtractSourceName(field.Name)), field.Type);
+        }
+        if (resources.Any(resource => !locals.ContainsKey(resource.Field.Name)))
+            return false;
+
+        var yieldStores = work.Descendants.OfType<StoreField>()
+            .Where(store => store.Field.Name == "<>2__current"
+                && IsStateMachineReceiver(work, store.Instance))
+            .ToHashSet();
+        var expectedYieldCount = yieldStores.Count;
+        if (expectedYieldCount == 0)
+            return false;
+
+        var disposalHelpers = resources.Select(resource => resource.Finally).ToHashSet();
+        var container = new BlockContainer();
+        for (var i = dispatchEnd; i < blocks.Count; i++)
+        {
+            if (blocks[i].Children is
+                [
+                    ExpressionStatement
+                    {
+                        Expression: Call
+                        {
+                            Callee.Name: "System.IDisposable.Dispose",
+                            Arguments: [LoadArgument { Index: 0 }],
+                        },
+                    },
+                    EndFinally,
+                ])
+            {
+                continue;
+            }
+
+            var rebuilt = new Block(blocks[i].StartOffset);
+            foreach (var statement in blocks[i].Children.ToList())
+            {
+                statement.Detach();
+                switch (statement)
+                {
+                    case StoreField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>1__state" }:
+                        continue;
+                    case StoreField { Field.Name: "<>2__current" } yieldStore
+                        when yieldStores.Contains(yieldStore):
+                        if (!TryRemap(yieldStore.Value, kickoff, locals, receiver: null, out var yielded))
+                            return false;
+                        rebuilt.Add(new YieldReturn(yielded));
+                        continue;
+                    case StoreField { Instance: LoadArgument { Index: 0 }, Field: var slotField } slotStore
+                        when locals.TryGetValue(slotField.Name, out var slot):
+                        if (resources.Any(resource => Equals(resource.Field, slotField))
+                            && slotStore.Value is Constant { Value: null })
+                        {
+                            return false;
+                        }
+                        if (!TryRemap(slotStore.Value, kickoff, locals, receiver: null, out var stored))
+                            return false;
+                        rebuilt.Add(new StoreLocal(slot.Index, slotField.Type, stored));
+                        continue;
+                    case ExpressionStatement { Expression: Call { Callee: var callee } }
+                        when disposalHelpers.Contains(callee):
+                        continue;
+                    case StoreLocal returnStore when returnStore.Index == returnLocal && returnStore.Value is Constant:
+                        continue;
+                    case Leave:
+                    case Return:
+                        continue;
+                    default:
+                        if (!TryRemapInPlace(statement, kickoff, locals, receiver: null))
+                            return false;
+                        rebuilt.Add(statement);
+                        continue;
+                }
+            }
+            container.Add(rebuilt);
+        }
+        while (container.Blocks.Count > 0 && container.Blocks[^1].Children.Count == 0)
+            container.Blocks[^1].Detach();
+
+        work.Regions = ImmutableArray<HandlerRegion>.Empty;
+        work.ClearImportedExceptionFacts();
+        work.Body.ReplaceWith(container);
+        IrPasses.Run(work, IrPasses.Default, context);
+        if (!TryRaiseLockstepLoop(work, resources, locals))
+            return false;
+        IrPasses.Run(work, IrPasses.Default, context);
+
+        if (!RaiseNestedUsingResources(work, resources, locals))
+            return false;
+        if (work.Body.Descendants.Any(IsUnstructured))
+            return false;
+        if (work.Descendants.OfType<YieldReturn>().Count() != expectedYieldCount)
+            return false;
+        if (work.Descendants.Any(IsStateMachineField))
+            return false;
+        if (work.Descendants.OfType<UsingStatement>().Count() != resources.Count)
+            return false;
+
+        body = (BlockContainer)work.Body;
+        foreach (var block in body.Blocks)
+            foreach (var statement in block.Children)
+                Reanchor(statement, handoff.SourceOffset);
+
+        return true;
+    }
+
+    static bool TryRaiseLockstepLoop(
+        IrFunction work,
+        IReadOnlyList<DisposalResource> resources,
+        IReadOnlyDictionary<string, (int Index, TypeRef Type)> locals)
+    {
+        var blocks = work.Body.Blocks;
+        if (resources.Count != 2
+            || blocks.Count < 3
+            || blocks[0].Children.Count == 0
+            || blocks[0].Children[^1] is not Branch entryBranch)
+        {
+            return false;
+        }
+
+        var conditionIndex = -1;
+        for (var i = 1; i < blocks.Count; i++)
+            if (blocks[i].StartOffset == entryBranch.TargetOffset)
+            {
+                conditionIndex = i;
+                break;
+            }
+        if (conditionIndex <= 1 || conditionIndex != blocks.Count - 1)
+            return false;
+
+        var conditionBlock = blocks[conditionIndex];
+        if (conditionBlock.Children is not
+            [
+                StoreLocal { Value: Call { Callee.Name: "MoveNext" } firstMove } firstTemp,
+                StoreLocal { Value: LoadLocal firstTempRead } firstResult,
+                StoreLocal { Value: Call { Callee.Name: "MoveNext" } secondMove } secondTemp,
+                StoreLocal { Value: LoadLocal secondTempRead } secondResult,
+                ConditionalBranch
+                {
+                    Condition: Binary
+                    {
+                        Kind: BinaryKind.Or,
+                        Left: LoadLocal firstCondition,
+                        Right: LoadLocal secondCondition,
+                    },
+                } backBranch,
+            ])
+        {
+            return false;
+        }
+
+        var firstLocal = locals[resources[0].Field.Name];
+        var secondLocal = locals[resources[1].Field.Name];
+        if (firstMove.Arguments is not [LoadLocal firstReceiver]
+            || !IsMoveNextCall(firstMove)
+            || firstReceiver.Index != firstLocal.Index
+            || secondMove.Arguments is not [LoadLocal secondReceiver]
+            || !IsMoveNextCall(secondMove)
+            || secondReceiver.Index != secondLocal.Index
+            || firstTemp.Index == secondTemp.Index
+            || firstResult.Index == secondResult.Index
+            || !MemberIdentity.IsCoreLibraryType(firstResult.Type, "System", "Boolean")
+            || !MemberIdentity.IsCoreLibraryType(secondResult.Type, "System", "Boolean")
+            || firstTempRead.Index != firstTemp.Index
+            || firstCondition.Index != firstTemp.Index
+            || secondTempRead.Index != secondTemp.Index
+            || secondCondition.Index != secondTemp.Index
+            || backBranch.TargetOffset != blocks[1].StartOffset)
+        {
+            return false;
+        }
+
+        foreach (var block in blocks.Skip(1).Take(conditionIndex - 1))
+            if (block.Children.Any(IsUnstructured))
+                return false;
+
+        var loopBody = new Block(blocks[1].StartOffset);
+        loopBody.Add(new StoreLocal(
+            firstResult.Index,
+            firstResult.Type,
+            (IrExpression)firstMove.Clone()));
+        loopBody.Add(new StoreLocal(
+            secondResult.Index,
+            secondResult.Type,
+            (IrExpression)secondMove.Clone()));
+
+        var breakBody = new Block(conditionBlock.StartOffset);
+        breakBody.Add(new Break());
+        loopBody.Add(new IfStatement(
+            new LogicalNot(new Binary(
+                BinaryKind.Or,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadLocal(firstResult.Index, firstResult.Type),
+                new LoadLocal(secondResult.Index, secondResult.Type))),
+            breakBody,
+            elseArm: null));
+
+        foreach (var block in blocks.Skip(1).Take(conditionIndex - 1))
+            foreach (var statement in block.Children.ToList())
+            {
+                statement.Detach();
+                if (statement is StoreStackSlot slot
+                    && !work.Descendants.OfType<LoadStackSlot>().Any(load => load.Slot == slot.Slot))
+                {
+                    continue;
+                }
+                loopBody.Add(statement);
+            }
+
+        entryBranch.Detach();
+        blocks[0].Add(new WhileLoop(
+            new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+            loopBody));
+        foreach (var block in blocks.Skip(1).ToList())
+            block.Detach();
+
+        return true;
+    }
+
     public static bool TryReconstruct(IrFunction work, IrFunction kickoff, NewObject handoff, PassContext context, out BlockContainer body)
     {
         body = null!;
@@ -233,6 +519,356 @@ internal static class ForeachIteratorReconstruction
             foreach (var statement in block.Children)
                 Reanchor(statement, handoff.SourceOffset);
 
+        return true;
+    }
+
+    static bool IsStateMachineReceiver(IrFunction work, IrExpression? expression)
+    {
+        if (expression is LoadArgument { Index: 0 })
+            return true;
+        if (expression is not LoadStackSlot slot)
+            return false;
+
+        var stores = work.Descendants.OfType<StoreStackSlot>()
+            .Where(store => store.Slot == slot.Slot)
+            .ToList();
+        if (stores is not [{ Value: LoadArgument { Index: 0 } }])
+            return false;
+
+        return work.Descendants.OfType<LoadStackSlot>()
+            .Count(load => load.Slot == slot.Slot) == 1;
+    }
+
+    static bool TryGetUsingDisposalResources(
+        IrFunction work,
+        NewObject handoff,
+        PassContext context,
+        out List<DisposalResource> resources)
+    {
+        resources = [];
+        if (context.ImportMethodBody is null
+            || work.Regions is not [{ Kind: HandlerKind.Fault }]
+            || work.Body.Blocks.Count(block => block.Children is
+            [
+                ExpressionStatement
+                {
+                    Expression: Call
+                    {
+                        Callee.Name: "System.IDisposable.Dispose",
+                        Arguments: [LoadArgument { Index: 0 }],
+                    },
+                },
+                EndFinally,
+            ]) != 1)
+        {
+            return false;
+        }
+
+        var acquisitions = work.Descendants.OfType<StoreField>()
+            .Where(store => store is
+            {
+                Instance: LoadArgument { Index: 0 },
+                Value: Call
+                {
+                    Callee:
+                    {
+                        Name: "GetEnumerator",
+                        HasThis: true,
+                        ReturnType: var returnType,
+                    },
+                    Arguments.Count: 1,
+                } getEnumerator,
+            } && Equals(store.Field.Type, returnType)
+                && MemberIdentity.IsCoreLibraryType(
+                    getEnumerator.Callee.DeclaringType,
+                    "System.Collections.Generic",
+                    "IEnumerable`1"))
+            .ToList();
+        if (acquisitions.Count != 2
+            || acquisitions.Select(acquisition => acquisition.Field).Distinct().Count() != acquisitions.Count)
+        {
+            return false;
+        }
+
+        var normalFinallyCalls = work.Descendants.OfType<ExpressionStatement>()
+            .Select(statement => statement.Expression)
+            .OfType<Call>()
+            .Where(call => call.Callee.Name.StartsWith("<>m__Finally", StringComparison.Ordinal))
+            .ToList();
+        if (normalFinallyCalls.Count != acquisitions.Count
+            || normalFinallyCalls.Any(call => call.Arguments is not [LoadArgument { Index: 0 }]))
+        {
+            return false;
+        }
+
+        foreach (var call in normalFinallyCalls)
+        {
+            var disposalBody = context.ImportMethodBody(call.Callee);
+            if (disposalBody is null
+                || !TryGetDisposalResource(disposalBody, out var field, out var dispose, out var restoredState)
+                || UnsafeAwaitOperand.MethodRequiresUnsafe(dispose, work.UsesUpdatedMemorySafetyRules))
+            {
+                return false;
+            }
+            resources.Add(new DisposalResource(field, call.Callee, dispose, restoredState));
+        }
+
+        resources.Reverse();
+        var matchedResources = resources;
+        for (var i = 0; i < matchedResources.Count; i++)
+        {
+            if (!Equals(matchedResources[i].Field, acquisitions[i].Field)
+                || !TryGetStateBefore(acquisitions[i], out var state)
+                || matchedResources[i].RestoredState != state)
+            {
+                return false;
+            }
+        }
+
+        var stateMachineDispose = context.ImportMethodBody(
+            handoff.Constructor with { Name = "System.IDisposable.Dispose" });
+        if (stateMachineDispose is null
+            || stateMachineDispose.Regions.Length != matchedResources.Count
+            || stateMachineDispose.Regions.Any(region => region.Kind != HandlerKind.Finally))
+        {
+            return false;
+        }
+
+        var disposeFinallyCalls = stateMachineDispose.Descendants.OfType<Call>()
+            .Where(call => call.Callee.Name.StartsWith("<>m__Finally", StringComparison.Ordinal))
+            .ToList();
+        if (!disposeFinallyCalls.Select(call => call.Callee)
+                .SequenceEqual(matchedResources.AsEnumerable().Reverse().Select(resource => resource.Finally)))
+        {
+            return false;
+        }
+
+        var resetFields = stateMachineDispose.Descendants.OfType<StoreField>()
+            .Where(store => store is
+            {
+                Instance: LoadArgument { Index: 0 },
+                Value: Constant { Value: null },
+            })
+            .Select(store => store.Field)
+            .ToList();
+        if (resetFields.Count != matchedResources.Count
+            || matchedResources.Any(resource => resetFields.Count(field => Equals(field, resource.Field)) != 1))
+        {
+            return false;
+        }
+
+        var allowedHelpers = matchedResources.Select(resource => resource.Finally).ToHashSet();
+        if (stateMachineDispose.Descendants.OfType<Call>().Any(call => !allowedHelpers.Contains(call.Callee)))
+            return false;
+        if (stateMachineDispose.Descendants.OfType<StoreField>().Any(store =>
+                store.Field.Name != "<>1__state"
+                && !matchedResources.Any(resource => Equals(resource.Field, store.Field)
+                    && store.Value is Constant { Value: null })))
+        {
+            return false;
+        }
+        var disposeStateStores = stateMachineDispose.Descendants.OfType<StoreField>()
+            .Where(store => store is
+            {
+                Instance: LoadArgument { Index: 0 },
+                Field.Name: "<>1__state",
+            })
+            .ToList();
+        if (disposeStateStores is not
+            [
+                {
+                    Value: Constant { Value: -2 },
+                },
+            ])
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool TryGetDisposalResource(
+        IrFunction disposalBody,
+        out FieldRef field,
+        out MethodRef dispose,
+        out int restoredState)
+    {
+        field = null!;
+        dispose = null!;
+        restoredState = 0;
+
+        if (disposalBody.Body.Blocks is not
+            [
+                {
+                    Children:
+                    [
+                        StoreField
+                        {
+                            Instance: LoadArgument { Index: 0 },
+                            Field.Name: "<>1__state",
+                            Value: Constant { Value: int state },
+                        },
+                        ConditionalBranch
+                        {
+                            Condition: LogicalNot
+                            {
+                                Operand: LoadField
+                                {
+                                    Instance: LoadArgument { Index: 0 },
+                                    Field: var guardedField,
+                                },
+                            },
+                        } guard,
+                    ],
+                },
+                {
+                    Children:
+                    [
+                        ExpressionStatement
+                        {
+                            Expression: Call
+                            {
+                                Callee.Name: "Dispose",
+                                Arguments:
+                                [
+                                    LoadField
+                                    {
+                                        Instance: LoadArgument { Index: 0 },
+                                        Field: var disposedField,
+                                    },
+                                ],
+                            } call,
+                        },
+                    ],
+                },
+                {
+                    StartOffset: var terminalOffset,
+                    Children: [Return { Value: null }],
+                },
+            ])
+        {
+            return false;
+        }
+
+        if (guard.TargetOffset != terminalOffset
+            || !Equals(guardedField, disposedField)
+            || !MemberIdentity.IsIDisposableDispose(call))
+            return false;
+
+        field = disposedField;
+        dispose = call.Callee;
+        restoredState = state;
+        return true;
+    }
+
+    static bool IsMoveNextCall(Call call)
+        => call.Callee is
+        {
+            Name: "MoveNext",
+            HasThis: true,
+            ParameterTypes.IsEmpty: true,
+            ReturnType: var returnType,
+        } && MemberIdentity.IsCoreLibraryType(returnType, "System", "Boolean");
+
+    static bool TryGetStateBefore(StoreField acquisition, out int state)
+    {
+        state = 0;
+        if (acquisition.Parent is not Block block)
+            return false;
+        var index = -1;
+        for (var i = 0; i < block.Children.Count; i++)
+            if (ReferenceEquals(block.Children[i], acquisition))
+            {
+                index = i;
+                break;
+            }
+        if (index < 0)
+            return false;
+        for (var i = index - 1; i >= 0; i--)
+            if (block.Children[i] is StoreField
+                {
+                    Instance: LoadArgument { Index: 0 },
+                    Field.Name: "<>1__state",
+                    Value: Constant { Value: int value },
+                })
+            {
+                state = value;
+                return true;
+            }
+        return false;
+    }
+
+    static bool RaiseNestedUsingResources(
+        IrFunction work,
+        IReadOnlyList<DisposalResource> resources,
+        IReadOnlyDictionary<string, (int Index, TypeRef Type)> locals)
+    {
+        if (resources.Count != 2)
+            return false;
+        if (work.Body.Children is not [Block block])
+            return false;
+
+        var stores = new List<StoreLocal>();
+        foreach (var resource in resources)
+        {
+            var local = locals[resource.Field.Name];
+            var candidates = work.DescendantsOutsideNestedFunctions.OfType<StoreLocal>()
+                .Where(store => store.Index == local.Index)
+                .ToList();
+            if (candidates is not
+                [
+                    {
+                        Parent: Block parent,
+                        Value: Call { Callee.Name: "GetEnumerator" },
+                    } store,
+                ]
+                || !ReferenceEquals(parent, block))
+            {
+                return false;
+            }
+            stores.Add(store);
+        }
+
+        if (block.Children.Count <= resources.Count
+            || !ReferenceEquals(block.Children[0], stores[0])
+            || !ReferenceEquals(block.Children[1], stores[1]))
+        {
+            return false;
+        }
+
+        var innerBody = new BlockContainer();
+        var innerBlock = new Block(stores[1].SourceOffset);
+        foreach (var statement in block.Children.Skip(2).ToList())
+        {
+            statement.Detach();
+            innerBlock.Add(statement);
+        }
+        innerBody.Add(innerBlock);
+
+        var innerResource = (IrExpression)stores[1].DetachChildren()[0];
+        stores[1].Detach();
+        var innerLocal = locals[resources[1].Field.Name];
+        var innerUsing = new UsingStatement(
+            innerLocal.Index,
+            innerLocal.Type,
+            innerResource,
+            innerBody,
+            consumedMemberRefs: [resources[1].Dispose]);
+
+        var outerBody = new BlockContainer();
+        var outerBlock = new Block(stores[0].SourceOffset);
+        outerBlock.Add(innerUsing);
+        outerBody.Add(outerBlock);
+
+        var outerResource = (IrExpression)stores[0].DetachChildren()[0];
+        stores[0].Detach();
+        var outerLocal = locals[resources[0].Field.Name];
+        block.Add(new UsingStatement(
+            outerLocal.Index,
+            outerLocal.Type,
+            outerResource,
+            outerBody,
+            consumedMemberRefs: [resources[0].Dispose]));
         return true;
     }
 

@@ -39,6 +39,16 @@ public class GeneratedNameGrammarTests
     [Theory]
     [InlineData("<M>d__0", true)]
     [InlineData("<M>d__0`1", true)] // generic iterator/async state machine
+    [InlineData("<<M>g__Local|0_0>d", true)] // non-generic local-function iterator
+    [InlineData("<M>g__Local|0_0>d", false)]
+    [InlineData("<<M>g__Local0_0>d", false)]
+    [InlineData("<<M>b__Local|0_0>d", false)]
+    [InlineData("<<M>g__Local|A_0>d", false)]
+    [InlineData("<<M>g__Local|0_A>d", false)]
+    [InlineData("<<M>g__Local|0>d", false)]
+    [InlineData("<<M>g__Local|0_0>g__Nested|1_0>d", false)]
+    [InlineData("<<<M>g__Local|0_0>d", false)]
+    [InlineData("<<M>g__Local|0_0>d__1", false)]
     [InlineData("<>c__DisplayClass0_0", false)]
     [InlineData("Outer", false)]
     public void IsStateMachineLeaf_requires_the_state_machine_infix(string leaf, bool expected)
