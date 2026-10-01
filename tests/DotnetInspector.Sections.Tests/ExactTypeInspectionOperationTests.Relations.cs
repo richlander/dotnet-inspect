@@ -5,6 +5,7 @@ using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
