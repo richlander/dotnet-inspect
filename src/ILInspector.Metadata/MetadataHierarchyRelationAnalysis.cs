@@ -96,7 +96,7 @@ public abstract record MetadataHierarchyRelationAnalysisOutcome
 /// Product-owned result of applying hierarchy scope, target matching, budgets,
 /// and optional row projection to one Type definition.
 /// </summary>
-public readonly record struct MetadataHierarchyRelationAnalysisUnit(
+internal readonly record struct MetadataHierarchyRelationAnalysisUnit(
     bool IsExcluded,
     bool BaseMatched,
     bool InterfaceMatched,
@@ -112,15 +112,16 @@ public readonly record struct MetadataHierarchyRelationAnalysisUnit(
 }
 
 /// <summary>
-/// One product-owned hierarchy-analysis pass. LINQ, NLinq, and Planner readers
-/// use this pass so only their iteration and closing machinery differs.
+/// The shipping Planner's per-declaration hierarchy-analysis pass.
+/// Performance oracles independently drive their queries through narrower
+/// Metadata-owned decoding and containment primitives.
 /// </summary>
 /// <remarks>
 /// The source session must remain alive until this pass is disposed.
 /// Construction consumes the session's retained admitted metadata reader;
 /// producers do not repeat general image-format admission.
 /// </remarks>
-public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
+internal sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
 {
     readonly MetadataReader _reader;
     readonly MetadataHierarchyRelationAnalysisRequest _request;
@@ -128,7 +129,7 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
     readonly MetadataVisibilityResolver? _visibility;
     readonly bool _ownsOperation;
 
-    public MetadataHierarchyRelationAnalysisPass(
+    internal MetadataHierarchyRelationAnalysisPass(
         AssemblyInspectionSession session,
         MetadataHierarchyRelationAnalysisRequest request)
     {
@@ -420,7 +421,7 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
 /// TypeDef, TypeRef, and generic TypeSpec shapes emitted by Roslyn and remains
 /// bounded for malformed metadata.
 /// </summary>
-public static class MetadataHierarchyRelationAnalysis
+internal static class MetadataHierarchyRelationAnalysis
 {
     internal static MetadataTypeDefinitionNameMatchResult MatchTarget(
         MetadataReader reader,

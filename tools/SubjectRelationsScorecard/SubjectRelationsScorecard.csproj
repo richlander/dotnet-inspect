@@ -25,7 +25,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\..\tests\DotnetInspector.PerformanceOracles\DotnetInspector.PerformanceOracles.csproj" />
-    <ProjectReference Include="..\..\tests\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
+    <ProjectReference Include="..\..\tests\ILInspector.Metadata.PerformanceOracles.Tests\ILInspector.Metadata.PerformanceOracles.Tests.csproj" />
   </ItemGroup>
 
 </Project>

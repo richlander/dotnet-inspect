@@ -1,9 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Metadata-owned performance-oracle projections that require the exact
-    internal prepared source, predicate, projector, and fold. This remains a
-    test assembly so raw metadata-reader lifetime does not enter the public API.
+    Metadata-owned performance-oracle projections that require either an
+    internal prepared model or narrow admitted-reader primitives. Query
+    implementations remain independent where the owning contract requires it.
+    This remains a test assembly so raw metadata-reader lifetime does not enter
+    the public API.
   -->
   <PropertyGroup>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
@@ -17,6 +19,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
+    <ProjectReference Include="../DotnetInspector.PerformanceOracles/DotnetInspector.PerformanceOracles.csproj" />
     <ProjectReference Include="../NLinq.Oracle/NLinq.Oracle.csproj" />
   </ItemGroup>
 

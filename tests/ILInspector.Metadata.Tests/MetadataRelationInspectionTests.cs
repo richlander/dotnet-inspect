@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
-using System.Reflection;
 
 using DotnetInspector.Fixtures;
 
@@ -10,23 +10,6 @@ namespace ILInspector.Metadata.Tests;
 
 public sealed class MetadataRelationInspectionTests
 {
-    [Fact]
-    public void HierarchyAnalysisPassRequiresAnAdmittedSession()
-    {
-        System.Reflection.ConstructorInfo constructor =
-            Assert.Single(
-                typeof(MetadataHierarchyRelationAnalysisPass)
-                    .GetConstructors());
-
-        Assert.Equal(
-            [
-                typeof(AssemblyInspectionSession),
-                typeof(MetadataHierarchyRelationAnalysisRequest),
-            ],
-            constructor.GetParameters()
-                .Select(static parameter => parameter.ParameterType));
-    }
-
     [Fact]
     public void HierarchyAnalysisRejectsNativeImageBeforeProducerExecution()
     {
