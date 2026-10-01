@@ -9,7 +9,8 @@ Proposed focused design for
 
 > Given one normalized Find question and an ordered selection of exact
 > Ecosystem registrations, evaluate every selected Ecosystem's bounded
-> populations before any package-prefix population, evaluate each distinct
+> populations in order before any package-prefix population (stopping only
+> when a finite row window fills at a layer boundary), evaluate each distinct
 > concrete source's settlement, inventory, and source-local matches at most
 > once, and return ordered durable Find blocks that retain every admitting
 > Ecosystem membership, scoped failure, and completion fact.
@@ -37,9 +38,10 @@ The first CLI production scenario is:
 dotnet-inspect find '.Add*' --ecosystem aspire --jsonl
 ```
 
-The bounded block completes first from `Aspire.Hosting` and
-`Aspire.Hosting.Testing`, including `AddProject`, `AddContainer`, and
-`AddParameter`. Prefix work then discovers and evaluates concrete `Aspire.*`
+The Aspire bounded block ranks first, by its layer ordinal, from
+`Aspire.Hosting` and `Aspire.Hosting.Testing`, including `AddProject`, `AddContainer`, and
+`AddParameter`. The ASP.NET Core, Microsoft.Extensions, and .NET Runtime
+lineage layers follow with later ordinals. Prefix work then discovers and evaluates concrete `Aspire.*`
 packages, producing package-scoped blocks such as `AddRedis` from
 `Aspire.Hosting.Redis` and `AddPostgres` from
 `Aspire.Hosting.PostgreSQL`.
@@ -125,6 +127,11 @@ The array rejects duplicate registration identities. Host syntax such as
 `--ecosystem all`, short names, repeated options, or an active Browser subject
 must be resolved before construction.
 
+Array order is search order. A host lowers an Ecosystem selection to its
+[layered Find order](ecosystem-hierarchy.md#layered-find), so each selected
+Ecosystem precedes its ancestors. A `--where ecosystem=` predicate removes
+every other layer from the array before construction.
+
 `PrefixDemand` is an immutable set of selected registration identities.
 Changing Browser demand creates a replacement operation through the Browser's
 operation authority. There is no mutable "add a prefix while this request is
@@ -193,6 +200,10 @@ Bounded
   -> every selected Ecosystem bounded block settles
   -> Prefix, when demand exists
   -> Completed
+
+Bounded, finite row window
+  -> layers settle in array order until the window fills at a layer boundary
+  -> Completed as RowLimitReached; later layers and Prefix do not start
 ```
 
 Cancellation may terminate either active phase. No prefix search, package
@@ -214,7 +225,10 @@ Ecosystem's Find population selector can reference those immutable facts
 without repeating source work. A bounded block can settle as complete, partial,
 or failed according to its owner-issued source outcomes.
 
-Blocks may settle in any execution order. Each carries its stable selected
+With a finite row window, a layer starts only after every earlier layer has
+settled and the window still has room; sources within one layer may still
+settle concurrently. Without one, blocks may settle in any execution order.
+Each block carries its stable selected
 Ecosystem ordinal; arrival order is not result order. A blocking consumer
 orders bounded blocks by that ordinal. A streaming consumer may reveal a block
 immediately and must not interpret arrival order as rank.
@@ -318,10 +332,14 @@ operation cannot enter its replacement outcome.
 
 ## Bounds, failures, and completion
 
-The bounded phase is finite and always attempts every selected bounded source
-unless canceled. Semantic Find row limits do not authorize skipping another
-bounded source unless the Find owner explicitly delegates that optimization
-without changing the block result.
+The bounded phase is finite and attempts every selected bounded source unless
+canceled or stopped at a layer boundary. The Find owner delegates one
+row-window optimization: when the request carries a finite row window, the
+bounded phase settles layers in array order, and once the settled layers
+fill the window, later layers do not start. A layer that has started always
+settles completely, so stopping never truncates a block. The operation then
+completes as `RowLimitReached`, naming each unsearched layer, and no prefix
+work starts. Without a finite window, every layer is attempted, as before.
 
 The prefix-package bound is shared across all demanded prefixes. A candidate
 consumes one unit when admitted for settlement, including a candidate that
@@ -334,6 +352,8 @@ Terminal completion distinguishes at least:
 - `CandidateLimitReached`: the package bound stopped later work;
 - `SourcePageLimitReached` or `ClientPageLimitReached`: a prefix source
   reported its owner-issued bound;
+- `RowLimitReached`: the row window filled at a layer boundary; the named
+  later layers did not start;
 - `Partial`: useful blocks exist beside scoped bounded or candidate failures;
   and
 - `Failed`: no valid Document can be constructed under the operation's
