@@ -952,7 +952,7 @@ public sealed class AnalysisLibraryBodyUseTests
                             ])),
                 ],
                 new DotnetInspector.PerformanceOracles.ScorecardTiming(
-                    Rounds: 1,
+                    Rounds: 2,
                     Warmup: 0,
                     BudgetMilliseconds: 0,
                     MinSamples: 1,
@@ -965,6 +965,7 @@ public sealed class AnalysisLibraryBodyUseTests
             cells,
             static cell =>
             {
+                Assert.Single(cell.RoundStageAttributions);
                 Assert.True(
                     cell.StageAttribution.InventoryMicroseconds > 0);
                 Assert.True(

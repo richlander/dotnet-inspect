@@ -414,7 +414,9 @@ is not burdened with unconsumed Planner work.
 
 The report also runs one separate instrumented execution per cell and attributes
 inventory admission, body-analysis production, terminal traversal and folding,
-and Rows projection. Those diagnostic stage times are not used for accepted
+and Rows projection. The diagnostic sweep starts only after every uninstrumented
+timing round has completed, so it cannot change the cache or thermal history of
+later accepted cells. Those diagnostic stage times are not used for accepted
 end-to-end ratios, so per-body timestamp probes cannot distort the measured
 NativeAOT totals.
 

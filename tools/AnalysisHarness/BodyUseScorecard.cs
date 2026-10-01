@@ -429,8 +429,6 @@ public static class BodyUseScorecard
                         roundTimes.Add(measurement.Microseconds);
                         allocations[key].Add(
                             measurement.AllocatedBytes);
-                        stages[key].Add(
-                            measurement.StageAttribution);
                     }
                     progress?.Invoke(
                         string.Create(
@@ -438,6 +436,31 @@ public static class BodyUseScorecard
                             $"round {round + 1}/{timing.Rounds}: "
                                 + $"{asset.Name} / {closing}"));
                 }
+            }
+        }
+
+        for (int assetIndex = 0;
+            assetIndex < assets.Count;
+            assetIndex++)
+        {
+            BodyUseScorecardAsset asset = assets[assetIndex];
+            foreach (BodyUseScorecardClosing closing in Closings)
+            {
+                foreach (BodyUseScorecardColumn column in Columns)
+                {
+                    var key = (assetIndex, closing, column);
+                    stages[key].Add(
+                        MeasureStage(
+                            column,
+                            closing,
+                            asset,
+                            limits,
+                            cancellationToken));
+                }
+                progress?.Invoke(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"stages: {asset.Name} / {closing}"));
             }
         }
 
@@ -1215,6 +1238,18 @@ public static class BodyUseScorecard
                     - allocatedBefore);
             Keep(answer);
         }
+        return new(
+            Median(times),
+            Median(allocations));
+    }
+
+    static BodyUseScorecardStageAttribution MeasureStage(
+        BodyUseScorecardColumn column,
+        BodyUseScorecardClosing closing,
+        BodyUseScorecardAsset asset,
+        AnalysisLibraryBodyUseLimits? limits,
+        CancellationToken cancellationToken)
+    {
         var stageTiming = new AnalysisLibraryBodyUseStageTiming();
         Keep(
             RequireAvailable(
@@ -1226,13 +1261,10 @@ public static class BodyUseScorecard
                     cancellationToken,
                     stageTiming)));
         return new(
-            Median(times),
-            Median(allocations),
-            new(
-                Microseconds(stageTiming.InventoryTicks),
-                Microseconds(stageTiming.BodyAnalysisTicks),
-                Microseconds(stageTiming.TerminalFoldTicks),
-                Microseconds(stageTiming.RowsProjectionTicks)));
+            Microseconds(stageTiming.InventoryTicks),
+            Microseconds(stageTiming.BodyAnalysisTicks),
+            Microseconds(stageTiming.TerminalFoldTicks),
+            Microseconds(stageTiming.RowsProjectionTicks));
     }
 
     static double Microseconds(long stopwatchTicks) =>
@@ -1370,8 +1402,7 @@ public static class BodyUseScorecard
 
     readonly record struct Measurement(
         double Microseconds,
-        long AllocatedBytes,
-        BodyUseScorecardStageAttribution StageAttribution);
+        long AllocatedBytes);
 
     sealed class OracleContext(
         PEReader image,
