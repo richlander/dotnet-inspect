@@ -5,7 +5,7 @@
 # Usage: measure-find-scope-cost.sh <dotnet-inspect-binary> <work-dir> [warm-samples] [cold-samples]
 #
 # Set ONLY="scenario ..." to run a subset. Set
-# TERMINALS="markdown json jsonl tsv table count rows" to measure every
+# TERMINALS="markdown json jsonl tsv table count rows head" to measure every
 # supported Find output terminal; the default remains "tsv".
 # Scenarios (each with a direct hit, a miss that forces the census and
 # similarity path, a zero-result miss, and a member search):
@@ -18,6 +18,8 @@
 #   package-sets        --platform --extensions --aspnetcore: the platform
 #                       frameworks plus both shipped package sets
 #   package-named       --package Avalonia@12.1.3 --tfm net10.0
+#   package-compat      --package System.Text.Json@10.0.0 without --tfm,
+#                       exercising the compatibility inventory
 #   package-prefix      --package-prefix Avalonia --tfm net10.0
 #
 # Every scenario runs cold, then warm. Cold samples use a fresh HOME and
@@ -47,6 +49,7 @@ terminal_args() {
     table) printf '%s\0' --table ;;
     count) printf '%s\0' --count ;;
     rows) printf '%s\0' --tsv -n 3 ;;
+    head) printf '%s\0' --tsv -n 1 ;;
     *)
       printf 'Unknown terminal: %s\n' "$1" >&2
       return 1
@@ -79,7 +82,7 @@ with open(sys.argv[1], "wb") as o, open(sys.argv[2], "wb") as e:
     jsonl)
       rows=$(($(wc -l <"$out")))
       ;;
-    tsv|rows)
+    tsv|rows|head)
       rows=$(($(wc -l <"$out") > 0 ? $(wc -l <"$out") - 1 : 0))
       ;;
     count)
@@ -152,5 +155,7 @@ scenario package-sets "$installed_root" JsonSerializer JsonSerialiser .Parse \
   --platform --extensions --aspnetcore
 scenario package-named "$installed_root" Button Buton .Measure \
   --package "$avalonia" --tfm net10.0
+scenario package-compat "$installed_root" JsonSerializer JsonSerialiser .Parse \
+  --package System.Text.Json@10.0.0
 scenario package-prefix "$installed_root" Button Buton .Measure \
   --package-prefix Avalonia --tfm net10.0

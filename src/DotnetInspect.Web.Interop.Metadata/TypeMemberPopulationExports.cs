@@ -243,8 +243,17 @@ public static partial class MetadataExports
                     composition.This,
                     composition.Extension),
                 [
-                    .. population.Groups.Select(group => new
-                        BrowserTypeMemberPopulationGroup(
+                    .. population.Groups.Select(group =>
+                    {
+                        bool hasExactSelectors =
+                            population.Accessibility
+                                == MetadataMethodAccessibilityFilter.Public
+                            && group.Kind == "method"
+                            && group.Members.All(member =>
+                                member.MethodSemantics
+                                    is null
+                                    or ApiMethodSemanticsKind.None);
+                        return new BrowserTypeMemberPopulationGroup(
                             group.Key,
                             group.Name,
                             group.Kind,
@@ -256,14 +265,12 @@ public static partial class MetadataExports
                                             population.Subject,
                                             member)) with
                                     {
-                                        BaselineOrdinal =
-                                            population.Accessibility
-                                                == MetadataMethodAccessibilityFilter
-                                                    .Public
-                                                    ? index + 1
-                                                    : null,
+                                        BaselineOrdinal = hasExactSelectors
+                                            ? index + 1
+                                            : null,
                                     }),
-                            ])),
+                            ]);
+                    }),
                 ]),
             diagnostics);
     }

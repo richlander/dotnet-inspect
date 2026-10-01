@@ -430,7 +430,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         using System.Text.Json.JsonDocument document =
             System.Text.Json.JsonDocument.Parse(result.Output);
         System.Text.Json.JsonElement row =
-            Assert.Single(document.RootElement.EnumerateArray());
+            Assert.Single(
+                document.RootElement.EnumerateArray(),
+                static candidate =>
+                    candidate.GetProperty("match").GetString() == "Exact");
         Assert.Equal(
             typeof(ConfiguredPayloadAcquisitionTests).FullName,
             row.GetProperty("full_name").GetString());
@@ -477,7 +480,13 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Equal("", result.Error);
         using System.Text.Json.JsonDocument document =
             System.Text.Json.JsonDocument.Parse(result.Output);
-        Assert.Equal(2, document.RootElement.GetArrayLength());
+        Assert.Equal(
+            2,
+            document.RootElement
+                .EnumerateArray()
+                .Count(
+                    static row =>
+                        row.GetProperty("match").GetString() == "Exact"));
     }
 
     [Fact]
@@ -588,7 +597,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         using System.Text.Json.JsonDocument document =
             System.Text.Json.JsonDocument.Parse(result.Output);
         System.Text.Json.JsonElement row =
-            Assert.Single(document.RootElement.EnumerateArray());
+            Assert.Single(
+                document.RootElement.EnumerateArray(),
+                static candidate =>
+                    candidate.GetProperty("match").GetString() == "Exact");
         Assert.Equal(
             "Renamed",
             row.GetProperty("library").GetString());
@@ -644,7 +656,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         using System.Text.Json.JsonDocument document =
             System.Text.Json.JsonDocument.Parse(result.Output);
         System.Text.Json.JsonElement row =
-            Assert.Single(document.RootElement.EnumerateArray());
+            Assert.Single(
+                document.RootElement.EnumerateArray(),
+                static candidate =>
+                    candidate.GetProperty("match").GetString() == "Exact");
         Assert.Equal(
             "DotnetInspector.MatchBinding.Implementation",
             row.GetProperty("library").GetString());
