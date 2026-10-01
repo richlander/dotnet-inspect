@@ -83,9 +83,9 @@ public class CorpusSensorComparisonTests
         Assert.Equal(CorpusSensor.CurrentSchemaVersion, baseline.SchemaVersion);
         Assert.Equal(CorpusFidelityOracle.ReturnToSenderCutover, baseline.FidelityOracle);
         Assert.Equal(700, cutover.SelectedMethods);
-        Assert.Equal(44, cutover.ExactLossMethods);
-        Assert.Equal(45, cutover.AvailabilityLossMethods);
-        Assert.Equal(37, legacyExactNativeUncheckable);
+        Assert.Equal(50, cutover.ExactLossMethods);
+        Assert.Equal(48, cutover.AvailabilityLossMethods);
+        Assert.Equal(38, legacyExactNativeUncheckable);
         Assert.Equal(0, cutover.CompileBackFloorAppliedMethods);
     }
 
