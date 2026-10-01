@@ -74,7 +74,7 @@ public class LambdaRaisingPassTests
         string path = Path.Combine(
             AppContext.BaseDirectory,
             "RealAssets",
-            "PrimitiveJoin",
+            "PdbNestedLambda",
             "Microsoft.CodeAnalysis.dll");
         Assert.Equal(
             "10F489DB67B8AC7489E58D392166C928302BA5698506DD652311DA5D89F0A0F8",
