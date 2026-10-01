@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.DocumentationHouse;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
@@ -26,6 +27,8 @@ internal static class MemberGroupDocumentOutput
         MemberOptions options,
         ResolvedMemberInspectionPlan plan)
     {
+        bool returnedRowDocumentation =
+            RequestsReturnedRowDocumentation(options);
         if (type.DefinitionName is null
             || options.MemberFilter.Count != 1
             || options.OverloadIndex.HasValue
@@ -59,11 +62,11 @@ internal static class MemberGroupDocumentOutput
             || options.SourceParts
             || options.SourcePart is not null
             || options.ShowSamples
-            || options.DocsExplicitlySet && options.ShowDocs
             || options.ShareFormat is not null
             || options.EffectiveDiscovery
             || options.Fields is { Length: > 0 }
             || options.Columns is { Length: > 0 }
+                && !returnedRowDocumentation
             || plan.Selection.Catalog
                 != InspectionCatalogIdentity.ApiMemberOverload)
         {
@@ -112,16 +115,34 @@ internal static class MemberGroupDocumentOutput
                 MemberOverloadReceiverFilter.All,
                 includeHidden: false),
             s_bounds);
+        MemberDocumentationAttachmentRequest? documentation =
+            options.ShowDocs
+                && RequestsReturnedRowDocumentation(options)
+                ? new(DocumentationDemand.CompiledXml)
+                : null;
         InspectionEnvelope<MemberGroupDocumentInspectionOutcome>? inspection =
-            await ExactLibraryInspectionExecutor.ExecuteAsync<
-                InspectionEnvelope<MemberGroupDocumentInspectionOutcome>>(
-                assemblyPath,
-                "member group document",
-                session =>
-                    session.ExecuteMemberGroupDocument(
-                        plan,
-                        cancellationToken),
-                cancellationToken);
+            documentation is null
+                ? await ExactLibraryInspectionExecutor.ExecuteAsync<
+                    InspectionEnvelope<
+                        MemberGroupDocumentInspectionOutcome>>(
+                    assemblyPath,
+                    "member group document",
+                    session =>
+                        session.ExecuteMemberGroupDocument(
+                            plan,
+                            cancellationToken),
+                    cancellationToken)
+                : await ExactLibraryInspectionExecutor.ExecuteComposedAsync<
+                    InspectionEnvelope<
+                        MemberGroupDocumentInspectionOutcome>>(
+                    assemblyPath,
+                    "member group document",
+                    session =>
+                        session.ExecuteMemberGroupDocumentAsync(
+                            plan,
+                            documentation,
+                            cancellationToken),
+                    cancellationToken);
         if (inspection is null)
             return 1;
 
@@ -171,15 +192,45 @@ internal static class MemberGroupDocumentOutput
         var writer = new MarkoutWriter(
             Console.Out,
             new MarkdownFormatter());
-        writer.WriteTree(
-        [
-            .. rows.Items.Select(row =>
-                new TreeNode(
-                    CSharpIdentifier.ContainRenderedText(
-                        $"{row.Accessibility} "
-                            + ReceiverPrefix(row.Receiver)
-                            + row.DisplaySignature))),
-        ]);
+        if (document.ReturnedRowDocumentation.IsEmpty)
+        {
+            writer.WriteTree(
+            [
+                .. rows.Items.Select(row =>
+                    new TreeNode(
+                        CSharpIdentifier.ContainRenderedText(
+                            $"{row.Accessibility} "
+                                + ReceiverPrefix(row.Receiver)
+                                + row.DisplaySignature))),
+            ]);
+        }
+        else
+        {
+            IReadOnlyDictionary<int, MemberDocumentationAttachment>
+                attachmentsByOrdinal =
+                    document.ReturnedRowDocumentation.ToDictionary(
+                        static attachment =>
+                            attachment.Subject.BaselineOrdinal);
+            writer.WriteTable(
+                ["Signature", "Description"],
+                ["signature", "description"],
+                [
+                    .. rows.Items.Select(row =>
+                        new string[]
+                        {
+                            MarkoutInline.Code(
+                                CSharpIdentifier.ContainRenderedText(
+                                    $"{row.Accessibility} "
+                                        + ReceiverPrefix(row.Receiver)
+                                        + row.DisplaySignature)),
+                            MemberDocumentOutput
+                                .DescribeDocumentation(
+                                    attachmentsByOrdinal[
+                                        row.BaselineOrdinal]
+                                        .Outcome),
+                        }),
+                ]);
+        }
         return 0;
     }
 
@@ -193,7 +244,7 @@ internal static class MemberGroupDocumentOutput
                 $"Unknown member receiver '{receiver}'."),
         };
 
-    private static string? ResolveCanonicalMethodName(
+    internal static string? ResolveCanonicalMethodName(
         ApiType type,
         string requestedName)
     {
@@ -224,6 +275,16 @@ internal static class MemberGroupDocumentOutput
 
         return canonicalName;
     }
+
+    private static bool RequestsReturnedRowDocumentation(
+        MemberOptions options) =>
+        options.Columns is { Length: 2 } columns
+        && columns.Contains(
+            "Signature",
+            StringComparer.OrdinalIgnoreCase)
+        && columns.Contains(
+            "Description",
+            StringComparer.OrdinalIgnoreCase);
 
     private static string Describe(
         MemberGroupDocumentInspectionOutcome outcome) =>

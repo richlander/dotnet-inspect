@@ -1,9 +1,12 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.DocumentationHouse;
 using DotnetInspector.Fixtures;
+using DotnetInspector.Libraries;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using QuerySpace;
@@ -395,6 +398,444 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         Assert.Equal(
             Enumerable.Range(1, count.Value),
             rows.Items.Select(static row => row.BaselineOrdinal));
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealSerialize_MemberDocumentSelectsOneBoundExactDeclaration()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        MemberGroupDocument group =
+            Assert.IsType<MemberGroupDocumentInspectionOutcome.Available>(
+                    ExecuteDocument(library, "Serialize").Content)
+                .Document;
+        MemberOverloadShape expected =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    group.Overloads.Rows)
+                .Items[5];
+
+        MemberDocument ordinal =
+            Assert.IsType<MemberDocumentInspectionOutcome.Available>(
+                    ExecuteMemberDocument(
+                            library,
+                            "Serialize",
+                            new(baselineOrdinal: expected.BaselineOrdinal))
+                        .Content)
+                .Document;
+        MemberDocument fingerprint =
+            Assert.IsType<MemberDocumentInspectionOutcome.Available>(
+                    ExecuteMemberDocument(
+                            library,
+                            "Serialize",
+                            new(
+                                fingerprintPrefix:
+                                    expected.Fingerprint.ToString()))
+                        .Content)
+                .Document;
+
+        Assert.Equal(expected.MetadataToken, ordinal.Subject.MetadataToken);
+        Assert.Equal(
+            expected.BaselineOrdinal,
+            ordinal.Subject.BaselineOrdinal);
+        Assert.Equal(expected.Fingerprint, ordinal.Subject.Fingerprint);
+        Assert.Equal(expected.Binding, ordinal.Subject.Population);
+        Assert.Equal(expected.DisplaySignature, ordinal.DisplaySignature);
+        Assert.Equal(expected.CanonicalSignature, ordinal.CanonicalSignature);
+        Assert.Equal(ordinal, fingerprint);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealSerialize_MemberDocumentAttachesOneExactDocumentationOutcome()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        MemberOverloadShape expected =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    Assert.IsType<
+                            MemberGroupDocumentInspectionOutcome.Available>(
+                            ExecuteDocument(library, "Serialize").Content)
+                        .Document.Overloads.Rows)
+                .Items[5];
+        int calls = 0;
+
+        using LibraryOperationLease operation = library.IssueOperation();
+        InspectionEnvelope<MemberDocumentInspectionOutcome> inspection =
+            await MemberDocumentInspectionOperation.ExecuteAsync(
+                new(
+                    library.Reference,
+                    new(
+                        new(
+                            Name(
+                                "System.Text.Json",
+                                "JsonSerializer"),
+                            "Serialize"),
+                        new(
+                            baselineOrdinal:
+                                expected.BaselineOrdinal),
+                        s_bounds,
+                        documentation:
+                            new(DocumentationDemand.CompiledXml))),
+                operation,
+                (ids, demand, _) =>
+                {
+                    calls++;
+                    Assert.Equal(
+                        DocumentationDemand.CompiledXml,
+                        demand);
+                    string id = Assert.Single(ids);
+                    Assert.Equal(
+                        expected.DocumentationId.ToString(),
+                        id);
+                    DocumentationQueryOutcome outcome =
+                        new DocumentationQueryOutcome.RequestRejected(
+                            DocumentationSubject(expected.Binding, id),
+                            DocumentationQueryRequestRejectionReason
+                                .LeaseReferenceMismatch);
+                    IReadOnlyDictionary<
+                        string,
+                        DocumentationQueryOutcome> outcomes =
+                            new Dictionary<
+                                string,
+                                DocumentationQueryOutcome>
+                            {
+                                [id] = outcome,
+                            };
+                    return ValueTask.FromResult(outcomes);
+                },
+                TestContext.Current.CancellationToken);
+
+        MemberDocument document =
+            Assert.IsType<MemberDocumentInspectionOutcome.Available>(
+                    inspection.Content)
+                .Document;
+        MemberDocumentationAttachment attachment =
+            Assert.IsType<MemberDocumentationAttachment>(
+                document.Documentation);
+        Assert.Equal(1, calls);
+        Assert.Equal(document.Subject, attachment.Subject);
+        Assert.Equal(
+            expected.DocumentationId.ToString(),
+            attachment.Outcome.Subject.DocumentationId);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealSerialize_MemberGroupBatchesDocumentationForReturnedRowsOnly()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var plan = new MemberOverloadPopulationInspectionPlan(
+            new(
+                Name("System.Text.Json", "JsonSerializer"),
+                "Serialize"),
+            new(
+                new MemberOverloadCountRequest(),
+                new MemberOverloadRowsRequest(maximumRows: 2)),
+            s_bounds);
+        MemberOverloadRowsOutcome.Read expectedRows =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                Available(
+                        Execute(
+                            library,
+                            "Serialize",
+                            count: false,
+                            new(maximumRows: 2)))
+                    .Overloads.Rows);
+        MemberOverloadPopulationBinding expectedBinding =
+            expectedRows.Items[0].Binding;
+        var request = new MemberGroupDocumentInspectionRequest(
+            library.Reference,
+            plan,
+            new(DocumentationDemand.CompiledXml));
+        int calls = 0;
+
+        using LibraryOperationLease operation = library.IssueOperation();
+        InspectionEnvelope<MemberGroupDocumentInspectionOutcome> inspection =
+            await MemberGroupDocumentInspectionOperation.ExecuteAsync(
+                request,
+                operation,
+                (ids, demand, _) =>
+                {
+                    calls++;
+                    Assert.Equal(
+                        DocumentationDemand.CompiledXml,
+                        demand);
+                    Assert.Equal(2, ids.Count);
+                    IReadOnlyDictionary<
+                        string,
+                        DocumentationQueryOutcome> outcomes =
+                            ids.ToDictionary(
+                                static id => id,
+                                id =>
+                                    (DocumentationQueryOutcome)
+                                        new DocumentationQueryOutcome
+                                            .RequestRejected(
+                                                DocumentationSubject(
+                                                    expectedBinding,
+                                                    id),
+                                                DocumentationQueryRequestRejectionReason
+                                                    .LeaseReferenceMismatch),
+                                StringComparer.Ordinal);
+                    return ValueTask.FromResult(outcomes);
+                },
+                TestContext.Current.CancellationToken);
+
+        MemberGroupDocument document =
+            Assert.IsType<MemberGroupDocumentInspectionOutcome.Available>(
+                    inspection.Content)
+                .Document;
+        MemberOverloadRowsOutcome.Read rows =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                document.Overloads.Rows);
+        Assert.Equal(1, calls);
+        Assert.Equal(2, rows.Items.Length);
+        Assert.Equal(2, document.ReturnedRowDocumentation.Length);
+        Assert.Equal(
+            rows.Items.Select(
+                static row => row.DocumentationId.ToString()),
+            document.ReturnedRowDocumentation.Select(
+                static attachment =>
+                    attachment.Outcome.Subject.DocumentationId));
+        Assert.All(
+            document.ReturnedRowDocumentation,
+            attachment =>
+                Assert.Equal(
+                    document.Subject,
+                    attachment.Subject.Group));
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        CountOnlyMemberGroupCannotRequestRowDocumentation()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var plan = new MemberOverloadPopulationInspectionPlan(
+            new(Name("N", "C"), "M"),
+            new(new MemberOverloadCountRequest()),
+            s_bounds);
+
+        Assert.Throws<ArgumentException>(() =>
+            new MemberGroupDocumentInspectionRequest(
+                library.Reference,
+                plan,
+                new(DocumentationDemand.CompiledXml)));
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        MemberDocumentRejectsDocumentationForAnotherExactSubject()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        using LibraryOperationLease operation = library.IssueOperation();
+        InspectionEnvelope<MemberDocumentInspectionOutcome> inspection =
+            await MemberDocumentInspectionOperation.ExecuteAsync(
+                new(
+                    library.Reference,
+                    new(
+                        new(
+                            Name(
+                                "System.Text.Json",
+                                "JsonSerializer"),
+                            "Serialize"),
+                        new(baselineOrdinal: 1),
+                        s_bounds,
+                        documentation:
+                            new(DocumentationDemand.CompiledXml))),
+                operation,
+                (ids, _, _) =>
+                {
+                    string id = Assert.Single(ids);
+                    DocumentationQueryOutcome outcome =
+                        new DocumentationQueryOutcome.RequestRejected(
+                            new(
+                                new(
+                                    "Another.Assembly",
+                                    "1.0.0.0",
+                                    null,
+                                    null),
+                                id),
+                            DocumentationQueryRequestRejectionReason
+                                .LibraryReferenceMismatch);
+                    IReadOnlyDictionary<
+                        string,
+                        DocumentationQueryOutcome> outcomes =
+                            new Dictionary<
+                                string,
+                                DocumentationQueryOutcome>
+                            {
+                                [id] = outcome,
+                            };
+                    return ValueTask.FromResult(outcomes);
+                },
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            MemberDocumentInspectionFailure
+                .DocumentationSubjectMismatch,
+            Assert.IsType<MemberDocumentInspectionOutcome.Failed>(
+                    inspection.Content)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        MemberDocumentRejectsOutOfRangeAndAmbiguousSelectors()
+    {
+        byte[] content =
+            BuildMethodGroupImage(
+                "Selectors",
+                new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+                overloadCount: 20);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        MetadataTypeDefinitionName declaringType = Name("N", "C");
+        MemberOverloadPopulationContent population =
+            Available(
+                Execute(
+                    library,
+                    "M",
+                    count: false,
+                    new(maximumRows: 20),
+                    declaringType: declaringType));
+        ImmutableArray<MemberOverloadShape> rows =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    population.Overloads.Rows)
+                .Items;
+        string ambiguousPrefix =
+            Assert.Single(
+                    rows.GroupBy(
+                            static row =>
+                                row.Fingerprint.ToString()[..1],
+                            StringComparer.Ordinal)
+                        .Where(static group => group.Count() > 1)
+                        .Take(1))
+                .Key;
+
+        var outOfRange =
+            Assert.IsType<MemberDocumentInspectionOutcome.Rejected>(
+                ExecuteMemberDocument(
+                        library,
+                        "M",
+                        new(baselineOrdinal: 21),
+                        declaringType)
+                    .Content);
+        var ambiguous =
+            Assert.IsType<MemberDocumentInspectionOutcome.Rejected>(
+                ExecuteMemberDocument(
+                        library,
+                        "M",
+                        new(fingerprintPrefix: ambiguousPrefix),
+                        declaringType)
+                    .Content);
+
+        Assert.Equal(
+            MemberDocumentInspectionRejection.BaselineOrdinalOutOfRange,
+            outOfRange.Reason);
+        Assert.Equal(
+            MemberDocumentInspectionRejection.FingerprintAmbiguous,
+            ambiguous.Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        MemberDocumentOrdinalMaterializesOnlyThroughSelectedRow()
+    {
+        byte[] content =
+            BuildMethodGroupImage(
+                "Selectors",
+                new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+                overloadCount: 20);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        MetadataTypeDefinitionName declaringType = Name("N", "C");
+        MemberOverloadShape first =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    Available(
+                            Execute(
+                                library,
+                                "M",
+                                count: false,
+                                new(maximumRows: 1),
+                                declaringType: declaringType))
+                        .Overloads.Rows)
+                .Items[0];
+        ApiSurfaceExtractionBounds oneRowBounds =
+            Bounds(
+                first.DisplaySignature.Length
+                + first.CanonicalSignature.Length
+                + first.Fingerprint.Length
+                + first.Accessibility.Length);
+
+        MemberDocument exact =
+            Assert.IsType<MemberDocumentInspectionOutcome.Available>(
+                    ExecuteMemberDocument(
+                            library,
+                            "M",
+                            new(baselineOrdinal: 1),
+                            declaringType,
+                            oneRowBounds)
+                        .Content)
+                .Document;
+        var fingerprint =
+            Assert.IsType<MemberDocumentInspectionOutcome.Incomplete>(
+                ExecuteMemberDocument(
+                        library,
+                        "M",
+                        new(
+                            fingerprintPrefix:
+                                first.Fingerprint.ToString()),
+                        declaringType,
+                        oneRowBounds)
+                    .Content);
+
+        Assert.Equal(first.MetadataToken, exact.Subject.MetadataToken);
+        Assert.Equal(
+            MemberOverloadPopulationBound.RetainedTextCharacters,
+            fingerprint.Bound);
 
         await library.RetireAsync();
     }
@@ -1334,6 +1775,28 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             library.IssueOperation(),
             TestContext.Current.CancellationToken);
 
+    private static InspectionEnvelope<
+        MemberDocumentInspectionOutcome> ExecuteMemberDocument(
+            LibraryInspectionTestLibrary library,
+            string methodName,
+            MemberDocumentSelector selector,
+            MetadataTypeDefinitionName? declaringType = null,
+            ApiSurfaceExtractionBounds? bounds = null) =>
+        MemberDocumentInspectionOperation.Execute(
+            new(
+                library.Reference,
+                new(
+                    new(
+                        declaringType
+                            ?? Name(
+                                "System.Text.Json",
+                                "JsonSerializer"),
+                        methodName),
+                    selector,
+                    bounds ?? s_bounds)),
+            library.IssueOperation(),
+            TestContext.Current.CancellationToken);
+
     private static MemberOverloadPopulationContent Available(
         InspectionEnvelope<
             MemberOverloadPopulationInspectionOutcome> envelope) =>
@@ -1350,6 +1813,17 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                     @namespace,
                     [.. segments]))
             .Name;
+
+    private static CompiledDocumentationSubject DocumentationSubject(
+        MemberOverloadPopulationBinding binding,
+        string documentationId) =>
+        new(
+            new(
+                binding.Assembly.Name.ToString(),
+                binding.Assembly.Version.ToString(),
+                binding.Assembly.Culture?.ToString(),
+                binding.Assembly.PublicKeyToken?.ToString()),
+            documentationId);
 
     private static ApiSurfaceExtractionBounds Bounds(
         int maximumRetainedTextCharacters) =>

@@ -84,6 +84,12 @@ test("history restores type filters independently of Member browse scope", () =>
   assert.equal(restored.memberAccessibilityFilter, "protected");
   assert.equal(restored.memberTraitFilter, "isStatic");
   assert.equal(restored.memberTextFilter, "build");
+
+  const defaults = restoreMemberHistoryState({
+    memberBrowseTypeId: "",
+    selectedMemberKey: "",
+  }, type, null);
+  assert.equal(defaults.memberAccessibilityFilter, "public");
 });
 
 test("history rejects a missing member and stale overload body", () => {

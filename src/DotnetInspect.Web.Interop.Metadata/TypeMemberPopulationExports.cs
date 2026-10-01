@@ -243,19 +243,34 @@ public static partial class MetadataExports
                     composition.This,
                     composition.Extension),
                 [
-                    .. population.Groups.Select(group => new
-                        BrowserTypeMemberPopulationGroup(
+                    .. population.Groups.Select(group =>
+                    {
+                        bool hasExactSelectors =
+                            population.Accessibility
+                                == MetadataMethodAccessibilityFilter.Public
+                            && group.Kind == "method"
+                            && group.Members.All(member =>
+                                member.MethodSemantics
+                                    is null
+                                    or ApiMethodSemanticsKind.None);
+                        return new BrowserTypeMemberPopulationGroup(
                             group.Key,
                             group.Name,
                             group.Kind,
                             group.CompleteCount,
                             [
-                                .. group.Members.Select(member =>
+                                .. group.Members.Select((member, index) =>
                                     BrowserMetadataWireProjection.Project(
                                         BrowserSurfaceProjection.Member(
                                             population.Subject,
-                                            member))),
-                            ])),
+                                            member)) with
+                                    {
+                                        BaselineOrdinal = hasExactSelectors
+                                            ? index + 1
+                                            : null,
+                                    }),
+                            ]);
+                    }),
                 ]),
             diagnostics);
     }
@@ -283,12 +298,13 @@ public static partial class MetadataExports
         string accessibility) =>
         accessibility.Trim().ToLowerInvariant() switch
         {
+            "all" => MetadataMethodAccessibilityFilter.All,
             "public" => MetadataMethodAccessibilityFilter.Public,
             "protected" => MetadataMethodAccessibilityFilter.Protected,
             "internal" => MetadataMethodAccessibilityFilter.Internal,
             "private" => MetadataMethodAccessibilityFilter.Private,
             _ => throw new ArgumentException(
-                "Accessibility must be public, protected, internal, or private.",
+                "Accessibility must be all, public, protected, internal, or private.",
                 nameof(accessibility)),
         };
 

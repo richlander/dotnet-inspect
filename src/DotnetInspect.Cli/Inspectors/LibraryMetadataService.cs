@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Models;
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using DotnetInspect.Cli.Inspectors;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -14,6 +15,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using Inspector.Findings;
+using Inspector.Artifacts;
 using AssemblyReference = ILInspector.Metadata.AssemblyReference;
 using Analysis = ILInspector.Analysis;
 using MetadataResource = ILInspector.Metadata.ManifestResourceInfo;
@@ -64,6 +66,17 @@ internal static class LibraryMetadataService
                 queryPlan is null
                     ? queries
                     : queryPlan.Queries;
+            if (requiredQueries?.Contains(
+                    LibraryNameFamilyQuery.Definition) == true
+                && assemblyReference is
+                {
+                    Registration.ArtifactRegistration: null,
+                })
+            {
+                assemblyReference = CreateArtifactBackedReference(
+                    path,
+                    assemblyReference);
+            }
             if (requiredQueries is not null)
                 trace?.RecordQueryClosure(requiredQueries);
             var bodyAnalysisFeatures =
@@ -185,6 +198,10 @@ internal static class LibraryMetadataService
                         Trace = trace,
                         RequestedQueries = requiredQueries,
                         CountOnly = options.Count,
+                        NameFamilyPopulation =
+                            options.NameFamilyPopulation,
+                        NameFamilyRowSelection =
+                            options.NameFamilyRowSelection,
                     };
                     await RunTypedQueriesAsync(
                         path,
@@ -327,6 +344,10 @@ internal static class LibraryMetadataService
                     Trace = trace,
                     RequestedQueries = requiredQueries,
                     CountOnly = options.Count,
+                    NameFamilyPopulation =
+                        options.NameFamilyPopulation,
+                    NameFamilyRowSelection =
+                        options.NameFamilyRowSelection,
                 };
 
                 await RunTypedQueriesAsync(
@@ -569,6 +590,63 @@ internal static class LibraryMetadataService
     /// PDB acquisition, SourceLink detection, and builder inference.
     /// </summary>
     /// <param name="skipPdbDownload">Skip downloading PDB from symbol servers (for quiet/minimal verbosity).</param>
+    private static ResolvedAssemblyReference
+        CreateArtifactBackedReference(
+            string path,
+            ResolvedAssemblyReference original)
+    {
+        string fullPath = Path.GetFullPath(path);
+        byte[] bytes = File.ReadAllBytes(fullPath);
+        ImmutableArray<byte> snapshot =
+            ImmutableCollectionsMarshal.AsImmutableArray(bytes);
+        var authority = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization authorization =
+            authority.CreateAdmissionAuthorization();
+        ArtifactAcquisitionRegistration registration;
+        using (ArtifactContributionScope scope =
+            authority.BeginContribution(authorization))
+        {
+            var provenance = new LibraryArtifactSnapshotProvenance(
+                fullPath,
+                snapshot.Length,
+                File.GetLastWriteTimeUtc(fullPath));
+            ArtifactContribution contribution = scope.Register(
+                provenance,
+                _ => OpenSnapshot(snapshot),
+                kind: "library-local-snapshot");
+            registration = contribution.Registration;
+            _ = authority.CreateRetainedContent(
+                registration,
+                snapshot);
+        }
+        authority.CompleteAdmission(authorization);
+
+        return ResolvedAssemblyReference
+                .CreateFromArtifactPathIfManaged(
+                    registration,
+                    fullPath,
+                    () => OpenSnapshot(snapshot),
+                    original.Provenance,
+                    original.LastWriteTimeUtc)
+            ?? throw new BadImageFormatException(
+                "The selected Library snapshot has no managed metadata.");
+    }
+
+    private static MemoryStream OpenSnapshot(
+        ImmutableArray<byte> snapshot) =>
+        new(
+            ImmutableCollectionsMarshal.AsArray(snapshot)!,
+            index: 0,
+            count: snapshot.Length,
+            writable: false,
+            publiclyVisible: false);
+
+    private sealed record LibraryArtifactSnapshotProvenance(
+        string FullPath,
+        int ContentLength,
+        DateTime ObservedLastWriteTimeUtc)
+        : IArtifactProvenance;
+
     public static async Task AuditAsync(
         SourceLinkService service,
         LibraryInspection inspection,
@@ -1691,11 +1769,11 @@ internal static class LibraryMetadataService
             ReferenceTreePathComparer(OperatingSystem.IsWindows());
 
         public static AssemblyReferenceTraversalKeyComparer BindingIdentity
-            { get; } = new(preserveReferenceNameSpelling: false);
+        { get; } = new(preserveReferenceNameSpelling: false);
 
         public static AssemblyReferenceTraversalKeyComparer
             PreserveReferenceNameSpelling
-            { get; } = new(preserveReferenceNameSpelling: true);
+        { get; } = new(preserveReferenceNameSpelling: true);
 
         private readonly bool _preserveReferenceNameSpelling;
 
@@ -2328,6 +2406,17 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                LibraryNameFamilyQuery.Definition,
+                out LibraryNameFamilyQueryResult? nameFamilies))
+        {
+            ApplyLibraryNameFamilyResult(
+                path,
+                inspection,
+                logger,
+                nameFamilies);
+        }
+
+        if (results.TryGet(
                 OptimizationOpportunitiesQuery.Definition,
                 out OptimizationOpportunitiesResult? optimizationOpportunities))
         {
@@ -2624,6 +2713,35 @@ internal static class LibraryMetadataService
                 throw new InvalidOperationException(
                     "Unknown library metrics result "
                     + $"'{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyLibraryNameFamilyResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        LibraryNameFamilyQueryResult result)
+    {
+        inspection.NameFamilyQueryResult = result;
+
+        switch (result)
+        {
+            case LibraryNameFamilyQueryResult.Available:
+            case LibraryNameFamilyQueryResult.Unavailable:
+            case LibraryNameFamilyQueryResult.Rejected:
+            case LibraryNameFamilyQueryResult.SelectionFailed:
+                break;
+
+            case LibraryNameFamilyQueryResult.Failed failed:
+                logger.LogWarning(
+                    $"Error collecting Library name families in {path}: "
+                        + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown Library name-family result "
+                        + $"'{result.GetType().Name}'.");
         }
     }
 
@@ -3032,6 +3150,12 @@ internal static class LibraryMetadataService
                 inspection.UnsafeEvidencePresent =
                     available.HasEvidence;
                 inspection.UnsafeEvidencePresenceError = null;
+                break;
+
+            case UnsafeEvidencePresenceResult.ExecutionIncomplete incomplete:
+                inspection.UnsafeEvidencePresent = null;
+                inspection.UnsafeEvidencePresenceError =
+                    incomplete.Error;
                 break;
 
             case UnsafeEvidencePresenceResult.Failed failed:

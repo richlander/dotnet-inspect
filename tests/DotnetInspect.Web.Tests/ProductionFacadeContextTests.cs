@@ -107,8 +107,10 @@ public sealed class ProductionFacadeContextTests
             "QueryGraphMemberSurface",
             "QueryLibraryApiDiff",
             "QueryMemberDeclaration",
+            "QueryMemberDocument",
             "QueryMemberGroupDocument",
             "QueryPlatformMemberDeclaration",
+            "QueryPlatformMemberDocument",
             "QueryPlatformMemberGroupDocument",
             "QueryPlatformTypeMemberPopulation",
             "QueryPackageHeapEntries",
@@ -119,6 +121,7 @@ public sealed class ProductionFacadeContextTests
             "QueryPlatformMetadataTable",
             "QueryTypeMemberPopulation",
             "QueryTypeProjection",
+            "QueryUploadedLibraryMemberDocument",
             "QueryUploadedLibraryMemberGroupDocument",
             "QueryUploadedLibraryTypeMemberPopulation",
         ],
@@ -129,12 +132,16 @@ public sealed class ProductionFacadeContextTests
             "QueryPackageImplementationProfiles",
             "QueryPackageIntegrations",
             "QueryPackageLibraryMetrics",
+            "QueryPackageLibraryNamespaceLeverage",
+            "QueryPackageNamespaceTypeLeverage",
             "QueryPackageOpportunities",
             "QueryPackagePerformance",
             "QueryPackageTypeImplementationHeat",
             "QueryPlatformImplementationProfiles",
             "QueryPlatformIntegrations",
             "QueryPlatformLibraryMetrics",
+            "QueryPlatformLibraryNamespaceLeverage",
+            "QueryPlatformNamespaceTypeLeverage",
             "QueryPlatformOpportunities",
             "QueryPlatformPerformance",
             "QueryPlatformTypeImplementationHeat",
@@ -184,6 +191,7 @@ public sealed class ProductionFacadeContextTests
             "DecodeWorkspaceShareState",
             "DescribeWorkspacePackageSources",
             "EncodeWorkspaceShareState",
+            "ListEcosystems",
             "ListHomeDemos",
             "InspectVocabulary",
             "ObserveRetainedWorkspaceSettlement",
@@ -241,7 +249,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(123, everyExport.Length);
+        Assert.Equal(131, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

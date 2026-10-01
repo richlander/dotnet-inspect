@@ -10,12 +10,16 @@ namespace ILInspector.Analysis.Planning;
 /// a work description's passes over type definitions in metadata order and
 /// each type's methods in order, stops a producer when its Exists terminal is
 /// settled, contains a failing producer to itself and its dependents, and
-/// records participation. It stands in for level 2 until #8577.
+/// records participation. Method Query Source delegates all-definition and
+/// sparse producer work to it while source planning, binding, and receipts
+/// remain owned above this executor.
 /// </summary>
 public sealed class MethodDefinitionExecution
 {
     readonly WorkDescription _description;
     readonly ProducerState[] _states;
+    readonly MethodDefinitionSourceBreadth _breadth;
+    readonly MethodDefinitionSourceCoverageBuilder _sourceCoverage;
     CriticalFailure? _critical;
 
     /// <summary>
@@ -24,13 +28,28 @@ public sealed class MethodDefinitionExecution
     /// </summary>
     internal int PassUnitsVisited;
 
-    MethodDefinitionExecution(WorkDescription description)
+    MethodDefinitionExecution(
+        WorkDescription description,
+        MethodDefinitionSourceBreadth breadth,
+        bool tracksSourceCoverage)
     {
         _description = description;
+        _breadth = breadth;
+        _sourceCoverage =
+            new MethodDefinitionSourceCoverageBuilder(tracksSourceCoverage);
         _states = new ProducerState[description.Producers.Length];
     }
 
     public WorkReceipt Receipt { get; private set; } = new(0, []);
+
+    internal MethodDefinitionSourceCoverage SourceCoverage { get; private set; } =
+        new(
+            MethodDefinitionHandleCoverage.Empty,
+            MethodDefinitionHandleCoverage.Empty,
+            MethodDefinitionHandleCoverage.Empty);
+
+    internal MethodDefinitionSourceCoverageBuilder SourceCoverageBuilder =>
+        _sourceCoverage;
 
     /// <summary>
     /// Executes <paramref name="description"/> over the module in
@@ -40,13 +59,42 @@ public sealed class MethodDefinitionExecution
     public static MethodDefinitionExecution Execute(
         WorkDescription description,
         string sourceName,
-        PEReader peReader)
+        PEReader peReader) =>
+        Execute(
+            description,
+            sourceName,
+            peReader,
+            MethodDefinitionSourceBreadth.AllDefinitions,
+            tracksSourceCoverage: false);
+
+    internal static MethodDefinitionExecution Execute(
+        WorkDescription description,
+        string sourceName,
+        PEReader peReader,
+        MethodDefinitionSourceBreadth breadth)
+        => Execute(
+            description,
+            sourceName,
+            peReader,
+            breadth,
+            tracksSourceCoverage: true);
+
+    static MethodDefinitionExecution Execute(
+        WorkDescription description,
+        string sourceName,
+        PEReader peReader,
+        MethodDefinitionSourceBreadth breadth,
+        bool tracksSourceCoverage)
     {
         ArgumentNullException.ThrowIfNull(description);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
         ArgumentNullException.ThrowIfNull(peReader);
+        ArgumentNullException.ThrowIfNull(breadth);
 
-        var execution = new MethodDefinitionExecution(description);
+        var execution = new MethodDefinitionExecution(
+            description,
+            breadth,
+            tracksSourceCoverage);
         ImmutableArray<ProducerDeclaration> producers = description.Producers;
         for (int i = 0; i < producers.Length; i++)
         {
@@ -60,6 +108,7 @@ public sealed class MethodDefinitionExecution
             execution._states[i] = declaration.CreateState(
                 execution,
                 description.TerminalByIndex[i],
+                description.RowLimitAtIndex(i),
                 description.DependencyIndices[i],
                 description.FactRetention[i]);
         }
@@ -82,6 +131,11 @@ public sealed class MethodDefinitionExecution
         }
 
         MetadataReader reader = peReader.GetMetadataReader();
+        if (breadth.IsEmpty)
+        {
+            execution.CompleteWithoutUnits();
+            return execution;
+        }
 
         // The gate is part of the source. Its identity budget is armed only
         // when the plan declares identity text, so a plan of counts and
@@ -127,6 +181,8 @@ public sealed class MethodDefinitionExecution
                 // needs stays interpreted.
                 int passUnits;
                 if (visiting.Length != 1
+                    || breadth.Kind
+                        != MethodDefinitionSourceBreadthKind.AllDefinitions
                     || visiting[0].HasDependencies
                     || visiting[0].RetainsFacts
                     || !visiting[0].TryRunKernel(
@@ -160,11 +216,13 @@ public sealed class MethodDefinitionExecution
             execution.Receipt = execution.CreateReceipt(
                 Math.Max(unitsVisited, execution.PassUnitsVisited),
                 gate);
+            execution.PublishSourceCoverage();
             return execution;
         }
 
         execution.PropagateFailures();
         execution.Receipt = execution.CreateReceipt(unitsVisited, gate);
+        execution.PublishSourceCoverage();
         return execution;
     }
 
@@ -311,99 +369,257 @@ public sealed class MethodDefinitionExecution
         MethodRowGate gate,
         ProducerState[] visiting)
     {
-        var unit = new MethodDefinitionUnit(reader, peReader, lookup, gate);
+        var unit = new MethodDefinitionUnit(
+            reader,
+            peReader,
+            lookup,
+            gate,
+            _sourceCoverage);
         int visited = 0;
-        foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
+        switch (_breadth.Kind)
         {
-            TypeDefinition typeDefinition =
-                reader.GetTypeDefinition(typeHandle);
-
-            // Type scope: a producer's guards' type scopes, then its own
-            // type predicate, in visit order so guards are decided first. A
-            // type a guard excludes is not tested, so it cannot fail the
-            // producer. When no active producer has the type in scope, its
-            // methods are skipped as a whole; when no producer remains
-            // active, the pass stops before the next untrusted read.
-            bool anyInScope = false;
-            bool anyActiveProducer = false;
-            foreach (ProducerState state in visiting)
-            {
-                // A prerequisite that failed on an earlier producer's type
-                // predicate fails this producer before its own is asked.
-                if (state.HasDependencies)
-                    FailIfPrerequisiteFailed(state);
-                if (!state.IsActive)
-                    continue;
-                bool inScope = true;
-                foreach (ProducerState guard in state.GuardStates)
-                    inScope &= guard.TypeInScopeNow;
-                if (inScope && state.SourceGate is { } sourceGate)
-                    inScope = GateTypeInScope(state, gate, sourceGate, typeHandle, typeDefinition);
-                if (inScope)
-                    inScope = TypeInScope(state, reader, typeHandle, typeDefinition);
-                state.TypeInScopeNow = inScope;
-                anyInScope |= inScope && state.IsActive;
-                anyActiveProducer |= state.IsActive;
-            }
-
-            if (!anyActiveProducer)
-                return visited;
-            if (!anyInScope)
-                continue;
-
-            foreach (MethodDefinitionHandle methodHandle
-                     in typeDefinition.GetMethods())
-            {
-                unit.MoveTo(typeHandle, typeDefinition, methodHandle);
-                visited++;
-                PassUnitsVisited = visited;
-                int unitToken = MetadataTokens.GetToken(methodHandle);
-                bool anyActive = false;
-                foreach (ProducerState state in visiting)
+            case MethodDefinitionSourceBreadthKind.AllDefinitions:
+                foreach (TypeDefinitionHandle typeHandle
+                    in reader.TypeDefinitions)
                 {
-                    // Only a producer with dependencies can gain a failed
-                    // prerequisite between units; the plan says which do.
-                    if (state.HasDependencies)
-                        FailIfPrerequisiteFailed(state);
-                    if (!state.IsActive)
-                        continue;
-
-                    // A unit outside the producer's type scope or a declared
-                    // scope guard is not visited.
-                    if (!state.TypeInScopeNow
-                        || (state.GuardStates.Length != 0 && !InScope(state, unitToken)))
+                    TypeDefinition typeDefinition =
+                        reader.GetTypeDefinition(typeHandle);
+                    if (!VisitType(
+                            reader,
+                            gate,
+                            visiting,
+                            ref unit,
+                            typeHandle,
+                            typeDefinition,
+                            ref visited))
                     {
-                        anyActive = true;
-                        continue;
+                        return visited;
                     }
-
-                    if (state.SourceGate is { } sourceGate)
-                    {
-                        bool? accepted = GateAccepts(ref unit, state, sourceGate);
-                        if (accepted is null)
-                            continue;
-                        if (!accepted.Value)
-                        {
-                            anyActive = true;
-                            continue;
-                        }
-                    }
-
-                    VisitUnit(ref unit, state);
-                    anyActive |= state.IsActive;
                 }
-
-                // Stop before advancing either enumerator: the next read is
-                // untrusted metadata that could throw and replace an answer
-                // or diagnostic that is already settled. A visit changes only
-                // its own producer's state, so the loop above sees every
-                // producer's final activity for this unit.
-                if (!anyActive)
-                    return visited;
-            }
+                break;
+            case MethodDefinitionSourceBreadthKind.ExactTypes:
+                foreach (TypeDefinitionHandle typeHandle
+                    in _breadth.Types)
+                {
+                    TypeDefinition typeDefinition =
+                        reader.GetTypeDefinition(typeHandle);
+                    if (!VisitType(
+                            reader,
+                            gate,
+                            visiting,
+                            ref unit,
+                            typeHandle,
+                            typeDefinition,
+                            ref visited))
+                    {
+                        return visited;
+                    }
+                }
+                break;
+            case MethodDefinitionSourceBreadthKind.ExactMethods:
+                VisitExactMethods(
+                    reader,
+                    gate,
+                    visiting,
+                    ref unit,
+                    ref visited);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(_breadth));
         }
 
         return visited;
+    }
+
+    void VisitExactMethods(
+        MetadataReader reader,
+        MethodRowGate gate,
+        ProducerState[] visiting,
+        ref MethodDefinitionUnit unit,
+        ref int visited)
+    {
+        TypeDefinitionHandle currentTypeHandle = default;
+        TypeDefinition currentTypeDefinition = default;
+        bool anyInScope = false;
+        foreach (MethodDefinitionHandle methodHandle in _breadth.Methods)
+        {
+            if (!AnyActive(visiting))
+                return;
+
+            _sourceCoverage.RecordDefinitionExamined(methodHandle);
+            MethodDefinition methodDefinition =
+                reader.GetMethodDefinition(methodHandle);
+            TypeDefinitionHandle typeHandle =
+                methodDefinition.GetDeclaringType();
+            if (typeHandle != currentTypeHandle)
+            {
+                currentTypeHandle = typeHandle;
+                currentTypeDefinition =
+                    reader.GetTypeDefinition(typeHandle);
+                if (!PrepareType(
+                        reader,
+                        gate,
+                        visiting,
+                        typeHandle,
+                        currentTypeDefinition,
+                        out anyInScope))
+                {
+                    return;
+                }
+            }
+
+            if (!anyInScope)
+                continue;
+
+            unit.MoveToPreviouslyRead(
+                typeHandle,
+                currentTypeDefinition,
+                methodHandle,
+                methodDefinition);
+            visited++;
+            PassUnitsVisited = visited;
+            if (!VisitPreparedUnit(visiting, ref unit, methodHandle))
+                return;
+        }
+    }
+
+    bool VisitType(
+        MetadataReader reader,
+        MethodRowGate gate,
+        ProducerState[] visiting,
+        ref MethodDefinitionUnit unit,
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition,
+        ref int visited)
+    {
+        if (!PrepareType(
+                reader,
+                gate,
+                visiting,
+                typeHandle,
+                typeDefinition,
+                out bool anyInScope))
+        {
+            return false;
+        }
+
+        if (!anyInScope)
+            return true;
+
+        foreach (MethodDefinitionHandle methodHandle
+            in typeDefinition.GetMethods())
+        {
+            unit.MoveTo(typeHandle, typeDefinition, methodHandle);
+            visited++;
+            PassUnitsVisited = visited;
+            if (!VisitPreparedUnit(visiting, ref unit, methodHandle))
+                return false;
+        }
+
+        return true;
+    }
+
+    bool PrepareType(
+        MetadataReader reader,
+        MethodRowGate gate,
+        ProducerState[] visiting,
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition,
+        out bool anyInScope)
+    {
+        // Type scope: guards, then the producer's own predicate, in visit
+        // order. Excluded types never cause their MethodDefs to be read.
+        anyInScope = false;
+        bool anyActiveProducer = false;
+        foreach (ProducerState state in visiting)
+        {
+            if (state.HasDependencies)
+                FailIfPrerequisiteFailed(state);
+            if (!state.IsActive)
+                continue;
+
+            bool inScope = true;
+            foreach (ProducerState guard in state.GuardStates)
+                inScope &= guard.TypeInScopeNow;
+            if (inScope && state.SourceGate is { } sourceGate)
+            {
+                inScope = GateTypeInScope(
+                    state,
+                    gate,
+                    sourceGate,
+                    typeHandle,
+                    typeDefinition);
+            }
+            if (inScope)
+            {
+                inScope = TypeInScope(
+                    state,
+                    reader,
+                    typeHandle,
+                    typeDefinition);
+            }
+
+            state.TypeInScopeNow = inScope;
+            anyInScope |= inScope && state.IsActive;
+            anyActiveProducer |= state.IsActive;
+        }
+
+        return anyActiveProducer;
+    }
+
+    bool VisitPreparedUnit(
+        ProducerState[] visiting,
+        ref MethodDefinitionUnit unit,
+        MethodDefinitionHandle methodHandle)
+    {
+        int unitToken = MetadataTokens.GetToken(methodHandle);
+        bool anyActive = false;
+        foreach (ProducerState state in visiting)
+        {
+            // Only a producer with dependencies can gain a failed
+            // prerequisite between units; the plan says which do.
+            if (state.HasDependencies)
+                FailIfPrerequisiteFailed(state);
+            if (!state.IsActive)
+                continue;
+
+            if (!state.TypeInScopeNow
+                || (state.GuardStates.Length != 0
+                    && !InScope(state, unitToken)))
+            {
+                anyActive = true;
+                continue;
+            }
+
+            if (state.SourceGate is { } sourceGate)
+            {
+                bool? accepted =
+                    GateAccepts(ref unit, state, sourceGate);
+                if (accepted is null)
+                    continue;
+                if (!accepted.Value)
+                {
+                    anyActive = true;
+                    continue;
+                }
+            }
+
+            VisitUnit(ref unit, state);
+            anyActive |= state.IsActive;
+        }
+
+        return anyActive;
+    }
+
+    static bool AnyActive(ProducerState[] visiting)
+    {
+        foreach (ProducerState state in visiting)
+        {
+            if (state.IsActive)
+                return true;
+        }
+
+        return false;
     }
 
     static bool TypeInScope(
@@ -533,7 +749,13 @@ public sealed class MethodDefinitionExecution
         }
 
         state.UnitsCompleted++;
-        if (settled && state.Terminal == ProducerTerminal.Exists)
+        if (!settled)
+            return;
+
+        state.SettlingFacts++;
+        if (state.Terminal == ProducerTerminal.Exists
+            || state.RowLimit is int rowLimit
+                && state.SettlingFacts >= rowLimit)
         {
             state.Outcome = ProducerOutcome.Stopped;
             state.IsActive = false;
@@ -640,7 +862,11 @@ public sealed class MethodDefinitionExecution
             CompleteProducer(_states[completion]);
         PropagateFailures();
         Receipt = CreateReceipt(0, gate: null);
+        PublishSourceCoverage();
     }
+
+    void PublishSourceCoverage() =>
+        SourceCoverage = _sourceCoverage.Build();
 
     /// <summary>How many times the execution's gate looked up a classifier's cache.</summary>
     internal int GateCacheLookups { get; private set; }
@@ -697,6 +923,7 @@ public sealed class MethodDefinitionExecution
         ProducerDeclaration producer,
         MethodDefinitionLayers layers,
         ProducerTerminal terminal,
+        int? rowLimit,
         ImmutableArray<int> dependencies)
     {
         public MethodDefinitionExecution Execution => execution;
@@ -704,6 +931,10 @@ public sealed class MethodDefinitionExecution
         public ProducerDeclaration Producer => producer;
 
         public ProducerTerminal Terminal => terminal;
+
+        public int? RowLimit => rowLimit;
+
+        public int SettlingFacts { get; set; }
 
         public abstract bool ClassifiesUnits { get; }
 
@@ -829,8 +1060,15 @@ public sealed class MethodDefinitionExecution
         ProducerDeclaration producer,
         MethodDefinitionLayers layers,
         ProducerTerminal terminal,
+        int? rowLimit,
         ImmutableArray<int> dependencies)
-        : ProducerState(execution, producer, layers, terminal, dependencies)
+        : ProducerState(
+            execution,
+            producer,
+            layers,
+            terminal,
+            rowLimit,
+            dependencies)
     {
         public TResult? Result { get; private set; }
 

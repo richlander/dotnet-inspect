@@ -6,6 +6,7 @@ using System.Text.Json;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using InertText;
 using Inspector.Findings;
@@ -67,12 +68,17 @@ public sealed class BrowserLibraryApiDiffOperationTests
             string compileAssetId =
                 coordinate.CompileAsset("Microsoft.Azure.SignalR.dll").Id;
             var request = new BrowserLibraryApiDiffRequest(
-                1,
+                BrowserLibraryApiDiffSchema.Version,
                 packageId,
                 version,
                 version,
                 framework,
-                compileAssetId);
+                compileAssetId,
+                BrowserDiffAnalysisSurface.Library,
+                ["api"],
+                BrowserDiffAnalysisViews.Changes,
+                [],
+                []);
             string requestJson = JsonSerializer.Serialize(
                 request,
                 BrowserMetadataJsonContext.Default
@@ -110,7 +116,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         BrowserLibraryApiDiffResult result =
             await fixture.Query(fixture.Request());
 
-        Assert.Equal(1, result.SchemaVersion);
+        Assert.Equal(BrowserLibraryApiDiffSchema.Version, result.SchemaVersion);
         Assert.Equal(
             BrowserLibraryApiDiffResultKind.Succeeded,
             result.Kind);
@@ -276,12 +282,214 @@ public sealed class BrowserLibraryApiDiffOperationTests
             Assert.NotEmpty(match.Tier);
             Assert.InRange(match.Confidence, 1, 99);
         }
+
         Assert.NotEmpty(receiverMoved.After.StableSelector);
         Assert.NotEmpty(receiverMoved.After.CanonicalSignature);
         Assert.Equal(10, receiverMoved.After.Fingerprint.Length);
         Assert.Equal(
             new BrowserLibraryApiDiffAggregate(8, 1, 1, 10, 5, 3, 0),
             value.Aggregate);
+    }
+
+    [Fact]
+    public async Task MemberUiSelectionCombinesApiWithTypedBodyUnavailability()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffResult library =
+            await fixture.Query(fixture.Request());
+        BrowserLibraryApiDiffSucceeded libraryValue =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(library.Value);
+        BrowserLibraryApiDiffType changedType = Assert.Single(
+            libraryValue.Types,
+            type => type.Display
+                == "LibraryApiDiffFixture.ProjectionReceiver");
+        BrowserLibraryApiDiffMember changedMember = Assert.Single(
+            changedType.Members,
+            member => member.Role
+                == BrowserLibraryApiDiffMemberRelationRole.After);
+        BrowserLibraryApiDiffMemberIdentity selectedMember =
+            changedMember.After ?? changedMember.Before!;
+        BrowserLibraryApiDiffRequest request = fixture.Request() with
+        {
+            Surface = BrowserDiffAnalysisSurface.Member,
+            Analyses =
+            [
+                "api",
+                "allocation",
+                "call-site",
+                "unsafety",
+                "csharp",
+                "il",
+            ],
+            Views =
+                BrowserDiffAnalysisViews.Changes
+                | BrowserDiffAnalysisViews.Summary
+                | BrowserDiffAnalysisViews.Transitions,
+            TypeNames = [selectedMember.DeclaringTypeIdentifier],
+            MemberTargetIdentities = [selectedMember.StableSelector],
+        };
+
+        BrowserLibraryApiDiffResult result = await fixture.Query(request);
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Succeeded,
+            result.Kind);
+        JsonElement content = Assert.IsType<
+            InspectionEnvelope<JsonElement>>(result.Inspection).Content;
+        Assert.Equal(
+            "Member",
+            content.GetProperty("comparison").GetProperty("surface").GetString());
+        JsonElement[] outcomes =
+        [
+            .. content.GetProperty("outcomes").EnumerateArray(),
+        ];
+        Assert.Equal(request.Analyses, outcomes.Select(outcome =>
+            outcome.GetProperty("analysis").GetString()));
+        JsonElement api = outcomes[0];
+        Assert.Equal("api", api.GetProperty("analysis").GetString());
+        Assert.Equal("Compared", api.GetProperty("kind").GetString());
+        Assert.All(
+            outcomes[1..],
+            outcome =>
+            {
+                Assert.Equal(
+                    "Unavailable",
+                    outcome.GetProperty("kind").GetString());
+                Assert.Contains(
+                    "Browser/Wasm",
+                    outcome.GetProperty("detail").GetString(),
+                    StringComparison.Ordinal);
+            });
+        Assert.Equal(
+            request.Analyses.Length - 1,
+            result.Inspection!.Diagnostics.Count(diagnostic =>
+                diagnostic.Code == "diff-analysis.unavailable"));
+        Assert.NotEmpty(
+            content.GetProperty("changes").GetProperty("types").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task TypeUiSelectionExecutesApiAndApiAttributeInBrowser()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffResult library =
+            await fixture.Query(fixture.Request());
+        BrowserLibraryApiDiffSucceeded libraryValue =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(library.Value);
+        BrowserLibraryApiDiffType changedType = Assert.Single(
+            libraryValue.Types,
+            type => type.Display
+                == "LibraryApiDiffFixture.ProjectionReceiver");
+        BrowserLibraryApiDiffRequest request = fixture.Request() with
+        {
+            Surface = BrowserDiffAnalysisSurface.Type,
+            Analyses = ["api", "api-attribute"],
+            Views =
+                BrowserDiffAnalysisViews.Changes
+                | BrowserDiffAnalysisViews.Summary
+                | BrowserDiffAnalysisViews.Transitions,
+            TypeNames = [changedType.After!.Identifier],
+        };
+
+        BrowserLibraryApiDiffResult result = await fixture.Query(request);
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Succeeded,
+            result.Kind);
+        JsonElement content = Assert.IsType<
+            InspectionEnvelope<JsonElement>>(result.Inspection).Content;
+        JsonElement[] outcomes =
+        [
+            .. content.GetProperty("outcomes").EnumerateArray(),
+        ];
+        Assert.Equal(request.Analyses, outcomes.Select(outcome =>
+            outcome.GetProperty("analysis").GetString()));
+        Assert.All(
+            outcomes,
+            outcome => Assert.Equal(
+                "Compared",
+                outcome.GetProperty("kind").GetString()));
+        Assert.DoesNotContain(
+            result.Inspection!.Diagnostics,
+            diagnostic => diagnostic.Code == "diff-analysis.unavailable");
+    }
+
+    [Theory]
+    [InlineData("unknown-analysis")]
+    [InlineData("allocation")]
+    public async Task InvalidOrSurfaceInapplicableAnalysisIsRejected(
+        string analysis)
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffRequest request = fixture.Request() with
+        {
+            Analyses = [analysis],
+        };
+
+        BrowserLibraryApiDiffResult result = await fixture.Query(request);
+
+        Assert.Equal(BrowserLibraryApiDiffResultKind.Failed, result.Kind);
+        Assert.Equal(
+            BrowserLibraryApiDiffFailureKind.Expected,
+            result.FailureKind);
+        Assert.Contains(
+            "selection was rejected",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Null(result.Inspection);
+    }
+
+    [Theory]
+    [InlineData(
+        BrowserDiffAnalysisSurface.Type,
+        "api-attribute",
+        BrowserDiffAnalysisViews.Changes,
+        "Changes",
+        true)]
+    [InlineData(
+        BrowserDiffAnalysisSurface.Library,
+        "api",
+        BrowserDiffAnalysisViews.Transitions,
+        "Transitions",
+        false)]
+    public async Task UnsupportedAnalysisViewCombinationIsRejectedBeforeAcquisition(
+        BrowserDiffAnalysisSurface surface,
+        string analysis,
+        BrowserDiffAnalysisViews views,
+        string rejectedView,
+        bool includeType)
+    {
+        BrowserLibraryApiDiffRequest request =
+            Request("Unregistered.View.Package") with
+            {
+                Surface = surface,
+                Analyses = [analysis],
+                Views = views,
+                TypeNames = includeType ? ["Example.Type"] : [],
+            };
+        string requestJson = JsonSerializer.Serialize(
+            request,
+            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffRequest);
+
+        string resultJson = await MetadataExports.QueryLibraryApiDiff(
+            Guid.NewGuid().ToString(),
+            requestJson);
+        BrowserLibraryApiDiffResult result =
+            JsonSerializer.Deserialize(
+                resultJson,
+                BrowserMetadataJsonContext.Default
+                    .BrowserLibraryApiDiffResult)!;
+
+        Assert.Equal(BrowserLibraryApiDiffResultKind.Failed, result.Kind);
+        Assert.Equal(
+            BrowserLibraryApiDiffFailureKind.Expected,
+            result.FailureKind);
+        Assert.Contains(
+            "view selection was rejected",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(rejectedView, result.Error, StringComparison.Ordinal);
+        Assert.Null(result.Inspection);
     }
 
     [Fact]
@@ -708,9 +916,9 @@ public sealed class BrowserLibraryApiDiffOperationTests
     public void ExactWorkerCollectionBoundaryIsInclusive()
     {
         BrowserLibraryApiDiffRequest request = Request("Transport.Package");
-        InspectionEnvelope<LibraryApiDiffOutcome> baseline = Available(0);
+        InspectionEnvelope<DiffAnalysisDocument> baseline = Available(0);
         var endpoint = Assert.IsType<LibraryApiDiffOutcome.Available>(
-            baseline.Content).Document.After;
+            baseline.Content.LibraryApi).Document.After;
         var diagnostic = new InspectionDiagnostic(
             "code", InspectionDiagnosticSeverity.Warning, "summary");
         var issue = new LibraryApiDiffEndpointIssue.Failed(
@@ -718,7 +926,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         BrowserLibraryApiDiffResult Project(int issueCount, int diagnosticCount) =>
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
-                new InspectionEnvelope<LibraryApiDiffOutcome>(
+                Inspection(
                     new LibraryApiDiffOutcome.Unavailable(
                         LibraryApiDiffUnavailableKind.BeforeIncomplete,
                         new LibraryApiDiffEndpointSummary(
@@ -911,7 +1119,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         string outcome)
     {
         var available = Assert.IsType<LibraryApiDiffOutcome.Available>(
-            Available(1).Content);
+            Available(1).Content.LibraryApi);
         LibraryApiDiffOutcome content = outcome switch
         {
             "available" => available,
@@ -936,8 +1144,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
             new("first", InspectionDiagnosticSeverity.Warning, "<warning>", "T:Widget"),
             new("second", InspectionDiagnosticSeverity.Information, "detail"),
         ];
-        var inspection = new InspectionEnvelope<LibraryApiDiffOutcome>(
-            content, share, diagnostics);
+        InspectionEnvelope<DiffAnalysisDocument> inspection =
+            Inspection(content, share, diagnostics);
         BrowserLibraryApiDiffResult result = BrowserLibraryApiDiffWireProjection.Project(
             Request("Envelope.Package"), inspection,
             EndpointContext(TargetVersion), EndpointContext(CurrentVersion));
@@ -951,7 +1159,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
             json, BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult)!;
         Assert.NotNull(roundTrip.Inspection);
         JsonElement expectedContent = JsonSerializer.SerializeToElement(
-            content, LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome);
+            inspection.Content,
+            DiffAnalysisInspectionJsonContext.Default.DiffAnalysisDocument);
         Assert.True(JsonElement.DeepEquals(expectedContent, roundTrip.Inspection.Content));
         var roundTripShare = Assert.IsType<InspectionShare.NonProjectable>(
             roundTrip.Inspection.Share);
@@ -981,7 +1190,10 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.NotNull(result.Inspection);
         Assert.Equal(
             "available",
-            result.Inspection.Content.GetProperty("outcome").GetString());
+            result.Inspection.Content
+                .GetProperty("libraryApi")
+                .GetProperty("outcome")
+                .GetString());
     }
 
     [Fact]
@@ -1108,12 +1320,24 @@ public sealed class BrowserLibraryApiDiffOperationTests
             request,
             BrowserMetadataJsonContext.Default
                 .BrowserLibraryApiDiffRequest);
-        Assert.Equal(
-            request,
+        BrowserLibraryApiDiffRequest roundTripRequest =
             JsonSerializer.Deserialize(
                 requestJson,
                 BrowserMetadataJsonContext.Default
-                    .BrowserLibraryApiDiffRequest));
+                    .BrowserLibraryApiDiffRequest)!;
+        Assert.Equal(request.SchemaVersion, roundTripRequest.SchemaVersion);
+        Assert.Equal(request.PackageId, roundTripRequest.PackageId);
+        Assert.Equal(request.CurrentVersion, roundTripRequest.CurrentVersion);
+        Assert.Equal(request.TargetVersion, roundTripRequest.TargetVersion);
+        Assert.Equal(request.TargetFramework, roundTripRequest.TargetFramework);
+        Assert.Equal(request.CompileAssetId, roundTripRequest.CompileAssetId);
+        Assert.Equal(request.Surface, roundTripRequest.Surface);
+        Assert.Equal(request.Analyses, roundTripRequest.Analyses);
+        Assert.Equal(request.Views, roundTripRequest.Views);
+        Assert.Equal(request.TypeNames, roundTripRequest.TypeNames);
+        Assert.Equal(
+            request.MemberTargetIdentities,
+            roundTripRequest.MemberTargetIdentities);
 
         string json = await MetadataExports.QueryLibraryApiDiff(
             Guid.NewGuid().ToString(),
@@ -1127,14 +1351,19 @@ public sealed class BrowserLibraryApiDiffOperationTests
             BrowserLibraryApiDiffResultKind.Succeeded,
             result.Kind);
         Assert.NotNull(result.Inspection);
-        Assert.IsType<LibraryApiDiffOutcome.Available>(
-            result.Inspection.Content.Deserialize(
-                LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome));
+        Assert.Equal(
+            "available",
+            result.Inspection.Content
+                .GetProperty("libraryApi")
+                .GetProperty("outcome")
+                .GetString());
 
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
         Assert.Equal("Succeeded", root.GetProperty("kind").GetString());
-        Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(
+            BrowserLibraryApiDiffSchema.Version,
+            root.GetProperty("schemaVersion").GetInt32());
         JsonElement row = root
             .GetProperty("value")
             .GetProperty("types")[0];
@@ -1215,7 +1444,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
             EndpointContext(request.TargetVersion),
             EndpointContext(request.CurrentVersion));
 
-    static InspectionEnvelope<LibraryApiDiffOutcome> Available(
+    static InspectionEnvelope<DiffAnalysisDocument> Available(
         int typeCount,
         string? display = null,
         int segmentCount = 1)
@@ -1275,7 +1504,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 document)));
     }
 
-    static InspectionEnvelope<LibraryApiDiffOutcome> AvailableWithMembers(
+    static InspectionEnvelope<DiffAnalysisDocument> AvailableWithMembers(
         int memberCount,
         string? memberDisplay = null)
     {
@@ -1352,13 +1581,44 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 document)));
     }
 
-    static InspectionEnvelope<LibraryApiDiffOutcome> Inspection(
-        LibraryApiDiffOutcome content) =>
-        new(
-            content,
-            new InspectionShare.NonProjectable(
-                "comparison/endpoints",
-                "The comparison endpoints cannot be shared."));
+    static InspectionEnvelope<DiffAnalysisDocument> Inspection(
+        LibraryApiDiffOutcome content,
+        InspectionShare? share = null,
+        IEnumerable<InspectionDiagnostic>? diagnostics = null)
+    {
+        InspectionCapabilityCatalog catalog =
+            InspectionCapabilityCatalog.Create(
+                [DiffAnalysisCatalog.ProductModule]);
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Library,
+                targetCount: 1,
+                ["api"]));
+        InspectionEnvelope<DiffAnalysisDocument> inspection =
+            DiffAnalysisInspection.Execute(
+                new DiffAnalysisInspectionRequest(
+                    "Transport",
+                    TargetVersion,
+                    CurrentVersion,
+                    catalog,
+                    accepted,
+                    new DiffAnalysisInput(
+                        new ApiSurface(),
+                        new ApiSurface(),
+                        [],
+                        [],
+                        new HashSet<string>(),
+                        [],
+                        memberTargetIdentities: null,
+                        prepareBodySignals: null),
+                    DiffAnalysisDocumentViews.Changes,
+                    content));
+        return new(
+            inspection.Content,
+            share ?? inspection.Share,
+            diagnostics ?? inspection.Diagnostics);
+    }
 
     static long WorkerCollectionEntries(BrowserLibraryApiDiffResult result)
     {
@@ -1416,12 +1676,17 @@ public sealed class BrowserLibraryApiDiffOperationTests
 
     static BrowserLibraryApiDiffRequest Request(string packageId) =>
         new(
-            1,
+            BrowserLibraryApiDiffSchema.Version,
             packageId,
             CurrentVersion,
             TargetVersion,
             Framework,
-            "compile:lib/net11.0/LibraryApiDiffFixture.dll");
+            "compile:lib/net11.0/LibraryApiDiffFixture.dll",
+            BrowserDiffAnalysisSurface.Library,
+            ["api"],
+            BrowserDiffAnalysisViews.Changes,
+            [],
+            []);
 
     static BrowserLibraryApiDiffEndpointContext EndpointContext(
         string version) =>
@@ -1512,12 +1777,17 @@ public sealed class BrowserLibraryApiDiffOperationTests
             string currentVersion = CurrentVersion,
             string targetVersion = TargetVersion) =>
             new(
-                1,
+                BrowserLibraryApiDiffSchema.Version,
                 PackageId,
                 currentVersion,
                 targetVersion,
                 Framework,
-                CompileAssetId);
+                CompileAssetId,
+                BrowserDiffAnalysisSurface.Library,
+                ["api"],
+                BrowserDiffAnalysisViews.Changes,
+                [],
+                []);
 
         internal async Task<BrowserLibraryApiDiffResult> Query(
             BrowserLibraryApiDiffRequest request)

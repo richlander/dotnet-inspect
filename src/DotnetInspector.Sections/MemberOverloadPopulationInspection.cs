@@ -338,6 +338,8 @@ public sealed record MemberOverloadShape(
     [property: JsonConverter(typeof(InertStringJsonConverter))]
     InertString CanonicalSignature,
     [property: JsonConverter(typeof(InertStringJsonConverter))]
+    InertString DocumentationId,
+    [property: JsonConverter(typeof(InertStringJsonConverter))]
     InertString Fingerprint,
     [property: JsonConverter(typeof(InertStringJsonConverter))]
     InertString Accessibility,

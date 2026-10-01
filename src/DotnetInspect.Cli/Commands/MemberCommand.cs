@@ -543,8 +543,31 @@ public static class MemberCommand
                     };
             }
 
+            if (MemberDocumentOutput.IsSelected(
+                        apiType,
+                        effectiveOptions,
+                        executionPlan))
+            {
+                string? memberAssemblyPath =
+                    apiType.SourceAssemblyPath
+                    ?? sourceAssembly?.Path
+                    ?? apiDllPath;
+                if (memberAssemblyPath is null)
+                {
+                    CommandError.Write(
+                        "The exact Member's defining Library has no local "
+                            + "inspection path.");
+                    return 1;
+                }
+                return await MemberDocumentOutput.WriteAsync(
+                    apiType,
+                    effectiveOptions,
+                    memberAssemblyPath,
+                    CancellationToken.None);
+            }
+
             if (effectiveOptions.OverloadIndex.HasValue
-                || !string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest))
+                    || !string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest))
             {
                 if (effectiveOptions.MemberFilter.Count != 1)
                 {

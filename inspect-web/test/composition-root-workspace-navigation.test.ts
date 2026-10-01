@@ -107,7 +107,7 @@ test("data bar shows versioned linked build provenance", () => {
   assert.match(
     appSource,
     /async function loadBuildIdentity\(\) \{[\s\S]*state\.buildIdentity = await engineClient\.host\.buildIdentity\(\);[\s\S]*state\.buildIdentityStatus = "ready";[\s\S]*state\.buildIdentityStatus = "failed"/);
-  assert.equal(appSource.match(/\bdataBarHtml\(\{/g)?.length, 5);
+  assert.equal(appSource.match(/\bdataBarHtml\(\{/g)?.length, 6);
   assert.match(
     appSource,
     /<\/main>[\s\S]{0,700}\$\{dataBarHtml\(\{/);
@@ -510,6 +510,12 @@ test("complete Workspace URLs use page-session retained activation", () => {
     /sourceHistoryWorkspaceAvailable = historyWorkspaceId !== null[\s\S]*workspaceFeedActivation\?\.ownsRetainedDefinition\([\s\S]*managedHistoryWorkspaceAvailable = !sourceHistoryWorkspaceAvailable[\s\S]*if \(managedHistoryWorkspaceAvailable[\s\S]*tryOpenSourceBearingWorkspace/);
   assert.match(
     history,
+    /const unavailableGlobalWorkspace =\s*historyWorkspaceReferenced\s*&& !sourceHistoryWorkspaceAvailable\s*&& !managedHistoryWorkspaceAvailable/);
+  assert.match(
+    history,
+    /if \(isProductEcosystemsPath\(location\.pathname\)\) \{[\s\S]*?return;\s*}\s*if \(isProductHomeDemosPath\(location\.pathname\)\) \{/);
+  assert.match(
+    history,
     /deferHistoryWorkspaceActivation =[\s\S]*searchParams\.has\("w"\)[\s\S]*tryOpenSourceBearingWorkspace\([\s\S]*return;[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(deferHistoryWorkspaceActivation[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)[\s\S]*const loc = await parseLocation\(\)/);
   assert.doesNotMatch(
     history.match(/const loc = await parseLocation\(\);[\s\S]*?const bareHome/)?.[0]
@@ -604,7 +610,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*invalidSnapshot,\s*null\)/);
   assert.match(
     history,
-    /if \(isCreditsPath\(location\.pathname\)\) \{[\s\S]*render\(\{[\s\S]*synchronizeUrl: !unavailableWorkspaceAdmissionRejected,[\s\S]*\}\);\s*return;\s*\}\s*if \(isProductHomeDemosPath\(location\.pathname\)\) \{[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*render\(\);[\s\S]*return;\s*\}/);
+    /if \(isCreditsPath\(location\.pathname\)\) \{[\s\S]*render\(\{[\s\S]*synchronizeUrl: !unavailableWorkspaceAdmissionRejected,[\s\S]*\}\);\s*return;\s*\}\s*if \(isProductEcosystemsPath\(location\.pathname\)\) \{[\s\S]*focusLevelOneHeading\(\)[\s\S]*return;\s*\}\s*if \(isProductHomeDemosPath\(location\.pathname\)\) \{[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*render\(\);[\s\S]*return;\s*\}/);
   assert.match(
     history,
     /isProductHomeDemosPath\(location\.pathname\)[\s\S]*const focusWorkspaceOnEntry =\s*!state\.packageQueryReturnFocusPending\s*&& !state\.packageActivityReturnFocusPending;[\s\S]*render\(\);\s*if \(state\.engineReady && focusWorkspaceOnEntry\)/);
@@ -619,7 +625,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /function retainFailedWorkspaceUrl\(\) \{\s*const failedState = failedWorkspaceUrlState;\s*const retainedState = retainWorkspaceUrlPreservation\(\s*failedState,\s*location\.href,\s*workspaceUrlProjection\(\)\);\s*if \(retainedState\) return true;\s*if \(failedState\?\.kind === "route"\s*&& !recoverWorkspaceRouteFailure\(\s*failedState,\s*location,\s*url => workspaceLocation\.replace\(url, history\.state\)\)\) \{\s*return true;\s*\}\s*failedWorkspaceUrlState = null;\s*return false;\s*\}/);
   assert.match(
     appSource,
-    /if \(\(state\.loading[\s\S]*!loadingPackageContent[\s\S]*!retainedWorkspacePostingVisible\)[\s\S]*\|\| state\.error\) \{[\s\S]*return;\s*\}\s*retainFailedWorkspaceUrl\(\);\s*if \(state\.workspaceSubjectOpen && isProductHomeDemosPath\(location\.pathname\)\)/);
+    /if \(\(state\.loading[\s\S]*!loadingPackageContent[\s\S]*!retainedWorkspacePostingVisible\)[\s\S]*\|\| state\.error\) \{[\s\S]*return;\s*\}\s*retainFailedWorkspaceUrl\(\);\s*if \(productEcosystemsVisible\) \{[\s\S]*renderProductEcosystemsPage\(\);[\s\S]*return;\s*\}\s*if \(state\.workspaceSubjectOpen && isProductHomeDemosPath\(location\.pathname\)\)/);
   assert.match(
     appSource,
     /navigation: navigationHistory\.snapshot\(\),[\s\S]*failedWorkspaceUrlState: failedWorkspaceUrlState[\s\S]*structuredClone\(failedWorkspaceUrlState\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\);[\s\S]*failedWorkspaceUrlState = snapshot\.failedWorkspaceUrlState[\s\S]*structuredClone\(snapshot\.failedWorkspaceUrlState\)/);
@@ -668,7 +674,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
   assert.match(
     appSource,
-    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*state\.packageActivityOpen = isPackageActivityPath\(location\.pathname\);[\s\S]*state\.typeExplorerOpen = isTypeExplorerPath\(location\.pathname\);[\s\S]*const diagnosticsOpen = isDiagnosticsPath\(location\.pathname\);[\s\S]*const productHomeDemosOpen = isProductHomeDemosPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!diagnosticsOpen\s*&& !state\.packageQueryOpen\s*&& !state\.packageActivityOpen\s*&& !state\.typeExplorerOpen\s*&& !productHomeDemosOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
+    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*state\.packageActivityOpen = isPackageActivityPath\(location\.pathname\);[\s\S]*state\.typeExplorerOpen = isTypeExplorerPath\(location\.pathname\);[\s\S]*const diagnosticsOpen = isDiagnosticsPath\(location\.pathname\);[\s\S]*const productHomeDemosOpen = isProductHomeDemosPath\(location\.pathname\);[\s\S]*const productEcosystemsOpen = isProductEcosystemsPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!diagnosticsOpen\s*&& !state\.packageQueryOpen\s*&& !state\.packageActivityOpen\s*&& !state\.typeExplorerOpen\s*&& !productHomeDemosOpen\s*&& !productEcosystemsOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
   const restore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction showEngineFailure/)?.[0]
     ?? "";
@@ -739,7 +745,7 @@ test("malformed package routes use the contained restore failure path", () => {
     1);
   assert.equal(
     appSource.match(/\${renderQueryNotice\(\)}/g)?.length,
-    5);
+    6);
   assert.match(
     appSource,
     /state\.queryNotice && state\.queryNoticeRetryAction\s*\? '<button id="retry-notice"/);
@@ -1493,13 +1499,13 @@ test("browser history reuses available identities and publishes only unavailable
     /restoredActiveManagedWorkspace\s*&& activeRetainedWorkspacePosting\?\.canonicalPacket !== null\s*&& activeRetainedWorkspacePosting\?\.canonicalLocation === location\.href/);
   assert.match(
     history,
-    /const unavailableGlobalWorkspace =\s*historyWorkspaceReferenced\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable/);
+    /const unavailableGlobalWorkspace =\s*historyWorkspaceReferenced\s*&& !sourceHistoryWorkspaceAvailable\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable/);
   assert.match(
     history,
-    /if \(bareHome\) \{\s*if \(historyWorkspaceReferenced\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable\)/);
+    /if \(bareHome\) \{\s*if \(historyWorkspaceReferenced\s*&& !sourceHistoryWorkspaceAvailable\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable\)/);
   assert.match(
     history,
-    /if \(historyWorkspaceReferenced\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable\) \{\s*observeAsync\(\s*restoreFreshWorkspaceFromHistory\(loc, navigationSeq\)/);
+    /if \(historyWorkspaceReferenced\s*&& !sourceHistoryWorkspaceAvailable\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable\) \{\s*observeAsync\(\s*restoreFreshWorkspaceFromHistory\(loc, navigationSeq\)/);
   assert.match(
     appSource,
     /function supersedeRetainedLocationIntentForRoutedNavigation\(\): void \{\s*if \(retainedLocationIntents\.currentIntentId === null\) return;[\s\S]*admitNonBrowser\(\s*"none",[\s\S]*if \(!retainedLocationIntents\.publish\(effect, history\)\)/);
@@ -1699,7 +1705,7 @@ test("same-origin links retain different-coordinate Workspaces", () => {
 test("authoritative location restore clears filters and applies aggregate Platform scope", () => {
   assert.match(
     appSource,
-    /function resetLocationFilters\(\) \{\s*state\.typeFilter = "";\s*state\.namespaceFilter = "";\s*state\.kindFilter = "";\s*state\.libraryScope = null;\s*state\.typeCursor = 0;\s*resetMemberFilters\(\)/);
+    /function resetLocationFilters\(\) \{\s*state\.typeFilter = "";\s*state\.namespaceFilter = "";\s*state\.kindFilter = "";\s*state\.typeLeverageFilter = "";\s*state\.libraryScope = null;\s*state\.typeCursor = 0;\s*resetMemberFilters\(\)/);
   const workspaceRestore =
     appSource.match(/async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction failWorkspaceRoute/)?.[0]
     ?? "";
@@ -1845,6 +1851,9 @@ test("history restores population intent before validating saved Member identity
     /const deferOrdinaryMemberRestore = Boolean\([\s\S]*view\.memberBrowseTypeId === type\.id[\s\S]*!historyGraphTarget[\s\S]*!member\)/);
   assert.match(
     applyView,
+    /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*clearMemberDocumentCache\(\);[\s\S]*state\.memberDocumentFingerprint =[\s\S]*view\.memberDocumentFingerprint[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
+  assert.match(
+    applyView,
     /state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*state\.memberAccessibilityFilter = isMemberAccessibility\([\s\S]*memberHistory\.memberAccessibilityFilter\)[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
   assert.match(
     applyView,
@@ -1863,10 +1872,10 @@ test("history restores population intent before validating saved Member identity
     /const navigationHistory = createNavigationHistory\(\{\s*capture: captureView,\s*signature: workspaceViewSignature,\s*apply: applyView/);
   assert.match(
     workspaceNavigationSource,
-    /function workspaceViewSignature\([\s\S]*b: graphTarget \? null : encodeBodyTarget\(view\.bodyTarget\),[\s\S]*g: graphTarget/);
+    /function workspaceViewSignature\([\s\S]*mf: view\.memberDocumentFingerprint \?\? "",[\s\S]*b: graphTarget \? null : encodeBodyTarget\(view\.bodyTarget\),[\s\S]*g: graphTarget/);
   assert.match(
     appSource,
-    /function captureView\(\): WorkspaceView \| null \{[\s\S]*bodyTarget: state\.selectedBodyTarget/);
+    /function captureView\(\): WorkspaceView \| null \{[\s\S]*memberDocumentFingerprint: state\.memberDocumentFingerprint,[\s\S]*bodyTarget: state\.selectedBodyTarget/);
   assert.match(
     appSource,
     /else if \(current && state\.selectedTypeId !== current\.id\) \{\s*state\.selectedTypeId = current\.id;\s*state\.selectedMemberKey = "";\s*state\.memberBrowseTypeId = "";\s*state\.selectedOverloadIndex = null;\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\)/);

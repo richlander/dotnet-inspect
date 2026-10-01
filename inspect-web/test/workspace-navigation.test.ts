@@ -388,6 +388,7 @@ test("workspace URLs delegate canonical encoding and product-decoded activation"
   assert.equal(parsed.memberSignature, null);
   assert.equal(parsed.overload, null);
   assert.equal(parsed.section, "facts");
+  assert.equal(parsed.memberAccessibilityFilter, "public");
   assert.deepEqual(parsed.contexts, state.contexts);
   assert.equal(parsed.selectedContextId, "g0");
 });
@@ -1165,6 +1166,20 @@ test("history signatures distinguish exact graph member identity", () => {
       workspaceViewSignature(original),
       workspaceViewSignature(workspaceView({ bodyTarget })));
   }
+});
+
+test("history signatures distinguish exact Member document identity", () => {
+  const original = workspaceView({
+    selectedMemberKey: "method:Build",
+    memberDocumentFingerprint: "abc123",
+  });
+
+  assert.notEqual(
+    workspaceViewSignature(original),
+    workspaceViewSignature({
+      ...original,
+      memberDocumentFingerprint: "def456",
+    }));
 });
 
 test("history signatures distinguish captured library scope", () => {

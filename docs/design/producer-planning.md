@@ -18,16 +18,23 @@ Performance comes mostly from levels 1 and 2. This level makes that possible by
 describing work completely and declaratively, so the lower levels can share,
 reorder, collapse, and parallelize it without changing its meaning.
 
-No owner has adopted this design yet.
-[Assembly Analysis Operation](assembly-analysis-operation.md) is the target
-composition for the intended first adoption, retiring the closed producer hubs
-in [Library Body Analysis Execution](library-body-analysis-service.md).
-Research is the intended second adopter. The adoption sequence, the
-`LibraryBodyIndex` drain evidence, and the producer census are kept in #8568,
-not here.
+Library Body Analysis Execution
+([Library body Analysis service](library-body-analysis-service.md)) is the
+first production adopter of this work-description contract: unsafe-evidence
+presence declares one method-definition producer, plans it with Exists,
+executes it through the serial reference executor, and publishes its typed
+result and receipt. Its production query now forms that closing through
+QuerySpace, binds the resulting single-producer Method request to exact
+session-issued access through
+[Assembly Analysis Operation](assembly-analysis-operation.md), and preserves a
+separate source receipt. The serial executor remains interim beneath that
+composition. Research remains the intended second adopter. The adoption
+sequence, the `LibraryBodyIndex` drain evidence, and the producer census are
+kept in #8568, not here.
 
-Every property below is **unverified** until its gate lands with the first
-adoption; see [Verification](#verification).
+The unsafe-evidence gates listed by its adopting design are verified in
+Release. Properties not exercised by that slice remain **unverified** until
+their named gate lands; see [Verification](#verification).
 
 ## Examples
 
@@ -450,8 +457,10 @@ The gate's classification is a unit class that source-gate scope guards
 accept, as
 [Scope is declared on the edge](#scope-is-declared-on-the-edge-not-tested-inside-the-visit)
 describes. A source-gate guard is not a dependency, so a producer asked alone
-still has no dependencies and still qualifies for a closed-query kernel. That kernel is
-one loop, specialized to the gate, the predicate, and the closing.
+still has no dependencies and still qualifies for a closed-query kernel. That
+kernel is one loop specialized to the gate, predicate, and projection. The
+planned closing controls accumulation and early stop inside the loop; Count
+and Exists omit projection-only fields.
 
 *Lets the lower levels:* share scope, classification, and decoding among every
 producer without a classifier producer, and prove from the plan alone that a
@@ -648,7 +657,9 @@ gap.
    such as the first violation found, it is the row the reference passes would
    name, not whichever row a parallel executor reached first.
 
-Request collapse is tracked in #8574, and method bodies as a source in #8577.
+Request collapse is owned by
+[Query Space Composition](query-space-composition.md), and method bodies as a
+source by [Method Query Source](method-query-source.md).
 
 ## Tiers
 
@@ -686,7 +697,7 @@ decided when the second tier adopts it.
 | [Assembly image lifetime](assembly-image-lifetime.md) and [resource ownership](resource-ownership-and-borrowing.md) | Level 1. Supplies and tracks the borrowed subject. |
 | [QuerySpace](query-space-library.md) and [source delegation](source-delegation.md) | Level 2. Owns request meaning, collapse, and completion evidence, and plans reads against sources. |
 | [Package read demand](package-read-demand.md) | Consumes the declared requests in a work description. |
-| [Stateless core services](stateless-core-services.md) and [analysis index cache](analysis-index-cache.md) | Own retention and caching of the detached results. |
+| [Stateless core services](stateless-core-services.md) | Owns service lifetime classification; Analysis results remain operation-local unless a focused owner defines reuse. |
 | Research ([ownership paths](generic-research-ownership-paths.md), [assembly context](research-assembly-context-ownership.md)) | Intended second adopter as a higher tier. |
 | Decompiler IR passes | Separate rewriting pipeline. Not an adopter. |
 

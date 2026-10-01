@@ -338,6 +338,42 @@ public sealed class MethodClassificationAnalyzerTests
     }
 
     [Fact]
+    public void Planner_IdenticalHeadIsAcceptedAndDistinctLimitsConflict()
+    {
+        ProducerRequest head = ProducerRequest.Head(
+            RuntimeAsyncAnalyzer.Instance,
+            2);
+        WorkDescription description = Plan(head, head);
+
+        Assert.Equal(
+            ProducerTerminal.Rows,
+            description.TerminalOf(RuntimeAsyncAnalyzer.Instance));
+        Assert.Equal(
+            2,
+            description.RowLimitOf(RuntimeAsyncAnalyzer.Instance));
+
+        ProducerContractException error =
+            Assert.Throws<ProducerContractException>(() => ProducerPlanner.Plan(
+            [
+                ProducerRequest.Head(RuntimeAsyncAnalyzer.Instance, 2),
+                ProducerRequest.Head(RuntimeAsyncAnalyzer.Instance, 3),
+            ]));
+        Assert.Contains("Head(2)", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Head(3)", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Planner_HeadRequiresAPositiveRowLimit()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ProducerRequest.Head(RuntimeAsyncAnalyzer.Instance, 0));
+        Assert.Throws<ArgumentException>(() => new ProducerRequest(
+            RuntimeAsyncAnalyzer.Instance,
+            ProducerTerminal.Complete,
+            rowLimit: 1));
+    }
+
+    [Fact]
     public void Analyzers_KernelEqualsTheInterpretedExecutor()
     {
         GateFixtureImage builder = new();
@@ -348,16 +384,26 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("D");
         ImmutableArray<byte> image = builder.Build();
 
-        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.Complete, ProducerTerminal.Exists, ProducerTerminal.Rows })
+        ProducerRequest[] requests =
+        [
+            new(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Complete),
+            new(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Exists),
+            new(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Rows),
+            ProducerRequest.Head(RuntimeAsyncAnalyzer.Instance, 1),
+        ];
+        foreach (ProducerRequest request in requests)
         {
             // Alone, each analyzer runs as a kernel; beside an independent
             // producer, the reference executor interprets it.
             foreach (ProducerDeclaration<ClosedQueryResult<ClassifiedMethodRow>> analyzer in Analyzers)
             {
-                MethodDefinitionExecution kernel = Execute(image, new ProducerRequest(analyzer, terminal));
+                ProducerRequest analyzerRequest = request.RowLimit is int count
+                    ? ProducerRequest.Head(analyzer, count)
+                    : new ProducerRequest(analyzer, request.Terminal);
+                MethodDefinitionExecution kernel = Execute(image, analyzerRequest);
                 MethodDefinitionExecution interpreted = Execute(
                     image,
-                    new ProducerRequest(analyzer, terminal),
+                    analyzerRequest,
                     new ProducerRequest(Independent.Instance));
 
                 ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> k = kernel.ResultOf(analyzer);
@@ -374,6 +420,41 @@ public sealed class MethodClassificationAnalyzerTests
         }
     }
 
+    [Theory]
+    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Exists)]
+    [InlineData(ProducerTerminal.Rows)]
+    public void Analyzers_AbortedKernelReceiptEqualsTheInterpretedExecutor(
+        ProducerTerminal terminal)
+    {
+        GateFixtureImage builder = new();
+        builder.Type("N", "Order")
+            .Method("Ordinary")
+            .Method("OverCap", WideSignature());
+        ImmutableArray<byte> image = builder.Build();
+
+        MethodDefinitionExecution kernel = Execute(
+            image,
+            new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal));
+        MethodDefinitionExecution interpreted = Execute(
+            image,
+            new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal),
+            new ProducerRequest(Independent.Instance));
+
+        Assert.NotNull(kernel.Receipt.Critical);
+        Assert.NotNull(interpreted.Receipt.Critical);
+        Assert.Equal(interpreted.Receipt.UnitsVisited, kernel.Receipt.UnitsVisited);
+        Assert.Equal(2, kernel.Receipt.UnitsVisited);
+        ProducerParticipation kp = kernel.Receipt.For(PointerSignatureAnalyzer.Instance);
+        ProducerParticipation ip = interpreted.Receipt.For(PointerSignatureAnalyzer.Instance);
+        Assert.Equal(
+            (ip.Outcome, ip.UnitsAttempted, ip.UnitsCompleted, ip.UnitsFailed),
+            (kp.Outcome, kp.UnitsAttempted, kp.UnitsCompleted, kp.UnitsFailed));
+        Assert.Equal(
+            (ProducerOutcome.Aborted, 2, 1, 0),
+            (kp.Outcome, kp.UnitsAttempted, kp.UnitsCompleted, kp.UnitsFailed));
+    }
+
     // ---- Helpers ----
 
     static readonly ProducerDeclaration<ClosedQueryResult<ClassifiedMethodRow>>[] Analyzers =
@@ -381,6 +462,18 @@ public sealed class MethodClassificationAnalyzerTests
 
     static BlobBuilder PointerParameter() =>
         GateFixtureImage.VoidSignature(static t => t.Pointer().Int32());
+
+    static BlobBuilder WideSignature()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        int parameters = MetadataSafetyPolicy.MaxSignatureTypeNodes + 16;
+        signature.WriteCompressedInteger(parameters);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < parameters; i++)
+            signature.WriteByte(0x08);
+        return signature;
+    }
 
     static BlobBuilder Bytes(params byte[] bytes)
     {

@@ -27,12 +27,19 @@ the CLI's Type tree headings, and the CLI's `--count`. No host reports a
 Member-group count.
 
 In Inspect Web, a reader opens System.Text.Json 10.0.0 `JsonDocument`. The
-accessibility chips state the whole admitted population before any non-public
-row is loaded:
+accessibility filter states the whole admitted population before any
+non-public row is loaded:
 
 ```text
-public | 16    protected | 0    internal | 44    private | 27
+Accessibility   public · 16
 ```
+
+Its dropdown offers `all · 87`, `public · 16`, `protected · 0`,
+`internal · 44`, and `private · 27`. `all` requests the union of those four
+accessibility buckets under the current spelling and hidden admission; it does
+not admit hidden declarations. Kind, accessibility, spelling, and trait are
+single-choice filters, so the narrow Member pane renders them as labeled
+dropdowns rather than horizontally clipped chip strips.
 
 The list shows 8 rows for those 16 members. Each overload family's row, such as
 `Parse 5×` or `Deserialize 5×`, colors its name differently. That text color
@@ -48,11 +55,13 @@ bucket whatever bucket is selected. The selection stays for the session, so
 the next Type opens on `private` with its own truthful count, even when that
 count is 0.
 
-The same `Filters` disclosure, collapsed by default, offers a spelling row:
+The same `Filters` disclosure, collapsed by default, offers:
 
 ```text
-Accessibility   public 16 · protected 0 · internal 44 · private 27
-Spelling        C# spelling (selected) · Metadata spelling
+Kind            all kinds
+Accessibility   public · 16
+Spelling        C#
+Trait           all traits
 ```
 
 C# spelling serves consumers: one row per declaration, as the code that uses
@@ -125,10 +134,10 @@ rows it has loaded.
   `ISimdVector<TSelf,T>`, and keep `public`. The Browser's host-side mapping of explicit
   implementations to `private` and finalizers to `protected` retires.
 - **Heat over non-public rows.**
-  [Implementation profiles](inspect-web-implementation-profiles.md) currently
-  states that methods outside the public roster are never rows. Showing heat
-  on non-public rows is a separate focused change to that owner. The Type heat
-  record already measures those methods, so the change needs no new request.
+  [Implementation profiles](inspect-web-implementation-profiles.md) keeps its
+  public-family request predicate while allowing a selected non-public
+  population to join exact MethodDef tokens already present in the Type heat
+  record. The change needs no new request.
 
 ## Evidence
 

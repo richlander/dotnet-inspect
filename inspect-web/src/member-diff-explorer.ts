@@ -81,10 +81,13 @@ export interface MemberDiffExplorerDependencies {
   readonly reportOperationDiagnostic: (
     diagnostic: OperationDiagnostic,
   ) => void;
+  readonly renderPage: () => void;
 }
 
 export interface MemberDiffExplorerController {
   readonly isOpen: boolean;
+  renderInline(context: LibraryApiDiffMemberExploreContext): string;
+  bindInline(root: ParentNode): void;
   open(
     context: LibraryApiDiffMemberExploreContext,
     invoker: HTMLElement,
@@ -106,9 +109,10 @@ function sameContext(
   right: LibraryApiDiffMemberExploreContext,
 ): boolean {
   return left.packageModel === right.packageModel
-    && left.result === right.result
-    && left.destination === right.destination
-    && left.member === right.member;
+    && sameRequest(
+      memberDiffSourceRequest(left),
+      memberDiffSourceRequest(right),
+    );
 }
 
 function memberRequest(
@@ -250,13 +254,14 @@ function endpointStatus(
 }
 
 function changedSpans(
-  changes: readonly BrowserSourceDiffChange[],
+  change: BrowserSourceDiffChange | null,
   side: "before" | "after",
   line: number,
 ): readonly BrowserSourceDiffSpan[] {
-  return changes.flatMap(change => change.innerMappings
+  if (change === null) return [];
+  return change.innerMappings
     .map(mapping => mapping[side])
-    .filter(span => span.line === line))
+    .filter(span => span.line === line)
     .sort((left, right) => left.start - right.start);
 }
 
@@ -280,33 +285,91 @@ function highlightedLine(
   return parts.join("");
 }
 
-function diffLine(
-  side: "before" | "after",
-  index: number,
-  diff: BrowserSourceDiff,
+type BrowserSourceDiffRelation = BrowserSourceDiff["relations"][number];
+
+interface SourceRelationLookup {
+  readonly before: ReadonlyMap<number, readonly BrowserSourceDiffRelation[]>;
+  readonly after: ReadonlyMap<number, readonly BrowserSourceDiffRelation[]>;
+}
+
+function sourceRelationLookup(diff: BrowserSourceDiff): SourceRelationLookup {
+  const before = new Map<number, BrowserSourceDiffRelation[]>();
+  const after = new Map<number, BrowserSourceDiffRelation[]>();
+  const add = (
+    index: Map<number, BrowserSourceDiffRelation[]>,
+    coordinate: number,
+    relation: BrowserSourceDiffRelation,
+  ): void => {
+    const relations = index.get(coordinate);
+    if (relations === undefined) index.set(coordinate, [relation]);
+    else relations.push(relation);
+  };
+  for (const relation of diff.relations) {
+    for (const coordinate of relation.beforeCoordinates)
+      add(before, coordinate, relation);
+    for (const coordinate of relation.afterCoordinates)
+      add(after, coordinate, relation);
+  }
+  return { before, after };
+}
+
+function relationDecorations(
+  beforeIndex: number | null,
+  afterIndex: number | null,
+  lookup: SourceRelationLookup,
   escapeHtml: (value: unknown) => string,
-  relationKind: "Addition" | "Removal" | "Correspondence",
-  placement: "Stable" | "Moved" | null,
 ): string {
+  const relations = new Set<BrowserSourceDiffRelation>();
+  if (beforeIndex !== null) {
+    for (const relation of lookup.before.get(beforeIndex) ?? [])
+      relations.add(relation);
+  }
+  if (afterIndex !== null) {
+    for (const relation of lookup.after.get(afterIndex) ?? [])
+      relations.add(relation);
+  }
+  const labels = [...relations].flatMap(relation => {
+    const facts = [relation.content, relation.placement]
+      .filter(fact => fact !== null);
+    if (facts.length === 0) return [];
+    return [`<span class="member-diff-source-relation-label" data-relation-kind="${escapeHtml(relation.kind)}" data-relation-content="${escapeHtml(relation.content ?? "")}" data-relation-placement="${escapeHtml(relation.placement ?? "")}">${facts.map(escapeHtml).join(" · ")}</span>`];
+  });
+  return labels.length === 0
+    ? ""
+    : `<span class="member-diff-source-relations" aria-label="Relation facts">${labels.join("")}</span>`;
+}
+
+function diffLine(
+  kind: "context" | "removal" | "addition",
+  beforeIndex: number | null,
+  afterIndex: number | null,
+  diff: BrowserSourceDiff,
+  change: BrowserSourceDiffChange | null,
+  relations: SourceRelationLookup,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const side = kind === "addition" ? "after" : "before";
+  const index = side === "before" ? beforeIndex : afterIndex;
+  if (index === null)
+    throw new Error("A Source diff row has no line on its rendered side.");
   const sequence = diff[side];
   const text = sequence.lines[index] ?? "";
-  const beforeNumber = side === "before" ? String(index + 1) : "";
-  const afterNumber = side === "after" ? String(index + 1) : "";
-  const marker = relationKind === "Correspondence"
-    ? placement === "Moved" ? "↕" : "↔"
-    : side === "before" ? "−" : "+";
-  const correspondenceClass = relationKind === "Correspondence"
-    ? " member-diff-source-line-correspondence"
-    : "";
-  return `<div class="member-diff-source-line member-diff-source-line-${side}${correspondenceClass}" data-side="${side}" data-line="${index}" data-relation-kind="${relationKind}" data-placement="${placement ?? ""}">
-    <span class="member-diff-source-number">${beforeNumber}</span>
-    <span class="member-diff-source-number">${afterNumber}</span>
+  const marker = kind === "context" ? " " : kind === "removal" ? "−" : "+";
+  return `<div class="member-diff-source-line member-diff-source-line-${kind}" data-row-kind="${kind}" data-before-line="${beforeIndex ?? ""}" data-after-line="${afterIndex ?? ""}">
+    <span class="member-diff-source-number">${beforeIndex === null ? "" : beforeIndex + 1}</span>
+    <span class="member-diff-source-number">${afterIndex === null ? "" : afterIndex + 1}</span>
     <span class="member-diff-source-marker" aria-hidden="true">${marker}</span>
     <code>${highlightedLine(
       text,
-      changedSpans(diff.changes, side, index),
+      changedSpans(change, side, index),
       escapeHtml,
     )}</code>
+    ${relationDecorations(
+      beforeIndex,
+      afterIndex,
+      relations,
+      escapeHtml,
+    )}
   </div>`;
 }
 
@@ -347,76 +410,86 @@ function mappedChangeEvidence(
 export function renderMemberSourceDiff(
   diff: BrowserSourceDiff,
   escapeHtml: (value: unknown) => string,
+  compact = false,
 ): string {
   const rows: string[] = [];
-  for (const relation of diff.relations) {
-    if (relation.kind === "Correspondence") {
-      const content = relation.content ?? "Correspondence";
-      const placement = relation.placement ?? "Unplaced";
-      const beforeCount = relation.beforeCoordinates.length;
-      const afterCount = relation.afterCoordinates.length;
-      const label = `${content} correspondence · ${placement} · ${
-        beforeCount.toLocaleString()
-      } Before ${beforeCount === 1 ? "line" : "lines"} ↔ ${
-        afterCount.toLocaleString()
-      } After ${afterCount === 1 ? "line" : "lines"}`;
-      const relationRows = [
-        ...relation.beforeCoordinates.map(coordinate => diffLine(
-          "before",
-          coordinate,
-          diff,
-          escapeHtml,
-          relation.kind,
-          relation.placement,
-        )),
-        ...relation.afterCoordinates.map(coordinate => diffLine(
-          "after",
-          coordinate,
-          diff,
-          escapeHtml,
-          relation.kind,
-          relation.placement,
-        )),
-      ];
-      rows.push(`<section class="member-diff-source-relation" data-relation-kind="Correspondence" data-content="${content}" data-placement="${placement}" aria-label="${label}">
-        <div class="member-diff-source-relation-label">${label}</div>
-        ${relationRows.join("")}
-      </section>`);
-      continue;
-    }
-    for (const coordinate of relation.beforeCoordinates) {
+  const relations = sourceRelationLookup(diff);
+  let beforeCursor = 0;
+  let afterCursor = 0;
+  const contextRows = (beforeEnd: number, afterEnd: number): void => {
+    while (beforeCursor < beforeEnd && afterCursor < afterEnd) {
       rows.push(diffLine(
-        "before",
-        coordinate,
+        "context",
+        beforeCursor++,
+        afterCursor++,
         diff,
+        null,
+        relations,
         escapeHtml,
-        relation.kind,
-        relation.placement,
       ));
     }
-    for (const coordinate of relation.afterCoordinates) {
+  };
+  for (const change of diff.changes) {
+    contextRows(change.before.start, change.after.start);
+    const beforeEnd = change.before.start + change.before.count;
+    while (beforeCursor < beforeEnd) {
       rows.push(diffLine(
-        "after",
-        coordinate,
+        "removal",
+        beforeCursor++,
+        null,
         diff,
+        change,
+        relations,
         escapeHtml,
-        relation.kind,
-        relation.placement,
+      ));
+    }
+    const afterEnd = change.after.start + change.after.count;
+    while (afterCursor < afterEnd) {
+      rows.push(diffLine(
+        "addition",
+        null,
+        afterCursor++,
+        diff,
+        change,
+        relations,
+        escapeHtml,
       ));
     }
   }
+  contextRows(diff.before.lines.length, diff.after.lines.length);
   const statistics = diff.statistics;
-  return `<div class="member-diff-source-summary" aria-label="Source diff statistics">
+  const summary = compact
+    ? ""
+    : `<div class="member-diff-source-summary" aria-label="Source diff statistics">
     <span>${statistics.added.toLocaleString()} added</span>
     <span>${statistics.removed.toLocaleString()} removed</span>
     <span>${statistics.changedBefore.toLocaleString()} Before changed</span>
     <span>${statistics.changedAfter.toLocaleString()} After changed</span>
     <span>${statistics.movedBefore.toLocaleString()} Before moved</span>
     <span>${statistics.movedAfter.toLocaleString()} After moved</span>
-  </div>
-  <div class="member-diff-source-diff" role="table" aria-label="Unified authored Source diff">${rows.join("")}</div>
-  <p class="member-diff-source-terminators">Final line terminators: Before ${escapeHtml(diff.before.finalLineTerminator)}; After ${escapeHtml(diff.after.finalLineTerminator)}.</p>
+  </div>`;
+  const supportingEvidence = compact
+    ? ""
+    : `<p class="member-diff-source-terminators">Final line terminators: Before ${escapeHtml(diff.before.finalLineTerminator)}; After ${escapeHtml(diff.after.finalLineTerminator)}.</p>
   ${mappedChangeEvidence(diff, escapeHtml)}`;
+  return `${summary}
+  <div class="member-diff-source-diff" role="table" aria-label="Unified authored Source diff">${rows.join("")}</div>
+  ${supportingEvidence}`;
+}
+
+export function renderInlineMemberSourceDiff(
+  context: LibraryApiDiffMemberExploreContext,
+  source: MemberDiffExplorerSourceState,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const content = source.status === "idle"
+    ? `${compactDestinationNotices(context, escapeHtml)}
+      <button type="button" class="secondary" data-member-diff-source-show>Show authored Source diff</button>`
+    : renderSourcePane(source, context, escapeHtml, true);
+  return `<section class="library-api-diff-change-section member-diff-inline-source" aria-labelledby="member-diff-inline-source-title">
+    <h2 id="member-diff-inline-source-title">Authored Source</h2>
+    ${content}
+  </section>`;
 }
 
 function retryButton(): string {
@@ -458,80 +531,132 @@ function requestedEndpoints(
   </div>`;
 }
 
-function renderComparedSource(
+function compactEndpointNotice(
+  destination: BrowserLibraryApiDiffMemberExploreEndpoint,
+  endpoint: BrowserSourceComparisonEndpoint | null,
+  label: string,
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (destination.member === null) {
+    return `<p class="member-diff-source-unavailable"><strong>${escapeHtml(label)}</strong>: Not present on this side.</p>`;
+  }
+  if (endpoint === null || endpoint.state === "Available") {
+    return "";
+  }
+  return `<p class="member-diff-source-unavailable"><strong>${escapeHtml(label)}</strong>: ${escapeHtml(endpoint.detail ?? endpoint.state)}</p>`;
+}
+
+function compactDestinationNotices(
+  context: LibraryApiDiffMemberExploreContext,
+  escapeHtml: (value: unknown) => string,
+): string {
+  return `${compactEndpointNotice(
+    context.destination.target,
+    null,
+    "Before",
+    escapeHtml,
+  )}${compactEndpointNotice(
+    context.destination.current,
+    null,
+    "After",
+    escapeHtml,
+  )}`;
+}
+
+function compactComparisonNotices(
   value: BrowserSourceComparison,
   context: LibraryApiDiffMemberExploreContext,
   escapeHtml: (value: unknown) => string,
 ): string {
+  return `${compactEndpointNotice(
+    context.destination.target,
+    value.before,
+    "Before",
+    escapeHtml,
+  )}${compactEndpointNotice(
+    context.destination.current,
+    value.after,
+    "After",
+    escapeHtml,
+  )}`;
+}
+
+function renderComparedSource(
+  value: BrowserSourceComparison,
+  context: LibraryApiDiffMemberExploreContext,
+  escapeHtml: (value: unknown) => string,
+  compact = false,
+): string {
   const exact = value.isExact
     ? '<span class="member-diff-source-exact">Authored Source is identical</span>'
-    : '<span class="member-diff-source-inexact">Authored Source changed</span>';
-  const endpoints = `<div class="member-diff-source-endpoints">
+    : compact
+      ? ""
+      : '<span class="member-diff-source-inexact">Authored Source changed</span>';
+  const endpointCards = `<div class="member-diff-source-endpoints">
     ${endpointStatus(value.before, context.destination.target, "Before", escapeHtml)}
     ${endpointStatus(value.after, context.destination.current, "After", escapeHtml)}
   </div>`;
+  const endpoints = compact
+    ? compactComparisonNotices(value, context, escapeHtml)
+    : endpointCards;
   if (value.status === "Compared" && value.diff !== null) {
-    return `${exact}${endpoints}${renderMemberSourceDiff(value.diff, escapeHtml)}`;
+    return compact
+      ? `${exact}${renderMemberSourceDiff(value.diff, escapeHtml, true)}`
+      : `${exact}${endpoints}${renderMemberSourceDiff(value.diff, escapeHtml)}`;
   }
   if (value.status === "Failed") {
-    return `${endpoints}<p class="member-diff-source-failure">${escapeHtml(
+    const failure = `<p class="member-diff-source-failure">${escapeHtml(
       value.failure ?? "Authored Source comparison failed.",
     )}</p>${retryButton()}`;
+    return compact ? `${failure}${endpoints}` : `${endpoints}${failure}`;
   }
-  return `${endpoints}<p class="member-diff-source-unavailable">A paired authored Source comparison is unavailable for these endpoints.</p>`;
+  const unavailable = '<p class="member-diff-source-unavailable">A paired authored Source comparison is unavailable for these endpoints.</p>';
+  return compact
+    ? `${unavailable}${endpoints}`
+    : `${endpoints}${unavailable}`;
 }
 
 function renderSourcePane(
   state: MemberDiffExplorerSourceState,
   context: LibraryApiDiffMemberExploreContext,
   escapeHtml: (value: unknown) => string,
+  compact = false,
 ): string {
+  const endpointContext = (stateText: string): string => {
+    return compact
+      ? compactDestinationNotices(context, escapeHtml)
+      : requestedEndpoints(context, stateText, escapeHtml);
+  };
   switch (state.status) {
     case "idle":
     case "loading":
-      return `${requestedEndpoints(
-        context,
-        "Loading authored Source…",
-        escapeHtml,
-      )}<p class="member-diff-source-loading" role="status">Loading authored Source…</p>`;
+      return `${endpointContext("Loading authored Source…")}<p class="member-diff-source-loading" role="status">Loading authored Source…</p>`;
     case "failed":
-      return `${requestedEndpoints(
-        context,
-        "Authored Source request failed.",
-        escapeHtml,
-      )}<p class="member-diff-source-failure">${escapeHtml(state.error)}</p>${retryButton()}`;
+      return `${endpointContext("Authored Source request failed.")}<p class="member-diff-source-failure">${escapeHtml(state.error)}</p>${retryButton()}`;
     case "canceled":
-      return `${requestedEndpoints(
-        context,
-        "Authored Source request canceled.",
-        escapeHtml,
-      )}<p class="member-diff-source-canceled">${escapeHtml(state.reason)}</p>${retryButton()}`;
+      return `${endpointContext("Authored Source request canceled.")}<p class="member-diff-source-canceled">${escapeHtml(state.reason)}</p>${retryButton()}`;
     case "ready": {
       const result = state.result;
       if (result.kind === "Succeeded" && result.value !== null) {
-        return renderComparedSource(result.value, context, escapeHtml);
+        return renderComparedSource(result.value, context, escapeHtml, compact);
       }
       if (result.kind === "TooComplex" && result.capacity !== null) {
-        return `${requestedEndpoints(
-          context,
+        const failure = `<p class="member-diff-source-failure">Authored Source exceeds the ${escapeHtml(result.capacity.dimension)} capacity: ${result.capacity.actual.toLocaleString()} observed, ${result.capacity.limit.toLocaleString()} allowed.</p>${retryButton()}`;
+        const endpoints = endpointContext(
           "Authored Source comparison exceeded capacity.",
-          escapeHtml,
-        )}<p class="member-diff-source-failure">Authored Source exceeds the ${escapeHtml(result.capacity.dimension)} capacity: ${result.capacity.actual.toLocaleString()} observed, ${result.capacity.limit.toLocaleString()} allowed.</p>${retryButton()}`;
+        );
+        return `${endpoints}${failure}`;
       }
       if (result.kind === "Canceled") {
-        return `${requestedEndpoints(
-          context,
-          "Authored Source request canceled.",
-          escapeHtml,
-        )}<p class="member-diff-source-canceled">${escapeHtml(result.reason ?? "Authored Source was canceled.")}</p>${retryButton()}`;
+        const canceled = `<p class="member-diff-source-canceled">${escapeHtml(result.reason ?? "Authored Source was canceled.")}</p>${retryButton()}`;
+        const endpoints = endpointContext("Authored Source request canceled.");
+        return `${endpoints}${canceled}`;
       }
-      return `${requestedEndpoints(
-        context,
-        "Authored Source request failed.",
-        escapeHtml,
-      )}<p class="member-diff-source-failure">${escapeHtml(
+      const failure = `<p class="member-diff-source-failure">${escapeHtml(
         result.error ?? result.reason ?? "Authored Source failed.",
       )}</p>${retryButton()}`;
+      const endpoints = endpointContext("Authored Source request failed.");
+      return `${endpoints}${failure}`;
     }
   }
   const exhaustive: never = state;
@@ -582,6 +707,16 @@ function isRetainable(result: BrowserSourceComparisonResult): boolean {
   return result.kind === "Succeeded"
     && result.value !== null
     && result.value.status !== "Failed";
+}
+
+function retriesOnActivation(source: MemberDiffExplorerSourceState): boolean {
+  return source.status === "failed"
+    || source.status === "canceled"
+    || (source.status === "ready"
+      && (source.result.kind === "Failed"
+        || source.result.kind === "Canceled"
+        || (source.result.kind === "Succeeded"
+          && source.result.value?.status === "Failed")));
 }
 
 export function createMemberDiffExplorer(
@@ -637,7 +772,10 @@ export function createMemberDiffExplorer(
       case "replaced": {
         const alreadyLoading = source.status === "loading";
         source = { status: "loading" };
-        if (!alreadyLoading) render();
+        if (!alreadyLoading) {
+          render();
+          dependencies.renderPage();
+        }
         break;
       }
       case "terminal": {
@@ -655,6 +793,7 @@ export function createMemberDiffExplorer(
           retained = null;
         }
         render();
+        dependencies.renderPage();
         break;
       }
       case "canceled":
@@ -663,6 +802,7 @@ export function createMemberDiffExplorer(
           reason: "Authored Source was canceled.",
         };
         render();
+        dependencies.renderPage();
         break;
       case "disposed":
         break;
@@ -749,6 +889,7 @@ export function createMemberDiffExplorer(
         error: dependencies.describeError(error),
       };
       render();
+      dependencies.renderPage();
       return;
     }
     const started = session.start({ context, request }, adapter);
@@ -758,17 +899,16 @@ export function createMemberDiffExplorer(
         error: "Authored Source could not start.",
       };
       render();
+      dependencies.renderPage();
     }
   }
 
   function close(
     restoreFocus: boolean,
-    reason: OperationCancelReason,
+    _reason: OperationCancelReason,
   ): void {
     const returnTarget = invoker;
-    context = null;
     invoker = null;
-    session.cancelCurrent(reason);
     if (dialog !== null) {
       if (dialog.open) dialog.close();
       dialog.remove();
@@ -783,13 +923,35 @@ export function createMemberDiffExplorer(
     get isOpen() {
       return dialog !== null;
     },
+    renderInline(nextContext) {
+      return renderInlineMemberSourceDiff(
+        nextContext,
+        context !== null && sameContext(context, nextContext)
+          ? source
+          : { status: "idle" },
+        dependencies.escapeHtml,
+      );
+    },
+    bindInline(root) {
+      root.querySelector<HTMLElement>("[data-member-diff-source-show]")
+        ?.addEventListener("click", startSource);
+      root.querySelector<HTMLElement>("[data-member-diff-source-retry]")
+        ?.addEventListener("click", startSource);
+    },
     open(nextContext, nextInvoker) {
       if (dialog !== null) close(false, "superseded");
-      context = nextContext;
+      if (context === null || !sameContext(context, nextContext)) {
+        session.cancelCurrent("superseded");
+        context = nextContext;
+        source = retained !== null
+            && sameContext(retained.context, nextContext)
+          ? { status: "ready", result: retained.result }
+          : { status: "idle" };
+      } else {
+        context = nextContext;
+        if (retriesOnActivation(source)) source = { status: "idle" };
+      }
       invoker = nextInvoker;
-      source = retained !== null && sameContext(retained.context, nextContext)
-        ? { status: "ready", result: retained.result }
-        : { status: "loading" };
       const nextDialog = dependencies.document.createElement("dialog");
       dialog = nextDialog;
       nextDialog.className = "member-diff-explorer";
@@ -815,20 +977,26 @@ export function createMemberDiffExplorer(
       nextDialog.showModal();
       nextDialog.querySelector<HTMLElement>("#member-diff-explorer-title")
         ?.focus();
-      if (retained === null || !sameContext(retained.context, nextContext)) {
+      if (source.status === "idle") {
         startSource();
       }
     },
     reconcile(nextContext) {
-      if (context === null || dialog === null) return false;
-      if (nextContext !== null && sameContext(context, nextContext)) {
+      if (nextContext !== null
+        && context !== null
+        && sameContext(context, nextContext)) {
         context = nextContext;
         return false;
       }
-      if (nextContext !== null && retained !== null
-        && !sameContext(retained.context, nextContext)) {
-        retained = null;
-      }
+      const dialogWasOpen = dialog !== null;
+      session.cancelCurrent("superseded");
+      context = nextContext;
+      source = nextContext !== null
+          && retained !== null
+          && sameContext(retained.context, nextContext)
+        ? { status: "ready", result: retained.result }
+        : { status: "idle" };
+      if (!dialogWasOpen) return false;
       pendingFallbackFocus = true;
       close(false, "superseded");
       return true;

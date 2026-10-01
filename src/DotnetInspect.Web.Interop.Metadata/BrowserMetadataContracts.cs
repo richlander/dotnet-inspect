@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using Wire = DotnetInspect.Web.Interop.Metadata.Wire;
 
 namespace DotnetInspect.Web.Interop.Metadata;
 
@@ -286,6 +287,15 @@ public sealed record BrowserMemberGroupDocumentDiagnostic(
     string Summary,
     string? Correspondence);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserMemberDocumentOutcome>))]
+public enum BrowserMemberDocumentOutcome
+{
+    Available,
+    Rejected,
+    Incomplete,
+    Failed,
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeMemberPopulationOutcome>))]
 public enum BrowserTypeMemberPopulationOutcome
 {
@@ -294,6 +304,24 @@ public enum BrowserTypeMemberPopulationOutcome
     Incomplete,
     Failed,
 }
+
+public sealed record BrowserMemberDocumentInspection(
+    BrowserMemberDocumentOutcome Outcome,
+    string? Detail,
+    BrowserMemberDocument? Document,
+    BrowserMemberGroupDocumentDiagnostic[] Diagnostics);
+
+public sealed record BrowserMemberDocument(
+    string TypeIdentity,
+    string MemberName,
+    int MetadataToken,
+    int BaselineOrdinal,
+    string DisplaySignature,
+    string CanonicalSignature,
+    string Fingerprint,
+    string Accessibility,
+    string Receiver,
+    Wire.DocumentationQueryOutcome? Documentation);
 
 public sealed record BrowserTypeMemberPopulationInspection(
     BrowserTypeMemberPopulationOutcome Outcome,
@@ -374,7 +402,8 @@ public sealed record BrowserMemberSurface(
     string AnchorTypeFullName,
     string? DeclaringTypeDefinitionId,
     string GraphSelectorKey,
-    BrowserMemberBodySelector[] BodySelectors);
+    BrowserMemberBodySelector[] BodySelectors,
+    int? BaselineOrdinal = null);
 
 public sealed record BrowserMemberBodySelector(
     int Token,
@@ -407,6 +436,71 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserGraphMemberSurface))]
 [JsonSerializable(typeof(BrowserMemberDeclaration))]
 [JsonSerializable(typeof(BrowserMemberGroupDocumentInspection))]
+[JsonSerializable(typeof(BrowserMemberDocumentInspection))]
+[JsonSerializable(
+    typeof(Wire.DocumentationQueryOutcome),
+    TypeInfoPropertyName = "DocumentationQueryOutcome")]
+[JsonSerializable(
+    typeof(Wire.DocumentationQueryOutcome.Completed),
+    TypeInfoPropertyName = "DocumentationQueryCompleted")]
+[JsonSerializable(
+    typeof(Wire.DocumentationQueryOutcome.RequestRejected),
+    TypeInfoPropertyName = "DocumentationQueryRequestRejected")]
+[JsonSerializable(
+    typeof(Wire.DocumentationQueryOutcome.Failed),
+    TypeInfoPropertyName = "DocumentationQueryFailed")]
+[JsonSerializable(
+    typeof(Wire.DocumentationQueryOutcome.Incomplete),
+    TypeInfoPropertyName = "DocumentationQueryIncomplete")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.Available),
+    TypeInfoPropertyName = "CompiledDocumentationAvailable")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.Absent),
+    TypeInfoPropertyName = "CompiledDocumentationAbsent")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.Unavailable),
+    TypeInfoPropertyName = "CompiledDocumentationUnavailable")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.Ambiguous),
+    TypeInfoPropertyName = "CompiledDocumentationAmbiguous")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.ContributionsRejected),
+    TypeInfoPropertyName = "CompiledDocumentationContributionsRejected")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.MalformedOrUnreadableDocument),
+    TypeInfoPropertyName =
+        "CompiledDocumentationMalformedOrUnreadableDocument")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.Incomplete),
+    TypeInfoPropertyName = "CompiledDocumentationIncomplete")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.RequestRejected),
+    TypeInfoPropertyName = "CompiledDocumentationRequestRejected")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.ContentAccessFailed),
+    TypeInfoPropertyName = "CompiledDocumentationContentAccessFailed")]
+[JsonSerializable(
+    typeof(Wire.AuthoredDocumentationOutcome.Available),
+    TypeInfoPropertyName = "AuthoredDocumentationAvailable")]
+[JsonSerializable(
+    typeof(Wire.AuthoredDocumentationOutcome.Absent),
+    TypeInfoPropertyName = "AuthoredDocumentationAbsent")]
+[JsonSerializable(
+    typeof(Wire.AuthoredDocumentationOutcome.Unavailable),
+    TypeInfoPropertyName = "AuthoredDocumentationUnavailable")]
+[JsonSerializable(
+    typeof(Wire.AuthoredDocumentationOutcome.Ambiguous),
+    TypeInfoPropertyName = "AuthoredDocumentationAmbiguous")]
+[JsonSerializable(
+    typeof(Wire.AuthoredDocumentationOutcome.Rejected),
+    TypeInfoPropertyName = "AuthoredDocumentationRejected")]
+[JsonSerializable(
+    typeof(Wire.AuthoredDocumentationOutcome.Failed),
+    TypeInfoPropertyName = "AuthoredDocumentationFailed")]
+[JsonSerializable(
+    typeof(Wire.AuthoredDocumentationOutcome.Incomplete),
+    TypeInfoPropertyName = "AuthoredDocumentationIncomplete")]
 [JsonSerializable(typeof(BrowserTypeMemberPopulationInspection))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(

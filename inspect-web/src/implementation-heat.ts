@@ -50,8 +50,7 @@ export interface ImplementationHeatFamilyCandidate {
   }>;
 }
 
-export function implementationHeatFamilyIsEligible(
-  typeAccessibility: string,
+export function implementationHeatVisibleFamilyIsEligible(
   groups: ReadonlyArray<ImplementationHeatFamilyCandidate>,
   group: ImplementationHeatFamilyCandidate,
 ): boolean {
@@ -62,11 +61,34 @@ export function implementationHeatFamilyIsEligible(
       && group.overloads.every(
         overload => overload.declaringTypeDefinitionId === declaringType));
   return supportedKind
-    && typeAccessibility === "public"
     && group.overloads.length > 1
-    && group.overloads.every(overload => overload.accessibility === "public")
     && groups.every(candidate =>
       candidate.name !== group.name || candidate.kind === group.kind);
+}
+
+export function implementationHeatFamilyIsEligible(
+  typeAccessibility: string,
+  groups: ReadonlyArray<ImplementationHeatFamilyCandidate>,
+  group: ImplementationHeatFamilyCandidate,
+): boolean {
+  return implementationHeatVisibleFamilyIsEligible(groups, group)
+    && typeAccessibility === "public"
+    && group.overloads.every(overload => overload.accessibility === "public");
+}
+
+export function implementationHeatVisibleFamilyMatchesRequest(
+  request: ImplementationHeatFamilyCandidate,
+  visible: ImplementationHeatFamilyCandidate,
+): boolean {
+  if (request.name !== visible.name || request.kind !== visible.kind)
+    return false;
+  if (request.kind === "method") return true;
+  const requestDeclaringType =
+    request.overloads[0]?.declaringTypeDefinitionId;
+  return request.kind === "extension-method"
+    && Boolean(requestDeclaringType)
+    && visible.overloads[0]?.declaringTypeDefinitionId
+      === requestDeclaringType;
 }
 
 export function typeHeatCacheKey(request: TypeHeatRequest): string {
@@ -149,9 +171,15 @@ function validateTypeHeat(
   }
 }
 
-/** Member-list evidence for one listed overload. */
+export interface VisibleOverloadHeatIdentity {
+  readonly stableSelector: string;
+  readonly metadataToken: number;
+}
+
+/** Member-list evidence for one visible overload. */
 interface OverloadHeat {
   readonly stableSelector: string;
+  readonly metadataToken: number;
   readonly size: number | null;
   /** Tint strength in (0, 1]; null when the row is untinted. */
   readonly heatStrength: number | null;
@@ -166,11 +194,22 @@ interface OverloadHeat {
  */
 type FamilyHeatStatus = "shown" | "suppressed" | "unknown-maximum";
 
+interface AnalyzedMethodHeat {
+  readonly metadataToken: number;
+  readonly isRosterMember: boolean;
+  readonly size: number | null;
+  readonly heatStrength: number | null;
+  readonly hub: boolean;
+  readonly incomingCallers: number;
+}
+
 export interface FamilyHeat {
   readonly status: FamilyHeatStatus;
   readonly maximum: number | null;
   readonly maximumIsUnlisted: boolean;
   readonly overloads: ReadonlyArray<OverloadHeat>;
+  readonly roster: ReadonlyArray<VisibleOverloadHeatIdentity>;
+  readonly methods: ReadonlyMap<number, AnalyzedMethodHeat>;
 }
 
 /** Overloads at or above this share of the family maximum are tinted. */
@@ -187,20 +226,14 @@ function plural(count: number, noun: string): string {
 export function projectFamilyHeat(
   family: BrowserImplementationHeatFamily,
 ): FamilyHeat {
-  const byToken = new Map(family.methods.map(method =>
-    [method.metadataToken, method]));
   const measured = family.methods.filter(method => method.size !== null);
   const unknownMaximum = family.unavailableBodies.length > 0
     || family.methods.some(method => method.hasBody && !method.isComplete);
   let maximum: number | null = null;
-  let maximumIsUnlisted = false;
   for (const method of measured) {
     const size = method.size ?? 0;
     if (maximum === null || size > maximum) {
       maximum = size;
-      maximumIsUnlisted = !method.isRosterMember;
-    } else if (size === maximum && method.isRosterMember) {
-      maximumIsUnlisted = false;
     }
   }
   const status: FamilyHeatStatus = unknownMaximum
@@ -212,9 +245,8 @@ export function projectFamilyHeat(
       ? "suppressed"
       : "shown";
 
-  const overloads = family.roster.map(member => {
-    const token = member.metadataToken;
-    const method = byToken.get(token);
+  const methods = new Map(family.methods.map(method => {
+    const token = method.metadataToken;
     const size = method?.size ?? null;
     const callers = new Set(family.relationships
       .filter(relationship =>
@@ -237,24 +269,63 @@ export function projectFamilyHeat(
       && size >= maximum * heatThreshold
       ? Math.sqrt(size / maximum)
       : null;
-    const parts = [size === null
-      ? "No measured body"
-      : plural(size, "instruction")];
-    if (status === "shown" && size !== null && maximum !== null) {
-      parts.push(`${Math.round((size / maximum) * 100)}% of the largest body in this family${
-        maximumIsUnlisted ? ", which is not a listed overload" : ""}`);
-    }
-    if (hub) parts.push(`hub called by ${plural(callers.size, "same-name method")}`);
-    return {
-      stableSelector: member.stableSelector,
+    return [token, {
+      metadataToken: token,
+      isRosterMember: method.isRosterMember,
       size,
       heatStrength,
       hub,
       incomingCallers: callers.size,
+    }] as const;
+  }));
+  const roster = family.roster.map(member => ({
+    stableSelector: member.stableSelector,
+    metadataToken: member.metadataToken,
+  }));
+  return projectVisibleFamilyHeat(
+    { status, maximum, roster, methods },
+    roster);
+}
+
+function projectVisibleFamilyHeat(
+  family: Pick<FamilyHeat, "status" | "maximum" | "roster" | "methods">,
+  visible: ReadonlyArray<VisibleOverloadHeatIdentity>,
+): FamilyHeat {
+  const maximumIsUnlisted = family.maximum !== null
+    && !visible.some(overload =>
+      family.methods.get(overload.metadataToken)?.size === family.maximum);
+  const overloads = visible.map(overload => {
+    const method = family.methods.get(overload.metadataToken);
+    const size = method?.size ?? null;
+    const parts = [size === null
+      ? "No measured body"
+      : plural(size, "instruction")];
+    if (family.status === "shown"
+      && size !== null
+      && family.maximum !== null) {
+      parts.push(`${Math.round((size / family.maximum) * 100)}% of the largest body in this family${
+        maximumIsUnlisted ? ", which is not a listed overload" : ""}`);
+    }
+    if (method?.hub) {
+      parts.push(`hub called by ${plural(
+        method.incomingCallers,
+        "same-name method")}`);
+    }
+    return {
+      stableSelector: overload.stableSelector,
+      metadataToken: overload.metadataToken,
+      size,
+      heatStrength: method?.heatStrength ?? null,
+      hub: method?.hub ?? false,
+      incomingCallers: method?.incomingCallers ?? 0,
       description: parts.join("; "),
     };
   });
-  return { status, maximum, maximumIsUnlisted, overloads };
+  return {
+    ...family,
+    maximumIsUnlisted,
+    overloads,
+  };
 }
 
 export type TypeHeatState =
@@ -269,7 +340,6 @@ export type TypeHeatState =
       readonly request: TypeHeatRequest;
       readonly isCurrent: () => boolean;
       readonly families: ReadonlyMap<string, FamilyHeat>;
-      readonly rosters: ReadonlyMap<string, ReadonlyArray<string>>;
     }
   | {
       readonly status: "failed";
@@ -293,28 +363,52 @@ export type TypeHeatCue =
     };
 
 /**
- * Looks up one member-list family's heat. The record decides eligibility: a
- * family whose listed selectors differ from the record's roster has no heat.
+ * Looks up one member-list family's heat. Public rows must match the request
+ * roster exactly. Non-public rows join only exact analyzed MethodDef tokens.
  */
 export function familyHeatFor(
   state: TypeHeatState,
   member: string,
-  stableSelectors: ReadonlyArray<string>,
+  accessibility: string,
+  visible: ReadonlyArray<VisibleOverloadHeatIdentity>,
 ): FamilyHeat | null {
   if (state.status !== "ready") return null;
-  const roster = state.rosters.get(member);
-  if (roster === undefined
-    || roster.length !== stableSelectors.length
-    || roster.some(selector => !stableSelectors.includes(selector))) {
+  const family = state.families.get(member);
+  if (family === undefined || visible.length < 2) return null;
+  const tokens = new Set(visible.map(overload => overload.metadataToken));
+  if (tokens.size !== visible.length) return null;
+  if (accessibility === "public") {
+    if (family.roster.length !== visible.length
+      || family.roster.some(rosterMember => !visible.some(overload =>
+        overload.metadataToken === rosterMember.metadataToken
+        && overload.stableSelector === rosterMember.stableSelector))) {
+      return null;
+    }
+  } else if (accessibility === "all") {
+    if (visible.some(overload => {
+      const method = family.methods.get(overload.metadataToken);
+      if (method === undefined) return true;
+      return method.isRosterMember
+        && !family.roster.some(rosterMember =>
+          rosterMember.metadataToken === overload.metadataToken
+          && rosterMember.stableSelector === overload.stableSelector);
+    })) {
+      return null;
+    }
+  } else if (visible.some(overload => {
+    const method = family.methods.get(overload.metadataToken);
+    return method === undefined || method.isRosterMember;
+  })) {
     return null;
   }
-  return state.families.get(member) ?? null;
+  return projectVisibleFamilyHeat(family, visible);
 }
 
 export function familyHeatCue(
   state: TypeHeatState,
   member: string,
-  stableSelectors: ReadonlyArray<string>,
+  accessibility: string,
+  visible: ReadonlyArray<VisibleOverloadHeatIdentity>,
 ): TypeHeatCue | null {
   switch (state.status) {
     case "idle":
@@ -324,7 +418,7 @@ export function familyHeatCue(
     case "failed":
       return { text: "heat unavailable", tone: "problem" };
     case "ready":
-      return familyHeatFor(state, member, stableSelectors)?.status
+      return familyHeatFor(state, member, accessibility, visible)?.status
         === "unknown-maximum"
         ? { text: "heat incomplete", tone: "problem" }
         : null;
@@ -358,8 +452,6 @@ function project(
     isCurrent,
     families: new Map(heat.content.families.map(family =>
       [family.member, projectFamilyHeat(family)])),
-    rosters: new Map(heat.content.families.map(family =>
-      [family.member, family.roster.map(member => member.stableSelector)])),
   };
 }
 

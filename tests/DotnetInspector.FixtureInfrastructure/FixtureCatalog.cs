@@ -60,6 +60,12 @@ public static class FixtureIds
         "metadata.api-correspondence.v2";
     public const string MetadataMemorySafety = "metadata.memory-safety";
     public const string MetadataEnablements = "metadata.enablements";
+    public const string MetadataSourceProvenance =
+        "metadata.source-provenance";
+    public const string MetadataSourceProvenanceLookalike =
+        "metadata.source-provenance.lookalike";
+    public const string MetadataSourceProvenanceNetStandard =
+        "metadata.source-provenance.netstandard";
     public const string MetadataInterfaceImplContracts =
         "metadata.interfaceimpl.contracts";
     public const string MetadataInterfaceImplFixtures =
@@ -180,6 +186,7 @@ public static class FixtureIds
     public const string SourceLinkVisualBasic = "sourcelink.visual-basic";
 
     public const string ResearchTargetSample = "research.target-sample";
+    public const string ResearchNameFamilies = "research.name-families";
     public const string ResearchTargetCorrespondenceV1 =
         "research.target-correspondence.v1";
     public const string ResearchTargetCorrespondenceV2 =
@@ -284,7 +291,11 @@ public static class FixtureCatalog
         Asset(
             "documentation",
             "InspectWeb.DocumentationFixtures",
-            "InspectWeb.DocumentationFixtures.xml"));
+            "InspectWeb.DocumentationFixtures.xml"),
+        Asset(
+            "pdb",
+            "InspectWeb.DocumentationFixtures",
+            "InspectWeb.DocumentationFixtures.pdb"));
 
     public static readonly FixtureDefinition InspectWebMethodBodies = Fixture(
         FixtureIds.InspectWebMethodBodies,
@@ -344,6 +355,37 @@ public static class FixtureCatalog
         "ILInspector.Metadata.EnablementFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "metadata", "enablements", "runtime-async");
+
+    public static readonly FixtureDefinition MetadataSourceProvenance =
+        Fixture(
+            FixtureIds.MetadataSourceProvenance,
+            "ILInspector.Metadata.SourceProvenanceFixtures",
+            "ILInspector.Metadata.SourceProvenanceFixtures.dll",
+            Boundaries(
+                FixtureBoundary.CompilerLowering,
+                FixtureBoundary.CrossAssemblyBoundary),
+            "metadata", "pdb", "source-provenance");
+
+    public static readonly FixtureDefinition MetadataSourceProvenanceLookalike =
+        Fixture(
+            FixtureIds.MetadataSourceProvenanceLookalike,
+            "ILInspector.Metadata.SourceProvenanceLookalike",
+            "ILInspector.Metadata.SourceProvenanceLookalike.dll",
+            Boundaries(
+                FixtureBoundary.AssemblyIdentity,
+                FixtureBoundary.CrossAssemblyBoundary),
+            "metadata", "pdb", "source-provenance", "lookalike");
+
+    public static readonly FixtureDefinition
+        MetadataSourceProvenanceNetStandard =
+            Fixture(
+                FixtureIds.MetadataSourceProvenanceNetStandard,
+                "ILInspector.Metadata.SourceProvenanceNetStandard",
+                "ILInspector.Metadata.SourceProvenanceNetStandard.dll",
+                Boundaries(
+                    FixtureBoundary.FrameworkReference,
+                    FixtureBoundary.TargetFramework),
+                "metadata", "pdb", "source-provenance", "netstandard");
 
     public static readonly FixtureDefinition MetadataInterfaceImplContracts =
         Fixture(
@@ -503,6 +545,17 @@ public static class FixtureCatalog
         "ILInspector.Research.TargetFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "research", "target", "accessor-role", "type-forwarder");
+
+    /// <summary>
+    /// Scenario-adjacent Type names and embedded PDB evidence for Library
+    /// name-family aggregation and source-provenance population lenses.
+    /// </summary>
+    public static readonly FixtureDefinition ResearchNameFamilies = Fixture(
+        FixtureIds.ResearchNameFamilies,
+        "ILInspector.Research.NameFamilyFixtures",
+        "ILInspector.Research.NameFamilyFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "research", "name-family", "source-provenance");
 
     public static readonly FixtureDefinition ResearchTargetCorrespondenceV1 =
         Fixture(
@@ -1113,6 +1166,9 @@ public static class FixtureCatalog
         MetadataApiCorrespondenceV2,
         MetadataMemorySafety,
         MetadataEnablements,
+        MetadataSourceProvenance,
+        MetadataSourceProvenanceLookalike,
+        MetadataSourceProvenanceNetStandard,
         MetadataInterfaceImplContracts,
         MetadataInterfaceImplFixtures,
         MetadataMethodImplContracts,
@@ -1215,6 +1271,7 @@ public static class FixtureCatalog
         MatchBindingDependency,
         MatchBindingFacade,
         MatchBindingImplementation,
+        ResearchNameFamilies,
         ResearchTargetSample,
         ResearchTargetCorrespondenceV1,
         ResearchTargetCorrespondenceV2,
@@ -1542,6 +1599,12 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
             "ILInspector.Metadata.EnablementFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.EnablementFixtures",
+            "ILInspector.Metadata.SourceProvenanceFixtures" =>
+                "fixtures/metadata/ILInspector.Metadata.SourceProvenanceFixtures",
+            "ILInspector.Metadata.SourceProvenanceLookalike" =>
+                "fixtures/metadata/ILInspector.Metadata.SourceProvenanceLookalike",
+            "ILInspector.Metadata.SourceProvenanceNetStandard" =>
+                "fixtures/metadata/ILInspector.Metadata.SourceProvenanceNetStandard",
             "ILInspector.Metadata.InterfaceImplContracts" =>
                 "fixtures/metadata/ILInspector.Metadata.InterfaceImplContracts",
             "ILInspector.Metadata.InterfaceImplFixtures" =>
@@ -1646,7 +1709,10 @@ public static class FixtureCatalog
             "ILInspector.Decompiler.Fixtures.UnsafeChainB" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.UnsafeChainB",
             "ILInspector.Decompiler.Fixtures.UnsafeChainC" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.UnsafeChainC",
             "ILInspector.Decompiler.Fixtures.VbFinalizer" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.VbFinalizer",
-            "ILInspector.Research.TargetFixtures" => "fixtures/research/ILInspector.Research.TargetFixtures",
+            "ILInspector.Research.NameFamilyFixtures" =>
+                "fixtures/research/ILInspector.Research.NameFamilyFixtures",
+            "ILInspector.Research.TargetFixtures" =>
+                "fixtures/research/ILInspector.Research.TargetFixtures",
             "ResearchTargetCorrespondenceFixtures.V1" => "fixtures/research/ResearchTargetCorrespondenceFixtures.V1",
             "ResearchTargetCorrespondenceFixtures.V2" => "fixtures/research/ResearchTargetCorrespondenceFixtures.V2",
             "RunFaster.AllocationFixture" => "fixtures/runfaster/RunFaster.AllocationFixture",

@@ -189,6 +189,70 @@ public sealed class BrowserMemberDeclarationTests
             singletonRow.DisplaySignature,
             StringComparison.Ordinal);
 
+        BrowserMemberDocumentInspection ordinalMember =
+            MemberDocument(
+                await MetadataExports.QueryMemberDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "PointerFreeUnsafeMethod",
+                    singletonRow.BaselineOrdinal,
+                    ""));
+        BrowserMemberDocumentInspection fingerprintMember =
+            MemberDocument(
+                await MetadataExports.QueryMemberDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "PointerFreeUnsafeMethod",
+                    0,
+                    singletonRow.Fingerprint));
+        Assert.Equal(
+            BrowserMemberDocumentOutcome.Available,
+            ordinalMember.Outcome);
+        BrowserMemberDocument exactDocument =
+            Assert.IsType<BrowserMemberDocument>(
+                ordinalMember.Document);
+        Assert.Equal(SpellingType, exactDocument.TypeIdentity);
+        Assert.Equal(
+            "PointerFreeUnsafeMethod",
+            exactDocument.MemberName);
+        Assert.Equal(
+            singletonRow.MetadataToken,
+            exactDocument.MetadataToken);
+        Assert.Equal(
+            singletonRow.BaselineOrdinal,
+            exactDocument.BaselineOrdinal);
+        Assert.Equal(
+            singletonRow.CanonicalSignature,
+            exactDocument.CanonicalSignature);
+        Assert.Equivalent(
+            exactDocument,
+            Assert.IsType<BrowserMemberDocument>(
+                fingerprintMember.Document),
+            strict: true);
+
+        BrowserMemberDocumentInspection missingMember =
+            MemberDocument(
+                await MetadataExports.QueryMemberDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "PointerFreeUnsafeMethod",
+                    2,
+                    ""));
+        Assert.Equal(
+            BrowserMemberDocumentOutcome.Rejected,
+            missingMember.Outcome);
+        Assert.Null(missingMember.Document);
+        Assert.NotNull(missingMember.Detail);
+
         BrowserMemberGroupDocumentInspection uploadedGroup =
             MemberGroupDocument(
                 await MetadataExports.QueryUploadedLibraryMemberGroupDocument(
@@ -228,6 +292,71 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Equal(
             packageMembers.Composition.Public,
             packageMembers.Groups.Sum(group => group.Members.Length));
+        BrowserTypeMemberPopulationInspection metadataPopulation =
+            TypeMemberPopulation(
+                await MetadataExports.QueryTypeMemberPopulation(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "metadata",
+                    "public"));
+        BrowserTypeMemberPopulation metadataMembers =
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                metadataPopulation.Population);
+        BrowserTypeMemberPopulationGroup getter = Assert.Single(
+            metadataMembers.Groups,
+            group => group.Name == "get_Type");
+        Assert.All(
+            getter.Members,
+            static member => Assert.Null(member.BaselineOrdinal));
+        BrowserTypeMemberPopulationGroup metadataMethod = Assert.Single(
+            metadataMembers.Groups,
+            group => group.Name == "PointerFreeUnsafeMethod");
+        Assert.Equal<int?>(
+            [1],
+            metadataMethod.Members.Select(member => member.BaselineOrdinal));
+        BrowserTypeMemberPopulationInspection privatePopulation =
+            TypeMemberPopulation(
+                await MetadataExports.QueryTypeMemberPopulation(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "metadata",
+                    "private"));
+        BrowserTypeMemberPopulation privateMembers =
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                privatePopulation.Population);
+        BrowserMemberSurface[] privateRows =
+            [.. privateMembers.Groups.SelectMany(group => group.Members)];
+        Assert.NotEmpty(privateRows);
+        Assert.All(
+            privateRows,
+            static member => Assert.Null(member.BaselineOrdinal));
+
+        BrowserTypeMemberPopulationInspection allPopulation =
+            TypeMemberPopulation(
+                await MetadataExports.QueryTypeMemberPopulation(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "metadata",
+                    "all"));
+        BrowserTypeMemberPopulation allMembers =
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                allPopulation.Population);
+        Assert.Equal("All", allMembers.Accessibility);
+        Assert.Equal(
+            allMembers.Composition.Public
+                + allMembers.Composition.Protected
+                + allMembers.Composition.Internal
+                + allMembers.Composition.Private,
+            allMembers.Groups.Sum(group => group.Members.Length));
 
         BrowserTypeMemberPopulationInspection uploadedPopulation =
             TypeMemberPopulation(
@@ -249,6 +378,9 @@ public sealed class BrowserMemberDeclarationTests
             group => group.Name == "Examine");
         Assert.Equal(5, examine.Members.Length);
         Assert.Equal(5, examine.CompleteCount);
+        Assert.Equal<int?>(
+            [1, 2, 3, 4, 5],
+            examine.Members.Select(member => member.BaselineOrdinal));
 
         BrowserMemberGroupDocumentInspection missingGroup =
             MemberGroupDocument(
@@ -931,6 +1063,15 @@ public sealed class BrowserMemberDeclarationTests
                 .BrowserMemberGroupDocumentInspection)
         ?? throw new InvalidOperationException(
             "The browser member-group export returned null.");
+
+    static BrowserMemberDocumentInspection MemberDocument(
+        string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            BrowserMetadataJsonContext.Default
+                .BrowserMemberDocumentInspection)
+        ?? throw new InvalidOperationException(
+            "The browser Member export returned null.");
 
     static BrowserTypeMemberPopulationInspection TypeMemberPopulation(
         string json) =>

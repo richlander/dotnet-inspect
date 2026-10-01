@@ -161,23 +161,42 @@ The literal dot is significant: `System.Text.Json.Nodes.*` excludes
 `System.Text.Json.NodesExtra`, while `System.Text.Json.Nodes*` remains the
 broader lexical Type glob with `Glob` classification.
 
-When neither a direct Type nor an exact namespace matches, `find` broadens in
-ranked tiers without wildcard syntax:
+`find` classifies each Type independently without requiring wildcard syntax:
 
 ```bash
-dotnet-inspect find JsonSer       # Prefix: JsonSerializer first
+dotnet-inspect find JsonSer       # Prefix and similar Types in discovery order
 dotnet-inspect find Serializer    # Substring: XmlSerializer, JsonSerializer, ...
 dotnet-inspect find AppendFormat  # Members: StringBuilder.AppendFormat overloads
 ```
 
-A name prefix settles the answer with `Prefix` rows, shortest name first. An
-undotted identifier with no Prefix Type also searches member names; Markdown
-shows those rows in a `Members` section before any `Substring` Type rows.
-Similarity suggestions (`Partial`) remain the last resort and are ordered by
-score. The `Match` value names each broadened tier. Plain `--json` and table
-formats keep Type rows only and note omitted member matches; `--count` rejects
-an answer that includes them. Use `find .AppendFormat` for member rows in
-every format.
+Each candidate receives one `Exact`, `Direct`, `Glob`, `Namespace`, `Prefix`,
+`Substring`, or `Partial` classification. Exact and broader classes can mix;
+the rows retain source and declaration discovery order rather than sorting by
+name or similarity score. An undotted identifier without an Exact, Direct,
+Glob, Namespace, or Prefix Type may also search member names; Markdown shows
+those rows in a separate `Members` section. Plain `--json` and table formats
+keep Type rows only and note omitted member matches; `--count` rejects an
+answer that includes them. Use `find .AppendFormat` for member rows in every
+format.
+
+`-n N` is also Find's maximum hit budget across its Type or Member patterns.
+For Type search, duplicate identity and per-candidate classification occur
+before the budget. Find keeps the Nth accepted candidate, then stops before
+the next Type, query participant, pattern group, source, or implicit broadened
+Member fallback. Use a leading dot or `--members` when Member rows are the
+requested bounded answer. If Type rows do not fill the budget, implicit Member
+fallback may still contribute and its rows precede weak Type rows in the
+presented answer. The current reverse-locator package route applies Head after
+its complete resident census; other compatibility and Platform routes stop
+metadata traversal directly.
+
+A sole finite `--rows A..B` or `--rows ..B` similarly stops after accepted row
+B for explicit Member Find and for Type patterns that cannot enter implicit
+Member fallback, such as wildcard or dotted patterns. The strict window still
+fails when row B does not exist. Ordinary undotted Type patterns remain
+exhaustive because fallback Member rows can precede Type rows and suppress weak
+Type matches. `--tail`, open-ended windows, and multi-stage row selection also
+remain exhaustive.
 
 ### Library namespace Type listings
 
@@ -289,6 +308,7 @@ stderr rather than mixed into structured output.
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
+| Library vocabulary | `library -S "Name Families"` | Ranked one- and two-word Type-name suffix families, exact supporting Type evidence, and optional source-provenance populations. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
 | Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
@@ -1278,8 +1298,17 @@ An exact method name selects its MemberGroup. Its default output is a native
 Tree rooted at one compact identity line and containing every public,
 non-hidden exact overload; explicit `--tree` renders the same population.
 This remains a MemberGroup when the selected version has one overload.
+Use `--columns "Signature;Description"` to request compiled documentation for
+each returned exact overload and render the bounded population as a table.
 Select an exact Member with an ordinal or digest when the intended subject is
-one declaration rather than its overload family.
+one declaration rather than its overload family. Its native default is one
+singular Signature view containing the display signature, digest, and canonical
+signature, followed by its independently settled compiled-documentation
+outcome, with no sibling Rows or Count. Missing or failed documentation remains
+visible without invalidating the resolved Member document. The one-based
+ordinal selects from the current MemberGroup's stable baseline order; after
+resolution, the owner-issued exact identity and population binding replace that
+ordinal as the durable subject.
 
 `--all` is an API visibility option. API-level commands use their ordinary
 public-facing declaration population by default; add `--all` when the
@@ -1299,14 +1328,23 @@ Member root. Once resolved, the implementation operation uses its complete
 admitted body population by default; `--all` does not widen traversal, select
 more relationships, or request every analysis.
 
+`-k`/`--kind` filters the logical C# declaration kind. Explicit interface
+properties and events compose their accessors into one `property` or `event`
+row, so select them with `-k property` or `-k event`.
+`-k explicit-interface-implementation` selects explicit method
+implementations that are not composed into a property or event declaration.
+
 Exact `library ... -S "Library Metrics" --json` emits the complete Research
 `LibraryStructuralReportDocument`: the Analysis receipt and coverage,
 numeric distributions and maximum-body identities, async disposition, typed
 type summaries, cross-type relationships, Analysis diagnostics, and the
 methodology-v2 Type-leverage document. Type leverage preserves exact metadata
 type identities, the separately ordered sea-level and mountain-peak rankings,
-role and evidence qualifications, Metadata signature-use and Analysis body-use
-receipts, and Graph work receipts.
+raw directional degrees, one nullable dominant pole per Type, role and evidence
+qualifications, Metadata signature-use and Analysis body-use receipts, and
+Graph work receipts. A Type that qualifies at both directional maxima receives
+the larger-degree pole; an exact degree tie receives no pole while remaining
+in both rankings.
 `--envelope` emits identical `content` plus Share and operation diagnostics:
 
 ```bash
@@ -1329,6 +1367,35 @@ summaries carry exact metadata keys separately from display labels, and every
 relationship endpoint names a retained summary, so a Copilot App can render an
 SVG without recovering identity from display text. Library Metrics Share is
 currently `nonProjectable`.
+
+Exact `library ... -S "Name Families"` reports the most prevalent one- and
+two-word Type-name suffix families in one Library. The default `all`
+population covers every Type definition. `--name-family-population` selects
+`ordinary`, `generated`, `mixed`, or `unknown` when exactly bound source
+provenance is available:
+
+```bash
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Name Families" -n 10 --head
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Name Families" --name-family-population ordinary --count
+```
+
+`-n`, `--head`, `--tail`, and `--rows` are semantic QuerySpace selection over
+family rows; `--count` executes the corresponding QuerySpace Count terminal.
+The section is explicit-only and is not added by verbosity or category
+selection.
+
+Exact `-S "Name Families" --json` emits complete Content: every Type word and
+residual row, every population and family member address, methodology and
+oracle identity, provenance qualification, and partition receipts.
+`--envelope` emits the same Content plus a currently `nonProjectable` Share.
+These complete transports accept the population selector but reject row,
+field, column, Count, discovery, print, and shape projection. Markdown, table,
+TSV, and JSONL lower only the already selected family rows and show at most
+five labeled Type examples per family.
 
 See [API and implementation population scope](design/api-population-scope.md)
 for the distinction between API visibility, implementation completeness, and

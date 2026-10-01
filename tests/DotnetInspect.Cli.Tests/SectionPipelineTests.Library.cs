@@ -103,7 +103,7 @@ public partial class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(52 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(53 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
         Assert.Contains(IntegrationSectionNames.Integrations, pipeline.AllSectionNames);
         Assert.Contains("Context: Callsite", pipeline.AllSectionNames);
@@ -124,6 +124,7 @@ public partial class SectionPipelineTests
         Assert.Contains("Switches", pipeline.AllSectionNames);
         Assert.Contains("Top Leverage", pipeline.AllSectionNames);
         Assert.Contains("Library Metrics", pipeline.AllSectionNames);
+        Assert.Contains("Name Families", pipeline.AllSectionNames);
         Assert.Contains("Performance: Boxing", pipeline.AllSectionNames);
         Assert.Contains("Performance: Arrays", pipeline.AllSectionNames);
         Assert.Contains("Performance: Closures and Delegates", pipeline.AllSectionNames);
@@ -207,6 +208,8 @@ public partial class SectionPipelineTests
                 LibrarySections.MemberMetrics.SizeClass),
             (LibrarySections.LibraryMetrics.Name,
                 LibrarySections.LibraryMetrics.SizeClass),
+            (LibrarySections.NameFamilies.Name,
+                LibrarySections.NameFamilies.SizeClass),
             (LibrarySections.BodyShapes.Name,
                 LibrarySections.BodyShapes.SizeClass),
             (LibrarySections.BodyShapeSummary.Name,
@@ -611,6 +614,7 @@ public partial class SectionPipelineTests
                 SectionNames.UnsafeMembers,
                 SectionNames.MemberMetrics,
                 SectionNames.LibraryMetrics,
+                SectionNames.NameFamilies,
                 SectionNames.BodyShapes,
                 SectionNames.BodyShapeSummary,
                 SectionNames.CloneCandidates,
@@ -1844,6 +1848,7 @@ public partial class SectionPipelineTests
                 ExtensionMethodsQuery.Definition,
                 ImplementationProfilesQuery.Definition,
                 LibraryMetricsQuery.Definition,
+                LibraryNameFamilyQuery.Definition,
                 MetadataImageQuery.Definition,
                 MethodClassificationDemand.AsyncMethods,
                 MethodClassificationDemand.LibraryInfo,

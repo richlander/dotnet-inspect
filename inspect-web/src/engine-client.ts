@@ -61,9 +61,11 @@ type MetadataOperations =
   | "findTypes"
   | "queryLibraryApiDiff"
   | "queryMemberDeclaration"
+  | "queryMemberDocument"
   | "queryMemberGroupDocument"
   | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
+  | "queryPlatformMemberDocument"
   | "queryPlatformMemberGroupDocument"
   | "queryPlatformTypeMemberPopulation"
   | "queryGraphMemberSurface"
@@ -83,8 +85,12 @@ type AnalysisOperations =
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
   | "queryPackageLibraryMetrics"
+  | "queryPackageLibraryNamespaceLeverage"
+  | "queryPackageNamespaceTypeLeverage"
   | "queryPlatformTypeImplementationHeat"
   | "queryPlatformLibraryMetrics"
+  | "queryPlatformLibraryNamespaceLeverage"
+  | "queryPlatformNamespaceTypeLeverage"
   | "queryPlatformIntegrations"
   | "queryPlatformOpportunities"
   | "queryPlatformPerformance";
@@ -128,6 +134,7 @@ type CatalogOperations =
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "inspectVocabulary"
+  | "listEcosystems"
   | "listHomeDemos"
   | "observeRetainedWorkspaceSettlement"
   | "preparePackageQueryWorkspaceDefinition"
@@ -153,6 +160,15 @@ export interface EngineClient {
   };
   readonly library: AsyncFacade<LibraryFacade, LibraryOperations>;
   readonly metadata: AsyncFacade<MetadataFacade, MetadataOperations> & {
+    readonly queryUploadedLibraryMemberDocument: (
+      libraryIdentity: string,
+      typeIdentity: string,
+      memberName: string,
+      baselineOrdinal: number,
+      fingerprintPrefix: string,
+    ) => Promise<Awaited<ReturnType<
+      MetadataFacade["queryUploadedLibraryMemberDocument"]
+    >>>;
     readonly queryUploadedLibraryMemberGroupDocument: (
       libraryIdentity: string,
       typeIdentity: string,

@@ -319,8 +319,13 @@ The category rules are:
 - a property signature with index parameters is an indexer, independent of its
   metadata name;
 - an event root is an event declaration;
+- every represented conventional accessor is owner-classified as an ordinary
+  callable with exact role correspondence;
 - a property or indexer may contain one getter, one setter, or both;
-- an event must contain exactly one add and one remove occurrence; and
+- a property or indexer has owner-classified conventional accessor
+  multiplicity;
+- an event must contain exactly one add and one remove occurrence;
+- an event's owner-issued add/remove staticness correspondence matches; and
 - every physical semantic occurrence is accounted for before acceptance.
 
 The initial indexer request preserves the conventional `Item` metadata name.
@@ -334,11 +339,15 @@ accepted accessor spelling becomes `init`.
 A complete valid aggregate containing `Fire` or any `Other` occurrence is
 `Unrepresentable`: C# has no property or event declaration form that preserves
 that physical semantic occurrence. A posted property or indexer with no
-conventional accessor is likewise `Unrepresentable`. Certified accessor
-absence, rejected accessor association, rejected or structurally incomplete
-aggregates, rejected containing-type posts, owner-issued coordinate mismatches,
-unsupported but potentially representable type shapes, and declaration facts
-outside this implementation boundary are `Unavailable`.
+conventional accessor is likewise `Unrepresentable`. Owner-issued non-ordinary
+callable evidence, role-correspondence mismatch, nonconventional property
+multiplicity, or event add/remove staticness mismatch is also
+`Unrepresentable`: complete Metadata evidence proves that no single faithful C#
+accessor declaration exists. Certified accessor absence, rejected accessor
+association, rejected or structurally incomplete aggregates, rejected
+containing-type posts, owner-issued coordinate mismatches, unsupported but
+potentially representable type shapes, and declaration facts outside this
+implementation boundary are `Unavailable`.
 
 Root or accessor attribute shapes that C# cannot reproduce are
 `Unrepresentable`; the accepted renderer never drops such flags while emitting
@@ -359,13 +368,44 @@ Rendering is mechanical over that request. It cannot reopen Metadata, choose a
 different target, drop a sibling, reclassify an accessor role, or make another
 representability decision.
 
-Explicit-interface property, indexer, and event requests remain `Unavailable`
-in this slice. The owner-issued MethodDef-to-root relationship now identifies
-the implementing aggregate without names or an independent MethodSemantics
-scan. A later slice must compose each MethodImpl declaration MethodDef through
-that same relationship, authenticate one interface aggregate and owner across
-all represented accessors, and preserve that explicit-interface identity in the
-accepted request.
+The explicit-interface successor covers locally resolved instance properties,
+indexers, and events. Capture retains one detached MethodImpl post for every
+represented conventional body accessor, follows each local declaration
+MethodDef through Metadata's MethodDef-to-root relationship, and posts the
+declaration-side aggregate. Acceptance requires:
+
+- exactly one MethodImpl and one exact InterfaceImpl relationship for every
+  represented conventional body accessor;
+- an interface TypeDef owner whose structured identity matches the MethodImpl
+  declaration owner;
+- one exact declaration-side accessor association with the same semantic role
+  as the body occurrence;
+- one shared interface owner and PropertyDef or EventDef aggregate across all
+  represented siblings; and
+- the same complete conventional role set on the body and declaration
+  aggregates.
+
+The declaration-side root supplies the accepted member name and member
+category. The body aggregate supplies the substituted value, event, and index
+parameter types and the exact selected and sibling body bindings. This split
+supports a constructed generic interface without treating its open declaration
+signature as the implementing source signature. The accepted request retains
+the interface structured identity and spelling, the declaration-side
+aggregate, and each exact MethodImpl and declaration-association certificate.
+Rendering omits implementation accessibility and declaration modifiers and
+qualifies the property, indexer, or event with the accepted interface spelling.
+
+Multiple complete MethodImpl or InterfaceImpl relationships are
+`Unrepresentable`, as is a complete sibling set that resolves to different
+interface owners or aggregates. A complete declaration aggregate with
+nonordinary callable evidence, role-correspondence mismatch, nonconventional
+property multiplicity, or event staticness mismatch is also
+`Unrepresentable`. Rejected, absent, unresolved, coordinate-mismatched, or
+unposted MethodImpl, InterfaceImpl, declaration-owner, reverse-association, or
+declaration-aggregate evidence is `Unavailable`. Static explicit-interface
+accessors and declaration-owner shapes outside the locally resolved instance
+boundary remain `Unavailable`; the decision does not infer explicit-interface
+identity from dotted root or accessor names.
 
 The existing standalone `ApiType`/`ApiMember` property admission and this
 detached accessor decision share one CSharp-owned normalized policy for
@@ -416,6 +456,8 @@ The implementation claim is enforced by focused Release tests:
 | `CDR012` | Init-only recognition requires the exact posted `IsExternalInit` modifier and preserves the original modified return identity. |
 | `CDR013` | Accessor and standalone property paths use the same normalized CSharp accessibility and declaration-modifier policy. |
 | `CDR014` | Accepted accessor requests and rendered stubs remain detached, target-specific, and language-profile-specific. |
+| `CDR015` | Acceptance requires owner-issued ordinary-callable, exact role-correspondence, conventional property-multiplicity, and matching event-staticness evidence. |
+| `CDR016` | Explicit-interface accessors are accepted only when every conventional sibling authenticates one shared local interface owner and aggregate through exact MethodImpl, InterfaceImpl, and declaration-accessor certificates. |
 
 The public input and result-shape test rejects live authority types in the post
 and outcome object graphs. Focused behavior tests prove the forbidden shortcut

@@ -267,7 +267,7 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
   await expect(page.locator("#inspector-panel")).toContainText("Runs the widget.");
 
   await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
-  const familyOverload = page.locator('[data-overload="0"]');
+  const familyOverload = page.locator('[data-overload="1"]');
   await expect(familyOverload).toBeVisible();
   await expect(page.locator(".member-surface-head p"))
     .toContainText("1 overload");
@@ -287,11 +287,11 @@ test("ranked Analysis members replace sticky private Type population intent", as
     '#type-list [data-type="asset:core:Example.Widget"]',
   ).click();
   await page.locator("#member-filter-summary").click();
-  await expect(page.locator('[data-member-access-filter="public"]'))
-    .toContainText("|");
-  await page.locator('[data-member-access-filter="private"]').click();
-  await expect(page.locator('[data-member-access-filter="private"]'))
-    .toHaveAttribute("aria-pressed", "true");
+  const accessibility = page.locator("[data-member-access-filter]");
+  await expect(accessibility.locator('option[value="public"]'))
+    .toContainText("·");
+  await accessibility.selectOption("private");
+  await expect(accessibility).toHaveValue("private");
 
   await chooseSubject(page, "library", "Library");
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
@@ -299,8 +299,8 @@ test("ranked Analysis members replace sticky private Type population intent", as
 
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
-  await expect(page.locator('[data-member-access-filter="public"]'))
-    .toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-member-access-filter]"))
+    .toHaveValue("public");
   await expect(page.locator("#inspector-panel")).toContainText(
     "Runs the widget.",
   );
@@ -329,7 +329,7 @@ test("ranked Analysis activation does not outlive newer metadata spelling", asyn
     /"csharp","public"\]$/,
   );
   await page.locator("#member-filter-summary").click();
-  await page.locator('[data-member-spelling="metadata"]').click();
+  await page.locator("[data-member-spelling]").selectOption("metadata");
   await expect(page.locator("html")).toHaveAttribute(
     "data-type-member-population-request",
     /"metadata","public"\]$/,
@@ -337,8 +337,8 @@ test("ranked Analysis activation does not outlive newer metadata spelling", asyn
 
   await releaseFacade(page, "finish-type-member-population");
 
-  await expect(page.locator('[data-member-spelling="metadata"]'))
-    .toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-member-spelling]"))
+    .toHaveValue("metadata");
   await expect(subjectTab(page, "type"))
     .toHaveAttribute("aria-selected", "true");
   await expect(subjectTab(page, "member"))

@@ -7,6 +7,58 @@ using ILInspector.MetadataPrimitives;
 namespace ILInspector.Metadata;
 
 /// <summary>
+/// Opaque identity for the exact image behind one assembly inspection session.
+/// It carries no access to the image.
+/// </summary>
+public sealed class AssemblyInspectionSubjectIdentity
+{
+    internal AssemblyInspectionSubjectIdentity()
+    {
+    }
+}
+
+/// <summary>
+/// Stack-only access to one exact operation over one exact assembly subject.
+/// </summary>
+public readonly ref struct AssemblyInspectionOperationAccess<TOperation>
+    where TOperation : class
+{
+    readonly ReadOnlyResourceSnapshotView<AssemblyInspectionSession> _snapshot;
+
+    internal AssemblyInspectionOperationAccess(
+        TOperation operation,
+        AssemblyInspectionSubjectIdentity subject,
+        ReadOnlyResourceSnapshotView<AssemblyInspectionSession> snapshot)
+    {
+        Operation = operation;
+        Subject = subject;
+        _snapshot = snapshot;
+    }
+
+    /// <summary>The exact operation for which the owner issued this access.</summary>
+    public TOperation Operation { get; }
+
+    /// <summary>The exact subject behind this access.</summary>
+    public AssemblyInspectionSubjectIdentity Subject { get; }
+
+    /// <summary>Whether session-owned admission found managed metadata.</summary>
+    public bool HasMetadata => _snapshot.Value.HasMetadata;
+
+    /// <summary>Lends the exact subject's reader for this synchronous operation.</summary>
+    public TResult InspectImage<TResult>(Func<PEReader, TResult> inspect) =>
+        _snapshot.Value.InspectImage(inspect);
+}
+
+/// <summary>
+/// Executes one operation while its exact assembly access remains live.
+/// </summary>
+public delegate TResult AssemblyInspectionOperationCallback<
+    TOperation,
+    TResult>(
+    scoped AssemblyInspectionOperationAccess<TOperation> access)
+    where TOperation : class;
+
+/// <summary>
 /// The assembly-level inspection hub. Opens a PE image once (via <see cref="AssemblyImage"/>) and
 /// produces assembly <em>facets</em> by delegating to the metadata scanners over the single shared
 /// reader. Callers never touch a <c>PEReader</c>; each facet is produced on request.
@@ -28,6 +80,7 @@ public sealed class AssemblyInspectionSession :
     IResourceSnapshotSource<AssemblyInspectionSession>
 {
     readonly AssemblyImage _image;
+    readonly AssemblyInspectionSubjectIdentity _subject = new();
     readonly Lazy<MetadataTypeDeclarationProbe.Index>
         _declarationIndex;
     MethodBodySource? _methodBodies;
@@ -95,7 +148,30 @@ public sealed class AssemblyInspectionSession :
     /// <c>BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed</c>.
     /// </summary>
     public static AssemblyInspectionSession Borrow(PdbContext context)
-        => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
+        => new(
+            AssemblyImage.Borrow(
+                context.BorrowedPEReader,
+                context.EnsureAliveForBorrower,
+                context.ArtifactIdentity));
+
+    /// <summary>
+    /// Exact acquisition-issued artifact identity retained by this image, when
+    /// the session was opened or borrowed from an artifact-backed descriptor.
+    /// </summary>
+    public AssemblyArtifactIdentity? ArtifactIdentity =>
+        _image.ArtifactIdentity;
+
+    /// <summary>
+    /// Whether this session and <paramref name="assembly"/> retain the same
+    /// acquisition-issued artifact identity.
+    /// </summary>
+    public bool IsSameArtifact(ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return ArtifactIdentity is { } sessionArtifact
+            && assembly.Registration.ArtifactIdentity is { } assemblyArtifact
+            && sessionArtifact == assemblyArtifact;
+    }
 
     public MetadataDeclarationSession CreateDeclarationSession(
         MetadataOperationContext operationContext)
@@ -149,6 +225,26 @@ public sealed class AssemblyInspectionSession :
         return callback(
             new ReadOnlyResourceSnapshotView<AssemblyInspectionSession>(this),
             state);
+    }
+
+    /// <summary>
+    /// Issues stack-only access binding one exact operation to this session's
+    /// exact subject for the duration of <paramref name="callback"/>.
+    /// </summary>
+    public TResult SnapshotOperation<TOperation, TResult>(
+        TOperation operation,
+        AssemblyInspectionOperationCallback<TOperation, TResult> callback)
+        where TOperation : class
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(callback);
+        _image.EnsureAlive();
+        return callback(
+            new AssemblyInspectionOperationAccess<TOperation>(
+                operation,
+                _subject,
+                new ReadOnlyResourceSnapshotView<AssemblyInspectionSession>(
+                    this)));
     }
 
     /// <summary>
@@ -225,8 +321,8 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
-    /// Produces the qualified whole-Library Type-to-Type signature-use
-    /// population for this exact image.
+    /// Produces one qualified whole-Library or exact-namespace Type-to-Type
+    /// signature-use population for this exact image.
     /// </summary>
     public MetadataLibrarySignatureUseOutcome LibrarySignatureUses(
         MetadataLibrarySignatureUseRequest request,
@@ -241,6 +337,29 @@ public sealed class AssemblyInspectionSession :
                 _image.Format);
         }
         return MetadataLibrarySignatureUseInspection.Execute(
+            _image.PEReader,
+            reader,
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Produces independently qualified exact-namespace Type-to-Type
+    /// signature-use populations through one shared image traversal.
+    /// </summary>
+    public MetadataLibrarySignatureUseBatchOutcome LibrarySignatureUseBatch(
+        MetadataLibrarySignatureUseBatchRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataLibrarySignatureUseBatchOutcome.Rejected(
+                MetadataLibrarySignatureUseRejectionKind.UnsupportedImage,
+                "The selected image contains no managed metadata.",
+                _image.Format);
+        }
+        return MetadataLibrarySignatureUseInspection.ExecuteBatch(
             _image.PEReader,
             reader,
             request,
@@ -305,6 +424,23 @@ public sealed class AssemblyInspectionSession :
     /// <summary>The public (or, with <paramref name="includeAll"/>, full) API surface.</summary>
     public ApiSurface ApiSurface(bool includeAll = false, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(_image.PEReader, includeAll, typesOnly);
+
+    /// <summary>
+    /// Reads API Types in metadata order and stops before the Type after
+    /// <paramref name="stopAfterType"/> first returns <see langword="true"/>.
+    /// </summary>
+    public ApiSurface ApiSurfaceUntil(
+        bool includeAll,
+        bool typesOnly,
+        Func<ApiType, bool> stopAfterType)
+    {
+        ArgumentNullException.ThrowIfNull(stopAfterType);
+        return ApiSurfaceExtractor.ExtractUntil(
+            _image.PEReader,
+            includeAll,
+            typesOnly,
+            stopAfterType);
+    }
 
     internal ApiSurface ApiSurface(
         ResolvedAssemblyReference source,

@@ -10,6 +10,7 @@ import {
 } from "./source-inspection.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 import { isForwardedType, type TypeInventoryRow } from "./platform-forwarders.ts";
+import type { TypeLeveragePole } from "./type-leverage.ts";
 
 export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
   "base · interfaces · derived — select a highlighted node to open";
@@ -309,6 +310,9 @@ export interface TypePanelBindingActions {
   onTypeSourceViewSelect: (view: TypeSourceView) => void;
   onExploreSource: () => void;
   onKindSelect: (kind: string) => void;
+  onTypeLeverageActivate?: () => void;
+  onTypeLeverageFilterSelect?: (filter: string) => void;
+  onTypeLeverageRetry: () => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
@@ -352,6 +356,18 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onKindSelect(button.dataset.kindFilter ?? "")));
+  root.querySelector("[data-type-leverage-activate]")?.addEventListener(
+    "click",
+    () => actions.onTypeLeverageActivate?.());
+  root.querySelector("[data-type-leverage-retry]")?.addEventListener(
+    "click",
+    actions.onTypeLeverageRetry);
+  root.querySelectorAll<HTMLElement>("[data-type-leverage-filter]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onTypeLeverageFilterSelect?.(
+          button.dataset.typeLeverageFilter ?? "")));
   root.querySelector("[data-type-nav-back]")?.addEventListener(
     "click",
     actions.onTypeNavBack);
@@ -389,30 +405,26 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onMemberOverloadOpen(Number(button.dataset.overload))));
-  root.querySelectorAll<HTMLElement>("[data-member-kind-filter]")
-    .forEach(button =>
-      button.addEventListener(
-        "click",
-        () => actions.onMemberKindFilterSelect(
-          button.dataset.memberKindFilter)));
-  root.querySelectorAll<HTMLElement>("[data-member-access-filter]")
-    .forEach(button =>
-      button.addEventListener(
-        "click",
-        () => actions.onMemberAccessibilityFilterSelect(
-          button.dataset.memberAccessFilter)));
-  root.querySelectorAll<HTMLElement>("[data-member-spelling]")
-    .forEach(button =>
-      button.addEventListener(
-        "click",
-        () => actions.onMemberSpellingSelect(
-          button.dataset.memberSpelling)));
-  root.querySelectorAll<HTMLElement>("[data-member-trait-filter]")
-    .forEach(button =>
-      button.addEventListener(
-        "click",
-        () => actions.onMemberTraitFilterSelect(
-          button.dataset.memberTraitFilter)));
+  root.querySelectorAll<HTMLSelectElement>("[data-member-kind-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onMemberKindFilterSelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-member-access-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onMemberAccessibilityFilterSelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-member-spelling]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onMemberSpellingSelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-member-trait-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onMemberTraitFilterSelect(select.value)));
   root.querySelector("#nav-to-types")?.addEventListener(
     "click",
     actions.onShowTypes);
@@ -542,8 +554,10 @@ export interface TypeNavOptions {
   kindFilter: string;
   namespaceCount: number;
   namespaceOptionsHtml: string;
+  namespaceSelectionValue?: (exactNamespace: string) => string;
   kindFilters: readonly string[];
   accessibilityControlHtml: string;
+  leverageControlHtml?: string;
   library: string;
   parentSubject: "package" | "platform" | "library" | null;
   filtersExpanded: boolean;
@@ -552,15 +566,35 @@ export interface TypeNavOptions {
   typeDisplayName: (item: TypeInventoryRow) => string;
   typeLibraryLabel: (item: TypeInventoryRow) => string;
   kindIcon: (kind: string) => string;
+  typeLeverageCue?: (item: TypeInventoryRow) => TypeNavLeverageCue | null;
+  namespaceLeverageCue?: (
+    exactNamespace: string,
+  ) => TypeNavNamespaceLeverageCue | null;
+}
+
+export interface TypeNavNamespaceLeverageCue {
+  topLeverage: boolean;
+  description: string;
+}
+
+export interface TypeNavLeverageCue {
+  pole: TypeLeveragePole;
+  description: string;
 }
 
 export function renderTypeNav(options: TypeNavOptions): string {
   const {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
     namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
+    leverageControlHtml = "",
     library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
     typeDisplayName, typeLibraryLabel, kindIcon, statusHtml = "",
   } = options;
+  const typeLeverageCue = options.typeLeverageCue ?? (() => null);
+  const namespaceLeverageCue =
+    options.namespaceLeverageCue ?? (() => null);
+  const namespaceSelectionValue =
+    options.namespaceSelectionValue ?? (namespace => namespace);
   return `
     <aside id="content-navigation-pane" class="type-browser" aria-label="Public types">
       <div class="browser-head">
@@ -597,21 +631,38 @@ export function renderTypeNav(options: TypeNavOptions): string {
             ${kindFilters.map(kind => `<button class="${kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
           </div>
           ${accessibilityControlHtml}
+          ${leverageControlHtml}
         </div>
       </details>
       ${statusHtml}
       <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
-        ${[...typeGroups].map(([namespace, types]) => `
-          <section class="type-group">
-            <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
+        ${[...typeGroups].map(([namespace, types]) => {
+          const namespaceLeverage = types.some(
+            type => !isForwardedType(type),
+          )
+            ? namespaceLeverageCue(namespace)
+            : null;
+          const namespaceLeverageHtml = namespaceLeverage?.topLeverage
+            ? `<span class="namespace-leverage-cue" role="img" aria-label="${escapeHtml(namespaceLeverage.description)}" title="${escapeHtml(namespaceLeverage.description)}">◆</span>`
+            : "";
+          return `
+          <section class="type-group${namespaceLeverage?.topLeverage ? " top-leverage" : ""}">
+            <button class="namespace-row" data-namespace="${escapeHtml(namespaceSelectionValue(namespace))}">
               <span class="chevron">⌄</span>
               <span>${escapeHtml(namespace)}</span>
+              ${namespaceLeverageHtml}
               <small>${types.length}</small>
             </button>
             ${types.map(item => {
               const selected = item.id === current?.id;
               const definingLibrary = typeLibraryLabel(item);
-              return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
+              const leverage = typeLeverageCue(item);
+              const leverageClass = leverage ? ` ${leverage.pole}` : "";
+              const leverageHtml = leverage
+                ? `<span class="type-leverage-icon ${leverage.pole}" role="img" aria-label="${escapeHtml(leverage.description)}" title="${escapeHtml(leverage.description)}"><span aria-hidden="true">${leverage.pole === "sea-level" ? "▁" : "▲"}</span></span>`
+                : "";
+              return `<button class="type-row ${selected ? "selected" : ""}${leverageClass}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
+                ${leverageHtml}
                 <span class="kind-icon" aria-hidden="true">${isForwardedType(item) ? "↗" : kindIcon(item.kind)}</span>
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
                 ${isForwardedType(item)
@@ -619,7 +670,8 @@ export function renderTypeNav(options: TypeNavOptions): string {
                   : `<small title="${item.members} ${item.members === 1 ? "member" : "members"}">${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${item.members}</small>`}
               </button>`;
             }).join("")}
-          </section>`).join("") || '<div class="empty-list">No public types match this filter.</div>'}
+          </section>`;
+        }).join("") || '<div class="empty-list">No public types match this filter.</div>'}
       </div>
       <footer class="pane-footer"><span>↑↓ types</span><span>←→ lens</span><span>↵ open</span></footer>
     </aside>`;

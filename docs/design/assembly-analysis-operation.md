@@ -2,7 +2,7 @@
 
 ## Status
 
-This is the proposed target composition contract for
+This is the target composition contract for
 [#8965](https://github.com/richlander/dotnet-inspect/issues/8965), the focused
 Library Body Analysis producer-hub retirement effort beneath
 [#8568](https://github.com/richlander/dotnet-inspect/issues/8568).
@@ -10,9 +10,17 @@ Library Body Analysis producer-hub retirement effort beneath
 The operator approved this House-shaped, session-aware composition: a
 resource-free operation describes the work, a stateless service executes it
 against explicit owner-issued access, and the returned execution retains only
-detached evidence. The first implementation adoption and every property under
-[Required evidence](#required-evidence) remain **unverified** until their
-named Release gates land.
+detached evidence. Unsafe-evidence presence is the first production adoption.
+It binds one single-producer Method request to stack-only session access,
+executes the owner-issued Method source, and publishes separate Method-source
+and Producer Planning receipts with the focused producer result. The first
+serial Method source delegates producer work to the existing sequential
+reference executor while owning source planning, binding, and receipt
+translation. The eight gates under
+[Required evidence](#required-evidence) verify the operation boundary in
+Release; the Method source's gates are listed in its owning design.
+Multi-request collapse, other source kinds, cancellation, and legacy-remainder
+composition remain **unverified**.
 
 ## Authority and exact claim
 
@@ -123,6 +131,10 @@ its own QuerySpace request. QuerySpace either keeps them separate or returns
 one collapsed source plan plus consumer residuals under
 [#8574](https://github.com/richlander/dotnet-inspect/issues/8574).
 
+The first reference Method request accepts exactly one planned producer. That
+restriction keeps its terminal and work receipt exact while request collapse
+is excluded from the slice; it is not a source-wide limit.
+
 An operation may compose Type, Member, and Method source requests. The service
 name is therefore assembly-wide rather than method-specific. Each source owner
 retains its row vocabulary, population predicates, depth, expansion,
@@ -185,11 +197,11 @@ Windows Metadata, or malformed reader construction settles under the
 session-owned admission contract before an Analysis producer runs.
 
 The method-definition member of that family is owned by
-[#8577](https://github.com/richlander/dotnet-inspect/issues/8577). That effort
-defines method population, declaration/body depth, generated-body expansion,
-referenced-callee work, traversal, early stop, executor equivalence, and exact
-source-work receipts. Type and Member sources remain with their respective
-owners and may use different row vocabularies or terminals.
+[Method Query Source](method-query-source.md). It defines method population,
+declaration/body depth, generated-body expansion, referenced-callee work,
+traversal, early stop, executor equivalence, and exact source-work receipts.
+Type and Member sources remain with their respective owners and may use
+different row vocabularies or terminals.
 
 ## Planning and execution boundaries
 
@@ -334,6 +346,22 @@ The first implementation adoption supplies these Release gates:
 - `AssemblyAnalysisExecution_ContainsNoLiveSubjectAuthority`
 - `AssemblyAnalysisService_SequentialReferenceMatchesInterimExecutor`
 - `AssemblyAnalysisOperation_PreservesOwnerIssuedSourceKinds`
+
+Those gates now run with the unsafe-evidence production adoption. The operator
+selected partial behavioral coverage for
+`AssemblyAnalysisExecution_ContainsNoLiveSubjectAuthority`: it disposes the
+borrowed session and owning `PdbContext`, then consumes the published operation
+association, subject identity, source receipt, producer outcome, focused
+result, and `WorkReceipt`. This proves detachment for every surface published
+by this adopter. It deliberately does not recursively inspect private object
+graphs and is not a universal absence proof for future execution shapes.
+
+`AssemblyAnalysisService_PreservesSourceFailureAndCompletion` covers the first
+source boundary: session-owned no-metadata admission rejects before producer
+work, while accepted execution publishes the Method source's settled,
+exhausted, producer-failed, or aborted completion. Later source kinds and
+mid-source delegation failures add their owner-issued outcomes and gates when
+they adopt the service.
 
 The slice that introduces the legacy-remainder declaration supplies
 `AssemblyAnalysisService_MixedLegacyAndMigratedProducersUseOneSourcePlan`.
