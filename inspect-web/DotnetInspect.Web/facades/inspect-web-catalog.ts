@@ -104,6 +104,24 @@ export interface BrowserCompileLibraryAvailability {
   readonly message: string | null;
 }
 
+export interface BrowserEcosystemCatalog {
+  readonly ecosystems: ReadonlyArray<BrowserEcosystemCatalogEntry>;
+}
+
+export interface BrowserEcosystemCatalogEntry {
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly corePackageCount: number;
+  readonly namespaceRootCount: number;
+  readonly toolPackageCount: number;
+  readonly demoCount: number;
+  readonly hasPackageSet: boolean;
+  readonly hasScanner: boolean;
+  readonly hasPopulationLoader: boolean;
+  readonly hasWorkspaceRegistration: boolean;
+}
+
 export interface BrowserExceptionSurface {
   readonly type: string;
   readonly description: string;
@@ -890,6 +908,7 @@ type $ManagedExports = {
             readonly "DescribeWorkspacePackageSources.304094707": (canonicalPacket: string) => string;
             readonly "EncodeWorkspaceShareState.304094707": (stateJson: string) => string;
             readonly "InspectVocabulary.1310674786": () => string;
+            readonly "ListEcosystems.1310674786": () => string;
             readonly "ListHomeDemos.1310674786": () => string;
             readonly "ObserveRetainedWorkspaceSettlement.976702342": (settlementId: string) => Promise<string>;
             readonly "PreparePackageQueryWorkspaceDefinition.1330709314": (retainedDefinitionId: string, label: string, canonicalLocation: string, packageId: string, version: string) => Promise<string>;
@@ -1171,6 +1190,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Catalog");
     value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "ListEcosystems.1310674786");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ListEcosystems.1310674786\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
     value = $ownDataProperty(value, "ListHomeDemos.1310674786");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ListHomeDemos.1310674786\u0027 is not callable.");
@@ -1425,6 +1456,12 @@ export function inspectVocabulary(): BrowserVocabularyInspection {
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["InspectVocabulary.1310674786"]();
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserVocabularyInspection;
+}
+
+export function listEcosystems(): BrowserEcosystemCatalog {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ListEcosystems.1310674786"]();
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserEcosystemCatalog;
 }
 
 export function listHomeDemos(): BrowserHomeDemoCatalog {

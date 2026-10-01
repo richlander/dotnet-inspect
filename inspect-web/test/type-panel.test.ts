@@ -375,22 +375,18 @@ test("type panel binds the qualified Type leverage retry", () => {
 
 test("type panel bindings dispatch member filters without eager work", () => {
   const root = new FakeRoot();
-  const allKinds = new FakeElement({ memberKindFilter: "all" });
-  const kind = new FakeElement({ memberKindFilter: "method" });
-  const allAccessibilities =
-    new FakeElement({ memberAccessFilter: "all" });
-  const accessibility =
-    new FakeElement({ memberAccessFilter: "protected" });
-  const spelling = new FakeElement({ memberSpelling: "metadata" });
-  const allTraits = new FakeElement({ memberTraitFilter: "all" });
-  const trait = new FakeElement({ memberTraitFilter: "isStatic" });
-  root.addAll("[data-member-kind-filter]", allKinds, kind);
-  root.addAll(
-    "[data-member-access-filter]",
-    allAccessibilities,
-    accessibility);
+  const kind = new FakeElement();
+  kind.value = "method";
+  const accessibility = new FakeElement();
+  accessibility.value = "protected";
+  const spelling = new FakeElement();
+  spelling.value = "metadata";
+  const trait = new FakeElement();
+  trait.value = "isStatic";
+  root.addAll("[data-member-kind-filter]", kind);
+  root.addAll("[data-member-access-filter]", accessibility);
   root.addAll("[data-member-spelling]", spelling);
-  root.addAll("[data-member-trait-filter]", allTraits, trait);
+  root.addAll("[data-member-trait-filter]", trait);
   const filter = root.add("#member-filter", new FakeElement());
   filter.value = "parse";
   const disclosure = root.add(
@@ -402,20 +398,20 @@ test("type panel bindings dispatch member filters without eager work", () => {
   const keybindings = bindPanel(root, recordingActions(calls));
 
   assert.deepEqual(calls, []);
-  kind.dispatch("click");
+  kind.dispatch("change");
   assert.deepEqual(calls, ["member-kind:method"]);
-  accessibility.dispatch("click");
+  accessibility.dispatch("change");
   assert.deepEqual(calls, [
     "member-kind:method",
     "member-access:protected",
   ]);
-  spelling.dispatch("click");
+  spelling.dispatch("change");
   assert.deepEqual(calls, [
     "member-kind:method",
     "member-access:protected",
     "member-spelling:metadata",
   ]);
-  trait.dispatch("click");
+  trait.dispatch("change");
   assert.deepEqual(calls, [
     "member-kind:method",
     "member-access:protected",

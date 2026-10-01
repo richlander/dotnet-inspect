@@ -30,6 +30,41 @@ public sealed class TypeMemberCompositionTests
             (composition.Public, composition.Protected, composition.Internal, composition.Private));
     }
 
+    [Fact]
+    public void JsonDocument_AllPopulationReturnsEveryAccessibilityBucket()
+    {
+        using var session = AssemblyInspectionSession.Open(PackageJsonPath);
+        MetadataTypeMemberPopulation population = Assert.IsType<
+                MetadataTypeMemberPopulationOutcome.Available>(
+                MetadataTypeMemberPopulationInspection.Inspect(
+                    session,
+                    new(
+                        Name("System.Text.Json", "JsonDocument"),
+                        MetadataMemberSpelling.CSharp,
+                        includeHidden: false,
+                        MetadataMethodAccessibilityFilter.All),
+                    new(
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue)))
+            .Population;
+
+        Assert.Equal(
+            population.Composition.Public
+                + population.Composition.Protected
+                + population.Composition.Internal
+                + population.Composition.Private,
+            population.Groups.Sum(group => group.Members.Length));
+        Assert.Contains(
+            population.Groups.SelectMany(group => group.Members),
+            member => string.IsNullOrEmpty(member.Accessibility));
+        Assert.Contains(
+            population.Groups.SelectMany(group => group.Members),
+            member => member.Accessibility == "private");
+    }
+
     [Theory]
     [InlineData(MetadataMemberSpelling.CSharp, 8, 0, 1, 3)]
     [InlineData(MetadataMemberSpelling.Metadata, 6, 0, 1, 7)]

@@ -3,6 +3,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 
+using DotnetInspector.DocumentationHouse;
 using DotnetInspector.Libraries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -67,7 +68,41 @@ public static partial class MetadataExports
                     typeIdentity,
                     memberName,
                     baselineOrdinal,
-                    fingerprintPrefix)
+                    fingerprintPrefix,
+                    new(
+                        DocumentationDemand
+                            .CompiledXmlAndAuthoredSourceDocumentation),
+                    async (documentationIds, demand, cancellationToken) =>
+                    {
+                        if (demand
+                            != DocumentationDemand
+                                .CompiledXmlAndAuthoredSourceDocumentation)
+                        {
+                            throw new InvalidOperationException(
+                                "Package Member documents require compiled "
+                                    + "and authored documentation demand.");
+                        }
+                        var outcomes = new Dictionary<
+                            string,
+                            DocumentationQueryOutcome>(
+                                documentationIds.Count,
+                                StringComparer.Ordinal);
+                        foreach (string documentationId in documentationIds)
+                        {
+                            outcomes.Add(
+                                documentationId,
+                                await BrowserPackageWorkspace
+                                    .QueryMemberDocumentationAsync(
+                                        packageId,
+                                        version,
+                                        targetFramework,
+                                        assemblyName,
+                                        documentationId,
+                                        cancellationToken)
+                                    .ConfigureAwait(false));
+                        }
+                        return outcomes;
+                    })
                 .ConfigureAwait(false));
         return SerializeMemberDocument(inspection);
     }
@@ -106,7 +141,37 @@ public static partial class MetadataExports
                     typeIdentity,
                     memberName,
                     baselineOrdinal,
-                    fingerprintPrefix)
+                    fingerprintPrefix,
+                    new(DocumentationDemand.CompiledXml),
+                    async (documentationIds, demand, cancellationToken) =>
+                    {
+                        if (demand != DocumentationDemand.CompiledXml)
+                        {
+                            throw new InvalidOperationException(
+                                "Platform Member documents require compiled "
+                                    + "XML documentation demand.");
+                        }
+                        var outcomes = new Dictionary<
+                            string,
+                            DocumentationQueryOutcome>(
+                                documentationIds.Count,
+                                StringComparer.Ordinal);
+                        foreach (string documentationId in documentationIds)
+                        {
+                            outcomes.Add(
+                                documentationId,
+                                await BrowserPlatformWorkspace
+                                    .QueryUnifiedMemberDocumentationAsync(
+                                        targetFramework,
+                                        platformVersion,
+                                        assemblyName,
+                                        pack,
+                                        documentationId,
+                                        cancellationToken)
+                                    .ConfigureAwait(false));
+                        }
+                        return outcomes;
+                    })
                 .ConfigureAwait(false));
         return SerializeMemberDocument(inspection);
     }
@@ -132,7 +197,9 @@ public static partial class MetadataExports
                     typeIdentity,
                     memberName,
                     baselineOrdinal,
-                    fingerprintPrefix)
+                    fingerprintPrefix,
+                    documentation: null,
+                    documentationProvider: null)
                 .ConfigureAwait(false));
         return SerializeMemberDocument(inspection);
     }
@@ -144,7 +211,9 @@ public static partial class MetadataExports
             string typeIdentity,
             string memberName,
             int baselineOrdinal,
-            string fingerprintPrefix)
+            string fingerprintPrefix,
+            MemberDocumentationAttachmentRequest? documentation,
+            MemberDocumentationAttachmentProvider? documentationProvider)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
         ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
@@ -166,19 +235,38 @@ public static partial class MetadataExports
                     baselineOrdinal: baselineOrdinal)
                 : new MemberDocumentSelector(
                     fingerprintPrefix: fingerprintPrefix),
-            s_memberGroupBounds);
+            s_memberGroupBounds,
+            documentation: documentation);
         AssemblyContextLibraryInspectionRun<
             InspectionEnvelope<MemberDocumentInspectionOutcome>> run =
-                await AssemblyContextLibraryInspection.ExecuteAsync(
-                        materialization,
-                        (reference, owner) =>
-                            owner.IssueOperationLease(reference)
-                                is LibraryOperationLeaseIssueOutcome.Issued issued
-                                ? MemberDocumentInspectionOperation.Execute(
-                                    new(reference, plan),
-                                    issued.Lease)
-                                : null)
-                    .ConfigureAwait(false);
+                documentationProvider is null
+                    ? await AssemblyContextLibraryInspection.ExecuteAsync(
+                            materialization,
+                            (reference, owner) =>
+                                owner.IssueOperationLease(reference)
+                                    is LibraryOperationLeaseIssueOutcome.Issued
+                                        issued
+                                    ? MemberDocumentInspectionOperation
+                                        .Execute(
+                                            new(reference, plan),
+                                            issued.Lease)
+                                    : null)
+                        .ConfigureAwait(false)
+                    : await AssemblyContextLibraryInspection
+                        .ExecuteComposedAsync(
+                            materialization,
+                            async (reference, owner) =>
+                                owner.IssueOperationLease(reference)
+                                    is LibraryOperationLeaseIssueOutcome.Issued
+                                        issued
+                                    ? await MemberDocumentInspectionOperation
+                                        .ExecuteAsync(
+                                            new(reference, plan),
+                                            issued.Lease,
+                                            documentationProvider)
+                                        .ConfigureAwait(false)
+                                    : null)
+                        .ConfigureAwait(false);
         if (run.Failure is { } failure)
         {
             throw new InvalidOperationException(
@@ -259,7 +347,11 @@ public static partial class MetadataExports
                 document.CanonicalSignature.ToString(),
                 document.Subject.Fingerprint.ToString(),
                 document.Accessibility.ToString(),
-                document.Receiver.ToString()),
+                document.Receiver.ToString(),
+                document.Documentation is null
+                    ? null
+                    : BrowserDocumentationWireProjection.Project(
+                        document.Documentation.Outcome)),
             diagnostics);
 
     private static string SerializeMemberDocument(

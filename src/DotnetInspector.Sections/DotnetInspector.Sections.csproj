@@ -24,6 +24,7 @@
   <ItemGroup>
     <ProjectReference Include="../InertText/InertText.csproj" />
     <ProjectReference Include="../Inspector.Text/Inspector.Text.csproj" />
+    <ProjectReference Include="../DotnetInspector.DocumentationHouse.Contracts/DotnetInspector.DocumentationHouse.Contracts.csproj" />
     <ProjectReference Include="../DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="../DotnetInspector.PackageHouse.Execution/DotnetInspector.PackageHouse.Execution.csproj" />
     <ProjectReference Include="../DotnetInspector.PlatformHouse.Execution.Packages/DotnetInspector.PlatformHouse.Execution.Packages.csproj" />

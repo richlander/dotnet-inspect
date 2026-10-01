@@ -406,30 +406,26 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onMemberOverloadOpen(Number(button.dataset.overload))));
-  root.querySelectorAll<HTMLElement>("[data-member-kind-filter]")
-    .forEach(button =>
-      button.addEventListener(
-        "click",
-        () => actions.onMemberKindFilterSelect(
-          button.dataset.memberKindFilter)));
-  root.querySelectorAll<HTMLElement>("[data-member-access-filter]")
-    .forEach(button =>
-      button.addEventListener(
-        "click",
-        () => actions.onMemberAccessibilityFilterSelect(
-          button.dataset.memberAccessFilter)));
-  root.querySelectorAll<HTMLElement>("[data-member-spelling]")
-    .forEach(button =>
-      button.addEventListener(
-        "click",
-        () => actions.onMemberSpellingSelect(
-          button.dataset.memberSpelling)));
-  root.querySelectorAll<HTMLElement>("[data-member-trait-filter]")
-    .forEach(button =>
-      button.addEventListener(
-        "click",
-        () => actions.onMemberTraitFilterSelect(
-          button.dataset.memberTraitFilter)));
+  root.querySelectorAll<HTMLSelectElement>("[data-member-kind-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onMemberKindFilterSelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-member-access-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onMemberAccessibilityFilterSelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-member-spelling]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onMemberSpellingSelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-member-trait-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onMemberTraitFilterSelect(select.value)));
   root.querySelector("#nav-to-types")?.addEventListener(
     "click",
     actions.onShowTypes);
