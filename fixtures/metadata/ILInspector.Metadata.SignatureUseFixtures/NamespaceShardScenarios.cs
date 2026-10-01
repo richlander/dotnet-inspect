@@ -19,3 +19,35 @@ namespace ILInspector.Metadata.SignatureUseFixtures.ShardB
         public ShardA.NamespaceSource? Source;
     }
 }
+
+namespace ILInspector.Metadata.SignatureUseFixtures.IsolationBusy
+{
+    public sealed class BusySource
+    {
+        public ShardA.NamespaceSource? First;
+        public ShardA.NamespaceSource? Second;
+        public ShardA.NamespaceSource? Third;
+    }
+
+    public class LimitedExceptionBase : Exception;
+}
+
+namespace ILInspector.Metadata.SignatureUseFixtures.IsolationHealthy
+{
+    public sealed class HealthyException :
+        IsolationBusy.LimitedExceptionBase;
+}
+
+namespace ILInspector.Metadata.SignatureUseFixtures.ClassificationAlpha
+{
+    public class ADerived :
+        ClassificationBeta.BMiddle;
+
+    public class ZBase : Exception;
+}
+
+namespace ILInspector.Metadata.SignatureUseFixtures.ClassificationBeta
+{
+    public class BMiddle :
+        ClassificationAlpha.ZBase;
+}

@@ -71,6 +71,9 @@ static void Measure(
         new(
             "exhaustive-composition",
             () => Exhaustive(path, cancellationToken)),
+        new(
+            "batched-exhaustive-composition",
+            () => BatchedExhaustive(path, cancellationToken)),
     ];
 
     foreach (Scenario scenario in scenarios)
@@ -111,6 +114,14 @@ static void Measure(
                 new(elapsed, cpu, allocated));
             results[scenario.Name] = result;
         }
+    }
+
+    if (!StringComparer.Ordinal.Equals(
+            Result(results["exhaustive-composition"]).Identity,
+            Result(results["batched-exhaustive-composition"]).Identity))
+    {
+        throw new InvalidOperationException(
+            "Batched exhaustive composition changed result identity.");
     }
 
     string assetSha256 =
@@ -198,6 +209,45 @@ static LibraryStructuralSalienceDocument Exhaustive(
                     session,
                     row.Namespace,
                     cancellationToken))),
+    ];
+    return LibraryStructuralReport.CreateStructuralSalience(
+        index,
+        shards);
+}
+
+static LibraryStructuralSalienceDocument BatchedExhaustive(
+    string path,
+    CancellationToken cancellationToken)
+{
+    using AssemblyInspectionSession session =
+        AssemblyInspectionSession.Open(path);
+    LibraryStructuralNamespaceLeverageIndex index =
+        LibraryStructuralReport.CreateNamespaceLeverageIndex(
+            SignatureSession(
+                session,
+                exactNamespace: null,
+                cancellationToken));
+    MetadataLibrarySignatureUseBatchOutcome outcome =
+        session.LibrarySignatureUseBatch(
+            new(
+                MetadataOperationPolicy.Unbounded,
+                [.. index.Rows.Select(static row => row.Namespace)]),
+            cancellationToken);
+    MetadataLibrarySignatureUseBatchResult batch = outcome switch
+    {
+        MetadataLibrarySignatureUseBatchOutcome.Available available =>
+            available.Result,
+        MetadataLibrarySignatureUseBatchOutcome.Rejected rejected =>
+            throw new InvalidOperationException(
+                $"Signature-use batch was rejected: "
+                + $"{rejected.Kind}: {rejected.Detail}"),
+        _ => throw new InvalidOperationException(
+            "Unknown signature-use batch outcome."),
+    };
+    LibraryStructuralTypeLeverageShard[] shards =
+    [
+        .. batch.Results.Select(
+            LibraryStructuralReport.CreateTypeLeverageShard),
     ];
     return LibraryStructuralReport.CreateStructuralSalience(
         index,
