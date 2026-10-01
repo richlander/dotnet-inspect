@@ -108,6 +108,7 @@ public sealed class MethodDefinitionExecution
             execution._states[i] = declaration.CreateState(
                 execution,
                 description.TerminalByIndex[i],
+                description.RowLimitAtIndex(i),
                 description.DependencyIndices[i],
                 description.FactRetention[i]);
         }
@@ -748,7 +749,13 @@ public sealed class MethodDefinitionExecution
         }
 
         state.UnitsCompleted++;
-        if (settled && state.Terminal == ProducerTerminal.Exists)
+        if (!settled)
+            return;
+
+        state.SettlingFacts++;
+        if (state.Terminal == ProducerTerminal.Exists
+            || state.RowLimit is int rowLimit
+                && state.SettlingFacts >= rowLimit)
         {
             state.Outcome = ProducerOutcome.Stopped;
             state.IsActive = false;
@@ -916,6 +923,7 @@ public sealed class MethodDefinitionExecution
         ProducerDeclaration producer,
         MethodDefinitionLayers layers,
         ProducerTerminal terminal,
+        int? rowLimit,
         ImmutableArray<int> dependencies)
     {
         public MethodDefinitionExecution Execution => execution;
@@ -923,6 +931,10 @@ public sealed class MethodDefinitionExecution
         public ProducerDeclaration Producer => producer;
 
         public ProducerTerminal Terminal => terminal;
+
+        public int? RowLimit => rowLimit;
+
+        public int SettlingFacts { get; set; }
 
         public abstract bool ClassifiesUnits { get; }
 
@@ -1048,8 +1060,15 @@ public sealed class MethodDefinitionExecution
         ProducerDeclaration producer,
         MethodDefinitionLayers layers,
         ProducerTerminal terminal,
+        int? rowLimit,
         ImmutableArray<int> dependencies)
-        : ProducerState(execution, producer, layers, terminal, dependencies)
+        : ProducerState(
+            execution,
+            producer,
+            layers,
+            terminal,
+            rowLimit,
+            dependencies)
     {
         public TResult? Result { get; private set; }
 
