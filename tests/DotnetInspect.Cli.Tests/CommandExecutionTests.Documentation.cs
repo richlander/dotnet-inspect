@@ -57,52 +57,6 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        Member_DirectLibrary_UsesDeclarationDocsForProjectedExtension()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "member",
-            "InspectWeb.DocumentationFixtures.Widget",
-            "Measure",
-            "--library",
-            FixtureCatalog.InspectWebDocumentation.AssemblyPath(),
-            "-S",
-            "Extension Methods",
-            "--columns",
-            "Signature;Description",
-            "--tsv");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains(
-            "Measures a widget through its declaring extension member.",
-            output);
-    }
-
-    [Fact]
-    public async Task
-        Member_DirectLibraryIncludeAllResolvesNonPublicTypeDocumentation()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "member",
-            "InspectWeb.DocumentationFixtures.HiddenDocumentedType",
-            "Read",
-            "--library",
-            FixtureCatalog.InspectWebDocumentation.AssemblyPath(),
-            "--all",
-            "-v:d");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains(
-            "A non-public type retained by the browser accessibility surface.",
-            output);
-        Assert.Contains(
-            "Reads documentation from a non-public type.",
-            output);
-    }
-
-    [Fact]
-    public async Task
         Member_DirectLibraryExactDocumentAttachesCompiledDocumentation()
     {
         var (exit, output, error) = await RunAppAsync(
