@@ -38,7 +38,14 @@
 
   <ItemGroup>
     <PackageDownload Include="docopt.net" Version="[0.8.3]" />
-    <PackageDownload Include="System.Text.Json" Version="[11.0.0-preview.7.26381.103]" />
+    <PackageDownload Include="System.Text.Json"
+                     Version="[9.0.0];[10.0.0];[11.0.0-preview.7.26381.103]" />
+    <None Include="$(NuGetPackageRoot)system.text.json/9.0.0/lib/net9.0/System.Text.Json.dll"
+          Link="RealAssets/BodyIdentity/9.0.0/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net9.0/System.Text.Json.dll"
+          Link="RealAssets/BodyIdentity/10.0.0/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/11.0.0-preview.7.26381.103/lib/netstandard2.0/System.Text.Json.dll"
           Link="RealAssets/StructuredTypes/System.Text.Json.dll"
           CopyToOutputDirectory="PreserveNewest" />

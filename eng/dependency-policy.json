@@ -666,7 +666,7 @@
     },
     {
       "id": "decompiler-dependencies",
-      "source": "docs/architecture.md",
+      "source": "docs/architecture.md; docs/design/implementation-diff.md#structural-body-comparison",
       "graphs": [
         "project",
         "assembly"
@@ -677,6 +677,7 @@
       "allowOnly": [
         "$platform",
         "CSharpText",
+        "ILInspector.Analysis",
         "ILInspector.ControlFlow",
         "ILInspector.CSharp",
         "Inspector.Findings",
