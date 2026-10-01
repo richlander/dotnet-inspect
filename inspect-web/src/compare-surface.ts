@@ -6,9 +6,9 @@ import {
 // One Compare working surface at Library, Type, and Member. Diff and Clone are
 // modes inside this frame rather than separate persistent inspectors; the mode
 // control lives in the surface header and the Package-owned target or scope is
-// explained, not edited, immediately below it. Every result state (loading,
-// unavailable, failed, canceled, successful-empty) renders inside this same
-// frame so the mode control and recovery action never disappear.
+// explained, not edited, in the same compact context. Every result state
+// (loading, unavailable, failed, canceled, successful-empty) renders inside
+// this same frame so the mode control and recovery action never disappear.
 
 export type CompareSubjectKind = "library" | "type" | "member";
 
@@ -41,31 +41,19 @@ export function renderCompareFrame(options: CompareFrameOptions): string {
   return `<section class="compare-surface compare-surface-${options.subjectKind}" aria-labelledby="compare-title" data-compare-mode-active="${mode}">
     <header class="compare-head">
       <div class="compare-head-copy">
-        <p class="compare-kicker">Compare · ${escapeHtml(subjectKindLabel(options.subjectKind))}</p>
         <h1 id="compare-title">${escapeHtml(options.subjectLabel)}</h1>
-        <p class="compare-status" role="status">${escapeHtml(options.status)}</p>
+        <div class="compare-context">
+          <p class="compare-status" role="status">${escapeHtml(options.status)}</p>
+          <span class="compare-context-separator" aria-hidden="true">·</span>
+          <span class="compare-target-label">${escapeHtml(compareTargetLabel(mode))}</span>
+          <span class="compare-target-value">${escapeHtml(options.targetText)}</span>
+          <button type="button" class="compare-change-target" id="compare-change-target">Change target</button>
+        </div>
       </div>
       <div class="compare-mode-tabs" role="tablist" aria-label="Compare modes">${tabs}</div>
     </header>
-    <div class="compare-target">
-      <span class="compare-target-label">${escapeHtml(compareTargetLabel(mode))}</span>
-      <span class="compare-target-value">${escapeHtml(options.targetText)}</span>
-      <button type="button" class="compare-change-target" id="compare-change-target">Change target</button>
-    </div>
     <div id="compare-panel" class="compare-panel" role="tabpanel" aria-labelledby="compare-mode-${mode}">${options.content}</div>
   </section>`;
-}
-
-function subjectKindLabel(kind: CompareSubjectKind): string {
-  switch (kind) {
-    case "library": return "Library";
-    case "type": return "Type";
-    case "member": return "Member";
-    default: {
-      const exhaustive: never = kind;
-      throw new Error(`Unhandled Compare subject kind: ${String(exhaustive)}`);
-    }
-  }
 }
 
 export function renderCompareRetry(label = "Retry comparison"): string {
