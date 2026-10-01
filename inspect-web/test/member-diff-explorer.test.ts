@@ -461,6 +461,102 @@ test("inline Member Diff keeps source work explicit", () => {
   assert.doesNotMatch(html, /Loading authored Source/);
 });
 
+test("inline one-sided Member Diff preserves concise endpoint outcomes", () => {
+  const value = context(destination(null, afterMember));
+  const idle = renderInlineMemberSourceDiff(
+    value,
+    { status: "idle" },
+    String,
+  );
+  assert.match(idle, /<strong>Before<\/strong>: Not present on this side\./);
+  assert.match(idle, /Show authored Source diff/);
+  assert.doesNotMatch(idle, /member-diff-source-endpoint/);
+
+  const loading = renderInlineMemberSourceDiff(
+    value,
+    { status: "loading" },
+    String,
+  );
+  assert.match(
+    loading,
+    /<strong>Before<\/strong>: Not present on this side\./,
+  );
+  assert.match(loading, /Loading authored Source/);
+  assert.doesNotMatch(loading, /member-diff-source-endpoint/);
+
+  const result = sourceResult(value, null);
+  if (result.value === null) throw new Error("Expected Source comparison.");
+  const ready = renderInlineMemberSourceDiff(
+    value,
+    {
+      status: "ready",
+      result: {
+        ...result,
+        value: {
+          ...result.value,
+          before: {
+            ...sourceEndpoint("1.0.0", "Unrequested"),
+            memberIdentity: null,
+            metadataToken: null,
+            detail: null,
+          },
+          after: sourceEndpoint(
+            "2.0.0",
+            "Available",
+            "public void Run(long value)",
+          ),
+        },
+      },
+    },
+    String,
+  );
+  assert.match(ready, /<strong>Before<\/strong>: Not present on this side\./);
+  assert.match(ready, /paired authored Source comparison is unavailable/);
+  assert.doesNotMatch(
+    ready,
+    /member-diff-source-endpoint|public void Run\(long value\)/,
+  );
+});
+
+test("inline Member Diff renders typed Source unavailability without cards", () => {
+  const value = context();
+  const result = sourceResult(value, null);
+  if (result.value === null) throw new Error("Expected Source comparison.");
+  const html = renderInlineMemberSourceDiff(
+    value,
+    {
+      status: "ready",
+      result: {
+        ...result,
+        value: {
+          ...result.value,
+          before: sourceEndpoint("1.0.0", "Unavailable"),
+        },
+      },
+    },
+    String,
+  );
+
+  assert.match(html, /<strong>Before<\/strong>: Source was not published\./);
+  assert.doesNotMatch(html, /member-diff-source-endpoint/);
+});
+
+test("inline Member Diff renders only the authored Source document", () => {
+  const value = context();
+  const html = renderInlineMemberSourceDiff(
+    value,
+    { status: "ready", result: sourceResult(value) },
+    String,
+  );
+
+  const diff = html.indexOf('class="member-diff-source-diff"');
+  assert.ok(diff >= 0);
+  assert.doesNotMatch(
+    html,
+    /Authored Source changed|Source evidence|member-diff-source-endpoints|Source diff statistics|Final line terminators|Mapped change evidence/,
+  );
+});
+
 test("inline Member Diff starts the shared comparison only on request", () => {
   const dom = dialogHarness();
   const value = context();
@@ -897,7 +993,7 @@ test("reopening Explore retries a failed Source comparison", async () => {
   pending.resolve(sourceResult(value));
   await Promise.resolve();
   await Promise.resolve();
-  assert.match(dom.dialogs[1]?.innerHTML ?? "", /Authored Source changed/);
+  assert.match(dom.dialogs[1]?.innerHTML ?? "", /member-diff-source-diff/);
   controller.dispose();
 });
 
@@ -929,7 +1025,7 @@ test("closing Explore keeps a pending inline Source comparison alive", async () 
   pending.resolve(sourceResult(value));
   await Promise.resolve();
   await Promise.resolve();
-  assert.match(controller.renderInline(value), /Authored Source changed/);
+  assert.match(controller.renderInline(value), /member-diff-source-diff/);
   controller.dispose();
 });
 
