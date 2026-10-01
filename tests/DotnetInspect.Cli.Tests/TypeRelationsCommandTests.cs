@@ -132,9 +132,62 @@ public sealed class TypeRelationsCommandTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "does not declare the selected exact Type",
+            "does not declare or forward the selected exact Type",
             result.Error,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task
+        PinnedPlatformCoordinateScopesShortNameToRequestedLibrary()
+    {
+        var (_, _, version, error) = PlatformResolver.ResolveAssembly(
+            "System.Private.CoreLib",
+            "runtime");
+        Assert.Null(error);
+        Assert.NotNull(version);
+        var result = await ExecuteAsync(
+            "type",
+            "Timer",
+            "--platform",
+            "System.Private.CoreLib",
+            "--framework",
+            $"runtime@{version!}",
+            "-S",
+            "Derived Types",
+            "--count");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal("0", result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task PinnedPlatformFacadeCoordinateFollowsForwarder()
+    {
+        var (_, _, version, error) = PlatformResolver.ResolveAssembly(
+            "System.Runtime",
+            "runtime");
+        Assert.Null(error);
+        Assert.NotNull(version);
+        var result = await ExecuteAsync(
+            "type",
+            typeof(Stream).FullName!,
+            "--platform",
+            "System.Runtime",
+            "--framework",
+            $"runtime@{version!}",
+            "-S",
+            "Derived Types",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        string[] types = ReadJsonTypes(result.Output);
+        Assert.Contains(typeof(MemoryStream).FullName!, types);
+        Assert.Contains(
+            typeof(System.Security.Cryptography.CryptoStream).FullName!,
+            types);
     }
 
     [Fact]

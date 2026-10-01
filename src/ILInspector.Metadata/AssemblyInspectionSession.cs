@@ -354,17 +354,6 @@ public sealed class AssemblyInspectionSession :
                 simpleName);
     }
 
-    /// <summary>Probes one exact TypeDef name in this admitted image.</summary>
-    public TypeDeclarationResult ProbeTypeDefinition(
-        MetadataTypeDefinitionName name)
-    {
-        ArgumentNullException.ThrowIfNull(name);
-        _image.EnsureAlive();
-        return MetadataTypeDeclarationProbe.ProbeDefinition(
-            _image.GetMetadataReader(),
-            name);
-    }
-
     /// <summary>
     /// Produces one qualified whole-Library or exact-namespace Type-to-Type
     /// signature-use population for this exact image.

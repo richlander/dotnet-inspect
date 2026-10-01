@@ -79,6 +79,73 @@ public sealed partial class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task
+        ExactTypeFocusFromAssemblySurface_UsesRequestedAssembly()
+    {
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationContext context = await LocatorContext(
+            workspace,
+            LocatorImage(
+                "First",
+                metadata => LocatorDefinition(
+                    metadata,
+                    "N",
+                    "Widget")),
+            LocatorImage(
+                "Second",
+                metadata => LocatorDefinition(
+                    metadata,
+                    "Other",
+                    "Widget")));
+
+        WorkspaceExactTypeFocusOutcome result =
+            WorkspaceExactTypeFocusQuery.ExecuteFromAssemblySurface(
+                CaptureDeclarations(workspace, context),
+                "Widget",
+                ExactTypeSelectionKind.Query,
+                "First",
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<WorkspaceExactTypeFocusOutcome.Found>(result);
+        Assert.Equal("First", available.Assembly.Name);
+        Assert.Equal("N.Widget", available.Type.ToMetadataFullName());
+    }
+
+    [Fact]
+    public async Task
+        ExactTypeFocusFromAssemblySurface_FollowsForwarder()
+    {
+        var (terminal, facade, candidate) =
+            ForwardedHierarchyImages();
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationPopulation population =
+            CaptureDeclarations(
+                workspace,
+                await LocatorContext(
+                    workspace,
+                    terminal,
+                    facade,
+                    candidate));
+
+        WorkspaceExactTypeFocusOutcome result =
+            WorkspaceExactTypeFocusQuery.ExecuteFromAssemblySurface(
+                population,
+                "IContract",
+                ExactTypeSelectionKind.Query,
+                "Forwarded.Facade",
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<WorkspaceExactTypeFocusOutcome.Found>(result);
+        Assert.Equal("Forwarded.Terminal", available.Assembly.Name);
+        Assert.Equal(
+            "N.IContract",
+            available.Type.ToMetadataFullName());
+        Assert.NotNull(available.DefinitionOccurrence);
+    }
+
+    [Fact]
     public async Task TypeHierarchyRelations_ResolveExactCrossAssemblyInterface()
     {
         string contractsPath =
@@ -277,57 +344,14 @@ public sealed partial class WorkspaceContextLoaderTests
             terminal,
             facade,
             candidate);
-        var contexts = new List<WorkspaceDeclarationContext>();
-        foreach (AssemblyContextParticipant participant
-            in loaded.Group!.Participants)
-        {
-            byte[] image = images[participant.Assembly.Identity.Name];
-            var materialized = Assert.IsType<
-                AssemblyContextLibraryAdapterResult.Completed>(
-                    await AssemblyContextLibraryAdapter.MaterializeAsync(
-                        loaded.Group,
-                        participant,
-                        AssemblyContextLibraryRole.ApiOnly,
-                        new(image.Length, image.Length),
-                        TestContext.Current.CancellationToken));
-            WorkspaceRegistrationRevision registrations =
-                Assert.IsType<WorkspaceRegistrationReadResult.Available>(
-                    workspace.GetRegistrationSnapshot()).Revision;
-            var accepted = Assert.IsType<
-                WorkspaceLibraryAdmissionOutcome.Accepted>(
-                    await workspace.AdmitLibraryBatchAsync(
-                        registrations,
-                        materialized.Artifacts,
-                        [materialized.Owner]));
-            WorkspaceDeclarationMember original = Assert.Single(
-                loaded.Receipt.Members,
-                member => member.AssemblyIdentity.IsEquivalentTo(
-                    participant.Assembly.Identity));
-            var admitted = Assert.IsType<
-                WorkspaceLibraryDeclarationContextAdmissionOutcome.Admitted>(
-                    WorkspaceLibraryDeclarationContextAdmission.Admit(
-                        workspace,
-                        accepted.Receipt,
-                        loaded.Receipt.Request,
-                        [
-                            new(
-                                new ExactLibrarySourceCoordinate.Local(
-                                    new ManagedMetadataIdentity.Assembly(
-                                        participant.Assembly.Identity)),
-                                participant.Assembly.Identity,
-                                original.Origin,
-                                original.Selection),
-                        ],
-                        new(
-                            maximumAssemblyBytes: image.Length,
-                            maximumRetainedDeclarations: 100,
-                            maximumMetadataRows: 1_000,
-                            maximumRetainedTextCharacters: 10_000)));
-            contexts.Add(admitted.Context);
-        }
-
         WorkspaceDeclarationPopulation population =
-            CaptureDeclarations(workspace, [.. contexts]);
+            await BorrowedLibraryPopulation(
+                workspace,
+                loaded,
+                images,
+                "Forwarded.Terminal",
+                "Forwarded.Facade",
+                "Forwarded.Candidate");
         WorkspaceDeclarationMember terminalMember = Assert.Single(
             population.Receipt.Members,
             member =>
@@ -355,6 +379,86 @@ public sealed partial class WorkspaceContextLoaderTests
             source.Type.ToMetadataFullName());
         Assert.True(result.Evidence.IsComplete);
         Assert.Equal(1, result.CandidateCount);
+    }
+
+    [Fact]
+    public async Task
+        TypeHierarchyRelations_BorrowedForwardingFailureRetainsPartialRows()
+    {
+        var (terminal, facade, _) =
+            ForwardedHierarchyImages();
+        byte[] healthy = HierarchyCandidate(
+            "Forwarded.Healthy",
+            "Forwarded.Terminal",
+            "HealthyImplementation");
+        byte[] broken = HierarchyCandidate(
+            "Forwarded.Broken",
+            "Forwarded.Facade",
+            "BrokenImplementation");
+        var images = new Dictionary<string, byte[]>(
+            StringComparer.Ordinal)
+        {
+            ["Forwarded.Terminal"] = terminal,
+            ["Forwarded.Facade"] = facade,
+            ["Forwarded.Healthy"] = healthy,
+            ["Forwarded.Broken"] = broken,
+        };
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationContext loaded = await LocatorContext(
+            workspace,
+            terminal,
+            facade,
+            healthy,
+            broken);
+        WorkspaceDeclarationPopulation population =
+            await BorrowedLibraryPopulation(
+                workspace,
+                loaded,
+                images,
+                "Forwarded.Terminal",
+                "Forwarded.Healthy",
+                "Forwarded.Broken");
+        WorkspaceDeclarationMember terminalMember = Assert.Single(
+            population.Receipt.Members,
+            member =>
+                member.AssemblyIdentity.Name == "Forwarded.Terminal");
+
+        WorkspaceTypeHierarchyRelationsResult result =
+            WorkspaceTypeHierarchyRelationsQuery.Execute(
+                workspace,
+                population,
+                new(
+                    terminalMember.AssemblyIdentity,
+                    terminalMember.Occurrence,
+                    LocatorName("N", "IContract")),
+                form: SubjectRelationForm.Interface,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        SubjectRelationRow row = Assert.Single(result.Rows);
+        var source = Assert.IsType<
+            InspectionGraphTypeIdentity.AcquiredDefinition>(
+                Assert.IsType<InspectionGraphSubject.TypeSubject>(
+                    row.Source).Identity);
+        Assert.Equal(
+            "N.HealthyImplementation",
+            source.Type.ToMetadataFullName());
+        Assert.False(result.Evidence.IsComplete);
+        Assert.False(result.Evidence.IsSatisfied);
+        Assert.True(result.Evidence.HasUsableRows);
+        Assert.True(result.CandidateCountIsComplete);
+        Assert.Equal(1, result.CandidateCount);
+        SubjectRelationProducerOutcome producer =
+            Assert.Single(
+                result.Evidence.Producers,
+                producer => producer.Disposition
+                    == SubjectRelationProducerDisposition.Partial);
+        Assert.Equal(
+            SubjectRelationProducerDisposition.Partial,
+            producer.Disposition);
+        Assert.Equal(2, producer.Coverage.Considered);
+        Assert.Equal(1, producer.Coverage.Examined);
+        Assert.Equal(1, producer.Coverage.Unavailable);
     }
 
     [Fact]
@@ -451,6 +555,70 @@ public sealed partial class WorkspaceContextLoaderTests
                 });
     }
 
+    private static async Task<WorkspaceDeclarationPopulation>
+        BorrowedLibraryPopulation(
+            InspectionWorkspace workspace,
+            WorkspaceDeclarationContext loaded,
+            IReadOnlyDictionary<string, byte[]> images,
+            params string[] selectedAssemblies)
+    {
+        var selected = selectedAssemblies.ToHashSet(
+            StringComparer.Ordinal);
+        var contexts = new List<WorkspaceDeclarationContext>();
+        foreach (AssemblyContextParticipant participant
+            in loaded.Group!.Participants)
+        {
+            if (!selected.Contains(participant.Assembly.Identity.Name))
+                continue;
+            byte[] image = images[participant.Assembly.Identity.Name];
+            var materialized = Assert.IsType<
+                AssemblyContextLibraryAdapterResult.Completed>(
+                    await AssemblyContextLibraryAdapter.MaterializeAsync(
+                        loaded.Group,
+                        participant,
+                        AssemblyContextLibraryRole.ApiOnly,
+                        new(image.Length, image.Length),
+                        TestContext.Current.CancellationToken));
+            WorkspaceRegistrationRevision registrations =
+                Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                    workspace.GetRegistrationSnapshot()).Revision;
+            var accepted = Assert.IsType<
+                WorkspaceLibraryAdmissionOutcome.Accepted>(
+                    await workspace.AdmitLibraryBatchAsync(
+                        registrations,
+                        materialized.Artifacts,
+                        [materialized.Owner]));
+            WorkspaceDeclarationMember original = Assert.Single(
+                loaded.Receipt.Members,
+                member => member.AssemblyIdentity.IsEquivalentTo(
+                    participant.Assembly.Identity));
+            var admitted = Assert.IsType<
+                WorkspaceLibraryDeclarationContextAdmissionOutcome.Admitted>(
+                    WorkspaceLibraryDeclarationContextAdmission.Admit(
+                        workspace,
+                        accepted.Receipt,
+                        loaded.Receipt.Request,
+                        [
+                            new(
+                                new ExactLibrarySourceCoordinate.Local(
+                                    new ManagedMetadataIdentity.Assembly(
+                                        participant.Assembly.Identity)),
+                                participant.Assembly.Identity,
+                                original.Origin,
+                                original.Selection),
+                        ],
+                        new(
+                            maximumAssemblyBytes: image.Length,
+                            maximumRetainedDeclarations: 100,
+                            maximumMetadataRows: 1_000,
+                            maximumRetainedTextCharacters: 10_000)));
+            contexts.Add(admitted.Context);
+        }
+
+        Assert.Equal(selected.Count, contexts.Count);
+        return CaptureDeclarations(workspace, [.. contexts]);
+    }
+
     private static (byte[] Terminal, byte[] Facade, byte[] Candidate)
         ForwardedHierarchyImages()
     {
@@ -479,26 +647,36 @@ public sealed partial class WorkspaceContextLoaderTests
                     terminalReference,
                     typeDefinitionId: 0);
             });
-        byte[] candidate = LocatorImage(
+        byte[] candidate = HierarchyCandidate(
             "Forwarded.Candidate",
+            facadeAssembly,
+            "Implementation");
+        return (terminal, facade, candidate);
+    }
+
+    private static byte[] HierarchyCandidate(
+        string assemblyName,
+        string contractAssembly,
+        string typeName) =>
+        LocatorImage(
+            assemblyName,
             metadata =>
             {
-                AssemblyReferenceHandle facadeReference =
-                    AddAssemblyReference(metadata, facadeAssembly);
+                AssemblyReferenceHandle contractReference =
+                    AddAssemblyReference(metadata, contractAssembly);
                 TypeReferenceHandle contract =
                     metadata.AddTypeReference(
-                        facadeReference,
+                        contractReference,
                         metadata.GetOrAddString("N"),
                         metadata.GetOrAddString("IContract"));
                 TypeDefinitionHandle implementation =
-                    LocatorDefinition(metadata, "N", "Implementation");
+                    LocatorDefinition(metadata, "N", typeName);
                 metadata.AddInterfaceImplementation(
                     implementation,
                     contract);
             });
-        return (terminal, facade, candidate);
 
-        static AssemblyReferenceHandle AddAssemblyReference(
+    private static AssemblyReferenceHandle AddAssemblyReference(
             MetadataBuilder metadata,
             string name) =>
             metadata.AddAssemblyReference(
@@ -508,5 +686,4 @@ public sealed partial class WorkspaceContextLoaderTests
                 publicKeyOrToken: default,
                 flags: default,
                 hashValue: default);
-    }
 }

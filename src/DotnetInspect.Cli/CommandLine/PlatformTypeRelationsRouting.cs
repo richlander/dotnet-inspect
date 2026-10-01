@@ -46,19 +46,6 @@ internal static class PlatformTypeRelationsRouting
                     .AsTask();
         WorkspaceMemberCoordinate.PlatformMember requestedLibrary =
             RequestedLibrary(request);
-        Task<(
-            string? AssemblyPath,
-            string? Framework,
-            string? Version,
-            string? Error)> focusTask =
-                PlatformResolver.ResolveAssemblyAsync(
-                    requestedLibrary.Assembly!,
-                    capabilities.HttpClient,
-                    capabilities.Log,
-                    requestedLibrary.Family,
-                    useRuntimeAssemblies: true,
-                    platformVersion: requestedLibrary.Version,
-                    sourceOptions: sourceOptions);
         PlatformPopulationArtifactMaterializationOutcome.Completed?
             completed = null;
         bool resourcesSettled = false;
@@ -67,8 +54,7 @@ internal static class PlatformTypeRelationsRouting
         {
             try
             {
-                await Task.WhenAll(realizationTask, focusTask)
-                    .ConfigureAwait(false);
+                await realizationTask.ConfigureAwait(false);
             }
             catch
             {
@@ -98,30 +84,6 @@ internal static class PlatformTypeRelationsRouting
             completed =
                 (PlatformPopulationArtifactMaterializationOutcome.Completed)
                     realization;
-            var (focusPath, resolvedFamily, resolvedVersion, focusError) =
-                await focusTask.ConfigureAwait(false);
-            if (focusPath is null
-                || focusError is not null
-                || !string.Equals(
-                    resolvedFamily,
-                    requestedLibrary.Family,
-                    StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(
-                    resolvedVersion,
-                    requestedLibrary.Version,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                ExactTypeRelationsInspectionOutcome.Unavailable unavailable =
-                    await CloseUnavailableAsync(
-                        workspace,
-                        focusError
-                            ?? "The requested Platform Library could not be "
-                                + "resolved at its exact coordinate.")
-                    .ConfigureAwait(false);
-                workspaceClosed = true;
-                return unavailable;
-            }
-
             WorkspaceRegistrationRevision registrations =
                 RegistrationSnapshot(workspace);
             WorkspaceLibraryAdmissionOutcome libraryAdmission =
@@ -176,11 +138,25 @@ internal static class PlatformTypeRelationsRouting
                                     "The exact Platform relation population could not "
                                         + "be captured.");
             WorkspaceExactTypeFocusOutcome focus =
-                WorkspaceExactTypeFocusQuery.Execute(
+                population.Receipt.Members.Any(member =>
+                    member.AssemblyIdentity.Name.Equals(
+                        requestedLibrary.Assembly,
+                        StringComparison.OrdinalIgnoreCase))
+                    ? WorkspaceExactTypeFocusQuery
+                        .ExecuteFromAssemblySurface(
                             population,
                             request.Type,
                             request.SelectionKind,
-                            cancellationToken: cancellationToken);
+                            requestedLibrary.Assembly!,
+                            cancellationToken)
+                    : await ResolveImplementationOnlyFocusAsync(
+                            population,
+                            request,
+                            requestedLibrary,
+                            capabilities,
+                            sourceOptions,
+                            cancellationToken)
+                        .ConfigureAwait(false);
             if (focus is not WorkspaceExactTypeFocusOutcome.Found found)
             {
                 var focusUnavailable =
@@ -192,33 +168,6 @@ internal static class PlatformTypeRelationsRouting
                             .ConfigureAwait(false);
                 workspaceClosed = true;
                 return unavailable;
-            }
-
-            using (AssemblyInspectionSession session =
-                AssemblyInspectionSession.Open(focusPath))
-            {
-                AssemblyReferenceIdentity focusAssembly =
-                            session.AssemblyIdentity();
-                TypeDeclarationResult declaration =
-                            session.ProbeTypeDefinition(found.Type);
-                if (!focusAssembly.Name.Equals(
-                                requestedLibrary.Assembly,
-                                StringComparison.OrdinalIgnoreCase)
-                            || declaration
-                                is not (TypeDeclarationResult.Defined
-                                    or TypeDeclarationResult
-                                        .DefinitionKindUnavailable))
-                {
-                            ExactTypeRelationsInspectionOutcome.Unavailable
-                                unavailable =
-                                    await CloseUnavailableAsync(
-                                        workspace,
-                                        "The requested Platform Library does not "
-                                            + "declare the selected exact Type.")
-                                    .ConfigureAwait(false);
-                            workspaceClosed = true;
-                            return unavailable;
-                }
             }
 
             ExactTypeRelationsInspectionOutcome outcome =
@@ -291,6 +240,79 @@ internal static class PlatformTypeRelationsRouting
                     + "Library coordinate.");
         }
         return member;
+    }
+
+    private static async ValueTask<WorkspaceExactTypeFocusOutcome>
+        ResolveImplementationOnlyFocusAsync(
+            WorkspaceDeclarationPopulation population,
+            TypeRelationsInspectionRequest request,
+            WorkspaceMemberCoordinate.PlatformMember requestedLibrary,
+            WorkspaceContextLoadOptions capabilities,
+            NuGetSourceOptions sourceOptions,
+            CancellationToken cancellationToken)
+    {
+        var (assemblyPath, resolvedFamily, resolvedVersion, error) =
+            await PlatformResolver.ResolveAssemblyAsync(
+                    requestedLibrary.Assembly!,
+                    capabilities.HttpClient,
+                    capabilities.Log,
+                    requestedLibrary.Family,
+                    useRuntimeAssemblies: true,
+                    platformVersion: requestedLibrary.Version,
+                    sourceOptions: sourceOptions)
+                .ConfigureAwait(false);
+        if (assemblyPath is null
+            || error is not null
+            || !string.Equals(
+                resolvedFamily,
+                requestedLibrary.Family,
+                StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(
+                resolvedVersion,
+                requestedLibrary.Version,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                error
+                    ?? "The requested Platform Library could not be "
+                        + "resolved at its exact coordinate.",
+                []);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        WorkspaceExactTypeFocusOutcome requestedFocus;
+        using (AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(assemblyPath))
+        {
+            AssemblyReferenceIdentity assembly = session.AssemblyIdentity();
+            if (!assembly.Name.Equals(
+                    requestedLibrary.Assembly,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                    "The requested Platform Library resolved to a different "
+                        + "assembly identity.",
+                    []);
+            }
+            requestedFocus =
+                WorkspaceExactTypeFocusQuery.ExecuteFromDefinitionSurface(
+                    assembly,
+                    session.TypeDeclarations(),
+                    request.Type,
+                    request.SelectionKind,
+                    cancellationToken);
+        }
+
+        if (requestedFocus
+            is not WorkspaceExactTypeFocusOutcome.Found requested)
+        {
+            return requestedFocus;
+        }
+        return WorkspaceExactTypeFocusQuery.Execute(
+            population,
+            requested.Type.ToEscapedFullName(),
+            ExactTypeSelectionKind.DefinitionIdentity,
+            cancellationToken: cancellationToken);
     }
 
     private static WorkspaceRegistrationRevision RegistrationSnapshot(

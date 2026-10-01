@@ -34,6 +34,206 @@ public sealed record WorkspaceExactTypeFocusMemberOutcome(
 /// </summary>
 public static class WorkspaceExactTypeFocusQuery
 {
+    public static WorkspaceExactTypeFocusOutcome ExecuteFromDefinitionSurface(
+        AssemblyReferenceIdentity assembly,
+        AssemblyTypeDeclarationInventoryOutcome declarations,
+        string type,
+        ExactTypeSelectionKind selectionKind,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(declarations);
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        if (!Enum.IsDefined(selectionKind))
+            throw new ArgumentOutOfRangeException(nameof(selectionKind));
+        if (selectionKind == ExactTypeSelectionKind.Query
+            && TypeMatcher.IsTypeGlobPattern(type))
+        {
+            throw new ArgumentException(
+                "Exact Type focus does not accept a Type glob.",
+                nameof(type));
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        if (declarations
+            is not AssemblyTypeDeclarationInventoryOutcome.Read read)
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The requested Library declaration surface is unavailable.",
+                []);
+        }
+
+        List<DefinitionFocusCandidate> candidates =
+        [
+            .. read.Inventory
+                .GetDeclarations(includeAll: true)
+                .Where(static declaration =>
+                    declaration.Kind
+                        == AssemblyTypeDeclarationKind.Definition)
+                .Select(static declaration =>
+                    new DefinitionFocusCandidate(
+                        Occurrence: null,
+                        declaration.Name,
+                        declaration.Name.ToEscapedFullName(),
+                        declaration.Kind)),
+        ];
+        List<DefinitionFocusCandidate> selected =
+            Select(candidates, type, selectionKind);
+        return selected switch
+        {
+            [var match] => new WorkspaceExactTypeFocusOutcome.Found(
+                assembly,
+                DefinitionOccurrence: null,
+                match.Type),
+            [] => new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The requested Library does not declare the selected exact "
+                    + "Type.",
+                []),
+            _ => new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact Type focus is ambiguous in the requested "
+                    + "Library.",
+                []),
+        };
+    }
+
+    public static WorkspaceExactTypeFocusOutcome ExecuteFromAssemblySurface(
+        WorkspaceDeclarationPopulation population,
+        string type,
+        ExactTypeSelectionKind selectionKind,
+        string assemblyName,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyName);
+        if (!Enum.IsDefined(selectionKind))
+            throw new ArgumentOutOfRangeException(nameof(selectionKind));
+        if (selectionKind == ExactTypeSelectionKind.Query
+            && TypeMatcher.IsTypeGlobPattern(type))
+        {
+            throw new ArgumentException(
+                "Exact Type focus does not accept a Type glob.",
+                nameof(type));
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+
+        WorkspaceDeclarationMember[] members =
+        [
+            .. population.Receipt.Members.Where(member =>
+                member.AssemblyIdentity.Name.Equals(
+                    assemblyName,
+                    StringComparison.OrdinalIgnoreCase)),
+        ];
+        if (members.Length != 1)
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                members.Length == 0
+                    ? "The requested Library is not present in the "
+                        + "candidate context."
+                    : "The requested Library is ambiguous in the "
+                        + "candidate context.",
+                []);
+        }
+
+        WorkspaceDeclarationMember member = members[0];
+        WorkspaceDeclarationInventoryOutcome outcome =
+            population.ReadDeclarations(
+                member.Occurrence,
+                cancellationToken);
+        if (!TryGetInventory(
+                outcome,
+                out AssemblyTypeDeclarationInventory? inventory))
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The requested Library declaration surface is unavailable.",
+                [new(member, IsComplete: false)]);
+        }
+
+        var candidates = new List<DefinitionFocusCandidate>();
+        foreach (AssemblyTypeDeclaration declaration
+            in inventory.GetDeclarations(includeAll: true))
+        {
+            if (declaration.Kind
+                is not (AssemblyTypeDeclarationKind.Definition
+                    or AssemblyTypeDeclarationKind.Forwarder))
+            {
+                continue;
+            }
+            candidates.Add(new(
+                member.Occurrence,
+                declaration.Name,
+                declaration.Name.ToEscapedFullName(),
+                declaration.Kind));
+        }
+
+        List<DefinitionFocusCandidate> selected =
+            Select(candidates, type, selectionKind);
+        if (selected.Count == 0)
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The requested Library does not declare or forward the "
+                    + "selected exact Type.",
+                [new(member, IsComplete: true)]);
+        }
+        if (selected.Count > 1)
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact Type focus is ambiguous in the requested "
+                    + "Library.",
+                [new(member, IsComplete: true)]);
+        }
+
+        DefinitionFocusCandidate match = selected[0];
+        if (match.Kind == AssemblyTypeDeclarationKind.Definition)
+        {
+            return new WorkspaceExactTypeFocusOutcome.Found(
+                member.AssemblyIdentity,
+                member.Occurrence,
+                match.Type);
+        }
+        if (!population.TryGetAccess(
+                member.Occurrence,
+                out _,
+                out AssemblyContextGroup? group,
+                out ResolvedAssemblyReference? assembly)
+            || group is null
+            || assembly is null)
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The requested Library forwarding chain is unavailable.",
+                [new(member, IsComplete: false)]);
+        }
+
+        AssemblyContextParticipant participant =
+            group.Participants.Single(candidate =>
+                ReferenceEquals(
+                    candidate.Assembly.Registration,
+                    assembly.Registration));
+        AssemblyContextTypeResolutionResult resolution =
+            AssemblyContextTypeResolutionQuery.Execute(
+                group,
+                participant,
+                match.Type,
+                AssemblyResolutionScope.Any);
+        if (resolution
+            is not AssemblyContextTypeResolutionResult.Available
+            {
+                Outcome: TypeResolutionOutcome.Resolved resolved,
+            })
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The requested Library forwarding chain could not "
+                    + "establish the selected exact Type.",
+                [new(member, IsComplete: false)]);
+        }
+
+        ResolvedAssemblyReference definitionAssembly =
+            resolved.Definition.Assembly.Assembly;
+        return new WorkspaceExactTypeFocusOutcome.Found(
+            definitionAssembly.Identity,
+            population.FindOccurrence(definitionAssembly.Registration),
+            resolved.Definition.Type);
+    }
+
     public static WorkspaceExactTypeFocusOutcome Execute(
         WorkspaceDeclarationPopulation population,
         string type,
@@ -112,7 +312,8 @@ public static class WorkspaceExactTypeFocusQuery
                 matches.Add(new(
                     member.Occurrence,
                     declaration.Name,
-                    declaration.Name.ToEscapedFullName()));
+                    declaration.Name.ToEscapedFullName(),
+                    declaration.Kind));
             }
         }
 
@@ -288,7 +489,8 @@ public static class WorkspaceExactTypeFocusQuery
                     new DefinitionFocusCandidate(
                         member.Occurrence,
                         name,
-                        name.ToEscapedFullName())));
+                        name.ToEscapedFullName(),
+                        AssemblyTypeDeclarationKind.Definition)));
         }
 
         if ((library is null
@@ -531,9 +733,10 @@ public static class WorkspaceExactTypeFocusQuery
     }
 
     private sealed record DefinitionFocusCandidate(
-        WorkspaceDeclarationOccurrence Occurrence,
+        WorkspaceDeclarationOccurrence? Occurrence,
         MetadataTypeDefinitionName Type,
-        string FullName)
+        string FullName,
+        AssemblyTypeDeclarationKind Kind)
         : IFocusCandidate;
 
     private sealed record ReferencedFocusCandidate(

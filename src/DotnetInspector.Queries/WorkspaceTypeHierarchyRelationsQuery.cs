@@ -640,13 +640,16 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 continue;
             }
 
-            examined++;
             if (targetType != focus.Type)
+            {
+                examined++;
                 continue;
+            }
 
             AssemblyReferenceIdentity? resolvedAssembly = null;
             if (targetAssembly.IsEquivalentTo(focus.Assembly))
             {
+                examined++;
                 resolvedAssembly = targetAssembly;
             }
             else
@@ -667,6 +670,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                         Assembly: var terminal,
                     })
                 {
+                    examined++;
                     if (terminal.IsEquivalentTo(focus.Assembly))
                         resolvedAssembly = terminal;
                 }
