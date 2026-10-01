@@ -387,7 +387,10 @@ public static class MemberBodySizeScorecard
                         column,
                         ScorecardClosing.Exists,
                         static cell => cell.Microseconds))} | "
-                    + "1.00x | "
+                    + $"{FormatTerminalBaseline(
+                        result.Cells,
+                        column,
+                        static cell => cell.Microseconds)} | "
                     + $"{FormatRatio(TerminalRatioSummary(
                         result.Cells,
                         column,
@@ -400,7 +403,10 @@ public static class MemberBodySizeScorecard
                         column,
                         ScorecardClosing.Exists,
                         static cell => cell.AllocatedBytes))} | "
-                    + "1.00x | "
+                    + $"{FormatTerminalBaseline(
+                        result.Cells,
+                        column,
+                        static cell => cell.AllocatedBytes)} | "
                     + $"{FormatRatio(TerminalRatioSummary(
                         result.Cells,
                         column,
@@ -1334,6 +1340,19 @@ public static class MemberBodySizeScorecard
                 CultureInfo.InvariantCulture,
                 $"{ratio.GeometricMean:F2}x "
                 + $"({ratio.Minimum:F2}-{ratio.Maximum:F2}x)");
+
+    static string FormatTerminalBaseline(
+        IReadOnlyList<MemberBodySizeScorecardCell> cells,
+        string column,
+        Func<MemberBodySizeScorecardCell, double> value) =>
+        double.IsNaN(
+            TerminalRatioSummary(
+                cells,
+                column,
+                ScorecardClosing.Count,
+                value).GeometricMean)
+            ? "-"
+            : "1.00x";
 
     static void ValidateTiming(
         MemberBodySizeScorecardTiming timing)

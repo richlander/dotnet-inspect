@@ -1122,20 +1122,25 @@ public static class BodyUseScorecard
                 .Where(cell =>
                     cell.Closing == BodyUseScorecardClosing.Count)
                 .ToDictionary(cell => cell.AssetIndex);
+        int baselineCount =
+            counts.Values.Count(count => value(count) > 0);
         text.Append("| ")
             .Append(Name(column))
             .Append(" | ")
             .Append(metric)
             .Append(" | ")
             .Append(
-                counts.Values.Count(count => value(count) > 0)
-                    .ToString(CultureInfo.InvariantCulture))
+                baselineCount.ToString(
+                    CultureInfo.InvariantCulture))
             .Append(" |");
         foreach (BodyUseScorecardClosing closing in Closings)
         {
             if (closing == BodyUseScorecardClosing.Count)
             {
-                text.Append(" 1.00x |");
+                text.Append(
+                    baselineCount == 0
+                        ? " - |"
+                        : " 1.00x |");
                 continue;
             }
             double[] ratios =

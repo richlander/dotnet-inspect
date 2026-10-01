@@ -86,6 +86,32 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
     }
 
     [Fact]
+    public void ScorecardReportOmitsZeroAllocationCountBaseline()
+    {
+        BodyUseScorecardCell[] cells =
+        [
+            .. from closing
+                in Enum.GetValues<BodyUseScorecardClosing>()
+               from column
+                in Enum.GetValues<BodyUseScorecardColumn>()
+               select new BodyUseScorecardCell(
+                   0,
+                   "asset",
+                   closing,
+                   column,
+                   [1],
+                   [0]),
+        ];
+
+        string report = BodyUseScorecard.Report(cells);
+
+        Assert.Contains(
+            "| Planner | Allocation | 0 | - | - | - |",
+            report,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void DirectAndProductRoutesRemainEquivalentWithMeasuredCost()
     {

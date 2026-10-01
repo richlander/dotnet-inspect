@@ -152,6 +152,38 @@ public sealed class MetadataMethodGroupAnalysisProjectionTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ScorecardReportOmitsZeroAllocationCountBaseline()
+    {
+        MemberGroupScorecardCell[] cells =
+        [
+            .. from scenario in MemberGroupPopulation.Scenarios
+               from terminal in new[] { "Count", "Rows" }
+               from phase in new[] { "Kernel", "Composed" }
+               from column in new[] { "LINQ", "NLinq", "Planner" }
+               select new MemberGroupScorecardCell(
+                   scenario.Name,
+                   terminal,
+                   phase,
+                   column,
+                   Microseconds: 1,
+                   AllocatedBytes: 0),
+        ];
+        var result = new MemberGroupScorecardResult(
+            new(
+                Compared: 0,
+                Mismatches: [],
+                AnswerHashes: []),
+            cells);
+
+        string report = MemberGroupPopulation.Report(result);
+
+        Assert.Contains(
+            "| Planner | Kernel | Allocation | - | - |",
+            report,
+            StringComparison.Ordinal);
+    }
+
     private static void AssertAnswer(
         MemberGroupProjectionAnswer expected,
         MemberGroupProjectionAnswer actual)

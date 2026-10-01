@@ -152,6 +152,11 @@ public sealed class MemberBodySizeScorecardTests
                 + "1.00x (1.00-1.00x) |",
             report,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "| Planner (experimental) | Allocation | "
+                + "- | - | - |",
+            report,
+            StringComparison.Ordinal);
 
         static MemberBodySizeScorecardCell Cell(
             int scenarioIndex,

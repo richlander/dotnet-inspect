@@ -340,23 +340,37 @@ public static partial class MemberGroupPopulation
             foreach (string phase in new[] { "Kernel", "Composed" })
             {
                 writer.WriteLine(
-                    $"| {column} | {phase} | Time | 1.00x | "
+                    $"| {column} | {phase} | Time | "
+                        + $"{FormatTerminalRatio(
+                            result.Cells,
+                            column,
+                            phase,
+                            "Count",
+                            static cell =>
+                                cell.Microseconds)} | "
                         + $"{FormatTerminalRatio(
                             result.Cells,
                             column,
                             phase,
                             "Rows",
                             static cell =>
-                                cell.Microseconds)}x |");
+                                cell.Microseconds)} |");
                 writer.WriteLine(
-                    $"| {column} | {phase} | Allocation | 1.00x | "
+                    $"| {column} | {phase} | Allocation | "
+                        + $"{FormatTerminalRatio(
+                            result.Cells,
+                            column,
+                            phase,
+                            "Count",
+                            static cell =>
+                                cell.AllocatedBytes)} | "
                         + $"{FormatTerminalRatio(
                             result.Cells,
                             column,
                             phase,
                             "Rows",
                             static cell =>
-                                cell.AllocatedBytes)}x |");
+                                cell.AllocatedBytes)} |");
             }
         }
         return writer.ToString();
@@ -799,9 +813,9 @@ public static partial class MemberGroupPopulation
             value);
         return double.IsNaN(ratio)
             ? "-"
-            : ratio.ToString(
-                "F2",
-                System.Globalization.CultureInfo.InvariantCulture);
+            : string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"{ratio:F2}x");
     }
 
     private sealed record Column(
