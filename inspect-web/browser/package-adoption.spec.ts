@@ -3184,12 +3184,15 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       '[data-compare-type-id="LibraryApiDiffFixture.AddedType"]',
     ).click();
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    const addedTypeReturnLocation = await settledLocationAfter(libraryLocation);
     await panel.locator(".library-api-diff-member button", { hasText: "First" })
       .click();
     await expect(frame).toHaveClass(/compare-surface-member/, { timeout: 60_000 });
+    await settledLocationAfter(addedTypeReturnLocation);
 
     // Back restores the Type inventory with Compare and Diff still active.
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(addedTypeReturnLocation);
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await expect(panel.locator(".library-api-diff-member")).toHaveCount(3);
     await expect(panel.locator('[data-compare-mode="diff"]'))
