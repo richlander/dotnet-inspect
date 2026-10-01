@@ -32,40 +32,63 @@ internal static class PlatformTypeRelationsRouting
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(sourceOptions);
 
-        PlatformPopulationArtifactMaterializationOutcome realization =
-            await PlatformTypeCatalogRouting.RealizePopulationAsync(
-                    PlatformTypeCatalogRouting.FindActiveDotnetRoot(),
-                    target,
-                    context,
-                    sourceOptions,
-                    cancellationToken)
-                .ConfigureAwait(false);
-        if (realization
-            is PlatformPopulationArtifactMaterializationOutcome.Terminal
-                terminal)
-        {
-            CliPlatformTypeCatalogOutcome.NotCompleted failure =
-                PlatformTypeCatalogRouting.HouseFailure(terminal);
-            return new ExactTypeRelationsInspectionOutcome.Unavailable(
-                "The exact Platform relation population could not be "
-                    + $"realized ({Describe(failure)}).");
-        }
-
-        var completed =
-            (PlatformPopulationArtifactMaterializationOutcome.Completed)
-                realization;
         var workspace = new InspectionWorkspace();
+        Task<PlatformPopulationArtifactMaterializationOutcome>
+            realizationTask =
+                PlatformTypeCatalogRouting.RealizePopulationAsync(
+                        PlatformTypeCatalogRouting.FindActiveDotnetRoot(),
+                        target,
+                        context,
+                        sourceOptions,
+                        cancellationToken)
+                    .AsTask();
+        Task<WorkspaceDeclarationContext> focusTask =
+            WorkspaceContextLoader.LoadDeclarationContextAsync(
+                    workspace,
+                    request.Context,
+                    capabilities,
+                    cancellationToken);
+        PlatformPopulationArtifactMaterializationOutcome.Completed?
+            completed = null;
         bool resourcesSettled = false;
         bool workspaceClosed = false;
         try
         {
-            WorkspaceDeclarationContext focusContext =
-                await WorkspaceContextLoader.LoadDeclarationContextAsync(
-                        workspace,
-                        request.Context,
-                        capabilities,
-                        cancellationToken)
+            try
+            {
+                await Task.WhenAll(realizationTask, focusTask)
                     .ConfigureAwait(false);
+            }
+            catch
+            {
+                if (realizationTask.IsCompletedSuccessfully
+                    && realizationTask.Result
+                        is PlatformPopulationArtifactMaterializationOutcome
+                            .Completed realized)
+                {
+                    completed = realized;
+                }
+                throw;
+            }
+
+            PlatformPopulationArtifactMaterializationOutcome realization =
+                await realizationTask.ConfigureAwait(false);
+            if (realization
+                is PlatformPopulationArtifactMaterializationOutcome.Terminal
+                    terminal)
+            {
+                CliPlatformTypeCatalogOutcome.NotCompleted failure =
+                    PlatformTypeCatalogRouting.HouseFailure(terminal);
+                return new ExactTypeRelationsInspectionOutcome.Unavailable(
+                    "The exact Platform relation population could not be "
+                        + $"realized ({Describe(failure)}).");
+            }
+
+            completed =
+                (PlatformPopulationArtifactMaterializationOutcome.Completed)
+                    realization;
+            WorkspaceDeclarationContext focusContext =
+                await focusTask.ConfigureAwait(false);
             if (focusContext.Group is null)
             {
                 ExactTypeRelationsInspectionOutcome.Unavailable unavailable =
@@ -183,7 +206,7 @@ internal static class PlatformTypeRelationsRouting
         {
             try
             {
-                if (!resourcesSettled)
+                if (completed is not null && !resourcesSettled)
                 {
                     await PlatformTypeCatalogRouting.RetireAsync(completed)
                         .ConfigureAwait(false);
