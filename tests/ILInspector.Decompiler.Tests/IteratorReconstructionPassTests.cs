@@ -1006,6 +1006,7 @@ public class IteratorReconstructionPassTests
     [InlineData("dispose-omits-helper")]
     [InlineData("dispose-wrong-helper-receiver")]
     [InlineData("dispose-helper-outside-finally")]
+    [InlineData("yield-state-not-dispatched")]
     public void TwoEnumeratorUsingIterator_MalformedDisposalEvidenceDeclines(string shape)
     {
         using var source = MetadataSource.Open(typeof(IteratorUsingSamples).Assembly.Location);
@@ -1069,6 +1070,17 @@ public class IteratorReconstructionPassTests
                     call.SetSourceOffset(entry.StartOffset);
                     entry.Add(statement);
                     entry.Add(terminal);
+                }
+                else if (shape == "yield-state-not-dispatched"
+                    && method.Name == "MoveNext")
+                {
+                    var current = Assert.Single(
+                        imported.Descendants.OfType<StoreField>(),
+                        store => store.Field.Name == "<>2__current");
+                    var block = Assert.IsType<Block>(current.Parent);
+                    var currentIndex = block.Children.ToList().IndexOf(current);
+                    var stateStore = Assert.IsType<StoreField>(block.Children[currentIndex + 1]);
+                    stateStore.Value.ReplaceWith(new Constant(2, stateStore.Field.Type));
                 }
 
                 return imported;

@@ -91,6 +91,7 @@ internal static class ForeachIteratorReconstruction
             dispatchEnd++;
         if (dispatchEnd == 0)
             return false;
+        var stateDispatchEnd = dispatchEnd;
         if (dispatchEnd < blocks.Count && IsDefaultExit(blocks[dispatchEnd], returnLocal))
             dispatchEnd++;
         if (dispatchEnd >= blocks.Count)
@@ -119,6 +120,16 @@ internal static class ForeachIteratorReconstruction
         var expectedYieldCount = yieldStores.Count;
         if (expectedYieldCount == 0)
             return false;
+        if (!TryValidateYieldStateRoutes(
+                blocks,
+                stateDispatchEnd,
+                dispatchEnd,
+                stateLocal,
+                returnLocal,
+                yieldStores))
+        {
+            return false;
+        }
 
         var disposalHelpers = resources.Select(resource => resource.Finally).ToHashSet();
         var container = new BlockContainer();
@@ -210,6 +221,107 @@ internal static class ForeachIteratorReconstruction
                 Reanchor(statement, handoff.SourceOffset);
 
         return true;
+    }
+
+    static bool TryValidateYieldStateRoutes(
+        IReadOnlyList<Block> blocks,
+        int stateDispatchEnd,
+        int bodyStart,
+        int stateLocal,
+        int returnLocal,
+        IReadOnlySet<StoreField> yieldStores)
+    {
+        var dispatchTargets = new Dictionary<int, int>();
+        for (var i = 0; i < stateDispatchEnd; i++)
+        {
+            var branches = blocks[i].Children.OfType<ConditionalBranch>().ToList();
+            if (branches is not [var branch]
+                || !TryGetTestedState(branch.Condition, stateLocal, out var state)
+                || !dispatchTargets.TryAdd(state, branch.TargetOffset))
+            {
+                return false;
+            }
+        }
+        if (dispatchTargets.Count != yieldStores.Count + 1
+            || !dispatchTargets.TryGetValue(0, out var initialTarget)
+            || initialTarget != blocks[bodyStart].StartOffset)
+        {
+            return false;
+        }
+
+        var blockIndices = blocks
+            .Select((block, index) => (block.StartOffset, index))
+            .ToDictionary(pair => pair.StartOffset, pair => pair.index);
+        var matchedStates = new HashSet<int>();
+        foreach (var yieldStore in yieldStores)
+        {
+            if (yieldStore.Parent is not Block yieldBlock
+                || !blockIndices.TryGetValue(yieldBlock.StartOffset, out var yieldBlockIndex))
+            {
+                return false;
+            }
+            var yieldIndex = yieldBlock.Children.ToList().IndexOf(yieldStore);
+            if (yieldIndex < 0
+                || yieldBlock.Children.Skip(yieldIndex).ToList() is not
+                [
+                    StoreField,
+                    StoreField
+                    {
+                        Instance: LoadArgument { Index: 0 },
+                        Field.Name: "<>1__state",
+                        Value: Constant { Value: int yieldState },
+                    },
+                    StoreLocal
+                    {
+                        Index: var storedReturnLocal,
+                        Value: Constant { Value: true or 1 },
+                    },
+                    Leave,
+                ]
+                || storedReturnLocal != returnLocal
+                || yieldState <= 0
+                || !matchedStates.Add(yieldState)
+                || !dispatchTargets.TryGetValue(yieldState, out var resumeTarget)
+                || !blockIndices.TryGetValue(resumeTarget, out var resumeIndex)
+                || resumeIndex != yieldBlockIndex + 1
+                || resumeIndex + 1 >= blocks.Count
+                || blocks[resumeIndex].Children is not
+                [
+                    StoreField
+                    {
+                        Instance: LoadArgument { Index: 0 },
+                        Field.Name: "<>1__state",
+                        Value: Constant { Value: int runningState },
+                    },
+                ]
+                || runningState >= 0)
+            {
+                return false;
+            }
+        }
+
+        return dispatchTargets.Keys
+            .Where(state => state != 0)
+            .ToHashSet()
+            .SetEquals(matchedStates);
+    }
+
+    static bool TryGetTestedState(IrExpression condition, int stateLocal, out int state)
+    {
+        state = 0;
+        if (condition is LogicalNot { Operand: LoadLocal zero } && zero.Index == stateLocal)
+            return true;
+        if (condition is Comparison
+            {
+                Kind: ComparisonKind.Equal,
+                Left: LoadLocal load,
+                Right: Constant { Value: int value },
+            } && load.Index == stateLocal)
+        {
+            state = value;
+            return true;
+        }
+        return false;
     }
 
     static bool TryRaiseLockstepLoop(
