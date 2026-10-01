@@ -978,9 +978,9 @@ public sealed class MemberMetricsInspectionOperationTests
         MemberOverloadRowsOutcome.Read source =
             Assert.IsType<MemberOverloadRowsOutcome.Read>(
                 document.Overloads.Rows);
-        var replaced = document with
-        {
-            Overloads = document.Overloads with
+        var replaced = new MemberGroupDocument(
+            document.Subject,
+            document.Overloads with
             {
                 Binding = binding,
                 Rows = source with
@@ -992,7 +992,7 @@ public sealed class MemberMetricsInspectionOperationTests
                     ],
                 },
             },
-        };
+            document.ReturnedRowDocumentation);
 
         InspectionEnvelope<MemberMetricsInspectionOutcome> envelope =
             MemberMetricsInspectionOperation.Execute(

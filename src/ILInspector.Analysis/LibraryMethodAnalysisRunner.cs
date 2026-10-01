@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -213,8 +214,6 @@ internal sealed class LibraryMethodAnalysisResult
     public BodySignals Signals;
     public MethodImplementationMetricEvidence? ImplementationMetrics;
     public AnalysisDiagnostic? ImplementationMetricDiagnostic;
-    public MethodIdentity?
-        IncompleteImplementationMetricAttributionSource;
     public MethodBodyImplementationMetrics? ImplementationProfile;
     public AnalysisDiagnostic? Diagnostic;
     public MethodIdentity? DeclaredSource;
@@ -271,7 +270,9 @@ internal sealed partial class LibraryMethodAnalysisRunner(
     ImplementationMetricWorkBudget?
         implementationMetricWork = null,
     ImplementationMetricExecutionRecorder?
-        implementationMetricRecorder = null)
+        implementationMetricRecorder = null,
+    ConcurrentDictionary<int, MethodIdentity>?
+        incompleteImplementationMetricAttributionSources = null)
 {
     readonly ILibraryMethodAnalysisInfrastructure _infrastructure =
         infrastructure;
@@ -1835,9 +1836,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 && source.MetadataToken
                     != caller.MetadataToken)
             {
-                result
-                    .IncompleteImplementationMetricAttributionSource =
-                        source;
+                incompleteImplementationMetricAttributionSources
+                    ?.TryAdd(source.MetadataToken, source);
             }
             throw;
         }

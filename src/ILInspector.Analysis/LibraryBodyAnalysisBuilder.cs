@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -572,6 +573,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         bool includeAnyOpportunities =
             includeOpportunities || includeAsyncSiblingOpportunities;
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
+        ConcurrentDictionary<int, MethodIdentity>?
+            incompleteImplementationMetricAttributionSources =
+                plan.ImplementationMetrics is null
+                    ? null
+                    : new();
         var methodRunner =
             new LibraryMethodAnalysisRunner(
                 this,
@@ -580,12 +586,14 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                         _reader, ResolveExternalTypeDefinition)
                     : null,
                 _implementationMetricWork,
-                _implementationMetricRecorder);
+                _implementationMetricRecorder,
+                incompleteImplementationMetricAttributionSources);
         var accumulator =
             new LibraryBodyAnalysisAccumulator(
                 _reader,
                 _primaryMetadataResolver,
-                plan);
+                plan,
+                incompleteImplementationMetricAttributionSources);
         Func<TypeRef, bool>? bodyTypeScope = plan.TypeScope;
 
         // Flatten types->methods into a work list (cheap, reader-bound), then analyze each

@@ -15,17 +15,24 @@ internal sealed class LibraryBodyAnalysisAccumulator
     readonly bool _includeMethodEvidence;
     readonly bool _isScoped;
     readonly IReadOnlySet<string> _exceptionTypeNames;
+    readonly IReadOnlyDictionary<int, MethodIdentity>
+        _incompleteImplementationMetricAttributionSources;
 
     internal LibraryBodyAnalysisAccumulator(
         MetadataReader reader,
         LibraryBodyPrimaryMetadataResolver primaryMetadataResolver,
-        LibraryBodyAnalysisPlan plan)
+        LibraryBodyAnalysisPlan plan,
+        IReadOnlyDictionary<int, MethodIdentity>?
+            incompleteImplementationMetricAttributionSources = null)
     {
         _reader = reader;
         _primaryMetadataResolver = primaryMetadataResolver;
         _includeMethodEvidence = plan.Includes(
             LibraryBodyAnalysisFeatures.MethodEvidence);
         _isScoped = plan.IsScoped;
+        _incompleteImplementationMetricAttributionSources =
+            incompleteImplementationMetricAttributionSources
+                ?? ImmutableDictionary<int, MethodIdentity>.Empty;
         _exceptionTypeNames = _includeMethodEvidence
             ? ComputeExceptionTypeNames()
             : new HashSet<string>(StringComparer.Ordinal);
@@ -68,8 +75,6 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 .CreateBuilder<MethodImplementationMetricEvidence>();
         var implementationMetricDiagnostics =
             ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
-        var incompleteAttributionSources =
-            new Dictionary<int, MethodIdentity>();
         int none = 0, impl = 0, expl = 0, unavailable = 0;
 
         foreach (var result in results)
@@ -248,13 +253,6 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 implementationMetrics.Add(implementationMetric);
             if (r.ImplementationMetricDiagnostic is { } metricDiagnostic)
                 implementationMetricDiagnostics.Add(metricDiagnostic);
-            if (r.IncompleteImplementationMetricAttributionSource
-                is { } incompleteAttributionSource)
-            {
-                incompleteAttributionSources.TryAdd(
-                    incompleteAttributionSource.MetadataToken,
-                    incompleteAttributionSource);
-            }
             if (r.ImplementationProfile is { } implementationProfile)
             {
                 if (r.Diagnostic is { } profileDiagnostic)
@@ -349,7 +347,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
             ImplementationMetricAttributionClosure =
                 new(
                 [
-                    .. incompleteAttributionSources.Values
+                    .. _incompleteImplementationMetricAttributionSources
+                        .Values
                         .OrderBy(static source =>
                             source.MetadataToken),
                 ]),
