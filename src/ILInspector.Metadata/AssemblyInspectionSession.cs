@@ -357,8 +357,22 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
-    /// Produces one qualified whole-Library or exact-namespace Type-to-Type
-    /// signature-use population for this exact image.
+    /// Finds exact TypeDef and forwarder names by one simple ASCII leaf name
+    /// without materializing unrelated declaration names.
+    /// </summary>
+    public MetadataTypeDeclarationNameSearchResult
+        FindTypeDeclarationsBySimpleName(string simpleName)
+    {
+        _image.EnsureAlive();
+        return MetadataTypeDefinitionName
+            .FindDeclarationsBySimpleName(
+                _image.GetMetadataReader(),
+                simpleName);
+    }
+    /// <summary>
+    /// <summary>
+    /// population for this exact image.
+    /// population for this exact image.
     /// </summary>
     public MetadataLibrarySignatureUseOutcome LibrarySignatureUses(
         MetadataLibrarySignatureUseRequest request,

@@ -1272,6 +1272,42 @@ public sealed class MetadataRelationInspectionTests
     }
 
     [Fact]
+    public void
+        SimpleDeclarationNameSearchFindsDefinitionsAndForwardersOnly()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(
+                    BuildSimpleDeclarationNameSearchImage(),
+                    writable: false));
+
+        var found =
+            Assert.IsType<MetadataTypeDeclarationNameSearchResult.Found>(
+                session.FindTypeDeclarationsBySimpleName("icontract"));
+
+        Assert.Collection(
+            found.Matches,
+            match =>
+            {
+                Assert.Equal(
+                    "Local.IContract",
+                    match.Name.ToMetadataFullName());
+                Assert.Equal(
+                    AssemblyTypeDeclarationKind.Definition,
+                    match.Kind);
+            },
+            match =>
+            {
+                Assert.Equal(
+                    "Remote.IContract",
+                    match.Name.ToMetadataFullName());
+                Assert.Equal(
+                    AssemblyTypeDeclarationKind.Forwarder,
+                    match.Kind);
+            });
+    }
+
+    [Fact]
     public void ProducerLimitReturnsPartialInsteadOfExactEmpty()
     {
         string path = Path.Combine(
@@ -1538,6 +1574,75 @@ public sealed class MetadataRelationInspectionTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
+    }
+
+    private static byte[] BuildSimpleDeclarationNameSearchImage()
+    {
+        const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("SimpleSearch.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("SimpleSearch"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            metadata.GetOrAddString(""),
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Local"),
+            metadata.GetOrAddString("IContract"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyReferenceHandle target =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Forwarded.Target"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        metadata.AddExportedType(
+            Forwarder,
+            metadata.GetOrAddString("Remote"),
+            metadata.GetOrAddString("IContract"),
+            target,
+            typeDefinitionId: 0);
+        AssemblyFileHandle module =
+            metadata.AddAssemblyFile(
+                metadata.GetOrAddString("Part.netmodule"),
+                default,
+                containsMetadata: true);
+        metadata.AddExportedType(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Module"),
+            metadata.GetOrAddString("IContract"),
+            module,
+            typeDefinitionId: 1);
 
         var image = new BlobBuilder();
         new ManagedPEBuilder(

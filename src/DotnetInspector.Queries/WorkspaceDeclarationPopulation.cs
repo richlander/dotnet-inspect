@@ -244,6 +244,20 @@ public abstract class WorkspaceDeclarationInventoryOutcome
     }
 }
 
+internal abstract record WorkspaceDeclarationNameSearchOutcome
+{
+    private WorkspaceDeclarationNameSearchOutcome()
+    {
+    }
+
+    internal sealed record Inspected(
+        MetadataTypeDeclarationNameSearchResult Outcome)
+        : WorkspaceDeclarationNameSearchOutcome;
+
+    internal sealed record Unavailable
+        : WorkspaceDeclarationNameSearchOutcome;
+}
+
 public enum WorkspaceDeclarationInventoryBound
 {
     ReadAttempts,
@@ -345,6 +359,52 @@ public sealed class WorkspaceDeclarationPopulation
         }
 
         return null;
+    }
+
+    internal WorkspaceDeclarationNameSearchOutcome
+        FindDeclarationsBySimpleName(
+            WorkspaceDeclarationOccurrence occurrence,
+            string simpleName,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        ArgumentException.ThrowIfNullOrWhiteSpace(simpleName);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_access.TryGetValue(occurrence, out var access)
+            || Availability() is not null
+            || access is not WorkspaceDeclarationMemberAccess
+                .AssemblyContext group)
+        {
+            return new WorkspaceDeclarationNameSearchOutcome.Unavailable();
+        }
+
+        try
+        {
+            AssemblyImageAccessResult<
+                MetadataTypeDeclarationNameSearchResult> result =
+                    group.Group.UseAssemblySession(
+                        group.Assembly,
+                        session =>
+                            session.FindTypeDeclarationsBySimpleName(
+                                simpleName));
+            cancellationToken.ThrowIfCancellationRequested();
+            return result switch
+            {
+                AssemblyImageAccessResult<
+                    MetadataTypeDeclarationNameSearchResult>
+                    .Available available =>
+                        new WorkspaceDeclarationNameSearchOutcome.Inspected(
+                            available.Value),
+                _ => new WorkspaceDeclarationNameSearchOutcome.Unavailable(),
+            };
+        }
+        catch (ObjectDisposedException exception)
+            when (exception.ObjectName
+                == typeof(AssemblyContextGroup).FullName)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return new WorkspaceDeclarationNameSearchOutcome.Unavailable();
+        }
     }
 
     /// <summary>Inspects one selected occurrence through its existing group owner.</summary>

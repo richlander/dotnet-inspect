@@ -503,18 +503,7 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
             string simpleName)
     {
         ArgumentNullException.ThrowIfNull(reader);
-        ArgumentException.ThrowIfNullOrWhiteSpace(simpleName);
-        if (simpleName.Length
-                > MetadataSafetyPolicy.MaxTypeNameCharacters
-            || simpleName.Any(static character =>
-                !char.IsAsciiLetterOrDigit(character)
-                && character is not ('_' or '`')))
-        {
-            throw new ArgumentException(
-                "A simple metadata Type name must contain only ASCII "
-                    + "letters, digits, '_', or '`'.",
-                nameof(simpleName));
-        }
+        byte[] expected = EncodeSimpleName(simpleName);
         if (reader.TypeDefinitions.Count
             > MetadataSafetyPolicy.MaxTypeDeclarationRows)
         {
@@ -524,37 +513,14 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
                         + "budget.");
         }
 
-        byte[] expected = Encoding.UTF8.GetBytes(simpleName);
         var matches =
             ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
         {
+            TypeDefinition definition;
             try
             {
-                TypeDefinition definition =
-                    reader.GetTypeDefinition(handle);
-                BlobReader actual =
-                    reader.GetBlobReader(definition.Name);
-                if (actual.Length != expected.Length)
-                    continue;
-
-                bool equal = true;
-                for (int index = 0; index < expected.Length; index++)
-                {
-                    byte left = actual.ReadByte();
-                    byte right = expected[index];
-                    if (left is >= (byte)'A' and <= (byte)'Z')
-                        left += (byte)('a' - 'A');
-                    if (right is >= (byte)'A' and <= (byte)'Z')
-                        right += (byte)('a' - 'A');
-                    if (left != right)
-                    {
-                        equal = false;
-                        break;
-                    }
-                }
-                if (!equal)
-                    continue;
+                definition = reader.GetTypeDefinition(handle);
             }
             catch (Exception exception) when (
                 exception is BadImageFormatException
@@ -565,9 +531,23 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
                         handle,
                         exception.Message));
             }
+            if (!MatchesSimpleName(
+                    reader,
+                    definition.Name,
+                    expected,
+                    handle,
+                    out MetadataTypeNameFailure? failure))
+            {
+                if (failure is not null)
+                {
+                    return new MetadataTypeDefinitionNameSearchResult
+                        .Rejected(failure);
+                }
+                continue;
+            }
 
             MetadataTypeDefinitionNameReadResult result =
-                Read(reader, handle);
+                MetadataTypeDefinitionNameReader.Read(reader, handle);
             if (result
                 is MetadataTypeDefinitionNameReadResult.Rejected rejected)
             {
@@ -580,6 +560,194 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
 
         return new MetadataTypeDefinitionNameSearchResult.Found(
             matches.ToImmutable());
+    }
+
+    /// <summary>
+    /// Finds every TypeDef or forwarder whose leaf name exactly matches one
+    /// simple ASCII name, without materializing unrelated declaration names.
+    /// </summary>
+    public static MetadataTypeDeclarationNameSearchResult
+        FindDeclarationsBySimpleName(
+            MetadataReader reader,
+            string simpleName)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        byte[] expected = EncodeSimpleName(simpleName);
+        long rows = (long)reader.TypeDefinitions.Count
+            + reader.ExportedTypes.Count;
+        if (rows > MetadataSafetyPolicy.MaxTypeDeclarationRows)
+        {
+            return new MetadataTypeDeclarationNameSearchResult
+                .BudgetExceeded(
+                    "The exact Type declaration lookup exceeded its "
+                        + "metadata-row budget.");
+        }
+
+        var matches = ImmutableArray.CreateBuilder<
+            MetadataTypeDeclarationNameMatch>();
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            TypeDefinition definition;
+            try
+            {
+                definition = reader.GetTypeDefinition(handle);
+            }
+            catch (Exception exception) when (
+                exception is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                return new MetadataTypeDeclarationNameSearchResult.Rejected(
+                    MetadataTypeNameFailure.Malformed(
+                        handle,
+                        exception.Message));
+            }
+            if (!MatchesSimpleName(
+                    reader,
+                    definition.Name,
+                    expected,
+                    handle,
+                    out MetadataTypeNameFailure? failure))
+            {
+                if (failure is not null)
+                {
+                    return new MetadataTypeDeclarationNameSearchResult
+                        .Rejected(failure);
+                }
+                continue;
+            }
+
+            MetadataTypeDefinitionNameReadResult result =
+                MetadataTypeDefinitionNameReader.Read(reader, handle);
+            if (result
+                is MetadataTypeDefinitionNameReadResult.Rejected rejected)
+            {
+                return new MetadataTypeDeclarationNameSearchResult.Rejected(
+                    rejected.Failure);
+            }
+            matches.Add(
+                new(
+                    ((MetadataTypeDefinitionNameReadResult.Read)result).Name,
+                    AssemblyTypeDeclarationKind.Definition));
+        }
+
+        var referenceProjection =
+            new AssemblyReferenceProjectionCache(reader);
+        foreach (ExportedTypeHandle handle in reader.ExportedTypes)
+        {
+            ExportedType exported;
+            try
+            {
+                exported = reader.GetExportedType(handle);
+            }
+            catch (Exception exception) when (
+                exception is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                return new MetadataTypeDeclarationNameSearchResult.Rejected(
+                    MetadataTypeNameFailure.Malformed(
+                        handle,
+                        exception.Message));
+            }
+            if (!MatchesSimpleName(
+                    reader,
+                    exported.Name,
+                    expected,
+                    handle,
+                    out MetadataTypeNameFailure? failure))
+            {
+                if (failure is not null)
+                {
+                    return new MetadataTypeDeclarationNameSearchResult
+                        .Rejected(failure);
+                }
+                continue;
+            }
+
+            MetadataTypeDefinitionNameReadResult result =
+                MetadataTypeDefinitionNameReader.Read(reader, handle);
+            if (result
+                is MetadataTypeDefinitionNameReadResult.Rejected rejected)
+            {
+                return new MetadataTypeDeclarationNameSearchResult.Rejected(
+                    rejected.Failure);
+            }
+            if (!MetadataTypeDeclarationProbe.TryReadExportedCandidate(
+                    reader,
+                    handle,
+                    referenceProjection,
+                    out TypeDeclarationCandidate? candidate,
+                    out MetadataTypeNameFailure? candidateFailure))
+            {
+                return new MetadataTypeDeclarationNameSearchResult.Rejected(
+                    candidateFailure!);
+            }
+            if (candidate is TypeDeclarationCandidate.Forwarder)
+            {
+                matches.Add(
+                    new(
+                        ((MetadataTypeDefinitionNameReadResult.Read)result)
+                            .Name,
+                        AssemblyTypeDeclarationKind.Forwarder));
+            }
+        }
+
+        return new MetadataTypeDeclarationNameSearchResult.Found(
+            matches.ToImmutable());
+    }
+
+    private static byte[] EncodeSimpleName(string simpleName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(simpleName);
+        if (simpleName.Length
+                > MetadataSafetyPolicy.MaxTypeNameCharacters
+            || simpleName.Any(static character =>
+                !char.IsAsciiLetterOrDigit(character)
+                && character is not ('_' or '`')))
+        {
+            throw new ArgumentException(
+                "A simple metadata Type name must contain only ASCII "
+                    + "letters, digits, '_', or '`'.",
+                nameof(simpleName));
+        }
+        return Encoding.UTF8.GetBytes(simpleName);
+    }
+
+    private static bool MatchesSimpleName(
+        MetadataReader reader,
+        StringHandle name,
+        byte[] expected,
+        EntityHandle subject,
+        out MetadataTypeNameFailure? failure)
+    {
+        failure = null;
+        try
+        {
+            BlobReader actual = reader.GetBlobReader(name);
+            if (actual.Length != expected.Length)
+                return false;
+
+            for (int index = 0; index < expected.Length; index++)
+            {
+                byte left = actual.ReadByte();
+                byte right = expected[index];
+                if (left is >= (byte)'A' and <= (byte)'Z')
+                    left += (byte)('a' - 'A');
+                if (right is >= (byte)'A' and <= (byte)'Z')
+                    right += (byte)('a' - 'A');
+                if (left != right)
+                    return false;
+            }
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            failure = MetadataTypeNameFailure.Malformed(
+                subject,
+                exception.Message);
+            return false;
+        }
     }
 
     /// <summary>
@@ -730,6 +898,27 @@ public abstract record MetadataTypeDefinitionNameSearchResult
 
     public sealed record BudgetExceeded(string Detail) :
         MetadataTypeDefinitionNameSearchResult;
+}
+
+public sealed record MetadataTypeDeclarationNameMatch(
+    MetadataTypeDefinitionName Name,
+    AssemblyTypeDeclarationKind Kind);
+
+public abstract record MetadataTypeDeclarationNameSearchResult
+{
+    private protected MetadataTypeDeclarationNameSearchResult()
+    {
+    }
+
+    public sealed record Found(
+        ImmutableArray<MetadataTypeDeclarationNameMatch> Matches) :
+        MetadataTypeDeclarationNameSearchResult;
+
+    public sealed record Rejected(MetadataTypeNameFailure Failure) :
+        MetadataTypeDeclarationNameSearchResult;
+
+    public sealed record BudgetExceeded(string Detail) :
+        MetadataTypeDeclarationNameSearchResult;
 }
 
 internal enum MetadataTypeDefinitionNameMatch

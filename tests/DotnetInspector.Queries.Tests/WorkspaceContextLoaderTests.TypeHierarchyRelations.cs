@@ -77,6 +77,76 @@ public sealed partial class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task
+        ExactTypeFocus_RejectsSameTypeAcrossEqualIdentityAcquisitions()
+    {
+        const string AssemblyName = "Identity.Collision";
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationContext first =
+            await LocatorContext(
+                workspace,
+                LocatorImage(
+                    AssemblyName,
+                    metadata => LocatorDefinition(
+                        metadata,
+                        "Probe",
+                        "IContract")));
+        WorkspaceDeclarationContext second =
+            await LocatorContext(
+                workspace,
+                LocatorImage(
+                    AssemblyName,
+                    metadata => LocatorDefinition(
+                        metadata,
+                        "Probe",
+                        "IContract")));
+
+        WorkspaceExactTypeFocusOutcome result =
+            WorkspaceExactTypeFocusQuery.Execute(
+                CaptureDeclarations(workspace, first, second),
+                "Probe.IContract",
+                assemblyName: AssemblyName,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<WorkspaceExactTypeFocusOutcome.Unavailable>(result);
+        Assert.Contains(
+            "ambiguous",
+            unavailable.Detail,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task
+        ExactTypeFocus_SimpleNameDoesNotMaterializeUnrelatedDeclarations()
+    {
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationContext context =
+            await LocatorContext(
+                workspace,
+                LocatorImage(
+                    "Targeted",
+                    metadata =>
+                    {
+                        LocatorDefinition(metadata, "Probe", "Stream");
+                        LocatorDefinition(metadata, "Other", "Duplicate");
+                        LocatorDefinition(metadata, "Other", "Duplicate");
+                    }));
+
+        WorkspaceExactTypeFocusOutcome result =
+            WorkspaceExactTypeFocusQuery.Execute(
+                CaptureDeclarations(workspace, context),
+                "Stream",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var found =
+            Assert.IsType<WorkspaceExactTypeFocusOutcome.Found>(result);
+        Assert.Equal("Probe.Stream", found.Type.ToMetadataFullName());
+    }
+
+    [Fact]
     public async Task TypeHierarchyRelations_ResolveExactCrossAssemblyInterface()
     {
         string contractsPath =
