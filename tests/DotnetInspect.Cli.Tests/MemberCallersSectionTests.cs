@@ -126,7 +126,7 @@ public class MemberCallersSectionTests
                 scopeDirectory,
                 "-n",
                 "1",
-                "--json");
+                "--json"));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
