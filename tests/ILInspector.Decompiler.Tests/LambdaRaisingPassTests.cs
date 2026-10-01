@@ -68,6 +68,8 @@ public class LambdaRaisingPassTests
         Assert.Contains("using (IEnumerator<string> enum1 = first.GetEnumerator())", result.Output);
         Assert.Contains("using (IEnumerator<string> enum2 = second.GetEnumerator())", result.Output);
         Assert.Contains("yield return", result.Output);
+        Assert.Contains("foreach (", result.Output);
+        Assert.DoesNotContain("iEnumerator =", result.Output);
         Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
     }
 
