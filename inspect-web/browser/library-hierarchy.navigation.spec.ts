@@ -589,7 +589,7 @@ test("metadata accessors retain their established overload detail route", async 
   await page.locator(
     '#type-list [data-type="asset:core:Example.Widget"]').click();
   await page.locator("#member-filter-summary").click();
-  await page.locator('[data-member-spelling="metadata"]').click();
+  await page.locator("[data-member-spelling]").selectOption("metadata");
   await chooseSubject(page, "member", "Member");
   await page.locator(".member-surface-list .overload-row").click();
 
@@ -634,7 +634,7 @@ test("non-public overload navigation retains its established detail route", asyn
   await page.locator(
     '#type-list [data-type="asset:core:Example.Widget"]').click();
   await page.locator("#member-filter-summary").click();
-  await page.locator('[data-member-access-filter="private"]').click();
+  await page.locator("[data-member-access-filter]").selectOption("private");
   await chooseSubject(page, "member", "Member");
   await page.locator('[data-nav-overload="1"]').click();
 
@@ -662,9 +662,9 @@ test("aggregate Library remains active through Spotlight Type and Member results
     .toHaveText("All libraries");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(2);
   await page.locator("#member-filter-summary").click();
-  await page.locator('[data-member-access-filter="private"]').click();
-  await expect(page.locator('[data-member-access-filter="private"]'))
-    .toHaveAttribute("aria-pressed", "true");
+  await page.locator("[data-member-access-filter]").selectOption("private");
+  await expect(page.locator("[data-member-access-filter]"))
+    .toHaveValue("private");
 
   await page.locator("#open-search").dispatchEvent("click");
   await page.locator("#spotlight-input").fill("Run");
@@ -675,8 +675,8 @@ test("aggregate Library remains active through Spotlight Type and Member results
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".subject-path-segment").nth(1))
     .toHaveText("All libraries");
-  await expect(page.locator('[data-member-access-filter="public"]'))
-    .toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-member-access-filter]"))
+    .toHaveValue("public");
   await expect(page.locator("#member-surface-title")).toHaveText("Run");
   await expect(page.locator(".member-surface-list .overload-row"))
     .toHaveCount(1);
@@ -910,8 +910,9 @@ test("Library Enter loads the selected Type member population", async ({
   await expect(subjectTab(page, "type"))
     .toHaveAttribute("aria-selected", "true");
   await page.locator("#member-filter-summary").click();
-  await expect(page.locator('[data-member-access-filter="public"]'))
-    .toContainText("| 1");
+  await expect(
+    page.locator('[data-member-access-filter] option[value="public"]'),
+  ).toContainText("· 1");
 });
 
 test("Type-only history restores its member population", async ({ page }) => {
@@ -933,8 +934,89 @@ test("Type-only history restores its member population", async ({ page }) => {
     /"Example.Widget","csharp","public"\]$/,
   );
   await page.locator("#member-filter-summary").click();
-  await expect(page.locator('[data-member-access-filter="public"]'))
-    .toContainText("| 1");
+  await expect(
+    page.locator('[data-member-access-filter] option[value="public"]'),
+  ).toContainText("· 1");
+});
+
+test("Member filters use dropdowns and request all accessibility buckets", async ({
+  page,
+}) => {
+  const publicMember = {
+    ...run,
+    isStatic: true,
+  };
+  const privateMember = {
+    ...run,
+    name: "Value",
+    kind: "field",
+    signature: "private int Value",
+    accessibility: "private",
+    isStatic: false,
+    metadataToken: 0x04000001,
+    declarationMetadataToken: 0x04000001,
+    returnType: "int",
+    documentationId: "F:Example.Widget.Value",
+    stableSelector: "Value",
+    anchorDigest: "widget-value",
+    canonicalSignature: "int Example.Widget.Value",
+    graphSelectorKey: "Value",
+    bodySelectors: [],
+  };
+  const model = {
+    ...surface,
+    totalMembers: surface.totalMembers + 1,
+    types: surface.types.map(item =>
+      item.id === "asset:core:Example.Widget"
+        ? {
+            ...item,
+            members: item.members + 1,
+            api: [publicMember, privateMember],
+          }
+        : item),
+  };
+  await installFacades(page, model);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]',
+  ).click();
+  await page.locator("#member-filter-summary").click();
+
+  const kind = page.locator("[data-member-kind-filter]");
+  const trait = page.locator("[data-member-trait-filter]");
+  await expect(kind).toBeVisible();
+  await expect(page.locator("[data-member-spelling]")).toBeVisible();
+  const accessibility = page.locator("[data-member-access-filter]");
+  await expect(accessibility.locator('option[value="all"]'))
+    .toHaveText("all · 2");
+
+  await kind.selectOption("method");
+  await trait.selectOption("isStatic");
+  await accessibility.selectOption("private");
+
+  await expect(kind).toHaveValue("method");
+  await expect(kind.locator('option[value="method"]')).toHaveCount(1);
+  await expect(trait).toHaveValue("isStatic");
+  await expect(trait.locator('option[value="isStatic"]')).toHaveCount(1);
+  await expect(page.locator("#inspector-panel [data-member]")).toHaveCount(0);
+
+  await kind.selectOption("all");
+  await expect(page.locator("#inspector-panel [data-member]")).toHaveCount(0);
+  await trait.selectOption("");
+  await expect(page.locator("#inspector-panel [data-member]")).toHaveCount(1);
+  await expect(page.locator("#inspector-panel")).toContainText("Value");
+
+  await accessibility.selectOption("all");
+
+  await expect(accessibility).toHaveValue("all");
+  await expect(page.locator("#inspector-panel [data-member]")).toHaveCount(2);
+  await expect(page.locator("#inspector-panel")).toContainText("Value");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"Example.Widget","csharp","all"\]$/,
+  );
 });
 
 for (const width of [900, 390]) {

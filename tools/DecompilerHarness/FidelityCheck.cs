@@ -2262,11 +2262,66 @@ static partial class FidelityCheck
         string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries,
         List<CompileBackResult> results, FidelityPhaseTimings? timings)
     {
+        // Field initializers are identical across a type's constructors (C# declares
+        // them once at the field), so any ctor entry's lifted inits serve the group.
+        var fieldInits = entries.FirstOrDefault(e => e.Name is ".ctor" or ".cctor")?.FieldInits ?? [];
+        if (fieldInits.Count > 0
+            && entries.Count > 1
+            && HasTargetedPropertyInitializer(reader, typeHandle, entries, fieldInits))
+        {
+            // One C# declaration cannot both carry a lifted initializer for a
+            // constructor target and preserve the immutable whole-property
+            // artifact for an accessor target. Keep constructor contexts isolated
+            // and retain one grouped compile for all non-constructor targets.
+            var partitioned = new Dictionary<(string Method, int Overload, string Signature), CompileBackResult>();
+            foreach (var entry in entries.Where(entry => entry.Name is ".ctor" or ".cctor"))
+            {
+                var constructorResults = new List<CompileBackResult>();
+                if (!TryCompileGroupCore(
+                    reader, pe, references, parseOptions, compileOptions,
+                    fullType, typeHandle, [entry], constructorResults, timings))
+                    return false;
+                foreach (var result in constructorResults)
+                    partitioned[(result.Method, result.Overload, result.Signature)] = result;
+            }
+
+            var nonConstructors = entries
+                .Where(entry => entry.Name is not (".ctor" or ".cctor"))
+                .ToArray();
+            if (nonConstructors.Length > 0)
+            {
+                var nonConstructorResults = new List<CompileBackResult>();
+                if (!TryCompileGroupCore(
+                    reader, pe, references, parseOptions, compileOptions,
+                    fullType, typeHandle, nonConstructors, nonConstructorResults, timings))
+                    return false;
+                foreach (var result in nonConstructorResults)
+                    partitioned[(result.Method, result.Overload, result.Signature)] = result;
+            }
+
+            foreach (var entry in entries)
+            {
+                if (!partitioned.TryGetValue((entry.Name, entry.Overload, entry.Signature), out var result))
+                    return false;
+                results.Add(result);
+            }
+            return true;
+        }
+
+        return TryCompileGroupCore(
+            reader, pe, references, parseOptions, compileOptions,
+            fullType, typeHandle, entries, results, timings);
+    }
+
+    static bool TryCompileGroupCore(
+        MetadataReader reader, PEReader pe, ReferenceSet references,
+        CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
+        string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries,
+        List<CompileBackResult> results, FidelityPhaseTimings? timings)
+    {
         var targets = new Dictionary<MethodDefinitionHandle, TargetBody>();
         foreach (var e in entries)
             targets[e.Handle] = e.Target;
-        // Field initializers are identical across a type's constructors (C# declares
-        // them once at the field), so any ctor entry's lifted inits serve the group.
         var fieldInits = entries.FirstOrDefault(e => e.Name is ".ctor" or ".cctor")?.FieldInits ?? [];
 
         BuiltUnit built;
@@ -2298,6 +2353,30 @@ static partial class FidelityCheck
             return false;   // a method that compiled but cannot be found — fall to isolation
         results.AddRange(disassembled);
         return true;
+    }
+
+    static bool HasTargetedPropertyInitializer(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        IReadOnlyList<Entry> entries,
+        IReadOnlyList<(string Field, string Value)> fieldInits)
+    {
+        var targetHandles = entries.Select(entry => entry.Handle).ToHashSet();
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        foreach (var propertyHandle in typeDef.GetProperties())
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            string name = reader.GetString(property.Name);
+            if (!fieldInits.Any(init =>
+                init.Field == name || init.Field == AutoPropertyBackingFieldName(name)))
+                continue;
+
+            var accessors = property.GetAccessors();
+            if ((!accessors.Getter.IsNil && targetHandles.Contains(accessors.Getter))
+                || (!accessors.Setter.IsNil && targetHandles.Contains(accessors.Setter)))
+                return true;
+        }
+        return false;
     }
 
     static List<CompileBackResult>? DisassembleAndClassifyGroup(

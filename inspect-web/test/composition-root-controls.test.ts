@@ -1584,13 +1584,13 @@ test("typed settings panel owns its rendered control bindings", () => {
         && node.name === "bindSettingsPanel").length,
     3);
   const eventBinderCalls = callExpressionsNamed(appSyntax, "bindSettingsPanelEvents");
-  assert.equal(eventBinderCalls.length, 5);
+  assert.equal(eventBinderCalls.length, 6);
   assert.equal(
     syntaxNodes(
       appSyntax,
       node => node.type === "Identifier"
         && node.name === "bindSettingsPanelEvents").length,
-    6);
+    7);
   const settingsBinders: readonly (readonly [
     DeclaredFunction,
     string,

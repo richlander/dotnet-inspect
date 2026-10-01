@@ -48,7 +48,9 @@ public sealed record MemberSubject(
     int MetadataToken,
     int BaselineOrdinal,
     [property: JsonConverter(typeof(InertStringJsonConverter))]
-    InertString Fingerprint);
+    InertString Fingerprint,
+    [property: JsonConverter(typeof(InertStringJsonConverter))]
+    InertString DocumentationId);
 
 public sealed record MemberDocument(
     MemberSubject Subject,
@@ -58,7 +60,8 @@ public sealed record MemberDocument(
     InertString CanonicalSignature,
     [property: JsonConverter(typeof(InertStringJsonConverter))]
     InertString Accessibility,
-    MemberReceiver Receiver);
+    MemberReceiver Receiver,
+    MemberDocumentationAttachment? Documentation = null);
 
 public sealed record MemberDocumentInspectionPlan
 {
@@ -70,7 +73,8 @@ public sealed record MemberDocumentInspectionPlan
             MemberOverloadAccessibilityFilter.Public,
         MemberOverloadReceiverFilter receiver =
             MemberOverloadReceiverFilter.All,
-        bool includeHidden = false)
+        bool includeHidden = false,
+        MemberDocumentationAttachmentRequest? documentation = null)
     {
         Group = group ?? throw new ArgumentNullException(nameof(group));
         Selector =
@@ -94,6 +98,7 @@ public sealed record MemberDocumentInspectionPlan
         Accessibility = accessibility;
         Receiver = receiver;
         IncludeHidden = includeHidden;
+        Documentation = documentation;
     }
 
     public MemberGroupSubject Group { get; }
@@ -102,6 +107,7 @@ public sealed record MemberDocumentInspectionPlan
     public MemberOverloadAccessibilityFilter Accessibility { get; }
     public MemberOverloadReceiverFilter Receiver { get; }
     public bool IncludeHidden { get; }
+    public MemberDocumentationAttachmentRequest? Documentation { get; }
 }
 
 public sealed record MemberDocumentInspectionRequest(
@@ -119,6 +125,17 @@ public enum MemberDocumentInspectionRejection
     FingerprintNotFound,
     FingerprintAmbiguous,
     RowsRejected,
+}
+
+public enum MemberDocumentInspectionFailure
+{
+    NotManagedAssembly,
+    ManagedModule,
+    UnsupportedWindowsMetadata,
+    MalformedMetadata,
+    EmptyModuleVersionId,
+    DocumentationResultSetMismatch,
+    DocumentationSubjectMismatch,
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
@@ -153,12 +170,67 @@ public abstract record MemberDocumentInspectionOutcome
         : MemberDocumentInspectionOutcome;
 
     public sealed record Failed(
-        MemberOverloadPopulationInspectionFailure Reason)
+        MemberDocumentInspectionFailure Reason)
         : MemberDocumentInspectionOutcome;
 }
 
 public static class MemberDocumentInspectionOperation
 {
+    public static async ValueTask<
+        InspectionEnvelope<MemberDocumentInspectionOutcome>>
+        ExecuteAsync(
+            MemberDocumentInspectionRequest request,
+            LibraryOperationLease lease,
+            MemberDocumentationAttachmentProvider documentationProvider,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(documentationProvider);
+
+        InspectionEnvelope<MemberDocumentInspectionOutcome> inspection =
+            Execute(
+                request,
+                lease,
+                cancellationToken);
+        if (request.Plan.Documentation is null
+            || inspection.Content
+                is not MemberDocumentInspectionOutcome.Available available)
+        {
+            return inspection;
+        }
+
+        MemberDocument document = available.Document;
+        MemberDocumentationAttachmentResult attachment =
+            await MemberDocumentationAttachmentOperation.ExecuteAsync(
+                    [
+                        document.Subject,
+                    ],
+                    request.Plan.Documentation,
+                    documentationProvider,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        MemberDocumentInspectionOutcome content =
+            attachment switch
+            {
+                MemberDocumentationAttachmentResult.Attached attached =>
+                    new MemberDocumentInspectionOutcome.Available(
+                        document with
+                        {
+                            Documentation =
+                                AssertSingle(attached.Attachments),
+                        }),
+                MemberDocumentationAttachmentResult.Failed failed =>
+                    new MemberDocumentInspectionOutcome.Failed(
+                        Map(failed.Reason)),
+                _ => throw new InvalidOperationException(
+                    "Unknown Member documentation attachment result."),
+            };
+        return new(
+            content,
+            inspection.Share,
+            inspection.Diagnostics);
+    }
+
     public static InspectionEnvelope<MemberDocumentInspectionOutcome> Execute(
         MemberDocumentInspectionRequest request,
         LibraryOperationLease lease,
@@ -236,7 +308,8 @@ public static class MemberDocumentInspectionOperation
                     incomplete.Limit,
                     incomplete.Measured),
             MemberOverloadPopulationInspectionOutcome.Failed failed =>
-                new MemberDocumentInspectionOutcome.Failed(failed.Reason),
+                new MemberDocumentInspectionOutcome.Failed(
+                    Map(failed.Reason)),
             _ => throw new InvalidOperationException(
                 "Unknown exact-Member population outcome."),
         };
@@ -260,8 +333,7 @@ public static class MemberDocumentInspectionOperation
                 failed.Reason switch
                 {
                     MemberOverloadRowsFailure.MalformedMetadata =>
-                        MemberOverloadPopulationInspectionFailure
-                            .MalformedMetadata,
+                        MemberDocumentInspectionFailure.MalformedMetadata,
                     _ => throw new InvalidOperationException(
                         "Unknown exact-Member Rows failure."),
                 });
@@ -316,10 +388,51 @@ public static class MemberDocumentInspectionOperation
                     selected.Binding,
                     selected.MetadataToken,
                     selected.BaselineOrdinal,
-                    selected.Fingerprint),
+                    selected.Fingerprint,
+                    selected.DocumentationId),
                 selected.DisplaySignature,
                 selected.CanonicalSignature,
                 selected.Accessibility,
                 selected.Receiver));
     }
+
+    private static MemberDocumentationAttachment AssertSingle(
+        ImmutableArray<MemberDocumentationAttachment> attachments) =>
+        attachments.Length == 1
+            ? attachments[0]
+            : throw new InvalidOperationException(
+                "One exact Member documentation request did not produce one attachment.");
+
+    private static MemberDocumentInspectionFailure Map(
+        MemberDocumentationAttachmentFailure failure) =>
+        failure switch
+        {
+            MemberDocumentationAttachmentFailure.ResultSetMismatch =>
+                MemberDocumentInspectionFailure
+                    .DocumentationResultSetMismatch,
+            MemberDocumentationAttachmentFailure.SubjectMismatch =>
+                MemberDocumentInspectionFailure
+                    .DocumentationSubjectMismatch,
+            _ => throw new InvalidOperationException(
+                "Unknown Member documentation attachment failure."),
+        };
+
+    private static MemberDocumentInspectionFailure Map(
+        MemberOverloadPopulationInspectionFailure failure) =>
+        failure switch
+        {
+            MemberOverloadPopulationInspectionFailure.NotManagedAssembly =>
+                MemberDocumentInspectionFailure.NotManagedAssembly,
+            MemberOverloadPopulationInspectionFailure.ManagedModule =>
+                MemberDocumentInspectionFailure.ManagedModule,
+            MemberOverloadPopulationInspectionFailure
+                    .UnsupportedWindowsMetadata =>
+                MemberDocumentInspectionFailure.UnsupportedWindowsMetadata,
+            MemberOverloadPopulationInspectionFailure.MalformedMetadata =>
+                MemberDocumentInspectionFailure.MalformedMetadata,
+            MemberOverloadPopulationInspectionFailure.EmptyModuleVersionId =>
+                MemberDocumentInspectionFailure.EmptyModuleVersionId,
+            _ => throw new InvalidOperationException(
+                "Unknown exact-Member population failure."),
+        };
 }

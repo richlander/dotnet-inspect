@@ -16,7 +16,7 @@ public sealed record FindQueryPlan(
     FindQueryRouteKind RouteKind,
     PortableQueryIntent Intent,
     RowSelectionIntent<string> Rows,
-    int? ResultLimit);
+    int? InputRowLimit);
 
 public abstract record FindQueryPlanResult
 {
@@ -68,7 +68,7 @@ public static class FindQuery
                 kind,
                 resolution.Plan.Intent,
                 resolution.Plan.Rows,
-                resolution.Plan.ResultLimit));
+                resolution.Plan.InputRowLimit));
     }
 
     private static QueryOperationRoute<
@@ -89,7 +89,7 @@ public static class FindQuery
     private sealed record FindQueryCorePlan(
         PortableQueryIntent Intent,
         RowSelectionIntent<string> Rows,
-        int? ResultLimit);
+        int? InputRowLimit);
 
     private sealed class FindQueryVocabulary
         : PortableQueryVocabulary<
@@ -164,12 +164,18 @@ public static class FindQuery
                                         + $"stage '{stage.Kind}'."),
                             }),
                     ]);
-            int? resultLimit =
+            int? inputRowLimit =
                 resolved.Stages.Count == 1
-                && resolved.Stages[0].Kind == RowSelectionStageKind.Head
-                    ? resolved.Stages[0].Count
+                    ? resolved.Stages[0].Kind switch
+                    {
+                        RowSelectionStageKind.Head =>
+                            resolved.Stages[0].Count,
+                        RowSelectionStageKind.Window =>
+                            resolved.Stages[0].End,
+                        _ => null,
+                    }
                     : null;
-            return new(intent, rows, resultLimit);
+            return new(intent, rows, inputRowLimit);
         }
     }
 
