@@ -684,9 +684,23 @@ public sealed class GeneratedJsExportAuthenticationTests
                 == read.EvidenceMethod.MetadataToken);
         DirectCall bodyReader = Assert.Single(
             loaderBodies.DirectCalls,
-            call => call.Callee.Name == "OpenFromPrefetchedImage"
+            call => call.Callee.Name == "ExecuteImage"
                 && call.Callee.DeclaringType.Name
-                    == nameof(LibraryBodyIndex)
+                    == nameof(LibraryBodyAnalysisService)
+                && call.EvidenceMethod.Name
+                    == nameof(JsExportSurfaceLoader.TryLoad));
+        DirectCall request = Assert.Single(
+            loaderBodies.DirectCalls,
+            call => call.Callee.Name == "Create"
+                && call.Callee.DeclaringType.Name
+                    == nameof(LibraryBodyAnalysisRequest)
+                && call.EvidenceMethod.Name
+                    == nameof(JsExportSurfaceLoader.TryLoad));
+        DirectCall compatibilityAdapter = Assert.Single(
+            loaderBodies.DirectCalls,
+            call => call.Callee.Name == "CompatibilityIndex"
+                && call.Callee.DeclaringType.Name
+                    == nameof(LibraryBodyAnalysisExecution)
                 && call.EvidenceMethod.Name
                     == nameof(JsExportSurfaceLoader.TryLoad));
         Assert.Equal(
@@ -695,6 +709,17 @@ public sealed class GeneratedJsExportAuthenticationTests
         Assert.Equal(
             read.EvidenceMethod.MetadataToken,
             bodyReader.EvidenceMethod.MetadataToken);
+        Assert.Equal(
+            read.EvidenceMethod.MetadataToken,
+            request.EvidenceMethod.MetadataToken);
+        Assert.Equal(
+            read.EvidenceMethod.MetadataToken,
+            compatibilityAdapter.EvidenceMethod.MetadataToken);
+        Assert.DoesNotContain(
+            loaderBodies.DirectCalls,
+            call => call.Callee.Name == "OpenFromPrefetchedImage"
+                && call.Callee.DeclaringType.Name
+                    == nameof(LibraryBodyIndex));
         Assert.DoesNotContain(
             loaderBodies.DirectCalls,
             call => call.Callee.Name == "Open"
