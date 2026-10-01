@@ -461,6 +461,21 @@ test("inline Member Diff keeps source work explicit", () => {
   assert.doesNotMatch(html, /Loading authored Source/);
 });
 
+test("inline Member Diff renders the diff before collapsed Source evidence", () => {
+  const value = context();
+  const html = renderInlineMemberSourceDiff(
+    value,
+    { status: "ready", result: sourceResult(value) },
+    String,
+  );
+
+  const diff = html.indexOf('class="member-diff-source-diff"');
+  const evidence = html.indexOf("Source evidence");
+  const endpoints = html.indexOf('class="member-diff-source-endpoints"');
+  assert.ok(diff >= 0 && evidence > diff && endpoints > evidence);
+  assert.match(html, /<details class="member-diff-source-evidence member-diff-source-endpoint-evidence">/);
+});
+
 test("inline Member Diff starts the shared comparison only on request", () => {
   const dom = dialogHarness();
   const value = context();

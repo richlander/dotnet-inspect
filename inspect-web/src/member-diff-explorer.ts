@@ -476,9 +476,8 @@ export function renderInlineMemberSourceDiff(
   escapeHtml: (value: unknown) => string,
 ): string {
   const content = source.status === "idle"
-    ? `<p class="member-diff-source-prompt">Compare the authored Source for the exact Before and After Member endpoints.</p>
-      <button type="button" class="secondary" data-member-diff-source-show>Show authored Source diff</button>`
-    : renderSourcePane(source, context, escapeHtml);
+    ? '<button type="button" class="secondary" data-member-diff-source-show>Show authored Source diff</button>'
+    : renderSourcePane(source, context, escapeHtml, true);
   return `<section class="library-api-diff-change-section member-diff-inline-source" aria-labelledby="member-diff-inline-source-title">
     <h2 id="member-diff-inline-source-title">Authored Source</h2>
     ${content}
@@ -524,80 +523,86 @@ function requestedEndpoints(
   </div>`;
 }
 
+function sourceEndpointEvidence(endpoints: string): string {
+  return `<details class="member-diff-source-evidence member-diff-source-endpoint-evidence">
+    <summary>Source evidence</summary>
+    ${endpoints}
+  </details>`;
+}
+
 function renderComparedSource(
   value: BrowserSourceComparison,
   context: LibraryApiDiffMemberExploreContext,
   escapeHtml: (value: unknown) => string,
+  compact = false,
 ): string {
   const exact = value.isExact
     ? '<span class="member-diff-source-exact">Authored Source is identical</span>'
     : '<span class="member-diff-source-inexact">Authored Source changed</span>';
-  const endpoints = `<div class="member-diff-source-endpoints">
+  const endpointCards = `<div class="member-diff-source-endpoints">
     ${endpointStatus(value.before, context.destination.target, "Before", escapeHtml)}
     ${endpointStatus(value.after, context.destination.current, "After", escapeHtml)}
   </div>`;
+  const endpoints = compact
+    ? sourceEndpointEvidence(endpointCards)
+    : endpointCards;
   if (value.status === "Compared" && value.diff !== null) {
-    return `${exact}${endpoints}${renderMemberSourceDiff(value.diff, escapeHtml)}`;
+    return compact
+      ? `${exact}${renderMemberSourceDiff(value.diff, escapeHtml)}${endpoints}`
+      : `${exact}${endpoints}${renderMemberSourceDiff(value.diff, escapeHtml)}`;
   }
   if (value.status === "Failed") {
-    return `${endpoints}<p class="member-diff-source-failure">${escapeHtml(
+    const failure = `<p class="member-diff-source-failure">${escapeHtml(
       value.failure ?? "Authored Source comparison failed.",
     )}</p>${retryButton()}`;
+    return compact ? `${failure}${endpoints}` : `${endpoints}${failure}`;
   }
-  return `${endpoints}<p class="member-diff-source-unavailable">A paired authored Source comparison is unavailable for these endpoints.</p>`;
+  const unavailable = '<p class="member-diff-source-unavailable">A paired authored Source comparison is unavailable for these endpoints.</p>';
+  return compact
+    ? `${unavailable}${endpoints}`
+    : `${endpoints}${unavailable}`;
 }
 
 function renderSourcePane(
   state: MemberDiffExplorerSourceState,
   context: LibraryApiDiffMemberExploreContext,
   escapeHtml: (value: unknown) => string,
+  compact = false,
 ): string {
+  const endpointContext = (stateText: string): string => {
+    const endpoints = requestedEndpoints(context, stateText, escapeHtml);
+    return compact ? sourceEndpointEvidence(endpoints) : endpoints;
+  };
   switch (state.status) {
     case "idle":
     case "loading":
-      return `${requestedEndpoints(
-        context,
-        "Loading authored Source…",
-        escapeHtml,
-      )}<p class="member-diff-source-loading" role="status">Loading authored Source…</p>`;
+      return `${compact ? "" : endpointContext("Loading authored Source…")}<p class="member-diff-source-loading" role="status">Loading authored Source…</p>`;
     case "failed":
-      return `${requestedEndpoints(
-        context,
-        "Authored Source request failed.",
-        escapeHtml,
-      )}<p class="member-diff-source-failure">${escapeHtml(state.error)}</p>${retryButton()}`;
+      return `${compact ? "" : endpointContext("Authored Source request failed.")}<p class="member-diff-source-failure">${escapeHtml(state.error)}</p>${retryButton()}${compact ? endpointContext("Authored Source request failed.") : ""}`;
     case "canceled":
-      return `${requestedEndpoints(
-        context,
-        "Authored Source request canceled.",
-        escapeHtml,
-      )}<p class="member-diff-source-canceled">${escapeHtml(state.reason)}</p>${retryButton()}`;
+      return `${compact ? "" : endpointContext("Authored Source request canceled.")}<p class="member-diff-source-canceled">${escapeHtml(state.reason)}</p>${retryButton()}${compact ? endpointContext("Authored Source request canceled.") : ""}`;
     case "ready": {
       const result = state.result;
       if (result.kind === "Succeeded" && result.value !== null) {
-        return renderComparedSource(result.value, context, escapeHtml);
+        return renderComparedSource(result.value, context, escapeHtml, compact);
       }
       if (result.kind === "TooComplex" && result.capacity !== null) {
-        return `${requestedEndpoints(
-          context,
+        const failure = `<p class="member-diff-source-failure">Authored Source exceeds the ${escapeHtml(result.capacity.dimension)} capacity: ${result.capacity.actual.toLocaleString()} observed, ${result.capacity.limit.toLocaleString()} allowed.</p>${retryButton()}`;
+        const endpoints = endpointContext(
           "Authored Source comparison exceeded capacity.",
-          escapeHtml,
-        )}<p class="member-diff-source-failure">Authored Source exceeds the ${escapeHtml(result.capacity.dimension)} capacity: ${result.capacity.actual.toLocaleString()} observed, ${result.capacity.limit.toLocaleString()} allowed.</p>${retryButton()}`;
+        );
+        return compact ? `${failure}${endpoints}` : `${endpoints}${failure}`;
       }
       if (result.kind === "Canceled") {
-        return `${requestedEndpoints(
-          context,
-          "Authored Source request canceled.",
-          escapeHtml,
-        )}<p class="member-diff-source-canceled">${escapeHtml(result.reason ?? "Authored Source was canceled.")}</p>${retryButton()}`;
+        const canceled = `<p class="member-diff-source-canceled">${escapeHtml(result.reason ?? "Authored Source was canceled.")}</p>${retryButton()}`;
+        const endpoints = endpointContext("Authored Source request canceled.");
+        return compact ? `${canceled}${endpoints}` : `${endpoints}${canceled}`;
       }
-      return `${requestedEndpoints(
-        context,
-        "Authored Source request failed.",
-        escapeHtml,
-      )}<p class="member-diff-source-failure">${escapeHtml(
+      const failure = `<p class="member-diff-source-failure">${escapeHtml(
         result.error ?? result.reason ?? "Authored Source failed.",
       )}</p>${retryButton()}`;
+      const endpoints = endpointContext("Authored Source request failed.");
+      return compact ? `${failure}${endpoints}` : `${endpoints}${failure}`;
     }
   }
   const exhaustive: never = state;

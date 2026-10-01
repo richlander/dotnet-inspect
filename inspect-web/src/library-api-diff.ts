@@ -1663,22 +1663,11 @@ function renderDiffAnalysisPresentation(
 ): string {
   const content = diffPresentationContent(result);
   if (content === null) return specializedContent;
-  const outcomes = content.outcomes.map(outcome => {
-    const detail = outcome.detail === null
-      ? outcome.kind === "Compared"
-        ? `${outcome.findings.length.toLocaleString()} Finding ${
-          outcome.findings.length === 1 ? "kind" : "kinds"
-        }`
-        : ""
-      : outcome.detail;
-    return `<li class="diff-analysis-outcome diff-analysis-outcome-${outcome.kind.toLowerCase()}" data-diff-analysis="${attributeText(outcome.analysis, escapeHtml)}">
-      <span class="diff-analysis-name">${escapeHtml(analysisTitle(outcome.analysis))}</span>
-      <strong>${escapeHtml(outcome.kind)}</strong>
-      ${detail === "" ? "" : `<span>${escapeHtml(detail)}</span>`}
-    </li>`;
-  }).join("");
-  const views = content.views.map(view =>
-    `<span class="diff-analysis-view">${escapeHtml(view)}</span>`).join("");
+  const isRegistered = (outcome: DiffAnalysisOutcomePresentation): boolean =>
+    diffPresentationRegistry.some(registration =>
+      registration.kind === "library-api"
+      && registration.analysis === outcome.analysis
+      && content.views.includes(registration.view));
   const hasRegisteredPresentation = diffPresentationRegistry.some(registration =>
       registration.kind === "library-api"
       && content.views.includes(registration.view)
@@ -1688,14 +1677,18 @@ function renderDiffAnalysisPresentation(
   const specialized = result.kind !== "Succeeded" || hasRegisteredPresentation
     ? specializedContent
     : "";
-  return `<section class="diff-analysis-presentation" aria-labelledby="diff-analysis-title">
-    <header>
-      <h2 id="diff-analysis-title">Diff analyses</h2>
-      <div class="diff-analysis-views" aria-label="Selected Diff views">${views}</div>
-    </header>
-    <ol class="diff-analysis-outcomes">${outcomes}</ol>
-  </section>
-  ${specialized}`;
+  const notices = content.outcomes.filter(outcome =>
+    outcome.kind === "Failed"
+    || (outcome.kind === "Unavailable" && isRegistered(outcome)));
+  if (notices.length === 0) return specialized;
+  return `${specialized}
+  <section class="diff-analysis-notices" aria-labelledby="diff-analysis-notices-title">
+    <h2 id="diff-analysis-notices-title">Comparison notices</h2>
+    <ul>${notices.map(outcome => `<li data-diff-analysis="${attributeText(outcome.analysis, escapeHtml)}">
+      <strong>${escapeHtml(analysisTitle(outcome.analysis))} ${escapeHtml(outcome.kind.toLowerCase())}</strong>
+      ${outcome.detail === null ? "" : `<span>${escapeHtml(outcome.detail)}</span>`}
+    </li>`).join("")}</ul>
+  </section>`;
 }
 
 function renderLibrarySubject(
@@ -1845,18 +1838,20 @@ function renderMemberSubject(
   );
   return {
     status: `Comparison complete. Member ${libraryApiDiffMemberStateLabel(member).toLowerCase()}.`,
-    content: `<div class="library-api-diff-metrics">${classification.map(metric =>
-      `<span>${escapeHtml(metric)}</span>`).join("")}</div>
+    content: `<p class="library-api-diff-member-summary">${classification.map(escapeHtml).join(" · ")}</p>
       ${correspondenceHtml}
       <section class="library-api-diff-change-section" aria-labelledby="library-api-diff-changes-title">
         <h2 id="library-api-diff-changes-title">What changed</h2>
         ${changes}
       </section>
-      <div class="library-api-diff-member-detail">
-        ${memberIdentityEvidence("Before", member.before, escapeHtml)}
-        ${memberIdentityEvidence("After", member.after, escapeHtml)}
-      </div>
-      ${options.memberDiffSection ?? ""}`,
+      ${options.memberDiffSection ?? ""}
+      <details class="library-api-diff-member-evidence">
+        <summary>Member evidence</summary>
+        <div class="library-api-diff-member-detail">
+          ${memberIdentityEvidence("Before", member.before, escapeHtml)}
+          ${memberIdentityEvidence("After", member.after, escapeHtml)}
+        </div>
+      </details>`,
   };
 }
 
@@ -1981,7 +1976,8 @@ export function renderLibraryApiDiff(
   }
 
   const { input, result } = state;
-  const diagnostics = result.inspection?.diagnostics ?? [];
+  const diagnostics = (result.inspection?.diagnostics ?? [])
+    .filter(diagnostic => diagnostic.code !== "diff-analysis.unavailable");
   const diagnosticHtml = diagnostics.length === 0 ? "" :
     `<details class="library-api-diff-evidence">
       <summary>Inspection diagnostics (${diagnostics.length})</summary>

@@ -792,7 +792,7 @@ test("unavailable rendering discloses retained endpoint failure evidence", () =>
     result,
   }, String);
 
-  assert.match(html, /data-diff-analysis="api"[\s\S]*Unavailable/);
+  assert.match(html, /data-diff-analysis="api"[\s\S]*API unavailable/);
   assert.match(html, /The target API surface is incomplete\./);
   assert.match(html, /Target endpoint evidence/);
   assert.match(html, /generic-constraint at 0x02000001/);
@@ -994,7 +994,10 @@ test("Member Diff renders the producer's change rows with message, values, and c
   assert.equal(rows.length, 2);
   assert.match(html, /<strong>member signature changed<\/strong>\s*<span>Parameter type changed from int to long\.<\/span>\s*<span class="library-api-diff-change-values"><code>void Run\(int\)<\/code> → <code>void Run\(long\)<\/code><\/span>\s*<span class="library-api-diff-change-category">Signature<\/span>/);
   assert.match(html, /<strong>member attribute added<\/strong>[\s\S]*?<code>—<\/code> → <code>Obsolete<\/code>[\s\S]*?Attribute<\/span>/);
-  assert.match(html, /<span>Breaking · member signature changed<\/span>/);
+  assert.match(
+    html,
+    /library-api-diff-member-summary">[\s\S]*Breaking · member signature changed/,
+  );
 
   // A Member inside a removed Type has no change of its own; say so instead of
   // showing an empty table.
@@ -1009,7 +1012,26 @@ test("Member Diff renders the producer's change rows with message, values, and c
   assert.doesNotMatch(carried, /<li class="library-api-diff-change">/);
 });
 
-test("Member Diff presents generic analysis outcomes before the specialized API view", () => {
+test("Member Diff leads with changes and Source before collapsed endpoint evidence", () => {
+  const html = renderLibraryApiDiff(readyState(withMembers()), String, {
+    subject: {
+      kind: "member",
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-run",
+    },
+    memberDiffSection: '<section id="authored-source">Authored Source diff</section>',
+  });
+
+  const changes = html.indexOf("What changed");
+  const source = html.indexOf("Authored Source diff");
+  const evidence = html.indexOf("Member evidence");
+  const endpointIndex = html.indexOf('class="library-api-diff-endpoint"');
+  assert.ok(changes >= 0 && source > changes);
+  assert.ok(evidence > source && endpointIndex > evidence);
+  assert.match(html, /<details class="library-api-diff-member-evidence">/);
+});
+
+test("Member Diff leads with specialized content and omits host availability status", () => {
   const result = {
     ...withMembers(),
     inspection: inspection(
@@ -1048,14 +1070,15 @@ test("Member Diff presents generic analysis outcomes before the specialized API 
     },
   });
 
-  const outcomes = html.indexOf("Diff analyses");
   const specialized = html.indexOf("What changed");
-  assert.ok(outcomes >= 0 && outcomes < specialized);
-  assert.match(html, /data-diff-analysis="api"[\s\S]*Compared/);
-  assert.match(html, /data-diff-analysis="allocation"[\s\S]*Unavailable/);
-  assert.match(html, /Browser\/Wasm does not construct method-body comparison inputs/);
-  assert.match(html, /data-diff-analysis="csharp"[\s\S]*Failed/);
-  assert.match(html, /Changes[\s\S]*Summary[\s\S]*Transitions/);
+  const failure = html.indexOf("C# failed");
+  assert.ok(specialized >= 0 && failure > specialized);
+  assert.doesNotMatch(html, /Diff analyses/);
+  assert.doesNotMatch(html, /data-diff-analysis="api"/);
+  assert.doesNotMatch(html, /data-diff-analysis="allocation"/);
+  assert.doesNotMatch(html, /Browser\/Wasm does not construct method-body comparison inputs/);
+  assert.match(html, /data-diff-analysis="csharp"[\s\S]*C# failed[\s\S]*Decompiler comparison failed/);
+  assert.doesNotMatch(html, /Selected Diff views|Transitions/);
 });
 
 test("malformed change rows are rejected at the transport boundary", async () => {
