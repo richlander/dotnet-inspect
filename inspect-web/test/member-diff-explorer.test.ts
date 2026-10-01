@@ -472,6 +472,18 @@ test("inline one-sided Member Diff preserves concise endpoint outcomes", () => {
   assert.match(idle, /Show authored Source diff/);
   assert.doesNotMatch(idle, /member-diff-source-endpoint/);
 
+  const loading = renderInlineMemberSourceDiff(
+    value,
+    { status: "loading" },
+    String,
+  );
+  assert.match(
+    loading,
+    /<strong>Before<\/strong>: Not present on this side\./,
+  );
+  assert.match(loading, /Loading authored Source/);
+  assert.doesNotMatch(loading, /member-diff-source-endpoint/);
+
   const result = sourceResult(value, null);
   if (result.value === null) throw new Error("Expected Source comparison.");
   const ready = renderInlineMemberSourceDiff(

@@ -630,7 +630,7 @@ function renderSourcePane(
   switch (state.status) {
     case "idle":
     case "loading":
-      return `${compact ? "" : endpointContext("Loading authored Source…")}<p class="member-diff-source-loading" role="status">Loading authored Source…</p>`;
+      return `${endpointContext("Loading authored Source…")}<p class="member-diff-source-loading" role="status">Loading authored Source…</p>`;
     case "failed":
       return `${endpointContext("Authored Source request failed.")}<p class="member-diff-source-failure">${escapeHtml(state.error)}</p>${retryButton()}`;
     case "canceled":
