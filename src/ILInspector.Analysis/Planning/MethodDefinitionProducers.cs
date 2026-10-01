@@ -584,8 +584,12 @@ internal struct MethodDefinitionUnit(
         TypeDefinition typeDefinition,
         MethodDefinitionHandle methodHandle)
     {
-        TypeHandle = typeHandle;
-        TypeDefinition = typeDefinition;
+        if (TypeHandle != typeHandle)
+        {
+            TypeHandle = typeHandle;
+            TypeDefinition = typeDefinition;
+        }
+
         MethodHandle = methodHandle;
         MethodDefinition = _reader.GetMethodDefinition(methodHandle);
         _body = null;

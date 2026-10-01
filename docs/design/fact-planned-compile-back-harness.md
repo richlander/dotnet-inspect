@@ -285,15 +285,20 @@ cap-eligible sequence only after one completed CSharp decision:
 - an explicit or operator MethodImpl body has a
   `CSharpMethodDeclarationPost.Capture` plus
   `CSharpDeclarationRepresentability.Decide` result of `Representable`.
+- a property, indexer, or event accessor has a
+  `CSharpAccessorDeclarationPost.Capture` plus
+  `CSharpAccessorDeclarationRepresentability.Decide` result of
+  `Representable`.
 
-The exact path retains the accepted declaration request. `Unrepresentable` and
-`Unavailable` results remain typed selector exclusions and never fall through
-to ordinary artifact eligibility. Positive MethodSemantics evidence or an
-owning property/event accessor token defers accessors to their separately owned
-adoption, and unavailable MethodSemantics is also an exclusion rather than
-proof of an ordinary method. Stable sampling and the cross-assembly cap apply
-only after those product decisions and the canonical target signature are
-complete.
+The exact paths retain the accepted method or accessor declaration request.
+`Unrepresentable` and `Unavailable` results remain typed selector exclusions
+and never fall through to ordinary artifact eligibility. A body with
+MethodSemantics evidence must complete the accessor decision; unavailable
+MethodSemantics is also an exclusion rather than proof of an ordinary method.
+Each accepted accessor request retains the complete aggregate and identifies
+the exact selected body while assigning sibling policy to the other
+conventional accessors. Stable sampling and the cross-assembly cap apply only
+after those product decisions and the canonical target signature are complete.
 
 ### Product artifact provider
 

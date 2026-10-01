@@ -92,6 +92,12 @@ attribution, and reuse of one execution across requested sections. Migrated
 sections consume focused results from that execution; unmigrated sections
 request its lazy compatibility index.
 
+The `runfaster` adoption moves static allocation-candidate discovery from the
+default compatibility index to one allocation-only path execution. It consumes
+`LibraryAllocationAnalysisResult.Occurrences` directly, preserving candidate
+identity and the existing visible file/image failure boundary without running
+unrequested optimization or async-sibling producers.
+
 `LibraryBodyIndex.Open*` remains a temporary compatibility facade for
 unmigrated consumers. `LibraryBodyIndex` itself is also a temporary aggregate
 for those consumers, not the destination for new producer evidence or query
@@ -953,8 +959,9 @@ The next sequence-5 slice moves `ILOffsetProjectionProducer` to allocation,
 safety, and call-graph results from one exact receipt. CLI single-coordinate
 execution prepares one token-scoped input; coordinate-file execution prepares
 one input for the union of selected physical MethodDef tokens. This preserves
-the existing point-fact output and typed failure boundary while removing both
-`AnalysisIndexCache` and `LibraryBodyIndex` from IL-offset production.
+the existing point-fact output and typed failure boundary while removing the
+remaining `LibraryBodyIndex` dependency from IL-offset production;
+`AnalysisIndexCache` is already retired.
 
 The implementation-profile population slice adds the coverage receipt required
 by Library Metrics without changing existing Member Metrics rows. It preserves
