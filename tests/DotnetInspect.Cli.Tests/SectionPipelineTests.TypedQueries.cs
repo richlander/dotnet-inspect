@@ -2714,6 +2714,7 @@ public partial class SectionPipelineTests
             .. expectedQueryBodyIndexFamily,
             SectionNames.CloneCandidates,
             SectionNames.LibraryMetrics,
+            SectionNames.NameFamilies,
             SectionNames.TopLeverage,
             SectionNames.UnsafeMembers,
             IntegrationSectionNames.Integrations,

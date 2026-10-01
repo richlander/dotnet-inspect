@@ -210,6 +210,64 @@ public sealed record LibraryNameFamilyRow(
     ImmutableArray<LibraryNameFamilySourceDispositionCount> SourceDispositions,
     ImmutableArray<MetadataTypeDefinitionAddress> Types);
 
+public static class LibraryNameFamilyOrder
+{
+    public static IComparer<LibraryNameFamilyRow> Prevalence { get; } =
+        Comparer<LibraryNameFamilyRow>.Create(ComparePrevalence);
+
+    public static int CompareIdentity(
+        LibraryNameFamilyIdentity left,
+        LibraryNameFamilyIdentity right)
+    {
+        ArgumentNullException.ThrowIfNull(left);
+        ArgumentNullException.ThrowIfNull(right);
+
+        int comparison = left.Kind.CompareTo(right.Kind);
+        if (comparison != 0)
+            return comparison;
+
+        comparison = string.CompareOrdinal(
+            left.Words[0],
+            right.Words[0]);
+        if (comparison != 0)
+            return comparison;
+
+        if (left.Kind == LibraryNameFamilyKind.OneWordSuffix)
+            return 0;
+
+        comparison = string.CompareOrdinal(
+            left.Words[1],
+            right.Words[1]);
+        return comparison != 0
+            ? comparison
+            : string.CompareOrdinal(
+                left.Separator,
+                right.Separator);
+    }
+
+    private static int ComparePrevalence(
+        LibraryNameFamilyRow? left,
+        LibraryNameFamilyRow? right)
+    {
+        if (ReferenceEquals(left, right))
+            return 0;
+        if (left is null)
+            return -1;
+        if (right is null)
+            return 1;
+
+        int comparison = right.TypeCount.CompareTo(left.TypeCount);
+        if (comparison != 0)
+            return comparison;
+
+        comparison = right.DistinctNamespaceCount.CompareTo(
+            left.DistinctNamespaceCount);
+        return comparison != 0
+            ? comparison
+            : CompareIdentity(left.Identity, right.Identity);
+    }
+}
+
 public sealed record LibraryNameFamilyResidualCount<TReason>(
     TReason Reason,
     int Count)
@@ -733,12 +791,7 @@ public static class LibraryNameFamilySummary
         LibraryNameFamilyRow[] families =
         [
             .. oneWord.Concat(twoWord)
-                .OrderByDescending(static family =>
-                    family.TypeCount)
-                .ThenByDescending(static family =>
-                    family.DistinctNamespaceCount)
-                .ThenBy(static family =>
-                    FamilyKey.From(family.Identity)),
+                .Order(LibraryNameFamilyOrder.Prevalence),
         ];
         return new(
             kind,
@@ -782,7 +835,7 @@ public static class LibraryNameFamilySummary
             })
             .Where(static item => item.Family is not null)
             .GroupBy(
-                static item => FamilyKey.From(item.Family!))
+                static item => item.Family!)
             .Select(group =>
             {
                 LibraryNameFamilyTypeRow[] members =
@@ -830,11 +883,7 @@ public static class LibraryNameFamilySummary
                             type.Type),
                     ]);
             })
-            .OrderByDescending(static family => family.TypeCount)
-            .ThenByDescending(static family =>
-                family.DistinctNamespaceCount)
-            .ThenBy(static family =>
-                FamilyKey.From(family.Identity));
+            .Order(LibraryNameFamilyOrder.Prevalence);
     }
 
     private static ImmutableArray<LibraryNameFamilyResidualCount<TReason>>
@@ -856,37 +905,4 @@ public static class LibraryNameFamilySummary
         LibraryNameFamilyOneWordResidualReason? OneWordResidual,
         LibraryNameFamilyTwoWordResidualReason? TwoWordResidual);
 
-    private readonly record struct FamilyKey(
-        LibraryNameFamilyKind Kind,
-        string FirstWord,
-        string SecondWord,
-        string Separator) : IComparable<FamilyKey>
-    {
-        public static FamilyKey From(LibraryNameFamilyIdentity family) =>
-            family.Kind == LibraryNameFamilyKind.OneWordSuffix
-                ? new(
-                    family.Kind,
-                    family.Words[0],
-                    string.Empty,
-                    string.Empty)
-                : new(
-                    family.Kind,
-                    family.Words[0],
-                    family.Words[1],
-                    family.Separator!);
-
-        public int CompareTo(FamilyKey other)
-        {
-            int comparison = Kind.CompareTo(other.Kind);
-            if (comparison != 0)
-                return comparison;
-            comparison = string.CompareOrdinal(FirstWord, other.FirstWord);
-            if (comparison != 0)
-                return comparison;
-            comparison = string.CompareOrdinal(SecondWord, other.SecondWord);
-            return comparison != 0
-                ? comparison
-                : string.CompareOrdinal(Separator, other.Separator);
-        }
-    }
 }

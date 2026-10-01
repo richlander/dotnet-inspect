@@ -149,6 +149,17 @@ function succeeded(
 
 function inspection(
   content: unknown = { outcome: "available", document: {} },
+  analysis: {
+    readonly surface?: "Library" | "Type" | "Member";
+    readonly views?: string;
+    readonly analyses?: readonly string[];
+    readonly outcomes?: readonly {
+      readonly analysis: string;
+      readonly kind: "Compared" | "Unavailable" | "Failed";
+      readonly findings: readonly string[];
+      readonly detail?: string | null;
+    }[];
+  } = {},
 ): NonNullable<BrowserLibraryApiDiffResult["inspection"]> {
   const share: InspectionShare = {
     kind: "nonProjectable",
@@ -164,14 +175,15 @@ function inspection(
         name: "Example.Package",
         beforeVersion: "1.0.0",
         afterVersion: "2.0.0",
-        surface: "Library",
-        views: "Changes",
-        analyses: ["api"],
+        surface: analysis.surface ?? "Library",
+        views: analysis.views ?? "Changes",
+        analyses: analysis.analyses ?? ["api"],
       },
-      outcomes: [{
+      outcomes: analysis.outcomes ?? [{
         analysis: "api",
         kind: "Compared",
         findings: ["metadata.type", "metadata.member"],
+        detail: null,
       }],
       apiInspectionFailures: [],
       changes: { types: [] },
@@ -213,6 +225,7 @@ test("unresolved Package targets remain distinct without starting managed work",
     reportOperationDiagnostic: () => undefined,
     render: () => undefined,
   });
+
   coordinator.reconcile({
     ...selection({}),
     target: { kind: "loading", message: "Reading available versions..." },
@@ -226,6 +239,66 @@ test("unresolved Package targets remain distinct without starting managed work",
   });
   assert.equal(state.libraryApiDiff.status, "target-unavailable");
   assert.equal(queries, 0);
+});
+
+test("subject-scoped selections drive the generic Diff request", async () => {
+  const packageModel = {};
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  let observed: BrowserLibraryApiDiffRequest | null = null;
+  const coordinator = createLibraryApiDiffCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: (_operationId, request) => {
+      observed = request;
+      const result = withMembers();
+      return Promise.resolve({
+        ...result,
+        request,
+        inspection: inspection(
+          { outcome: "available", document: {} },
+          {
+            surface: "Member",
+            views: "Changes, Summary, Transitions",
+            analyses: request.analyses,
+          },
+        ),
+      });
+    },
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+
+  coordinator.reconcile({
+    ...selection(packageModel),
+    query: {
+      surface: "Member",
+      analyses: ["api", "allocation", "csharp"],
+      views: "Changes, Summary, Transitions",
+      typeNames: ["Example.Widget"],
+      memberTargetIdentities: ["digest-run"],
+    },
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(observed, {
+    schemaVersion: 2,
+    packageId: "Example.Package",
+    currentVersion: "2.0.0",
+    targetVersion: "1.0.0",
+    targetFramework: "net11.0",
+    compileAssetId: "lib/net11.0/Example.dll",
+    surface: "Member",
+    analyses: ["api", "allocation", "csharp"],
+    views: "Changes, Summary, Transitions",
+    typeNames: ["Example.Widget"],
+    memberTargetIdentities: ["digest-run"],
+  });
+  assert.equal(state.libraryApiDiff.status, "ready");
 });
 
 test("replacement Package contexts cancel old work and suppress late publication", async () => {
@@ -375,6 +448,13 @@ test("missing or contradictory baselines cannot publish a successful comparison"
         outcome: "unavailable", kind: 0, before: {}, after: {},
       }),
     },
+    {
+      ...result,
+      inspection: inspection(
+        { outcome: "available", document: {} },
+        { surface: "Type" },
+      ),
+    },
     { ...result, inspection: { ...inspection(), diagnostics: null } },
     { ...result, inspection: { ...inspection(), share: null } },
   ]) {
@@ -521,6 +601,28 @@ test("application admission closes on every non-Compare route", () => {
   }
 });
 
+test("application generic Diff selection uses producer-owned identities", () => {
+  assert.match(
+    appSource,
+    /function typeQueryIdentifierOf\(type: AppTypeSurface\): string \{\s*return type\.queryId \?\? type\.id;\s*}/,
+  );
+  const selectionSource = appSource.match(
+    /function currentLibraryApiDiffSelection\(\)[\s\S]*?\n}\n\nfunction cloneScopePackages/,
+  )?.[0] ?? "";
+  assert.match(
+    selectionSource,
+    /case "type":[\s\S]*?typeNames: \[typeQueryIdentifierOf\(subject\.type\)\]/,
+  );
+  assert.match(
+    selectionSource,
+    /case "member":[\s\S]*?typeNames: \[overload\.anchorTypeFullName\],[\s\S]*?memberTargetIdentities: \[overload\.stableSelector\]/,
+  );
+  assert.doesNotMatch(
+    selectionSource,
+    /memberTargetIdentities: \[[^\]]*anchorDigest/,
+  );
+});
+
 test("successful rendering preserves producer order and exact nullable Type identities", () => {
   const html = renderLibraryApiDiff({
     status: "ready",
@@ -633,9 +735,18 @@ test("unavailable rendering discloses retained endpoint failure evidence", () =>
   const result: BrowserLibraryApiDiffResult = {
     ...succeeded("1.0.0"),
     kind: "Unavailable",
-    inspection: inspection({
-      outcome: "unavailable", kind: 0, before: {}, after: {},
-    }),
+    inspection: inspection(
+      { outcome: "unavailable", kind: 0, before: {}, after: {} },
+      {
+        analyses: ["api"],
+        outcomes: [{
+          analysis: "api",
+          kind: "Unavailable",
+          findings: ["metadata.type", "metadata.member"],
+          detail: "The target API surface is incomplete.",
+        }],
+      },
+    ),
     value: null,
     unavailable: {
       kind: "TargetIncomplete",
@@ -681,6 +792,8 @@ test("unavailable rendering discloses retained endpoint failure evidence", () =>
     result,
   }, String);
 
+  assert.match(html, /data-diff-analysis="api"[\s\S]*Unavailable/);
+  assert.match(html, /The target API surface is incomplete\./);
   assert.match(html, /Target endpoint evidence/);
   assert.match(html, /generic-constraint at 0x02000001/);
   assert.match(html, /MalformedSignature/);
@@ -875,6 +988,7 @@ test("Member Diff renders the producer's change rows with message, values, and c
       memberFingerprint: "digest-run",
     },
   });
+
   assert.match(html, /<h2 id="library-api-diff-changes-title">What changed<\/h2>/);
   const rows = [...html.matchAll(/<li class="library-api-diff-change">/g)];
   assert.equal(rows.length, 2);
@@ -893,6 +1007,55 @@ test("Member Diff renders the producer's change rows with message, values, and c
   });
   assert.match(carried, /No classified compatibility change is recorded for this Member\./);
   assert.doesNotMatch(carried, /<li class="library-api-diff-change">/);
+});
+
+test("Member Diff presents generic analysis outcomes before the specialized API view", () => {
+  const result = {
+    ...withMembers(),
+    inspection: inspection(
+      { outcome: "available", document: {} },
+      {
+        surface: "Member",
+        views: "Changes, Summary, Transitions",
+        analyses: ["api", "allocation", "csharp"],
+        outcomes: [
+          {
+            analysis: "api",
+            kind: "Compared",
+            findings: ["metadata.member"],
+          },
+          {
+            analysis: "allocation",
+            kind: "Unavailable",
+            findings: ["analysis.allocation"],
+            detail: "Browser/Wasm does not construct method-body comparison inputs.",
+          },
+          {
+            analysis: "csharp",
+            kind: "Failed",
+            findings: ["csharp.line"],
+            detail: "Decompiler comparison failed.",
+          },
+        ],
+      },
+    ),
+  };
+  const html = renderLibraryApiDiff(readyState(result), String, {
+    subject: {
+      kind: "member",
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-run",
+    },
+  });
+
+  const outcomes = html.indexOf("Diff analyses");
+  const specialized = html.indexOf("What changed");
+  assert.ok(outcomes >= 0 && outcomes < specialized);
+  assert.match(html, /data-diff-analysis="api"[\s\S]*Compared/);
+  assert.match(html, /data-diff-analysis="allocation"[\s\S]*Unavailable/);
+  assert.match(html, /Browser\/Wasm does not construct method-body comparison inputs/);
+  assert.match(html, /data-diff-analysis="csharp"[\s\S]*Failed/);
+  assert.match(html, /Changes[\s\S]*Summary[\s\S]*Transitions/);
 });
 
 test("malformed change rows are rejected at the transport boundary", async () => {
