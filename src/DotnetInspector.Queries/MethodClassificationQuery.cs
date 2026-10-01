@@ -303,7 +303,7 @@ public static class MethodClassificationQuery
         closing switch
         {
             ClassificationClosing.Rows => ProducerTerminal.Rows,
-            ClassificationClosing.Count => ProducerTerminal.Complete,
+            ClassificationClosing.Count => ProducerTerminal.Count,
             _ => ProducerTerminal.Exists,
         };
 
