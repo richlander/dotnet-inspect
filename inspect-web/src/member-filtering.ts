@@ -10,8 +10,6 @@ export const MEMBER_TRAITS = [
   ["extensions", "extensions"],
 ] as const;
 
-export type MemberTrait = (typeof MEMBER_TRAITS)[number][0];
-
 export interface MemberGroupFilters {
   query?: string;
   kind?: string;
