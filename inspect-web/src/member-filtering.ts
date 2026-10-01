@@ -78,6 +78,16 @@ export function filterMemberGroups(
   return groups.filter(group => memberGroupMatches(group, filters));
 }
 
+export function memberKindCount(
+  groups: readonly FilterableMemberGroup[],
+  kind: string,
+): number {
+  return groups.reduce(
+    (count, group) =>
+      count + (group.kind === kind ? group.overloads.length : 0),
+    0);
+}
+
 export interface MemberScopeState {
   atPackageRoot: boolean;
   atLibraryRoot?: boolean;

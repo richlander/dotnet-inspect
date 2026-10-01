@@ -85,6 +85,7 @@ import {
   bodyTargetMatchesOverload,
   captureLibraryScope,
   filterMemberGroups,
+  memberKindCount,
   memberMatchesTrait,
   invalidateGraphMemberNavigationWork,
   invalidateMemberCallGraphWork,
@@ -6647,6 +6648,7 @@ function renderMemberFilterControls(type: AppTypeSurface) {
   const accessibilities = memberAccessibilities(type);
   const traits = availableMemberTraits(type);
   const population = currentTypeMemberPopulation(type);
+  const fallbackGroups = population ? [] : selectedMemberGroups(type);
   const composition = population?.composition;
   const selectorCounts = population?.selectorCounts;
   const accessibilityCount = (accessibility: MemberAccessibility) => {
@@ -6661,8 +6663,10 @@ function renderMemberFilterControls(type: AppTypeSurface) {
   const activeTrait = traits.find(
     ([value]) => value === state.memberTraitFilter)?.[1];
   const kindCount = (kind: string) =>
-    selectorCounts?.kinds.find(count => count.value === kind)?.count
-      ?? (kind === state.memberKindFilter ? 0 : null);
+    selectorCounts
+      ? selectorCounts.kinds.find(count => count.value === kind)?.count
+        ?? (kind === state.memberKindFilter ? 0 : null)
+      : memberKindCount(fallbackGroups, kind);
   const traitCount = (trait: string) => {
     if (!selectorCounts) return null;
     switch (trait) {
@@ -6781,7 +6785,7 @@ function renderMemberComposition(type: AppTypeSurface) {
   const kinds = memberKinds(type)
     .map(kind => compositionFilterButton(
       selectorCounts?.kinds.find(count => count.value === kind)?.count
-        ?? members.filter(member => member.kind === kind).length,
+        ?? memberKindCount(groups, kind),
       kind.replaceAll("-", " "),
       "data-member-jump-kind",
       kind))

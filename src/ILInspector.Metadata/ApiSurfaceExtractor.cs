@@ -1472,7 +1472,11 @@ public static partial class ApiSurfaceExtractor
                     tokens.Add(MetadataTokens.GetToken(methodHandle));
                 }
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-                var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
+                bool isExplicitInterfaceImplementation =
+                    IsExplicitInterfaceImplementationBody(
+                        methodHandle,
+                        methodAccess,
+                        explicitImplementationBodies);
                 var effectiveAccess = MethodEffectiveAccess(
                     methodAccess,
                     methodHandle,
@@ -1863,9 +1867,14 @@ public static partial class ApiSurfaceExtractor
                         observeDecodeWork),
                     Kind = "property",
                     IsExplicitInterfaceImplementation =
-                        explicitImplementationBodies.Contains(accessors.Getter)
-                        || explicitImplementationBodies.Contains(
-                            accessors.Setter),
+                        IsExplicitInterfaceImplementationBody(
+                            reader,
+                            accessors.Getter,
+                            explicitImplementationBodies)
+                        || IsExplicitInterfaceImplementationBody(
+                            reader,
+                            accessors.Setter,
+                            explicitImplementationBodies),
                     IsHidden = isHiddenProperty,
                     DeclarationMetadataToken =
                         MetadataTokens.GetToken(propHandle),
@@ -2378,9 +2387,14 @@ public static partial class ApiSurfaceExtractor
                     Name = eventName,
                     Kind = "event",
                     IsExplicitInterfaceImplementation =
-                        explicitImplementationBodies.Contains(accessors.Adder)
-                        || explicitImplementationBodies.Contains(
-                            accessors.Remover),
+                        IsExplicitInterfaceImplementationBody(
+                            reader,
+                            accessors.Adder,
+                            explicitImplementationBodies)
+                        || IsExplicitInterfaceImplementationBody(
+                            reader,
+                            accessors.Remover,
+                            explicitImplementationBodies),
                     IsHidden = isHiddenEvent,
                     DeclarationMetadataToken = MetadataTokens.GetToken(eventHandle),
                     MemorySafety = ApiMemorySafetyFacts.Read(

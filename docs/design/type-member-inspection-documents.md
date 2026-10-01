@@ -623,11 +623,14 @@ unavailable traits are published as 0. Traits may overlap: a virtual explicit
 interface declaration contributes to both `virtual` and `interface`.
 `interface` means explicit interface implementations only, including composed
 property and event declarations whose accessors carry explicit MethodImpl
-evidence. It does not claim implicit interface correspondence. Extensions take
-precedence over metadata-static, so `static`, `instance`, and `extensions`
-partition the selected population while the other traits remain orthogonal.
-These facets are owner-issued from the exact population before the Browser
-boundary; the Browser does not count loaded rows.
+evidence. The retained fact requires a private MethodImpl body; public
+MethodImpl bodies used for class overrides or implicit static-interface
+implementations do not qualify. It does not claim implicit interface
+correspondence. Extensions take precedence over metadata-static, so `static`,
+`instance`, and `extensions` partition the selected population while the other
+traits remain orthogonal. These facets are owner-issued from the exact
+population before the Browser boundary; the Browser does not count loaded
+rows.
 
 For example, System.Text.Json 10.0.0 `JsonDocument` has:
 

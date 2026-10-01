@@ -8,6 +8,7 @@ import {
   filterMemberGroups,
   invalidateMemberCallGraphWork,
   invalidateSourceDestinationWork,
+  memberKindCount,
   memberMatchesTrait,
   memberGroupMatches,
   memberNavTargetIndex,
@@ -172,6 +173,12 @@ const groups = [
     ],
   },
 ];
+
+test("member Kind fallback counts loaded declarations", () => {
+  assert.equal(memberKindCount(groups, "method"), 2);
+  assert.equal(memberKindCount(groups, "property"), 1);
+  assert.equal(memberKindCount(groups, "field"), 0);
+});
 
 test("member filters compose locally after managed accessibility selection", () => {
   const methodGroup = groups[0];

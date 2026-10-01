@@ -122,6 +122,39 @@ public sealed class TypeMemberCompositionTests
             member => member.IsExplicitInterfaceImplementation);
     }
 
+    [Theory]
+    [InlineData(nameof(CovariantEmitDerived))]
+    [InlineData(nameof(StaticAbstractEmitImpl))]
+    [InlineData(nameof(ImplicitEmitImpl))]
+    public void SelectorCounts_ExcludeNonExplicitMethodImplProperties(
+        string typeName)
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(TypeMemberCompositionTests).Assembly.Location);
+        MetadataTypeMemberPopulation population = Assert.IsType<
+                MetadataTypeMemberPopulationOutcome.Available>(
+                MetadataTypeMemberPopulationInspection.Inspect(
+                    session,
+                    new(
+                        Name("ILInspector.Metadata.Tests", typeName),
+                        MetadataMemberSpelling.CSharp,
+                        includeHidden: true,
+                        MetadataMethodAccessibilityFilter.All),
+                    new(
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue)))
+            .Population;
+
+        AssertSelectorCountsMatchRows(population);
+        Assert.Equal(0, population.SelectorCounts.Traits.Interface);
+        Assert.DoesNotContain(
+            population.Groups.SelectMany(group => group.Members),
+            member => member.IsExplicitInterfaceImplementation);
+    }
+
     // Receiver Counts cover the declarations the request's own accessibility
     // admits: JsonSerializer's public declarations include its extension
     // overloads.

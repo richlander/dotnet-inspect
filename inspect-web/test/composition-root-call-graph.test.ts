@@ -1111,6 +1111,9 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     filters,
     /\?\? selectedMemberGroups\(type\)\.map\(group => group\.kind\)/);
   assert.match(
+    filters,
+    /const fallbackGroups = population \? \[\] : selectedMemberGroups\(type\);[\s\S]*const kindCount = \(kind: string\) =>[\s\S]*selectorCounts[\s\S]*memberKindCount\(fallbackGroups, kind\)/);
+  assert.match(
     appSource,
     /function declaredMemberGroups\([\s\S]*partitionGraphMembers\(type\.api\)[\s\S]*searchableMemberGroups\(groupMembers\(publicMembers\)\)/);
 
