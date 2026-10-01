@@ -498,6 +498,49 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void Evaluate_RoundTripsAutoPropertyDeclarationInitializer()
+    {
+        var assemblyPath = CompileFixture("""
+            public class AutoPropertyInitializerFixture
+            {
+                int Value { get; set; } = 42;
+            }
+            """);
+        try
+        {
+            var results = FidelityCheck.Evaluate(assemblyPath);
+            var ctor = Assert.Single(
+                results,
+                result => result.Type == "AutoPropertyInitializerFixture"
+                    && result.Method == ".ctor");
+            var accessors = results
+                .Where(result => result.Type == "AutoPropertyInitializerFixture"
+                    && result.Method is "get_Value" or "set_Value")
+                .ToArray();
+
+            Assert.True(
+                ctor.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"Status: {ctor.Status}; product member: {ctor.UsedProductWholeMember}; "
+                + $"original: {ctor.OriginalOpcodes}; recompiled: {ctor.RecompiledOpcodes}; "
+                + $"detail: {ctor.Detail}");
+            Assert.Equal(2, accessors.Length);
+            Assert.All(accessors, accessor =>
+            {
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, accessor.Status);
+                Assert.True(
+                    accessor.UsedProductWholeMember,
+                    $"{accessor.Method} status: {accessor.Status}; "
+                    + $"product member: {accessor.UsedProductWholeMember}; "
+                    + $"detail: {accessor.Detail}");
+            });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void Evaluate_PreservesPrivateConstructorArtifactAndReportsContextFailure()
     {
         var assemblyPath = CompileFixture("""

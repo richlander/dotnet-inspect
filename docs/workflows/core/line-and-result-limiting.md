@@ -171,6 +171,13 @@ Tips:
 
 > Goal: Return only the first N matches from a find search.
 
+The same count is Find's execution budget across its Type or Member patterns:
+once N hits are found, later pattern groups and sources are not entered.
+Type candidates are classified in discovery order, so Prefix, Substring, and
+similarity matches can all spend the same budget without a whole-population
+sort. The reverse-locator package route still completes its retained census
+before applying the budget.
+
 ### 5a. Using `find -n N`
 
 ```bash

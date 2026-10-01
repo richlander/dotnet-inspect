@@ -4,6 +4,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.SourceSelection;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
+using ILInspector.Research;
 
 namespace DotnetInspect.Cli.Options;
 
@@ -356,7 +357,21 @@ public record LibraryOptions : IProjectionOptions
     /// Semantic row selection for one Library's ecosystem-dependency pairs.
     /// </summary>
     public RowSelectionIntent<string>?
-        EcosystemDependencyRowSelection { get; init; }
+        EcosystemDependencyRowSelection
+    { get; init; }
+
+    /// <summary>
+    /// Source-provenance population for the exact Name Families section.
+    /// </summary>
+    public LibraryNameFamilyPopulationKind NameFamilyPopulation
+    { get; init; } =
+        LibraryNameFamilyPopulationKind.AllTypes;
+
+    /// <summary>
+    /// Semantic row selection for the exact Name Families section.
+    /// </summary>
+    public RowSelectionIntent<string>? NameFamilyRowSelection
+    { get; init; }
 
     /// <summary>
     /// Row predicates for the Performance Triage section.

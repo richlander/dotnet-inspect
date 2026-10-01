@@ -9,6 +9,29 @@ namespace ILInspector.Analysis.Tests;
 public partial class UnsafeEvidencePresenceTests
 {
     [Fact]
+    public void MethodQuerySource_PlanningDoesNotReadSubject()
+    {
+        string nonexistent = Path.Combine(
+            Path.GetTempPath(),
+            $"method-source-{Guid.NewGuid():N}",
+            "missing.dll");
+
+        AssemblyAnalysisOperation<int> operation =
+            CreateOperation(nonexistent);
+        MethodDefinitionSourceRequest<int> request =
+            operation.MethodDefinitions;
+
+        Assert.Equal(nonexistent, operation.SourceName);
+        Assert.Equal(
+            MethodDefinitionSourceBreadth.AllDefinitions,
+            request.Breadth);
+        Assert.Equal(ProducerTerminal.Exists, request.Terminal);
+        Assert.Same(
+            UnsafeEvidencePresenceProducer.Instance,
+            request.Producer);
+    }
+
+    [Fact]
     public void AssemblyAnalysisOperation_PlanningDoesNotOpenSubject()
     {
         string nonexistent = Path.Combine(
@@ -48,6 +71,39 @@ public partial class UnsafeEvidencePresenceTests
                 observed.Item2);
         Assert.Same(operation, completed.Execution.Operation);
         Assert.Same(observed.Subject, completed.Execution.Subject);
+    }
+
+    [Fact]
+    public void MethodQuerySource_BindsExactPlanSubjectAndReceipt()
+    {
+        AssemblyAnalysisOperation<int> operation =
+            CreateOperation("ExactMethodSource.dll");
+        using AssemblyInspectionSession session =
+            OpenSession(BuildCustomModifiedPointerLocalAssembly());
+
+        var observed = session.SnapshotOperation(
+            operation,
+            access =>
+            {
+                AssemblyAnalysisExecution<int> execution =
+                    Assert.IsType<
+                            AssemblyAnalysisServiceResult<int>.Completed>(
+                            AssemblyAnalysisService.Instance.Execute(
+                                operation,
+                                access))
+                        .Execution;
+                return (access.Subject, execution);
+            });
+
+        Assert.Same(
+            operation.MethodDefinitions.Identity,
+            observed.execution.SourceReceipt.Request);
+        Assert.Same(
+            observed.Subject,
+            observed.execution.SourceReceipt.Subject);
+        Assert.Equal(
+            MethodDefinitionSourceBreadth.AllDefinitions,
+            observed.execution.SourceReceipt.Breadth);
     }
 
     [Fact]
@@ -162,6 +218,14 @@ public partial class UnsafeEvidencePresenceTests
     [Fact]
     public void
         AssemblyAnalysisExecution_ContainsNoLiveSubjectAuthority()
+        => AssertMethodSourceExecutionIsDetached();
+
+    [Fact]
+    public void
+        MethodQuerySource_ReleasedExecutionRetainsNoSubjectAuthority()
+        => AssertMethodSourceExecutionIsDetached();
+
+    static void AssertMethodSourceExecutionIsDetached()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -199,6 +263,9 @@ public partial class UnsafeEvidencePresenceTests
             Assert.Same(
                 operation.MethodDefinitions.Identity,
                 execution.SourceReceipt.Request);
+            Assert.Same(
+                subject,
+                execution.SourceReceipt.Subject);
             Assert.Equal(
                 MethodDefinitionSourceCompletion.Satisfied,
                 execution.SourceReceipt.Completion);
@@ -224,6 +291,14 @@ public partial class UnsafeEvidencePresenceTests
     [Fact]
     public void
         AssemblyAnalysisService_SequentialReferenceMatchesInterimExecutor()
+        => AssertMethodSourceMatchesInterimExecutor();
+
+    [Fact]
+    public void
+        MethodQuerySource_SequentialReferenceMatchesInterimExecutor()
+        => AssertMethodSourceMatchesInterimExecutor();
+
+    static void AssertMethodSourceMatchesInterimExecutor()
     {
         AssemblyAnalysisOperation<int> operation =
             CreateOperation("ReferenceMatch.dll");
@@ -292,6 +367,68 @@ public partial class UnsafeEvidencePresenceTests
     }
 
     [Fact]
+    public void MethodQuerySource_ExistsStopsAtFirstSettledMethod()
+    {
+        AssemblyAnalysisOperation<int> operation =
+            CreateOperation("StopsAtFirstSettledMethod.dll");
+        using AssemblyInspectionSession session =
+            OpenSession(BuildSchedulingSensitiveAssembly());
+
+        AssemblyAnalysisExecution<int> execution =
+            Assert.IsType<AssemblyAnalysisServiceResult<int>.Completed>(
+                    session.SnapshotOperation(
+                        operation,
+                        access =>
+                            AssemblyAnalysisService.Instance.Execute(
+                                operation,
+                                access)))
+                .Execution;
+
+        Assert.Equal(
+            new ProducerResult<int>(
+                ProducerOutcome.Stopped,
+                1),
+            execution.ResultOf(
+                UnsafeEvidencePresenceProducer.Instance));
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Satisfied,
+            execution.SourceReceipt.Completion);
+        Assert.Equal(1, execution.SourceReceipt.DefinitionsVisited);
+        Assert.Equal(1, execution.SourceReceipt.BodiesAcquired);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_ProducerFailureDoesNotBecomeSuccessfulAbsence()
+    {
+        AssemblyAnalysisOperation<int> operation =
+            CreateOperation("ProducerFailure.dll");
+        using AssemblyInspectionSession session =
+            OpenSession(
+                BuildGuardRejectedUnsafeAssembly(
+                    GuardRejectedSignatureKind.Local,
+                    appendUnsafeBody: true));
+
+        AssemblyAnalysisExecution<int> execution =
+            Assert.IsType<AssemblyAnalysisServiceResult<int>.Completed>(
+                    session.SnapshotOperation(
+                        operation,
+                        access =>
+                            AssemblyAnalysisService.Instance.Execute(
+                                operation,
+                                access)))
+                .Execution;
+        ProducerResult<int> result =
+            execution.ResultOf(
+                UnsafeEvidencePresenceProducer.Instance);
+        Assert.Equal(ProducerOutcome.Failed, result.Outcome);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.ProducerFailed,
+            execution.SourceReceipt.Completion);
+        Assert.Equal(1, execution.SourceReceipt.DefinitionsVisited);
+    }
+
+    [Fact]
     public void
         AssemblyAnalysisOperation_PreservesOwnerIssuedSourceKinds()
     {
@@ -308,6 +445,9 @@ public partial class UnsafeEvidencePresenceTests
             [AssemblyAnalysisSourceKind.MethodDefinitions],
             operation.SourceKinds);
         Assert.Same(request, operation.MethodDefinitions);
+        Assert.Equal(
+            MethodDefinitionSourceBreadth.AllDefinitions,
+            request.Breadth);
         Assert.Equal(ProducerTerminal.Exists, request.Terminal);
         Assert.Equal(
             MethodDefinitionLayers.Declaration

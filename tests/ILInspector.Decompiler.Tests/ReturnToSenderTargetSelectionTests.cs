@@ -81,7 +81,7 @@ public class ReturnToSenderTargetSelectionTests
     }
 
     [Fact]
-    public void DefersOrdinaryAndExplicitAccessors()
+    public void AdoptsOrdinaryAndExplicitAccessorDeclarations()
     {
         string assemblyPath =
             FidelityCheckGeneratedFilterTests.CompileFixture("""
@@ -90,6 +90,7 @@ public class ReturnToSenderTargetSelectionTests
                 public interface IValueContract
                 {
                     int Value { get; }
+                    int this[int index] { get; set; }
                     event Action Changed;
                 }
 
@@ -97,13 +98,23 @@ public class ReturnToSenderTargetSelectionTests
                 {
                     public int OrdinaryValue => 7;
 
-                    int IValueContract.Value { get; }
+                    int IValueContract.Value => 8;
 
-                    public event Action Changed = delegate { };
+                    int IValueContract.this[int index]
+                    {
+                        get => index;
+                        set { }
+                    }
+
+                    event Action IValueContract.Changed
+                    {
+                        add { }
+                        remove { }
+                    }
 
                     public static int Good() => 1;
                 }
-                """, assemblyName: "DeferredAccessor");
+                """, assemblyName: "ExactAccessor");
         try
         {
             FidelityCheck.ReturnToSenderTargetSelection selection =
@@ -114,42 +125,84 @@ public class ReturnToSenderTargetSelectionTests
             Assert.Contains(
                 selection.Targets,
                 target => target.Method == "Good");
-            Assert.DoesNotContain(
-                selection.Targets,
-                target => target.Method.Contains(
-                        "get_",
-                        StringComparison.Ordinal)
-                    || target.Method.Contains(
-                        "add_",
-                        StringComparison.Ordinal)
-                    || target.Method.Contains(
-                        "remove_",
-                        StringComparison.Ordinal));
-            FidelityCheck.ReturnToSenderTargetExclusion[] accessors =
+            FidelityCheck.CompileBackTarget[] accessors =
             [
-                .. selection.Exclusions.Where(
-                    exclusion => exclusion.Method.Contains(
+                .. selection.Targets.Where(
+                    target => target.Method.Contains(
                             "get_",
                             StringComparison.Ordinal)
-                        || exclusion.Method.Contains(
+                        || target.Method.Contains(
+                            "set_",
+                            StringComparison.Ordinal)
+                        || target.Method.Contains(
                             "add_",
                             StringComparison.Ordinal)
-                        || exclusion.Method.Contains(
+                        || target.Method.Contains(
                             "remove_",
                             StringComparison.Ordinal)),
             ];
-            Assert.Equal(4, accessors.Length);
+            Assert.Equal(6, accessors.Length);
             Assert.All(
                 accessors,
-                exclusion =>
+                target =>
                 {
+                    var exact = Assert.IsType<
+                        FidelityCheck.ReturnToSenderDeclarationSelection
+                            .ExactAccessor>(target.Declaration);
                     Assert.Equal(
-                        FidelityCheck.ReturnToSenderTargetExclusionReason
-                            .AccessorDeferred,
-                        exclusion.Reason);
-                    Assert.Null(exclusion.Producer);
-                    Assert.Null(exclusion.ExactOutcome);
+                        target.Address,
+                        exact.Request.Coordinate.Method);
+                    CSharpAcceptedAccessorBinding selected =
+                        Assert.Single(
+                            exact.Request.Accessors,
+                            accessor => accessor.Occurrence.Method.Method
+                                == target.Address);
+                    Assert.Equal(
+                        CSharpAccessorBodyPolicy.SelectedBody,
+                        selected.BodyPolicy);
+                    Assert.All(
+                        exact.Request.Accessors.Where(
+                            accessor => accessor != selected),
+                        accessor => Assert.Equal(
+                            CSharpAccessorBodyPolicy.SiblingStub,
+                            accessor.BodyPolicy));
                 });
+            Assert.Equal(
+                2,
+                accessors.Count(target =>
+                    ((FidelityCheck.ReturnToSenderDeclarationSelection
+                        .ExactAccessor)target.Declaration!).Request.Kind
+                    == CSharpAccessorDeclarationKind.Property));
+            Assert.Equal(
+                2,
+                accessors.Count(target =>
+                    ((FidelityCheck.ReturnToSenderDeclarationSelection
+                        .ExactAccessor)target.Declaration!).Request.Kind
+                    == CSharpAccessorDeclarationKind.Indexer));
+            Assert.Equal(
+                2,
+                accessors.Count(target =>
+                    ((FidelityCheck.ReturnToSenderDeclarationSelection
+                        .ExactAccessor)target.Declaration!).Request.Kind
+                    == CSharpAccessorDeclarationKind.Event));
+            Assert.Null(
+                ((FidelityCheck.ReturnToSenderDeclarationSelection
+                    .ExactAccessor)Assert.Single(
+                        accessors,
+                        target => target.Method == "get_OrdinaryValue")
+                    .Declaration!).Request.ExplicitInterface);
+            Assert.All(
+                accessors.Where(
+                    target => target.Method != "get_OrdinaryValue"),
+                target => Assert.NotNull(
+                    ((FidelityCheck.ReturnToSenderDeclarationSelection
+                        .ExactAccessor)target.Declaration!)
+                    .Request.ExplicitInterface));
+            Assert.DoesNotContain(
+                selection.Exclusions,
+                exclusion => exclusion.Producer
+                    == FidelityCheck.ReturnToSenderDeclarationProducer
+                        .ExactAccessorDeclaration);
         }
         finally
         {
@@ -211,7 +264,7 @@ public class ReturnToSenderTargetSelectionTests
     [Theory]
     [InlineData("raise_Changed")]
     [InlineData("<raise_Changed>")]
-    public void DefersCompilerGeneratedEventRaiser(string raiserName)
+    public void PreservesTypedEventRaiserRefusal(string raiserName)
     {
         string assemblyPath = CreateGeneratedEventRaiserFixture(raiserName);
         try
@@ -227,12 +280,142 @@ public class ReturnToSenderTargetSelectionTests
                     exclusion => exclusion.Method == raiserName);
             Assert.Equal(
                 FidelityCheck.ReturnToSenderTargetExclusionReason
-                    .AccessorDeferred,
+                    .ExactAccessorDeclarationUnrepresentable,
                 raiser.Reason);
+            Assert.Equal(
+                FidelityCheck.ReturnToSenderDeclarationProducer
+                    .ExactAccessorDeclaration,
+                raiser.Producer);
+            var refusal = Assert.IsType<
+                CSharpAccessorDeclarationRepresentabilityResult
+                    .Unrepresentable>(raiser.AccessorOutcome);
+            Assert.Equal(
+                CSharpAccessorDeclarationRefusalReason
+                    .UnsupportedSemanticOccurrence,
+                refusal.Reason);
             Assert.Contains(
                 selection.Targets,
                 target => target.Method == "Good");
             Assert.Equal(5, selection.DeclarationCandidateCount);
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void AppliesCapAfterExactAccessorEligibility()
+    {
+        string refusedAssembly =
+            CreateGeneratedEventRaiserFixture(
+                "raise_Changed",
+                isStaticType: true,
+                includeGoodMethod: false);
+        string eligibleAssembly =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public static class EligibleAccessorFixture
+                {
+                    public static int Value => 2;
+                }
+                """, assemblyName: "EligibleExactAccessor");
+        try
+        {
+            FidelityCheck.ReturnToSenderTargetSelection selection =
+                FidelityCheck.SelectReturnToSenderTargetPlan(
+                    [refusedAssembly, eligibleAssembly],
+                    cap: 1);
+
+            FidelityCheck.CompileBackTarget selected =
+                Assert.Single(selection.Targets);
+            Assert.Equal(eligibleAssembly, selected.AssemblyPath);
+            Assert.Equal("get_Value", selected.Method);
+            Assert.IsType<
+                FidelityCheck.ReturnToSenderDeclarationSelection
+                    .ExactAccessor>(selected.Declaration);
+            Assert.Equal(1, selection.EligibleCount);
+
+            FidelityCheck.ReturnToSenderTargetExclusion[] exclusions =
+            [
+                .. selection.Exclusions.Where(
+                    exclusion => exclusion.AssemblyPath
+                        == refusedAssembly),
+            ];
+            Assert.Equal(3, exclusions.Length);
+            Assert.All(
+                exclusions,
+                exclusion =>
+                {
+                    Assert.Equal(
+                        FidelityCheck.ReturnToSenderTargetExclusionReason
+                            .ExactAccessorDeclarationUnrepresentable,
+                        exclusion.Reason);
+                    Assert.Equal(
+                        FidelityCheck.ReturnToSenderDeclarationProducer
+                            .ExactAccessorDeclaration,
+                        exclusion.Producer);
+                    var refusal = Assert.IsType<
+                        CSharpAccessorDeclarationRepresentabilityResult
+                            .Unrepresentable>(
+                                exclusion.AccessorOutcome);
+                    Assert.Equal(
+                        CSharpAccessorDeclarationRefusalReason
+                            .UnsupportedSemanticOccurrence,
+                        refusal.Reason);
+                });
+            FidelityCheck.ReturnToSenderTargetExclusion raiser =
+                Assert.Single(
+                    exclusions,
+                    exclusion => exclusion.Method == "raise_Changed");
+            Assert.IsType<
+                CSharpAccessorDeclarationRepresentabilityResult
+                    .Unrepresentable>(raiser.AccessorOutcome);
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(
+                refusedAssembly);
+            FidelityCheckGeneratedFilterTests.DeleteFixture(
+                eligibleAssembly);
+        }
+    }
+
+    [Fact]
+    public void PreservesTypedIncompleteAccessorUnavailability()
+    {
+        string assemblyPath =
+            CreateGeneratedEventRaiserFixture(
+                "unused",
+                isStaticType: true,
+                includeRemoveAccessor: false,
+                includeRaiser: false,
+                includeGoodMethod: false);
+        try
+        {
+            FidelityCheck.ReturnToSenderTargetSelection selection =
+                FidelityCheck.SelectReturnToSenderTargetPlan(
+                    [assemblyPath],
+                    cap: int.MaxValue);
+
+            Assert.Empty(selection.Targets);
+            FidelityCheck.ReturnToSenderTargetExclusion exclusion =
+                Assert.Single(selection.Exclusions);
+            Assert.Equal("add_Changed", exclusion.Method);
+            Assert.Equal(
+                FidelityCheck.ReturnToSenderTargetExclusionReason
+                    .ExactAccessorDeclarationUnavailable,
+                exclusion.Reason);
+            Assert.Equal(
+                FidelityCheck.ReturnToSenderDeclarationProducer
+                    .ExactAccessorDeclaration,
+                exclusion.Producer);
+            var unavailable = Assert.IsType<
+                CSharpAccessorDeclarationRepresentabilityResult.Unavailable>(
+                    exclusion.AccessorOutcome);
+            Assert.Equal(
+                CSharpAccessorDeclarationUnavailableReason
+                    .AccessorDeclarationRejected,
+                unavailable.Reason);
         }
         finally
         {
@@ -290,10 +473,16 @@ public class ReturnToSenderTargetSelectionTests
             .Select(exclusion =>
                 $"{exclusion.Type}::{exclusion.Method}{exclusion.Signature}:"
                 + $"{exclusion.Reason}:{exclusion.Producer}:"
-                + $"{exclusion.ExactOutcome?.GetType().Name}")
+                + $"{exclusion.ExactOutcome?.GetType().Name}:"
+                + $"{exclusion.AccessorOutcome?.GetType().Name}")
             .ToArray();
 
-    static string CreateGeneratedEventRaiserFixture(string raiserName)
+    static string CreateGeneratedEventRaiserFixture(
+        string raiserName,
+        bool isStaticType = false,
+        bool includeRemoveAccessor = true,
+        bool includeRaiser = true,
+        bool includeGoodMethod = true)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -308,16 +497,23 @@ public class ReturnToSenderTargetSelectionTests
             assembly.DefineDynamicModule("GeneratedEventRaiser");
         TypeBuilder type = module.DefineType(
             "GeneratedEventRaiserFixture",
-            TypeAttributes.Public | TypeAttributes.Class);
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | (isStaticType
+                    ? TypeAttributes.Abstract | TypeAttributes.Sealed
+                    : 0));
 
-        MethodBuilder good = type.DefineMethod(
-            "Good",
-            MethodAttributes.Public | MethodAttributes.Static,
-            typeof(int),
-            Type.EmptyTypes);
-        ILGenerator goodBody = good.GetILGenerator();
-        goodBody.Emit(OpCodes.Ldc_I4_1);
-        goodBody.Emit(OpCodes.Ret);
+        if (includeGoodMethod)
+        {
+            MethodBuilder good = type.DefineMethod(
+                "Good",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(int),
+                Type.EmptyTypes);
+            ILGenerator goodBody = good.GetILGenerator();
+            goodBody.Emit(OpCodes.Ldc_I4_1);
+            goodBody.Emit(OpCodes.Ret);
+        }
 
         EventBuilder changed = type.DefineEvent(
             "Changed",
@@ -326,23 +522,32 @@ public class ReturnToSenderTargetSelectionTests
         MethodBuilder add = DefineEventMethod(
             type,
             "add_Changed",
-            [typeof(Action)]);
-        MethodBuilder remove = DefineEventMethod(
-            type,
-            "remove_Changed",
-            [typeof(Action)]);
-        MethodBuilder raise = DefineEventMethod(
-            type,
-            raiserName,
-            Type.EmptyTypes);
-        raise.SetCustomAttribute(
-            new CustomAttributeBuilder(
-                typeof(CompilerGeneratedAttribute).GetConstructor(
-                    Type.EmptyTypes)!,
-                []));
+            [typeof(Action)],
+            isStaticType);
         changed.SetAddOnMethod(add);
-        changed.SetRemoveOnMethod(remove);
-        changed.SetRaiseMethod(raise);
+        if (includeRemoveAccessor)
+        {
+            MethodBuilder remove = DefineEventMethod(
+                type,
+                "remove_Changed",
+                [typeof(Action)],
+                isStaticType);
+            changed.SetRemoveOnMethod(remove);
+        }
+        if (includeRaiser)
+        {
+            MethodBuilder raise = DefineEventMethod(
+                type,
+                raiserName,
+                Type.EmptyTypes,
+                isStaticType);
+            raise.SetCustomAttribute(
+                new CustomAttributeBuilder(
+                    typeof(CompilerGeneratedAttribute).GetConstructor(
+                        Type.EmptyTypes)!,
+                    []));
+            changed.SetRaiseMethod(raise);
+        }
 
         type.CreateType();
         assembly.Save(path);
@@ -352,13 +557,15 @@ public class ReturnToSenderTargetSelectionTests
     static MethodBuilder DefineEventMethod(
         TypeBuilder type,
         string name,
-        Type[] parameterTypes)
+        Type[] parameterTypes,
+        bool isStatic = false)
     {
         MethodBuilder method = type.DefineMethod(
             name,
             MethodAttributes.Public
                 | MethodAttributes.SpecialName
-                | MethodAttributes.HideBySig,
+                | MethodAttributes.HideBySig
+                | (isStatic ? MethodAttributes.Static : 0),
             typeof(void),
             parameterTypes);
         method.GetILGenerator().Emit(OpCodes.Ret);
