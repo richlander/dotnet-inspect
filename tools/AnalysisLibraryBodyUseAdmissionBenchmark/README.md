@@ -1,8 +1,17 @@
 # Analysis Library body-use admission benchmark
 
-This development-only NativeAOT harness compares immutable commits of the
-Analysis Library body-use operation. It is intentionally outside
-`dotnet-inspect.slnx`: normal CI does not build or run it.
+This development-only NativeAOT harness reproduces the whole-product
+`MalformedBody` admission experiment recorded in
+[`analysis-library-body-use-admission-2026-09.md`](../../docs/evidence/analysis-library-body-use-admission-2026-09.md).
+It compares the two immutable commits named there, including the complete
+public result and receipt. It is intentionally outside `dotnet-inspect.slnx`:
+normal CI does not build or run it.
+
+Use the repository's general
+[`BodyUseScorecard`](../BodyUseScorecard/Program.cs) for new
+Direct/LINQ/NLinq/Planner body-use terminal work. This harness predates that
+scorecard and remains only so the exact admission-policy experiment is
+reproducible; do not extend it into a second general scorecard.
 
 The default assets are pinned package/runtime assemblies already used by the
 Analysis test infrastructure:

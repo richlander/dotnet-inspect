@@ -30,8 +30,13 @@ The aggregate results are in
 
 Both commits contain identical harness source under
 `tools/AnalysisLibraryBodyUseAdmissionBenchmark/`. The harness remains outside
-`dotnet-inspect.slnx`; it is a reusable development aid, not a CI test or
-supported performance offering.
+`dotnet-inspect.slnx`; it is the committed reproducer for this exact
+whole-product admission experiment, not a CI test or supported performance
+offering. The commits and measurements predate the general
+Direct/LINQ/NLinq/Planner
+[`BodyUseScorecard`](../../tools/BodyUseScorecard/Program.cs). New body-use
+terminal investigations use that scorecard; this narrow harness is not a
+parallel oracle.
 
 ## Method
 
