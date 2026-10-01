@@ -16,6 +16,7 @@ public sealed class MethodDefinitionExecution
 {
     readonly WorkDescription _description;
     readonly ProducerState[] _states;
+    readonly MethodDefinitionSourceWorkRecorder? _sourceWork;
     CriticalFailure? _critical;
 
     /// <summary>
@@ -24,9 +25,12 @@ public sealed class MethodDefinitionExecution
     /// </summary>
     internal int PassUnitsVisited;
 
-    MethodDefinitionExecution(WorkDescription description)
+    MethodDefinitionExecution(
+        WorkDescription description,
+        MethodDefinitionSourceWorkRecorder? sourceWork)
     {
         _description = description;
+        _sourceWork = sourceWork;
         _states = new ProducerState[description.Producers.Length];
     }
 
@@ -40,13 +44,26 @@ public sealed class MethodDefinitionExecution
     public static MethodDefinitionExecution Execute(
         WorkDescription description,
         string sourceName,
-        PEReader peReader)
+        PEReader peReader) =>
+        Execute(
+            description,
+            sourceName,
+            peReader,
+            sourceWork: null);
+
+    internal static MethodDefinitionExecution Execute(
+        WorkDescription description,
+        string sourceName,
+        PEReader peReader,
+        MethodDefinitionSourceWorkRecorder? sourceWork)
     {
         ArgumentNullException.ThrowIfNull(description);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
         ArgumentNullException.ThrowIfNull(peReader);
 
-        var execution = new MethodDefinitionExecution(description);
+        var execution = new MethodDefinitionExecution(
+            description,
+            sourceWork);
         ImmutableArray<ProducerDeclaration> producers = description.Producers;
         for (int i = 0; i < producers.Length; i++)
         {
@@ -311,7 +328,12 @@ public sealed class MethodDefinitionExecution
         MethodRowGate gate,
         ProducerState[] visiting)
     {
-        var unit = new MethodDefinitionUnit(reader, peReader, lookup, gate);
+        var unit = new MethodDefinitionUnit(
+            reader,
+            peReader,
+            lookup,
+            gate,
+            _sourceWork);
         int visited = 0;
         foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
         {
@@ -644,6 +666,9 @@ public sealed class MethodDefinitionExecution
 
     /// <summary>How many times the execution's gate looked up a classifier's cache.</summary>
     internal int GateCacheLookups { get; private set; }
+
+    internal MethodDefinitionSourceWorkRecorder? SourceWork =>
+        _sourceWork;
 
     WorkReceipt CreateReceipt(int unitsVisited, MethodRowGate? gate)
     {

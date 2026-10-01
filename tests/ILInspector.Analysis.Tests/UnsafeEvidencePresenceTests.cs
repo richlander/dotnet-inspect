@@ -869,7 +869,8 @@ public partial class UnsafeEvidencePresenceTests
     static ImmutableArray<byte> BuildGuardRejectedUnsafeAssembly(
         GuardRejectedSignatureKind rejectedKind,
         bool unsafeLookalikeParent = false,
-        bool appendUnsafeBody = false)
+        bool appendUnsafeBody = false,
+        bool prependUnsafeBody = false)
     {
         var metadata = CreateMetadata("GuardRejected");
         metadata.AddTypeDefinition(
@@ -883,6 +884,26 @@ public partial class UnsafeEvidencePresenceTests
         var bodyEncoder = new MethodBodyStreamEncoder(bodies);
         var code = new BlobBuilder();
         StandaloneSignatureHandle localSignature = default;
+
+        if (prependUnsafeBody)
+        {
+            var unsafeCode = new BlobBuilder();
+            unsafeCode.WriteByte((byte)ILOpCode.Calli);
+            unsafeCode.WriteInt32(0);
+            unsafeCode.WriteByte((byte)ILOpCode.Ret);
+            int unsafeBodyOffset =
+                bodyEncoder.AddMethodBody(
+                    new InstructionEncoder(unsafeCode),
+                    maxStack: 1);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("UnsafeFirst"),
+                AddVoidMethodSignature(metadata),
+                unsafeBodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        }
 
         if (rejectedKind
             == GuardRejectedSignatureKind.Local)
@@ -989,6 +1010,57 @@ public partial class UnsafeEvidencePresenceTests
             new MetadataRootBuilder(
                 metadata,
                 suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return ImmutableArray.Create(image.ToArray());
+    }
+
+    static ImmutableArray<byte>
+        BuildBodylessThenUnsafeAssembly()
+    {
+        var metadata = CreateMetadata(
+            "BodylessThenUnsafe");
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Sample"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("Bodyless"),
+            AddVoidMethodSignature(metadata),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(
+            bodies);
+        var unsafeCode = new BlobBuilder();
+        unsafeCode.WriteByte((byte)ILOpCode.Calli);
+        unsafeCode.WriteInt32(0);
+        unsafeCode.WriteByte((byte)ILOpCode.Ret);
+        int unsafeBodyOffset =
+            bodyEncoder.AddMethodBody(
+                new InstructionEncoder(unsafeCode),
+                maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Unsafe"),
+            AddVoidMethodSignature(metadata),
+            unsafeBodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
             bodies,
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();

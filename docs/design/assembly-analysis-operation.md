@@ -12,11 +12,13 @@ resource-free operation describes the work, a stateless service executes it
 against explicit owner-issued access, and the returned execution retains only
 detached evidence. Unsafe-evidence presence is the first production adoption.
 It binds one single-producer Method request to stack-only session access,
-executes the existing sequential reference executor, and publishes separate
-Method-source and Producer Planning receipts with the focused producer result.
-The eight gates under [Required evidence](#required-evidence) verify that
-bounded adoption in Release. Multi-request collapse, other source kinds,
-cancellation, and legacy-remainder composition remain **unverified**.
+delegates it to the owner-issued `MethodDefinitionSource`, and publishes
+separate Method-source and Producer Planning receipts with the focused producer
+result. The Method source retains `MethodDefinitionExecution` only as its
+serial engine. The composition and source gates under
+[Required evidence](#required-evidence) verify that bounded adoption in
+Release. Multi-request collapse, other source kinds, cancellation, and
+legacy-remainder composition remain **unverified**.
 
 ## Authority and exact claim
 
@@ -332,20 +334,23 @@ interaction before implementation.
 
 ## Required evidence
 
-The first implementation adoption supplies these Release gates:
+The first implementation adoption supplies these Release gates across the
+composition and Method-source owners:
 
-- `AssemblyAnalysisOperation_PlanningDoesNotOpenSubject`
-- `AssemblyAnalysisService_BindsExactOperationAndSubject`
+- `MethodQuerySource_PlanningDoesNotReadSubject`
+- `MethodQuerySource_BindsExactPlanSubjectAndReceipt`
 - `AssemblyAnalysisService_RejectsMismatchedOperationAccess`
 - `AssemblyAnalysisService_PreservesSourceFailureAndCompletion`
 - `AssemblyAnalysisService_PreservesProducerOutcomes`
-- `AssemblyAnalysisExecution_ContainsNoLiveSubjectAuthority`
-- `AssemblyAnalysisService_SequentialReferenceMatchesInterimExecutor`
+- `MethodQuerySource_ReleasedExecutionRetainsNoSubjectAuthority`
+- `MethodQuerySource_SequentialReferenceMatchesInterimExecutor`
+- `MethodQuerySource_ExistsStopsAtFirstSettledMethod`
+- `MethodQuerySource_ReceiptSeparatesExaminedSelectedAndAcquiredWork`
 - `AssemblyAnalysisOperation_PreservesOwnerIssuedSourceKinds`
 
 Those gates now run with the unsafe-evidence production adoption. The operator
 selected partial behavioral coverage for
-`AssemblyAnalysisExecution_ContainsNoLiveSubjectAuthority`: it disposes the
+`MethodQuerySource_ReleasedExecutionRetainsNoSubjectAuthority`: it disposes the
 borrowed session and owning `PdbContext`, then consumes the published operation
 association, subject identity, source receipt, producer outcome, focused
 result, and `WorkReceipt`. This proves detachment for every surface published

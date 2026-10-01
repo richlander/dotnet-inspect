@@ -10,20 +10,20 @@ source owner: the ordered physical MethodDef population, breadth selection,
 requested depth, declared expansion, serial reference execution, and exact
 source-work receipt.
 
-The current `MethodDefinitionExecution` is a useful reference precursor. It
-already visits MethodDefs in metadata order, applies the source gate, acquires
-body and module-lookup work on demand, preserves Producer Planning outcomes,
-and specializes eligible terminal kernels. It is not the target source:
-explicit MethodDef scopes still require callers outside this boundary, body
-depth is too coarse, generated-body and referenced-callee work are not
-source requests, and its receipt does not prove which physical methods were
-examined or acquired.
+The first implementation slice now runs behind `AssemblyAnalysisService`.
+`MethodDefinitionSource` accepts the owner-issued resource-free request,
+executes the existing serial `MethodDefinitionExecution` engine, and publishes
+the focused result, Producer Planning receipt, and a separate Method-source
+receipt. That source receipt carries compact exact MethodDef coverage for
+definitions examined, methods selected, terminal bodies attempted and
+acquired, and module-lookup use. Unsafe-evidence `Exists` is the production
+adopter.
 
-Every property below is **unverified** until its named Release gate lands. The
-first implementation slice replaces the Assembly Analysis service's direct
-call to the interim executor with this owner-issued source while preserving
-the existing unsafe-evidence `Exists` behavior. Sparse breadth, generated-body
-expansion, and migrated body producers land as later focused slices.
+The six implemented gates identified under
+[Required evidence](#required-evidence) run in Release. Explicit MethodDef and
+Type breadth, fine-grained depth beyond the transitional layers,
+generated-body and referenced-callee expansion, request collapse, and migrated
+body producers remain **unverified**.
 
 ## Demo and pathological case
 
@@ -462,21 +462,31 @@ MethodDef seed is not adoption.
 
 ## Required evidence
 
-The contract is gated in Release:
+The first source boundary is verified in Release by:
 
 - `MethodQuerySource_PlanningDoesNotReadSubject`
 - `MethodQuerySource_BindsExactPlanSubjectAndReceipt`
 - `MethodQuerySource_SequentialReferenceMatchesInterimExecutor`
 - `MethodQuerySource_ExistsStopsAtFirstSettledMethod`
+- `MethodQuerySource_ReceiptSeparatesExaminedSelectedAndAcquiredWork`
+- `MethodQuerySource_ReleasedExecutionRetainsNoSubjectAuthority`
+
+Later slices supply:
+
 - `MethodQuerySource_ExactMethodBreadthVisitsOnlySelectedMethods`
 - `MethodQuerySource_ExactTypeBreadthVisitsOnlyDeclaredMethods`
 - `MethodQuerySource_GeneratedExpansionVisitsOnlyAuthenticatedBodies`
 - `MethodQuerySource_GeneratedExpansionAccountsBodyDependentDiscovery`
 - `MethodQuerySource_ReferencedExpansionIsBoundedDeduplicatedAndOrdered`
 - `MethodQuerySource_DeepestTerminalLayerIsAcquiredOncePerMethod`
-- `MethodQuerySource_ReceiptSeparatesExaminedSelectedAndAcquiredWork`
 - `MethodQuerySource_SourceFailureDoesNotBecomeSuccessfulAbsence`
-- `MethodQuerySource_ReleasedExecutionRetainsNoSubjectAuthority`
+
+The current receipt coverage is exact for the all-definitions serial source.
+It compacts MethodDef rows into sorted ranges, preserves early-`Exists`
+coverage rather than claiming exhaustion, and distinguishes a selected
+bodyless method from a terminal body attempt or acquisition. Sparse breadth
+and expansion extend the same coverage vocabulary rather than adding another
+receipt.
 
 The sparse-breadth pathological gate uses the pinned System.Text.Json asset.
 It compares one exact MethodDef, the seven `JsonDocument.Parse` MethodDefs,

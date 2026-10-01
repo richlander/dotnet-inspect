@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Analysis.Planning;
@@ -9,7 +10,7 @@ namespace ILInspector.Analysis.Tests;
 public partial class UnsafeEvidencePresenceTests
 {
     [Fact]
-    public void AssemblyAnalysisOperation_PlanningDoesNotOpenSubject()
+    public void MethodQuerySource_PlanningDoesNotReadSubject()
     {
         string nonexistent = Path.Combine(
             Path.GetTempPath(),
@@ -24,7 +25,7 @@ public partial class UnsafeEvidencePresenceTests
     }
 
     [Fact]
-    public void AssemblyAnalysisService_BindsExactOperationAndSubject()
+    public void MethodQuerySource_BindsExactPlanSubjectAndReceipt()
     {
         AssemblyAnalysisOperation<int> operation =
             CreateOperation("ExactSubject.dll");
@@ -48,6 +49,9 @@ public partial class UnsafeEvidencePresenceTests
                 observed.Item2);
         Assert.Same(operation, completed.Execution.Operation);
         Assert.Same(observed.Subject, completed.Execution.Subject);
+        Assert.Same(
+            operation.MethodDefinitions.Identity,
+            completed.Execution.SourceReceipt.Request);
     }
 
     [Fact]
@@ -161,7 +165,7 @@ public partial class UnsafeEvidencePresenceTests
 
     [Fact]
     public void
-        AssemblyAnalysisExecution_ContainsNoLiveSubjectAuthority()
+        MethodQuerySource_ReleasedExecutionRetainsNoSubjectAuthority()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -223,7 +227,7 @@ public partial class UnsafeEvidencePresenceTests
 
     [Fact]
     public void
-        AssemblyAnalysisService_SequentialReferenceMatchesInterimExecutor()
+        MethodQuerySource_SequentialReferenceMatchesInterimExecutor()
     {
         AssemblyAnalysisOperation<int> operation =
             CreateOperation("ReferenceMatch.dll");
@@ -289,6 +293,92 @@ public partial class UnsafeEvidencePresenceTests
         Assert.Equal(
             expectedParticipation.Layers.ToArray(),
             actualParticipation.Layers.ToArray());
+    }
+
+    [Fact]
+    public void MethodQuerySource_ExistsStopsAtFirstSettledMethod()
+    {
+        AssemblyAnalysisOperation<int> operation =
+            CreateOperation("EarlyEvidence.dll");
+        using AssemblyInspectionSession session =
+            OpenSession(
+                BuildGuardRejectedUnsafeAssembly(
+                    GuardRejectedSignatureKind.Local,
+                    prependUnsafeBody: true));
+
+        AssemblyAnalysisExecution<int> execution =
+            Assert.IsType<AssemblyAnalysisServiceResult<int>.Completed>(
+                    session.SnapshotOperation(
+                        operation,
+                        access =>
+                            AssemblyAnalysisService.Instance.Execute(
+                                operation,
+                                access)))
+                .Execution;
+        MethodDefinitionSourceReceipt receipt =
+            execution.SourceReceipt;
+        int first = MetadataTokens.GetToken(
+            MetadataTokens.MethodDefinitionHandle(1));
+        int second = MetadataTokens.GetToken(
+            MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Satisfied,
+            receipt.Completion);
+        Assert.Equal(1, receipt.DefinitionsExamined.Count);
+        Assert.Equal(1, receipt.MethodsSelected.Count);
+        Assert.Equal(1, receipt.BodiesAttempted.Count);
+        Assert.Equal(1, receipt.TerminalBodiesAcquired.Count);
+        Assert.Equal(1, receipt.ModuleLookupMethods.Count);
+        Assert.True(
+            receipt.DefinitionsExamined
+                .ContainsMetadataToken(first));
+        Assert.False(
+            receipt.DefinitionsExamined
+                .ContainsMetadataToken(second));
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_ReceiptSeparatesExaminedSelectedAndAcquiredWork()
+    {
+        AssemblyAnalysisOperation<int> operation =
+            CreateOperation("BodylessThenUnsafe.dll");
+        using AssemblyInspectionSession session =
+            OpenSession(BuildBodylessThenUnsafeAssembly());
+
+        MethodDefinitionSourceReceipt receipt =
+            Assert.IsType<AssemblyAnalysisServiceResult<int>.Completed>(
+                    session.SnapshotOperation(
+                        operation,
+                        access =>
+                            AssemblyAnalysisService.Instance.Execute(
+                                operation,
+                                access)))
+                .Execution
+                .SourceReceipt;
+        int bodyless = MetadataTokens.GetToken(
+            MetadataTokens.MethodDefinitionHandle(1));
+        int withBody = MetadataTokens.GetToken(
+            MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Satisfied,
+            receipt.Completion);
+        Assert.Equal(2, receipt.DefinitionsExamined.Count);
+        Assert.Equal(2, receipt.MethodsSelected.Count);
+        Assert.Equal(1, receipt.BodiesAttempted.Count);
+        Assert.Equal(1, receipt.TerminalBodiesAcquired.Count);
+        Assert.Equal(2, receipt.ModuleLookupMethods.Count);
+        Assert.True(
+            receipt.DefinitionsExamined
+                .ContainsMetadataToken(bodyless));
+        Assert.False(
+            receipt.TerminalBodiesAcquired
+                .ContainsMetadataToken(bodyless));
+        Assert.True(
+            receipt.TerminalBodiesAcquired
+                .ContainsMetadataToken(withBody));
     }
 
     [Fact]

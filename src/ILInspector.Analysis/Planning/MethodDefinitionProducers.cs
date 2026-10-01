@@ -300,6 +300,7 @@ public readonly ref struct MethodDefinitionView
         _producer = producer;
         _declared = producer.Layers;
         _owner = producer.Producer.Identity;
+        unit.RecordSelected();
     }
 
     internal MethodDefinitionView(
@@ -472,6 +473,7 @@ public readonly ref struct MethodDefinitionView
             }
 
             producer.CountUnit(ref producer.LastLookupUnit, Token, ref producer.LookupUses);
+            _unit.RecordLookupUse();
             return _unit.Lookup;
         }
     }
@@ -552,11 +554,14 @@ internal struct MethodDefinitionUnit(
     MetadataReader reader,
     PEReader peReader,
     LibraryMethodAnalysisRunner? lookup,
-    MethodRowGate gate)
+    MethodRowGate gate,
+    MethodDefinitionSourceWorkRecorder? sourceWork)
 {
     readonly MetadataReader _reader = reader;
     readonly PEReader _peReader = peReader;
     readonly LibraryMethodAnalysisRunner? _lookup = lookup;
+    readonly MethodDefinitionSourceWorkRecorder? _sourceWork =
+        sourceWork;
     MethodBodyBlock? _body;
 
     /// <summary>The source's method-row gate, positioned on this unit.</summary>
@@ -590,15 +595,31 @@ internal struct MethodDefinitionUnit(
         }
 
         MethodHandle = methodHandle;
+        _sourceWork?.DefinitionExamined(methodHandle);
         MethodDefinition = _reader.GetMethodDefinition(methodHandle);
         _body = null;
         Ordinal++;
         Gate.MoveTo(typeHandle, typeDefinition, methodHandle, MethodDefinition);
     }
 
-    public MethodBodyBlock GetBody() =>
-        _body ??= _peReader.GetMethodBody(
+    public MethodBodyBlock GetBody()
+    {
+        if (_body is not null)
+            return _body;
+
+        _sourceWork?.BodyAttempted(MethodHandle);
+        MethodBodyBlock body = _peReader.GetMethodBody(
             MethodDefinition.RelativeVirtualAddress);
+        _sourceWork?.BodyAcquired(MethodHandle);
+        _body = body;
+        return body;
+    }
+
+    public readonly void RecordSelected() =>
+        _sourceWork?.MethodSelected(MethodHandle);
+
+    public readonly void RecordLookupUse() =>
+        _sourceWork?.ModuleLookupUsed(MethodHandle);
 
     /// <summary>
     /// A content-free label for a recoverable failure: the MethodDef token.
