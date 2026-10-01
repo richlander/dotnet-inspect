@@ -663,6 +663,7 @@ internal static class BrowserLibraryApiDiffWireProjection
             count += identity.Anchor.Fingerprint.Length;
             count += identity.Anchor.TypeFullName.Length;
             count += identity.Anchor.MemberName.Length;
+            count += identity.Kind.Length;
             count += identity.Display.Length;
         }
     }
