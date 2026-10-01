@@ -12154,8 +12154,7 @@ function bindTypePanelEvents() {
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       resetMemberFilters();
-      if (state.typeLeverageEnabled) loadTypeLeverage();
-      else renderPreservingMemberFocus();
+      renderPreservingMemberFocus();
       loadCurrentSelectionData("Loading the selected Type");
     },
     onTypeLeverageActivate: () => {

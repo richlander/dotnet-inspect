@@ -9,11 +9,11 @@ import {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
-test("Clear filters preserves the active structural-salience view", async ({
+test("namespace projection and Clear filters preserve one salience request", async ({
   page,
 }, testInfo) => {
   await installFacades(page);
-  await page.goto(root);
+  await page.goto(root.replace("#pkg", "&slow-salience=1#pkg"));
   await selectLibrary(page, core.id);
   await chooseSubject(page, "type", "Type");
   await page.locator("#type-filter-summary").click();
@@ -22,6 +22,11 @@ test("Clear filters preserves the active structural-salience view", async ({
     "button",
     { name: "Show structural salience", exact: true },
   ).click();
+  await page.locator('[data-namespace="Example"]').click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-structural-salience-request-count",
+    "1",
+  );
   await expect(page.getByRole(
     "button",
     { name: "Hide salience", exact: true },
@@ -38,7 +43,6 @@ test("Clear filters preserves the active structural-salience view", async ({
   await expect(page.locator(".type-leverage-control"))
     .toContainText("1 namespace analyzed");
 
-  await page.locator('[data-namespace="Example"]').click();
   await page.locator(
     '[data-type-leverage-filter="sea-level"]',
   ).click();

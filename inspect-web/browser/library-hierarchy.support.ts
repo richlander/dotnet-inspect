@@ -1403,7 +1403,11 @@ async function installFacades(
         const surface = surfaceFor(id, version, framework);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
-        return structuralSalience(surface, selected);
+        const result = structuralSalience(surface, selected);
+        if (new URLSearchParams(location.search).has("slow-salience")) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        return result;
       }
       function implementationProfiles(
         subjectName,
