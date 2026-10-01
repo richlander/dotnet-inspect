@@ -2,11 +2,14 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using ILInspector.Analysis;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using Inspector.Findings;
+using QuerySpace.Composition;
+using QuerySpace.Rows;
 
 namespace DotnetInspect.Cli.Sections;
 
@@ -146,6 +149,8 @@ public static class LibrarySections
             .Add<LibraryMetrics>(
                 LibraryMetricsQuery.Definition,
                 HasMethodBodies)
+            .Add<NameFamilies>(
+                LibraryNameFamilyQuery.Definition)
             .Add<BodyShapes>(
                 BodyShapesQuery.Definition,
                 HasMethodBodies)
@@ -399,6 +404,9 @@ public static class LibrarySections
             .Add(
                 LibraryMetricsQuery.Definition,
                 ExecuteLibraryMetricsQuery)
+            .Add(
+                LibraryNameFamilyQuery.Definition,
+                ExecuteLibraryNameFamilyQuery)
             .AddSourceLinkQueries(RequireSourceLinkContext)
             .Compile();
     }
@@ -577,6 +585,7 @@ public static class LibrarySections
                 analysis,
                 structuralSalience);
         }
+
         catch (CostDeclarationException)
         {
             throw;
@@ -584,6 +593,54 @@ public static class LibrarySections
         catch (Exception ex)
         {
             return new LibraryMetricsResult.Failed(ex);
+        }
+    }
+
+    internal static LibraryNameFamilyQueryResult
+        ExecuteLibraryNameFamilyQuery(
+            InspectionQueryContext context)
+    {
+        if (context.AssemblyReference is not { } assembly)
+        {
+            return new LibraryNameFamilyQueryResult.Failed(
+                new InvalidOperationException(
+                    "Library name families require an artifact-backed "
+                        + "assembly descriptor."));
+        }
+
+        try
+        {
+            LibraryNameFamilyQueryPlan operation =
+                LibraryNameFamilyQuery.CreatePlan(
+                    context.NameFamilyPopulation);
+            RowSelectionIntent<string> rows =
+                context.NameFamilyRowSelection
+                ?? RowSelectionIntent<string>.Create([]);
+            QuerySpaceRequest request =
+                LibraryNameFamilyQuery.CreateFamilyRequest(
+                    operation,
+                    rows,
+                    context.CountOnly
+                        ? QuerySpaceTerminalRequirement.Count
+                        : QuerySpaceTerminalRequirement.Rows);
+            return context.Query(
+                session => LibraryNameFamilyInspection.Execute(
+                    assembly,
+                    session,
+                    context.MetadataContext?
+                        .InspectSourceProvenance(),
+                    operation,
+                    request),
+                static error =>
+                    new LibraryNameFamilyQueryResult.Failed(error));
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception error)
+        {
+            return new LibraryNameFamilyQueryResult.Failed(error);
         }
     }
 
@@ -1044,13 +1101,13 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) =>
             model.EcosystemDependencyRecognitionInspection?.Content
                 is EcosystemDependencyRecognitionOutcome.Complete
-                    {
-                        Document.Classification.Recognized.Length: > 0,
-                    }
+                {
+                    Document.Classification.Recognized.Length: > 0,
+                }
                 or EcosystemDependencyRecognitionOutcome.Incomplete
-                    {
-                        Document.Classification.Recognized.Length: > 0,
-                    };
+                {
+                    Document.Classification.Recognized.Length: > 0,
+                };
     }
 
     public sealed class ReferenceHierarchy :
@@ -1096,7 +1153,7 @@ public static class LibrarySections
         public static SectionCost Cost => SectionCost.Unbounded;
         public static bool CanRender(LibraryInspection model)
             => model.TopLeverageQueryResult is TopLeverageResult.Available
-                { Methods.IsEmpty: false };
+            { Methods.IsEmpty: false };
     }
 
     public sealed class MemberMetrics
@@ -1111,7 +1168,7 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model)
             => model.ImplementationProfilesQueryResult
                 is ImplementationProfilesResult.Available
-                { Profiles.IsEmpty: false };
+            { Profiles.IsEmpty: false };
     }
 
     public sealed class LibraryMetrics
@@ -1127,6 +1184,21 @@ public static class LibrarySections
             => model.LibraryMetricsQueryResult
                 is LibraryMetricsResult.Available
                     or LibraryMetricsResult.Unavailable;
+    }
+
+    public sealed class NameFamilies
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.NameFamilies;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) => true;
     }
 
     public sealed class BodyShapes : ISectionDescriptor<LibraryInspection>

@@ -231,8 +231,12 @@ internal sealed class MethodRowGate
         MethodDefinitionHandle methodHandle,
         MethodDefinition methodDefinition)
     {
-        _typeHandle = typeHandle;
-        _typeDefinition = typeDefinition;
+        if (_typeHandle != typeHandle)
+        {
+            _typeHandle = typeHandle;
+            _typeDefinition = typeDefinition;
+        }
+
         _methodHandle = methodHandle;
         _methodDefinition = methodDefinition;
         _rowToken = MetadataTokens.GetToken(methodHandle);

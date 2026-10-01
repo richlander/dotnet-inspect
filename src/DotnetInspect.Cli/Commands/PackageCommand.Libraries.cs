@@ -946,6 +946,7 @@ public partial class PackageCommand
             JsonArray = options.JsonArray,
             ProjectionRow = options.PrintRow,
             Rows = options.CloneCandidateRowSelection is null
+                && options.NameFamilyRowSelection is null
                 ? options.Rows
                 : null,
             CloneCandidateRowSelection =
@@ -954,6 +955,10 @@ public partial class PackageCommand
                 options.ReferenceRowSelection,
             EcosystemDependencyRowSelection =
                 options.EcosystemDependencyRowSelection,
+            NameFamilyPopulation =
+                options.NameFamilyPopulation,
+            NameFamilyRowSelection =
+                options.NameFamilyRowSelection,
             IntegrationQuery = options.IntegrationQuery,
             MetadataRoot = options.MetadataRoot,
             PerformanceTriage = options.PerformanceTriage,
