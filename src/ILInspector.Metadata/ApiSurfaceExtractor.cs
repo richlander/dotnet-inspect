@@ -269,6 +269,29 @@ public static partial class ApiSurfaceExtractor
         PrimitiveDefinitionClassifications = new();
 
     /// <summary>
+    /// Extracts API Types in metadata order until one retained Type satisfies
+    /// <paramref name="stopAfterType"/>.
+    /// </summary>
+    public static ApiSurface ExtractUntil(
+        PEReader peReader,
+        bool includeAll,
+        bool typesOnly,
+        Func<ApiType, bool> stopAfterType)
+    {
+        ArgumentNullException.ThrowIfNull(stopAfterType);
+        return Extract(
+            peReader,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            typesOnly,
+            includeCompilerGenerated: false,
+            budget: null,
+            constraintResolution: null,
+            stopAfterType: stopAfterType);
+    }
+
+    /// <summary>
     /// Extracts the public type identities and member-kind counts needed by the compact platform
     /// API view without decoding signatures or materializing rich member models.
     /// </summary>
@@ -852,7 +875,8 @@ public static partial class ApiSurfaceExtractor
         bool includeCompilerGenerated,
         ExtractionBudget? budget,
         TypeParameterConstraintResolution? constraintResolution,
-        MetadataOperationContext? operationContext = null)
+        MetadataOperationContext? operationContext = null,
+        Func<ApiType, bool>? stopAfterType = null)
     {
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
@@ -1238,11 +1262,18 @@ public static partial class ApiSurfaceExtractor
                     reader,
                     jsonTypeAttributes,
                     observeDecodeWork);
+            apiType.JsonUnmappedMemberHandling =
+                AttributeReader.ReadJsonUnmappedMemberHandling(
+                    reader,
+                    jsonTypeAttributes,
+                    observeDecodeWork);
             apiType.HasUnsupportedJsonWireAttributes =
                 AttributeReader.HasUnsupportedJsonTypeWireAttributes(
                     reader,
                     jsonTypeAttributes,
-                    observeDecodeWork);
+                    observeDecodeWork)
+                || apiType.JsonUnmappedMemberHandling
+                    == JsonWireUnmappedMemberHandling.Unsupported;
             apiType.JsonPolymorphism =
                 AttributeReader.ReadJsonPolymorphism(
                     reader,
@@ -1620,6 +1651,19 @@ public static partial class ApiSurfaceExtractor
                         observeText,
                         observeAttributeMaterialize)
                 };
+
+                if (member.Kind == "constructor")
+                {
+                    SetsRequiredMembersAttributeEvidence evidence =
+                        AttributeReader.ReadSetsRequiredMembersAttributes(
+                            reader,
+                            methodCustomAttributes,
+                            observeAttributeMaterialize);
+                    member.SetsRequiredMembersAttributeCount =
+                        evidence.Count;
+                    member.HasMalformedSetsRequiredMembersAttribute =
+                        evidence.HasMalformedRow;
+                }
 
                 // Check for extension method
                 if (isExtensionMethod)
@@ -2422,6 +2466,8 @@ public static partial class ApiSurfaceExtractor
             budget?.RetainType(apiType);
             surface.Types.Add(apiType);
             surface.PublicTypeCount++;
+            if (stopAfterType?.Invoke(apiType) is true)
+                break;
             }
             catch (MetadataRowRejectedException ex)
             {

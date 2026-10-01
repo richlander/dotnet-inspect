@@ -613,6 +613,9 @@ public partial class PdbContext : IDisposable
         }
     }
 
+    internal AssemblyArtifactIdentity? ArtifactIdentity =>
+        _assemblyRegistration?.ArtifactIdentity;
+
     /// <summary>
     /// This context's liveness check, lent to a borrowing session so the borrow fails loudly
     /// instead of reading through a released handle. See
