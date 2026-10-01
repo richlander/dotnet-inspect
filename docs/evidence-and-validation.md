@@ -250,6 +250,15 @@ than an inspected artifact:
   Publish it for the target RID and run
   `membergroup-scorecard <check|time|exact-check|exact-time>
   <System.Text.Json.dll>`.
+- `tools/MemberBodySizeScorecard` checks the current focused Analysis route
+  against LINQ, NLinq, and an explicitly experimental #8577 breadth-limited
+  Planner over the same prepared logical-to-physical body population. It
+  scores body-size Exists, Count, Head, Tail, Rows, and strict Window for
+  one-logical-method and public-family breadth, reports current focused
+  preparation (including attribution and body-size evidence) separately, and
+  retains generated bodies. Publish it for the target RID and run the
+  resulting `analysis-harness <check|time> <System.Private.CoreLib.dll>
+  <System.Text.Json.dll>`.
 - `tools/TypeFindPopulationScorecard` checks and times one complete immutable
   Type population through LINQ, pinned NLinq, and the shipping selector. Its
   normalized rows include the selected tier, effective pattern, exact

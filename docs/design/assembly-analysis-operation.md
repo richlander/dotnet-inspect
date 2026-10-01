@@ -197,11 +197,11 @@ Windows Metadata, or malformed reader construction settles under the
 session-owned admission contract before an Analysis producer runs.
 
 The method-definition member of that family is owned by
-[#8577](https://github.com/richlander/dotnet-inspect/issues/8577). That effort
-defines method population, declaration/body depth, generated-body expansion,
-referenced-callee work, traversal, early stop, executor equivalence, and exact
-source-work receipts. Type and Member sources remain with their respective
-owners and may use different row vocabularies or terminals.
+[Method Query Source](method-query-source.md). It defines method population,
+declaration/body depth, generated-body expansion, referenced-callee work,
+traversal, early stop, executor equivalence, and exact source-work receipts.
+Type and Member sources remain with their respective owners and may use
+different row vocabularies or terminals.
 
 ## Planning and execution boundaries
 
