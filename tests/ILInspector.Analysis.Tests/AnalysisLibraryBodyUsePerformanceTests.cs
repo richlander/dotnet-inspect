@@ -265,6 +265,7 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
                         method,
                         image.GetMethodBody(
                             method.RelativeVirtualAddress),
+                        ProducerTerminal.Rows,
                         int.MaxValue,
                         int.MaxValue,
                         int.MaxValue,

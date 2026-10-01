@@ -201,13 +201,28 @@ peers, remove self relationships, rank Types, or aggregate evidence.
 The work is declared through
 [Producer Planning](producer-planning.md), not another
 `LibraryBodyAnalysisFeatures` path or `LibraryBodyIndex` projection.
+[Method Query Source](method-query-source.md) now owns the later migration of
+body producers to source-native breadth and depth; this slice specializes the
+existing body-use producer without preempting that migration.
 
 The body-use producer is a method-definition producer. Its shipping consumer
 closes it with the Rows terminal. The scorecard also exercises its internal
 Exists and Complete terminals as performance oracles; exposing those questions
 to additional product consumers requires QuerySpace adoption rather than a
-parallel public query API. The producer declares the smallest applicable
-combination of:
+parallel public query API. The selected implementation passes that terminal
+into the Analysis-owned per-method scan:
+
+- Exists returns a settled method fact after the first atomically admitted
+  occurrence batch and does not examine trailing instructions in that body;
+- Count returns the exact admitted occurrence cardinality without constructing
+  or retaining `BodyTypeUseOccurrence` rows; and
+- Rows constructs the ordered occurrence rows and remains the complete
+  population reference.
+
+The fact shape carries scalar cardinality for every terminal and occurrence
+rows only for Rows. This terminal-specialized scanner is internal; it does not
+establish a public cursor, consumer, or fold API. The producer declares the
+smallest applicable combination of:
 
 - declaration metadata;
 - managed body;
@@ -253,7 +268,11 @@ rejects the operation and publishes no population. Cancellation propagates.
 An operand's rows commit atomically after classification, resolution, nested
 shape validation, and same-image binding. A global occurrence rejection keeps
 only the body's fixed-size physical summary; rejected occurrence arrays do not
-remain retained.
+remain retained. For Exists, the first occurrence batch settles only after the
+whole operand is known to fit the occurrence bound; later operands and their
+possible failures or limits are outside the settled prefix. Count and Rows
+continue to completion and preserve the same failure precedence and diagnostic
+ordering.
 
 ## Shared and specialized work
 
@@ -271,7 +290,10 @@ The specialized stage retains Library-local named Type occurrences. It does
 not require complete call, allocation, value-flow, implementation-profile, or
 optimization evidence when typed operand resolution alone is sufficient. It
 does not add a second token decoder where an existing Analysis resolver owns
-the same semantics.
+the same semantics. Terminal specialization changes only occurrence
+production: decode, ownership attribution, signature validation, operand
+classification, binding, containment, cancellation, and coverage remain in one
+Analysis-owned loop.
 
 ## Consumer boundary
 
@@ -329,18 +351,21 @@ Producer closings over that exact row population:
   qualified, or partial disposition.
 - **Count** completes the population and returns the exact retained logical
   occurrence count with disposition, coverage, and diagnostics, without
-  materializing occurrence, canonical-Type, or physical-evidence rows.
+  constructing or retaining occurrence, canonical-Type, or physical-evidence
+  rows.
 - **Rows** preserves the complete product result: disposition, full canonical
   Type inventory, named ordered occurrences, physical-only evidence, body and
   operand coverage, and typed diagnostics.
 
 Every closing performs the same bounded root Type-inventory admission and the
-same per-body fidelity and containment work it reaches. Count and false Exists
-therefore cannot turn unavailable, qualified, limited, or malformed evidence
-into a success-shaped scalar. These scalar closings are internal scorecard
-questions, not a public product query surface. QuerySpace adoption owns their
-future product exposure plus Head, Tail, Window, selection, and provider-backed
-demand.
+same per-body fidelity and containment work it reaches. Exists may settle
+inside a body after its first atomically admitted occurrence batch; Count and
+false Exists complete every reached body. They therefore cannot turn
+unavailable, qualified, limited, or malformed evidence in their reached
+population into a success-shaped scalar. These scalar closings are internal
+scorecard questions, not a public product query surface. QuerySpace adoption
+owns their future product exposure plus Head, Tail, Window, selection, and
+provider-backed demand.
 
 The performance scorecard asks all three internal terminal questions. Every
 column constructs the same product-owned answer for the selected closing. The
@@ -367,11 +392,12 @@ Producer Planning or consume Planner output. Every column performs bounded
 Type-inventory admission, uses the same body, occurrence, and
 method-signature limits, and feeds the product-owned terminal-aware
 accumulator for admission, qualification, and diagnostics. Each comparator
-then owns its terminal: Exists stops at the first settling fact, Count counts
-the admitted occurrence-row stream, and Rows materializes that stream before
-calling the product-owned public projection. The scorecard checks every public
-scalar, disposition, coverage field, diagnostic, and, for Rows, projected
-array in order before timing.
+then owns its terminal over specialized method facts: Exists applies its
+short-circuit traversal, Count folds admitted scalar cardinalities, and Rows
+materializes the admitted ordered occurrence arrays before calling the
+product-owned public projection. The scorecard checks every public scalar,
+disposition, coverage field, diagnostic, and, for Rows, projected array in
+order before timing.
 Comparator traversal also preserves the production completion boundary:
 cancellation is observed before and during population traversal, recoverable
 body-acquisition failure becomes per-method unavailable evidence, and a
@@ -381,10 +407,18 @@ exact detail, including bounded or unsupported Type-inventory admission.
 
 NativeAOT is the only accepted timing. The report identifies the exact
 candidate, assets, source locations, pinned NLinq provenance, invocation,
-per-closing answer hashes, absolute medians, allocation, and ratios to NLinq.
-It runs the Roslyn fidelity assets and the body-use ECMA safety fixtures. A
-faster fair oracle is evidence for Planner improvement; the oracle is not
-burdened with unconsumed Planner work.
+per-closing answer hashes, absolute median and p95 time and allocation, and
+ratios to NLinq. It runs the Roslyn fidelity assets and the body-use ECMA safety
+fixtures. A faster fair oracle is evidence for Planner improvement; the oracle
+is not burdened with unconsumed Planner work.
+
+The report also runs one separate instrumented execution per cell and attributes
+inventory admission, body-analysis production, terminal traversal and folding,
+and Rows projection. The diagnostic sweep starts only after every uninstrumented
+timing round has completed, so it cannot change the cache or thermal history of
+later accepted cells. Those diagnostic stage times are not used for accepted
+end-to-end ratios, so per-body timestamp probes cannot distort the measured
+NativeAOT totals.
 
 The four implementations and report live in
 [`BodyUseScorecard.cs`](../../tools/AnalysisHarness/BodyUseScorecard.cs).
@@ -416,6 +450,9 @@ Release gates prove:
   visibly failing handling of non-Roslyn or unrecognized lowering;
 - malformed bodies and tokens, unresolved operands, duplicate identities, and
   exact work limits;
+- within-body Exists settlement before substantial trailing work;
+- atomic multi-target operand publication at the occurrence bound;
+- Count facts with cardinality but no occurrence-row materialization;
 - atomic operand publication and retained healthy evidence; and
 - detached deterministic results.
 
