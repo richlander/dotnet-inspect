@@ -1298,13 +1298,17 @@ An exact method name selects its MemberGroup. Its default output is a native
 Tree rooted at one compact identity line and containing every public,
 non-hidden exact overload; explicit `--tree` renders the same population.
 This remains a MemberGroup when the selected version has one overload.
+Use `--columns "Signature;Description"` to request compiled documentation for
+each returned exact overload and render the bounded population as a table.
 Select an exact Member with an ordinal or digest when the intended subject is
 one declaration rather than its overload family. Its native default is one
 singular Signature view containing the display signature, digest, and canonical
-signature, with no sibling Rows or Count. The one-based ordinal selects from
-the current MemberGroup's stable baseline order; after resolution, the
-owner-issued exact identity and population binding replace that ordinal as the
-durable subject.
+signature, followed by its independently settled compiled-documentation
+outcome, with no sibling Rows or Count. Missing or failed documentation remains
+visible without invalidating the resolved Member document. The one-based
+ordinal selects from the current MemberGroup's stable baseline order; after
+resolution, the owner-issued exact identity and population binding replace that
+ordinal as the durable subject.
 
 `--all` is an API visibility option. API-level commands use their ordinary
 public-facing declaration population by default; add `--all` when the

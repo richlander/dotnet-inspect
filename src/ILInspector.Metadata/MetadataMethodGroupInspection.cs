@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
+using CSharpText;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -41,6 +42,7 @@ public sealed record MetadataMethodGroupRow(
     int MetadataToken,
     string DisplaySignature,
     string CanonicalSignature,
+    string DocumentationId,
     string Fingerprint,
     string Accessibility,
     MetadataMethodReceiver Receiver);
@@ -217,11 +219,31 @@ internal static class MetadataMethodGroupInspection
                     method,
                     receiver
                         is MetadataMethodReceiver.Extension);
+            ApiSignature documentationSignature =
+                ApiSurfaceExtractor.GetMethodSignatureForIdentity(
+                    Reader,
+                    GenericContext.ForType(Reader, Type),
+                    handle,
+                    method,
+                    typeNullableContext: 0).Model;
+            XmlDocMemberIdentity documentationIdentity =
+                XmlDocumentationNotation.CreateMemberIdentity(
+                    "M",
+                    DeclaringType.Namespace,
+                    DeclaringType.Segments,
+                    declaration.MetadataName,
+                    documentationSignature.XmlDocumentationParameterTypes
+                        ?? throw new BadImageFormatException(
+                            "The method documentation identity could not be decoded."),
+                    documentationSignature.TypeParameters.Count,
+                    conversionReturnType: null,
+                    documentationSignature.XmlDocumentationIsVararg);
             return new(
                 MetadataTokens.GetToken(handle),
                 MetadataDeclarationQuery.GetMethodSignatureText(
                     declaration),
                 anchor.CanonicalSignature,
+                documentationIdentity.Value,
                 anchor.Fingerprint,
                 declaration.Accessibility,
                 receiver);

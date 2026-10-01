@@ -9,7 +9,7 @@ function escapeAttribute(value: string): string {
 }
 
 export type ProductDestination =
-  "home" | "query" | "workspace" | "activity" | "demos";
+  "home" | "query" | "workspace" | "ecosystems" | "activity" | "demos";
 export type ProductAction = "open-library";
 
 export interface ProductNavigationActions {
@@ -29,6 +29,7 @@ const productDestinations = [
   ["home", "Home"],
   ["query", "Query"],
   ["workspace", "Workspace"],
+  ["ecosystems", "Ecosystems"],
   ["activity", "Activity"],
   ["demos", "Demos"],
 ] as const;
@@ -64,6 +65,7 @@ function isProductDestination(
   return value === "home"
     || value === "query"
     || value === "workspace"
+    || value === "ecosystems"
     || value === "activity"
     || value === "demos";
 }
