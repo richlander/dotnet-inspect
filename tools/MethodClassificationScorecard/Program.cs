@@ -263,28 +263,47 @@ static class Columns
         return Answer(closing, rows, static m => m.MethodName, shape);
     }
 
-    /// <summary>An idiomatic streaming System.Linq pipeline over the same gate, tests, and projection.</summary>
+    /// <summary>
+    /// An idiomatic streaming System.Linq pipeline over the same gate and
+    /// tests. Row-returning closings project only the rows they consume;
+    /// Exists and Count never construct the projection.
+    /// </summary>
     static ScorecardAnswer<string> Linq(Population population, ScorecardClosing closing, PEReader pe, ScorecardShape shape)
     {
         MetadataReader reader = pe.GetMetadataReader();
         var state = new CallState(reader);
-        IEnumerable<(MethodDefinitionRow Row, MethodClassification Class)> selected = reader.TypeDefinitions
+        IEnumerable<MethodDefinitionRow> selected = reader.TypeDefinitions
             .Select(handle => (Handle: handle, Type: reader.GetTypeDefinition(handle)))
             .Where(type => Gate.TypeInScope(reader, type.Type))
             .SelectMany(type => type.Type.GetMethods().Select(method => new MethodDefinitionRow(reader, type.Handle, type.Type, method, reader.GetMethodDefinition(method))))
             .Where(row => Gate.MethodInScope(reader, row.Method))
-            .Where(row => Tests.Classify(population, state, row.Method) is not null)
-            .Select(row => (Row: row, Class: ClassOf(population, row.Method)));
-        IEnumerable<ClassifiedMethodRow> projected = selected.Select(s => Rows.Project(state, s.Row, s.Class));
+            .Where(row => Tests.Classify(population, state, row.Method) is not null);
         return closing switch
         {
             ScorecardClosing.Exists => ScorecardAnswer<string>.OfExists(selected.Any()),
             ScorecardClosing.Count => ScorecardAnswer<string>.OfCount(selected.Count()),
-            ScorecardClosing.Head => ScorecardAnswer<string>.OfRows(new View<ClassifiedMethodRow>(projected.Take(shape.N).ToList(), Name)),
+            ScorecardClosing.Head => ScorecardAnswer<string>.OfRows(new View<ClassifiedMethodRow>(
+                selected
+                    .Take(shape.N)
+                    .Select(row => Rows.Project(state, row, ClassOf(population, row.Method)))
+                    .ToList(),
+                Name)),
             ScorecardClosing.Tail => ScorecardAnswer<string>.OfRows(new View<ClassifiedMethodRow>(
-                selected.TakeLast(shape.N).Select(s => Rows.Project(state, s.Row, s.Class)).ToList(), Name)),
-            ScorecardClosing.Rows => ScorecardAnswer<string>.OfRows(new View<ClassifiedMethodRow>(projected.ToList(), Name)),
-            ScorecardClosing.Window => selected.Skip(shape.WindowSkip).Take(shape.WindowTake).Select(s => Rows.Project(state, s.Row, s.Class)).ToList() is { } window
+                selected
+                    .TakeLast(shape.N)
+                    .Select(row => Rows.Project(state, row, ClassOf(population, row.Method)))
+                    .ToList(),
+                Name)),
+            ScorecardClosing.Rows => ScorecardAnswer<string>.OfRows(new View<ClassifiedMethodRow>(
+                selected
+                    .Select(row => Rows.Project(state, row, ClassOf(population, row.Method)))
+                    .ToList(),
+                Name)),
+            ScorecardClosing.Window => selected
+                    .Skip(shape.WindowSkip)
+                    .Take(shape.WindowTake)
+                    .Select(row => Rows.Project(state, row, ClassOf(population, row.Method)))
+                    .ToList() is { } window
                 && window.Count == shape.WindowTake
                     ? ScorecardAnswer<string>.OfRows(new View<ClassifiedMethodRow>(window, Name))
                     : ScorecardAnswer<string>.OfWindowFailure(),
@@ -298,16 +317,27 @@ static class Columns
         MetadataReader reader = pe.GetMetadataReader();
         var state = new CallState(reader);
         var select = new Select(population, state);
+        if (closing == ScorecardClosing.Exists)
+        {
+            return ScorecardAnswer<string>.OfExists(
+                new MethodDefinitionRows(reader).Any<MethodDefinitionRows, MethodDefinitionRow, Select>(select));
+        }
+
+        var selected =
+            new MethodDefinitionRows(reader)
+                .Where<MethodDefinitionRows, MethodDefinitionRow, Select>(
+                    select);
+        if (closing == ScorecardClosing.Count)
+        {
+            return ScorecardAnswer<string>.OfCount(
+                selected.CountFold<
+                    Filter<MethodDefinitionRow, MethodDefinitionRows, Select>,
+                    MethodDefinitionRow>());
+        }
+
         var project = new Project(population, state);
-        var selected = new MethodDefinitionRows(reader).Where<MethodDefinitionRows, MethodDefinitionRow, Select>(select);
         switch (closing)
         {
-            case ScorecardClosing.Exists:
-                return ScorecardAnswer<string>.OfExists(
-                    new MethodDefinitionRows(reader).Any<MethodDefinitionRows, MethodDefinitionRow, Select>(select));
-            case ScorecardClosing.Count:
-                return ScorecardAnswer<string>.OfCount(
-                    selected.CountFold<Filter<MethodDefinitionRow, MethodDefinitionRows, Select>, MethodDefinitionRow>());
             case ScorecardClosing.Head:
             {
                 var rows = selected
