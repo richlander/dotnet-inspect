@@ -128,6 +128,12 @@ ordinary output. There is no `--tips` alias and no quiet, minimal, or detailed
 tip level. The complete semantic relationship set remains available through
 contextual explanation rather than a second verbosity scale.
 
+Ordinary `stdout` completes and flushes before the CLI resolves and writes the
+bounded tip block. On a successful invocation with applicable tips, that block
+is the final host projection. This ordering does not buffer or interrupt
+streaming `stdout`; it lets the primary result finish before the continuation
+appears.
+
 The absence of `-T` is also a contract. Outside ordinary option parsing, it
 does not realize or enumerate the gesture registry, resolve affordances,
 evaluate recommendation-specific result facts, construct command arguments,
@@ -156,6 +162,24 @@ typed semantic affordances; each host independently binds and presents them.
 Here *one-shot* means one invocation and one exact resolved context, not one
 combined output stream or universal representation.
 
+### Stream and ordering contract
+
+`stdout` and `stderr` are independent, redirectable contracts. Every ordinary
+format remains byte-for-byte valid on `stdout`; explicit `-T` affects only
+`stderr`. The CLI does not suppress requested tips for JSON, JSONL, TSV, raw,
+counted, value, destination, or other output forms.
+
+The order is uniform:
+
+1. produce the ordinary result on `stdout`;
+2. complete and flush `stdout`;
+3. resolve and render at most one bounded related-gesture block on `stderr`.
+
+`-T` is therefore compatible with future streaming producers without requiring
+them to buffer their result or interleave continuation text with primary data.
+The contract is process write order after an explicit `stdout` flush; shells
+and downstream consumers still schedule independently redirected descriptors.
+
 ## Basis and deliberate difference
 
 `kubectl` provides nearby but incomplete precedents:
@@ -172,13 +196,14 @@ reference must be accepted unchanged by `explain`, while `--explain` avoids the
 handoff entirely when the current command already holds the exact typed
 subject.
 
-Two other systems inform the related-gesture boundary:
+Several systems inform the related-gesture boundary:
 
 | Precedent | Adopted idea | Deliberate difference |
 | --- | --- | --- |
 | [REST hypermedia](https://ics.uci.edu/~fielding/pubs/dissertation/rest_arch_style.htm#sec_5_1_5) | A representation exposes relations or transitions applicable to the current resource, allowing the interaction to continue from that state. | `-T` is an explicit CLI host projection on `stderr`; it does not place CLI commands in host-neutral Content, define a universal link-relation vocabulary, or claim REST conformance. |
 | [Language Server Protocol](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) code actions, code lenses, and symbol hierarchies | Providers associate typed relationships or applicable actions with exact context; clients choose how to present and invoke them, and may resolve expensive detail lazily. | A dotnet-inspect subject owner issues operation affordances rather than CLI command identifiers. Each host binds those affordances independently. |
 | [PowerShell `Get-Command -ParameterType`](https://learn.microsoft.com/powershell/module/microsoft.powershell.core/get-command) and typed pipelines | Commands can be discovered from the subject type they accept instead of a hand-maintained help list. | Contextual explanation preserves the exact command resource or resolved subject and may use already-computed success facts; CLR type compatibility alone does not create a relationship. |
+| [`curl`](https://curl.se/docs/manpage.html) and [`jq`](https://jqlang.org/manual/#stderr) stream separation | Primary data remains on `stdout` while progress, debugging, or explicitly selected auxiliary content can use `stderr`, preserving independent redirection across output formats. | `curl` progress and `jq` debugging may occur during production. `-T` is not progress or a diagnostic; it is a post-success continuation and therefore always follows completed, flushed ordinary output. |
 
 Dependency explainers such as `npm explain`, `cargo tree`, and
 `nix why-depends` demonstrate navigable subject relationships, but do not
@@ -527,7 +552,9 @@ commit mechanics remain owned by the output-destination contract.
 `-T` is an optional post-success host projection. It does not select sections,
 change semantic rows, alter the command's stdout Content, or enter another
 inspection domain. The CLI writes the bounded related-gesture block to
-`stderr` after successful ordinary or explanation output.
+`stderr` after successful ordinary or explanation output. Ordinary `stdout`
+completes and flushes first; the related-gesture block is the final successful
+host projection and is never suppressed by another output format.
 
 No long alias or value is accepted. `--tips`, `-T:q`, `-T:m`, and `-T:d` are
 invalid input rather than compatibility spellings. Bare `-T` consumes no
@@ -699,7 +726,7 @@ The pathological neighboring cases are:
 | A CLI binding joins only its exact owner-issued affordance identity and cannot manufacture a relationship from command text, labels, argument shape, or CLR type. | Registry-construction and collision tests with equal labels and accepted types, one missing affordance, and one unbound affordance. |
 | Applicable CLI gestures have deterministic ordering and a fixed maximum of three. | Permuted-registration test covering equal ordering preferences, stable binding-identity tie-breaking, more than three applicable bindings, and repeated equal projections. |
 | Invalid legacy and valued spellings are rejected without stealing positional input. | CLI parser matrix covering `--tips`, `--tips q`, `-T:q`, `-T:m`, and `-T:d`, plus commands where a token following bare `-T` is accepted or rejected solely by ordinary positional grammar. |
-| Explicit `-T` preserves stdout byte-for-byte and writes only the bounded gesture projection to stderr. | Production-host before/after test over the authentic Member scenario, plus structured and raw output representatives. |
+| Explicit `-T` preserves stdout byte-for-byte, completes and flushes stdout before the first tip write, and writes only one bounded final gesture projection to stderr across every output format. | Production-host before/after test over the authentic Member scenario, structured and raw output representatives, and instrumented output writers recording stdout completion and flush before the first stderr tip write. |
 | Explicit binding, containment, materialization, or destination-write failure is visible and cannot become success-shaped empty output. | CLI failure matrix with the first, middle, and final candidate failing during lazy resolution, containment, or materialization before the destination write, asserting empty related-gesture stderr, plus the output sink's existing visible destination-write failure gate. |
 
 Until its named Release gate ships, each property is **unverified**.

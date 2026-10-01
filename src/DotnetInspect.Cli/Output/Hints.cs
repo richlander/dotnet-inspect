@@ -21,6 +21,8 @@ public static class Hints
     {
         if (level == TipLevel.Quiet) return;
 
+        Console.Out.Flush();
+
         Tip[] tips = createTips();
         if (tips.Length == 0) return;
 
@@ -48,7 +50,6 @@ public static class Hints
                 CSharpIdentifier.ContainRenderedText(t.Comment))).ToList()
         };
 
-        Console.Out.Flush();
         CommandError.WriteBlankLine();
         #pragma warning disable RS0030 // An accounted stderr sink: every field of the view was contained above (issue #3319).
         MarkoutSerializer.Serialize(view, Console.Error, new PlainTextFormatter(), TipsViewContext.Default);
