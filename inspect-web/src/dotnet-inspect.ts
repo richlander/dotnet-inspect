@@ -6605,7 +6605,11 @@ function memberSelectionIsAvailable(
 }
 
 function memberKinds(type: AppTypeSurface) {
-  return [...new Set(selectedMemberGroups(type).map(group => group.kind))];
+  const kinds = new Set(selectedMemberGroups(type).map(group => group.kind));
+  if (state.memberKindFilter !== "all") {
+    kinds.add(state.memberKindFilter);
+  }
+  return [...kinds];
 }
 
 function memberAccessibilities(type: AppTypeSurface): MemberAccessibility[] {
@@ -6625,7 +6629,8 @@ function availableMemberTraits(type: AppTypeSurface) {
   const publicMembers =
     selectedMemberGroups(type).flatMap(group => group.overloads);
   return MEMBER_TRAITS.filter(([property]) =>
-    publicMembers.some(member => member[property]));
+    property === state.memberTraitFilter
+    || publicMembers.some(member => member[property]));
 }
 
 function renderMemberFilterControls(type: AppTypeSurface) {

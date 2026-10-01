@@ -942,23 +942,26 @@ test("Type-only history restores its member population", async ({ page }) => {
 test("Member filters use dropdowns and request all accessibility buckets", async ({
   page,
 }) => {
+  const publicMember = {
+    ...run,
+    isStatic: true,
+  };
   const privateMember = {
     ...run,
-    name: "Hide",
-    signature: "private void Hide()",
+    name: "Value",
+    kind: "field",
+    signature: "private int Value",
     accessibility: "private",
-    metadataToken: 0x06000002,
-    declarationMetadataToken: 0x06000002,
-    documentationId: "M:Example.Widget.Hide",
-    stableSelector: "Hide",
-    anchorDigest: "widget-hide",
-    canonicalSignature: "void Example.Widget.Hide()",
-    graphSelectorKey: "Hide",
-    bodySelectors: [{
-      token: 0x06000002,
-      memberName: "Hide",
-      selectorKey: "Hide",
-    }],
+    isStatic: false,
+    metadataToken: 0x04000001,
+    declarationMetadataToken: 0x04000001,
+    returnType: "int",
+    documentationId: "F:Example.Widget.Value",
+    stableSelector: "Value",
+    anchorDigest: "widget-value",
+    canonicalSignature: "int Example.Widget.Value",
+    graphSelectorKey: "Value",
+    bodySelectors: [],
   };
   const model = {
     ...surface,
@@ -968,7 +971,7 @@ test("Member filters use dropdowns and request all accessibility buckets", async
         ? {
             ...item,
             members: item.members + 1,
-            api: [...item.api, privateMember],
+            api: [publicMember, privateMember],
           }
         : item),
   };
@@ -981,17 +984,35 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   ).click();
   await page.locator("#member-filter-summary").click();
 
-  await expect(page.locator("[data-member-kind-filter]")).toBeVisible();
+  const kind = page.locator("[data-member-kind-filter]");
+  const trait = page.locator("[data-member-trait-filter]");
+  await expect(kind).toBeVisible();
   await expect(page.locator("[data-member-spelling]")).toBeVisible();
   const accessibility = page.locator("[data-member-access-filter]");
   await expect(accessibility.locator('option[value="all"]'))
     .toHaveText("all · 2");
 
+  await kind.selectOption("method");
+  await trait.selectOption("isStatic");
+  await accessibility.selectOption("private");
+
+  await expect(kind).toHaveValue("method");
+  await expect(kind.locator('option[value="method"]')).toHaveCount(1);
+  await expect(trait).toHaveValue("isStatic");
+  await expect(trait.locator('option[value="isStatic"]')).toHaveCount(1);
+  await expect(page.locator("#inspector-panel [data-member]")).toHaveCount(0);
+
+  await kind.selectOption("all");
+  await expect(page.locator("#inspector-panel [data-member]")).toHaveCount(0);
+  await trait.selectOption("");
+  await expect(page.locator("#inspector-panel [data-member]")).toHaveCount(1);
+  await expect(page.locator("#inspector-panel")).toContainText("Value");
+
   await accessibility.selectOption("all");
 
   await expect(accessibility).toHaveValue("all");
   await expect(page.locator("#inspector-panel [data-member]")).toHaveCount(2);
-  await expect(page.locator("#inspector-panel")).toContainText("Hide");
+  await expect(page.locator("#inspector-panel")).toContainText("Value");
   await expect(page.locator("html")).toHaveAttribute(
     "data-type-member-population-request",
     /"Example.Widget","csharp","all"\]$/,
