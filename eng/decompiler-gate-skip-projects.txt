@@ -130,9 +130,7 @@ src/DotnetInspector.Ecosystems
 src/DotnetInspector.JsonSchema
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PlatformHouse.Execution.Installed
-src/DotnetInspector.PlatformHouse.Execution.Packages
 src/DotnetInspector.PlatformHouse.Installed
-src/DotnetInspector.PlatformHouse.Packages
 src/DotnetInspector.Platforms.Installed
 src/DotnetInspector.Presentation
 src/DotnetInspector.ResearchSections

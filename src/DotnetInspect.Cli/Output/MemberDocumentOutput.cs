@@ -1,6 +1,8 @@
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
+using DotnetInspector.DocumentationHouse;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
@@ -57,7 +59,6 @@ internal static class MemberDocumentOutput
             || options.SourceParts
             || options.SourcePart is not null
             || options.ShowSamples
-            || options.DocsExplicitlySet && options.ShowDocs
             || options.ShareFormat is not null
             || options.EffectiveDiscovery
             || options.UserVerbosity >= Verbosity.Detailed
@@ -107,17 +108,31 @@ internal static class MemberDocumentOutput
         var plan = new MemberDocumentInspectionPlan(
             new MemberGroupSubject(definition, memberName),
             selector,
-            s_bounds);
+            s_bounds,
+            documentation:
+                options.ShowDocs
+                    ? new(DocumentationDemand.CompiledXml)
+                    : null);
         InspectionEnvelope<MemberDocumentInspectionOutcome>? inspection =
-            await ExactLibraryInspectionExecutor.ExecuteAsync<
-                InspectionEnvelope<MemberDocumentInspectionOutcome>>(
-                assemblyPath,
-                "Member document",
-                session =>
-                    session.ExecuteMemberDocument(
-                        plan,
-                        cancellationToken),
-                cancellationToken);
+            plan.Documentation is null
+                ? await ExactLibraryInspectionExecutor.ExecuteAsync<
+                    InspectionEnvelope<MemberDocumentInspectionOutcome>>(
+                    assemblyPath,
+                    "Member document",
+                    session =>
+                        session.ExecuteMemberDocument(
+                            plan,
+                            cancellationToken),
+                    cancellationToken)
+                : await ExactLibraryInspectionExecutor.ExecuteComposedAsync<
+                    InspectionEnvelope<MemberDocumentInspectionOutcome>>(
+                    assemblyPath,
+                    "Member document",
+                    session =>
+                        session.ExecuteMemberDocumentAsync(
+                            plan,
+                            cancellationToken),
+                    cancellationToken);
         if (inspection is null)
             return 1;
 
@@ -140,7 +155,11 @@ internal static class MemberDocumentOutput
                 + document.DisplaySignature;
         var writer = new MarkoutWriter(
             Console.Out,
-            new MarkdownFormatter());
+            new MarkdownFormatter(),
+            new MarkoutWriterOptions
+            {
+                SectionOrder = ["Signature", "Documentation"],
+            });
         writer.WriteHeading(2, "Signature");
         writer.WriteTable(
             ["Signature", "Digest", "Canonical Signature"],
@@ -155,6 +174,12 @@ internal static class MemberDocumentOutput
                         document.CanonicalSignature.ToString()),
                 ],
             ]);
+        if (document.Documentation is { } documentation)
+        {
+            writer.WriteHeading(2, "Documentation");
+            writer.WriteParagraph(
+                DescribeDocumentation(documentation.Outcome));
+        }
         writer.Flush();
         return 0;
     }
@@ -181,5 +206,52 @@ internal static class MemberDocumentOutput
             MemberDocumentInspectionOutcome.Failed failed =>
                 $"The Member document failed ({failed.Reason}).",
             _ => "The Member document returned an unknown outcome.",
+        };
+
+    internal static string DescribeDocumentation(
+        DocumentationQueryOutcome outcome) =>
+        outcome switch
+        {
+            DocumentationQueryOutcome.Completed completed =>
+                completed.Fields.Summary.Contributions
+                    .Select(static contribution => contribution.Value)
+                    .FirstOrDefault()
+                    ?? DescribeCompiledDocumentation(
+                        completed.CompiledXml),
+            DocumentationQueryOutcome.RequestRejected rejected =>
+                $"Documentation was rejected ({rejected.Reason}).",
+            DocumentationQueryOutcome.Failed failed =>
+                $"Documentation failed ({failed.Reason}).",
+            DocumentationQueryOutcome.Incomplete incomplete =>
+                $"Documentation was incomplete ({incomplete.Reason}).",
+            _ => throw new InvalidOperationException(
+                "Unknown Member documentation outcome."),
+        };
+
+    private static string DescribeCompiledDocumentation(
+        CompiledDocumentationOutcome? outcome) =>
+        outcome switch
+        {
+            CompiledDocumentationOutcome.Available =>
+                "No documentation summary was found.",
+            CompiledDocumentationOutcome.Absent =>
+                "No compiled documentation was found.",
+            CompiledDocumentationOutcome.Unavailable =>
+                "Compiled documentation is unavailable.",
+            CompiledDocumentationOutcome.Ambiguous =>
+                "Compiled documentation was ambiguous.",
+            CompiledDocumentationOutcome.ContributionsRejected =>
+                "Compiled documentation contributions were rejected.",
+            CompiledDocumentationOutcome.MalformedOrUnreadableDocument =>
+                "Compiled documentation was malformed or unreadable.",
+            CompiledDocumentationOutcome.Incomplete incomplete =>
+                $"Compiled documentation was incomplete ({incomplete.Reason}).",
+            CompiledDocumentationOutcome.RequestRejected rejected =>
+                $"Compiled documentation was rejected ({rejected.Reason}).",
+            CompiledDocumentationOutcome.ContentAccessFailed =>
+                "Compiled documentation content could not be read.",
+            null => "No documentation summary was found.",
+            _ => throw new InvalidOperationException(
+                "Unknown compiled documentation outcome."),
         };
 }

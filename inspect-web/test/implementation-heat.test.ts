@@ -438,6 +438,41 @@ test("non-public rows join exact analyzed MethodDef tokens", () => {
     null);
 });
 
+test("all-access rows join public roster and non-public analyzed tokens", () => {
+  const projected = projectFamilyHeat(family({
+    methods: [
+      method(1, 80),
+      method(2, 5, { isTrivial: false }),
+      method(3, 70, { isRosterMember: false, isTrivial: false }),
+    ],
+  }));
+  const ready: TypeHeatState = {
+    status: "ready",
+    request: request(),
+    isCurrent: () => true,
+    families: new Map([["Run", projected]]),
+  };
+
+  const allRows = familyHeatFor(
+    ready,
+    "Run",
+    "all",
+    visible(["Run(int)", 1], ["Run(Guid)", 3]));
+
+  assert.deepEqual(
+    allRows?.overloads.map(overload =>
+      [overload.metadataToken, overload.heatStrength]),
+    [[1, 1], [3, Math.sqrt(70 / 80)]],
+  );
+  assert.equal(
+    familyHeatFor(
+      ready,
+      "Run",
+      "all",
+      visible(["Run(other)", 1], ["Run(Guid)", 3])),
+    null);
+});
+
 test("parent-row status text follows the Type request", () => {
   const overloads = visible(["Run(int)", 1], ["Run(string)", 2]);
   assert.equal(

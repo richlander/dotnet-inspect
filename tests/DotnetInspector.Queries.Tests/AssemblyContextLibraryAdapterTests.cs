@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 using System.Text.Json;
 using CSharpText.MemberSlicing;
 using DotnetInspector.Libraries;
@@ -17,6 +18,68 @@ namespace DotnetInspector.Queries.Tests;
 public sealed partial class AssemblyContextLibraryAdapterTests
 {
     // Focused image/companion cases are PR-fast.
+    [Fact]
+    public async Task
+        SuppliedCompiledXml_PreservesExactAssemblyAssociationAndRetirement()
+    {
+        var (source, _) = MemberSlicingInput();
+        byte[] xmlBytes = Encoding.UTF8.GetBytes(
+            """
+            <doc>
+              <assembly><name>CSharpText.MemberSlicing</name></assembly>
+              <members />
+            </doc>
+            """);
+        var xml = new AssemblyContextLibraryCompiledXml(
+            ImmutableArray.CreateRange(xmlBytes),
+            "CSharpText.MemberSlicing.xml");
+        await using var workspace = new InspectionWorkspace();
+        var participant = new AssemblyContextParticipant(
+            source.Assembly,
+            new TestBindingPolicy());
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+        var completed = Assert.IsType<
+            AssemblyContextLibraryAdapterResult.Completed>(
+                await AssemblyContextLibraryAdapter.MaterializeAsync(
+                    group,
+                    participant,
+                    AssemblyContextLibraryRole.ApiOnly,
+                    new(
+                        Math.Max(source.Bytes.Length, xmlBytes.Length),
+                        (long)source.Bytes.Length + xmlBytes.Length),
+                    portablePdb: null,
+                    compiledXml: xml,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+        try
+        {
+            LibraryCompanionCorrespondence correspondence =
+                Assert.Single(completed.Reference.CompanionCorrespondences);
+            Assert.Equal(
+                LibraryContentRole.CompiledXmlDocumentation,
+                correspondence.Role);
+            Assert.Same(
+                completed.Association.PublishedContent,
+                correspondence.Assembly);
+            LibraryContentReference companion = Assert.Single(
+                completed.Reference.Contents,
+                static content =>
+                    content.HasRole(
+                        LibraryContentRole.CompiledXmlDocumentation));
+            Assert.Same(
+                completed.Reference.ApiAssembly,
+                companion.AssociatedAssembly);
+            Assert.Same(
+                correspondence.Content,
+                companion.ArtifactReference);
+        }
+        finally
+        {
+            await RetireAsync(completed);
+        }
+    }
+
     [Fact]
     public async Task SuppliedPortablePdb_PreservesContentProvenanceAndRetirement()
     {
