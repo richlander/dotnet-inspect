@@ -22,13 +22,13 @@ namespace DotnetInspector.Packages;
 public sealed class FileSystemPackageContent :
     IPackageContent,
     IPackageContentEntryManifest,
+    IPackageArchiveEntryManifest,
     IPackageContentDigestSource,
     IPackageHousePayloadSource
 {
     private readonly string _root;
     private readonly PackageContentGenerationIdentity _generationIdentity = new();
-    private Dictionary<string, PackageArchiveEntryValidation>?
-        _archiveEntries;
+    private ArchiveManifest? _archiveManifest;
 
     public FileSystemPackageContent(
         string rootPath,
@@ -184,10 +184,10 @@ public sealed class FileSystemPackageContent :
                 "Filesystem PackageHouse payload reads require a retained package archive.");
         }
 
-        Dictionary<string, PackageArchiveEntryValidation>? entries =
-            Volatile.Read(ref _archiveEntries);
+        ArchiveManifest? manifest =
+            Volatile.Read(ref _archiveManifest);
         PackageArchiveEntryValidation entry;
-        if (entries is null)
+        if (manifest is null)
         {
             if (!TryReadArchiveEntry(
                     relativePath,
@@ -197,7 +197,9 @@ public sealed class FileSystemPackageContent :
                 return false;
             }
         }
-        else if (!entries.TryGetValue(relativePath, out entry))
+        else if (!manifest.ValidationByPath.TryGetValue(
+                     relativePath,
+                     out entry))
         {
             stream = null;
             return false;
@@ -241,12 +243,23 @@ public sealed class FileSystemPackageContent :
         PackageArchivePayload archive)
     {
         ArgumentNullException.ThrowIfNull(archive);
-        Dictionary<string, PackageArchiveEntryValidation> entries =
-            archive.CreateEntryValidationIndex();
+        var manifest = new ArchiveManifest(
+            archive.GetEntries(),
+            archive.CreateEntryValidationIndex());
         Interlocked.CompareExchange(
-            ref _archiveEntries,
-            entries,
+            ref _archiveManifest,
+            manifest,
             comparand: null);
+    }
+
+    bool IPackageArchiveEntryManifest.TryGetArchiveEntries(
+        [NotNullWhen(true)]
+        out IReadOnlyList<PackageContentEntry>? entries)
+    {
+        ArchiveManifest? manifest =
+            Volatile.Read(ref _archiveManifest);
+        entries = manifest?.Entries;
+        return manifest is not null;
     }
 
     private bool TryReadArchiveEntry(
@@ -344,4 +357,9 @@ public sealed class FileSystemPackageContent :
 
         public override void Dispose() => _files.Dispose();
     }
+
+    private sealed record ArchiveManifest(
+        IReadOnlyList<PackageContentEntry> Entries,
+        IReadOnlyDictionary<string, PackageArchiveEntryValidation>
+            ValidationByPath);
 }

@@ -717,37 +717,49 @@ public sealed class PackageHouse
                         selectionUsesOriginalSources);
                 }
 
-                IReadOnlyList<string> acquiredEntryPaths =
-                    request.ContentQuery is not null
-                        || request.FileDemand is not null
-                        ? [.. payload.Content.EnumerateEntries()]
-                        : [];
-                IReadOnlyList<string> unmatchedFiles =
-                    request.ContentQuery?.FilesTerminal?.Unmatched(
-                        acquiredEntryPaths)
-                    ?? request.FileDemand?.Unmatched(acquiredEntryPaths)
-                    ?? [];
-                PackageHouseFileList? fileList = null;
-                bool fileListUnavailable = false;
-                if (request.ContentQuery?.FileListTerminal is not null)
+                IReadOnlyList<PackageContentEntry>? semanticEntries = null;
+                bool semanticManifestUnavailable = false;
+                if (request.ContentQuery is not null)
                 {
                     if (payload.Content
-                        is IPackageContentEntryManifest manifest)
+                            is IPackageArchiveEntryManifest archiveManifest
+                        && archiveManifest.TryGetArchiveEntries(
+                            out IReadOnlyList<PackageContentEntry>? entries))
                     {
-                        fileList = new PackageHouseFileList(
-                            manifest.EnumerateEntriesWithLengths());
+                        semanticEntries = entries;
                     }
                     else
                     {
-                        fileListUnavailable = true;
+                        semanticManifestUnavailable = true;
                     }
                 }
-                if (request.ContentQuery is { } contentQuery)
+                IReadOnlyList<string> acquiredEntryPaths =
+                    request.ContentQuery is not null
+                        ? semanticEntries is null
+                            ? []
+                            : [.. semanticEntries.Select(
+                                static entry => entry.Path)]
+                        : request.FileDemand is not null
+                            ? [.. payload.Content.EnumerateEntries()]
+                            : [];
+                PackageHouseFilesResolution? contentFiles =
+                    request.ContentQuery?.FilesTerminal?.Resolve(
+                        acquiredEntryPaths);
+                IReadOnlyList<string> unmatchedLegacyFiles =
+                    request.FileDemand?.Unmatched(acquiredEntryPaths)
+                    ?? [];
+                PackageHouseFileList? fileList = null;
+                if (request.ContentQuery?.FileListTerminal is not null)
+                {
+                    if (semanticEntries is not null)
+                        fileList = new PackageHouseFileList(
+                            semanticEntries);
+                }
+                if (request.ContentQuery is not null)
                 {
                     payloadResult = ProjectSemanticContent(
                         payloadResult,
-                        contentQuery,
-                        acquiredEntryPaths);
+                        contentFiles?.SelectedEntries ?? []);
                     payload = payloadResult.Payload
                         ?? throw new InvalidOperationException(
                             "Semantic content projection requires an acquired payload.");
@@ -760,10 +772,10 @@ public sealed class PackageHouse
                     payload.Origin,
                     payload.Content.GenerationIdentity,
                     payloadResult.Transfer!);
-                if (fileListUnavailable)
+                if (semanticManifestUnavailable)
                 {
                     InertString reason = Reason(
-                        "The acquired package does not expose a validated entry manifest for the requested File List.");
+                        "The acquired package does not expose a validated archive entry manifest for the semantic content query.");
                     failures.Add(
                         new PackageHouseFailure.Stage(
                             PackageHouseFailureStage.Selection,
@@ -781,18 +793,32 @@ public sealed class PackageHouse
                         payloadResult,
                         selectionUsesOriginalSources);
                 }
-                if (unmatchedFiles is [_, ..])
+                if (contentFiles is { } files
+                    && (files.MissingEntries.Count > 0
+                        || files.AmbiguousEntries.Count > 0))
                 {
-                    // A named file the archive does not list is a
-                    // visible failure, never an empty success
-                    // (docs/design/package-read-demand.md#exact-file-demand).
-                    InertString reason = Reason(
-                        "The package does not contain "
-                        + string.Join(
-                            ", ",
-                            unmatchedFiles.Select(
-                                static name => $"'{name}'"))
-                        + ".");
+                    var reasons = new List<string>(2);
+                    if (files.AmbiguousEntries.Count > 0)
+                    {
+                        reasons.Add(
+                            "The package contains more than one entry matching "
+                            + string.Join(
+                                ", ",
+                                files.AmbiguousEntries.Select(
+                                    static name => $"'{name}'"))
+                            + ".");
+                    }
+                    if (files.MissingEntries.Count > 0)
+                    {
+                        reasons.Add(
+                            "The package does not contain "
+                            + string.Join(
+                                ", ",
+                                files.MissingEntries.Select(
+                                    static name => $"'{name}'"))
+                            + ".");
+                    }
+                    InertString reason = Reason(string.Join(" ", reasons));
                     failures.Add(
                         new PackageHouseFailure.Stage(
                             PackageHouseFailureStage.Selection,
@@ -805,6 +831,31 @@ public sealed class PackageHouse
                                 acquisition,
                                 failures: failures,
                                 fileList: fileList),
+                            reason),
+                        payload,
+                        payloadResult,
+                        selectionUsesOriginalSources);
+                }
+                if (unmatchedLegacyFiles is [_, ..])
+                {
+                    InertString reason = Reason(
+                        "The package does not contain "
+                        + string.Join(
+                            ", ",
+                            unmatchedLegacyFiles.Select(
+                                static name => $"'{name}'"))
+                        + ".");
+                    failures.Add(
+                        new PackageHouseFailure.Stage(
+                            PackageHouseFailureStage.Selection,
+                            reason));
+                    return new PackageHouseSettlement.Acquired(
+                        new PackageHouseResult.NoMatch(
+                            new PackageHouseEvidence(
+                                request,
+                                decision,
+                                acquisition,
+                                failures: failures),
                             reason),
                         payload,
                         payloadResult,
@@ -1460,9 +1511,10 @@ public sealed class PackageHouse
         if (request.ContentQuery is { } contentQuery)
         {
             return new PackageRangedSelection(
-                contentQuery.FilesTerminal?.Select(
+                contentQuery.FilesTerminal?.Resolve(
                     [.. directory.EnumerateEntries()])
-                ?? []);
+                    .SelectedEntries
+                    ?? []);
         }
         if (request.FileDemand is { } legacyFiles)
         {
@@ -1533,20 +1585,16 @@ public sealed class PackageHouse
 
     private static ConfiguredPackagePayloadResult ProjectSemanticContent(
         ConfiguredPackagePayloadResult payloadResult,
-        PackageHouseContentQuery query,
-        IReadOnlyCollection<string> acquiredEntryPaths)
+        IReadOnlyList<string> selectedEntries)
     {
         AcquiredPackageSourcePayload payload =
             payloadResult.Payload
             ?? throw new ArgumentException(
                 "Semantic content projection requires an acquired payload.",
                 nameof(payloadResult));
-        IReadOnlyList<string> selected =
-            query.FilesTerminal?.Select(acquiredEntryPaths)
-            ?? [];
         IPackageContent content = SelectedPackageContent.Create(
             payload.Content,
-            selected);
+            selectedEntries);
         var semanticPayload = new AcquiredPackageSourcePayload(
             payload.Coordinate,
             content,

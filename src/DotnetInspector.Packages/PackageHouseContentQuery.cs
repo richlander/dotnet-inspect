@@ -64,30 +64,42 @@ public abstract class PackageHouseContentTerminal
         /// </summary>
         public IReadOnlyList<string> Entries { get; }
 
-        internal IReadOnlyList<string> Select(
-            IReadOnlyCollection<string> entryPaths)
+        internal PackageHouseFilesResolution Resolve(
+            IReadOnlyList<string> entryPaths)
         {
             ArgumentNullException.ThrowIfNull(entryPaths);
-            var named = new HashSet<string>(
-                Entries,
+            Dictionary<string, List<string>> matches = Entries.ToDictionary(
+                static entry => entry,
+                static _ => new List<string>(2),
                 StringComparer.OrdinalIgnoreCase);
-            return
-            [
-                .. entryPaths.Where(named.Contains),
-            ];
-        }
+            foreach (string path in entryPaths)
+            {
+                if (matches.TryGetValue(path, out List<string>? paths)
+                    && paths.Count < 2)
+                {
+                    paths.Add(path);
+                }
+            }
 
-        internal IReadOnlyList<string> Unmatched(
-            IEnumerable<string> entryPaths)
-        {
-            ArgumentNullException.ThrowIfNull(entryPaths);
-            var listed = new HashSet<string>(
-                entryPaths,
-                StringComparer.OrdinalIgnoreCase);
-            return
-            [
-                .. Entries.Where(entry => !listed.Contains(entry)),
-            ];
+            var selectedPaths = new HashSet<string>(
+                StringComparer.Ordinal);
+            var missing = new List<string>();
+            var ambiguous = new List<string>();
+            foreach (string requested in Entries)
+            {
+                List<string> paths = matches[requested];
+                if (paths.Count == 0)
+                    missing.Add(requested);
+                else if (paths.Count == 1)
+                    selectedPaths.Add(paths[0]);
+                else
+                    ambiguous.Add(requested);
+            }
+
+            return new(
+                [.. entryPaths.Where(selectedPaths.Contains)],
+                missing.AsReadOnly(),
+                ambiguous.AsReadOnly());
         }
 
         public override string ToString() => string.Join(", ", Entries);
@@ -101,6 +113,11 @@ public abstract class PackageHouseContentTerminal
     {
     }
 }
+
+internal sealed record PackageHouseFilesResolution(
+    IReadOnlyList<string> SelectedEntries,
+    IReadOnlyList<string> MissingEntries,
+    IReadOnlyList<string> AmbiguousEntries);
 
 /// <summary>
 /// The complete validated physical entry inventory returned by a File List

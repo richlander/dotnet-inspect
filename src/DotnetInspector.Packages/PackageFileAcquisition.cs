@@ -173,19 +173,21 @@ public static class PackageFileAcquisition
                 PackageFileAcquisitionStatus.NotSettled,
                 settlement);
         }
-        if (settlement.Result is not PackageHouseResult.Settled)
-        {
-            return new PackageFileAcquisitionResult.Unavailable(
-                settlement.Result is PackageHouseResult.NoMatch
-                    ? PackageFileAcquisitionStatus.Missing
-                    : PackageFileAcquisitionStatus.NotSettled,
-                settlement);
-        }
-
         PackageFileEntryResolution resolution =
             PackageFileEntryResolver.Resolve(
                 acquired,
                 request.Path);
+        if (settlement.Result is not PackageHouseResult.Settled)
+        {
+            return new PackageFileAcquisitionResult.Unavailable(
+                settlement.Result is PackageHouseResult.NoMatch
+                    ? resolution.Status
+                        == PackageFileEntryResolutionStatus.Ambiguous
+                            ? PackageFileAcquisitionStatus.Ambiguous
+                            : PackageFileAcquisitionStatus.Missing
+                    : PackageFileAcquisitionStatus.NotSettled,
+                settlement);
+        }
         return resolution.Status switch
         {
             PackageFileEntryResolutionStatus.Resolved =>
