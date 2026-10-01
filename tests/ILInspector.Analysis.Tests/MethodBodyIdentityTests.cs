@@ -86,6 +86,64 @@ public sealed class MethodBodyIdentityTests
     }
 
     [Fact]
+    public void MethodBodyIdentity_PreservesMethodCallingConvention()
+    {
+        MethodIdentity fixedArity = Method(
+            Guid.Empty,
+            0x06000001,
+            TypeRef.CoreLib("System", "Int32"),
+            "T") with
+        {
+            SignatureHeader = 0x00,
+            RequiredParameterCount = 1,
+        };
+        MethodIdentity vararg = fixedArity with
+        {
+            MetadataToken = 0x06000002,
+            SignatureHeader = 0x05,
+        };
+
+        Assert.True(MethodBodyIdentityFactory.TryCreate(
+            fixedArity,
+            out var fixedIdentity));
+        Assert.True(MethodBodyIdentityFactory.TryCreate(
+            vararg,
+            out var varargIdentity));
+
+        Assert.NotEqual(fixedIdentity, varargIdentity);
+    }
+
+    [Fact]
+    public void MethodBodyIdentity_PreservesVarargRequiredParameterCount()
+    {
+        TypeRef int32 = TypeRef.CoreLib("System", "Int32");
+        MethodIdentity oneRequired = Method(
+            Guid.Empty,
+            0x06000001,
+            int32,
+            "T") with
+        {
+            ParameterTypes = [int32, int32],
+            SignatureHeader = 0x05,
+            RequiredParameterCount = 1,
+        };
+        MethodIdentity twoRequired = oneRequired with
+        {
+            MetadataToken = 0x06000002,
+            RequiredParameterCount = 2,
+        };
+
+        Assert.True(MethodBodyIdentityFactory.TryCreate(
+            oneRequired,
+            out var oneRequiredIdentity));
+        Assert.True(MethodBodyIdentityFactory.TryCreate(
+            twoRequired,
+            out var twoRequiredIdentity));
+
+        Assert.NotEqual(oneRequiredIdentity, twoRequiredIdentity);
+    }
+
+    [Fact]
     public void MethodBodyIdentity_PreservesCustomModifierShape()
     {
         TypeRef modifier = TypeRef.Definition(

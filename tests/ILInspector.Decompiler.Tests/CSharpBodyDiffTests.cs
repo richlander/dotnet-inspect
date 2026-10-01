@@ -1,5 +1,7 @@
 using DotnetInspector.Fixtures;
 using ILInspector.Decompiler;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -127,6 +129,58 @@ public class CSharpBodyDiffTests
             .ToArray();
 
         Assert.Empty(methodPresence);
+    }
+
+    [Fact]
+    public void CompareAssemblies_CallingConventionOverloadsPairAcrossReordering()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-body-calling-convention-"
+                + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            const string Fixed =
+                "public static int M(int value) => 1;";
+            const string Vararg =
+                "public static int M(int value, __arglist) => 2;";
+            string before = EmitAssembly(
+                directory,
+                "before.dll",
+                $$"""
+                public static class Example
+                {
+                    {{Fixed}}
+                    {{Vararg}}
+                }
+                """);
+            string after = EmitAssembly(
+                directory,
+                "after.dll",
+                $$"""
+                public static class Example
+                {
+                    {{Vararg}}
+                    {{Fixed}}
+                }
+                """);
+
+            CSharpBodyDiffResult diff = CSharpBodyDiff.CompareAssemblies(
+                before,
+                after,
+                typeFilters: new HashSet<string>(
+                    StringComparer.OrdinalIgnoreCase)
+                {
+                    "Example",
+                });
+
+            Assert.Empty(diff.Rows);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -740,6 +794,26 @@ public class CSharpBodyDiffTests
         var diff = CSharpBodyDiff.CompareAssemblies(v1, v2, typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "*NoSuchType" });
 
         Assert.Empty(diff.Rows);
+    }
+
+    static string EmitAssembly(
+        string directory,
+        string fileName,
+        string source)
+    {
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "CallingConventionReorder",
+            [CSharpSyntaxTree.ParseText(source)],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release));
+        string path = Path.Combine(directory, fileName);
+        var result = compilation.Emit(path);
+        Assert.True(
+            result.Success,
+            string.Join(Environment.NewLine, result.Diagnostics));
+        return path;
     }
 
 }

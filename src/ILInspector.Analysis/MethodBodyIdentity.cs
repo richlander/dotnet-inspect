@@ -204,6 +204,8 @@ public sealed class MethodBodyIdentity :
         int genericArity,
         ImmutableArray<MethodBodyTypeIdentity> parameterTypes,
         MethodBodyTypeIdentity returnType,
+        byte signatureHeader,
+        int requiredParameterCount,
         bool isExtension)
     {
         ArgumentNullException.ThrowIfNull(declaringType);
@@ -214,12 +216,20 @@ public sealed class MethodBodyIdentity :
             throw new ArgumentException(
                 "Parameter types must be initialized.",
                 nameof(parameterTypes));
+        if (requiredParameterCount < 0
+            || requiredParameterCount > parameterTypes.Length)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(requiredParameterCount));
+        }
 
         DeclaringType = declaringType;
         Name = name;
         GenericArity = genericArity;
         ParameterTypes = [.. parameterTypes];
         ReturnType = returnType;
+        SignatureHeader = signatureHeader;
+        RequiredParameterCount = requiredParameterCount;
         IsExtension = isExtension;
         CanonicalIdentity = Encode(this);
     }
@@ -242,6 +252,15 @@ public sealed class MethodBodyIdentity :
     /// <summary>The exact open physical return type.</summary>
     public MethodBodyTypeIdentity ReturnType { get; }
 
+    /// <summary>The physical ECMA-335 method signature header.</summary>
+    public byte SignatureHeader { get; }
+
+    /// <summary>
+    /// The required parameter count, normalized to the parameter count for
+    /// non-vararg signatures.
+    /// </summary>
+    public int RequiredParameterCount { get; }
+
     /// <summary>Whether Analysis identified this physical method as an extension.</summary>
     public bool IsExtension { get; }
 
@@ -260,6 +279,8 @@ public sealed class MethodBodyIdentity :
             || !string.Equals(Name, other.Name, StringComparison.Ordinal)
             || GenericArity != other.GenericArity
             || !ReturnType.Equals(other.ReturnType)
+            || SignatureHeader != other.SignatureHeader
+            || RequiredParameterCount != other.RequiredParameterCount
             || IsExtension != other.IsExtension
             || ParameterTypes.Length != other.ParameterTypes.Length)
         {
@@ -287,6 +308,8 @@ public sealed class MethodBodyIdentity :
         foreach (MethodBodyTypeIdentity parameterType in ParameterTypes)
             hash.Add(parameterType);
         hash.Add(ReturnType);
+        hash.Add(SignatureHeader);
+        hash.Add(RequiredParameterCount);
         hash.Add(IsExtension);
         return hash.ToHashCode();
     }
@@ -302,6 +325,8 @@ public sealed class MethodBodyIdentity :
             in identity.ParameterTypes)
             AppendType(builder, parameterType, depth: 0);
         AppendType(builder, identity.ReturnType, depth: 0);
+        builder.Append(identity.SignatureHeader).Append(';');
+        builder.Append(identity.RequiredParameterCount).Append(';');
         builder.Append(identity.IsExtension ? "extension;" : "method;");
         return builder.ToString();
     }
@@ -408,6 +433,8 @@ public static class MethodBodyIdentityFactory
         int genericArity,
         ImmutableArray<MethodBodyTypeIdentity> parameterTypes,
         MethodBodyTypeIdentity returnType,
+        byte signatureHeader,
+        int requiredParameterCount,
         bool isExtension)
         => new(
             declaringType,
@@ -415,6 +442,8 @@ public static class MethodBodyIdentityFactory
             genericArity,
             parameterTypes,
             returnType,
+            signatureHeader,
+            requiredParameterCount,
             isExtension);
 
     public static bool TryCreate(
@@ -424,11 +453,33 @@ public static class MethodBodyIdentityFactory
     {
         ArgumentNullException.ThrowIfNull(method);
         return TryCreate(
-            GenericMemberIdentity.OpenDeclaringType(method.DeclaringType),
+            method,
             method.Name,
-            method.GenericArity,
             method.ParameterTypes,
             method.ReturnType,
+            out identity);
+    }
+
+    public static bool TryCreate(
+        MethodIdentity method,
+        string name,
+        ImmutableArray<TypeRef> sourceParameterTypes,
+        TypeRef sourceReturnType,
+        [NotNullWhen(true)]
+        out MethodBodyIdentity? identity)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        int requiredParameterCount = method.RequiredParameterCount;
+        if (requiredParameterCount > sourceParameterTypes.Length)
+            requiredParameterCount = sourceParameterTypes.Length;
+        return TryCreate(
+            GenericMemberIdentity.OpenDeclaringType(method.DeclaringType),
+            name,
+            method.GenericArity,
+            sourceParameterTypes,
+            sourceReturnType,
+            method.SignatureHeader,
+            requiredParameterCount,
             method.IsExtension,
             out identity);
     }
@@ -487,16 +538,20 @@ public static class MethodBodyIdentityFactory
             method.GetGenericParameters().Count,
             signature.ParameterTypes,
             signature.ReturnType,
+            signature.Header.RawValue,
+            signature.RequiredParameterCount,
             isExtension,
             out identity);
     }
 
-    public static bool TryCreate(
+    static bool TryCreate(
         TypeRef declaringType,
         string name,
         int genericArity,
         ImmutableArray<TypeRef> sourceParameterTypes,
         TypeRef sourceReturnType,
+        byte signatureHeader,
+        int sourceRequiredParameterCount,
         bool isExtension,
         [NotNullWhen(true)]
         out MethodBodyIdentity? identity)
@@ -511,6 +566,15 @@ public static class MethodBodyIdentityFactory
             throw new ArgumentException(
                 "Parameter types must be initialized.",
                 nameof(sourceParameterTypes));
+        }
+        if (!TryNormalizeRequiredParameterCount(
+                signatureHeader,
+                sourceRequiredParameterCount,
+                sourceParameterTypes.Length,
+                out int requiredParameterCount))
+        {
+            identity = null;
+            return false;
         }
 
         if (!TryProjectType(
@@ -553,7 +617,33 @@ public static class MethodBodyIdentityFactory
             genericArity,
             projectedParameterTypes.MoveToImmutable(),
             projectedReturnType,
+            signatureHeader,
+            requiredParameterCount,
             isExtension);
+        return true;
+    }
+
+    static bool TryNormalizeRequiredParameterCount(
+        byte signatureHeader,
+        int sourceRequiredParameterCount,
+        int parameterCount,
+        out int requiredParameterCount)
+    {
+        const byte CallingConventionMask = 0x0F;
+        const byte VarArgCallingConvention = 0x05;
+        if ((signatureHeader & CallingConventionMask)
+            != VarArgCallingConvention)
+        {
+            requiredParameterCount = parameterCount;
+            return true;
+        }
+        if (sourceRequiredParameterCount < 0
+            || sourceRequiredParameterCount > parameterCount)
+        {
+            requiredParameterCount = 0;
+            return false;
+        }
+        requiredParameterCount = sourceRequiredParameterCount;
         return true;
     }
 

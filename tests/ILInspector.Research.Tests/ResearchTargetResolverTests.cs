@@ -358,6 +358,9 @@ public class ResearchTargetResolverTests
                 beforeOnly.Before.CorrespondenceKey.BodyIdentity.GenericArity,
                 beforeOnly.Before.CorrespondenceKey.BodyIdentity.ParameterTypes,
                 beforeOnly.Before.CorrespondenceKey.BodyIdentity.ReturnType,
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity.SignatureHeader,
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity
+                    .RequiredParameterCount,
                 beforeOnly.Before.CorrespondenceKey.BodyIdentity.IsExtension),
             anchor: null);
         RejectsProjection(

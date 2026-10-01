@@ -86,7 +86,8 @@ legacy comparison APIs or their native C#/IL producers.
 Analysis owns `MethodBodyIdentity`, the version-stable structural identity for
 one physical method body. It is built from the open declaring type, physical
 method name, generic arity, open parameter types, open return type, and
-extension-method role. Signature structure includes custom
+extension-method role. It also retains the top-level method signature header
+and vararg required-parameter count. Signature structure includes custom
 modifier kind and type plus function-pointer header, generic arity, required
 parameter count, return type, and parameter types. Named types retain defining
 assembly, namespace, and exact nested metadata segments; generic parameters
@@ -105,8 +106,8 @@ lets unchanged methods survive ordinary TypeDef, TypeRef, and TypeSpec row
 renumbering between builds without collapsing structurally distinct overloads.
 
 `MethodBodyIdentityTests` gates the identity projection, physical return-type
-distinctions, deliberate erasures, and parity between structured Analysis
-evidence and guarded metadata issuance.
+and calling-convention distinctions, deliberate erasures, and parity between
+structured Analysis evidence and guarded metadata issuance.
 `CompareAssemblies_SystemTextJsonMethodsPairAcrossMetadataRowChurn`
 uses System.Text.Json 9.0.0 and 10.0.0 to gate the pathological cross-build
 case. Existing generic-arity, nested-generic, conversion-operator, explicit
@@ -893,10 +894,11 @@ array rank; it does not retain Analysis resolution provenance or generic
 parameter display names. The body identity also preserves the selected
 declaration name and open parameter shape that Research supplies after
 normalizing the accessor relationship, plus generic arity, open return shape,
-and the Analysis-issued extension projection. Setter projection uses the
-removed value parameter as the selected property's return shape, so its
-declaration identity matches the corresponding getter while relationship role
-still distinguishes the physical accessors. Analysis generic
+top-level signature header, vararg required-parameter count, and the
+Analysis-issued extension projection. Setter projection uses the removed value
+parameter as the selected property's return shape, so its declaration identity
+matches the corresponding getter while relationship role still distinguishes
+the physical accessors. Analysis generic
 parameters participate by kind and position, and exact metadata definition
 names preserve namespace and nested-type segments separately. Distinct
 assembly domains, overload shapes, relationship roles, extension bodies, and

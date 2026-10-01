@@ -39,12 +39,10 @@ static class ResearchTargetBodyIdentityProjection
         }
 
         return MethodBodyIdentityFactory.TryCreate(
-            method.DeclaringType,
+            method,
             name,
-            method.GenericArity,
             parameterTypes,
             returnType,
-            method.IsExtension,
             out identity);
     }
 }
