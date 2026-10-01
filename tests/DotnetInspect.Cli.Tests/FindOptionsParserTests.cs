@@ -206,7 +206,7 @@ public class FindOptionsParserTests
             ],
             options.EffectiveRowSelection!.Operations.Select(operation =>
                 operation.Kind));
-        Assert.Null(options.QueryPlan.ResultLimit);
+        Assert.Null(options.QueryPlan.InputRowLimit);
     }
 
     [Fact]
