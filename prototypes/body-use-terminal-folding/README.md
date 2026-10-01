@@ -61,9 +61,12 @@ lake exe body-use-terminal-folding
 Run the paired lifecycle model with the repository-pinned TLA+ tools:
 
 ```bash
-TLA_TOOLS_JAR=/path/to/tla2tools.jar \
-  eng/run-tla-checks.sh \
-  docs/design/models/analysis-body-use-terminal-kernel-lifecycle
+(
+  cd ../..
+  TLA_TOOLS_JAR=/path/to/tla2tools.jar \
+    eng/run-tla-checks.sh \
+    docs/design/models/analysis-body-use-terminal-kernel-lifecycle
+)
 ```
 
 Build and run the equivalent C# fold shapes:
