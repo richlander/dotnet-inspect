@@ -1004,6 +1004,8 @@ public class IteratorReconstructionPassTests
     [InlineData("missing-state-dispose")]
     [InlineData("extra-helper-statement")]
     [InlineData("dispose-omits-helper")]
+    [InlineData("dispose-wrong-helper-receiver")]
+    [InlineData("dispose-helper-outside-finally")]
     public void TwoEnumeratorUsingIterator_MalformedDisposalEvidenceDeclines(string shape)
     {
         using var source = MetadataSource.Open(typeof(IteratorUsingSamples).Assembly.Location);
@@ -1043,6 +1045,30 @@ public class IteratorReconstructionPassTests
                         imported.Descendants.OfType<Call>(),
                         candidate => candidate.Callee.Name == "<>m__Finally2");
                     Assert.IsType<ExpressionStatement>(call.Parent).Detach();
+                }
+                else if (shape == "dispose-wrong-helper-receiver"
+                    && method.Name == "System.IDisposable.Dispose")
+                {
+                    var call = Assert.Single(
+                        imported.Descendants.OfType<Call>(),
+                        candidate => candidate.Callee.Name == "<>m__Finally2");
+                    var receiver = Assert.Single(call.Arguments);
+                    receiver.ReplaceWith(new Constant(null, receiver.ResultType!));
+                }
+                else if (shape == "dispose-helper-outside-finally"
+                    && method.Name == "System.IDisposable.Dispose")
+                {
+                    var call = Assert.Single(
+                        imported.Descendants.OfType<Call>(),
+                        candidate => candidate.Callee.Name == "<>m__Finally2");
+                    var statement = Assert.IsType<ExpressionStatement>(call.Parent);
+                    var entry = imported.Body.Blocks[0];
+                    var terminal = entry.Children[^1];
+                    statement.Detach();
+                    terminal.Detach();
+                    call.SetSourceOffset(entry.StartOffset);
+                    entry.Add(statement);
+                    entry.Add(terminal);
                 }
 
                 return imported;

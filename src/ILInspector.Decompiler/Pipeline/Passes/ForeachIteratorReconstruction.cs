@@ -637,8 +637,18 @@ internal static class ForeachIteratorReconstruction
         var disposeFinallyCalls = stateMachineDispose.Descendants.OfType<Call>()
             .Where(call => call.Callee.Name.StartsWith("<>m__Finally", StringComparison.Ordinal))
             .ToList();
-        if (!disposeFinallyCalls.Select(call => call.Callee)
+        if (disposeFinallyCalls.Any(call => call.Arguments is not [LoadArgument { Index: 0 }])
+            || !disposeFinallyCalls.Select(call => call.Callee)
                 .SequenceEqual(matchedResources.AsEnumerable().Reverse().Select(resource => resource.Finally)))
+        {
+            return false;
+        }
+        if (stateMachineDispose.Regions.Any(region =>
+                disposeFinallyCalls.Count(call => call.SourceOffset >= region.HandlerOffset
+                    && call.SourceOffset < region.HandlerOffset + region.HandlerLength) != 1)
+            || disposeFinallyCalls.Any(call =>
+                stateMachineDispose.Regions.Count(region => call.SourceOffset >= region.HandlerOffset
+                    && call.SourceOffset < region.HandlerOffset + region.HandlerLength) != 1))
         {
             return false;
         }
