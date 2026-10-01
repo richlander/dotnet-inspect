@@ -1,6 +1,6 @@
 # Body-use terminal folding Lean pilot
 
-This standalone Lean 4 prototype evaluates the mechanism-selection question in
+This Lean 4 and TLA+ prototype evaluates the mechanism-selection question in
 [issue #9025](https://github.com/richlander/dotnet-inspect/issues/9025):
 which fold shape should body-use occurrence production use for `Exists`,
 `Count`, and `Rows` before choosing an NLinq- or QuerySpace-shaped
@@ -36,6 +36,14 @@ Lean checks that:
 - a runtime terminal choice selects one specialized execution before source
   traversal.
 
+The paired
+[TLA+ lifecycle model](../../docs/design/models/analysis-body-use-terminal-kernel-lifecycle/)
+does not restate fold equivalence. It checks the neighboring orchestration
+question: whether a runtime host selects the fused kernel before work, advances
+all active terminals atomically, publishes independently settled results,
+preserves an early `Exists` result through later failure, and eventually
+publishes every terminal.
+
 The pathological demo admits two rows from one operand and then fails the next
 operand. Discrete and fused `Exists` settle successfully after the admitted
 operand, while `Count` and `Rows` retain the later failure.
@@ -48,6 +56,14 @@ The prototype pins Lean 4.34.1 and has no package dependencies:
 cd prototypes/body-use-terminal-folding
 lake build
 lake exe body-use-terminal-folding
+```
+
+Run the paired lifecycle model with the repository-pinned TLA+ tools:
+
+```bash
+TLA_TOOLS_JAR=/path/to/tla2tools.jar \
+  eng/run-tla-checks.sh \
+  docs/design/models/analysis-body-use-terminal-kernel-lifecycle
 ```
 
 Build and run the equivalent C# fold shapes:
@@ -106,6 +122,13 @@ select a typed fold once, and execute one specialized source loop whose active
 terminal states settle independently. It does not support interpreting
 terminal objects or interfaces once per operand.
 
+The paired TLA+ model adds evidence that is intentionally outside the Lean
+theorem: publication may occur after `Exists` settles but before a later
+source failure, without invalidating or changing that published result. Its
+negative controls also expose an orchestrator that advances the physical
+source after updating only one active terminal, or that lets later failure
+overwrite settled state.
+
 The code-size result also argues against treating every runtime request set as
 a novel nested generic composition. QuerySpace can retain and combine request
 data, then select from a bounded family of typed fused kernels. An NLinq-style
@@ -128,6 +151,12 @@ checks their observations against direct terminal loops, and measures
 NativeAOT time and allocation. Its results remain prototype evidence rather
 than accepted product-performance evidence.
 
+TLA+ does not import the Lean proof. The two tools share a small named contract
+of operand admission, terminal status, completion, failure, values, and rows.
+Lean establishes the fixed-kernel relation; TLA+ checks that temporal
+orchestration preserves it. C# checks remain necessary to connect either model
+to an implementation.
+
 ## Non-claims
 
 - This is not a public QuerySpace, Analysis, or NLinq API proposal.
@@ -137,5 +166,6 @@ than accepted product-performance evidence.
 - Count and Rows are assumed to require exhaustion because this source has no
   accepted source-native cardinality witness.
 - It does not prove correspondence with the current C# implementation.
+- It does not provide a machine-checked proof connecting Lean and TLA+.
 - It does not select NLinq or QuerySpace without the compiler probe and
   production scorecard evidence required by #9025.
