@@ -156,6 +156,7 @@ public sealed record DirectCallCountParticipationReceipt(
 public sealed record LibraryDirectCallCountAnalysisResult(
     LibraryBodyAnalysisReceipt Receipt,
     bool WasRequested,
+    bool ScopeComplete,
     ImmutableArray<MethodIdentity> DeclaredMethods,
     ImmutableArray<MethodIdentity> ManagedMethodBodies,
     ImmutableArray<MethodDirectCallCountEvidence> Counts,
@@ -165,6 +166,7 @@ public sealed record LibraryDirectCallCountAnalysisResult(
 {
     public bool IsComplete =>
         WasRequested
+        && ScopeComplete
         && UnavailableBodies.IsEmpty
         && Participation.FailedBodies == 0;
 }
@@ -199,6 +201,7 @@ public sealed record CallSiteCountParticipationReceipt(
 public sealed record LibraryCallSiteCountAnalysisResult(
     LibraryBodyAnalysisReceipt Receipt,
     bool WasRequested,
+    bool ScopeComplete,
     ImmutableArray<MethodIdentity> DeclaredMethods,
     ImmutableArray<MethodIdentity> ManagedMethodBodies,
     ImmutableArray<MethodCallSiteCountEvidence> Counts,
@@ -208,6 +211,7 @@ public sealed record LibraryCallSiteCountAnalysisResult(
 {
     public bool IsComplete =>
         WasRequested
+        && ScopeComplete
         && UnavailableBodies.IsEmpty
         && Participation.FailedBodies == 0;
 }
@@ -310,11 +314,13 @@ public sealed class LibraryBodyAnalysisExecution
             CreateDirectCallCountResult(
                 Receipt,
                 ImplementationMetrics,
+                analysis.ImplementationMetricWork,
                 plan);
         CallSiteCounts =
             CreateCallSiteCountResult(
                 Receipt,
                 ImplementationMetrics,
+                analysis.ImplementationMetricWork,
                 plan);
         Optimization = new(
             Receipt,
@@ -504,6 +510,7 @@ public sealed class LibraryBodyAnalysisExecution
         CreateDirectCallCountResult(
             LibraryBodyAnalysisReceipt receipt,
             LibraryImplementationMetricAnalysisResult metrics,
+            ImplementationMetricWorkBudgetSnapshot? work,
             LibraryBodyAnalysisPlan plan)
     {
         CallCountProjection projection =
@@ -515,21 +522,12 @@ public sealed class LibraryBodyAnalysisExecution
         return new(
             receipt,
             projection.WasRequested,
+            work?.AttributionExhaustedLimit is null,
             projection.DeclaredMethods,
             projection.ManagedMethodBodies,
-            [
-                .. projection.Counts.Select(static body =>
-                    new MethodDirectCallCountEvidence(
-                        body.Method,
-                        body.EvidenceMethod,
-                        body.Count)),
-            ],
-            [
-                .. projection.UnavailableBodies.Select(static body =>
-                    new DirectCallCountUnavailableBody(
-                        body.EvidenceMethod,
-                        body.Diagnostic)),
-            ],
+            CreateDirectCallCountEvidence(projection.Counts),
+            CreateDirectCallUnavailableBodies(
+                projection.UnavailableBodies),
             new(
                 projection.WasRequested,
                 projection.AttemptedBodies,
@@ -542,6 +540,7 @@ public sealed class LibraryBodyAnalysisExecution
         CreateCallSiteCountResult(
             LibraryBodyAnalysisReceipt receipt,
             LibraryImplementationMetricAnalysisResult metrics,
+            ImplementationMetricWorkBudgetSnapshot? work,
             LibraryBodyAnalysisPlan plan)
     {
         CallCountProjection projection =
@@ -553,21 +552,12 @@ public sealed class LibraryBodyAnalysisExecution
         return new(
             receipt,
             projection.WasRequested,
+            work?.AttributionExhaustedLimit is null,
             projection.DeclaredMethods,
             projection.ManagedMethodBodies,
-            [
-                .. projection.Counts.Select(static body =>
-                    new MethodCallSiteCountEvidence(
-                        body.Method,
-                        body.EvidenceMethod,
-                        body.Count)),
-            ],
-            [
-                .. projection.UnavailableBodies.Select(static body =>
-                    new CallSiteCountUnavailableBody(
-                        body.EvidenceMethod,
-                        body.Diagnostic)),
-            ],
+            CreateCallSiteCountEvidence(projection.Counts),
+            CreateCallSiteCountUnavailableBodies(
+                projection.UnavailableBodies),
             new(
                 projection.WasRequested,
                 projection.AttemptedBodies,
@@ -585,95 +575,208 @@ public sealed class LibraryBodyAnalysisExecution
         bool wasRequested =
             metrics.WasRequested
             && metrics.Participation!.RequestedMetrics.HasFlag(metric);
-        ImmutableArray<CallCountBody> counts =
-            !wasRequested
-                ? []
-                :
-                [
-                    .. metrics.Bodies.Select(body => (
-                            Body: body,
-                            Count: selectCount(body)))
-                        .Where(static item =>
-                            item.Count is not null)
-                        .Select(static item =>
-                            new CallCountBody(
-                                item.Body.Method,
-                                item.Body.EvidenceMethod,
-                                item.Count!.Value)),
-                ];
-        Dictionary<int, AnalysisDiagnostic> diagnostics =
-            metrics.Diagnostics
-                .GroupBy(static diagnostic =>
-                    diagnostic.MethodToken)
-                .ToDictionary(
-                    static group => group.Key,
-                    static group => group.First());
-        HashSet<int> countedTokens =
-        [
-            .. counts.Select(static count =>
-                count.EvidenceMethod.MetadataToken),
-        ];
+        var counts =
+            ImmutableArray.CreateBuilder<CallCountBody>();
+        if (wasRequested)
+        {
+            foreach (MethodImplementationMetricEvidence body
+                in metrics.Bodies)
+            {
+                if (selectCount(body) is { } count)
+                {
+                    counts.Add(
+                        new(
+                            body.Method,
+                            body.EvidenceMethod,
+                            count));
+                }
+            }
+        }
+
+        var diagnostics =
+            new Dictionary<int, AnalysisDiagnostic>();
+        foreach (AnalysisDiagnostic diagnostic
+            in metrics.Diagnostics)
+        {
+            diagnostics.TryAdd(
+                diagnostic.MethodToken,
+                diagnostic);
+        }
+
+        var countedTokens = new HashSet<int>();
+        foreach (CallCountBody count in counts)
+            countedTokens.Add(count.EvidenceMethod.MetadataToken);
+
         IReadOnlySet<int> requestedTokens =
             plan.RequestedMethodScope
             ?? ImmutableHashSet<int>.Empty;
-        HashSet<int> relevantDiagnosticTokens =
-        [
-            .. metrics.Diagnostics
-                .Where(diagnostic =>
-                    requestedTokens.Contains(
-                        diagnostic.MethodToken)
-                    || diagnostic.SourceMethodToken is { } sourceToken
-                        && requestedTokens.Contains(sourceToken))
-                .Select(static diagnostic =>
-                    diagnostic.MethodToken),
-        ];
-        ImmutableArray<CallCountUnavailable> unavailable =
-            !wasRequested
-                ? []
-                :
-                [
-                    .. metrics.ManagedMethodBodies
-                        .Where(method =>
-                            !countedTokens.Contains(
-                                method.MetadataToken)
-                            && (metrics.Bodies.Any(body =>
-                                    body.EvidenceMethod.MetadataToken
-                                        == method.MetadataToken)
-                                || relevantDiagnosticTokens.Contains(
-                                    method.MetadataToken)))
-                        .Select(method =>
-                            new CallCountUnavailable(
-                                method,
-                                diagnostics.GetValueOrDefault(
-                                    method.MetadataToken))),
-                ];
-        ImmutableArray<MethodIdentity> managedMethods =
-        [
-            .. counts
-                .Select(static count => count.EvidenceMethod)
-                .Concat(unavailable.Select(static body =>
-                    body.EvidenceMethod))
-                .Distinct(),
-        ];
+        var relevantDiagnosticTokens = new HashSet<int>();
+        foreach (AnalysisDiagnostic diagnostic
+            in metrics.Diagnostics)
+        {
+            if (requestedTokens.Contains(
+                    diagnostic.MethodToken)
+                || diagnostic.SourceMethodToken is { } sourceToken
+                    && requestedTokens.Contains(sourceToken))
+            {
+                relevantDiagnosticTokens.Add(
+                    diagnostic.MethodToken);
+            }
+        }
+
+        var unavailable =
+            ImmutableArray.CreateBuilder<CallCountUnavailable>();
+        if (wasRequested)
+        {
+            foreach (MethodIdentity method
+                in metrics.ManagedMethodBodies)
+            {
+                if (countedTokens.Contains(method.MetadataToken))
+                    continue;
+
+                bool hasBodyEvidence = false;
+                foreach (MethodImplementationMetricEvidence body
+                    in metrics.Bodies)
+                {
+                    if (body.EvidenceMethod.MetadataToken
+                        == method.MetadataToken)
+                    {
+                        hasBodyEvidence = true;
+                        break;
+                    }
+                }
+                if (hasBodyEvidence
+                    || relevantDiagnosticTokens.Contains(
+                        method.MetadataToken))
+                {
+                    unavailable.Add(
+                        new(
+                            method,
+                            diagnostics.GetValueOrDefault(
+                                method.MetadataToken)));
+                }
+            }
+        }
+
+        var managedMethods =
+            ImmutableArray.CreateBuilder<MethodIdentity>();
+        var managedMethodSet = new HashSet<MethodIdentity>();
+        foreach (CallCountBody count in counts)
+        {
+            if (managedMethodSet.Add(count.EvidenceMethod))
+                managedMethods.Add(count.EvidenceMethod);
+        }
+        foreach (CallCountUnavailable body in unavailable)
+        {
+            if (managedMethodSet.Add(body.EvidenceMethod))
+                managedMethods.Add(body.EvidenceMethod);
+        }
+
         ImplementationMetricStageParticipation? participation =
-            metrics.Participation?.ActualStages
-                .SingleOrDefault(static stage =>
-                    stage.Stage
-                        == ImplementationMetricWorkStage
-                            .DirectCallDiscovery);
+            null;
+        if (metrics.Participation is { } metricParticipation)
+        {
+            foreach (ImplementationMetricStageParticipation stage
+                in metricParticipation.ActualStages)
+            {
+                if (stage.Stage
+                    == ImplementationMetricWorkStage
+                        .DirectCallDiscovery)
+                {
+                    participation = stage;
+                    break;
+                }
+            }
+        }
+
+        var declaredMethods =
+            ImmutableArray.CreateBuilder<MethodIdentity>();
+        foreach (MethodIdentity method
+            in metrics.DeclaredMethods)
+        {
+            if (requestedTokens.Contains(method.MetadataToken))
+                declaredMethods.Add(method);
+        }
+
         return new CallCountProjection(
             wasRequested,
-            [
-                .. metrics.DeclaredMethods.Where(method =>
-                    requestedTokens.Contains(
-                        method.MetadataToken)),
-            ],
-            managedMethods,
-            counts,
-            unavailable,
+            declaredMethods.ToImmutable(),
+            managedMethods.ToImmutable(),
+            counts.ToImmutable(),
+            unavailable.ToImmutable(),
             participation?.AttemptedBodies ?? 0,
             participation?.CompletedBodies ?? 0,
             participation?.FailedBodies ?? 0);
+    }
+
+    static ImmutableArray<MethodDirectCallCountEvidence>
+        CreateDirectCallCountEvidence(
+            ImmutableArray<CallCountBody> counts)
+    {
+        var result =
+            ImmutableArray.CreateBuilder<
+                MethodDirectCallCountEvidence>(counts.Length);
+        foreach (CallCountBody body in counts)
+        {
+            result.Add(
+                new(
+                    body.Method,
+                    body.EvidenceMethod,
+                    body.Count));
+        }
+        return result.MoveToImmutable();
+    }
+
+    static ImmutableArray<DirectCallCountUnavailableBody>
+        CreateDirectCallUnavailableBodies(
+            ImmutableArray<CallCountUnavailable> bodies)
+    {
+        var result =
+            ImmutableArray.CreateBuilder<
+                DirectCallCountUnavailableBody>(bodies.Length);
+        foreach (CallCountUnavailable body in bodies)
+        {
+            result.Add(
+                new(
+                    body.EvidenceMethod,
+                    body.Diagnostic));
+        }
+        return result.MoveToImmutable();
+    }
+
+    static ImmutableArray<MethodCallSiteCountEvidence>
+        CreateCallSiteCountEvidence(
+            ImmutableArray<CallCountBody> counts)
+    {
+        var result =
+            ImmutableArray.CreateBuilder<
+                MethodCallSiteCountEvidence>(counts.Length);
+        foreach (CallCountBody body in counts)
+        {
+            result.Add(
+                new(
+                    body.Method,
+                    body.EvidenceMethod,
+                    body.Count));
+        }
+        return result.MoveToImmutable();
+    }
+
+    static ImmutableArray<CallSiteCountUnavailableBody>
+        CreateCallSiteCountUnavailableBodies(
+            ImmutableArray<CallCountUnavailable> bodies)
+    {
+        var result =
+            ImmutableArray.CreateBuilder<
+                CallSiteCountUnavailableBody>(bodies.Length);
+        foreach (CallCountUnavailable body in bodies)
+        {
+            result.Add(
+                new(
+                    body.EvidenceMethod,
+                    body.Diagnostic));
+        }
+        return result.MoveToImmutable();
     }
 
     sealed record CallCountBody(

@@ -436,6 +436,50 @@ public class MemberCallsSectionTests
         Assert.Equal("1", result.Output.Trim());
     }
 
+    [Theory]
+    [InlineData("CallsWriteLineTwice~deadbeef")]
+    [InlineData("CallsWriteLineTwice<T>")]
+    public async Task CallsSection_CountPreservesQualifiedSelectorValidation(
+        string selector)
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            selector,
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+    }
+
+    [Fact]
+    public async Task CallsSection_CountPreservesTypeSurfaceAdmission()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(HiddenMemberCallsFixture).FullName!,
+            "--library",
+            typeof(HiddenMemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(HiddenMemberCallsFixture.Call),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+    }
+
     [Fact]
     public async Task CallsSection_TsvUsesPlainNormalizedValues()
     {
@@ -545,4 +589,10 @@ public static class MemberCallsFixture
         Console.WriteLine(value);
         return value + 1;
     }
+}
+
+internal static class HiddenMemberCallsFixture
+{
+    public static void Call() =>
+        Console.WriteLine("hidden type");
 }

@@ -18,8 +18,11 @@ public partial class ApiCommand
     {
         if (!IsCallSiteCountRequest(options)
             || options.RouterDeferredTypeOrMember
+            || !options.IncludeAll
             || options.KindFilter.Count != 0
             || options.UnsafeOnly
+            || options.MemberDigest is not null
+            || options.MemberGenericArity is not null
             || string.IsNullOrWhiteSpace(typeName)
             || !TryGetSingleMemberFilter(
                 options.MemberFilter,

@@ -908,7 +908,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
             LibraryBodyAnalysisService.ExecutePath(
                 path,
                 LibraryBodyAnalysisRequest.CreateDirectCallCounts(
-                    MetricLimits(),
+                    CountMetricLimits(),
                     new HashSet<int> { token }));
 
         LibraryDirectCallCountAnalysisResult result =
@@ -1641,7 +1641,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 "MalformedDirectCall.dll",
                 ImmutableArray.Create(image),
                 LibraryBodyAnalysisRequest.CreateDirectCallCounts(
-                    MetricLimits(),
+                    CountMetricLimits(),
                     new HashSet<int> { token }));
 
         LibraryDirectCallCountAnalysisResult result =
@@ -2993,6 +2993,13 @@ public sealed class LibraryBodyAnalysisExecutionTests
             maximumEncodedIlBytes: 10_000,
             maximumAttributionProbeBodies: 20,
             maximumAttributionProbeIlBytes: 20_000);
+
+    static ImplementationMetricWorkLimits CountMetricLimits() =>
+        new(
+            maximumPhysicalBodies: 10,
+            maximumEncodedIlBytes: 10_000,
+            maximumAttributionProbeBodies: 10_000,
+            maximumAttributionProbeIlBytes: 10_000_000);
 
     static ImplementationMetricWorkLimits
         RelationshipMetricLimits() =>

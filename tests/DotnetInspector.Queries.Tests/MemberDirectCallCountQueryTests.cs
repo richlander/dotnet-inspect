@@ -22,8 +22,8 @@ public sealed class MemberDirectCallCountQueryTests
                 new(
                     maximumPhysicalBodies: 10,
                     maximumEncodedIlBytes: 10_000,
-                    maximumAttributionProbeBodies: 20,
-                    maximumAttributionProbeIlBytes: 20_000));
+                    maximumAttributionProbeBodies: 10_000,
+                    maximumAttributionProbeIlBytes: 10_000_000));
 
         var available =
             Assert.IsType<MemberDirectCallCountResult.Available>(
@@ -114,6 +114,36 @@ public sealed class MemberDirectCallCountQueryTests
 
         Assert.Equal(1, invocations.Count);
         Assert.Equal(2, callSites.Count);
+    }
+
+    [Fact]
+    public void Execute_AttributionExhaustionWithholdsCallSiteCount()
+    {
+        MethodInfo method = typeof(MemberDirectCallCountQueryFixture)
+            .GetMethod(
+                nameof(MemberDirectCallCountQueryFixture
+                    .CallsAfterYield),
+                BindingFlags.Public | BindingFlags.Static)!;
+
+        MemberCallSiteCountResult result =
+            MemberCallSiteCountQuery.Execute(
+                method.DeclaringType!.Assembly.Location,
+                method.MetadataToken,
+                new(
+                    maximumPhysicalBodies: 100,
+                    maximumEncodedIlBytes: long.MaxValue,
+                    maximumAttributionProbeBodies: 1,
+                    maximumAttributionProbeIlBytes: 1));
+
+        var incomplete =
+            Assert.IsType<MemberCallSiteCountResult.Incomplete>(
+                result);
+        Assert.False(incomplete.Analysis.ScopeComplete);
+        Assert.Contains(
+            incomplete.Analysis.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "attribution-probe",
+                StringComparison.Ordinal));
     }
 }
 
