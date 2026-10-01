@@ -188,8 +188,15 @@ requested bounded answer. If Type rows do not fill the budget, implicit Member
 fallback may still contribute and its rows precede weak Type rows in the
 presented answer. The current reverse-locator package route applies Head after
 its complete resident census; other compatibility and Platform routes stop
-metadata traversal directly. `--tail` and row windows remain exhaustive before
-selection.
+metadata traversal directly.
+
+A sole finite `--rows A..B` or `--rows ..B` similarly stops after accepted row
+B for explicit Member Find and for Type patterns that cannot enter implicit
+Member fallback, such as wildcard or dotted patterns. The strict window still
+fails when row B does not exist. Ordinary undotted Type patterns remain
+exhaustive because fallback Member rows can precede Type rows and suppress weak
+Type matches. `--tail`, open-ended windows, and multi-stage row selection also
+remain exhaustive.
 
 ### Library namespace Type listings
 
