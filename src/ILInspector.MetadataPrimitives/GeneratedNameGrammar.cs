@@ -96,8 +96,7 @@ public static class GeneratedNameGrammar
     /// <c>&lt;&lt;M&gt;g__Local|0_0&gt;d</c>.
     /// </summary>
     public static bool IsStateMachineLeaf(string leafTypeName)
-        => (!leafTypeName.StartsWith("<<", StringComparison.Ordinal)
-                && leafTypeName.Contains(StateMachineInfix, StringComparison.Ordinal))
+        => leafTypeName.Contains(StateMachineInfix, StringComparison.Ordinal)
             || IsLocalFunctionStateMachineLeaf(leafTypeName);
 
     static bool IsLocalFunctionStateMachineLeaf(string leafTypeName)
