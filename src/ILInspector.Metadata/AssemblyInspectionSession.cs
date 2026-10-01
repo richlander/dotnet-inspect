@@ -808,6 +808,19 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
+    /// Executes Count or Rows over one bound TypeDef's declared MethodDefs.
+    /// </summary>
+    public MetadataDeclaredMethodPopulationOutcome DeclaredMethods(
+        MetadataDeclaredMethodPopulationRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _image.EnsureAlive();
+        return MetadataDeclaredMethodPopulationInspection.Inspect(
+            _image.GetMetadataReader(),
+            request);
+    }
+
+    /// <summary>
     /// Copies structured declaration and visibility evidence from this image
     /// without reopening its source. The result survives session disposal.
     /// </summary>

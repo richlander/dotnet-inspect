@@ -4,11 +4,14 @@ if (args.Length != 2
     || args[0] is not ("check"
         or "time"
         or "exact-check"
-        or "exact-time"))
+        or "exact-time"
+        or "declared-check"
+        or "declared-time"))
 {
     Console.Error.WriteLine(
         "Usage: membergroup-scorecard "
-            + "<check|time|exact-check|exact-time> <assembly>");
+            + "<check|time|exact-check|exact-time|"
+            + "declared-check|declared-time> <assembly>");
     return 2;
 }
 
@@ -75,6 +78,24 @@ if (args[0] == "exact-time")
     Console.Write(
         MemberGroupPopulation.ReportExact(exactResult));
     return exactResult.Check.Agrees ? 0 : 1;
+}
+
+if (args[0] == "declared-check")
+{
+    DeclaredMethodScorecardCheck check =
+        DeclaredMethodPopulation.Check(path);
+    Console.WriteLine(
+        $"{check.Count} declared MethodDefs; {check.AnswerHash}");
+    return 0;
+}
+
+if (args[0] == "declared-time")
+{
+    DeclaredMethodScorecardResult declaredResult =
+        DeclaredMethodPopulation.Measure(path);
+    Console.Write(
+        DeclaredMethodPopulation.Report(declaredResult));
+    return 0;
 }
 
 MemberGroupScorecardResult result =
