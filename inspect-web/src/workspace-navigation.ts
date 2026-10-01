@@ -936,7 +936,7 @@ function resolveWorkspaceLocation(
   let memberBrowse = false;
   let memberTextFilter = "";
   let memberKindFilter = "all";
-  let memberAccessibilityFilter = "all";
+  let memberAccessibilityFilter = "public";
   let memberTraitFilter = "";
   let graphTarget: GraphMemberShareIdentity | null = null;
   let shareState: BrowserWorkspaceShareState | null = null;
@@ -969,7 +969,7 @@ function resolveWorkspaceLocation(
     memberBrowse = false;
     memberTextFilter = "";
     memberKindFilter = "all";
-    memberAccessibilityFilter = "all";
+    memberAccessibilityFilter = "public";
     memberTraitFilter = "";
     graphTarget = null;
   }

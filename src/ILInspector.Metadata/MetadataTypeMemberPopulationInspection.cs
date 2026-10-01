@@ -13,11 +13,8 @@ public sealed record MetadataTypeMemberPopulationRequest
         ArgumentNullException.ThrowIfNull(type);
         if (!Enum.IsDefined(spelling))
             throw new ArgumentOutOfRangeException(nameof(spelling));
-        if (!Enum.IsDefined(accessibility)
-            || accessibility == MetadataMethodAccessibilityFilter.All)
-        {
+        if (!Enum.IsDefined(accessibility))
             throw new ArgumentOutOfRangeException(nameof(accessibility));
-        }
 
         Type = type;
         Spelling = spelling;
@@ -140,7 +137,9 @@ public static class MetadataTypeMemberPopulationInspection
             ImmutableArray<ApiMember> selected =
             [
                 .. group.Where(member =>
-                    Accessibility(member.Accessibility)
+                    selectedAccessibility
+                        == MetadataMethodAccessibilityFilter.All
+                    || Accessibility(member.Accessibility)
                         == selectedAccessibility),
             ];
             if (selected.IsEmpty)
@@ -165,6 +164,12 @@ public static class MetadataTypeMemberPopulationInspection
                 counted.Composition.Internal,
             MetadataMethodAccessibilityFilter.Private =>
                 counted.Composition.Private,
+            MetadataMethodAccessibilityFilter.All =>
+                checked(
+                    counted.Composition.Public
+                    + counted.Composition.Protected
+                    + counted.Composition.Internal
+                    + counted.Composition.Private),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(request.Accessibility)),
         };

@@ -136,6 +136,22 @@ public class FidelityGateTests
         // differs after recompilation.
         "CapturingLambda",
         "CapturingLocalBodyLambda",
+        // #9005 added nested-capture fixtures before these methods and recovered
+        // CollectValidDoubles's nested lambda. The reconstructed type therefore
+        // assigns different Roslyn display-class ordinals; that anonymous shape
+        // has no containing-method identity and is intentionally outside the
+        // two-sided ordinal normalization contract. CollectValidDoubles also
+        // recompiles its recovered capture with an earlier closure allocation.
+        "CaptureSecondParam",
+        "CaptureTwoVariables",
+        "CapturingCalledTwice",
+        "CapturingLocalFunction",
+        "CapturingLocalFunctionWithHostReadAndBranches",
+        "CapturingLocalFunctionWithLocal",
+        "CapturingLocalWithNestedLambdaInBranch",
+        "CapturingParameterWithNestedLambda",
+        "CollectValidDoubles",
+        "InstanceAndEnvironmentCapturingLocalFunction",
         // The local display-class raise consumes every reference to these
         // environment slots, so their generated local types no longer lower
         // fidelity. Compile-back now reaches the existing operand-only
@@ -239,9 +255,9 @@ public class FidelityGateTests
     /// ParseOrZero must keep treating the verified `out` argument as a definite
     /// local assignment so the printer does not emit a dead `= default` store the
     /// original IL never carried.
-    /// CapturingLocalFunction is below Full; fixture additions changed its
-    /// compiler-generated display class and local-function ordinals, which
-    /// remain observable under the contract.
+    /// CapturingLocalFunction and its related capture rows remain Full but carry
+    /// compiler-generated display-class ordinal differences, which stay observable
+    /// under the contract and are docketed above.
     /// AnonNamed, AnonSingle, AnonNested, and AnonDeepNested are likewise below
     /// Full with changed anonymous-type ordinals. DayNumber and
     /// DoubleViaLocalFunction moved to the V1 difference docket above.

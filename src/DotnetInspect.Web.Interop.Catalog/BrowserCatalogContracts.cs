@@ -379,6 +379,24 @@ public sealed record BrowserHomeDemoCatalogEntry(
 public sealed record BrowserHomeDemoCatalog(
     BrowserHomeDemoCatalogEntry[] Demos);
 
+/// <summary>One inert product Ecosystem catalog row.</summary>
+public sealed record BrowserEcosystemCatalogEntry(
+    string Id,
+    string Title,
+    string Summary,
+    int CorePackageCount,
+    int NamespaceRootCount,
+    int ToolPackageCount,
+    int DemoCount,
+    bool HasPackageSet,
+    bool HasScanner,
+    bool HasPopulationLoader,
+    bool HasWorkspaceRegistration);
+
+/// <summary>Product Ecosystem catalog in product order.</summary>
+public sealed record BrowserEcosystemCatalog(
+    BrowserEcosystemCatalogEntry[] Ecosystems);
+
 /// <summary>
 /// One workspace/navigation member coordinate projected for the browser.
 /// <see cref="Kind"/> is <c>package</c> or <c>platform</c>.
@@ -916,6 +934,7 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserVocabularyInspection))]
 [JsonSerializable(typeof(BrowserHomeDemoCatalog))]
+[JsonSerializable(typeof(BrowserEcosystemCatalog))]
 [JsonSerializable(typeof(BrowserHomeDemoResolveResult))]
 [JsonSerializable(typeof(BrowserHomeDemoRunResult))]
 [JsonSerializable(typeof(BrowserWorkspaceShareState))]

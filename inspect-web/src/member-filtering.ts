@@ -313,7 +313,7 @@ export function restoreMemberHistoryState(
     memberBrowseTypeId: restoreMemberScope ? type!.id : "",
     memberKindFilter: type ? (view.memberKindFilter ?? "all") : "all",
     memberAccessibilityFilter:
-      type ? (view.memberAccessibilityFilter ?? "all") : "all",
+      type ? (view.memberAccessibilityFilter ?? "public") : "public",
     memberTraitFilter: type ? (view.memberTraitFilter ?? "") : "",
     memberTextFilter: type ? (view.memberTextFilter ?? "") : "",
     selectedOverloadIndex: restoreMemberScope ? overloadIndex : null,
