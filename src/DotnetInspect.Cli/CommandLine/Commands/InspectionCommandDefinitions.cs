@@ -381,8 +381,11 @@ public static class InspectionCommandDefinitions
 
                         if (!options.FormatExplicitlySet)
                         {
-                            var tips = DiffOptionsParser.BuildTips(options, options.TypeFilter);
-                            Hints.WriteTips(success.TipLevel, [.. tips]);
+                            Hints.WriteTips(
+                                success.TipLevel,
+                                () => [.. DiffOptionsParser.BuildTips(
+                                    options,
+                                    options.TypeFilter)]);
                         }
                     }
 

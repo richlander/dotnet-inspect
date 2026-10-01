@@ -17,9 +17,12 @@ public record Tip(string Subcommand, string Args, string Comment)
 
 public static class Hints
 {
-    public static void WriteTips(TipLevel level, params Tip[] tips)
+    public static void WriteTips(TipLevel level, Func<Tip[]> createTips)
     {
-        if (level == TipLevel.Quiet || tips.Length == 0) return;
+        if (level == TipLevel.Quiet) return;
+
+        Tip[] tips = createTips();
+        if (tips.Length == 0) return;
 
         var visible = tips.Take(3).ToList();
 

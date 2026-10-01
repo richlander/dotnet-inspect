@@ -468,10 +468,13 @@ public class CommandLineTests
     }
 
     [Fact]
-    public async Task WriteTips_WithQuietLevel_WritesNothing()
+    public async Task WriteTips_WithQuietLevel_DoesNotCreateTips()
     {
         var (_, error) = await ConsoleCapture.RunAsync(
-            () => Hints.WriteTips(TipLevel.Quiet, new Tip("package", "Foo", "inspect")));
+            () => Hints.WriteTips(
+                TipLevel.Quiet,
+                static () => throw new InvalidOperationException(
+                    "Quiet tips must not invoke the recommendation factory.")));
 
         Assert.Empty(error);
     }
@@ -482,10 +485,13 @@ public class CommandLineTests
         var (_, error) = await ConsoleCapture.RunAsync(
             () => Hints.WriteTips(
                 TipLevel.Minimal,
-                new Tip("package", "First", "first"),
-                new Tip("package", "Second", "second"),
-                new Tip("package", "Third", "third"),
-                new Tip("package", "Fourth", "fourth")));
+                static () =>
+                [
+                    new("package", "First", "first"),
+                    new("package", "Second", "second"),
+                    new("package", "Third", "third"),
+                    new("package", "Fourth", "fourth"),
+                ]));
 
         Assert.Contains("Tips:", error);
         Assert.Contains("First", error);

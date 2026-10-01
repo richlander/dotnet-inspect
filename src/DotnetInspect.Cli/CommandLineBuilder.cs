@@ -1368,13 +1368,16 @@ public static class CommandLineBuilder
     {
         Hints.WriteTips(
             tipLevel,
-            new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
-            new Tip("package query", "<ID-or-prefix*>", "discover NuGet package IDs"),
-            new Tip(TypeCommand.Name, "--package <package>", "discover types in package"),
-            new Tip(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
-            new Tip(FindCommand.Name, "<pattern> --package <package>", "search API symbols in a known package"),
-            new Tip(ProjectCommand.Name, "-S Skills", "index package skills for a project"),
-            new Tip(FindCommand.Name, "<pattern> --platform", "search platform libraries"));
+            static () =>
+            [
+                new(PackageCommand.Name, "<package>", "inspect a NuGet package"),
+                new("package query", "<ID-or-prefix*>", "discover NuGet package IDs"),
+                new(TypeCommand.Name, "--package <package>", "discover types in package"),
+                new(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
+                new(FindCommand.Name, "<pattern> --package <package>", "search API symbols in a known package"),
+                new(ProjectCommand.Name, "-S Skills", "index package skills for a project"),
+                new(FindCommand.Name, "<pattern> --platform", "search platform libraries"),
+            ]);
     }
 
     // Parse helpers delegated to OptionParsers (for backward compatibility)

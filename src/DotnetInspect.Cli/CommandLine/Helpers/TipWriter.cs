@@ -33,20 +33,25 @@ public static class TipWriter
     /// </summary>
     public static void WritePackageTips(string packageName, TipLevel tipLevel, Verbosity verbosity)
     {
-        List<Tip> tips = [];
+        Hints.WriteTips(
+            tipLevel,
+            () =>
+            {
+                List<Tip> tips = [];
 
-        if (verbosity < Verbosity.Detailed)
-            tips.Add(new(PackageCommand.Name, $"{packageName} -v:d", "detailed metadata"));
+                if (verbosity < Verbosity.Detailed)
+                    tips.Add(new(PackageCommand.Name, $"{packageName} -v:d", "detailed metadata"));
 
-        tips.Add(new("library", packageName, "inspect library"));
-        tips.Add(new(TypeCommand.Name, $"--package {packageName}", "discover types in package"));
-        tips.Add(new(FindCommand.Name, $"<pattern> --package {packageName}", "search API symbols"));
-        tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..<cur>", "diff versions"));
-        tips.Add(new(PackageCommand.Name, $"{packageName} -S \"Package README file\" --print", "view README"));
-        tips.Add(new(PackageCommand.Name, $"{packageName} --path /", "list package files"));
-        tips.Add(new(PackageCommand.Name, $"{packageName} --layout", "show file tree"));
+                tips.Add(new("library", packageName, "inspect library"));
+                tips.Add(new(TypeCommand.Name, $"--package {packageName}", "discover types in package"));
+                tips.Add(new(FindCommand.Name, $"<pattern> --package {packageName}", "search API symbols"));
+                tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..<cur>", "diff versions"));
+                tips.Add(new(PackageCommand.Name, $"{packageName} -S \"Package README file\" --print", "view README"));
+                tips.Add(new(PackageCommand.Name, $"{packageName} --path /", "list package files"));
+                tips.Add(new(PackageCommand.Name, $"{packageName} --layout", "show file tree"));
 
-        Hints.WriteTips(tipLevel, [.. tips]);
+                return [.. tips];
+            });
     }
 
     /// <summary>
@@ -54,15 +59,20 @@ public static class TipWriter
     /// </summary>
     public static void WritePlatformTips(string assemblyName, TipLevel tipLevel, Verbosity verbosity)
     {
-        List<Tip> tips = [];
+        Hints.WriteTips(
+            tipLevel,
+            () =>
+            {
+                List<Tip> tips = [];
 
-        if (verbosity < Verbosity.Detailed)
-            tips.Add(new(assemblyName, "-v:d", "detailed metadata"));
+                if (verbosity < Verbosity.Detailed)
+                    tips.Add(new(assemblyName, "-v:d", "detailed metadata"));
 
-        tips.Add(new(PackageCommand.Name, assemblyName, "inspect as NuGet package"));
-        tips.Add(new(TypeCommand.Name, $"--platform {assemblyName}", "discover types"));
-        tips.Add(new(FindCommand.Name, $"<pattern> --platform {assemblyName}", "search API symbols"));
+                tips.Add(new(PackageCommand.Name, assemblyName, "inspect as NuGet package"));
+                tips.Add(new(TypeCommand.Name, $"--platform {assemblyName}", "discover types"));
+                tips.Add(new(FindCommand.Name, $"<pattern> --platform {assemblyName}", "search API symbols"));
 
-        Hints.WriteTips(tipLevel, [.. tips]);
+                return [.. tips];
+            });
     }
 }

@@ -192,11 +192,15 @@ public static class SearchCommandDefinitions
                         && !success.Options.FormatExplicitlySet
                         && !success.Options.IsRawOutput)
                     {
-                        var tips = FindOptionsParser.BuildTips(
-                            success.Options,
-                            success.Options.Pattern,
-                            execution.RowCount);
-                        Hints.WriteTips(success.TipLevel, [.. tips]);
+                        Hints.WriteTips(
+                            success.TipLevel,
+                            () =>
+                            [
+                                .. FindOptionsParser.BuildTips(
+                                    success.Options,
+                                    success.Options.Pattern,
+                                    execution.RowCount),
+                            ]);
                     }
 
                     return execution.ExitCode;
