@@ -335,12 +335,12 @@ comparison.
 NativeAOT base/head evidence compares base
 `16d3c9211be31b359bb48ba93cecef3fef36e37f` with this Count slice. Three
 repeated full-corpus executions preserve Count exactly; median elapsed moves
-from 74.647 seconds to 75.485 seconds and median current-thread allocation from
-112,618,301,240 bytes to 112,408,864,904 bytes. Four rotated process-start
-executions report median elapsed of 77.80 versus 80.48 seconds, while median
-peak RSS falls from 454,962 KB to 329,384 KB. On the small StructuredTypes
-witness, the four-column NativeAOT scorecard reports Old 9,085.9 us, LINQ
-8,988.9 us, NLinq 9,152.1 us, and Planner 8,743.0 us. The committed
+from 74.647 seconds to 74.833 seconds and median current-thread allocation from
+112,618,301,240 bytes to 112,409,118,256 bytes. Four rotated process-start
+executions report median elapsed of 85.63 versus 78.66 seconds, while median
+peak RSS falls from 455,618 KB to 326,130 KB. On the small StructuredTypes
+witness, the four-column NativeAOT scorecard reports Old 11,417.8 us, LINQ
+11,530.4 us, NLinq 11,728.9 us, and Planner 11,782.0 us. The committed
 `ReturnToSenderTargetScorecard` owns the reproducible check and timing
 invocations; these measurements establish the Count slice only, not the later
 Rows or House realization work.
