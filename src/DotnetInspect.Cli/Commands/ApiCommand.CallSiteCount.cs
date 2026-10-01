@@ -19,6 +19,7 @@ public partial class ApiCommand
         if (!IsCallSiteCountRequest(options)
             || options.RouterDeferredTypeOrMember
             || !options.IncludeAll
+            || options.HasCallerScope
             || options.KindFilter.Count != 0
             || options.UnsafeOnly
             || options.MemberDigest is not null

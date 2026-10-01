@@ -60,6 +60,40 @@ public class MemberCallsSectionTests
     }
 
     [Fact]
+    public async Task CallsSection_CountWithCallerScopePreservesImpliedCallers()
+    {
+        using var callerScope =
+            new TemporaryTestDirectory("dotnet-inspect-calls-count-");
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.CallsWriteLineTwice),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "--json",
+            "--bin",
+            callerScope.FullName,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        var counts = document.RootElement
+            .EnumerateArray()
+            .ToDictionary(
+                row => row.GetProperty("section").GetString()!,
+                row => row.GetProperty("count").GetInt32());
+        Assert.Equal(2, counts[SectionNames.Calls]);
+        Assert.Contains(SectionNames.Callers, counts.Keys);
+    }
+
+    [Fact]
     public async Task CallsSection_SemanticTailSelectsTheSameCallSiteAcrossFormats()
     {
         string[] args =
