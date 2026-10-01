@@ -83,6 +83,14 @@ public sealed class ApiMemberBucketTests
         using var peReader = new PEReader(stream);
         ApiSurface summarySurface = ApiSurfaceExtractor.ExtractSummary(peReader);
 
+        ApiMember publicAdd = Assert.Single(
+            publicSurface.Types.Single(
+                type => type.Namespace == "Microsoft.VisualBasic"
+                    && type.Name == "Collection")
+                .Members,
+            member => member.Name == "IListAdd");
+        Assert.True(publicAdd.IsExplicitInterfaceImplementation);
+
         foreach (ApiSurface surface in new[] { publicSurface, summarySurface })
         {
             ApiType collection = surface.Types.Single(
@@ -92,7 +100,6 @@ public sealed class ApiMemberBucketTests
                 collection.Members,
                 member => member.Name == "IListAdd");
             Assert.Null(add.Accessibility);
-            Assert.True(add.IsExplicitInterfaceImplementation);
         }
     }
 

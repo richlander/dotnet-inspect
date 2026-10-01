@@ -58,7 +58,7 @@ which tints a row's background and colors the parent row's status text.
 The reader selects `private`. The Browser requests that Type's Rows under
 `accessibility = private` and shows the 27 private members as 26 rows,
 including a `Parse` family row with the two private overloads that the public view never
-listed. The chips keep their counts, because the composition covers every
+listed. The selectors keep their counts, because the composition covers every
 bucket whatever bucket is selected. The selection stays for the session, so
 the next Type opens on `private` with its own truthful count, even when that
 count is 0.
@@ -66,9 +66,9 @@ count is 0.
 The same `Filters` disclosure, collapsed by default, offers:
 
 ```text
-Kind            all kinds
+Kind            all kinds · 16
 Accessibility   public · 16
-Trait           all traits
+Trait           all · 16
 Spelling        C#
 ```
 
@@ -79,7 +79,7 @@ is, such as .NET team engineers: one row per metadata record. On
 a `public` property (8 public, 1 internal, 3 private). Metadata spelling lists
 the private `IEnumerator.Current` property record and its private
 `IEnumerator.get_Current` method separately (6 public, 1 internal, 7 private).
-The chips follow the selected spelling, and the spelling choice stays for the
+The counts follow the selected spelling, and the spelling choice stays for the
 session like the accessibility choice.
 
 The CLI asks the same questions of the same population and reports the same
