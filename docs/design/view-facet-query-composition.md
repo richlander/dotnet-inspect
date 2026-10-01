@@ -98,7 +98,7 @@ Selected rows can instead retain ordinary output while exporting reusable
 references:
 
 ```console
-dotnet-inspect member JsonSerializer \
+dotnet-inspect member JsonSerializer Serialize \
   --package System.Text.Json \
   -Q member.index \
   --where "<member predicate>" \
