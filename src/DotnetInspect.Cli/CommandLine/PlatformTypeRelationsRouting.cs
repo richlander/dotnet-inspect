@@ -1,4 +1,3 @@
-using System.Reflection.Metadata;
 using DotnetInspect.Cli.Commands;
 using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
@@ -201,11 +200,7 @@ internal static class PlatformTypeRelationsRouting
                 AssemblyReferenceIdentity focusAssembly =
                             session.AssemblyIdentity();
                 TypeDeclarationResult declaration =
-                            session.InspectImage(
-                                reader =>
-                                    MetadataTypeDeclarationProbe.ProbeDefinition(
-                                        reader.GetMetadataReader(),
-                                        found.Type));
+                            session.ProbeTypeDefinition(found.Type);
                 if (!focusAssembly.Name.Equals(
                                 requestedLibrary.Assembly,
                                 StringComparison.OrdinalIgnoreCase)
