@@ -245,7 +245,8 @@ sites in their PR demos.
 | STJ `netstandard2.0`, traversal `net11.0`, `Everything` | Zero unclassified CoreLib targets (slice 1); subsumed packages pruned and their calls bound to Platform participants (slice 3) |
 | `JsonDocument.Dispose`, same root | `Interlocked` and `Volatile` resolve to the exact certified CoreLib participant |
 | Same root, `Self` | Package-only graph; intrinsic targets `OutsideOperationScope` |
-| Exact Platform target unavailable | Package-only graph plus a typed unavailability; no fallback target |
+| One family's exact target unavailable | That family contributes nothing and reports typed unavailability; other families proceed; no fallback target |
+| Default curated Workspace (`DotNetRuntime` + `AspNetCore`) | Two independent exact family targets at the traversal framework |
 | Continuation rejected or failed | Package-only graph plus the typed continuation outcome |
 | Pruning precondition unmet | No pruning; subsumed packages stay package participants |
 | Equivalent CLI and Web inputs | Equal host-neutral outcomes |
