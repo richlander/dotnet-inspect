@@ -5,6 +5,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using ILInspector.Metadata;
+using ILInspector.Research;
 
 namespace DotnetInspect.Cli.Options;
 
@@ -108,6 +109,13 @@ public record InspectionOptions : IProjectionOptions
     public MetadataRootKind MetadataRoot { get; init; } = MetadataRootKind.Cli;
 
     public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
+
+    public LibraryNameFamilyPopulationKind NameFamilyPopulation
+    { get; init; } =
+        LibraryNameFamilyPopulationKind.AllTypes;
+
+    public RowSelectionIntent<string>? NameFamilyRowSelection
+    { get; init; }
 
     public PerformanceTriageOptions PerformanceTriage { get; init; } =
         PerformanceTriageOptions.Default;
@@ -274,7 +282,8 @@ public record InspectionOptions : IProjectionOptions
     /// Semantic row selection for one Package's ecosystem-dependency pairs.
     /// </summary>
     public RowSelectionIntent<string>?
-        EcosystemDependencyRowSelection { get; init; }
+        EcosystemDependencyRowSelection
+    { get; init; }
 
     /// <summary>
     /// Semantic row selection for Clone Candidates on a delegated Library route.
