@@ -388,6 +388,7 @@ test("workspace URLs delegate canonical encoding and product-decoded activation"
   assert.equal(parsed.memberSignature, null);
   assert.equal(parsed.overload, null);
   assert.equal(parsed.section, "facts");
+  assert.equal(parsed.memberAccessibilityFilter, "public");
   assert.deepEqual(parsed.contexts, state.contexts);
   assert.equal(parsed.selectedContextId, "g0");
 });
