@@ -12,13 +12,17 @@ resource-free operation describes the work, a stateless service executes it
 against explicit owner-issued access, and the returned execution retains only
 detached evidence. Unsafe-evidence presence is the first production adoption. Its singleton
 request now flows through the QuerySpace request-set reference planner. The
-Method source also accepts multiple typed requests, groups only requests that
-carry the same owner-issued sharing binding, executes each group through the
-existing sequential reference executor, and publishes per-association source
-evidence beside one physical Producer Planning receipt per group. The gates
-under [Required evidence](#required-evidence) verify that bounded adoption in
-Release. A mixed production consumer, other source kinds, cancellation, and
-legacy-remainder composition remain **unverified**.
+transitional Method adapter also accepts multiple typed requests, groups only
+requests that carry the same owner-issued sharing binding, executes each group
+through the existing `MethodDefinitionExecution` precursor, and publishes
+per-association completion beside one physical Producer Planning receipt per
+group. This does not implement or verify the exact breadth, depth, packet
+lifetime, or source-work receipt owned by
+[Method Query Source](method-query-source.md). The gates under
+[Required evidence](#required-evidence) verify only this bounded reference
+adoption in Release. A mixed production consumer, the target Method source,
+other source kinds, cancellation, and legacy-remainder composition remain
+**unverified**.
 
 ## Authority and exact claim
 
@@ -238,8 +242,9 @@ Migration uses a strangler:
 1. Prove the method source and service binding with the existing narrow unsafe
    presence production path.
 2. Land the minimum general request collapse from #8574 needed to compose
-   several producer requests. (**Complete for the Method-source reference
-   path.**)
+   several producer requests. (**Complete for the transitional
+   `MethodDefinitionExecution` adapter; this does not satisfy Method Query
+   Source's implementation gates.**)
 3. Introduce one temporary legacy-remainder declaration for producers that
    have not moved.
 4. Move one cohesive producer owner and at least one production consumer per
@@ -369,8 +374,9 @@ The request-set reference slice additionally supplies these Release gates:
 They verify typed whole-set rejection, exact identity grouping, shared and
 deliberately unshared reference equivalence, per-association publication,
 settled-result preservation across later producer failure, and one physical
-receipt per shared group. They do not claim the still-remaining source-native
-Count, delegated row-handoff, or mixed production-adopter cases.
+Producer Planning receipt per shared group. They do not claim an exact
+Method-source work receipt or the still-remaining source-native Count,
+delegated row-handoff, target Method-source, or mixed production-adopter cases.
 
 `AssemblyAnalysisService_PreservesSourceFailureAndCompletion` covers the first
 source boundary: session-owned no-metadata admission rejects before producer

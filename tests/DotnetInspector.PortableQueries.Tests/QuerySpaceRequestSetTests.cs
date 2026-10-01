@@ -54,7 +54,7 @@ public sealed partial class QueryOperationInfrastructureGateTests
     }
 
     [Fact]
-    public void CoveringReadRequiresOwnerIdentityAndAcceptedCompletion()
+    public void RequestSetGroupsOnlyExactResourceAndSourceIdentities()
     {
         QuerySpaceRequest request = CreateRequestSetRequest();
         var resolved = new ReferenceRequest(

@@ -79,11 +79,11 @@ vocabulary supplies a default Top ranking. A future richer capability may
 represent the explicit-ranking-only form separately.
 
 Transitional Query Operation route order and stage capabilities are not
-operation-scope capabilities. Multiple row-intent associations, request-set
-collapse, source delegation planning, projection stages, continuation binding,
-the full structural-plan meaning record, and the remaining gates in
-[Required gates](#required-gates) remain **unverified** until their named
-implementation slices land and run in Release.
+operation-scope capabilities. Multiple row-intent associations, source-native
+or delegated collapse beyond the transitional Method adapter, projection
+stages, continuation binding, the full structural-plan meaning record, and the
+remaining gates in [Required gates](#required-gates) remain **unverified**
+until their named implementation slices land and run in Release.
 
 ## Owner and exact claim
 
@@ -453,9 +453,9 @@ end-to-end request-collapse tracker, and
 Library Body Analysis retirement sequence. The first observable paths each contain three focused slices:
 
 1. lock this request-set and collapse contract (**complete**);
-2. implement the host-neutral reference planner and let the Method source
-   consume one request-set plan without changing producer semantics
-   (**complete**); and
+2. implement the host-neutral reference planner and let Assembly Analysis's
+   transitional Method adapter consume one request-set plan without changing
+   producer semantics (**complete**); and
 3. adopt that path in one CLI library operation and one Browser/Wasm Analysis
    operation, in separate owner-focused PRs (**remaining**).
 

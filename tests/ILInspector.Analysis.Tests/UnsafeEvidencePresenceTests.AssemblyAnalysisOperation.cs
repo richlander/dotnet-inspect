@@ -5,6 +5,7 @@ using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 using DotnetInspector.Queries;
 using QuerySpace.Composition;
+using QuerySpace.Operations;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -340,7 +341,7 @@ public partial class UnsafeEvidencePresenceTests
             CreateSourceRequest(
                 binding,
                 failing,
-                ProducerTerminal.Exists);
+                ProducerTerminal.Rows);
         AssemblyAnalysisOperation operation =
             AssemblyAnalysisOperation.Create(
                 "Collapsed.dll",
@@ -412,6 +413,35 @@ public partial class UnsafeEvidencePresenceTests
     }
 
     [Fact]
+    public void CoveringReadRequiresOwnerIdentityAndAcceptedCompletion()
+    {
+        var failing = new CompletionFailingReferenceProducer();
+        MethodDefinitionSourceRequest<int> request =
+            CreateSourceRequest(
+                MethodDefinitionSourceBinding.Create(),
+                failing,
+                ProducerTerminal.Rows);
+
+        (AssemblyAnalysisOperation operation,
+            AssemblyAnalysisExecution execution) =
+                ExecuteRequests(request);
+        MethodDefinitionSourceReceipt receipt =
+            execution.SourceReceiptOf(request);
+
+        Assert.Same(operation.PlanOf(request).Resource, receipt.Resource);
+        Assert.Same(operation.PlanOf(request).Source, receipt.Source);
+        Assert.Equal(
+            QuerySpaceRequestSatisfaction.CoveringRead,
+            receipt.Satisfaction);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.ProducerFailed,
+            receipt.Completion);
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            execution.ResultOf(request).Outcome);
+    }
+
+    [Fact]
     public void CollapsePreservesIndependentReferenceResults()
     {
         var producer = new SettlingReferenceProducer();
@@ -425,22 +455,42 @@ public partial class UnsafeEvidencePresenceTests
                 MethodDefinitionSourceBinding.Create(),
                 producer,
                 ProducerTerminal.Exists);
+        MethodDefinitionSourceBinding sharedBinding =
+            MethodDefinitionSourceBinding.Create();
+        MethodDefinitionSourceRequest<int> sharedFirst =
+            CreateSourceRequest(
+                sharedBinding,
+                producer,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceRequest<int> sharedSecond =
+            CreateSourceRequest(
+                sharedBinding,
+                producer,
+                ProducerTerminal.Exists);
 
-        (AssemblyAnalysisOperation operation,
-            AssemblyAnalysisExecution execution) =
+        (AssemblyAnalysisOperation independentOperation,
+            AssemblyAnalysisExecution independentExecution) =
                 ExecuteRequests(first, second);
+        (AssemblyAnalysisOperation sharedOperation,
+            AssemblyAnalysisExecution sharedExecution) =
+                ExecuteRequests(sharedFirst, sharedSecond);
 
-        Assert.Equal(2, operation.RequestSet.Groups.Length);
-        Assert.Equal(2, execution.WorkReceipts.Length);
+        Assert.Equal(2, independentOperation.RequestSet.Groups.Length);
+        Assert.Equal(2, independentExecution.WorkReceipts.Length);
+        Assert.Single(sharedOperation.RequestSet.Groups);
+        Assert.Single(sharedExecution.WorkReceipts);
         Assert.Equal(
-            new ProducerResult<int>(ProducerOutcome.Stopped, 1),
-            execution.ResultOf(first));
+            independentExecution.ResultOf(first),
+            sharedExecution.ResultOf(sharedFirst));
         Assert.Equal(
-            execution.ResultOf(first),
-            execution.ResultOf(second));
+            independentExecution.ResultOf(second),
+            sharedExecution.ResultOf(sharedSecond));
         Assert.Equal(
-            execution.SourceReceiptOf(first).Completion,
-            execution.SourceReceiptOf(second).Completion);
+            independentExecution.SourceReceiptOf(first).Completion,
+            sharedExecution.SourceReceiptOf(sharedFirst).Completion);
+        Assert.Equal(
+            independentExecution.SourceReceiptOf(second).Completion,
+            sharedExecution.SourceReceiptOf(sharedSecond).Completion);
     }
 
     [Fact]
@@ -534,10 +584,52 @@ public partial class UnsafeEvidencePresenceTests
                     ProducerPlanner.Plan([new(producer, terminal)]))
                 .Description;
         return MethodDefinitionSourceRequest<int>.Create(
-            UnsafeEvidencePresenceQuery.CreateRequest(),
+            CreateReferenceRequest(terminal),
             binding,
             work,
             producer);
+    }
+
+    static QuerySpaceRequest CreateReferenceRequest(
+        ProducerTerminal terminal)
+    {
+        QuerySpaceTerminalRequirement queryTerminal = terminal switch
+        {
+            ProducerTerminal.Exists =>
+                QuerySpaceTerminalRequirement.Exists,
+            ProducerTerminal.Rows =>
+                QuerySpaceTerminalRequirement.Rows,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(terminal),
+                terminal,
+                "The reference fixture supports Exists and Rows."),
+        };
+        QuerySpaceBinding binding = UnsafeEvidencePresenceQuery.QuerySpace;
+        QuerySpaceDescriptor descriptor =
+            QuerySpaceDescriptor.Create(
+                "assembly-analysis-reference/query-space/v1",
+                binding.Operation,
+                [.. binding.RowScopes.Select(
+                    static scope => scope.Descriptor)],
+                [
+                    QuerySpaceTerminalRequirement.Exists,
+                    QuerySpaceTerminalRequirement.Rows,
+                ],
+                acceptsContinuation: false,
+                [
+                    new(
+                        QuerySpaceTerminalRequirement.Exists,
+                        "assembly-analysis-reference/exists/v1"),
+                    new(
+                        QuerySpaceTerminalRequirement.Rows,
+                        "assembly-analysis-reference/rows/v1"),
+                ]);
+        return QuerySpaceRequest.Create(
+            descriptor,
+            UnsafeEvidencePresenceQuery.CreateRequest().Operation,
+            [UnsafeEvidencePresenceQuery.MethodDefinitionsRowSet],
+            [],
+            queryTerminal);
     }
 
     static (
