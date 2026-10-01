@@ -369,10 +369,10 @@ public sealed class AssemblyInspectionSession :
                 _image.GetMetadataReader(),
                 simpleName);
     }
+
     /// <summary>
-    /// <summary>
-    /// population for this exact image.
-    /// population for this exact image.
+    /// Produces one qualified whole-Library or exact-namespace Type-to-Type
+    /// signature-use population for this exact image.
     /// </summary>
     public MetadataLibrarySignatureUseOutcome LibrarySignatureUses(
         MetadataLibrarySignatureUseRequest request,
