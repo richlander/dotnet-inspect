@@ -165,12 +165,15 @@ public static partial class ResearchDiff
         var comparisons = new List<ResearchComparison>();
         var retained = ImmutableArray.CreateBuilder<RetainedFindingComparison>();
         var projectedWork = new HashSet<ProducerProjectionKey>();
+        var returnTypeCollisions =
+            new Dictionary<ResearchTargetDomainKey, IReadOnlySet<string>>();
         foreach (ResearchProducerWorkResult work in completion.Results)
         {
             ResearchSubjectKey subject = SubjectFromWorkBasis(
                 resolution,
                 population,
-                work.Item.Basis);
+                work.Item.Basis,
+                returnTypeCollisions);
             if (work.Item.Basis
                     is ResearchProducerWorkBasis.Correspondence correspondence
                 && !projectedWork.Add(ProducerProjectionKey.Create(
@@ -452,7 +455,9 @@ public static partial class ResearchDiff
     static ResearchSubjectKey SubjectFromWorkBasis(
         ResearchTargetResolution resolution,
         ResearchAdmittedPopulation population,
-        ResearchProducerWorkBasis basis)
+        ResearchProducerWorkBasis basis,
+        Dictionary<ResearchTargetDomainKey, IReadOnlySet<string>>
+            returnTypeCollisions)
     {
         ResearchTargetAttempt? attempt = basis switch
         {
@@ -492,13 +497,14 @@ public static partial class ResearchDiff
             {
                 ResearchSubjectKey baseSubject =
                     ResearchMemberIdentity.SubjectFromMethod(method);
-                bool includeReturnType =
-                    ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
-                        WorkBasisMethods(population, basis))
-                    .Contains(baseSubject.Id);
+                IReadOnlySet<string> collisions =
+                    ReturnTypeCollisions(
+                        population,
+                        basis,
+                        returnTypeCollisions);
                 return ResearchMemberIdentity.SubjectFromMethod(
                     method,
-                    includeReturnType);
+                    collisions.Contains(baseSubject.Id));
             }
 
             return ResearchMemberIdentity.SubjectFromAnchor(
@@ -518,6 +524,30 @@ public static partial class ResearchDiff
             display,
             scope.DeclaringTypeFullName,
             scope.Selector.RequestedText);
+    }
+
+    static IReadOnlySet<string> ReturnTypeCollisions(
+        ResearchAdmittedPopulation population,
+        ResearchProducerWorkBasis basis,
+        Dictionary<ResearchTargetDomainKey, IReadOnlySet<string>> cache)
+    {
+        if (basis
+            is not ResearchProducerWorkBasis.Correspondence correspondence)
+        {
+            return ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
+                WorkBasisMethods(population, basis));
+        }
+
+        ResearchTargetDomainKey domain = correspondence.Outcome.Domain.Key;
+        if (!cache.TryGetValue(domain, out IReadOnlySet<string>? collisions))
+        {
+            collisions =
+                ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
+                    WorkBasisMethods(population, basis));
+            cache.Add(domain, collisions);
+        }
+
+        return collisions;
     }
 
     static IEnumerable<MethodIdentity> WorkBasisMethods(
