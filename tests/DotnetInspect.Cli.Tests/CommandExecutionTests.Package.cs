@@ -1943,6 +1943,9 @@ public partial class CommandExecutionTests
                 "Latest.Two.dll",
                 selected.GetProperty("asset").GetString());
             Assert.Equal(
+                2,
+                selected.GetProperty("ordinal").GetInt32());
+            Assert.Equal(
                 1,
                 windowDocument.RootElement
                     .GetProperty("selected_count")
@@ -2003,11 +2006,24 @@ public partial class CommandExecutionTests
                     child.GetProperty("asset").GetString()!;
                 string selector =
                     child.GetProperty("selector").GetString()!;
-                string[] args = selector.Split(
-                    ' ',
-                    StringSplitOptions.RemoveEmptyEntries);
+                Assert.Equal(
+                    "package "
+                        + ShellCommandText.Quote(
+                            Path.GetFullPath(packagePath))
+                        + " --tfm "
+                        + ShellCommandText.Quote("net10.0")
+                        + " --library "
+                        + ShellCommandText.Quote(asset),
+                    selector);
                 var navigation = await RunAppAsync(
-                    [.. args, "--tips", "q"]);
+                    "package",
+                    packagePath,
+                    "--tfm",
+                    "net10.0",
+                    "--library",
+                    asset,
+                    "--tips",
+                    "q");
 
                 Assert.Equal(0, navigation.Exit);
                 Assert.Empty(navigation.Error);
@@ -2015,6 +2031,229 @@ public partial class CommandExecutionTests
                     $"# {Path.GetFileName(asset)} (net10.0)",
                     navigation.Output);
             }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ChildSelectorPreservesExplicitTargetFramework()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--tfm",
+                "net8.0",
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            using var document = JsonDocument.Parse(result.Output);
+            JsonElement child = Assert.Single(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            string asset = child.GetProperty("asset").GetString()!;
+            Assert.Equal(
+                "package "
+                    + ShellCommandText.Quote(
+                        Path.GetFullPath(packagePath))
+                    + " --tfm "
+                    + ShellCommandText.Quote("net8.0")
+                    + " --library "
+                    + ShellCommandText.Quote(asset),
+                child.GetProperty("selector").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ChildSelectorQuotesHostileAssetAsInertText()
+    {
+        const string asset =
+            "lib/net10.0/Example.$(id)'s.dll";
+        var (packagePath, tempDir) =
+            CreateLocalPackageWithLibraries(
+                ("Test.HostileSelector", asset, File.ReadAllBytes(
+                    TestAssemblyPath)));
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            using var document = JsonDocument.Parse(result.Output);
+            JsonElement child = Assert.Single(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            Assert.Equal(
+                "package "
+                    + ShellCommandText.Quote(
+                        Path.GetFullPath(packagePath))
+                    + " --tfm "
+                    + ShellCommandText.Quote("net10.0")
+                    + " --library "
+                    + ShellCommandText.Quote(asset),
+                child.GetProperty("selector").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ChildSelectorPreservesReplayableSource()
+    {
+        const string packageId = "Test.PackageSelectorSource";
+        const string asset =
+            "lib/net10.0/Test.PackageSelectorSource.dll";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            packageId,
+            "README.md",
+            "readme");
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                archive.CreateEntryFromFile(
+                    TestAssemblyPath,
+                    asset);
+            }
+
+            var result = await RunAppAsync(
+                "package",
+                $"{packageId}@1.0.0",
+                "--source",
+                tempDir,
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            using var document = JsonDocument.Parse(result.Output);
+            JsonElement child = Assert.Single(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            string selector =
+                child.GetProperty("selector").GetString()!;
+            Assert.Contains(
+                " --tfm " + ShellCommandText.Quote("net10.0"),
+                selector);
+            Assert.Contains(
+                " --source "
+                    + ShellCommandText.Quote(
+                        Path.GetFullPath(tempDir)),
+                selector);
+            Assert.EndsWith(
+                " --library " + ShellCommandText.Quote(asset),
+                selector);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_CountAndRowsAvoidUnselectedLibraryInspection()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalPackageWithLibraries(
+                (
+                    "Test.BoundedChildren",
+                    "lib/net10.0/A.Valid.dll",
+                    File.ReadAllBytes(TestAssemblyPath)),
+                (
+                    "Test.BoundedChildren",
+                    "lib/net10.0/Z.Invalid.dll",
+                    "not assembly metadata"u8.ToArray()));
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                packagePath,
+                "--count",
+                "--tips",
+                "q");
+            var window = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json",
+                "--rows",
+                "1..1",
+                "--tips",
+                "q");
+            var emptyWindow = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json",
+                "--rows",
+                "3..3",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Equal("2", count.Output.Trim());
+            Assert.Empty(count.Error);
+            Assert.Equal(0, window.Exit);
+            Assert.Empty(window.Error);
+            using var windowDocument =
+                JsonDocument.Parse(window.Output);
+            JsonElement selected = Assert.Single(
+                windowDocument.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            Assert.Equal(
+                "lib/net10.0/A.Valid.dll",
+                selected.GetProperty("asset").GetString());
+            Assert.Equal(
+                1,
+                selected.GetProperty("ordinal").GetInt32());
+            Assert.Equal(
+                2,
+                windowDocument.RootElement
+                    .GetProperty("total_count")
+                    .GetInt32());
+
+            Assert.Equal(0, emptyWindow.Exit);
+            Assert.Empty(emptyWindow.Error);
+            using var emptyDocument =
+                JsonDocument.Parse(emptyWindow.Output);
+            Assert.Empty(
+                emptyDocument.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            Assert.Equal(
+                2,
+                emptyDocument.RootElement
+                    .GetProperty("total_count")
+                    .GetInt32());
+            Assert.Equal(
+                0,
+                emptyDocument.RootElement
+                    .GetProperty("selected_count")
+                    .GetInt32());
         }
         finally
         {
@@ -4496,6 +4735,40 @@ public partial class CommandExecutionTests
         var packagePath = Path.Combine(
             tempDir,
             "Test.LargeTool.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalPackageWithLibraries(
+            params (string PackageId, string Asset, byte[] Content)[] libraries)
+    {
+        Assert.NotEmpty(libraries);
+        string packageId = libraries[0].PackageId;
+        Assert.All(
+            libraries,
+            library => Assert.Equal(
+                packageId,
+                library.PackageId));
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-children-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        foreach ((_, string asset, byte[] content) in libraries)
+        {
+            string path = Path.Combine(
+                packageRoot,
+                asset.Replace(
+                    '/',
+                    Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, content);
+        }
+
+        string packagePath = Path.Combine(
+            tempDir,
+            $"{packageId}.1.0.0.nupkg");
         ZipFile.CreateFromDirectory(packageRoot, packagePath);
         return (packagePath, tempDir);
     }

@@ -72,7 +72,12 @@ implicit Minimal Tree. Normal and Detailed Trees and every explicit output
 format list every child. JSON and row formats retain the owner-issued
 population, completion, role, Count outcome, exact asset identity, and child
 selector; row windows, projection, and scalar Count select that population
-rather than returning to the section model.
+rather than returning to the section model. Scalar Count uses owner-issued
+child cardinality without Library declaration inspection. Finite row windows
+select the ordered child population before Library realization and inspection
+while preserving total cardinality and original ordinals. Child selectors
+retain the selected target and safely replayable source/configuration
+arguments; output fails visibly rather than emit an inexact or unsafe selector.
 
 For library inspection, References, Ecosystem Dependencies, Switches, Type
 Forwarders, P/Invoke Methods, and Union Types are measured or structurally

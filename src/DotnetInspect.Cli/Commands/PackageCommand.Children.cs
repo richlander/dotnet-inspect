@@ -123,43 +123,77 @@ public partial class PackageCommand
         string version,
         InspectionOptions options)
     {
-        InspectionEnvelope<PackageChildrenDocument> inspection =
+        PackageChildrenPlan plan = PlanPackageChildren(
+            result,
+            resolution,
+            extractPath,
+            packageName,
+            version,
+            options);
+        (int keepStart, int keepEnd) =
+            options.Rows?.Resolve(plan.Count)
+            ?? (0, plan.Count);
+        if (options.Count)
+        {
+            CountOutput.WriteCount(
+                keepEnd - keepStart,
+                options.OutputPath);
+            return plan.IsComplete
+                ? PackageIntegrityExitCode(result)
+                : 1;
+        }
+
+        PackageChildrenProjection projection =
             await InspectPackageChildrenAsync(
-                    result,
+                    plan,
                     resolution,
                     extractPath,
+                    result,
                     packageName,
                     version,
-                    options,
+                    keepStart,
+                    keepEnd,
                     CancellationToken.None)
                 .ConfigureAwait(false);
+        PackageChildSelectorContext? selectors = null;
+        if ((!projection.Inspection.Content.Libraries.IsEmpty
+                || !projection.Inspection.Content
+                    .RuntimeIdentifierPackages.IsEmpty)
+            && !TryCreatePackageChildSelectorContext(
+                projection.Inspection.Content,
+                options,
+                out selectors,
+                out string? selectorError))
+        {
+            CommandError.Write(selectorError!);
+            return 1;
+        }
         if (!WritePackageChildren(
-                inspection,
+                projection,
                 result,
-                options))
+                options,
+                selectors))
         {
             return 1;
         }
-        foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
+        foreach (InspectionDiagnostic diagnostic
+            in projection.Inspection.Diagnostics)
         {
             CommandError.WriteLine(
                 $"{diagnostic.Code}: {diagnostic.Summary}");
         }
-        return inspection.Content.IsComplete
+        return projection.Inspection.Content.IsComplete
             ? PackageIntegrityExitCode(result)
             : 1;
     }
 
-    private static async ValueTask<
-        InspectionEnvelope<PackageChildrenDocument>>
-        InspectPackageChildrenAsync(
+    private static PackageChildrenPlan PlanPackageChildren(
             InspectionResult result,
             PackageExtractionResult resolution,
             string extractPath,
             string packageName,
             string version,
-            InspectionOptions options,
-            CancellationToken cancellationToken)
+            InspectionOptions options)
     {
         ToolWrapperPackage? requestedToolWrapper =
             result.IsRidSpecificPointerPackage
@@ -185,7 +219,7 @@ public partial class PackageCommand
                             new PackageRuntimeIdentifierChild(
                                 package.RuntimeIdentifier,
                                 package.PackageId)));
-            return PackageChildrenEnvelope(pointer);
+            return PackageChildrenPlan.FromDocument(pointer);
         }
 
         List<PackageChildCandidate> candidates;
@@ -198,20 +232,21 @@ public partial class PackageCommand
                     options.Tfm);
             if (!toolSelection.IsSelected)
             {
-                return toolSelection.Status
+                PackageChildrenDocument document = toolSelection.Status
                     == TfmSelector.PackageLibraryResolutionStatus
                         .NoMatchingTargetFramework
-                    ? PackageChildrenEnvelope(
+                    ?
                         PackageChildrenDocument.UnavailableLibraries(
                             subject,
                             PackageChildrenStatus.NoApplicableTarget,
                             $"No tool Library slice matches target "
-                                + $"'{options.Tfm}'."))
-                    : PackageChildrenEnvelope(
+                                + $"'{options.Tfm}'.")
+                    :
                         PackageChildrenDocument.NoManagedLibraries(
                             subject,
                             "The selected tool payload contains no managed "
-                                + "Libraries."));
+                                + "Libraries.");
+                return PackageChildrenPlan.FromDocument(document);
             }
 
             targetFramework = toolSelection.Tfm;
@@ -256,7 +291,7 @@ public partial class PackageCommand
                     options.Tfm);
             if (!selection.IsSelected)
             {
-                return PackageChildrenEnvelope(
+                return PackageChildrenPlan.FromDocument(
                     CompileSelectionDocument(subject, selection));
             }
 
@@ -281,6 +316,55 @@ public partial class PackageCommand
                 : new InertText.InertString(
                     InertText.TextPolicy.Field,
                     targetFramework));
+        return new(subject, [.. candidates]);
+    }
+
+    private static async ValueTask<PackageChildrenProjection>
+        InspectPackageChildrenAsync(
+            PackageChildrenPlan plan,
+            PackageExtractionResult resolution,
+            string extractPath,
+            InspectionResult result,
+            string packageName,
+            string version,
+            int keepStart,
+            int keepEnd,
+            CancellationToken cancellationToken)
+    {
+        if (plan.Document is { } document)
+        {
+            PackageChildrenDocument selected =
+                SelectPackageChildren(document, keepStart, keepEnd);
+            return new(
+                PackageChildrenEnvelope(selected),
+                plan.Count,
+                keepStart);
+        }
+
+        PackageChildCandidate[] candidates =
+        [
+            .. plan.Candidates
+                .Skip(keepStart)
+                .Take(keepEnd - keepStart),
+        ];
+        if (candidates.Length == 0)
+        {
+            var selected = new PackageChildrenDocument(
+                plan.Subject,
+                PackageChildrenKind.Libraries,
+                plan.Count == 0
+                    ? PackageChildrenStatus.SelectedEmpty
+                    : PackageChildrenStatus.Available,
+                [],
+                [],
+                detail: null,
+                isComplete: true);
+            return new(
+                PackageChildrenEnvelope(selected),
+                plan.Count,
+                keepStart);
+        }
+
         PackageInspectionInput input =
             resolution.AcquiredPayload is { } acquired
                 ? PackageInspectionInput.CreateFromPayload(acquired)
@@ -317,12 +401,42 @@ public partial class PackageCommand
                     candidate,
                     outcomes[candidate.AssetPath])),
         ];
-        return await PackageChildrenInspection.ExecuteLibrariesAsync(
-                subject,
-                targets,
-                cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
+        InspectionEnvelope<PackageChildrenDocument> inspection =
+            await PackageChildrenInspection.ExecuteLibrariesAsync(
+                    plan.Subject,
+                    targets,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        return new(inspection, plan.Count, keepStart);
     }
+
+    private static PackageChildrenDocument SelectPackageChildren(
+        PackageChildrenDocument document,
+        int keepStart,
+        int keepEnd) =>
+        new(
+            document.Subject,
+            document.Kind,
+            document.Status,
+            document.Kind == PackageChildrenKind.Libraries
+                ?
+                [
+                    .. document.Libraries
+                        .Skip(keepStart)
+                        .Take(keepEnd - keepStart),
+                ]
+                : [],
+            document.Kind
+                == PackageChildrenKind.RuntimeIdentifierPackages
+                ?
+                [
+                    .. document.RuntimeIdentifierPackages
+                        .Skip(keepStart)
+                        .Take(keepEnd - keepStart),
+                ]
+                : [],
+            document.Detail,
+            document.IsComplete);
 
     private static PackageChildrenDocument CompileSelectionDocument(
         PackageChildrenSubject subject,
@@ -448,26 +562,19 @@ public partial class PackageCommand
                     + "Share projection."));
 
     private static bool WritePackageChildren(
-        InspectionEnvelope<PackageChildrenDocument> inspection,
+        PackageChildrenProjection projection,
         InspectionResult package,
-        InspectionOptions options)
+        InspectionOptions options,
+        PackageChildSelectorContext? selectors)
     {
+        InspectionEnvelope<PackageChildrenDocument> inspection =
+            projection.Inspection;
         PackageChildrenDocument content = inspection.Content;
-        string packageSelector =
-            PackageSelector(content, options);
         PackageChildOutputRow[] allRows =
-            PackageChildRows(content, packageSelector);
-        PackageChildOutputRow[] selectedRows =
-        [
-            .. RowWindow.Apply(options.Rows, allRows),
-        ];
-        if (options.Count)
-        {
-            CountOutput.WriteCount(
-                selectedRows.Length,
-                options.OutputPath);
-            return true;
-        }
+            PackageChildRows(
+                content,
+                selectors,
+                projection.OrdinalOffset);
 
         var outputDocument = new PackageChildrenOutputDocument(
             content.Subject.PackageId.ToString(),
@@ -477,9 +584,9 @@ public partial class PackageCommand
             content.Status,
             content.IsComplete,
             content.Detail?.ToString(),
+            projection.TotalCount,
             allRows.Length,
-            selectedRows.Length,
-            selectedRows);
+            allRows);
         if (options.EnvelopeOutput)
         {
             var envelope =
@@ -508,8 +615,8 @@ public partial class PackageCommand
                 package,
                 content,
                 outputDocument,
-                selectedRows,
-                packageSelector,
+                allRows,
+                projection.TotalCount,
                 options));
         return true;
     }
@@ -520,7 +627,7 @@ public partial class PackageCommand
         PackageChildrenDocument content,
         PackageChildrenOutputDocument outputDocument,
         IReadOnlyList<PackageChildOutputRow> selectedRows,
-        string packageSelector,
+        int totalCount,
         InspectionOptions options)
     {
         switch (options.Format)
@@ -533,7 +640,7 @@ public partial class PackageCommand
                         output,
                         content,
                         selectedRows,
-                        packageSelector,
+                        totalCount,
                         options);
                 }
                 else
@@ -555,7 +662,7 @@ public partial class PackageCommand
                     output,
                     content,
                     selectedRows,
-                    packageSelector,
+                    totalCount,
                     options);
                 return;
             case OutputFormat.Mermaid:
@@ -564,6 +671,7 @@ public partial class PackageCommand
                     package,
                     content,
                     selectedRows,
+                    totalCount,
                     options,
                     new MermaidFormatter());
                 return;
@@ -575,7 +683,7 @@ public partial class PackageCommand
                         output,
                         content,
                         selectedRows,
-                        packageSelector,
+                        totalCount,
                         options);
                     return;
                 }
@@ -584,6 +692,7 @@ public partial class PackageCommand
                     package,
                     content,
                     selectedRows,
+                    totalCount,
                     options,
                     new PlainTextFormatter());
                 return;
@@ -595,7 +704,7 @@ public partial class PackageCommand
                         output,
                         content,
                         selectedRows,
-                        packageSelector,
+                        totalCount,
                         options);
                     return;
                 }
@@ -604,6 +713,7 @@ public partial class PackageCommand
                     package,
                     content,
                     selectedRows,
+                    totalCount,
                     options,
                     new MarkdownFormatter());
                 return;
@@ -615,14 +725,10 @@ public partial class PackageCommand
         InspectionResult package,
         PackageChildrenDocument document,
         IReadOnlyList<PackageChildOutputRow> selectedRows,
+        int totalCount,
         InspectionOptions options,
         IMarkoutFormatter formatter)
     {
-        bool sourceHasRows =
-            !document.Libraries.IsEmpty
-            || !document.RuntimeIdentifierPackages.IsEmpty;
-        PackageChildrenDocument selectedDocument =
-            SelectPackageChildren(document, selectedRows);
         if (formatter is not MermaidFormatter)
         {
             output.WriteLine(DescribePackageChildrenSubject(
@@ -631,7 +737,7 @@ public partial class PackageCommand
         }
         var writer = new MarkoutWriter(output, formatter);
         List<TreeNode> nodes = PackageChildrenNodes(
-            selectedDocument,
+            document,
             options.Verbosity,
             allowMinimalCollapse:
                 !options.FormatFlagExplicitlySet
@@ -646,7 +752,7 @@ public partial class PackageCommand
                 },
             ]);
         }
-        else if (sourceHasRows && selectedRows.Count == 0)
+        else if (totalCount > 0 && selectedRows.Count == 0)
         {
             writer.WriteTree([]);
         }
@@ -661,15 +767,13 @@ public partial class PackageCommand
         TextWriter output,
         PackageChildrenDocument document,
         IReadOnlyList<PackageChildOutputRow> selectedRows,
-        string packageSelector,
+        int totalCount,
         InspectionOptions options)
     {
         PackageChildOutputRow[] presentationRows =
             selectedRows.Count > 0
                 ? [.. selectedRows]
-                : PackageChildRows(
-                    document,
-                    packageSelector).Length == 0
+                : totalCount == 0
                     ?
                     [
                         StatusRow(document),
@@ -701,15 +805,13 @@ public partial class PackageCommand
         TextWriter output,
         PackageChildrenDocument document,
         IReadOnlyList<PackageChildOutputRow> selectedRows,
-        string packageSelector,
+        int totalCount,
         InspectionOptions options)
     {
         PackageChildOutputRow[] presentationRows =
             selectedRows.Count > 0
                 ? [.. selectedRows]
-                : PackageChildRows(
-                    document,
-                    packageSelector).Length == 0
+                : totalCount == 0
                     ?
                     [
                         StatusRow(document),
@@ -785,40 +887,10 @@ public partial class PackageCommand
             }),
     ];
 
-    private static PackageChildrenDocument SelectPackageChildren(
-        PackageChildrenDocument document,
-        IReadOnlyList<PackageChildOutputRow> selectedRows) =>
-        new(
-            document.Subject,
-            document.Kind,
-            document.Status,
-            document.Kind == PackageChildrenKind.Libraries
-                ?
-                [
-                    .. selectedRows
-                        .Where(static row => row.Ordinal is not null)
-                        .Select(
-                            row => document.Libraries[
-                                row.Ordinal!.Value - 1]),
-                ]
-                : [],
-            document.Kind
-                == PackageChildrenKind.RuntimeIdentifierPackages
-                ?
-                [
-                    .. selectedRows
-                        .Where(static row => row.Ordinal is not null)
-                        .Select(
-                            row => document.RuntimeIdentifierPackages[
-                                row.Ordinal!.Value - 1]),
-                ]
-                : [],
-            document.Detail,
-            document.IsComplete);
-
     private static PackageChildOutputRow[] PackageChildRows(
         PackageChildrenDocument document,
-        string packageSelector) =>
+        PackageChildSelectorContext? selectors,
+        int ordinalOffset) =>
         document.Kind switch
         {
             PackageChildrenKind.Libraries =>
@@ -827,8 +899,8 @@ public partial class PackageCommand
                     (library, index) => LibraryRow(
                         document,
                         library,
-                        packageSelector,
-                        index + 1)),
+                        selectors!.LibraryCommand,
+                        ordinalOffset + index + 1)),
             ],
             PackageChildrenKind.RuntimeIdentifierPackages =>
             [
@@ -836,7 +908,8 @@ public partial class PackageCommand
                     (package, index) => RuntimeIdentifierPackageRow(
                         document,
                         package,
-                        index + 1)),
+                        selectors!.SourceArguments,
+                        ordinalOffset + index + 1)),
             ],
             PackageChildrenKind.NoManagedLibraries => [],
             _ => throw new InvalidOperationException(
@@ -846,7 +919,7 @@ public partial class PackageCommand
     private static PackageChildOutputRow LibraryRow(
         PackageChildrenDocument document,
         PackageLibraryChild library,
-        string packageSelector,
+        string libraryCommand,
         int ordinal)
     {
         (int? count, string countStatus, string? countDetail) =
@@ -866,8 +939,8 @@ public partial class PackageCommand
             };
         string assetPath = library.AssetPath.ToString();
         string selector =
-            $"package {QuoteSelector(packageSelector)} "
-                + $"--library {QuoteSelector(assetPath)}";
+            libraryCommand
+                + $" --library {ShellCommandText.Quote(assetPath)}";
         return new(
             ordinal,
             "Library",
@@ -886,6 +959,7 @@ public partial class PackageCommand
     private static PackageChildOutputRow RuntimeIdentifierPackageRow(
         PackageChildrenDocument document,
         PackageRuntimeIdentifierChild package,
+        string sourceArguments,
         int ordinal)
     {
         string packageId = package.PackageId.ToString();
@@ -898,7 +972,9 @@ public partial class PackageCommand
             package.RuntimeIdentifier.ToString(),
             null,
             null,
-            $"package {QuoteSelector($"{packageId}@{version}")}",
+            "package "
+                + ShellCommandText.Quote($"{packageId}@{version}")
+                + sourceArguments,
             null,
             null,
             "available",
@@ -922,20 +998,48 @@ public partial class PackageCommand
             document.Status.ToString(),
             document.Detail?.ToString());
 
-    private static string QuoteSelector(string value) =>
-        value.Any(char.IsWhiteSpace)
-            ? $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\""
-            : value;
-
-    private static string PackageSelector(
+    private static bool TryCreatePackageChildSelectorContext(
         PackageChildrenDocument document,
-        InspectionOptions options)
+        InspectionOptions options,
+        out PackageChildSelectorContext? selectors,
+        out string? error)
     {
+        selectors = null;
+        error = null;
         string requested = options.PackageArgs.Single();
-        return File.Exists(requested) || Directory.Exists(requested)
+        bool local =
+            File.Exists(requested)
+            || Directory.Exists(requested);
+        string packageSelector = local
             ? Path.GetFullPath(requested)
             : $"{document.Subject.PackageId}"
                 + $"@{document.Subject.PackageVersion}";
+        if (!PackageReplaySourceArguments.TryCreate(
+                options.SourceOptions,
+                "package",
+                out PackageReplaySources? replaySources,
+                out error))
+        {
+            return false;
+        }
+
+        string sourceArguments =
+            PackageReplaySourceArguments.Format(replaySources);
+        if (sourceArguments.Length > 0)
+            sourceArguments = " " + sourceArguments;
+        string libraryCommand =
+            "package "
+                + ShellCommandText.Quote(packageSelector);
+        if (document.Subject.TargetFramework is { } framework)
+        {
+            libraryCommand +=
+                " --tfm "
+                + ShellCommandText.Quote(framework.ToString());
+        }
+        if (!local)
+            libraryCommand += sourceArguments;
+        selectors = new(libraryCommand, sourceArguments);
+        return true;
     }
 
     private static string DescribePackageChildrenSubject(
@@ -1137,6 +1241,45 @@ public partial class PackageCommand
         string AssemblyName,
         string? TargetFramework,
         PackageLibraryChildRole Role);
+
+    private sealed record PackageChildrenPlan(
+        PackageChildrenSubject Subject,
+        ImmutableArray<PackageChildCandidate> Candidates,
+        PackageChildrenDocument? Document = null)
+    {
+        internal PackageChildrenPlan(
+            PackageChildrenSubject subject,
+            ImmutableArray<PackageChildCandidate> candidates)
+            : this(subject, candidates, Document: null)
+        {
+        }
+
+        internal int Count =>
+            Document?.Kind switch
+            {
+                PackageChildrenKind.Libraries =>
+                    Document.Libraries.Length,
+                PackageChildrenKind.RuntimeIdentifierPackages =>
+                    Document.RuntimeIdentifierPackages.Length,
+                _ => Candidates.Length,
+            };
+
+        internal bool IsComplete =>
+            Document?.IsComplete ?? true;
+
+        internal static PackageChildrenPlan FromDocument(
+            PackageChildrenDocument document) =>
+            new(document.Subject, [], document);
+    }
+
+    private sealed record PackageChildrenProjection(
+        InspectionEnvelope<PackageChildrenDocument> Inspection,
+        int TotalCount,
+        int OrdinalOffset);
+
+    private sealed record PackageChildSelectorContext(
+        string LibraryCommand,
+        string SourceArguments);
 }
 
 internal sealed record PackageChildOutputRow(

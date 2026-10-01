@@ -67,7 +67,7 @@ public static partial class PackageExports
                 nameof(rootRequest));
         }
 
-        BrowserPackageSurface surface =
+        BrowserPackageRootLoadResult result =
             await BrowserPackageWorkspace.RunPackageOperationAsync(
                 async deadline =>
                 {
@@ -81,15 +81,26 @@ public static partial class PackageExports
                                 [coordinate],
                                 deadline.Token).ConfigureAwait(false);
                     BrowserInspectionScope scope = scopeLease.Scope;
-                    return BrowserPackageWireProjection.Project(
-                        BrowserPackageSurfaceProjection.ProjectSurface(
-                            scope,
-                            scope.Coordinates[0]));
+                    InspectionEnvelope<PackageChildrenDocument>
+                        packageChildren =
+                            await PackageChildrenAsync(
+                                    scope,
+                                    scope.Coordinates[0],
+                                    deadline.Token)
+                                .ConfigureAwait(false);
+                    return new BrowserPackageRootLoadResult(
+                        BrowserPackageWireProjection.Project(
+                            packageChildren),
+                        BrowserPackageWireProjection.Project(
+                            BrowserPackageSurfaceProjection.ProjectSurface(
+                                scope,
+                                scope.Coordinates[0])));
                 },
                 BrowserPackageWorkspace.PackageOperationTimeout);
         return JsonSerializer.Serialize(
-            surface,
-            BrowserPackageJsonContext.Default.BrowserPackageSurface);
+            result,
+            BrowserPackageJsonContext.Default
+                .BrowserPackageRootLoadResult);
     }
 
     static async Task<BrowserPackageLoadResult> PackageSurfaceAsync(

@@ -711,9 +711,14 @@ Unselected Markdown, plain text, JSON, envelope, table, TSV, and JSONL output
 all consume that same Package children document. JSON carries subject,
 completion, total and selected Counts, and typed child rows. Row formats expose
 the exact asset ID, asset path, child role, declaration Count outcome, and a
-copyable `selector` for the same Library occurrence or RID Package. `--rows`
-windows children, `--count` counts the selected child population, and
-`--fields` or `--columns` projects child-row columns.
+copyable, shell-quoted `selector` for the same Library occurrence or RID
+Package. Library selectors retain the selected target and replayable
+source/configuration options; output fails visibly when those options cannot be
+disclosed safely. `--rows` windows children before realizing or inspecting the
+selected Libraries, `--count` counts the owner-issued child population without
+inspecting Library declarations, and `--fields` or `--columns` projects
+child-row columns. Windows retain the complete population Count and original
+child ordinals.
 
 Select `Package Info` explicitly for Package facts. A bare Package Tree is
 distinct from the dependency graph: select `Dependency Hierarchy` together

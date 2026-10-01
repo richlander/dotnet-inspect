@@ -70,6 +70,10 @@ public sealed record BrowserPackageLoadResult(
     BrowserPackageChildrenInspection? PackageChildren,
     BrowserPackageSurface? Surface);
 
+public sealed record BrowserPackageRootLoadResult(
+    BrowserPackageChildrenInspection PackageChildren,
+    BrowserPackageSurface Surface);
+
 public sealed record BrowserPackageChildrenInspection(
     BrowserPackageChildren Content,
     BrowserInspectionShare Share,
@@ -1340,6 +1344,7 @@ public sealed record BrowserPackageVersions(
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageVersions))]
 [JsonSerializable(typeof(BrowserPackageLoadResult))]
+[JsonSerializable(typeof(BrowserPackageRootLoadResult))]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]

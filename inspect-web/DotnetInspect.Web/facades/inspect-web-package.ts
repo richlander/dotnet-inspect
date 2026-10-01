@@ -1040,6 +1040,11 @@ export interface BrowserPackageQueryTermDescriptor {
   readonly multiline: boolean;
 }
 
+export interface BrowserPackageRootLoadResult {
+  readonly packageChildren: BrowserPackageChildrenInspection;
+  readonly surface: BrowserPackageSurface;
+}
+
 export interface BrowserPackageRuntimeIdentifierChild {
   readonly runtimeIdentifier: string;
   readonly packageId: string;
@@ -2162,10 +2167,10 @@ export async function queryPackagePruning(packageId: string, version: string, ta
   return $parsed as BrowserPackagePruningResult;
 }
 
-export async function queryPackageRoot(rootRequest: string): Promise<BrowserPackageSurface> {
+export async function queryPackageRoot(rootRequest: string): Promise<BrowserPackageRootLoadResult> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackageRoot.976702342"](rootRequest);
   const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserPackageSurface;
+  return $parsed as BrowserPackageRootLoadResult;
 }
 
 export async function queryPackageVersions(packageId: string, currentVersion: string): Promise<BrowserPackageVersions> {

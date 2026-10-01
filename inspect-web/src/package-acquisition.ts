@@ -16,6 +16,7 @@ import type {
   BrowserPackageChildrenInspection,
   BrowserPackageInfoMeasurementInspection,
   BrowserPackageLoadResult,
+  BrowserPackageRootLoadResult,
   BrowserPackageSurface as PackageSurfaceFromPackageFacade,
   BrowserPackageVersionSettlementInspection,
   BrowserParameterSurface as ParameterSurfaceFromPackageFacade,
@@ -401,8 +402,35 @@ export function packageQueryAssemblyId(
   return packageModel.assemblyId || packageModel.selectedCompileAssetId || "";
 }
 
+function isPackageChildrenInspection(
+  value: unknown,
+): value is BrowserPackageChildrenInspection {
+  if (typeof value !== "object" || value === null || !("content" in value))
+    return false;
+  const content = value.content;
+  return typeof content === "object"
+    && content !== null
+    && "libraries" in content;
+}
+
+function isPackageVersionSettlementInspection(
+  value: unknown,
+): value is BrowserPackageVersionSettlementInspection {
+  if (typeof value !== "object" || value === null || !("content" in value))
+    return false;
+  const content = value.content;
+  return typeof content === "object"
+    && content !== null
+    && "kind" in content
+    && !("libraries" in content);
+}
+
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
+): AppPackage;
+export function createNuGetPackageModel(
+  result: InspectedPackageSurface,
+  packageChildren: BrowserPackageChildrenInspection,
 ): AppPackage;
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
@@ -417,10 +445,22 @@ export function createNuGetPackageModel(
 ): AppPackage;
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
-  versionSettlement?: BrowserPackageVersionSettlementInspection,
+  versionSettlementOrChildren?:
+    BrowserPackageVersionSettlementInspection
+    | BrowserPackageChildrenInspection,
   packageInfo?: BrowserPackageInfoMeasurementInspection,
-  packageChildren?: BrowserPackageChildrenInspection,
+  settledPackageChildren?: BrowserPackageChildrenInspection,
 ): AppPackage {
+  const rootPackageChildren =
+    isPackageChildrenInspection(versionSettlementOrChildren)
+      ? versionSettlementOrChildren
+      : undefined;
+  const versionSettlement =
+    isPackageVersionSettlementInspection(versionSettlementOrChildren)
+      ? versionSettlementOrChildren
+      : undefined;
+  const packageChildren =
+    rootPackageChildren ?? settledPackageChildren;
   const rootOnly = result.compileLibrary.status === "NoCompileAssets"
     || result.compileLibrary.status === "EmptyCompileGroup"
     || result.compileLibrary.status === "NoMatchingTargetFramework";
@@ -770,7 +810,7 @@ function promoteRuntimePackagePrimary(
 }
 
 export interface PackageAcquisitionDependencies {
-  queryPackageRoot?(rootRequest: string): Promise<InspectedPackageSurface>;
+  queryPackageRoot?(rootRequest: string): Promise<BrowserPackageRootLoadResult>;
   queryPackage(
     packageId: string,
     version: string,
@@ -900,7 +940,10 @@ export function createPackageAcquisition(
         if (!dependencies.queryPackageRoot) {
           throw new Error("Exact package Root opening is unavailable.");
         }
-        result = await dependencies.queryPackageRoot(request.rootRequest);
+        const rootLoad =
+          await dependencies.queryPackageRoot(request.rootRequest);
+        packageChildren = rootLoad.packageChildren;
+        result = rootLoad.surface;
       } else {
         const loadResult = await dependencies.queryPackage(
           request.packageId,
@@ -941,6 +984,8 @@ export function createPackageAcquisition(
             versionSettlement,
             packageInfo,
             packageChildren)
+          : packageChildren
+            ? createNuGetPackageModel(result, packageChildren)
           : createNuGetPackageModel(result);
       dependencies.retainPackage(packageModel, request.replacePackage);
       dependencies.recordRecentPackage(

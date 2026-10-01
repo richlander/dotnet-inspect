@@ -24,6 +24,7 @@ import type {
   BrowserMemberSurface,
   BrowserPackageChildrenInspection,
   BrowserPackageInfoMeasurementInspection,
+  BrowserPackageRootLoadResult,
   BrowserPackageSurface,
   BrowserPackageVersionSettlementInspection,
   BrowserTypeSurface,
@@ -262,6 +263,16 @@ function packageChildren(
       reason: "No canonical Workspace share projection.",
     },
     diagnostics: [],
+  };
+}
+
+function packageRootLoad(
+  surface: BrowserPackageSurface,
+  counts?: number[],
+): BrowserPackageRootLoadResult {
+  return {
+    packageChildren: packageChildren(surface, counts),
+    surface,
   };
 }
 
@@ -744,13 +755,16 @@ function deferred<T>() {
 test("query results open through the exact opaque Root request", async () => {
   const rootRequest = "owner-issued-root-request";
   const opened: string[] = [];
+  const declarationCount = 9;
   const acquisition = createPackageAcquisition(acquisitionDependencies({
     queryPackage: async () => {
       assert.fail("Exact Root opening must not use display coordinates.");
     },
     queryPackageRoot: async request => {
       opened.push(request);
-      return packageSurface({ activeFramework: "net9.0" });
+      const surface =
+        packageSurface({ activeFramework: "net9.0" });
+      return packageRootLoad(surface, [declarationCount]);
     },
   }));
 
@@ -765,6 +779,7 @@ test("query results open through the exact opaque Root request", async () => {
   assert.equal(result?.id, "Example.Package");
   assert.equal(result?.version, "1.2.3");
   assert.equal(result?.activeFramework, "net9.0");
+  assert.equal(result?.assemblies[0]?.publicTypes, declarationCount);
 });
 
 test("missing exact Root capability never falls back to coordinate opening", async () => {
@@ -860,7 +875,7 @@ test("exact Root opening failure remains visible without coordinate retry", asyn
 });
 
 test("stale exact Root responses do not publish after navigation changes", async () => {
-  const response = deferred<BrowserPackageSurface>();
+  const response = deferred<BrowserPackageRootLoadResult>();
   const events: string[] = [];
   let current = true;
   const acquisition = createPackageAcquisition(acquisitionDependencies({
@@ -881,7 +896,7 @@ test("stale exact Root responses do not publish after navigation changes", async
     isCurrent: () => current,
   });
   current = false;
-  response.resolve(packageSurface());
+  response.resolve(packageRootLoad(packageSurface()));
 
   assert.equal(await request, null);
   assert.deepEqual(events, []);
