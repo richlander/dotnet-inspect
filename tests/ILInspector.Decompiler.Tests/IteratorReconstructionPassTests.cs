@@ -1002,6 +1002,7 @@ public class IteratorReconstructionPassTests
     [InlineData("inner-resume-restores-outer-state")]
     [InlineData("missing-inner-reset")]
     [InlineData("outer-yield-state-not-dispatched")]
+    [InlineData("fault-range-excludes-move-next")]
     public void NestedForeachDelegationIterator_MalformedStateResourceRouteDeclines(string shape)
     {
         using var source = MetadataSource.Open(typeof(IteratorUsingSamples).Assembly.Location);
@@ -1087,6 +1088,27 @@ public class IteratorReconstructionPassTests
                             Value: Constant { Value: 2 },
                         });
                     stateStore.Value.ReplaceWith(new Constant(3, stateStore.Field.Type));
+                }
+                else if (shape == "fault-range-excludes-move-next"
+                    && method.Name == "MoveNext")
+                {
+                    var region = Assert.Single(imported.Regions);
+                    var firstMoveNext = imported.Descendants.OfType<Call>()
+                        .Where(call => call.Callee.Name == "MoveNext")
+                        .OrderBy(call => call.SourceOffset)
+                        .First();
+                    int shortenedStart = imported.Body.Blocks
+                        .Select(block => block.StartOffset)
+                        .First(offset => offset > firstMoveNext.SourceOffset);
+                    int originalEnd = region.TryOffset + region.TryLength;
+                    imported.Regions =
+                    [
+                        region with
+                        {
+                            TryOffset = shortenedStart,
+                            TryLength = originalEnd - shortenedStart,
+                        },
+                    ];
                 }
 
                 return imported;

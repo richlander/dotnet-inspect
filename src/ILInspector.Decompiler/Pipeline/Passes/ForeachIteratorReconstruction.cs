@@ -949,19 +949,7 @@ internal static class ForeachIteratorReconstruction
         resources = [];
         yieldRunningStates = [];
         if (context.ImportMethodBody is null
-            || work.Regions is not [{ Kind: HandlerKind.Fault }]
-            || work.Body.Blocks.Count(block => block.Children is
-            [
-                ExpressionStatement
-            {
-                Expression: Call
-                {
-                    Callee.Name: "System.IDisposable.Dispose",
-                    Arguments: [LoadArgument { Index: 0 }],
-                },
-            },
-                EndFinally,
-            ]) != 1)
+            || !HasNestedDelegationFaultShell(work))
         {
             return false;
         }
@@ -1117,6 +1105,61 @@ internal static class ForeachIteratorReconstruction
         }
 
         return true;
+    }
+
+    static bool HasNestedDelegationFaultShell(IrFunction work)
+    {
+        if (work.Regions is not
+            [
+                {
+                    Kind: HandlerKind.Fault,
+                    FilterOffset: -1,
+                    CatchType: null,
+                } region,
+            ]
+            || work.ExceptionInstructions?.Instructions is not { Length: > 0 } instructions
+            || work.Body.Blocks is not [var first, ..])
+        {
+            return false;
+        }
+
+        int handlerIndex = work.Body.IndexOfOffset(region.HandlerOffset);
+        if (handlerIndex < 1
+            || handlerIndex != work.Body.Blocks.Count - 2
+            || work.Body.Blocks[handlerIndex].Children is not
+            [
+                ExpressionStatement
+                {
+                    Expression: Call
+                    {
+                        Callee.Name: "System.IDisposable.Dispose",
+                        Arguments: [LoadArgument { Index: 0 }],
+                    },
+                },
+                EndFinally,
+            ])
+        {
+            return false;
+        }
+
+        var handler = work.Body.Blocks[handlerIndex];
+        long tryEnd = (long)region.TryOffset + region.TryLength;
+        long handlerEnd = (long)region.HandlerOffset + region.HandlerLength;
+        if (region.TryLength <= 0
+            || region.HandlerLength <= 0
+            || region.TryOffset != first.StartOffset
+            || tryEnd != region.HandlerOffset
+            || region.HandlerOffset != handler.StartOffset
+            || handlerEnd != work.Body.Blocks[handlerIndex + 1].StartOffset
+            || handlerEnd >= instructions[^1].NextOffset)
+        {
+            return false;
+        }
+
+        return work.Body.Blocks
+            .Take(handlerIndex)
+            .All(block => block.StartOffset >= region.TryOffset
+                && block.StartOffset < tryEnd);
     }
 
     static Call? FindSingleHelperCall(IEnumerable<Call> calls, MethodRef helper)
