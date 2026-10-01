@@ -44,6 +44,9 @@ import { workspaceDependencyKey } from "../src/package-inspection.ts";
 import {
   isProductHomeDemosPath,
 } from "../src/product-home-demos.ts";
+import {
+  isProductEcosystemsPath,
+} from "../src/product-ecosystems.ts";
 import type { SavedWorkspace } from "../src/saved-workspaces.ts";
 import type { SpotlightPackageResult } from "../src/spotlight.ts";
 import type { WorkspaceFocusTarget } from "../src/workspace-subject.ts";
@@ -679,7 +682,8 @@ function harness() {
     },
     typeLensesFor, browserCreatedCallGraphTabIds,
     workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
-    parseWorkspaceLocation, parseWorkspaceLocationAsync, isProductHomeDemosPath,
+    parseWorkspaceLocation, parseWorkspaceLocationAsync,
+    isProductHomeDemosPath, isProductEcosystemsPath,
     inspectDecodeWorkspaceShareState: (value: string) =>
       controls.decodeWorkspace?.(value) ?? Promise.resolve(decode(value)),
     requestAnimationFrame: (action: () => void) => frames.push(action),

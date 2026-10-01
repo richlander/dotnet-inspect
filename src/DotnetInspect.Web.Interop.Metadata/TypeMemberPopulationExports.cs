@@ -298,12 +298,13 @@ public static partial class MetadataExports
         string accessibility) =>
         accessibility.Trim().ToLowerInvariant() switch
         {
+            "all" => MetadataMethodAccessibilityFilter.All,
             "public" => MetadataMethodAccessibilityFilter.Public,
             "protected" => MetadataMethodAccessibilityFilter.Protected,
             "internal" => MetadataMethodAccessibilityFilter.Internal,
             "private" => MetadataMethodAccessibilityFilter.Private,
             _ => throw new ArgumentException(
-                "Accessibility must be public, protected, internal, or private.",
+                "Accessibility must be all, public, protected, internal, or private.",
                 nameof(accessibility)),
         };
 
