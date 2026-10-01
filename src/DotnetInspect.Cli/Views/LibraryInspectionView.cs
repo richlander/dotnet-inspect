@@ -783,7 +783,7 @@ public class LibraryInspectionView
 
     public bool HasTopLeverage =>
         _data.TopLeverageQueryResult is TopLeverageResult.Available
-            { Methods.IsEmpty: false };
+        { Methods.IsEmpty: false };
 
     // Rows arrive pre-ranked from Analysis; preserve that order (most leveraged first).
     [MarkoutSection(Name = "Top Leverage", ShowWhenProperty = nameof(HasTopLeverage))]
@@ -832,7 +832,7 @@ public class LibraryInspectionView
     public bool HasImplementationProfiles =>
         _data.ImplementationProfilesQueryResult
             is ImplementationProfilesResult.Available
-            { Profiles.IsEmpty: false };
+        { Profiles.IsEmpty: false };
 
     public bool HasLibraryMetrics =>
         _data.LibraryMetricsQueryResult
@@ -918,6 +918,83 @@ public class LibraryInspectionView
                 default:
                     return null;
             }
+        }
+    }
+
+    public bool HasNameFamilies =>
+        _data.NameFamilyQueryResult
+            is LibraryNameFamilyQueryResult.Available
+        { FamilyRows.IsEmpty: false };
+
+    [MarkoutSection(
+        Name = SectionNames.NameFamilies,
+        ShowWhenProperty = nameof(HasNameFamilies))]
+    public List<NameFamilyRow>? NameFamiliesSection
+    {
+        get
+        {
+            if (_data.NameFamilyQueryResult
+                is not LibraryNameFamilyQueryResult.Available available)
+            {
+                return null;
+            }
+
+            Dictionary<
+                MetadataTypeDefinitionAddress,
+                LibraryNameFamilyTypeRow> types =
+                    available.Document.Types.ToDictionary(
+                        static row => row.Type);
+            return
+            [
+                .. available.FamilyRows.Select(family =>
+                {
+                    string familyName =
+                        family.Identity.Kind
+                            == LibraryNameFamilyKind.OneWordSuffix
+                        ? family.Identity.Words[0]
+                        : family.Identity.Words[0]
+                            + family.Identity.Separator
+                            + family.Identity.Words[1];
+                    string[] examples =
+                    [
+                        .. family.Types
+                            .Take(5)
+                            .Select(address =>
+                            {
+                                MetadataTypeDefinitionName name =
+                                    types[address].Name;
+                                string nested = string.Join(
+                                    ".",
+                                    name.Segments);
+                                return name.Namespace.Length == 0
+                                    ? nested
+                                    : $"{name.Namespace}.{nested}";
+                            }),
+                    ];
+                    string exampleText = string.Join(
+                        ", ",
+                        examples.Select(MarkoutInline.Code));
+                    if (family.Types.Length > examples.Length)
+                    {
+                        exampleText +=
+                            $" (+{family.Types.Length - examples.Length:N0})";
+                    }
+
+                    return new NameFamilyRow(
+                        MarkoutInline.Code(familyName),
+                        family.Identity.Kind
+                            == LibraryNameFamilyKind.OneWordSuffix
+                            ? "one word"
+                            : "two word",
+                        family.TypeCount,
+                        family.PublicTypeCount,
+                        family.DistinctNamespaceCount,
+                        exampleText,
+                        LibraryNameFamilyQuery.PopulationToken(
+                            available.Population.Kind),
+                        available.Document.Provenance.State.ToString());
+                }),
+            ];
         }
     }
 
