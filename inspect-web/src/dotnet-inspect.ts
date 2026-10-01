@@ -85,6 +85,7 @@ import {
   bodyTargetMatchesOverload,
   captureLibraryScope,
   filterMemberGroups,
+  memberMatchesTrait,
   invalidateGraphMemberNavigationWork,
   invalidateMemberCallGraphWork,
   invalidateMemberDestinationWork,
@@ -6614,7 +6615,9 @@ function memberSelectionIsAvailable(
 }
 
 function memberKinds(type: AppTypeSurface) {
-  const kinds = new Set(selectedMemberGroups(type).map(group => group.kind));
+  const counts = currentTypeMemberPopulation(type)?.selectorCounts.kinds;
+  const kinds = new Set(counts?.map(count => count.value)
+    ?? selectedMemberGroups(type).map(group => group.kind));
   if (state.memberKindFilter !== "all") {
     kinds.add(state.memberKindFilter);
   }
@@ -6635,18 +6638,17 @@ function isMemberAccessibility(value: string): value is MemberAccessibility {
 }
 
 function availableMemberTraits(type: AppTypeSurface) {
-  const publicMembers =
-    selectedMemberGroups(type).flatMap(group => group.overloads);
-  return MEMBER_TRAITS.filter(([property]) =>
-    property === state.memberTraitFilter
-    || publicMembers.some(member => member[property]));
+  void type;
+  return MEMBER_TRAITS;
 }
 
 function renderMemberFilterControls(type: AppTypeSurface) {
   const kinds = memberKinds(type);
   const accessibilities = memberAccessibilities(type);
   const traits = availableMemberTraits(type);
-  const composition = currentTypeMemberPopulation(type)?.composition;
+  const population = currentTypeMemberPopulation(type);
+  const composition = population?.composition;
+  const selectorCounts = population?.selectorCounts;
   const accessibilityCount = (accessibility: MemberAccessibility) => {
     if (!composition) return null;
     return accessibility === "all"
@@ -6657,7 +6659,22 @@ function renderMemberFilterControls(type: AppTypeSurface) {
       : composition[accessibility];
   };
   const activeTrait = traits.find(
-    ([property]) => property === state.memberTraitFilter)?.[1];
+    ([value]) => value === state.memberTraitFilter)?.[1];
+  const kindCount = (kind: string) =>
+    selectorCounts?.kinds.find(count => count.value === kind)?.count
+      ?? (kind === state.memberKindFilter ? 0 : null);
+  const traitCount = (trait: string) => {
+    if (!selectorCounts) return null;
+    switch (trait) {
+      case "": return selectorCounts.traits.all;
+      case "static": return selectorCounts.traits.static;
+      case "instance": return selectorCounts.traits.instance;
+      case "virtual": return selectorCounts.traits.virtual;
+      case "interface": return selectorCounts.traits.interface;
+      case "extensions": return selectorCounts.traits.extensions;
+      default: return null;
+    }
+  };
   const filterSummary = [
     state.memberTextFilter ? `text: ${state.memberTextFilter}` : "",
     state.memberKindFilter === "all"
@@ -6681,8 +6698,11 @@ function renderMemberFilterControls(type: AppTypeSurface) {
         <label class="member-filter-select">
           <span>Kind</span>
           <select class="scope-select" data-member-kind-filter aria-label="Member kind">
-            <option value="all" ${state.memberKindFilter === "all" ? "selected" : ""}>all kinds</option>
-            ${kinds.map(kind => `<option value="${escapeHtml(kind)}" ${state.memberKindFilter === kind ? "selected" : ""}>${escapeHtml(kind.replaceAll("-", " "))}</option>`).join("")}
+            <option value="all" ${state.memberKindFilter === "all" ? "selected" : ""}>all kinds${selectorCounts ? ` · ${selectorCounts.traits.all}` : ""}</option>
+            ${kinds.map(kind => {
+              const count = kindCount(kind);
+              return `<option value="${escapeHtml(kind)}" ${state.memberKindFilter === kind ? "selected" : ""}>${escapeHtml(kind.replaceAll("-", " "))}${count === null ? "" : ` · ${count}`}</option>`;
+            }).join("")}
           </select>
         </label>
         <label class="member-filter-select">
@@ -6695,19 +6715,21 @@ function renderMemberFilterControls(type: AppTypeSurface) {
           </select>
         </label>
         <label class="member-filter-select">
+          <span>Trait</span>
+          <select class="scope-select" data-member-trait-filter aria-label="Member trait">
+            ${traits.map(([value, label]) => {
+              const count = traitCount(value);
+              return `<option value="${value}" ${state.memberTraitFilter === value ? "selected" : ""}>${label}${count === null ? "" : ` · ${count}`}</option>`;
+            }).join("")}
+          </select>
+        </label>
+        <label class="member-filter-select">
           <span>Spelling</span>
           <select class="scope-select" data-member-spelling aria-label="Member spelling">
             <option value="csharp" ${state.memberSpelling === "csharp" ? "selected" : ""}>C#</option>
             <option value="metadata" ${state.memberSpelling === "metadata" ? "selected" : ""}>metadata</option>
           </select>
         </label>
-        ${traits.length ? `<label class="member-filter-select">
-          <span>Trait</span>
-          <select class="scope-select" data-member-trait-filter aria-label="Member trait">
-            <option value="" ${!state.memberTraitFilter ? "selected" : ""}>all traits</option>
-            ${traits.map(([property, label]) => `<option value="${property}" ${state.memberTraitFilter === property ? "selected" : ""}>${label}</option>`).join("")}
-          </select>
-        </label>` : ""}
       </div>
     </details>`;
 }
@@ -6755,9 +6777,11 @@ function compositionFilterButton(
 function renderMemberComposition(type: AppTypeSurface) {
   const groups = selectedMemberGroups(type);
   const members = groups.flatMap(group => group.overloads);
+  const selectorCounts = currentTypeMemberPopulation(type)?.selectorCounts;
   const kinds = memberKinds(type)
     .map(kind => compositionFilterButton(
-      members.filter(member => member.kind === kind).length,
+      selectorCounts?.kinds.find(count => count.value === kind)?.count
+        ?? members.filter(member => member.kind === kind).length,
       kind.replaceAll("-", " "),
       "data-member-jump-kind",
       kind))
@@ -6786,11 +6810,23 @@ function renderMemberComposition(type: AppTypeSurface) {
       .join("")
     : "";
   const traits = availableMemberTraits(type)
-    .map(([property, label]) => compositionFilterButton(
-      members.filter(member => member[property]).length,
+    .map(([value, label]) => compositionFilterButton(
+      selectorCounts
+        ? value === ""
+          ? selectorCounts.traits.all
+          : value === "static"
+            ? selectorCounts.traits.static
+            : value === "instance"
+              ? selectorCounts.traits.instance
+              : value === "virtual"
+                ? selectorCounts.traits.virtual
+                : value === "interface"
+                  ? selectorCounts.traits.interface
+                  : selectorCounts.traits.extensions
+        : members.filter(member => memberMatchesTrait(member, value)).length,
       label,
       "data-member-jump-trait",
-      property,
+      value,
       `flag-${label}`))
     .join("");
   if (!kinds && !accessibilities && !traits) return "";
@@ -15873,8 +15909,8 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       ? deep.memberAccessibilityFilter
       : "public";
     state.memberTraitFilter = deep.memberTraitFilter
-      && MEMBER_TRAITS.some(([property]) =>
-        property === deep.memberTraitFilter)
+      && MEMBER_TRAITS.some(([value]) =>
+        value === deep.memberTraitFilter)
       ? deep.memberTraitFilter
       : "";
     if (deep.memberBrowse && groups.length)

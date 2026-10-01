@@ -1597,6 +1597,8 @@ public static partial class ApiSurfaceExtractor
                         methodName,
                         isFinalizer,
                         isExplicitInterfaceImplementation),
+                    IsExplicitInterfaceImplementation =
+                        isExplicitInterfaceImplementation && !isFinalizer,
                     IsHidden = isHiddenMethod,
                     PhysicalMethodAccess = methodAccess,
                     MethodSemantics = accessorAssociationsAvailable
@@ -1860,6 +1862,10 @@ public static partial class ApiSurfaceExtractor
                         prop.Name,
                         observeDecodeWork),
                     Kind = "property",
+                    IsExplicitInterfaceImplementation =
+                        explicitImplementationBodies.Contains(accessors.Getter)
+                        || explicitImplementationBodies.Contains(
+                            accessors.Setter),
                     IsHidden = isHiddenProperty,
                     DeclarationMetadataToken =
                         MetadataTokens.GetToken(propHandle),
@@ -2371,6 +2377,10 @@ public static partial class ApiSurfaceExtractor
                 {
                     Name = eventName,
                     Kind = "event",
+                    IsExplicitInterfaceImplementation =
+                        explicitImplementationBodies.Contains(accessors.Adder)
+                        || explicitImplementationBodies.Contains(
+                            accessors.Remover),
                     IsHidden = isHiddenEvent,
                     DeclarationMetadataToken = MetadataTokens.GetToken(eventHandle),
                     MemorySafety = ApiMemorySafetyFacts.Read(

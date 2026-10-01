@@ -8,6 +8,7 @@ import {
   filterMemberGroups,
   invalidateMemberCallGraphWork,
   invalidateSourceDestinationWork,
+  memberMatchesTrait,
   memberGroupMatches,
   memberNavTargetIndex,
   memberScopeIsActive,
@@ -74,7 +75,7 @@ test("history restores type filters independently of Member browse scope", () =>
     selectedMemberKey: "",
     memberKindFilter: "method",
     memberAccessibilityFilter: "protected",
-    memberTraitFilter: "isStatic",
+    memberTraitFilter: "static",
     memberTextFilter: "build",
   }, type, null);
 
@@ -82,7 +83,7 @@ test("history restores type filters independently of Member browse scope", () =>
   assert.equal(restored.selectedMemberKey, "");
   assert.equal(restored.memberKindFilter, "method");
   assert.equal(restored.memberAccessibilityFilter, "protected");
-  assert.equal(restored.memberTraitFilter, "isStatic");
+  assert.equal(restored.memberTraitFilter, "static");
   assert.equal(restored.memberTextFilter, "build");
 
   const defaults = restoreMemberHistoryState({
@@ -178,16 +179,37 @@ test("member filters compose locally after managed accessibility selection", () 
   assert.equal(memberGroupMatches(methodGroup, {
     kind: "method",
     accessibility: "public",
-    trait: "isStatic",
+    trait: "static",
     query: "path",
   }), true);
 
   assert.equal(memberGroupMatches(methodGroup, {
     kind: "method",
     accessibility: "protected",
-    trait: "isStatic",
+    trait: "static",
     query: "",
   }), true);
+});
+
+test("member traits use the complete selector vocabulary", () => {
+  assert.equal(memberMatchesTrait(
+    { signature: "", isStatic: true },
+    "static"), true);
+  assert.equal(memberMatchesTrait(
+    { signature: "", isStatic: false },
+    "instance"), true);
+  assert.equal(memberMatchesTrait(
+    { signature: "", isVirtual: true },
+    "virtual"), true);
+  assert.equal(memberMatchesTrait(
+    { signature: "", isExplicitInterfaceImplementation: true },
+    "interface"), true);
+  assert.equal(memberMatchesTrait(
+    { signature: "", isStatic: true, isExtension: true },
+    "extensions"), true);
+  assert.equal(memberMatchesTrait(
+    { signature: "", isStatic: true, isExtension: true },
+    "static"), false);
 });
 
 test("member search covers names and signatures", () => {

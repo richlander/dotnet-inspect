@@ -2,14 +2,15 @@ import type { MemberSection, TypeLens } from "./data.ts";
 import type { MemberGroup, MemberOverloadSummary } from "./type-panel.ts";
 
 export const MEMBER_TRAITS = [
-  ["isStatic", "static"],
-  ["isUnsafe", "unsafe"],
-  ["isVirtual", "virtual"],
-  ["isAbstract", "abstract"],
-  ["isOverride", "override"],
-  ["isExtension", "extension"],
-  ["isObsolete", "obsolete"],
+  ["", "all"],
+  ["static", "static"],
+  ["instance", "instance"],
+  ["virtual", "virtual"],
+  ["interface", "interface"],
+  ["extensions", "extensions"],
 ] as const;
+
+export type MemberTrait = (typeof MEMBER_TRAITS)[number][0];
 
 export interface MemberGroupFilters {
   query?: string;
@@ -22,12 +23,9 @@ export interface MemberGroupFilters {
 interface FilterableMemberOverload extends MemberOverloadSummary {
   accessibility?: string;
   isStatic?: boolean;
-  isUnsafe?: boolean;
   isVirtual?: boolean;
-  isAbstract?: boolean;
-  isOverride?: boolean;
   isExtension?: boolean;
-  isObsolete?: boolean;
+  isExplicitInterfaceImplementation?: boolean;
 }
 
 export interface FilterableMemberGroup extends MemberGroup {
@@ -44,15 +42,35 @@ export function memberGroupMatches(
   }
 
   return group.overloads.some(overload => {
-    if (filters.trait
-        && !MEMBER_TRAITS.some(
-          ([property]) => property === filters.trait && overload[property])) {
+    if (!memberMatchesTrait(overload, filters.trait ?? "")) {
       return false;
     }
     return !query
       || group.name.toLowerCase().includes(query)
       || overload.signature.toLowerCase().includes(query);
   });
+}
+
+export function memberMatchesTrait(
+  member: FilterableMemberOverload,
+  trait: string,
+): boolean {
+  switch (trait) {
+    case "":
+      return true;
+    case "static":
+      return member.isStatic === true && member.isExtension !== true;
+    case "instance":
+      return member.isStatic !== true && member.isExtension !== true;
+    case "virtual":
+      return member.isVirtual === true;
+    case "interface":
+      return member.isExplicitInterfaceImplementation === true;
+    case "extensions":
+      return member.isExtension === true;
+    default:
+      return false;
+  }
 }
 
 export function filterMemberGroups(

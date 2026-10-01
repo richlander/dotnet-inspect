@@ -988,18 +988,35 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   const trait = page.locator("[data-member-trait-filter]");
   await expect(kind).toBeVisible();
   await expect(page.locator("[data-member-spelling]")).toBeVisible();
+  await expect(page.locator(".member-filter-select > span"))
+    .toHaveText(["Kind", "Accessibility", "Trait", "Spelling"]);
+  await expect(kind.locator('option[value="all"]')).toHaveText("all kinds · 1");
+  await expect(kind.locator('option[value="method"]')).toHaveText("method · 1");
+  await expect(trait.locator("option"))
+    .toHaveText([
+      "all · 1",
+      "static · 1",
+      "instance · 0",
+      "virtual · 0",
+      "interface · 0",
+      "extensions · 0",
+    ]);
   const accessibility = page.locator("[data-member-access-filter]");
   await expect(accessibility.locator('option[value="all"]'))
     .toHaveText("all · 2");
 
   await kind.selectOption("method");
-  await trait.selectOption("isStatic");
+  await trait.selectOption("static");
   await accessibility.selectOption("private");
 
   await expect(kind).toHaveValue("method");
-  await expect(kind.locator('option[value="method"]')).toHaveCount(1);
-  await expect(trait).toHaveValue("isStatic");
-  await expect(trait.locator('option[value="isStatic"]')).toHaveCount(1);
+  await expect(kind.locator('option[value="method"]'))
+    .toHaveText("method · 0");
+  await expect(trait).toHaveValue("static");
+  await expect(trait.locator('option[value="static"]'))
+    .toHaveText("static · 0");
+  await expect(trait.locator('option[value="instance"]'))
+    .toHaveText("instance · 1");
   await expect(page.locator("#inspector-panel [data-member]")).toHaveCount(0);
 
   await kind.selectOption("all");

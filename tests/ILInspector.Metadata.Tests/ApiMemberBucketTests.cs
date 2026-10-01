@@ -66,6 +66,7 @@ public sealed class ApiMemberBucketTests
             Type(IncludeAllSurface).Members,
             member => member.Name == "Finalize");
         Assert.Equal("protected", finalizer.Accessibility);
+        Assert.False(finalizer.IsExplicitInterfaceImplementation);
     }
 
     // VB spells an interface implementation as a private, ordinarily named
@@ -91,6 +92,7 @@ public sealed class ApiMemberBucketTests
                 collection.Members,
                 member => member.Name == "IListAdd");
             Assert.Null(add.Accessibility);
+            Assert.True(add.IsExplicitInterfaceImplementation);
         }
     }
 

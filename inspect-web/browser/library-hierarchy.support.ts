@@ -1056,6 +1056,21 @@ async function installFacades(
           this: 0,
           extension: 0,
         };
+        const selectedMembers = members.filter(member =>
+          accessibility === "all"
+          || accessibilityBucket(member) === accessibility);
+        const kindCounts = new Map();
+        const selectorCounts = {
+          kinds: [],
+          traits: {
+            all: selectedMembers.length,
+            static: 0,
+            instance: 0,
+            virtual: 0,
+            interface: 0,
+            extensions: 0,
+          },
+        };
         const completeCounts = new Map();
         for (const member of members) {
           composition[accessibilityBucket(member)]++;
@@ -1065,6 +1080,22 @@ async function installFacades(
           const key = member.kind + ":" + member.name;
           completeCounts.set(key, (completeCounts.get(key) ?? 0) + 1);
         }
+        for (const member of selectedMembers) {
+          kindCounts.set(
+            member.kind,
+            (kindCounts.get(member.kind) ?? 0) + 1);
+          if (member.isExtension) selectorCounts.traits.extensions++;
+          else if (member.isStatic) selectorCounts.traits.static++;
+          else selectorCounts.traits.instance++;
+          if (member.isVirtual) selectorCounts.traits.virtual++;
+          if (member.isExplicitInterfaceImplementation) {
+            selectorCounts.traits.interface++;
+          }
+        }
+        selectorCounts.kinds = [...kindCounts].map(([value, count]) => ({
+          value,
+          count,
+        }));
         const groups = new Map();
         for (const member of members) {
           if (accessibility !== "all"
@@ -1102,6 +1133,7 @@ async function installFacades(
             spelling,
             accessibility,
             composition,
+            selectorCounts,
             groups: [...groups.values()],
           },
           diagnostics: [],

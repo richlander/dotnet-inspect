@@ -615,6 +615,20 @@ an accessor method such as `get_Current` forms its own row.
   with an empty form published as 0. Each is the declaration Count of that
   intent plus the `receiver` value.
 
+The exact Type Member population also issues selector facet Counts for the
+request's selected accessibility population. **Kind Counts** publish every
+present logical Member kind and its exact declaration Count. **Trait Counts**
+publish `all`, `static`, `instance`, `virtual`, `interface`, and `extensions`;
+unavailable traits are published as 0. Traits may overlap: a virtual explicit
+interface declaration contributes to both `virtual` and `interface`.
+`interface` means explicit interface implementations only, including composed
+property and event declarations whose accessors carry explicit MethodImpl
+evidence. It does not claim implicit interface correspondence. Extensions take
+precedence over metadata-static, so `static`, `instance`, and `extensions`
+partition the selected population while the other traits remain orthogonal.
+These facets are owner-issued from the exact population before the Browser
+boundary; the Browser does not count loaded rows.
+
 For example, System.Text.Json 10.0.0 `JsonDocument` has:
 
 | Projection | Declarations |

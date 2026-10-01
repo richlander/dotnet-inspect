@@ -1106,7 +1106,10 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     /function selectedMemberGroups\([\s\S]*?return declaredMemberGroups\(type\)/);
   assert.match(
     filters,
-    /selectedMemberGroups\(type\)\s*\.flatMap\(group => group\.overloads\)/);
+    /currentTypeMemberPopulation\(type\)\?\.selectorCounts\.kinds/);
+  assert.match(
+    filters,
+    /\?\? selectedMemberGroups\(type\)\.map\(group => group\.kind\)/);
   assert.match(
     appSource,
     /function declaredMemberGroups\([\s\S]*partitionGraphMembers\(type\.api\)[\s\S]*searchableMemberGroups\(groupMembers\(publicMembers\)\)/);
