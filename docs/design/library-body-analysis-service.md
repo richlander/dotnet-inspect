@@ -801,6 +801,21 @@ metadata-ordered Calls table without constructing that table. This includes
 method-pointer and indirect-call rows. Rich Calls output and projections
 continue to request public-surface extraction and target rows.
 
+Exact NativeAOT production measurements used current `main` at
+`9d1e3eb0360e` and candidate `66b19d6dac96` on
+`InspectionContext.LibraryInspectionViewSchema:1`, whose Calls population has
+4,611 rows. Seven repetitions per H-B-H phase on `dotnet-inspect-perf-2`,
+serialized by `perf-guard`, produced the same answer on every invocation:
+
+| Binary | Median elapsed | Median max RSS |
+| --- | ---: | ---: |
+| Exact base | 4.97 s | 678,440 KB |
+| Candidate head, combined bookends | 1.03 s | 331,758 KB |
+
+The pre-surface terminal is 4.83x faster and uses 51.1% less peak memory for
+this pathological real method. The head medians were 1.04 s and 1.02 s in the
+two bookends, so the result is not attributable to phase order.
+
 This adoption does not add a second call-row producer, make Count a
 `Rows.Length` convenience, or expose `DirectCallIncidence` as a population.
 The complete-profile compatibility projection composes direct-invocation
