@@ -292,23 +292,41 @@ public sealed class BrowserLibraryApiDiffOperationTests
     }
 
     [Fact]
-    public async Task MemberBodyAnalysesRemainCatalogVisibleAsTypedUnavailable()
+    public async Task MemberUiSelectionCombinesApiWithTypedBodyUnavailability()
     {
         await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffResult library =
+            await fixture.Query(fixture.Request());
+        BrowserLibraryApiDiffSucceeded libraryValue =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(library.Value);
+        BrowserLibraryApiDiffType changedType = Assert.Single(
+            libraryValue.Types,
+            type => type.Display
+                == "LibraryApiDiffFixture.ProjectionReceiver");
+        BrowserLibraryApiDiffMember changedMember = Assert.Single(
+            changedType.Members,
+            member => member.Role
+                == BrowserLibraryApiDiffMemberRelationRole.After);
+        BrowserLibraryApiDiffMemberIdentity selectedMember =
+            changedMember.After ?? changedMember.Before!;
         BrowserLibraryApiDiffRequest request = fixture.Request() with
         {
             Surface = BrowserDiffAnalysisSurface.Member,
             Analyses =
             [
+                "api",
                 "allocation",
                 "call-site",
                 "unsafety",
                 "csharp",
                 "il",
             ],
-            Views = BrowserDiffAnalysisViews.Summary,
-            TypeNames = ["LibraryApiDiffFixture.ChangedType"],
-            MemberTargetIdentities = ["M:LibraryApiDiffFixture.ChangedType.Run"],
+            Views =
+                BrowserDiffAnalysisViews.Changes
+                | BrowserDiffAnalysisViews.Summary
+                | BrowserDiffAnalysisViews.Transitions,
+            TypeNames = [selectedMember.DeclaringTypeIdentifier],
+            MemberTargetIdentities = [selectedMember.StableSelector],
         };
 
         BrowserLibraryApiDiffResult result = await fixture.Query(request);
@@ -327,8 +345,11 @@ public sealed class BrowserLibraryApiDiffOperationTests
         ];
         Assert.Equal(request.Analyses, outcomes.Select(outcome =>
             outcome.GetProperty("analysis").GetString()));
+        JsonElement api = outcomes[0];
+        Assert.Equal("api", api.GetProperty("analysis").GetString());
+        Assert.Equal("Compared", api.GetProperty("kind").GetString());
         Assert.All(
-            outcomes,
+            outcomes[1..],
             outcome =>
             {
                 Assert.Equal(
@@ -340,21 +361,34 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     StringComparison.Ordinal);
             });
         Assert.Equal(
-            request.Analyses.Length,
+            request.Analyses.Length - 1,
             result.Inspection!.Diagnostics.Count(diagnostic =>
                 diagnostic.Code == "diff-analysis.unavailable"));
+        Assert.NotEmpty(
+            content.GetProperty("changes").GetProperty("types").EnumerateArray());
     }
 
     [Fact]
-    public async Task TypeApiAttributeAnalysisExecutesInBrowser()
+    public async Task TypeUiSelectionExecutesApiAndApiAttributeInBrowser()
     {
         await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffResult library =
+            await fixture.Query(fixture.Request());
+        BrowserLibraryApiDiffSucceeded libraryValue =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(library.Value);
+        BrowserLibraryApiDiffType changedType = Assert.Single(
+            libraryValue.Types,
+            type => type.Display
+                == "LibraryApiDiffFixture.ProjectionReceiver");
         BrowserLibraryApiDiffRequest request = fixture.Request() with
         {
             Surface = BrowserDiffAnalysisSurface.Type,
-            Analyses = ["api-attribute"],
-            Views = BrowserDiffAnalysisViews.Transitions,
-            TypeNames = ["LibraryApiDiffFixture.ChangedType"],
+            Analyses = ["api", "api-attribute"],
+            Views =
+                BrowserDiffAnalysisViews.Changes
+                | BrowserDiffAnalysisViews.Summary
+                | BrowserDiffAnalysisViews.Transitions,
+            TypeNames = [changedType.After!.Identifier],
         };
 
         BrowserLibraryApiDiffResult result = await fixture.Query(request);
@@ -364,10 +398,17 @@ public sealed class BrowserLibraryApiDiffOperationTests
             result.Kind);
         JsonElement content = Assert.IsType<
             InspectionEnvelope<JsonElement>>(result.Inspection).Content;
-        JsonElement outcome = Assert.Single(
-            content.GetProperty("outcomes").EnumerateArray());
-        Assert.Equal("api-attribute", outcome.GetProperty("analysis").GetString());
-        Assert.Equal("Compared", outcome.GetProperty("kind").GetString());
+        JsonElement[] outcomes =
+        [
+            .. content.GetProperty("outcomes").EnumerateArray(),
+        ];
+        Assert.Equal(request.Analyses, outcomes.Select(outcome =>
+            outcome.GetProperty("analysis").GetString()));
+        Assert.All(
+            outcomes,
+            outcome => Assert.Equal(
+                "Compared",
+                outcome.GetProperty("kind").GetString()));
         Assert.DoesNotContain(
             result.Inspection!.Diagnostics,
             diagnostic => diagnostic.Code == "diff-analysis.unavailable");
