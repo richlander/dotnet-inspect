@@ -24,6 +24,59 @@ internal sealed partial class LibraryMethodAnalysisRunner
         int maximumMethodSignatureBytes,
         CancellationToken cancellationToken)
     {
+        return terminal switch
+        {
+            ProducerTerminal.Exists =>
+                AnalyzeBodyTypeUses<BodyTypeUseExistsTerminal, int>(
+                    typeHandle,
+                    typeDefinition,
+                    methodHandle,
+                    methodDefinition,
+                    body,
+                    maximumInstructions,
+                    maximumOccurrences,
+                    maximumMethodSignatureBytes,
+                    cancellationToken),
+            ProducerTerminal.Complete =>
+                AnalyzeBodyTypeUses<BodyTypeUseCountTerminal, int>(
+                    typeHandle,
+                    typeDefinition,
+                    methodHandle,
+                    methodDefinition,
+                    body,
+                    maximumInstructions,
+                    maximumOccurrences,
+                    maximumMethodSignatureBytes,
+                    cancellationToken),
+            ProducerTerminal.Rows =>
+                AnalyzeBodyTypeUses<
+                    BodyTypeUseRowsTerminal,
+                    ImmutableArray<BodyTypeUseOccurrence>.Builder>(
+                    typeHandle,
+                    typeDefinition,
+                    methodHandle,
+                    methodDefinition,
+                    body,
+                    maximumInstructions,
+                    maximumOccurrences,
+                    maximumMethodSignatureBytes,
+                    cancellationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(terminal)),
+        };
+    }
+
+    BodyTypeUseMethodFact AnalyzeBodyTypeUses<TTerminal, TState>(
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition,
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition,
+        MethodBodyBlock body,
+        int maximumInstructions,
+        int maximumOccurrences,
+        int maximumMethodSignatureBytes,
+        CancellationToken cancellationToken)
+        where TTerminal : struct, IBodyTypeUseTerminal<TState>
+    {
         int methodToken = MetadataTokens.GetToken(methodHandle);
         try
         {
@@ -66,9 +119,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     ? owner.Source
                     : null;
 
-            var rows = terminal == ProducerTerminal.Rows
-                ? ImmutableArray.CreateBuilder<BodyTypeUseOccurrence>()
-                : null;
+            TState terminalState = TTerminal.Create();
             var diagnostics =
                 ImmutableArray.CreateBuilder<AnalysisLibraryBodyUseDiagnostic>();
             IMethodCallResolver resolver =
@@ -78,7 +129,6 @@ internal sealed partial class LibraryMethodAnalysisRunner
             int operandsConsidered = 0;
             int operandsExamined = 0;
             int operandsUnavailable = 0;
-            int occurrenceCount = 0;
             foreach (DecodedInstruction instruction
                 in instructions)
             {
@@ -87,7 +137,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     continue;
 
                 operandsConsidered++;
-                int committed = occurrenceCount;
+                int committed = TTerminal.Count(ref terminalState);
                 try
                 {
                     if (!TryClassify(
@@ -135,7 +185,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     if (source is { } logicalSource)
                     {
                         long attempted = checked(
-                            (long)occurrenceCount
+                            (long)TTerminal.Count(ref terminalState)
                                 + binding.Targets.Length);
                         if (attempted > maximumOccurrences)
                         {
@@ -149,30 +199,23 @@ internal sealed partial class LibraryMethodAnalysisRunner
                                 operandsUnavailable);
                         }
 
-                        occurrenceCount = checked((int)attempted);
-                        foreach (BodyTypeUseOperandTarget target
-                            in binding.Targets)
-                        {
-                            rows?.Add(
-                                new(
-                                    logicalSource,
-                                    target.Target,
-                                    methodToken,
-                                    kind,
-                                    token,
-                                    instruction.Offset,
-                                    target.Ordinal));
-                        }
+                        TTerminal.Admit(
+                            ref terminalState,
+                            logicalSource,
+                            binding.Targets,
+                            methodToken,
+                            kind,
+                            token,
+                            instruction.Offset);
                     }
                     operandsExamined++;
-                    if (terminal == ProducerTerminal.Exists
-                        && occurrenceCount != 0)
+                    if (TTerminal.Settled(ref terminalState))
                     {
                         return new(
                             methodDefinition.GetDeclaringType(),
                             methodToken,
                             AnalysisLibraryBodyUseFidelity.LogicalOwner,
-                            occurrenceCount,
+                            TTerminal.Count(ref terminalState),
                             default,
                             diagnostics.ToImmutable(),
                             operandsConsidered,
@@ -187,9 +230,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 catch (Exception exception)
                     when (IsRecoverableMethodFailure(exception))
                 {
-                    occurrenceCount = committed;
-                    if (rows is not null)
-                        rows.Count = committed;
+                    TTerminal.Rollback(ref terminalState, committed);
                     operandsUnavailable++;
                     diagnostics.Add(
                         new(
@@ -222,8 +263,8 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 owner.Status == BodyUseOwnerStatus.Logical
                     ? AnalysisLibraryBodyUseFidelity.LogicalOwner
                     : AnalysisLibraryBodyUseFidelity.PhysicalOnly,
-                occurrenceCount,
-                rows?.ToImmutable() ?? default,
+                TTerminal.Count(ref terminalState),
+                TTerminal.Complete(ref terminalState),
                 diagnostics.ToImmutable(),
                 operandsConsidered,
                 operandsExamined,
@@ -621,6 +662,131 @@ internal readonly record struct BodyTypeUseOccurrence(
     int OperandToken,
     int IlOffset,
     int OccurrenceOrdinal);
+
+internal interface IBodyTypeUseTerminal<TState>
+{
+    static abstract TState Create();
+
+    static abstract int Count(ref TState state);
+
+    static abstract void Admit(
+        ref TState state,
+        TypeDefinitionHandle source,
+        ImmutableArray<BodyTypeUseOperandTarget> targets,
+        int physicalMethodToken,
+        AnalysisLibraryBodyUseOperandKind operandKind,
+        int operandToken,
+        int ilOffset);
+
+    static abstract void Rollback(ref TState state, int committed);
+
+    static abstract bool Settled(ref TState state);
+
+    static abstract ImmutableArray<BodyTypeUseOccurrence> Complete(
+        ref TState state);
+}
+
+internal readonly struct BodyTypeUseExistsTerminal
+    : IBodyTypeUseTerminal<int>
+{
+    public static int Create() => 0;
+
+    public static int Count(ref int state) => state;
+
+    public static void Admit(
+        ref int state,
+        TypeDefinitionHandle source,
+        ImmutableArray<BodyTypeUseOperandTarget> targets,
+        int physicalMethodToken,
+        AnalysisLibraryBodyUseOperandKind operandKind,
+        int operandToken,
+        int ilOffset) =>
+        state = checked(state + targets.Length);
+
+    public static void Rollback(ref int state, int committed) =>
+        state = committed;
+
+    public static bool Settled(ref int state) => state != 0;
+
+    public static ImmutableArray<BodyTypeUseOccurrence> Complete(
+        ref int state) =>
+        default;
+}
+
+internal readonly struct BodyTypeUseCountTerminal
+    : IBodyTypeUseTerminal<int>
+{
+    public static int Create() => 0;
+
+    public static int Count(ref int state) => state;
+
+    public static void Admit(
+        ref int state,
+        TypeDefinitionHandle source,
+        ImmutableArray<BodyTypeUseOperandTarget> targets,
+        int physicalMethodToken,
+        AnalysisLibraryBodyUseOperandKind operandKind,
+        int operandToken,
+        int ilOffset) =>
+        state = checked(state + targets.Length);
+
+    public static void Rollback(ref int state, int committed) =>
+        state = committed;
+
+    public static bool Settled(ref int state) => false;
+
+    public static ImmutableArray<BodyTypeUseOccurrence> Complete(
+        ref int state) =>
+        default;
+}
+
+internal readonly struct BodyTypeUseRowsTerminal
+    : IBodyTypeUseTerminal<
+        ImmutableArray<BodyTypeUseOccurrence>.Builder>
+{
+    public static ImmutableArray<BodyTypeUseOccurrence>.Builder Create() =>
+        ImmutableArray.CreateBuilder<BodyTypeUseOccurrence>();
+
+    public static int Count(
+        ref ImmutableArray<BodyTypeUseOccurrence>.Builder state) =>
+        state.Count;
+
+    public static void Admit(
+        ref ImmutableArray<BodyTypeUseOccurrence>.Builder state,
+        TypeDefinitionHandle source,
+        ImmutableArray<BodyTypeUseOperandTarget> targets,
+        int physicalMethodToken,
+        AnalysisLibraryBodyUseOperandKind operandKind,
+        int operandToken,
+        int ilOffset)
+    {
+        foreach (BodyTypeUseOperandTarget target in targets)
+        {
+            state.Add(
+                new(
+                    source,
+                    target.Target,
+                    physicalMethodToken,
+                    operandKind,
+                    operandToken,
+                    ilOffset,
+                    target.Ordinal));
+        }
+    }
+
+    public static void Rollback(
+        ref ImmutableArray<BodyTypeUseOccurrence>.Builder state,
+        int committed) =>
+        state.Count = committed;
+
+    public static bool Settled(
+        ref ImmutableArray<BodyTypeUseOccurrence>.Builder state) =>
+        false;
+
+    public static ImmutableArray<BodyTypeUseOccurrence> Complete(
+        ref ImmutableArray<BodyTypeUseOccurrence>.Builder state) =>
+        state.ToImmutable();
+}
 
 internal sealed record BodyTypeUseMethodFact(
     TypeDefinitionHandle PhysicalType,

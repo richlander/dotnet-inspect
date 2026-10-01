@@ -367,6 +367,15 @@ scorecard questions, not a public product query surface. QuerySpace adoption
 owns their future product exposure plus Head, Tail, Window, selection, and
 provider-backed demand.
 
+The body-analysis entry point lowers the runtime terminal once to one of three
+constrained generic strategies before scanning instructions. Exists and Count
+charge each admitted operand batch by target cardinality without enumerating
+targets or constructing occurrence rows. Rows alone enumerates targets and
+constructs the ordered occurrence records. The shared scanner retains decode,
+binding, diagnostics, limits, cancellation, and rollback; terminal selection
+does not remain as an enum or nullable-row-builder check inside its operand
+loop.
+
 The performance scorecard asks all three internal terminal questions. Every
 column constructs the same product-owned answer for the selected closing. The
 scorecard excludes only the Planner execution receipt: an oracle cannot
