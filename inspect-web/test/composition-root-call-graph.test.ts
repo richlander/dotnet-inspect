@@ -65,6 +65,10 @@ import {
   generatedFacadeSource,
   browserGraphMemberSource,
 } from "./composition-root-test-fixture.ts";
+import {
+  MEMBER_TRAITS,
+  memberKindCount,
+} from "../src/member-filtering.ts";
 const engineCallGraphTarget = (
   fixture: CallGraphTarget & { typeFullName?: string },
 ): CallGraphTarget => fixture;
@@ -1121,10 +1125,10 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     /\?\? selectedMemberGroups\(type\)\.map\(group => group\.kind\)/);
   assert.match(
     filters,
-    /const fallbackGroups = population \? \[\] : selectedMemberGroups\(type\);[\s\S]*const kindCount = \(kind: string\) =>[\s\S]*selectorCounts[\s\S]*memberKindCount\(fallbackGroups, kind\)/);
+    /const fallbackGroups = !population[\s\S]*loadedMemberDeclarationsApplyToSelection\(\)[\s\S]*\? selectedMemberGroups\(type\)[\s\S]*: null;[\s\S]*const kindCount = \(kind: string\) =>[\s\S]*selectorCounts[\s\S]*fallbackGroups[\s\S]*memberKindCount\(fallbackGroups, kind\)[\s\S]*: null/);
   assert.match(
     appSource,
-    /function declaredMemberGroups\([\s\S]*partitionGraphMembers\(type\.api\)[\s\S]*searchableMemberGroups\(groupMembers\(publicMembers\)\)/);
+    /function loadedMemberDeclarationsApplyToSelection\([\s\S]*state\.memberSpelling === "csharp"[\s\S]*state\.memberAccessibilityFilter === "public"[\s\S]*function declaredMemberGroups\([\s\S]*loadedMemberDeclarationsApplyToSelection\(\)[\s\S]*partitionGraphMembers\(type\.api\)[\s\S]*searchableMemberGroups\(groupMembers\(publicMembers\)\)/);
 
   const entries =
     appSource.match(/function memberNavEntries\([\s\S]*?\n}\n\nfunction memberNavCursor/)?.[0]
@@ -1139,6 +1143,60 @@ test("member navigation excludes graph-only projections from ordinary filters", 
   assert.match(
     pane,
     /memberCount: groups\.reduce\([\s\S]*group\.overloads\.length/);
+});
+
+test("unavailable exact Member populations omit the selected Kind count", () => {
+  const populationAndFilters =
+    appSource.match(/function currentTypeMemberPopulation\([\s\S]*?(?=\nfunction renderTypeMemberPopulationStatus)/)?.[0]
+    ?? "";
+  assert.notEqual(populationAndFilters, "");
+
+  for (const [label, memberSpelling, memberAccessibilityFilter] of [
+    ["metadata loading", "metadata", "public"],
+    ["metadata failed", "metadata", "public"],
+    ["private loading", "csharp", "private"],
+    ["private failed", "csharp", "private"],
+  ] as const) {
+    const failed = label.endsWith("failed");
+    const state = {
+      memberKindFilter: "method",
+      memberSpelling,
+      memberAccessibilityFilter,
+      memberTextFilter: "",
+      memberTraitFilter: "",
+      memberFiltersExpanded: true,
+      typeMemberPopulationKey: `${memberSpelling}/${memberAccessibilityFilter}`,
+      typeMemberPopulation: null,
+      typeMemberPopulationLoading: !failed,
+      typeMemberPopulationError: failed ? "Population unavailable" : "",
+    };
+    const rendered: unknown = runInNewContext(
+      stripTypeScriptTypes(`${populationAndFilters}
+        renderMemberFilterControls(type);
+      `),
+      {
+        state,
+        type: {},
+        MEMBER_TRAITS,
+        memberKindCount,
+        typeMemberPopulationKey: () =>
+          `${state.memberSpelling}/${state.memberAccessibilityFilter}`,
+        escapeHtml: (value: string) => value,
+      });
+    if (typeof rendered !== "string") {
+      assert.fail(`${label}: expected rendered Member filters`);
+    }
+    const html = rendered;
+
+    assert.match(
+      html,
+      /<option value="method" selected>method<\/option>/,
+      label);
+    assert.doesNotMatch(
+      html,
+      /<option value="method" selected>method · 0<\/option>/,
+      label);
+  }
 });
 
 test("type API reports the filtered member count once in its header", () => {

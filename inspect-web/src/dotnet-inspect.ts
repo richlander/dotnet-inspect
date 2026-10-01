@@ -6539,6 +6539,11 @@ function typeMemberPopulationPhase(
   return currentTypeMemberPopulation(type) ? "available" : "pending";
 }
 
+function loadedMemberDeclarationsApplyToSelection() {
+  return state.memberSpelling === "csharp"
+    && state.memberAccessibilityFilter === "public";
+}
+
 function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
   const population = currentTypeMemberPopulation(type);
   if (population) {
@@ -6551,8 +6556,7 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
       overloads: group.members.map(createAppMemberSurface),
     }));
   }
-  if (state.memberSpelling !== "csharp"
-    || state.memberAccessibilityFilter !== "public") {
+  if (!loadedMemberDeclarationsApplyToSelection()) {
     return [];
   }
   const { publicMembers } = partitionGraphMembers(type.api);
@@ -6648,7 +6652,10 @@ function renderMemberFilterControls(type: AppTypeSurface) {
   const accessibilities = memberAccessibilities(type);
   const traits = availableMemberTraits(type);
   const population = currentTypeMemberPopulation(type);
-  const fallbackGroups = population ? [] : selectedMemberGroups(type);
+  const fallbackGroups = !population
+    && loadedMemberDeclarationsApplyToSelection()
+    ? selectedMemberGroups(type)
+    : null;
   const composition = population?.composition;
   const selectorCounts = population?.selectorCounts;
   const accessibilityCount = (accessibility: MemberAccessibility) => {
@@ -6666,7 +6673,9 @@ function renderMemberFilterControls(type: AppTypeSurface) {
     selectorCounts
       ? selectorCounts.kinds.find(count => count.value === kind)?.count
         ?? (kind === state.memberKindFilter ? 0 : null)
-      : memberKindCount(fallbackGroups, kind);
+      : fallbackGroups
+        ? memberKindCount(fallbackGroups, kind)
+        : null;
   const traitCount = (trait: string) => {
     if (!selectorCounts) return null;
     switch (trait) {
