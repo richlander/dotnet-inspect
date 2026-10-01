@@ -20,6 +20,7 @@ import {
 } from "../src/call-graph-inspection.ts";
 import type { BrowserCallGraph } from "../src/facades/inspect-web-call-graph.d.ts";
 import {
+  filterMemberGroups,
   invalidateGraphMemberNavigationWork,
   invalidateMemberCallGraphWork,
   memberScopeIsActive,
@@ -361,7 +362,8 @@ const graphHostNames = new Set([
   "currentPackage", "selectedType", "selectedMember",
   "groupMembers", "typeMemberPopulationKey",
   "currentTypeMemberPopulation", "declaredMemberGroups",
-  "memberGroups", "scope",
+  "memberGroups", "memberGroupForCurrentFilters", "memberFilterState",
+  "selectedMemberGroups", "visibleMemberGroups", "scope",
 ]);
 const graphHostDeclarations = app.program.body
   .filter(node =>
@@ -462,7 +464,7 @@ function graphRemovalHarness() {
       state, callGraphInspection: coordinator,
       selectedForwarder: () => null,
       createPackageRemoval, packageIdentityKey, memberRequestKey,
-      partitionGraphMembers, searchableMemberGroups,
+      partitionGraphMembers, searchableMemberGroups, filterMemberGroups,
       assemblyDescriptorForType, selectedConcreteOverload, memberScopeIsActive,
       memberRequestIsCurrent: () => true,
       invalidateMemberCallGraphWork,
