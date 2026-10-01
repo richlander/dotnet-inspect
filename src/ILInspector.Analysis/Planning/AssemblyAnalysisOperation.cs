@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Metadata;
+using QuerySpace.Composition;
 
 namespace ILInspector.Analysis.Planning;
 
@@ -20,28 +21,126 @@ public sealed class MethodDefinitionSourceRequestIdentity
     }
 }
 
-/// <summary>
-/// One resource-free request to run a closed, single-producer
-/// description over Method definitions.
-/// </summary>
-public sealed class MethodDefinitionSourceRequest<TResult>
+static class MethodDefinitionSourceIdentities
 {
-    MethodDefinitionSourceRequest(
-        WorkDescription work,
-        ProducerDeclaration<TResult> producer)
+    internal static QuerySpaceResourceDomainIdentity ResourceDomain { get; } =
+        QuerySpaceResourceDomainIdentity.Create();
+}
+
+/// <summary>
+/// Owner-issued identity for Method-source requests that are eligible to share
+/// one physical execution group.
+/// </summary>
+public sealed class MethodDefinitionSourceBinding
+{
+    MethodDefinitionSourceBinding()
     {
+        Identity = QuerySpaceSourceBindingIdentity.Create(
+            MethodDefinitionSourceIdentities.ResourceDomain);
+    }
+
+    /// <summary>Creates one explicit Method-source sharing eligibility token.</summary>
+    public static MethodDefinitionSourceBinding Create() => new();
+
+    internal QuerySpaceSourceBindingIdentity Identity { get; }
+}
+
+/// <summary>
+/// One resource-free request to run a closed producer description over Method
+/// definitions.
+/// </summary>
+public abstract class MethodDefinitionSourceRequest
+    : IQuerySpaceRequestSetRequest
+{
+    private protected MethodDefinitionSourceRequest(
+        QuerySpaceRequest structuralRequest,
+        MethodDefinitionSourceBinding binding,
+        WorkDescription work,
+        ProducerDeclaration producer)
+    {
+        StructuralRequest = structuralRequest;
+        Binding = binding;
         Work = work;
-        Producer = producer;
+        Declaration = producer;
         Identity = new();
+        Association = QuerySpaceRequestAssociationIdentity.Create();
         Terminal = work.TerminalOf(producer);
         DeclaredLayers = MethodDefinitionExecution.FieldsRead(work);
     }
 
-    /// <summary>Creates the reference Method-source request without reading a subject.</summary>
+    /// <summary>This request's exact Method-source identity.</summary>
+    public MethodDefinitionSourceRequestIdentity Identity { get; }
+
+    /// <summary>This request's caller-issued QuerySpace association identity.</summary>
+    public QuerySpaceRequestAssociationIdentity Association { get; }
+
+    /// <summary>The owner-issued source binding for sharing eligibility.</summary>
+    public MethodDefinitionSourceBinding Binding { get; }
+
+    /// <inheritdoc />
+    public QuerySpaceRequest StructuralRequest { get; }
+
+    /// <inheritdoc />
+    public string? ResultContract => StructuralRequest.ResultContract;
+
+    /// <summary>The closing applied to the focused producer.</summary>
+    public ProducerTerminal Terminal { get; }
+
+    /// <summary>The source layers declared by this request's closed work.</summary>
+    public MethodDefinitionLayers DeclaredLayers { get; }
+
+    internal WorkDescription Work { get; }
+
+    internal ProducerDeclaration Declaration { get; }
+
+    internal ProducerRequest ProducerRequest => new(Declaration, Terminal);
+
+    internal abstract MethodDefinitionSourceResult Capture(
+        MethodDefinitionExecution execution,
+        MethodDefinitionSourceReceipt receipt);
+}
+
+/// <summary>
+/// One typed resource-free Method-source request. Supporting producer
+/// dependencies may appear in its work description, but exactly one producer
+/// is the requested result.
+/// </summary>
+public sealed class MethodDefinitionSourceRequest<TResult>
+    : MethodDefinitionSourceRequest
+{
+    MethodDefinitionSourceRequest(
+        QuerySpaceRequest structuralRequest,
+        MethodDefinitionSourceBinding binding,
+        WorkDescription work,
+        ProducerDeclaration<TResult> producer)
+        : base(structuralRequest, binding, work, producer)
+    {
+        Producer = producer;
+    }
+
+    /// <summary>Creates the Method-source request without reading a subject.</summary>
     public static MethodDefinitionSourceRequest<TResult> Create(
+        QuerySpaceRequest structuralRequest,
+        WorkDescription work,
+        ProducerDeclaration<TResult> producer) =>
+        Create(
+            structuralRequest,
+            MethodDefinitionSourceBinding.Create(),
+            work,
+            producer);
+
+    /// <summary>
+    /// Creates one Method-source request under an explicit owner-issued
+    /// sharing binding without reading a subject.
+    /// </summary>
+    public static MethodDefinitionSourceRequest<TResult> Create(
+        QuerySpaceRequest structuralRequest,
+        MethodDefinitionSourceBinding binding,
         WorkDescription work,
         ProducerDeclaration<TResult> producer)
     {
+        ArgumentNullException.ThrowIfNull(structuralRequest);
+        ArgumentNullException.ThrowIfNull(binding);
         ArgumentNullException.ThrowIfNull(work);
         ArgumentNullException.ThrowIfNull(producer);
         if (!work.Contains(producer) || !work.WasRequested(producer))
@@ -51,16 +150,20 @@ public sealed class MethodDefinitionSourceRequest<TResult>
                 + "in this work description.");
         }
 
-        if (work.Producers.Length != 1
-            || !ReferenceEquals(work.Producers[0], producer))
-        {
-            throw new ProducerContractException(
-                "The reference Method source accepts exactly one planned "
-                + "producer until QuerySpace request collapse lands.");
-        }
-
+        int requested = 0;
         foreach (ProducerDeclaration planned in work.Producers)
         {
+            if (work.WasRequested(planned))
+            {
+                requested++;
+                if (!ReferenceEquals(planned, producer))
+                {
+                    throw new ProducerContractException(
+                        "One Method-source association must have exactly one "
+                        + "requested producer.");
+                }
+            }
+
             if (planned is not IMethodDefinitionProducer)
             {
                 throw new ProducerContractException(
@@ -69,56 +172,204 @@ public sealed class MethodDefinitionSourceRequest<TResult>
             }
         }
 
-        return new(work, producer);
-    }
+        if (requested != 1)
+        {
+            throw new ProducerContractException(
+                "One Method-source association must have exactly one "
+                + "requested producer.");
+        }
 
-    /// <summary>This request's exact identity.</summary>
-    public MethodDefinitionSourceRequestIdentity Identity { get; }
+        return new(structuralRequest, binding, work, producer);
+    }
 
     /// <summary>The focused producer result this request publishes.</summary>
     public ProducerDeclaration<TResult> Producer { get; }
 
-    /// <summary>The closing applied to the focused producer.</summary>
-    public ProducerTerminal Terminal { get; }
+    internal override MethodDefinitionSourceResult Capture(
+        MethodDefinitionExecution execution,
+        MethodDefinitionSourceReceipt receipt) =>
+        new MethodDefinitionSourceResult<TResult>(
+            this,
+            receipt,
+            execution.ResultOf(Producer));
 
-    /// <summary>The source layers declared by the closed work description.</summary>
-    public MethodDefinitionLayers DeclaredLayers { get; }
+    internal ProducerResult<TResult> ReadResult(
+        MethodDefinitionSourceResult result)
+    {
+        if (result is not MethodDefinitionSourceResult<TResult> typed
+            || !ReferenceEquals(typed.Request, this))
+        {
+            throw new ProducerContractException(
+                "The detached Method-source result does not match its "
+                + "request association.");
+        }
 
-    internal WorkDescription Work { get; }
+        return typed.Result;
+    }
 }
 
 /// <summary>
-/// Resource-free composition of one closed producer description and one
-/// owner-issued Method source request.
+/// One QuerySpace-planned Method-source group and its Producer Planning work.
 /// </summary>
-public sealed class AssemblyAnalysisOperation<TResult>
+public sealed record MethodDefinitionSourcePlan(
+    QuerySpaceResourceIdentity Resource,
+    QuerySpaceSourceBindingIdentity Source,
+    ImmutableArray<MethodDefinitionSourceRequest> Requests,
+    WorkDescription Work);
+
+/// <summary>
+/// Resource-free composition of one QuerySpace request set and its one
+/// Method-source execution group.
+/// </summary>
+public sealed class AssemblyAnalysisOperation
 {
     AssemblyAnalysisOperation(
         string sourceName,
-        MethodDefinitionSourceRequest<TResult> methodDefinitions)
+        QuerySpaceRequestSetPlan<MethodDefinitionSourceRequest> requestSet,
+        ImmutableArray<MethodDefinitionSourcePlan> methodDefinitions)
     {
         SourceName = sourceName;
+        RequestSet = requestSet;
         MethodDefinitions = methodDefinitions;
     }
 
     /// <summary>Creates an operation without opening or reading its subject.</summary>
-    public static AssemblyAnalysisOperation<TResult> Create(
+    public static AssemblyAnalysisOperation Create(
         string sourceName,
-        MethodDefinitionSourceRequest<TResult> methodDefinitions)
+        params ReadOnlySpan<MethodDefinitionSourceRequest> requests)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
-        ArgumentNullException.ThrowIfNull(methodDefinitions);
-        return new(sourceName, methodDefinitions);
+        if (requests.IsEmpty)
+        {
+            throw new ProducerContractException(
+                "An assembly analysis operation requires at least one "
+                + "Method-source request.");
+        }
+
+        QuerySpaceResourceIdentity resource =
+            QuerySpaceResourceIdentity.Create(
+                MethodDefinitionSourceIdentities.ResourceDomain);
+        var candidates = new QuerySpaceRequestAssociationCandidate<
+            MethodDefinitionSourceRequest>?[requests.Length];
+        for (int i = 0; i < requests.Length; i++)
+        {
+            MethodDefinitionSourceRequest request = requests[i]
+                ?? throw new ArgumentNullException(
+                    nameof(requests),
+                    "Method-source requests cannot contain null.");
+            candidates[i] = new(
+                request.Association,
+                resource,
+                request.Binding.Identity,
+                request);
+        }
+
+        QuerySpaceRequestSetPlanResult<MethodDefinitionSourceRequest> planned =
+            QuerySpaceRequestSetPlanner.Plan(candidates);
+        if (planned
+            is not QuerySpaceRequestSetPlanResult<
+                MethodDefinitionSourceRequest>.Accepted accepted)
+        {
+            var rejected = (QuerySpaceRequestSetPlanResult<
+                MethodDefinitionSourceRequest>.Rejected)planned;
+            throw new ProducerContractException(
+                "The Method-source request set was rejected: "
+                + string.Join(
+                    ", ",
+                    rejected.Reasons.Select(static reason => reason.Reason)));
+        }
+        var methodDefinitions =
+            ImmutableArray.CreateBuilder<MethodDefinitionSourcePlan>(
+                accepted.Plan.Groups.Length);
+        foreach (QuerySpaceRequestExecutionGroup<
+            MethodDefinitionSourceRequest> group in accepted.Plan.Groups)
+        {
+            methodDefinitions.Add(CreateSourcePlan(group));
+        }
+
+        return new(
+            sourceName,
+            accepted.Plan,
+            methodDefinitions.ToImmutable());
+    }
+
+    static MethodDefinitionSourcePlan CreateSourcePlan(
+        QuerySpaceRequestExecutionGroup<MethodDefinitionSourceRequest> group)
+    {
+        WorkDescription work;
+        if (group.Associations.Length == 1)
+        {
+            work = group.Associations[0].Request.Work;
+        }
+        else
+        {
+            var producerRequests =
+                new ProducerRequest[group.Associations.Length];
+            for (int i = 0; i < group.Associations.Length; i++)
+            {
+                producerRequests[i] =
+                    group.Associations[i].Request.ProducerRequest;
+            }
+
+            ProducerPlanResult producerPlan =
+                ProducerPlanner.Plan(producerRequests);
+            if (producerPlan
+                is not ProducerPlanResult.Accepted producerAccepted)
+            {
+                var rejected = (ProducerPlanResult.Rejected)producerPlan;
+                throw new ProducerContractException(
+                    "The Method-source producer set was rejected: "
+                    + string.Join(
+                        ", ",
+                        rejected.Reasons.Select(
+                            static reason =>
+                                $"{reason.Producer}:{reason.Reason}")));
+            }
+
+            work = producerAccepted.Description;
+        }
+
+        return new MethodDefinitionSourcePlan(
+            group.Resource,
+            group.Source,
+            [.. group.Associations.Select(
+                static association => association.Request)],
+            work);
     }
 
     /// <summary>Content-free source name used in diagnostics.</summary>
     public string SourceName { get; }
 
-    /// <summary>The exact closed Producer Planning description.</summary>
-    public WorkDescription Work => MethodDefinitions.Work;
+    /// <summary>The immutable accepted QuerySpace request-set plan.</summary>
+    public QuerySpaceRequestSetPlan<MethodDefinitionSourceRequest> RequestSet
+    {
+        get;
+    }
 
-    /// <summary>The exact owner-issued Method source request.</summary>
-    public MethodDefinitionSourceRequest<TResult> MethodDefinitions { get; }
+    /// <summary>The exact owner-issued Method-source execution groups.</summary>
+    public ImmutableArray<MethodDefinitionSourcePlan> MethodDefinitions
+    {
+        get;
+    }
+
+    /// <summary>Returns the exact source plan containing one request.</summary>
+    public MethodDefinitionSourcePlan PlanOf(
+        MethodDefinitionSourceRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        foreach (MethodDefinitionSourcePlan plan in MethodDefinitions)
+        {
+            if (plan.Requests.Any(
+                    candidate => ReferenceEquals(candidate, request)))
+            {
+                return plan;
+            }
+        }
+
+        throw new ProducerContractException(
+            "The Method-source request is not part of this assembly analysis "
+            + "operation.");
+    }
 
     /// <summary>The owner-issued source kinds composed by this operation.</summary>
     public ImmutableArray<AssemblyAnalysisSourceKind> SourceKinds =>
@@ -144,12 +395,22 @@ public enum MethodDefinitionSourceCompletion
 /// <summary>Detached evidence of the Method-source work actually performed.</summary>
 public sealed record MethodDefinitionSourceReceipt(
     MethodDefinitionSourceRequestIdentity Request,
+    QuerySpaceRequestAssociationIdentity Association,
+    QuerySpaceResourceIdentity Resource,
+    QuerySpaceSourceBindingIdentity Source,
+    QuerySpaceRequestSatisfaction Satisfaction,
     ProducerTerminal Terminal,
     MethodDefinitionLayers DeclaredLayers,
     MethodDefinitionSourceCompletion Completion,
     int DefinitionsVisited,
     int BodiesAcquired,
     int ModuleLookups);
+
+/// <summary>Detached physical-work evidence for one Method-source group.</summary>
+public sealed record MethodDefinitionSourceGroupReceipt(
+    QuerySpaceResourceIdentity Resource,
+    QuerySpaceSourceBindingIdentity Source,
+    WorkReceipt Work);
 
 /// <summary>Why assembly-operation execution was rejected before producer work.</summary>
 public enum AssemblyAnalysisRejectionKind
@@ -162,67 +423,125 @@ public enum AssemblyAnalysisRejectionKind
 }
 
 /// <summary>Result of binding and executing one assembly analysis operation.</summary>
-public abstract record AssemblyAnalysisServiceResult<TResult>
+public abstract record AssemblyAnalysisServiceResult
 {
     private AssemblyAnalysisServiceResult()
     {
     }
 
     /// <summary>The source and producer execution completed with detached evidence.</summary>
-    public sealed record Completed(AssemblyAnalysisExecution<TResult> Execution)
-        : AssemblyAnalysisServiceResult<TResult>;
+    public sealed record Completed(AssemblyAnalysisExecution Execution)
+        : AssemblyAnalysisServiceResult;
 
     /// <summary>Execution was rejected before producer work began.</summary>
     public sealed record Rejected(AssemblyAnalysisRejectionKind Kind)
-        : AssemblyAnalysisServiceResult<TResult>;
+        : AssemblyAnalysisServiceResult;
 }
 
-/// <summary>
-/// Detached publication for one assembly analysis invocation.
-/// </summary>
-public sealed class AssemblyAnalysisExecution<TResult>
+abstract class MethodDefinitionSourceResult(
+    MethodDefinitionSourceRequest request,
+    MethodDefinitionSourceReceipt receipt)
 {
-    readonly ProducerResult<TResult> _result;
+    internal MethodDefinitionSourceRequest Request { get; } = request;
+
+    internal MethodDefinitionSourceReceipt Receipt { get; } = receipt;
+}
+
+sealed class MethodDefinitionSourceResult<TResult>(
+    MethodDefinitionSourceRequest<TResult> request,
+    MethodDefinitionSourceReceipt receipt,
+    ProducerResult<TResult> result)
+    : MethodDefinitionSourceResult(request, receipt)
+{
+    internal ProducerResult<TResult> Result { get; } = result;
+}
+
+/// <summary>Detached publication for one assembly analysis invocation.</summary>
+public sealed class AssemblyAnalysisExecution
+{
+    readonly ImmutableArray<MethodDefinitionSourceResult> _results;
 
     internal AssemblyAnalysisExecution(
-        AssemblyAnalysisOperation<TResult> operation,
+        AssemblyAnalysisOperation operation,
         AssemblyInspectionSubjectIdentity subject,
-        MethodDefinitionSourceReceipt sourceReceipt,
-        WorkReceipt workReceipt,
-        ProducerResult<TResult> result)
+        ImmutableArray<MethodDefinitionSourceGroupReceipt> workReceipts,
+        ImmutableArray<MethodDefinitionSourceResult> results)
     {
         Operation = operation;
         Subject = subject;
-        SourceReceipt = sourceReceipt;
-        WorkReceipt = workReceipt;
-        _result = result;
+        WorkReceipts = workReceipts;
+        _results = results;
+        SourceReceipts =
+            [.. results.Select(static result => result.Receipt)];
     }
 
     /// <summary>The exact resource-free operation that produced this execution.</summary>
-    public AssemblyAnalysisOperation<TResult> Operation { get; }
+    public AssemblyAnalysisOperation Operation { get; }
 
     /// <summary>The exact detached subject identity used for this invocation.</summary>
     public AssemblyInspectionSubjectIdentity Subject { get; }
 
-    /// <summary>The owner-issued Method-source receipt.</summary>
-    public MethodDefinitionSourceReceipt SourceReceipt { get; }
-
-    /// <summary>The aggregate Producer Planning participation receipt.</summary>
-    public WorkReceipt WorkReceipt { get; }
-
-    /// <summary>Returns the focused result through its exact producer declaration.</summary>
-    public ProducerResult<TResult> ResultOf(
-        ProducerDeclaration<TResult> producer)
+    /// <summary>The physical Producer Planning receipt for each source group.</summary>
+    public ImmutableArray<MethodDefinitionSourceGroupReceipt> WorkReceipts
     {
-        ArgumentNullException.ThrowIfNull(producer);
-        if (!ReferenceEquals(Operation.MethodDefinitions.Producer, producer))
+        get;
+    }
+
+    /// <summary>
+    /// Every detached Method-source receipt in request-set publication order.
+    /// </summary>
+    public ImmutableArray<MethodDefinitionSourceReceipt> SourceReceipts
+    {
+        get;
+    }
+
+    /// <summary>Returns one request's detached Method-source receipt.</summary>
+    public MethodDefinitionSourceReceipt SourceReceiptOf(
+        MethodDefinitionSourceRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        MethodDefinitionSourceResult result = Find(request);
+        return result.Receipt;
+    }
+
+    /// <summary>Returns one focused result through its exact request association.</summary>
+    public ProducerResult<TResult> ResultOf<TResult>(
+        MethodDefinitionSourceRequest<TResult> request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return request.ReadResult(Find(request));
+    }
+
+    /// <summary>Returns the physical work receipt for one request's source group.</summary>
+    public WorkReceipt WorkReceiptOf(
+        MethodDefinitionSourceRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        MethodDefinitionSourcePlan plan = Operation.PlanOf(request);
+        foreach (MethodDefinitionSourceGroupReceipt receipt in WorkReceipts)
         {
-            throw new ProducerContractException(
-                $"Producer '{producer.Identity}' is not the focused result "
-                + "of this assembly analysis operation.");
+            if (ReferenceEquals(receipt.Resource, plan.Resource)
+                && ReferenceEquals(receipt.Source, plan.Source))
+            {
+                return receipt.Work;
+            }
         }
 
-        return _result;
+        throw new ProducerContractException(
+            "The Method-source group has no physical work receipt.");
+    }
+
+    MethodDefinitionSourceResult Find(MethodDefinitionSourceRequest request)
+    {
+        foreach (MethodDefinitionSourceResult result in _results)
+        {
+            if (ReferenceEquals(result.Request, request))
+                return result;
+        }
+
+        throw new ProducerContractException(
+            "The Method-source request is not part of this assembly analysis "
+            + "execution.");
     }
 }
 
@@ -238,21 +557,21 @@ public sealed class AssemblyAnalysisService
     public static AssemblyAnalysisService Instance { get; } = new();
 
     /// <summary>Executes one operation through its exact stack-only access.</summary>
-    public AssemblyAnalysisServiceResult<TResult> Execute<TResult>(
-        AssemblyAnalysisOperation<TResult> operation,
-        scoped AssemblyInspectionOperationAccess<
-            AssemblyAnalysisOperation<TResult>> access)
+    public AssemblyAnalysisServiceResult Execute(
+        AssemblyAnalysisOperation operation,
+        scoped AssemblyInspectionOperationAccess<AssemblyAnalysisOperation>
+            access)
     {
         ArgumentNullException.ThrowIfNull(operation);
         if (!ReferenceEquals(operation, access.Operation))
         {
-            return new AssemblyAnalysisServiceResult<TResult>.Rejected(
+            return new AssemblyAnalysisServiceResult.Rejected(
                 AssemblyAnalysisRejectionKind.OperationAccessMismatch);
         }
 
         if (!access.HasMetadata)
         {
-            return new AssemblyAnalysisServiceResult<TResult>.Rejected(
+            return new AssemblyAnalysisServiceResult.Rejected(
                 AssemblyAnalysisRejectionKind.ManagedMetadataUnavailable);
         }
 
@@ -261,24 +580,93 @@ public sealed class AssemblyAnalysisService
             peReader => Execute(operation, subject, peReader));
     }
 
-    static AssemblyAnalysisServiceResult<TResult> Execute<TResult>(
-        AssemblyAnalysisOperation<TResult> operation,
+    static AssemblyAnalysisServiceResult Execute(
+        AssemblyAnalysisOperation operation,
         AssemblyInspectionSubjectIdentity subject,
         PEReader peReader)
     {
-        MethodDefinitionSourceRequest<TResult> request =
-            operation.MethodDefinitions;
-        MethodDefinitionExecution interim =
-            MethodDefinitionExecution.Execute(
-                operation.Work,
-                operation.SourceName,
-                peReader);
-        ProducerResult<TResult> result =
-            interim.ResultOf(request.Producer);
-        WorkReceipt workReceipt = interim.Receipt;
-        ProducerParticipation participation =
-            workReceipt.For(request.Producer);
+        var byRequest =
+            new Dictionary<
+                MethodDefinitionSourceRequest,
+                MethodDefinitionSourceResult>(
+                    ReferenceEqualityComparer.Instance);
+        var workReceipts =
+            ImmutableArray.CreateBuilder<MethodDefinitionSourceGroupReceipt>(
+                operation.MethodDefinitions.Length);
+        foreach (MethodDefinitionSourcePlan plan
+            in operation.MethodDefinitions)
+        {
+            MethodDefinitionExecution interim =
+                MethodDefinitionExecution.Execute(
+                    plan.Work,
+                    operation.SourceName,
+                    peReader);
+            WorkReceipt workReceipt = interim.Receipt;
+            workReceipts.Add(new(
+                plan.Resource,
+                plan.Source,
+                workReceipt));
+            foreach (MethodDefinitionSourceRequest request
+                in plan.Requests)
+            {
+                ProducerParticipation participation =
+                    workReceipt.For(request.Declaration);
+                (int bodiesAcquired, int moduleLookups) =
+                    LayerAcquisition(participation);
+                ProducerOutcome outcome = participation.Outcome;
+                MethodDefinitionSourceCompletion completion = outcome switch
+                {
+                    ProducerOutcome.Complete =>
+                        MethodDefinitionSourceCompletion.Exhausted,
+                    ProducerOutcome.Stopped =>
+                        MethodDefinitionSourceCompletion.Satisfied,
+                    ProducerOutcome.Failed
+                        or ProducerOutcome.PrerequisiteFailed =>
+                        MethodDefinitionSourceCompletion.ProducerFailed,
+                    ProducerOutcome.Aborted =>
+                        MethodDefinitionSourceCompletion.Aborted,
+                    _ => throw new ProducerContractException(
+                        $"Unknown producer outcome '{outcome}'."),
+                };
+                var sourceReceipt = new MethodDefinitionSourceReceipt(
+                    request.Identity,
+                    request.Association,
+                    plan.Resource,
+                    plan.Source,
+                    QuerySpaceRequestSatisfaction.CoveringRead,
+                    request.Terminal,
+                    request.DeclaredLayers,
+                    completion,
+                    participation.UnitsAttempted,
+                    bodiesAcquired,
+                    moduleLookups);
+                byRequest.Add(
+                    request,
+                    request.Capture(interim, sourceReceipt));
+            }
+        }
 
+        var results =
+            ImmutableArray.CreateBuilder<MethodDefinitionSourceResult>(
+                operation.RequestSet.Associations.Length);
+        foreach (QuerySpaceRequestAssociation<
+            MethodDefinitionSourceRequest> association
+            in operation.RequestSet.Associations)
+        {
+            results.Add(byRequest[association.Request]);
+        }
+
+        var execution = new AssemblyAnalysisExecution(
+            operation,
+            subject,
+            workReceipts.ToImmutable(),
+            results.ToImmutable());
+        return new AssemblyAnalysisServiceResult.Completed(execution);
+    }
+
+    static (int BodiesAcquired, int ModuleLookups) LayerAcquisition(
+        ProducerParticipation participation)
+    {
         int bodiesAcquired = 0;
         int moduleLookups = 0;
         foreach (ProducerLayerParticipation layer in participation.Layers)
@@ -299,34 +687,6 @@ public sealed class AssemblyAnalysisService
             }
         }
 
-        MethodDefinitionSourceCompletion completion = result.Outcome switch
-        {
-            ProducerOutcome.Complete =>
-                MethodDefinitionSourceCompletion.Exhausted,
-            ProducerOutcome.Stopped =>
-                MethodDefinitionSourceCompletion.Satisfied,
-            ProducerOutcome.Failed or ProducerOutcome.PrerequisiteFailed =>
-                MethodDefinitionSourceCompletion.ProducerFailed,
-            ProducerOutcome.Aborted =>
-                MethodDefinitionSourceCompletion.Aborted,
-            _ => throw new ProducerContractException(
-                $"Unknown producer outcome '{result.Outcome}'."),
-        };
-        var sourceReceipt = new MethodDefinitionSourceReceipt(
-            request.Identity,
-            request.Terminal,
-            request.DeclaredLayers,
-            completion,
-            workReceipt.UnitsVisited,
-            bodiesAcquired,
-            moduleLookups);
-        var execution = new AssemblyAnalysisExecution<TResult>(
-            operation,
-            subject,
-            sourceReceipt,
-            workReceipt,
-            result);
-        return new AssemblyAnalysisServiceResult<TResult>.Completed(
-            execution);
+        return (bodiesAcquired, moduleLookups);
     }
 }

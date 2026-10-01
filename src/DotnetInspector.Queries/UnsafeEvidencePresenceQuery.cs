@@ -247,6 +247,7 @@ public static class UnsafeEvidencePresenceQuery
     private static readonly MethodDefinitionSourceRequest<int>
         OwnerMethodSource =
             MethodDefinitionSourceRequest<int>.Create(
+                OwnerRequest,
                 OwnerPlan.Work,
                 UnsafeEvidencePresenceProducer.Instance);
 
@@ -332,27 +333,27 @@ public static class UnsafeEvidencePresenceQuery
     {
         try
         {
-            var operation = AssemblyAnalysisOperation<int>.Create(
+            var operation = AssemblyAnalysisOperation.Create(
                 path,
                 OwnerMethodSource);
             using AssemblyInspectionSession session =
                 AssemblyInspectionSession.Borrow(context);
             return session.SnapshotOperation<
-                AssemblyAnalysisOperation<int>,
+                AssemblyAnalysisOperation,
                 UnsafeEvidencePresenceResult>(
                 operation,
                 access =>
                 {
-                    AssemblyAnalysisServiceResult<int> serviceResult =
+                    AssemblyAnalysisServiceResult serviceResult =
                         AssemblyAnalysisService.Instance.Execute(
                             operation,
                             access);
                     if (serviceResult
-                        is not AssemblyAnalysisServiceResult<int>.Completed
+                        is not AssemblyAnalysisServiceResult.Completed
                             completed)
                     {
                         var rejected =
-                            (AssemblyAnalysisServiceResult<int>.Rejected)
+                            (AssemblyAnalysisServiceResult.Rejected)
                                 serviceResult;
                         return new UnsafeEvidencePresenceResult.Failed(
                             new InvalidOperationException(
@@ -365,21 +366,25 @@ public static class UnsafeEvidencePresenceQuery
                             peReader =>
                                 UnsafeEvidencePresence.Project(
                                     completed.Execution.ResultOf(
-                                        UnsafeEvidencePresenceProducer.Instance),
-                                    completed.Execution.WorkReceipt,
+                                        OwnerMethodSource),
+                                    completed.Execution.WorkReceiptOf(
+                                        OwnerMethodSource),
                                     peReader));
+                    MethodDefinitionSourceReceipt sourceReceipt =
+                        completed.Execution.SourceReceiptOf(
+                            OwnerMethodSource);
                     return inspection switch
                     {
                         UnsafeEvidencePresenceInspection.Available available =>
                             new UnsafeEvidencePresenceResult.Available(
                                 available.HasEvidence,
-                                completed.Execution.SourceReceipt,
+                                sourceReceipt,
                                 available.Receipt),
                         UnsafeEvidencePresenceInspection.Incomplete incomplete =>
                             new UnsafeEvidencePresenceResult.ExecutionIncomplete(
                                 incomplete.Error,
                                 incomplete.Outcome,
-                                completed.Execution.SourceReceipt,
+                                sourceReceipt,
                                 incomplete.Receipt),
                         _ => throw new InvalidOperationException(
                             "Unknown unsafe-evidence inspection outcome."),

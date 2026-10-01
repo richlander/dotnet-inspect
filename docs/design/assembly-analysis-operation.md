@@ -10,13 +10,15 @@ Library Body Analysis producer-hub retirement effort beneath
 The operator approved this House-shaped, session-aware composition: a
 resource-free operation describes the work, a stateless service executes it
 against explicit owner-issued access, and the returned execution retains only
-detached evidence. Unsafe-evidence presence is the first production adoption.
-It binds one single-producer Method request to stack-only session access,
-executes the existing sequential reference executor, and publishes separate
-Method-source and Producer Planning receipts with the focused producer result.
-The eight gates under [Required evidence](#required-evidence) verify that
-bounded adoption in Release. Multi-request collapse, other source kinds,
-cancellation, and legacy-remainder composition remain **unverified**.
+detached evidence. Unsafe-evidence presence is the first production adoption. Its singleton
+request now flows through the QuerySpace request-set reference planner. The
+Method source also accepts multiple typed requests, groups only requests that
+carry the same owner-issued sharing binding, executes each group through the
+existing sequential reference executor, and publishes per-association source
+evidence beside one physical Producer Planning receipt per group. The gates
+under [Required evidence](#required-evidence) verify that bounded adoption in
+Release. A mixed production consumer, other source kinds, cancellation, and
+legacy-remainder composition remain **unverified**.
 
 ## Authority and exact claim
 
@@ -26,7 +28,7 @@ cancellation, and legacy-remainder composition remain **unverified**.
 > operation access to an assembly, and the owner-issued source operations that
 > access makes available after their owning admission has settled,
 > `AssemblyAnalysisService` binds the operation's closed Producer Planning
-> description to those sources exactly once and publishes either a detached
+> descriptions to those sources exactly once and publishes either a detached
 > `AssemblyAnalysisExecution` or an operation-level non-success, without
 > retaining subject authority or behavior-bearing state.
 
@@ -88,11 +90,12 @@ issued for one invocation.
 
 ```text
 consumer-owned Analysis demand
-  -> Producer Planning closes declarations and resource requests
+  -> Producer Planning closes each declaration request
   -> AssemblyAnalysisOperation
        resource-free
-       exact producer work description
-       exact owner-issued source requests
+       immutable QuerySpace request-set plan
+       exact producer work descriptions
+       exact owner-issued source bindings and requests
        exact work bounds and terminal requirements
   + session or universe owner settles admission
   + owner-issued operation access to that exact assembly
@@ -104,7 +107,7 @@ consumer-owned Analysis demand
   -> AssemblyAnalysisExecution
        exact operation and subject association
        owner-issued source-work receipts
-       declaration-keyed producer outcomes and focused results
+       association-keyed producer outcomes and focused results
        no live access
   -> adopting query passes focused results to its consumers
 ```
@@ -117,19 +120,19 @@ cannot cross suspension.
 ### `AssemblyAnalysisOperation`
 
 `AssemblyAnalysisOperation` is closed, immutable, and resource-free. It
-retains the exact Producer Planning work description and owner-issued source
-requests that execution must honor. Its construction does not open an image,
-enumerate assembly metadata, resolve a reference, acquire a reader, or invoke
-a producer.
+retains one validated QuerySpace request-set plan, each exact Producer Planning
+work description, and every owner-issued source request that execution must
+honor. Its construction does not open an image, enumerate assembly metadata,
+resolve a reference, acquire a reader, or invoke a producer.
 
 The operation does not merge producer requests. Each declaration contributes
-its own QuerySpace request. QuerySpace either keeps them separate or returns
-one collapsed source plan plus consumer residuals under
-[#8574](https://github.com/richlander/dotnet-inspect/issues/8574).
-
-The first reference Method request accepts exactly one planned producer. That
-restriction keeps its terminal and work receipt exact while request collapse
-is excluded from the slice; it is not a source-wide limit.
+its own QuerySpace association and one typed Method-source result request.
+Exact resource and source-binding identities partition those associations.
+The Method-source owner issues a sharing binding explicitly: requests with
+different bindings remain separate groups, while requests with the same
+binding use one Producer Planning description and one physical execution
+receipt. Producer Planning remains the sole owner of dependency closure,
+scheduling, traversal, outcomes, and participation.
 
 An operation may compose Type, Member, and Method source requests. The service
 name is therefore assembly-wide rather than method-specific. Each source owner
@@ -171,10 +174,11 @@ semantic result. It preserves:
 - shared diagnostics whose owner permits common publication; and
 - typed incompleteness and failure evidence.
 
-Consumers request a result through its producer declaration and then pass the
-focused result value to the owning query or section. The execution is not a
-runtime-type bag, string-keyed registry, compatibility profile, or substitute
-for the focused result type.
+Consumers request a result through the exact typed Method-source request that
+issued its caller association and then pass the focused result value to the
+owning query or section. Duplicate semantic queries therefore retain distinct
+associations without a runtime-type bag, string-keyed registry, compatibility
+profile, or substitute for the focused result type.
 
 The publication retains no session, access lease, borrow, PE reader, Metadata
 reader, stream, resolver, source callback, or mutable producer state.
@@ -234,7 +238,8 @@ Migration uses a strangler:
 1. Prove the method source and service binding with the existing narrow unsafe
    presence production path.
 2. Land the minimum general request collapse from #8574 needed to compose
-   several producer requests.
+   several producer requests. (**Complete for the Method-source reference
+   path.**)
 3. Introduce one temporary legacy-remainder declaration for producers that
    have not moved.
 4. Move one cohesive producer owner and at least one production consumer per
@@ -351,6 +356,21 @@ association, subject identity, source receipt, producer outcome, focused
 result, and `WorkReceipt`. This proves detachment for every surface published
 by this adopter. It deliberately does not recursively inspect private object
 graphs and is not a universal absence proof for future execution shapes.
+
+The request-set reference slice additionally supplies these Release gates:
+
+- `RequestSetRejectsInvalidAssociationsWithoutWork`
+- `CollapsePreservesIndependentReferenceResults`
+- `SettledRequestSurvivesLaterSharedFailure`
+- `CoveringReadRequiresOwnerIdentityAndAcceptedCompletion`
+- `RequestSetPublishesEveryAssociationExactlyOnce`
+- `SharedWorkReceiptDoesNotDoubleCharge`
+
+They verify typed whole-set rejection, exact identity grouping, shared and
+deliberately unshared reference equivalence, per-association publication,
+settled-result preservation across later producer failure, and one physical
+receipt per shared group. They do not claim the still-remaining source-native
+Count, delegated row-handoff, or mixed production-adopter cases.
 
 `AssemblyAnalysisService_PreservesSourceFailureAndCompletion` covers the first
 source boundary: session-owned no-metadata admission rejects before producer

@@ -14,6 +14,9 @@ closed producer hubs. This document remains authoritative for the current
 implementation and its focused result semantics during that migration. New
 producer coordination adopts the target contract rather than extending the
 feature, plan, runner, aggregate, or compatibility-index hubs described here.
+The QuerySpace request-set reference planner and multi-request Method-source
+adapter now provide the composition prerequisite for the next cohesive
+producer and production-consumer migration.
 
 The selective implementation-metric extension is tracked by
 [#8450](https://github.com/richlander/dotnet-inspect/issues/8450) as the

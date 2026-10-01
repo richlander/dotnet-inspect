@@ -11,7 +11,8 @@ the target contract agreed before the held Depends and Library Query changes in
 [#7872](https://github.com/richlander/dotnet-inspect/pull/7872) continue.
 
 The current implementation has several prerequisites, one executable row
-composition slice, and one structural Exists adoption:
+composition slice, one structural Exists adoption, and the host-neutral
+request-set reference planner:
 
 - `QuerySpace` carries portable intent, row-query resolution, semantic row
   selection, Query Operation registration, and the immutable
@@ -28,15 +29,21 @@ composition slice, and one structural Exists adoption:
 - [Section-row shaping](section-row-shaping.md) binds declared row sets,
   projection, and terminal Count; and
 - [Source delegation](source-delegation.md) defines exact substitution of
-  source work through completion evidence.
+  source work through completion evidence; and
+- `QuerySpaceRequestSetPlanner` validates immutable association sets and groups
+  them only by exact owner-issued resource and source-binding identities,
+  retaining deterministic association order and typed whole-set rejection.
 
 Unsafe-evidence presence is the first Exists adopter. Its QuerySpace request
 names the method-definition row set and the Exists terminal, then lowers that
 closing to the Producer Planning `Exists` terminal before any assembly image is
 read. The production `UnsafeEvidencePresenceQuery` executes that resolved work
 description through Assembly Analysis Operation's exact session access and
-preserves both the Method-source receipt and producer receipt. This adoption
-adds no generic section-row Exists executor; [Open and closed
+preserves both the Method-source receipt and producer receipt. That production
+singleton now uses the request-set path. Release gates additionally exercise
+shared and deliberately unshared multi-request Method-source groups without
+changing producer semantics. This adoption adds no generic section-row Exists
+executor; [Open and closed
 queries](open-and-closed-queries.md) owns the terminal's meaning, and the
 unsafe-evidence operation owns its predicate and result.
 
@@ -412,14 +419,14 @@ owner's transitions into a second model.
 [#8574](https://github.com/richlander/dotnet-inspect/issues/8574) is the
 end-to-end request-collapse tracker, and
 [#8965](https://github.com/richlander/dotnet-inspect/issues/8965) owns the
-Library Body Analysis retirement sequence. The first observable paths each
-contain three focused slices:
+Library Body Analysis retirement sequence. The first observable paths each contain three focused slices:
 
-1. lock this request-set and collapse contract;
+1. lock this request-set and collapse contract (**complete**);
 2. implement the host-neutral reference planner and let the Method source
-   consume one request-set plan without changing producer semantics; and
+   consume one request-set plan without changing producer semantics
+   (**complete**); and
 3. adopt that path in one CLI library operation and one Browser/Wasm Analysis
-   operation, in separate owner-focused PRs.
+   operation, in separate owner-focused PRs (**remaining**).
 
 The CLI adopter combines unsafe-evidence presence with one still-live body
 producer, moves that producer's focused result and real command consumer, and

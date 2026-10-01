@@ -3,6 +3,8 @@ using System.Reflection.PortableExecutable;
 
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
+using DotnetInspector.Queries;
+using QuerySpace.Composition;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -16,17 +18,19 @@ public partial class UnsafeEvidencePresenceTests
             $"assembly-analysis-{Guid.NewGuid():N}",
             "missing.dll");
 
-        AssemblyAnalysisOperation<int> operation =
+        AssemblyAnalysisOperation operation =
             CreateOperation(nonexistent);
 
         Assert.Equal(nonexistent, operation.SourceName);
-        Assert.Same(UnsafeEvidencePresence.Description, operation.Work);
+        Assert.Same(
+            UnsafeEvidencePresence.Description,
+            operation.PlanOf(RequestOf(operation)).Work);
     }
 
     [Fact]
     public void AssemblyAnalysisService_BindsExactOperationAndSubject()
     {
-        AssemblyAnalysisOperation<int> operation =
+        AssemblyAnalysisOperation operation =
             CreateOperation("ExactSubject.dll");
         using AssemblyInspectionSession session =
             OpenSession(
@@ -44,7 +48,7 @@ public partial class UnsafeEvidencePresenceTests
                         access)));
 
         var completed = Assert.IsType<
-            AssemblyAnalysisServiceResult<int>.Completed>(
+            AssemblyAnalysisServiceResult.Completed>(
                 observed.Item2);
         Assert.Same(operation, completed.Execution.Operation);
         Assert.Same(observed.Subject, completed.Execution.Subject);
@@ -53,16 +57,16 @@ public partial class UnsafeEvidencePresenceTests
     [Fact]
     public void AssemblyAnalysisService_RejectsMismatchedOperationAccess()
     {
-        AssemblyAnalysisOperation<int> issued =
+        AssemblyAnalysisOperation issued =
             CreateOperation("Issued.dll");
-        AssemblyAnalysisOperation<int> foreign =
+        AssemblyAnalysisOperation foreign =
             CreateOperation("Foreign.dll");
         using AssemblyInspectionSession session =
             OpenSession(
                 BuildGuardRejectedUnsafeAssembly(
                     GuardRejectedSignatureKind.Local));
 
-        AssemblyAnalysisServiceResult<int> result =
+        AssemblyAnalysisServiceResult result =
             session.SnapshotOperation(
                 issued,
                 access =>
@@ -71,7 +75,7 @@ public partial class UnsafeEvidencePresenceTests
                         access));
 
         var rejected = Assert.IsType<
-            AssemblyAnalysisServiceResult<int>.Rejected>(result);
+            AssemblyAnalysisServiceResult.Rejected>(result);
         Assert.Equal(
             AssemblyAnalysisRejectionKind.OperationAccessMismatch,
             rejected.Kind);
@@ -81,7 +85,7 @@ public partial class UnsafeEvidencePresenceTests
     public void
         AssemblyAnalysisService_PreservesSourceFailureAndCompletion()
     {
-        AssemblyAnalysisOperation<int> operation =
+        AssemblyAnalysisOperation operation =
             CreateOperation("SourceCompletion.dll");
         byte[] noMetadata = RemoveManagedMetadata(
             BuildGuardRejectedUnsafeAssembly(
@@ -90,7 +94,7 @@ public partial class UnsafeEvidencePresenceTests
             AssemblyInspectionSession.OpenPrefetched(
                 new MemoryStream(noMetadata, writable: false)))
         {
-            AssemblyAnalysisServiceResult<int> rejected =
+            AssemblyAnalysisServiceResult rejected =
                 unavailable.SnapshotOperation(
                     operation,
                     access =>
@@ -101,35 +105,37 @@ public partial class UnsafeEvidencePresenceTests
             Assert.Equal(
                 AssemblyAnalysisRejectionKind.ManagedMetadataUnavailable,
                 Assert.IsType<
-                        AssemblyAnalysisServiceResult<int>.Rejected>(
+                        AssemblyAnalysisServiceResult.Rejected>(
                             rejected)
                     .Kind);
         }
 
         using AssemblyInspectionSession available =
             OpenSession(BuildCustomModifiedPointerLocalAssembly());
-        AssemblyAnalysisServiceResult<int> completedResult =
+        AssemblyAnalysisServiceResult completedResult =
             available.SnapshotOperation(
                 operation,
                 access =>
                     AssemblyAnalysisService.Instance.Execute(
                         operation,
                         access));
-        AssemblyAnalysisExecution<int> execution =
-            Assert.IsType<AssemblyAnalysisServiceResult<int>.Completed>(
+        AssemblyAnalysisExecution execution =
+            Assert.IsType<AssemblyAnalysisServiceResult.Completed>(
                     completedResult)
                 .Execution;
 
         Assert.Equal(
             MethodDefinitionSourceCompletion.Satisfied,
-            execution.SourceReceipt.Completion);
-        Assert.True(execution.SourceReceipt.DefinitionsVisited > 0);
+            execution.SourceReceiptOf(RequestOf(operation)).Completion);
+        Assert.True(
+            execution.SourceReceiptOf(RequestOf(operation))
+                .DefinitionsVisited > 0);
     }
 
     [Fact]
     public void AssemblyAnalysisService_PreservesProducerOutcomes()
     {
-        AssemblyAnalysisOperation<int> operation =
+        AssemblyAnalysisOperation operation =
             CreateOperation("IncompleteThenEvidence.dll");
         using AssemblyInspectionSession session =
             OpenSession(
@@ -137,8 +143,8 @@ public partial class UnsafeEvidencePresenceTests
                     GuardRejectedSignatureKind.Local,
                     appendUnsafeBody: true));
 
-        AssemblyAnalysisExecution<int> execution =
-            Assert.IsType<AssemblyAnalysisServiceResult<int>.Completed>(
+        AssemblyAnalysisExecution execution =
+            Assert.IsType<AssemblyAnalysisServiceResult.Completed>(
                     session.SnapshotOperation(
                         operation,
                         access =>
@@ -147,10 +153,9 @@ public partial class UnsafeEvidencePresenceTests
                                 access)))
                 .Execution;
         ProducerResult<int> result =
-            execution.ResultOf(
-                UnsafeEvidencePresenceProducer.Instance);
+            execution.ResultOf(RequestOf(operation));
         ProducerParticipation participation =
-            execution.WorkReceipt.For(
+            execution.WorkReceiptOf(RequestOf(operation)).For(
                 UnsafeEvidencePresenceProducer.Instance);
 
         Assert.Equal(ProducerOutcome.Failed, result.Outcome);
@@ -171,9 +176,9 @@ public partial class UnsafeEvidencePresenceTests
             BuildCustomModifiedPointerLocalAssembly().AsSpan());
         try
         {
-            AssemblyAnalysisOperation<int> operation =
+            AssemblyAnalysisOperation operation =
                 CreateOperation(path);
-            AssemblyAnalysisExecution<int> execution;
+            AssemblyAnalysisExecution execution;
             AssemblyInspectionSubjectIdentity subject;
             using (PdbContext context = PdbContext.OpenMetadataOnly(path))
             {
@@ -189,7 +194,7 @@ public partial class UnsafeEvidencePresenceTests
                                 access)));
                 subject = observed.Subject;
                 execution = Assert.IsType<
-                        AssemblyAnalysisServiceResult<int>.Completed>(
+                        AssemblyAnalysisServiceResult.Completed>(
                             observed.Item2)
                     .Execution;
             }
@@ -197,21 +202,22 @@ public partial class UnsafeEvidencePresenceTests
             Assert.Same(operation, execution.Operation);
             Assert.Same(subject, execution.Subject);
             Assert.Same(
-                operation.MethodDefinitions.Identity,
-                execution.SourceReceipt.Request);
+                RequestOf(operation).Identity,
+                execution.SourceReceiptOf(RequestOf(operation)).Request);
             Assert.Equal(
                 MethodDefinitionSourceCompletion.Satisfied,
-                execution.SourceReceipt.Completion);
-            Assert.True(execution.SourceReceipt.DefinitionsVisited > 0);
+                execution.SourceReceiptOf(RequestOf(operation)).Completion);
+            Assert.True(
+                execution.SourceReceiptOf(RequestOf(operation))
+                    .DefinitionsVisited > 0);
             Assert.Equal(
                 new ProducerResult<int>(
                     ProducerOutcome.Stopped,
                     1),
-                execution.ResultOf(
-                    UnsafeEvidencePresenceProducer.Instance));
+                execution.ResultOf(RequestOf(operation)));
             Assert.Equal(
                 ProducerOutcome.Stopped,
-                execution.WorkReceipt.For(
+                execution.WorkReceiptOf(RequestOf(operation)).For(
                         UnsafeEvidencePresenceProducer.Instance)
                     .Outcome);
         }
@@ -225,7 +231,7 @@ public partial class UnsafeEvidencePresenceTests
     public void
         AssemblyAnalysisService_SequentialReferenceMatchesInterimExecutor()
     {
-        AssemblyAnalysisOperation<int> operation =
+        AssemblyAnalysisOperation operation =
             CreateOperation("ReferenceMatch.dll");
         using AssemblyInspectionSession session =
             OpenSession(
@@ -237,7 +243,7 @@ public partial class UnsafeEvidencePresenceTests
             operation,
             access =>
             {
-                AssemblyAnalysisServiceResult<int> service =
+                AssemblyAnalysisServiceResult service =
                     AssemblyAnalysisService.Instance.Execute(
                         operation,
                         access);
@@ -247,21 +253,20 @@ public partial class UnsafeEvidencePresenceTests
                             UnsafeEvidencePresence.Execute(
                                 operation.SourceName,
                                 peReader,
-                                operation.Work));
+                                operation.PlanOf(RequestOf(operation)).Work));
                 return (service, reference);
             });
-        AssemblyAnalysisExecution<int> execution =
-            Assert.IsType<AssemblyAnalysisServiceResult<int>.Completed>(
+        AssemblyAnalysisExecution execution =
+            Assert.IsType<AssemblyAnalysisServiceResult.Completed>(
                     observed.service)
                 .Execution;
         ProducerResult<int> actual =
-            execution.ResultOf(
-                UnsafeEvidencePresenceProducer.Instance);
+            execution.ResultOf(RequestOf(operation));
         ProducerResult<int> expected =
             observed.reference.ResultOf(
                 UnsafeEvidencePresenceProducer.Instance);
         ProducerParticipation actualParticipation =
-            execution.WorkReceipt.For(
+            execution.WorkReceiptOf(RequestOf(operation)).For(
                 UnsafeEvidencePresenceProducer.Instance);
         ProducerParticipation expectedParticipation =
             observed.reference.Receipt.For(
@@ -270,7 +275,7 @@ public partial class UnsafeEvidencePresenceTests
         Assert.Equal(expected, actual);
         Assert.Equal(
             observed.reference.Receipt.UnitsVisited,
-            execution.WorkReceipt.UnitsVisited);
+            execution.WorkReceiptOf(RequestOf(operation)).UnitsVisited);
         Assert.Equal(
             expectedParticipation.Producer,
             actualParticipation.Producer);
@@ -297,17 +302,20 @@ public partial class UnsafeEvidencePresenceTests
     {
         MethodDefinitionSourceRequest<int> request =
             MethodDefinitionSourceRequest<int>.Create(
+                UnsafeEvidencePresenceQuery.CreateRequest(),
                 UnsafeEvidencePresence.Description,
                 UnsafeEvidencePresenceProducer.Instance);
-        AssemblyAnalysisOperation<int> operation =
-            AssemblyAnalysisOperation<int>.Create(
+        AssemblyAnalysisOperation operation =
+            AssemblyAnalysisOperation.Create(
                 "Sources.dll",
                 request);
 
         Assert.Equal(
             [AssemblyAnalysisSourceKind.MethodDefinitions],
             operation.SourceKinds);
-        Assert.Same(request, operation.MethodDefinitions);
+        Assert.Equal(
+            [request],
+            Assert.Single(operation.MethodDefinitions).Requests);
         Assert.Equal(ProducerTerminal.Exists, request.Terminal);
         Assert.Equal(
             MethodDefinitionLayers.Declaration
@@ -316,17 +324,254 @@ public partial class UnsafeEvidencePresenceTests
             request.DeclaredLayers);
     }
 
-    static AssemblyAnalysisOperation<int> CreateOperation(
+    [Fact]
+    public void SettledRequestSurvivesLaterSharedFailure()
+    {
+        var settling = new SettlingReferenceProducer();
+        var failing = new CompletionFailingReferenceProducer();
+        MethodDefinitionSourceBinding binding =
+            MethodDefinitionSourceBinding.Create();
+        MethodDefinitionSourceRequest<int> settledRequest =
+            CreateSourceRequest(
+                binding,
+                settling,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceRequest<int> failedRequest =
+            CreateSourceRequest(
+                binding,
+                failing,
+                ProducerTerminal.Exists);
+        AssemblyAnalysisOperation operation =
+            AssemblyAnalysisOperation.Create(
+                "Collapsed.dll",
+                settledRequest,
+                failedRequest);
+        using AssemblyInspectionSession session =
+            OpenSession(
+                BuildGuardRejectedUnsafeAssembly(
+                    GuardRejectedSignatureKind.Local,
+                    appendUnsafeBody: true));
+
+        AssemblyAnalysisExecution execution =
+            Assert.IsType<AssemblyAnalysisServiceResult.Completed>(
+                    session.SnapshotOperation(
+                        operation,
+                        access =>
+                            AssemblyAnalysisService.Instance.Execute(
+                                operation,
+                                access)))
+                .Execution;
+
+        Assert.Equal(2, operation.RequestSet.Associations.Length);
+        Assert.Single(operation.RequestSet.Groups);
+        Assert.Equal(
+            [settledRequest.Association, failedRequest.Association],
+            execution.SourceReceipts.Select(
+                static receipt => receipt.Association));
+        Assert.Equal(
+            new ProducerResult<int>(
+                ProducerOutcome.Stopped,
+                1),
+            execution.ResultOf(settledRequest));
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            execution.ResultOf(failedRequest).Outcome);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Satisfied,
+            execution.SourceReceiptOf(settledRequest).Completion);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.ProducerFailed,
+            execution.SourceReceiptOf(failedRequest).Completion);
+        Assert.Same(
+            settledRequest.Association,
+            execution.SourceReceiptOf(settledRequest).Association);
+        Assert.Same(
+            failedRequest.Association,
+            execution.SourceReceiptOf(failedRequest).Association);
+        Assert.Equal(
+            QuerySpaceRequestSatisfaction.CoveringRead,
+            execution.SourceReceiptOf(settledRequest).Satisfaction);
+        Assert.Same(
+            operation.PlanOf(settledRequest).Resource,
+            execution.SourceReceiptOf(settledRequest).Resource);
+        Assert.Same(
+            operation.PlanOf(settledRequest).Source,
+            execution.SourceReceiptOf(settledRequest).Source);
+        Assert.Equal(
+            1,
+            execution.WorkReceiptOf(settledRequest)
+                .For(settling)
+                .UnitsAttempted);
+        Assert.True(
+            execution.WorkReceiptOf(failedRequest)
+                .For(failing)
+                .UnitsAttempted > 1);
+        Assert.True(
+            execution.WorkReceiptOf(settledRequest).UnitsVisited > 1);
+        Assert.Single(execution.WorkReceipts);
+    }
+
+    [Fact]
+    public void CollapsePreservesIndependentReferenceResults()
+    {
+        var producer = new SettlingReferenceProducer();
+        MethodDefinitionSourceRequest<int> first =
+            CreateSourceRequest(
+                MethodDefinitionSourceBinding.Create(),
+                producer,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceRequest<int> second =
+            CreateSourceRequest(
+                MethodDefinitionSourceBinding.Create(),
+                producer,
+                ProducerTerminal.Exists);
+
+        (AssemblyAnalysisOperation operation,
+            AssemblyAnalysisExecution execution) =
+                ExecuteRequests(first, second);
+
+        Assert.Equal(2, operation.RequestSet.Groups.Length);
+        Assert.Equal(2, execution.WorkReceipts.Length);
+        Assert.Equal(
+            new ProducerResult<int>(ProducerOutcome.Stopped, 1),
+            execution.ResultOf(first));
+        Assert.Equal(
+            execution.ResultOf(first),
+            execution.ResultOf(second));
+        Assert.Equal(
+            execution.SourceReceiptOf(first).Completion,
+            execution.SourceReceiptOf(second).Completion);
+    }
+
+    [Fact]
+    public void RequestSetPublishesEveryAssociationExactlyOnce()
+    {
+        var producer = new SettlingReferenceProducer();
+        MethodDefinitionSourceBinding binding =
+            MethodDefinitionSourceBinding.Create();
+        MethodDefinitionSourceRequest<int> first =
+            CreateSourceRequest(
+                binding,
+                producer,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceRequest<int> second =
+            CreateSourceRequest(
+                binding,
+                producer,
+                ProducerTerminal.Exists);
+
+        (AssemblyAnalysisOperation operation,
+            AssemblyAnalysisExecution execution) =
+                ExecuteRequests(first, second);
+
+        Assert.Single(operation.RequestSet.Groups);
+        Assert.Equal(
+            [first.Association, second.Association],
+            execution.SourceReceipts.Select(
+                static receipt => receipt.Association));
+        Assert.Equal(
+            new ProducerResult<int>(ProducerOutcome.Stopped, 1),
+            execution.ResultOf(first));
+        Assert.Equal(
+            execution.ResultOf(first),
+            execution.ResultOf(second));
+    }
+
+    [Fact]
+    public void SharedWorkReceiptDoesNotDoubleCharge()
+    {
+        var producer = new SettlingReferenceProducer();
+        MethodDefinitionSourceBinding binding =
+            MethodDefinitionSourceBinding.Create();
+        MethodDefinitionSourceRequest<int> first =
+            CreateSourceRequest(
+                binding,
+                producer,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceRequest<int> second =
+            CreateSourceRequest(
+                binding,
+                producer,
+                ProducerTerminal.Exists);
+
+        (_, AssemblyAnalysisExecution execution) =
+            ExecuteRequests(first, second);
+
+        MethodDefinitionSourceGroupReceipt physical =
+            Assert.Single(execution.WorkReceipts);
+        Assert.Equal(1, physical.Work.UnitsVisited);
+        Assert.Equal(
+            1,
+            execution.SourceReceiptOf(first).DefinitionsVisited);
+        Assert.Equal(
+            1,
+            execution.SourceReceiptOf(second).DefinitionsVisited);
+        Assert.Same(
+            execution.WorkReceiptOf(first),
+            execution.WorkReceiptOf(second));
+    }
+
+    static AssemblyAnalysisOperation CreateOperation(
         string sourceName)
     {
         MethodDefinitionSourceRequest<int> source =
             MethodDefinitionSourceRequest<int>.Create(
+                UnsafeEvidencePresenceQuery.CreateRequest(),
                 UnsafeEvidencePresence.Description,
                 UnsafeEvidencePresenceProducer.Instance);
-        return AssemblyAnalysisOperation<int>.Create(
+        return AssemblyAnalysisOperation.Create(
             sourceName,
             source);
     }
+
+    static MethodDefinitionSourceRequest<int> CreateSourceRequest(
+        MethodDefinitionSourceBinding binding,
+        ProducerDeclaration<int> producer,
+        ProducerTerminal terminal)
+    {
+        WorkDescription work =
+            Assert.IsType<ProducerPlanResult.Accepted>(
+                    ProducerPlanner.Plan([new(producer, terminal)]))
+                .Description;
+        return MethodDefinitionSourceRequest<int>.Create(
+            UnsafeEvidencePresenceQuery.CreateRequest(),
+            binding,
+            work,
+            producer);
+    }
+
+    static (
+        AssemblyAnalysisOperation Operation,
+        AssemblyAnalysisExecution Execution)
+        ExecuteRequests(
+            params ReadOnlySpan<MethodDefinitionSourceRequest> requests)
+    {
+        AssemblyAnalysisOperation operation =
+            AssemblyAnalysisOperation.Create(
+                "RequestSet.dll",
+                requests);
+        using AssemblyInspectionSession session =
+            OpenSession(
+                BuildGuardRejectedUnsafeAssembly(
+                    GuardRejectedSignatureKind.Local,
+                    appendUnsafeBody: true));
+        AssemblyAnalysisExecution execution =
+            Assert.IsType<AssemblyAnalysisServiceResult.Completed>(
+                    session.SnapshotOperation(
+                        operation,
+                        access =>
+                            AssemblyAnalysisService.Instance.Execute(
+                                operation,
+                                access)))
+                .Execution;
+        return (operation, execution);
+    }
+
+    static MethodDefinitionSourceRequest<int> RequestOf(
+        AssemblyAnalysisOperation operation) =>
+        Assert.IsType<MethodDefinitionSourceRequest<int>>(
+            Assert.Single(
+                Assert.Single(operation.MethodDefinitions).Requests));
 
     static AssemblyInspectionSession OpenSession(
         ImmutableArray<byte> image) =>
@@ -345,5 +590,48 @@ public partial class UnsafeEvidencePresenceTests
             + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
         image.AsSpan(directoryBase + (14 * 8), 8).Clear();
         return image;
+    }
+
+    sealed class SettlingReferenceProducer()
+        : MethodDefinitionProducer<int, int, int>(
+            "AssemblyAnalysis.Reference.Settling",
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) => 1;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+
+        internal override bool Settles(int fact) => true;
+    }
+
+    sealed class CompletionFailingReferenceProducer()
+        : MethodDefinitionProducer<int, int, int>(
+            "AssemblyAnalysis.Reference.CompletionFailure",
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) => 1;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            throw new BadImageFormatException(
+                "Injected reference completion failure.");
     }
 }
