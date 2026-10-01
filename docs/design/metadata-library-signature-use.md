@@ -12,15 +12,20 @@ and consumes the bounded traversal contract in
 **Metadata Library Signature Use** is the single normative owner established
 here. Its exact claim is:
 
-> Given one supported ECMA-335 assembly image, enumerate the complete,
-> all-accessibility population of named Type-definition occurrences in
-> declaration relationships and signatures, bind occurrences whose targets are
-> definitions in that exact image, and publish detached source-to-target
-> evidence with exact image identity, coverage, work, and visible failures.
+> Given one supported ECMA-335 assembly image and either its complete Type
+> population, one exact metadata namespace, or a known ordered set of exact
+> namespaces, enumerate each complete, all-accessibility population of named
+> Type-definition occurrences admitted by that selection, bind occurrences
+> whose targets are definitions in that exact image, and publish detached
+> source-to-target evidence with exact image and population identity, coverage,
+> work, and visible failures. A set shares image acquisition and traversal
+> while preserving each exact namespace's independent result.
 
-This owner defines Metadata construction, binding, classification, and
-qualification only. It does not define Graph degree, Research rankings or
-roles, CLI rendering, Browser presentation, or provider-backed acquisition.
+This owner defines Metadata construction, population selection, binding,
+classification, qualification, and shared execution for a known set of exact
+namespaces only. It does not define Graph degree, Research namespace roll-up,
+rankings, designations or roles, QuerySpace request grouping, CLI rendering,
+or Browser presentation.
 
 The existing Metadata `Signatures` relation family remains member-to-shape
 `Accepts` and `Returns` evidence for Subject Relations. Its signature excludes
@@ -33,9 +38,9 @@ privately copied here.
 
 The operation answers:
 
-> Which Types declared in this exact Library generation are referenced by each
-> other declared Type's hierarchy, constraints, and member signatures, and how
-> complete was that population?
+> Which Types admitted by this exact whole-Library or exact-namespace
+> population are referenced by each other's hierarchy, constraints, and member
+> signatures, and how complete was that population?
 
 In abstract form:
 
@@ -45,6 +50,13 @@ AssemblyInspectionSession.LibrarySignatureUses(Request)
    | Rejected(ImageFailure)
 ```
 
+The request selects either the whole Library or one exact metadata namespace.
+Whole-Library selection admits every Type as a source and retains every local
+target occurrence. Exact-namespace selection admits only Types in that
+namespace as sources and retains only occurrences whose targets are also in
+that namespace. The latter is the producer population for an induced namespace
+Type graph; it is not a whole-Library result filtered after execution.
+
 An available result can be complete or partial. Partial means that admitted
 sites remain unexamined because malformed, unsupported, or bounded evidence
 prevented a complete answer. It never means that those sites produced no
@@ -52,9 +64,11 @@ relationships.
 
 ## Library and Type identity
 
-One result is bound to the assembly identity and non-empty module MVID read
-from the same open image. Its canonical Type inventory contains every TypeDef
-except the metadata `<Module>` pseudo-type, independent of accessibility.
+One result is bound to the assembly identity, non-empty module MVID, and
+selected population read from the same open image. Its canonical Type
+inventory contains every admitted TypeDef except the metadata `<Module>`
+pseudo-type, independent of accessibility. The empty metadata namespace is a
+valid exact namespace; it is distinct from whole-Library selection.
 
 Each Type retains:
 
@@ -109,7 +123,8 @@ decisions over this complete population.
 
 ### Local target binding
 
-Only targets defined in the exact inspected image enter the result:
+Only targets defined in the exact inspected image and admitted by the selected
+population enter the result:
 
 - a direct TypeDef origin binds by its validated handle;
 - current-assembly and equivalent self-assembly references bind by one unique
@@ -141,7 +156,7 @@ candidate Type population rather than an excluded candidate.
 
 One available result contains:
 
-- an exact image receipt and Metadata operation counters;
+- an exact image and population receipt plus Metadata operation counters;
 - the canonical Type inventory;
 - canonical relationship occurrences;
 - site coverage;
@@ -158,6 +173,40 @@ prevents an exact image receipt or trustworthy Type inventory rejects the
 operation and publishes no population.
 
 Cancellation propagates with the caller's token. It is not artifact failure.
+
+## Exact-namespace batch acquisition
+
+After a caller knows several exact namespaces for one assembly generation,
+Metadata can execute those requests as one immutable batch. The batch contains
+one non-empty ordered set of unique exact namespaces and one operation policy.
+It neither contains a whole-Library request nor discovers namespaces while
+executing.
+
+Each namespace result is strictly equivalent to executing its exact-namespace
+request independently. It retains its own exact namespace, canonical Types and
+occurrences, disposition, coverage, diagnostics, ordering, and logical policy
+counters. Request order determines result order only; it cannot change any
+namespace result. Shared execution does not combine budgets: a limited or
+malformed site qualifies only its source namespace, while healthy peers
+continue under their independent logical counters.
+
+The batch receipt records actual shared physical work once. Image admission and
+the Type inventory contribute once to that receipt but remain present in every
+namespace's logical counters because each result preserves the independent
+reference contract. Consumers must not sum logical counters to infer shared
+physical cost.
+
+A failure before namespace partitioning, including missing image identity or
+an unusable Type inventory, rejects the complete batch and publishes no
+namespace result. Cancellation cancels the batch. A whole-Library result
+filtered after execution is not a valid batch implementation because it cannot
+preserve namespace-local coverage, diagnostics, completion, budgets, or
+counters.
+
+Query Space Composition owns request association and optional source-plan
+collapse. This owner accepts only the already-formed exact-namespace set and
+does not collect requests across operations, time, threads, or event-loop
+turns.
 
 ## Bounds and failure
 
@@ -187,26 +236,31 @@ NativeAOT-friendly, Roslyn-free, and free of inspected-assembly loading.
 
 ## Consumer boundary
 
-Metadata owns the Type inventory, physical occurrence population, local
-binding, classification, image receipt, coverage, counters, and diagnostics.
+Metadata owns the selected population identity, Type inventory, physical
+occurrence population, local binding, classification, image receipt, coverage,
+counters, and diagnostics.
 
 Research consumes the detached result and:
 
 - maps each canonical Type to a Graph node;
 - maps every occurrence to a typed Graph relationship;
-- selects signature incoming distinct-neighbor degree;
+- rolls a whole-Library population up to namespace leverage;
+- selects incoming and outgoing distinct-neighbor degree for one exact
+  namespace population;
 - applies its explicit self-loop policy;
-- decides ranking eligibility from Metadata-issued classification;
-- combines signature and Analysis body evidence into roles; and
+- decides designation eligibility from Metadata-issued classification;
+- derives signature-evidence roles and designations; and
 - preserves Metadata qualification in the report.
 
 Research never reopens metadata, binds a TypeRef by display text, repairs an
 incomplete population, or treats a missing edge as an examined zero.
 
-The later QuerySpace adoption may push selected relationship demand into this
-owner. It must preserve this closed-document result's identity, evidence,
-completion, ordering, and failures. This operation is therefore the reference
-semantic terminal, not a temporary host implementation.
+Query composition selects the whole-Library or exact-namespace producer
+population before work starts. After namespace-index acquisition, it may submit
+the complete known exact-namespace set to the batch operation. It must preserve
+each closed-document result's identity, evidence, completion, ordering, and
+failures; a post-execution filter is not a namespace shard. These operations
+are reference semantic terminals, not temporary host implementations.
 
 ## Before/after evidence
 
@@ -239,10 +293,14 @@ Release fixtures prove:
   foreign-target omission;
 - duplicate-definition rejection;
 - malformed signature and relationship handling;
-- budget-limited partial completion; and
+- budget-limited partial completion;
+- strict batch equivalence to independent exact-namespace requests;
+- namespace-local limit and failure isolation plus shared pre-partition
+  rejection;
+- one shared physical-work receipt beside independent logical counters; and
 - detached deterministic results after session disposal.
 
 System.Text.Json 10.0.0 proves a representative package path.
 System.Private.CoreLib from SDK `11.0.100-rc.1.26425.128` proves scale,
-all-accessibility participation, deterministic completion, and the Stage 3
-before/after measurement.
+all-accessibility participation, deterministic completion, the Stage 3
+before/after measurement, and exact-namespace batch equivalence.
