@@ -303,25 +303,24 @@ function sourceResult(
   };
 }
 
-test("Member Diff Explore renders all three evidence panes from typed evidence", () => {
+test("Member Diff Explore renders one full-width authored Source diff", () => {
   const value = context();
   const state: MemberDiffExplorerSourceState = {
     status: "ready",
     result: sourceResult(value),
   };
   const html = renderMemberDiffExplorer(value, state, String);
-
   assert.match(html, /Member Diff · Changed/);
   assert.match(html, /Run\(long\)/);
-  assert.match(html, /What changed/);
-  assert.match(html, /Parameter type changed from int to long\./);
-  assert.match(html, /Paired declaration evidence is not available yet/);
-  assert.match(html, /Authored Source changed/);
+  assert.match(html, /Run\(long\)/);
+  assert.match(html, /data-member-diff-mode="text"/);
   assert.match(html, /1 Before changed/);
   assert.match(html, /<mark>int<\/mark>/);
   assert.match(html, /<mark>long<\/mark>/);
-  assert.match(html, /Parameter type changed\./);
-  assert.match(html, /Final line terminators: Before Present; After Absent/);
+  assert.doesNotMatch(
+    html,
+    /What changed|Declaration|Parameter type changed|Authored Source changed|member-diff-source-endpoint|Final line terminators|Mapped change evidence/,
+  );
 });
 
 test("unified Source rendering walks mapped changes in positional order", () => {
@@ -330,9 +329,7 @@ test("unified Source rendering walks mapped changes in positional order", () => 
   assert.match(html, /data-row-kind="removal" data-before-line="0"/);
   assert.match(html, /data-row-kind="addition" data-before-line="" data-after-line="0"/);
   assert.match(html, /data-row-kind="context" data-before-line="1" data-after-line="1"/);
-  assert.match(html, /Mapped change evidence/);
-  assert.match(html, /Before 0:1 → After 0:1/);
-  assert.match(html, /Warning/);
+  assert.doesNotMatch(html, /Mapped change evidence|Before 0:1 → After 0:1|Warning/);
   assert.equal(
     (html.match(/data-relation-content="Changed" data-relation-placement="Stable"/g) ?? []).length,
     2,
@@ -766,7 +763,7 @@ interface FakeDialog {
   keydownHandlers: EventListener[];
   retryHandlers: EventListener[];
   retryButton: HTMLElement;
-  sourcePane: HTMLElement;
+  sourceContent: HTMLElement;
 }
 
 function dialogHarness() {
@@ -807,7 +804,7 @@ function dialogHarness() {
       };
       const closeButton = focusable(closeHandlers);
       const retryButton = focusable(retryHandlers);
-      const sourcePane = focusable();
+      const sourceContent = focusable();
       const heading = focusable();
       const dialog: FakeDialog = {
         open: false,
@@ -817,7 +814,7 @@ function dialogHarness() {
         keydownHandlers,
         retryHandlers,
         retryButton,
-        sourcePane,
+        sourceContent,
       };
       Object.assign(dialog, {
         className: "",
@@ -834,8 +831,8 @@ function dialogHarness() {
         querySelector: (selector: string) => {
           if (selector === "[data-member-diff-close]") return closeButton;
           if (selector === "#member-diff-explorer-title") return heading;
-          if (selector === '[data-member-diff-pane="source"]')
-            return sourcePane;
+          if (selector === '[data-member-diff-mode="text"]')
+            return sourceContent;
           if (selector === "[data-member-diff-source-retry]"
             && dialog.innerHTML.includes("data-member-diff-source-retry")) {
             return retryButton;
@@ -846,7 +843,7 @@ function dialogHarness() {
         contains: (candidate: unknown) =>
           candidate === closeButton
           || candidate === retryButton
-          || candidate === sourcePane
+          || candidate === sourceContent
           || candidate === heading,
         focus: () => undefined,
         showModal: () => {
@@ -942,7 +939,7 @@ test("retry transition keeps focus inside the dialog", async () => {
   retry(fakeDom.event());
 
   assert.equal(queryCount, 2);
-  assert.equal(dom.activeElement(), dialog.sourcePane);
+  assert.equal(dom.activeElement(), dialog.sourceContent);
   controller.dispose();
 });
 
@@ -1115,6 +1112,6 @@ test("a settled non-failed Source result is retained for the same exact context"
   };
   controller.open(replacement, invoker);
   assert.equal(queries, 1);
-  assert.match(dom.dialogs[1]?.innerHTML ?? "", /Authored Source changed/);
+  assert.match(dom.dialogs[1]?.innerHTML ?? "", /member-diff-source-diff/);
   controller.dispose();
 });
