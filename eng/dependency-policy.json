@@ -645,7 +645,8 @@
         "ILInspector.Instructions",
         "ILInspector.Metadata",
         "ILInspector.MetadataPrimitives",
-        "InertText"
+        "InertText",
+        "QuerySpace"
       ]
     },
     {
