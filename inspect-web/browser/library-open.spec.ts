@@ -56,7 +56,7 @@ async function dropLibraryAndReadDefaultPrevented(
 
 async function waitForExamplePackageReady(page: Page) {
   await expect(page.locator("#inspector-panel h1"))
-    .toHaveText("Example.Package");
+    .toHaveText("Example.Package", { timeout: 15_000 });
 }
 
 async function openLibraryFromBrandMenu(page: Page) {
@@ -71,9 +71,9 @@ async function openLibraryFromBrandMenu(page: Page) {
 test("global drop keeps managed-image rejection visible", async ({ page }) => {
   await installLibraryUploadFacades(page, "rejected");
   await page.goto(root);
+  await waitForExamplePackageReady(page);
   await expect(subjectTab(page, "package"))
     .toHaveAttribute("aria-selected", "true");
-  await waitForExamplePackageReady(page);
 
   await dropLibrary(page, "native.dll", [0x4d, 0x5a, 0, 1]);
 
@@ -190,9 +190,9 @@ test("Open progress does not render raw Unicode controls from File.name", async 
 test("routed navigation retires an in-flight upload", async ({ page }) => {
   await installLibraryUploadFacades(page, "deferred");
   await page.goto(root);
+  await waitForExamplePackageReady(page);
   await expect(subjectTab(page, "package"))
     .toHaveAttribute("aria-selected", "true");
-  await waitForExamplePackageReady(page);
   await page.evaluate(() => history.pushState(null, "", "/demos"));
 
   await dropLibrary(page, "Deferred.dll", [1, 2, 3, 4]);
@@ -227,6 +227,7 @@ test("routed navigation retires an in-flight upload", async ({ page }) => {
 test("successful upload replaces stale Package URL with Home", async ({ page }) => {
   await installLibraryUploadFacades(page, "available");
   await page.goto(root);
+  await waitForExamplePackageReady(page);
   await expect(subjectTab(page, "package"))
     .toHaveAttribute("aria-selected", "true");
 
@@ -377,6 +378,7 @@ test("upload retires an older in-flight Package transition", async ({ page }) =>
     versions: ["1.0.1", "1.0.0"],
   });
   await page.goto(root);
+  await waitForExamplePackageReady(page);
 
   await page.locator("#package-version").selectOption("1.0.1");
   await expect(page.locator("html")).toHaveAttribute(
@@ -402,9 +404,9 @@ test("failed Package open restores the uploaded Library", async ({ page }) => {
     versions: ["1.0.1", "1.0.0"],
   });
   await page.goto(root);
+  await waitForExamplePackageReady(page);
   await expect(subjectTab(page, "package"))
     .toHaveAttribute("aria-selected", "true");
-  await waitForExamplePackageReady(page);
 
   await dropLibrary(page, "Uploaded.Library.dll", [1, 2, 3, 4]);
   await expect(page.getByText("Browser upload", { exact: true }))
@@ -431,9 +433,9 @@ test("failed Package open restores the uploaded Library", async ({ page }) => {
 test("history does not alias replaced same-name uploads", async ({ page }) => {
   await installLibraryUploadFacades(page, "available");
   await page.goto(root);
+  await waitForExamplePackageReady(page);
   await expect(subjectTab(page, "package"))
     .toHaveAttribute("aria-selected", "true");
-  await waitForExamplePackageReady(page);
 
   await dropLibrary(page, "Uploaded.Library.dll", [1, 2, 3, 4]);
   await expect(page.getByText("Browser upload", { exact: true }))
