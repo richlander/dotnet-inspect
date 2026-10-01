@@ -457,8 +457,10 @@ The gate's classification is a unit class that source-gate scope guards
 accept, as
 [Scope is declared on the edge](#scope-is-declared-on-the-edge-not-tested-inside-the-visit)
 describes. A source-gate guard is not a dependency, so a producer asked alone
-still has no dependencies and still qualifies for a closed-query kernel. That kernel is
-one loop, specialized to the gate, the predicate, and the closing.
+still has no dependencies and still qualifies for a closed-query kernel. That
+kernel is one loop specialized to the gate, predicate, and projection. The
+planned closing controls accumulation and early stop inside the loop; Count
+and Exists omit projection-only fields.
 
 *Lets the lower levels:* share scope, classification, and decoding among every
 producer without a classifier producer, and prove from the plan alone that a
@@ -695,7 +697,7 @@ decided when the second tier adopts it.
 | [Assembly image lifetime](assembly-image-lifetime.md) and [resource ownership](resource-ownership-and-borrowing.md) | Level 1. Supplies and tracks the borrowed subject. |
 | [QuerySpace](query-space-library.md) and [source delegation](source-delegation.md) | Level 2. Owns request meaning, collapse, and completion evidence, and plans reads against sources. |
 | [Package read demand](package-read-demand.md) | Consumes the declared requests in a work description. |
-| [Stateless core services](stateless-core-services.md) and [analysis index cache](analysis-index-cache.md) | Own retention and caching of the detached results. |
+| [Stateless core services](stateless-core-services.md) | Owns service lifetime classification; Analysis results remain operation-local unless a focused owner defines reuse. |
 | Research ([ownership paths](generic-research-ownership-paths.md), [assembly context](research-assembly-context-ownership.md)) | Intended second adopter as a higher tier. |
 | Decompiler IR passes | Separate rewriting pipeline. Not an adopter. |
 

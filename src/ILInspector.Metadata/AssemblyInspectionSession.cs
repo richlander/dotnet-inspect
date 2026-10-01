@@ -355,8 +355,8 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
-    /// Produces the qualified whole-Library Type-to-Type signature-use
-    /// population for this exact image.
+    /// Produces one qualified whole-Library or exact-namespace Type-to-Type
+    /// signature-use population for this exact image.
     /// </summary>
     public MetadataLibrarySignatureUseOutcome LibrarySignatureUses(
         MetadataLibrarySignatureUseRequest request,
@@ -371,6 +371,29 @@ public sealed class AssemblyInspectionSession :
                 _image.Format);
         }
         return MetadataLibrarySignatureUseInspection.Execute(
+            _image.PEReader,
+            reader,
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Produces independently qualified exact-namespace Type-to-Type
+    /// signature-use populations through one shared image traversal.
+    /// </summary>
+    public MetadataLibrarySignatureUseBatchOutcome LibrarySignatureUseBatch(
+        MetadataLibrarySignatureUseBatchRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataLibrarySignatureUseBatchOutcome.Rejected(
+                MetadataLibrarySignatureUseRejectionKind.UnsupportedImage,
+                "The selected image contains no managed metadata.",
+                _image.Format);
+        }
+        return MetadataLibrarySignatureUseInspection.ExecuteBatch(
             _image.PEReader,
             reader,
             request,

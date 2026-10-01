@@ -573,14 +573,37 @@ public sealed class ResolvedAssemblyReference
             artifactRegistration,
             openRead,
             provenance,
-            lastWriteTimeUtc);
+            lastWriteTimeUtc,
+            path: null);
+    }
+
+    /// <summary>
+    /// Projects one authorized local artifact into a managed assembly
+    /// descriptor while retaining its path only for adjacent PDB discovery.
+    /// </summary>
+    public static ResolvedAssemblyReference?
+        CreateFromArtifactPathIfManaged(
+            ArtifactAcquisitionRegistration artifactRegistration,
+            string path,
+            Func<Stream> openRead,
+            AssemblyResolutionProvenance provenance,
+            DateTime? lastWriteTimeUtc = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        return CreateFromStreamIfManagedCore(
+            artifactRegistration,
+            openRead,
+            provenance,
+            lastWriteTimeUtc,
+            System.IO.Path.GetFullPath(path));
     }
 
     static ResolvedAssemblyReference? CreateFromStreamIfManagedCore(
         ArtifactAcquisitionRegistration? artifactRegistration,
         Func<Stream> openRead,
         AssemblyResolutionProvenance provenance,
-        DateTime? lastWriteTimeUtc)
+        DateTime? lastWriteTimeUtc,
+        string? path)
     {
         ArgumentNullException.ThrowIfNull(openRead);
         ArgumentNullException.ThrowIfNull(provenance);
@@ -650,8 +673,11 @@ public sealed class ResolvedAssemblyReference
             return new ResolvedAssemblyReference(
                 registration,
                 identity,
-                path: null,
-                assetFileName: null,
+                path,
+                assetFileName:
+                    path is null
+                        ? null
+                        : System.IO.Path.GetFileName(path),
                 openRead,
                 provenance,
                 lastWriteTimeUtc);

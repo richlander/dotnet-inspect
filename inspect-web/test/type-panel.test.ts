@@ -318,6 +318,7 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push("explore-source");
     },
     onKindSelect: value => calls.push(`kind:${value}`),
+    onTypeLeverageRetry: () => calls.push("type-leverage-retry"),
     onTypeNavBack: () => calls.push("type-nav-back"),
     onListKeyDown: event => {
       calls.push(`list:${event.key}`);
@@ -357,6 +358,20 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onTypeSelect: value => calls.push(`type:${value}`),
   };
 }
+
+test("type panel binds the qualified Type leverage retry", () => {
+  const root = new FakeRoot();
+  const retry = root.add(
+    "[data-type-leverage-retry]",
+    new FakeElement(),
+  );
+  const calls: string[] = [];
+  bindPanel(root, recordingActions(calls));
+
+  retry.dispatch("click");
+
+  assert.deepEqual(calls, ["type-leverage-retry"]);
+});
 
 test("type panel bindings dispatch member filters without eager work", () => {
   const root = new FakeRoot();
@@ -742,6 +757,42 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.doesNotMatch(html, /· class</);
 });
 
+test("the type nav preserves the host selection value for the global namespace", () => {
+  const globalType = {
+    ...jsonSerializer,
+    id: "GlobalType",
+    definitionId: "GlobalType",
+    name: "GlobalType",
+    displayName: "GlobalType",
+    namespace: "",
+  };
+  const html = renderTypeNav({
+    current: globalType,
+    visible: [globalType],
+    typeGroups: new Map([["", [globalType]]]),
+    typeFilter: "",
+    namespaceFilter: "__global__",
+    kindFilter: "",
+    namespaceCount: 1,
+    namespaceOptionsHtml: '<option value="__global__">global namespace · 1</option>',
+    namespaceSelectionValue: namespace =>
+      namespace === "" ? "__global__" : namespace,
+    kindFilters: ["class"],
+    accessibilityControlHtml: "",
+    library: "GlobalFixture",
+    parentSubject: "library",
+    filtersExpanded: false,
+    filterSummary: "global namespace",
+    escapeHtml,
+    typeDisplayName,
+    typeLibraryLabel: noTypeLibraryLabel,
+    kindIcon,
+  });
+
+  assert.match(html, /class="namespace-row" data-namespace="__global__"/);
+  assert.doesNotMatch(html, /class="namespace-row" data-namespace=""/);
+});
+
 test("the type nav reports no matches for an empty filtered group", () => {
   const html = renderTypeNav({
     current: jsonSerializer,
@@ -766,6 +817,81 @@ test("the type nav reports no matches for an empty filtered group", () => {
 
   assert.match(html, /No public types match this filter\./);
   assert.match(html, /data-type-filter-disclosure open/);
+});
+
+test("the type nav renders exclusive accessible pole cues", () => {
+    const html = renderTypeNav({
+      current: jsonSerializer,
+      visible: [jsonSerializer, jsonDocument],
+      typeGroups: new Map([["System.Text.Json", [jsonSerializer, jsonDocument]]]),
+      typeFilter: "",
+      namespaceFilter: "",
+      kindFilter: "",
+      namespaceCount: 1,
+      namespaceOptionsHtml: "",
+      kindFilters: ["class"],
+      accessibilityControlHtml: "",
+      leverageControlHtml:
+        '<button data-type-leverage-filter="sea-level">sea level</button>',
+      library: "System.Text.Json",
+      parentSubject: "library",
+      filtersExpanded: true,
+      filterSummary: "sea level",
+      escapeHtml,
+      typeDisplayName,
+      typeLibraryLabel: noTypeLibraryLabel,
+      kindIcon,
+      namespaceLeverageCue: namespace =>
+        namespace === "System.Text.Json"
+          ? {
+              topLeverage: true,
+              description:
+                "8 external source Types; top-leverage namespace",
+            }
+          : null,
+      typeLeverageCue: item => {
+        if (item.id === jsonSerializer.id) {
+          return {
+            pole: "sea-level",
+            description:
+              "8 incoming Type peers; 6 outgoing Type peers; sea-level Type",
+          };
+        }
+        if (item.id === jsonDocument.id) {
+          return {
+            pole: "mountain-peak",
+            description:
+              "4 incoming Type peers; 9 outgoing Type peers; mountain-peak Type",
+          };
+        }
+        return null;
+      },
+    });
+
+    assert.match(html, /data-type-leverage-filter="sea-level"/);
+    assert.match(html, /type-row selected sea-level/);
+    assert.match(html, /class="type-leverage-icon sea-level"/);
+    assert.match(html, /aria-hidden="true">▁<\/span>/);
+    assert.match(html, /class="type-leverage-icon mountain-peak"/);
+    assert.match(html, /aria-hidden="true">▲<\/span>/);
+    assert.match(
+      html,
+      /role="img" aria-label="8 incoming Type peers; 6 outgoing Type peers/,
+    );
+    assert.doesNotMatch(html, /class="sr-only"/);
+    assert.match(html, /class="namespace-leverage-cue"/);
+    assert.match(
+      html,
+      /aria-label="8 external source Types; top-leverage namespace"/,
+    );
+    const seaRow = html.match(
+      /class="type-row selected sea-level"[^>]*data-type="System\.Text\.Json\.JsonSerializer"[\s\S]*?<\/button>/,
+    )?.[0] ?? "";
+    const peakRow = html.match(
+      /class="type-row  mountain-peak"[^>]*data-type="System\.Text\.Json\.JsonDocument"[\s\S]*?<\/button>/,
+    )?.[0] ?? "";
+    assert.doesNotMatch(seaRow, /mountain-peak/);
+    assert.doesNotMatch(peakRow, /sea-level/);
 });
 
 test("the type nav omits a parent action when the Library has no visible parent", () => {

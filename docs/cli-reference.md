@@ -301,6 +301,7 @@ stderr rather than mixed into structured output.
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
+| Library vocabulary | `library -S "Name Families"` | Ranked one- and two-word Type-name suffix families, exact supporting Type evidence, and optional source-provenance populations. |
 | Relationships | `graph`, `depends`, `extensions`, `type -S Implementers`, `type -S "Derived Types"` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
 | Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
@@ -1330,8 +1331,11 @@ numeric distributions and maximum-body identities, async disposition, typed
 type summaries, cross-type relationships, Analysis diagnostics, and the
 methodology-v2 Type-leverage document. Type leverage preserves exact metadata
 type identities, the separately ordered sea-level and mountain-peak rankings,
-role and evidence qualifications, Metadata signature-use and Analysis body-use
-receipts, and Graph work receipts.
+raw directional degrees, one nullable dominant pole per Type, role and evidence
+qualifications, Metadata signature-use and Analysis body-use receipts, and
+Graph work receipts. A Type that qualifies at both directional maxima receives
+the larger-degree pole; an exact degree tie receives no pole while remaining
+in both rankings.
 `--envelope` emits identical `content` plus Share and operation diagnostics:
 
 ```bash
@@ -1354,6 +1358,35 @@ summaries carry exact metadata keys separately from display labels, and every
 relationship endpoint names a retained summary, so a Copilot App can render an
 SVG without recovering identity from display text. Library Metrics Share is
 currently `nonProjectable`.
+
+Exact `library ... -S "Name Families"` reports the most prevalent one- and
+two-word Type-name suffix families in one Library. The default `all`
+population covers every Type definition. `--name-family-population` selects
+`ordinary`, `generated`, `mixed`, or `unknown` when exactly bound source
+provenance is available:
+
+```bash
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Name Families" -n 10 --head
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Name Families" --name-family-population ordinary --count
+```
+
+`-n`, `--head`, `--tail`, and `--rows` are semantic QuerySpace selection over
+family rows; `--count` executes the corresponding QuerySpace Count terminal.
+The section is explicit-only and is not added by verbosity or category
+selection.
+
+Exact `-S "Name Families" --json` emits complete Content: every Type word and
+residual row, every population and family member address, methodology and
+oracle identity, provenance qualification, and partition receipts.
+`--envelope` emits the same Content plus a currently `nonProjectable` Share.
+These complete transports accept the population selector but reject row,
+field, column, Count, discovery, print, and shape projection. Markdown, table,
+TSV, and JSONL lower only the already selected family rows and show at most
+five labeled Type examples per family.
 
 See [API and implementation population scope](design/api-population-scope.md)
 for the distinction between API visibility, implementation completeness, and
