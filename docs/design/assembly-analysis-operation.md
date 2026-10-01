@@ -346,6 +346,7 @@ composition and Method-source owners:
 - `MethodQuerySource_SequentialReferenceMatchesInterimExecutor`
 - `MethodQuerySource_ExistsStopsAtFirstSettledMethod`
 - `MethodQuerySource_ReceiptSeparatesExaminedSelectedAndAcquiredWork`
+- `MethodQuerySource_ReorderedMethodPtrPublishesExactCoverage`
 - `AssemblyAnalysisOperation_PreservesOwnerIssuedSourceKinds`
 
 Those gates now run with the unsafe-evidence production adoption. The operator

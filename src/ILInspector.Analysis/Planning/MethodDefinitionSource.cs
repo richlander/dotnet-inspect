@@ -493,6 +493,6 @@ internal struct MethodDefinitionCoverageBuilder
         }
 
         ranges.Add(new(first, last));
-        return new(ranges.MoveToImmutable(), rows.Length);
+        return new(ranges.ToImmutable(), rows.Length);
     }
 }

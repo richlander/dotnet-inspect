@@ -19,7 +19,7 @@ definitions examined, methods selected, terminal bodies attempted and
 acquired, and module-lookup use. Unsafe-evidence `Exists` is the production
 adopter.
 
-The six implemented gates identified under
+The seven implemented gates identified under
 [Required evidence](#required-evidence) run in Release. Explicit MethodDef and
 Type breadth, fine-grained depth beyond the transitional layers,
 generated-body and referenced-callee expansion, request collapse, and migrated
@@ -469,6 +469,7 @@ The first source boundary is verified in Release by:
 - `MethodQuerySource_SequentialReferenceMatchesInterimExecutor`
 - `MethodQuerySource_ExistsStopsAtFirstSettledMethod`
 - `MethodQuerySource_ReceiptSeparatesExaminedSelectedAndAcquiredWork`
+- `MethodQuerySource_ReorderedMethodPtrPublishesExactCoverage`
 - `MethodQuerySource_ReleasedExecutionRetainsNoSubjectAuthority`
 
 Later slices supply:

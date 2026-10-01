@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Fixtures;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
@@ -379,6 +380,59 @@ public partial class UnsafeEvidencePresenceTests
         Assert.True(
             receipt.TerminalBodiesAcquired
                 .ContainsMetadataToken(withBody));
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_ReorderedMethodPtrPublishesExactCoverage()
+    {
+        AssemblyAnalysisOperation<int> operation =
+            CreateOperation("ReorderedMethodPtr.dll");
+        using AssemblyInspectionSession session =
+            OpenSession(
+                ImmutableArray.Create(
+                    MetadataMethodPtrFixture.Build(2, 1)));
+
+        var observed = session.SnapshotOperation(
+            operation,
+            access =>
+            {
+                AssemblyAnalysisServiceResult<int> service =
+                    AssemblyAnalysisService.Instance.Execute(
+                        operation,
+                        access);
+                MethodDefinitionExecution reference =
+                    access.InspectImage(
+                        peReader =>
+                            UnsafeEvidencePresence.Execute(
+                                operation.SourceName,
+                                peReader,
+                                operation.Work));
+                return (service, reference);
+            });
+        AssemblyAnalysisExecution<int> execution =
+            Assert.IsType<AssemblyAnalysisServiceResult<int>.Completed>(
+                    observed.service)
+                .Execution;
+        MethodDefinitionSourceReceipt receipt =
+            execution.SourceReceipt;
+
+        Assert.Equal(
+            observed.reference.ResultOf(
+                UnsafeEvidencePresenceProducer.Instance),
+            execution.ResultOf(
+                UnsafeEvidencePresenceProducer.Instance));
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Exhausted,
+            receipt.Completion);
+        Assert.Equal(2, receipt.DefinitionsExamined.Count);
+        Assert.Equal(2, receipt.MethodsSelected.Count);
+        Assert.Equal(2, receipt.BodiesAttempted.Count);
+        Assert.Equal(2, receipt.TerminalBodiesAcquired.Count);
+        Assert.Equal(2, receipt.ModuleLookupMethods.Count);
+        Assert.Equal(
+            [new MethodDefinitionRowRange(1, 2)],
+            receipt.DefinitionsExamined.Ranges);
     }
 
     [Fact]
