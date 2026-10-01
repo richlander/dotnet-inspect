@@ -300,6 +300,14 @@ the exact selected body while assigning sibling policy to the other
 conventional accessors. Stable sampling and the cross-assembly cap apply only
 after those product decisions and the canonical target signature are complete.
 
+Before QuerySpace adoption, a test-only NLinq baseline reads the complete
+pre-cap declaration-candidate population independently of the standalone
+selector. It reuses the product-owned CSharp decisions, then queries exact
+eligible Count, complete eligible target Rows, and deterministically ordered
+typed exclusion Rows. The baseline is behavioral evidence for the later
+QuerySpace replacement; it is not a production source adapter or performance
+claim, and it does not replace stable sampling or cap selection.
+
 ### Product artifact provider
 
 Own C# artifact production.
