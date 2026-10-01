@@ -35,6 +35,7 @@ public sealed class ViewFacetRegistryTests
         Assert.Equal(
             [
                 StructuralSubjectKind.Workspace,
+                StructuralSubjectKind.Ecosystem,
                 StructuralSubjectKind.Package,
                 StructuralSubjectKind.Library,
                 StructuralSubjectKind.Type,
@@ -567,6 +568,9 @@ public sealed class ViewFacetRegistryTests
             new("workspace.overview", StructuralSubjectKind.Workspace, "Overview",
                 "Current Workspace scope, ordered packages, and realization status.",
                 100, ViewFacetRole.WorkspaceOverview),
+            new("ecosystem.overview", StructuralSubjectKind.Ecosystem, "Overview",
+                "Registered Ecosystem identity, declarations, and population capabilities.",
+                100, ViewFacetRole.EcosystemOverview),
             new("package.overview", StructuralSubjectKind.Package, "Overview",
                 "Package identity, selected target, assets, and summary facts.",
                 100, ViewFacetRole.PackageOverview),
@@ -645,6 +649,8 @@ public sealed class ViewFacetRegistryTests
             {
                 ("workspace.overview",
                     InspectionViewFacetExecution.WorkspaceOverview),
+                ("ecosystem.overview",
+                    InspectionViewFacetExecution.EcosystemOverview),
                 ("package.overview",
                     InspectionViewFacetExecution.PackageOverview),
                 ("package.dependencies",
