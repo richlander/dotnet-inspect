@@ -10,6 +10,9 @@ public sealed class MetadataDeclarationSession : IDisposable
     MetadataImageAdmissionResult? _imageAdmission;
     MetadataTypeDefinitionIndex? _typeDefinitionIndex;
     Dictionary<
+        MetadataMethodDeclarationRequest,
+        MetadataMethodDeclarationResult>? _methodDeclarations;
+    Dictionary<
         MetadataTypeDefinitionAddress,
         MetadataTypeDeclarationResult>? _typeDeclarations;
     MemorySafetyMetadataIndex? _memorySafetyIndex;
@@ -19,6 +22,7 @@ public sealed class MetadataDeclarationSession : IDisposable
         MetadataAccessorDeclarationRequest,
         MetadataAccessorDeclarationResult>? _accessorDeclarations;
     readonly object _accessorDeclarationGate = new();
+    readonly object _methodDeclarationGate = new();
     readonly object _typeDeclarationGate = new();
     bool _disposed;
 
@@ -37,6 +41,7 @@ public sealed class MetadataDeclarationSession : IDisposable
         _methodSemanticsAssociations =
             new MethodSemanticsAssociationSession(this);
         _accessorDeclarations = [];
+        _methodDeclarations = [];
         _typeDeclarations = [];
     }
 
@@ -123,28 +128,54 @@ public sealed class MetadataDeclarationSession : IDisposable
     {
         EnsureAccess();
         token.ThrowIfCancellationRequested();
-        MetadataOperationContext operation = _operationContext!;
-        if (_imageAdmission is MetadataImageAdmissionResult.Rejected rejected)
+        var request = new MetadataMethodDeclarationRequest(type, method);
+        lock (_methodDeclarationGate)
         {
-            return new MetadataMethodDeclarationResult.Rejected(
-                new MetadataMethodDeclarationFailure(
-                    new(type, method),
-                    MetadataMethodDeclarationFailureReason.BudgetExceeded,
-                    MetadataMethodDeclarationStage.RequestValidation,
-                    MetadataMethodDeclarationMechanism.ImageAdmission,
-                    "The metadata image was not admitted.",
-                    default,
-                    MetadataOperationDimension.MetadataRows,
-                    rejected.Failure.MaxMetadataRows,
-                    rejected.Failure.ImageMetadataRows),
-                operation.Counters);
-        }
+            EnsureAccess();
+            token.ThrowIfCancellationRequested();
+            if (_methodDeclarations!.TryGetValue(
+                    request,
+                    out MetadataMethodDeclarationResult? cached))
+            {
+                return cached;
+            }
 
-        return new MetadataMethodDeclarationEvidenceOperation(
-            _assemblySession!.GetMetadataReaderForDeclarationSession(),
-            operation,
-            GetOrCreateTypeDefinitionIndex)
-            .Post(type, method, token);
+            MetadataOperationContext operation = _operationContext!;
+            MetadataMethodDeclarationResult result;
+            if (_imageAdmission
+                is MetadataImageAdmissionResult.Rejected rejected)
+            {
+                result =
+                    new MetadataMethodDeclarationResult.Rejected(
+                        new MetadataMethodDeclarationFailure(
+                            request,
+                            MetadataMethodDeclarationFailureReason
+                                .BudgetExceeded,
+                            MetadataMethodDeclarationStage
+                                .RequestValidation,
+                            MetadataMethodDeclarationMechanism
+                                .ImageAdmission,
+                            "The metadata image was not admitted.",
+                            default,
+                            MetadataOperationDimension.MetadataRows,
+                            rejected.Failure.MaxMetadataRows,
+                            rejected.Failure.ImageMetadataRows),
+                        operation.Counters);
+            }
+            else
+            {
+                result =
+                    new MetadataMethodDeclarationEvidenceOperation(
+                        _assemblySession!
+                            .GetMetadataReaderForDeclarationSession(),
+                        operation,
+                        GetOrCreateTypeDefinitionIndex)
+                    .Post(type, method, token);
+            }
+
+            _methodDeclarations.Add(request, result);
+            return result;
+        }
     }
 
     public MetadataAccessorDeclarationResult PostAccessorDeclaration(
@@ -455,6 +486,8 @@ public sealed class MetadataDeclarationSession : IDisposable
         _methodSemanticsAssociations = null;
         _accessorDeclarations!.Clear();
         _accessorDeclarations = null;
+        _methodDeclarations!.Clear();
+        _methodDeclarations = null;
         _typeDeclarations!.Clear();
         _typeDeclarations = null;
         _operationContext = null;
