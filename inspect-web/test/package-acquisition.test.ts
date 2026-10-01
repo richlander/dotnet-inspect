@@ -11,6 +11,7 @@ import {
   createWorkspaceOccurrencePackageModel,
   graphOnlyImplementationBody,
   mergeRuntimePackageSurface,
+  packageLibrariesForModel,
   PackageVersionSettlementError,
   retainGraphOnlyImplementationBody,
   resolvePackageLibrary,
@@ -501,6 +502,29 @@ test("Package children own Library declaration counts", () => {
   assert.equal(model.totalTypes, 17);
 });
 
+test("Package children retain navigable Libraries missing from the broad surface", () => {
+  const complete = packageSurface();
+  const children = packageChildren(complete, [17]);
+  const model = createNuGetPackageModel(
+    packageSurface({
+      assemblies: [],
+      types: [],
+      inspectionErrors: ["The broad surface was truncated."],
+      inspectionError: "The broad surface was truncated.",
+    }),
+    children);
+
+  const libraries = packageLibrariesForModel(model);
+  assert.equal(libraries.length, 1);
+  assert.equal(libraries[0]?.id, "example-core");
+  assert.equal(libraries[0]?.types, 17);
+  assert.equal(libraries[0]?.surfaceAvailable, false);
+  assert.equal(
+    libraries[0]?.unavailableDetail,
+    "Library surface details are unavailable.");
+  assert.equal(model.totalTypes, 17);
+});
+
 test("Workspace occurrence activation preserves matching inspection envelopes", () => {
   const measurements = packageInfo();
   const versionSettlement = {
@@ -525,10 +549,12 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
     },
     diagnostics: [],
   } satisfies BrowserPackageVersionSettlementInspection;
+  const children = packageChildren(packageSurface(), [17]);
   const retained = createNuGetPackageModel(
     packageSurface(),
     versionSettlement,
-    measurements);
+    measurements,
+    children);
   const activated = createWorkspaceOccurrencePackageModel(
     packageSurface({ totalMembers: 12 }),
     retained,
@@ -537,6 +563,9 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
   assert.equal(activated.totalMembers, 12);
   assert.equal(activated.versionSettlement, versionSettlement);
   assert.equal(activated.packageInfo, measurements);
+  assert.equal(activated.packageChildren, children);
+  assert.equal(activated.assemblies[0]?.publicTypes, 17);
+  assert.equal(activated.totalTypes, 17);
 });
 
 test("Workspace occurrence activation does not copy envelopes across TFMs", () => {

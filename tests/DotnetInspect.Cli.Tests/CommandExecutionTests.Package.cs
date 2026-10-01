@@ -2176,6 +2176,51 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_LocalRidChildSelectorsPreserveAdjacentSource()
+    {
+        var (packagePath, _, tempDir) =
+            CreateLocalToolPackageSet();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            using var document =
+                JsonDocument.Parse(result.Output);
+            JsonElement[] children =
+            [
+                .. document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray(),
+            ];
+            Assert.NotEmpty(children);
+            Assert.All(
+                children,
+                child =>
+                {
+                    Assert.Equal(
+                        "RID Package",
+                        child.GetProperty("kind").GetString());
+                    Assert.Contains(
+                        " --source "
+                            + ShellCommandText.Quote(
+                                Path.GetFullPath(tempDir)),
+                        child.GetProperty("selector").GetString());
+                });
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_CountAndRowsAvoidUnselectedLibraryInspection()
     {
         var (packagePath, tempDir) =
@@ -2194,6 +2239,7 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "--count",
+                "--verbose",
                 "--tips",
                 "q");
             var window = await RunAppAsync(
@@ -2202,6 +2248,7 @@ public partial class CommandExecutionTests
                 "--json",
                 "--rows",
                 "1..1",
+                "--verbose",
                 "--tips",
                 "q");
             var emptyWindow = await RunAppAsync(
@@ -2210,14 +2257,56 @@ public partial class CommandExecutionTests
                 "--json",
                 "--rows",
                 "3..3",
+                "--verbose",
                 "--tips",
                 "q");
+            string? previousFormat =
+                Environment.GetEnvironmentVariable(
+                    "DOTNET_INSPECT_FORMAT");
+            (int Exit, string Output, string Error) mermaid;
+            try
+            {
+                Environment.SetEnvironmentVariable(
+                    "DOTNET_INSPECT_FORMAT",
+                    "mermaid");
+                mermaid = await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--rows",
+                    "3..3",
+                    "--verbose",
+                    "--tips",
+                    "q");
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(
+                    "DOTNET_INSPECT_FORMAT",
+                    previousFormat);
+            }
 
             Assert.Equal(0, count.Exit);
             Assert.Equal("2", count.Output.Trim());
-            Assert.Empty(count.Error);
             Assert.Equal(0, window.Exit);
-            Assert.Empty(window.Error);
+            Assert.All(
+                new[]
+                {
+                    count.Error,
+                    window.Error,
+                    emptyWindow.Error,
+                    mermaid.Error,
+                },
+                error =>
+                {
+                    Assert.DoesNotContain(
+                        "Z.Invalid.dll",
+                        error,
+                        StringComparison.Ordinal);
+                    Assert.DoesNotContain(
+                        "Error scanning binary signals",
+                        error,
+                        StringComparison.Ordinal);
+                });
             using var windowDocument =
                 JsonDocument.Parse(window.Output);
             JsonElement selected = Assert.Single(
@@ -2237,7 +2326,6 @@ public partial class CommandExecutionTests
                     .GetInt32());
 
             Assert.Equal(0, emptyWindow.Exit);
-            Assert.Empty(emptyWindow.Error);
             using var emptyDocument =
                 JsonDocument.Parse(emptyWindow.Output);
             Assert.Empty(
@@ -2254,6 +2342,15 @@ public partial class CommandExecutionTests
                 emptyDocument.RootElement
                     .GetProperty("selected_count")
                     .GetInt32());
+            Assert.Equal(0, mermaid.Exit);
+            Assert.StartsWith(
+                "graph TD",
+                mermaid.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "No Libraries",
+                mermaid.Output,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -2293,13 +2390,15 @@ public partial class CommandExecutionTests
             Assert.Empty(explicitMarkdown.Error);
             Assert.Empty(json.Error);
             Assert.Contains(
-                "Dependencies (9 Libraries)",
+                "Dependencies (9 Libraries; "
+                    + "use -v:n for full inventory)",
                 implicitTree.Output);
             Assert.DoesNotContain(
                 "Dependency.9.dll",
                 implicitTree.Output);
             Assert.DoesNotContain(
-                "Dependencies (9 Libraries)",
+                "Dependencies (9 Libraries; "
+                    + "use -v:n for full inventory)",
                 explicitMarkdown.Output);
             Assert.Contains(
                 "Dependency.9.dll",

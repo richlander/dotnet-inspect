@@ -1359,6 +1359,8 @@ public partial class PackageCommand
                 fetchMetadata: wantsPackageMetadata,
                 requireIdentifierMetadata: wantsIdentifierMetadata,
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
+                scanBinarySignals:
+                    !IsPackageChildrenProjection(options),
                 sourceOptions: options.SourceOptions);
             observedInspection = result;
 

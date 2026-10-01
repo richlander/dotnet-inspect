@@ -736,12 +736,17 @@ public partial class PackageCommand
                 document));
         }
         var writer = new MarkoutWriter(output, formatter);
-        List<TreeNode> nodes = PackageChildrenNodes(
-            document,
-            options.Verbosity,
-            allowMinimalCollapse:
-                !options.FormatFlagExplicitlySet
-                && options.Rows is null);
+        bool windowedEmpty =
+            totalCount > 0
+            && selectedRows.Count == 0;
+        List<TreeNode> nodes = windowedEmpty
+            ? []
+            : PackageChildrenNodes(
+                document,
+                options.Verbosity,
+                allowMinimalCollapse:
+                    !options.FormatFlagExplicitlySet
+                    && options.Rows is null);
         if (formatter is MermaidFormatter)
         {
             writer.WriteTree(
@@ -752,7 +757,7 @@ public partial class PackageCommand
                 },
             ]);
         }
-        else if (totalCount > 0 && selectedRows.Count == 0)
+        else if (windowedEmpty)
         {
             writer.WriteTree([]);
         }
@@ -908,7 +913,7 @@ public partial class PackageCommand
                     (package, index) => RuntimeIdentifierPackageRow(
                         document,
                         package,
-                        selectors!.SourceArguments,
+                        selectors!.RuntimeIdentifierSourceArguments,
                         ordinalOffset + index + 1)),
             ],
             PackageChildrenKind.NoManagedLibraries => [],
@@ -1014,8 +1019,28 @@ public partial class PackageCommand
             ? Path.GetFullPath(requested)
             : $"{document.Subject.PackageId}"
                 + $"@{document.Subject.PackageVersion}";
+        NuGetSourceOptions? replaySourceOptions =
+            options.SourceOptions;
+        if (local)
+        {
+            string fullPath = Path.GetFullPath(requested);
+            string localSource = File.Exists(fullPath)
+                ? Path.GetDirectoryName(fullPath)!
+                : fullPath;
+            string[] configuredSources =
+                options.SourceOptions?.Sources ?? [];
+            replaySourceOptions = new NuGetSourceOptions
+            {
+                Sources = [localSource, .. configuredSources],
+                AdditionalSources =
+                    options.SourceOptions?.AdditionalSources ?? [],
+                ConfigFile = options.SourceOptions?.ConfigFile,
+                ConfigDirectory =
+                    options.SourceOptions?.ConfigDirectory,
+            };
+        }
         if (!PackageReplaySourceArguments.TryCreate(
-                options.SourceOptions,
+                replaySourceOptions,
                 "package",
                 out PackageReplaySources? replaySources,
                 out error))
@@ -1194,7 +1219,8 @@ public partial class PackageCommand
         {
             nodes.Add(
                 new(
-                    $"Dependencies ({dependencies.Length} Libraries)"));
+                    $"Dependencies ({dependencies.Length} Libraries; "
+                        + "use -v:n for full inventory)"));
         }
         else
         {
@@ -1279,7 +1305,7 @@ public partial class PackageCommand
 
     private sealed record PackageChildSelectorContext(
         string LibraryCommand,
-        string SourceArguments);
+        string RuntimeIdentifierSourceArguments);
 }
 
 internal sealed record PackageChildOutputRow(

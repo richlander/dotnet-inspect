@@ -704,8 +704,8 @@ default chooses the target. Tool pointer packages list their RID packages,
 managed tool payloads list the entry-point Library before their dependencies,
 and native tool payloads state that they contain no managed Libraries. Minimal
 implicit Tree output may collapse a managed tool's dependency Libraries into
-one counted branch; `-v:n`, `-v:d`, and explicit output formats list every
-Library.
+one counted branch that names `-v:n` as the full-inventory gesture. Normal,
+Detailed, and explicit output formats list every Library.
 
 Unselected Markdown, plain text, JSON, envelope, table, TSV, and JSONL output
 all consume that same Package children document. JSON carries subject,
@@ -713,12 +713,15 @@ completion, total and selected Counts, and typed child rows. Row formats expose
 the exact asset ID, asset path, child role, declaration Count outcome, and a
 copyable, shell-quoted `selector` for the same Library occurrence or RID
 Package. Library selectors retain the selected target and replayable
-source/configuration options; output fails visibly when those options cannot be
-disclosed safely. `--rows` windows children before realizing or inspecting the
-selected Libraries, `--count` counts the owner-issued child population without
-inspecting Library declarations, and `--fields` or `--columns` projects
-child-row columns. Windows retain the complete population Count and original
-child ordinals.
+source/configuration options; a local tool pointer's RID selectors retain its
+adjacent Package directory as a local source. Output fails visibly when replay
+context cannot be disclosed safely. Package children output does not run the
+unrelated all-binary Signals scan. `--rows` windows children before realizing
+or inspecting the selected Libraries, `--count` counts the owner-issued child
+population without opening Libraries for Signals or declaration inspection,
+and `--fields` or `--columns` projects child-row columns. Windows retain the
+complete population Count and original child ordinals; a window selecting no
+rows from a non-empty Package does not claim that the Package has no Libraries.
 
 Select `Package Info` explicitly for Package facts. A bare Package Tree is
 distinct from the dependency graph: select `Dependency Hierarchy` together

@@ -129,6 +129,26 @@ test("Library navigation renders the aggregate first and keeps empty Libraries",
   assert.match(html, /role="listbox"[\s\S]*aria-activedescendant=/);
 });
 
+test("Library navigation makes unavailable surface details visible", () => {
+  const html = renderLibrarySubjectNav({
+    libraries: [{
+      id: "asset:truncated",
+      name: "Example.Truncated",
+      asset: "lib/net10.0/Example.Truncated.dll",
+      types: 17,
+      members: 0,
+      unavailableDetail: "Library surface details are unavailable.",
+    }],
+    selectedLibraryId: "asset:truncated",
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /data-library-subject="asset:truncated"[\s\S]*Library surface details are unavailable\./);
+  assert.doesNotMatch(html, /17 types · 0 members/);
+});
+
 test("Library subjects sort alphabetically and prefer a case-insensitive namesake", () => {
   const libraries = [
     {

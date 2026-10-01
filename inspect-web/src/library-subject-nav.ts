@@ -6,6 +6,7 @@ export interface LibrarySubjectNavItem {
   asset: string;
   types: number;
   members: number;
+  unavailableDetail?: string | null;
 }
 
 export interface LibrarySubjectNavOptions {
@@ -82,7 +83,8 @@ export function renderLibrarySubjectNav(
     ...libraries.map(library => ({
       value: library.id,
       name: displayLabels.get(library.id) ?? library.name,
-      detail: `${library.types} type${library.types === 1 ? "" : "s"} · ${library.members.toLocaleString()} members`,
+      detail: library.unavailableDetail
+        ?? `${library.types} type${library.types === 1 ? "" : "s"} · ${library.members.toLocaleString()} members`,
       selected: library.id === selectedLibraryId,
     })),
   ];

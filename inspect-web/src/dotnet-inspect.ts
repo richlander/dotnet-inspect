@@ -137,6 +137,7 @@ import {
   createNuGetPackageModel,
   createRuntimePackageModel,
   mergeRuntimePackageSurface,
+  packageLibrariesForModel,
   createUploadedLibraryModel,
   createWorkspaceOccurrencePackageModel,
   graphOnlyImplementationBody,
@@ -5595,21 +5596,15 @@ function libraryKey(item: InspectedTypeSurface | null | undefined) {
 }
 
 // Libraries admitted by the selected package coordinate, sorted alphabetically
-// by name. Assembly descriptors keep libraries with no public types visible
-// instead of deriving the package inventory from type rows.
+// by name. Package children own the inventory even when broad surface projection
+// cannot provide a descriptor for one of them.
 function packageLibraryInventory() {
   if (!state.package) return [];
-  const libraries = state.package.assemblies.map(assembly => ({
-    id: assembly.id,
-    name: assembly.name.replace(/\.dll$/i, ""),
-    asset: assembly.asset,
-    version: assembly.version,
-    culture: assembly.culture,
-    publicKeyToken: assembly.publicKeyToken,
-    types: assembly.publicTypes,
-    members: assembly.publicMembers,
-    platformPack: assembly.platformPack,
-  }));
+  const libraries = packageLibrariesForModel(state.package)
+    .map(library => ({
+      ...library,
+      name: library.name.replace(/\.dll$/i, ""),
+    }));
   return alphabetizeLibrarySubjects(libraries);
 }
 
@@ -5737,8 +5732,7 @@ function selectLibrarySubject(
   key: string,
   options: { preserveView?: boolean; preserveLens?: boolean } = {},
 ) {
-  const descriptor = resolvePackageLibrary(state.package?.assemblies ?? [], key);
-  const library = packageLibraries().find(candidate => candidate.id === descriptor?.id);
+  const library = resolvePackageLibrary(packageLibraries(), key);
   if (!library) {
     appendQueryNotice(`The library '${key}' is not uniquely available in this package.`);
     render();
@@ -9321,6 +9315,7 @@ function renderPackageView() {
 }
 
 function libraryIdentity(library: NonNullable<ReturnType<typeof selectedLibrary>>) {
+  if (!library.surfaceAvailable) return "Assembly identity unavailable";
   return `${library.name}, Version=${library.version}, Culture=${library.culture || "neutral"}, PublicKeyToken=${library.publicKeyToken || "null"}`;
 }
 

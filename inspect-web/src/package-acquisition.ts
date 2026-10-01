@@ -175,18 +175,81 @@ export interface AppPackage {
   surfaceRevision?: number;
 }
 
+export interface AppPackageLibrary {
+  id: string;
+  name: string;
+  asset: string;
+  version: string;
+  culture: string | null;
+  publicKeyToken: string | null;
+  types: number;
+  members: number;
+  platformPack: string | null;
+  surfaceAvailable: boolean;
+  unavailableDetail: string | null;
+}
+
 const DEFAULT_RUNTIME_ASSEMBLY = "System.Private.CoreLib";
 
-export function resolvePackageLibrary(
-  assemblies: readonly InspectedAssemblySurface[],
+export function resolvePackageLibrary<
+  TAssembly extends Pick<InspectedAssemblySurface, "id" | "name">,
+>(
+  assemblies: readonly TAssembly[],
   key: string,
-): InspectedAssemblySurface | null {
+): TAssembly | null {
   const exact = assemblies.find(assembly => assembly.id === key);
   if (exact) return exact;
   const name = key.replace(/\.dll$/i, "").toLowerCase();
   const matches = assemblies.filter(assembly =>
     assembly.name.replace(/\.dll$/i, "").toLowerCase() === name);
   return matches.length === 1 ? matches[0]! : null;
+}
+
+export function packageLibrariesForModel(
+  packageModel: AppPackage,
+): AppPackageLibrary[] {
+  const descriptors = new Map(
+    packageModel.assemblies.map(descriptor =>
+      [descriptor.id, descriptor] as const),
+  );
+  const ownerLibraries =
+    packageModel.packageChildren?.content.libraries;
+  if (ownerLibraries) {
+    return ownerLibraries.map(library => {
+      const descriptor = descriptors.get(library.assetId);
+      return {
+        id: library.assetId,
+        name: library.assemblyName,
+        asset: library.assetPath,
+        version: descriptor?.version ?? "",
+        culture: descriptor?.culture ?? null,
+        publicKeyToken: descriptor?.publicKeyToken ?? null,
+        types: library.publicTypeDeclarations ?? 0,
+        members: descriptor?.publicMembers ?? 0,
+        platformPack: descriptor?.platformPack ?? null,
+        surfaceAvailable: descriptor !== undefined,
+        unavailableDetail: descriptor
+          ? library.publicTypeDeclarations === null
+            ? library.detail ?? "Type declaration Count is unavailable."
+            : null
+          : library.detail
+            ?? "Library surface details are unavailable.",
+      };
+    });
+  }
+  return packageModel.assemblies.map(descriptor => ({
+    id: descriptor.id,
+    name: descriptor.name,
+    asset: descriptor.asset,
+    version: descriptor.version,
+    culture: descriptor.culture,
+    publicKeyToken: descriptor.publicKeyToken,
+    types: descriptor.publicTypes,
+    members: descriptor.publicMembers,
+    platformPack: descriptor.platformPack,
+    surfaceAvailable: true,
+    unavailableDetail: null,
+  }));
 }
 
 export interface PackageLibrarySelectionIdentity {
@@ -492,6 +555,15 @@ export function createNuGetPackageModel(
       || `No compile Library is available (${result.compileLibrary.status}).`);
   }
   const assemblies = packageAssemblies(result, packageChildren);
+  const totalTypes = packageChildren
+    ? packageChildren.content.libraries.reduce(
+        (count, library) =>
+          count + (library.publicTypeDeclarations ?? 0),
+        0)
+    : assemblies.reduce(
+        (count, candidate) =>
+          count + (candidate.publicTypes ?? 0),
+        0);
   return {
     id: result.package,
     version: result.version,
@@ -506,8 +578,7 @@ export function createNuGetPackageModel(
     assemblies,
     types: packageTypes(result),
     accessibility: [...(result.accessibility ?? [])],
-    totalTypes: assemblies
-      .reduce((count, candidate) => count + (candidate.publicTypes ?? 0), 0),
+    totalTypes,
     totalMembers: result.totalMembers,
     documents: [...(result.documents ?? [])],
     icon: result.icon,
@@ -542,8 +613,11 @@ export function createWorkspaceOccurrencePackageModel(
     ? activePackage
     : retainedPackages.find(
         candidate => packageIdentityKey(candidate) === identity);
+  const model = retained?.packageChildren
+    ? createNuGetPackageModel(result, retained.packageChildren)
+    : createNuGetPackageModel(result);
   return {
-    ...createNuGetPackageModel(result),
+    ...model,
     ...(retained?.versionSettlement
       ? { versionSettlement: retained.versionSettlement }
       : {}),
