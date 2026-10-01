@@ -14,14 +14,19 @@ claim:
 > `find` searches a Workspace. With no source selector that Workspace is the
 > Ecosystem-provided platform Workspace. Any explicit selector, including
 > `--ecosystem`, starts from an empty Workspace and adds exactly what was
-> named. `find` realizes a Workspace's named populations (platform families,
-> core packages, explicit Packages and Libraries) through PlatformHouse and
-> PackageHouse; its package-prefix populations stay registered and are not
-> searched by this slice.
+> named; `--ecosystem` names an Ecosystem together with its
+> [lineage](ecosystem-hierarchy.md#model). `find` searches Ecosystem layers
+> nearest first, and a finite `-n` stops before later layers start. `find`
+> realizes a Workspace's named populations (platform families, core packages,
+> explicit Packages and Libraries) through PlatformHouse and PackageHouse; its
+> package-prefix populations stay registered and are not searched by this
+> slice.
 
-Motivating scenario: `find .Add* --ecosystem aspire` should return the
+Motivating scenario: `find .Add* --ecosystem aspire -n 20` should return the
 `Add*` members of `Aspire.Hosting` (`AddProject`, `AddContainer`,
-`AddParameter`, …), and nothing from the platform.
+`AddParameter`, …) first. Platform layers are searched only when Aspire's
+layer leaves room under `-n`, and the output names any layers left
+unsearched. `--where ecosystem=aspire` keeps the search to Aspire alone.
 
 Supporting owners, not additional claims:
 
@@ -91,7 +96,8 @@ for another SDK.
 | `find Foo --platform` | platform Workspace (bare `--platform` adds it) |
 | `find Foo --package Bar` | empty, plus `Bar` |
 | `find Foo --package Bar --platform` | platform Workspace, plus `Bar` |
-| `find Foo --ecosystem aspire` | empty, plus the Aspire Ecosystem's named populations |
+| `find Foo --ecosystem aspire` | empty, plus the named populations of Aspire's lineage, searched nearest first |
+| `find Foo --ecosystem aspire --where ecosystem=aspire` | the same Workspace; only the Aspire layer is searched |
 | `find Foo --package Bar --platform runtime` | empty, plus `Bar`, plus the Runtime Ecosystem |
 | `find Foo --platform runtime@10.0` | empty, plus the Runtime Ecosystem with its platform pinned to the latest 10.0.x |
 | `find Foo --platform netstandard` | empty, plus the .NET Standard platform family |
@@ -107,14 +113,17 @@ Rules:
    and resolved to the canonical ID by the CLI before binding, as
    `ecosystem <name>` and `package activity --ecosystem` already do; adoption
    step 3 shares that lookup rather than copying it. It can
-   repeat. It adds the Ecosystem's named populations: its platform family, if
-   it has one, and its core packages at their latest stable versions.
+   repeat. It adds the named populations of the Ecosystem's lineage, as
+   defined by [Ecosystem hierarchy](ecosystem-hierarchy.md#layered-find): each
+   layer's platform family, if it has one, and its core packages at their
+   latest stable versions. The layers are searched nearest first.
 4. `--platform runtime[@<version>]` and `--platform aspnetcore[@<version>]`
    (case-insensitive) are aliases for `--ecosystem runtime` and
    `--ecosystem aspnetcore`. A version pins that Ecosystem's platform
    population: `@10.0` selects the latest 10.0.x patch, and `@10.0.0` selects
    that exact version, matching `library query --platform`. Core packages are
-   not pinned.
+   not pinned. For `aspnetcore`, the .NET Runtime ancestor layer is pinned to
+   the same major and minor version.
 5. `--platform netstandard[@<version>]` selects the .NET Standard platform
    family, as `library query --platform` does. It is the only way `find`
    searches .NET Standard once the default drops it.
@@ -130,9 +139,12 @@ may suggest the next scope (`Remove --platform to search the platform
 Workspace.`); scope never widens silently.
 
 An explicit Workspace whose named populations are empty fails before
-acquisition instead of reporting an empty success. For example, until
-retirement slice 5 gives Microsoft.Extensions a platform population, its core
-is empty and `find Foo --ecosystem microsoft-extensions` fails and names the
+acquisition instead of reporting an empty success. A layer with no named
+populations is not a failure when another layer in the lineage has them.
+For example, Microsoft.Extensions has no named population until retirement
+slice 5, so `find Foo --ecosystem microsoft-extensions` searches its parent,
+the .NET Runtime layer. `--where ecosystem=microsoft-extensions` narrows the
+search to that empty layer and fails before acquisition, naming the
 Ecosystem's prefix (`--package-prefix Microsoft.Extensions.` today).
 
 ## Registered versus searched populations
@@ -287,8 +299,10 @@ cold and one warm sample per Package.
    named-platform-Library acquisition seams with PackageHouse and PlatformHouse
    realization.
 3. **`--ecosystem` as a selector,** with short names and the empty-population
-   failure, together with the search-scope-resolution amendment. Demo:
-   `find .Add* --ecosystem aspire`.
+   failure, together with the search-scope-resolution amendment. Lineage
+   expansion and layered order arrive in [Ecosystem hierarchy slice
+   2](ecosystem-hierarchy.md#adoption-plan). Demo:
+   `find '.Add*' --ecosystem aspire -n 20`.
 4. **`--workspace` for `find`**, with the packet-completeness verification
    above.
 5. **`--platform` grammar,** together with the CLI host architecture

@@ -705,15 +705,15 @@ CreatePlatformWorkspacePlan()
   -> WorkspacePlan
      Registrations
        1. ecosystem.runtime
-       2. ecosystem.aspnetcore
-       3. ecosystem.microsoft-extensions
+       2. ecosystem.microsoft-extensions
+       3. ecosystem.aspnetcore
 
 CreateWorkspacePlan()
   -> WorkspacePlan
      Registrations
        1. ecosystem.runtime
-       2. ecosystem.aspnetcore
-       3. ecosystem.microsoft-extensions
+       2. ecosystem.microsoft-extensions
+       3. ecosystem.aspnetcore
        4. ecosystem.aspire
        5. ecosystem.ai
        6. ecosystem.blazor
@@ -722,8 +722,10 @@ CreateWorkspacePlan()
 CreateWorkspacePlan([ecosystem.aspire, ecosystem.runtime])
   -> WorkspacePlan
      Registrations
-       1. ecosystem.aspire
-       2. ecosystem.runtime
+       1. ecosystem.runtime
+       2. ecosystem.microsoft-extensions
+       3. ecosystem.aspnetcore
+       4. ecosystem.aspire
 
 ```
 
@@ -744,9 +746,9 @@ membership.
 | Explicit correspondence | Equal text without a retained pair cannot project or select a loader; mismatched paired spellings and duplicate lower IDs reject complete catalog construction. |
 | Projection fidelity | Known selection returns the exact retained declaration; known unavailable and unknown identities remain distinct. |
 | Resource-free projection | Discovery and selection invoke no prefix query, platform source, package-set lookup, scanner, acquisition, or Workspace mutation. |
-| Curated product Workspace | The current .NET Runtime, ASP.NET Core, Microsoft.Extensions order and required registered-package or population contributions are enforced without filtering ordinary pack discovery. |
-| All-known product Workspace | The separate current seven-row order includes Aspire, AI, Blazor, and .NET MAUI and every known pack; missing or unavailable projections cannot be silently omitted. |
-| Selected product Workspace | A nonempty unique selected identity sequence produces exactly those retained registrations in caller order; null, duplicate, unknown, unavailable, and hints-only entries fail without a partial plan. |
+| Curated product Workspace | The current .NET Runtime, Microsoft.Extensions, ASP.NET Core order and required registered-package or population contributions are enforced without filtering ordinary pack discovery. |
+| All-known product Workspace | The separate current seven-row order includes Aspire, AI, Blazor, and .NET MAUI and every known pack, each after its parent; missing or unavailable projections cannot be silently omitted. |
+| Selected product Workspace | A nonempty unique selected identity sequence produces the union of the selected lineages, root first, in the order defined by [Ecosystem hierarchy](ecosystem-hierarchy.md#workspace-plan-construction); null, duplicate, unknown, unavailable, and hints-only entries fail without a partial plan. |
 | Independent construction | One curated plan can seed distinct live Workspace identities; edits and close preserve the original plan and other owners. |
 | Lifetime preservation | Plans require no disposal; explicit live construction consumes the single Workspace awaited lifetime without an Ecosystems-owned variant. |
 | Empty lower-layer default | Direct Workspace construction without explicit registrations is empty and has no path that consults Ecosystems or requests curation. |

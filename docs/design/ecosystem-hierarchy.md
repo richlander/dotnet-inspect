@@ -6,10 +6,12 @@ Proposed; tracked by [#9084](https://github.com/richlander/dotnet-inspect/issues
 [Static Ecosystem Packs](ecosystem-packs.md). It changes exactly one claim
 owned by the [Workspace ecosystem registration
 handoff](workspace-ecosystem-registration-handoff.md): selected-set
-construction registers a selected ecosystem together with its ancestors. Its
-first consumer is the call graph's registered-ecosystem scope, described in
-[Workspace registration and call-graph
-scope](workspace-registration-and-call-graph-scope.md).
+construction registers a selected ecosystem together with its ancestors. With
+user approval, it also amends [Find Workspace scope](find-workspace-scope.md)
+and [Ecosystem Find Search](ecosystem-find-search.md) so `find --ecosystem`
+searches the lineage nearest first. Its consumers are the call graph's
+registered-ecosystem scope, described in [Workspace registration and
+call-graph scope](workspace-registration-and-call-graph-scope.md), and Find.
 
 ## Owner and claim
 
@@ -127,6 +129,55 @@ plan changes order the same way. The handoff's existing rules still apply:
 a plan is built once, saved or restored Workspaces keep their exact
 registrations, and nothing re-expands a lineage later.
 
+## Layered Find
+
+Two spellings separate depth from surface:
+
+- `--ecosystem aspire` is **depth**. It builds the Workspace from Aspire's
+  lineage.
+- `--where ecosystem=aspire` is **surface**. It is a row predicate over
+  Ecosystem membership and does not follow `DependsOn`. Because the question
+  reaches the work, layers that cannot satisfy it are never searched.
+
+Find searches layers in **layered Find order**: each selected Ecosystem comes
+before its ancestors. Among layers that ancestry does not order, the first
+selection whose lineage contains the layer decides. For example:
+
+```text
+--ecosystem aspire           -> aspire, aspnetcore, microsoft-extensions, runtime
+--ecosystem ai,blazor        -> ai, blazor, aspnetcore, microsoft-extensions, runtime
+--ecosystem all              -> every pack, each before its parent, product order otherwise
+```
+
+Each layer drains completely before the next one starts, and a finite `-n`
+stops at a layer boundary. So `find .Add* --ecosystem aspire -n 20` loads no
+platform population when Aspire's own layer fills the window. This is
+ordinary nearest-scope-first lookup: a weak match in a nearer layer ranks
+ahead of an exact match in a farther one.
+
+The output keeps layer boundaries visible, using the existing per-Ecosystem
+blocks of [Ecosystem Find Search](ecosystem-find-search.md). When `-n` stops
+the search, completion is `RowLimitReached` and names the layers that were
+not searched, so the broader view stays discoverable:
+
+```text
+$ dotnet-inspect find '.Add*' --ecosystem aspire -n 20
+## ecosystem.aspire
+...20 rows...
+Stopped after ecosystem.aspire; not searched: ecosystem.aspnetcore,
+ecosystem.microsoft-extensions, ecosystem.runtime. Raise -n to continue.
+```
+
+Layer membership is population membership, not prefix matching: a row
+belongs to a layer when one of that layer's own named populations admitted
+its source. Overlapping prefixes, such as Blazor's `Microsoft.AspNetCore.Components`
+inside ASP.NET Core, therefore never move a row between layers.
+
+Commands that do not build a Workspace, such as `package query`, keep
+`--ecosystem` and `--where ecosystem=` as today's single-Ecosystem
+population. Lineage expansion there would enumerate unrelated `System.*`
+packages, so it is a non-claim.
+
 ## Call-graph consumption
 
 `SelfAndRegisteredEcosystems` already admits every ecosystem registered in
@@ -158,29 +209,37 @@ follow-up work:
 ## Presentation
 
 The `ecosystem` command's catalog-wide `Ecosystems` section gains a
-`Depends On` column. `Ecosystem Info` gains a `Depends On` row for the focused
-pack, plus its lineage. Both are ordinary section rows rendered through
-Markout; there is no new rendering path.
+`Depends On` column after `Ecosystem`, extending its existing schema.
+`Ecosystem Info` gains `Depends On` and `Lineage` rows for the focused pack.
+Both are ordinary section rows rendered through Markout; there is no new
+rendering path.
 
 ```text
 $ dotnet-inspect ecosystem
-| Ecosystem | Title | Depends On |
-| ecosystem.runtime | .NET Runtime | |
-| ecosystem.microsoft-extensions | Microsoft.Extensions | ecosystem.runtime |
-| ecosystem.aspnetcore | ASP.NET Core | ecosystem.microsoft-extensions |
-| ecosystem.aspire | Aspire | ecosystem.aspnetcore |
-...
+| ID | Ecosystem | Depends On | Summary | Scanner | Integration Bindings | Demos |
+| ecosystem.runtime | .NET Runtime | | ... |
+| ecosystem.microsoft-extensions | Microsoft.Extensions | ecosystem.runtime | ... |
+| ecosystem.aspnetcore | ASP.NET Core | ecosystem.microsoft-extensions | ... |
+| ecosystem.aspire | Aspire | ecosystem.aspnetcore | ... |
 ```
 
 ## Adoption plan
 
 1. **Catalog and plans.** Add `DependsOn`, validation, lineage, and lineage
-   expansion in all three plan factories. Production consumers are the
-   existing callers: CLI `find --ecosystem`, CLI `graph calls` with the
-   `SelfAndRegisteredEcosystems` baseline, and Inspect Web's
-   `BrowserProductWorkspacePlans`. Add the `ecosystem` command column and
-   row. The demo is `find --ecosystem aspire` registering four ecosystems.
-2. **Call-graph root-ecosystem selection.** Covered by a separate call-graph
+   expansion in all three plan factories, plus the `ecosystem` column and
+   rows. Production consumers are the existing callers: CLI `graph calls`
+   with the `SelfAndRegisteredEcosystems` baseline and Inspect Web's
+   `BrowserProductWorkspacePlans`. `find --ecosystem` keeps exact selection
+   until slice 2, so Find never searches a lineage in arbitrary order.
+2. **Layered Find.** Coordinate with the active Find owner. Add layered Find
+   order, layer-boundary `-n`, `RowLimitReached`, and `--where ecosystem=`
+   to Ecosystem Find Search, then switch `find --ecosystem` to lineage
+   plans. Extend the [Ecosystem Find Search
+   model](models/ecosystem-find-search/README.md) with ordered layer starts
+   and early completion, plus a broken configuration in which a later layer
+   starts before an earlier one settles. The demo is
+   `find '.Add*' --ecosystem aspire -n 20`.
+3. **Call-graph root-ecosystem selection.** Covered by a separate call-graph
    design that consumes `Lineage`, as described in
    [Call-graph consumption](#call-graph-consumption).
 
@@ -193,7 +252,10 @@ $ dotnet-inspect ecosystem
 | Platform-curated plan | runtime, microsoft-extensions, aspnetcore | Ecosystems tests, PR-fast |
 | `[aspire, ai]` and `[ai, aspire]` selections | Orders shown above | Ecosystems tests, PR-fast |
 | Duplicate selection | Rejected | Ecosystems tests, PR-fast |
-| `find --ecosystem aspire` | Four ecosystems registered | CLI tests, PR-fast |
+| `find '.Add*' --ecosystem aspire -n 20` | Aspire rows first; when Aspire fills the window, no platform population is realized and the unsearched layers are named | CLI tests, PR-fast |
+| `find '.Add*' --ecosystem aspire --where ecosystem=aspire` | Only the Aspire layer is searched | CLI tests, PR-fast |
+| `--ecosystem ai,blazor` | Layered Find order as shown above | Ecosystem Find Search tests, PR-fast |
+| A later layer starts before an earlier layer settles under a finite window | TLC rejects the broken configuration | `eng/tla-expected-exit-codes.txt` |
 | Each authored edge | The child's evidence package reports the parent ecosystem in `Ecosystem Dependencies` | Slow real-asset test (network), owned by Deep Inspect |
 
 ## Non-claims
@@ -206,3 +268,7 @@ $ dotnet-inspect ecosystem
   the Workspace editing owners.
 - Pruning packages that ASP.NET Core or another non-Runtime layer subsumes.
 - Call-graph root-ecosystem selection and per-layer labels.
+- Lineage expansion for commands that build no Workspace, such as
+  `package query`.
+- A shallow `--ecosystem` variant; `--where ecosystem=` is the shallow
+  spelling.
