@@ -72,10 +72,14 @@ public sealed class SectionPipelineSubstrateTests
         var second = new InspectionQuery<int>(
             "second",
             InspectionCost.NetworkFree);
+        var hostOnly = new InspectionQuery<int>(
+            "host",
+            InspectionCost.NetworkFree);
         InspectionQueryCatalog<string> queries =
             new InspectionQueryRegistry<string>()
                 .Add(first, static context => context.Length)
                 .Add(second, static context => context.Length * 2)
+                .Add(hostOnly, static context => context.Length * 3)
                 .Compile();
         var domain = new CompiledInspectionDomain<string>(queries);
         CompiledInspectionLens<string, TestModel> lens =
@@ -84,7 +88,12 @@ public sealed class SectionPipelineSubstrateTests
                     .Add<PrimarySection>(first)
                     .Add<DetailedSection>(second));
         CompiledInspectionPlan<string> original =
-            lens.Plan(SectionViewLevel.Detailed);
+            lens.Plan(
+                SectionViewLevel.Detailed,
+                hostDemand:
+                [
+                    new HostQueryDemand("Host-only query", hostOnly),
+                ]);
 
         CompiledInspectionPlan<string> filtered =
             original.WithoutQueries(
@@ -92,11 +101,20 @@ public sealed class SectionPipelineSubstrateTests
                 new HashSet<InspectionQueryDefinition> { second });
         InspectionQueryResults results = filtered.Run("test");
 
-        Assert.Equal([first], filtered.RequestedQueries);
+        Assert.Equal([first, hostOnly], filtered.RequestedQueries);
+        Assert.Equal([first], filtered.SectionPlan.Queries);
         Assert.Equal(
             [new SectionQueryDemand(PrimarySection.Name, first)],
             filtered.SectionDemand);
+        Assert.Equal(
+            [new HostQueryDemand("Host-only query", hostOnly)],
+            filtered.HostDemand);
+        Assert.True(filtered.SectionPlan.Activate().SetEquals([first]));
+        Assert.True(
+            filtered.SectionPlan.Activate(filtered.HostDemand)
+                .SetEquals([first, hostOnly]));
         Assert.Equal(4, results.Get(first));
+        Assert.Equal(12, results.Get(hostOnly));
         Assert.False(results.TryGet(second, out _));
     }
 

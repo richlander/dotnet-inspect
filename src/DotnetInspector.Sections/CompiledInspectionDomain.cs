@@ -206,8 +206,13 @@ public readonly struct CompiledInspectionPlan<TContext>
             .. RequestedQueries.Where(
                 query => !removedQueries.Contains(query)),
         ];
+        ImmutableArray<InspectionQueryDefinition> sectionQueries =
+        [
+            .. SectionPlan.Queries.Where(
+                query => !removedQueries.Contains(query)),
+        ];
         var sectionPlan = new SectionQueryPlan(
-            requestedQueries,
+            sectionQueries,
             [
                 .. SectionDemand.Where(
                     demand => !removedQueries.Contains(demand.Query)),
