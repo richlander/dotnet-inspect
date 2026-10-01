@@ -311,6 +311,7 @@
     <Project Path="tools/MethodClassificationScorecard/MethodClassificationScorecard.csproj" />
     <Project Path="tools/OwnershipIncidenceScorecard/OwnershipIncidenceScorecard.csproj" />
     <Project Path="tools/QuerySpaceScorecard/QuerySpaceScorecard.csproj" />
+    <Project Path="tools/ReturnToSenderTargetScorecard/ReturnToSenderTargetScorecard.csproj" />
     <Project Path="tools/TypeFindPopulationScorecard/TypeFindPopulationScorecard.csproj" />
     <Project Path="tools/CSharpDiffHarness/CSharpDiffHarness.csproj" />
     <Project Path="tools/DecompilerHarness/DecompilerHarness.csproj" />

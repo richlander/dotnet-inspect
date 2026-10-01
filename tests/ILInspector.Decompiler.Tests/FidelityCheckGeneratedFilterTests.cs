@@ -1,4 +1,5 @@
 using DotnetInspector.Fixtures;
+using DotnetInspector.ResearchQueries;
 using DotnetInspector.Services;
 using ILInspector.CSharp;
 using ILInspector.Decompiler.Pipeline;
@@ -181,7 +182,7 @@ public class FidelityCheckGeneratedFilterTests
                 FidelityCheck.SelectReturnToSenderTargetPlan(
                 [assemblyPath],
                 cap: int.MaxValue);
-            IReadOnlyList<FidelityCheck.CompileBackTarget> selected =
+            IReadOnlyList<ReturnToSenderTarget> selected =
                 selection.Targets;
 
             Assert.Equal(2, selected.Count);
@@ -196,12 +197,12 @@ public class FidelityCheckGeneratedFilterTests
             Assert.Contains(
                 selection.Exclusions,
                 exclusion => exclusion.Producer ==
-                        FidelityCheck.ReturnToSenderDeclarationProducer
+                        ReturnToSenderDeclarationProducer
                             .OrdinaryTypeArtifact
                     && exclusion.Reason is
-                        FidelityCheck.ReturnToSenderTargetExclusionReason
+                        ReturnToSenderTargetExclusionReason
                             .OrdinaryDeclarationUnrepresentable
-                        or FidelityCheck.ReturnToSenderTargetExclusionReason
+                        or ReturnToSenderTargetExclusionReason
                             .ProductMemberUnavailable);
         }
         finally
@@ -268,7 +269,7 @@ public class FidelityCheckGeneratedFilterTests
             Assert.Equal("Pick", target.Method);
             Assert.Equal("mss1:4(0:)n", target.Signature);
             Assert.IsType<
-                FidelityCheck.ReturnToSenderDeclarationSelection
+                ReturnToSenderDeclarationSelection
                     .OrdinaryMethod>(target.Declaration);
         }
         finally
@@ -285,12 +286,12 @@ public class FidelityCheckGeneratedFilterTests
             cap: int.MaxValue,
             typeFilter: "System.Int32");
 
-        FidelityCheck.CompileBackTarget[] exactTargets =
+        ReturnToSenderTarget[] exactTargets =
         [
             .. selection.Targets.Where(
                 target => target.Type == "System.Int32"
                     && target.Declaration is
-                        FidelityCheck.ReturnToSenderDeclarationSelection
+                        ReturnToSenderDeclarationSelection
                             .ExactMethod),
         ];
         Assert.True(
@@ -302,10 +303,10 @@ public class FidelityCheckGeneratedFilterTests
                     .Select(exclusion =>
                         $"{exclusion.Method}: {exclusion.Reason}: "
                         + $"{exclusion.ExactOutcome}")));
-        FidelityCheck.CompileBackTarget target =
+        ReturnToSenderTarget target =
             Assert.Single(exactTargets);
         var exact = Assert.IsType<
-            FidelityCheck.ReturnToSenderDeclarationSelection.ExactMethod>(
+            ReturnToSenderDeclarationSelection.ExactMethod>(
                 target.Declaration);
 
         Assert.Equal(
@@ -328,15 +329,15 @@ public class FidelityCheckGeneratedFilterTests
                 languageProfile: new(
                     CSharpLanguageVersion.CSharp10));
 
-        FidelityCheck.ReturnToSenderTargetExclusion exclusion =
+        ReturnToSenderTargetExclusion exclusion =
             Assert.Single(
                 selection.Exclusions,
                 exclusion => exclusion.Type == "System.Int32"
                     && exclusion.Reason ==
-                        FidelityCheck.ReturnToSenderTargetExclusionReason
+                        ReturnToSenderTargetExclusionReason
                             .ExactDeclarationUnrepresentable);
         Assert.Equal(
-            FidelityCheck.ReturnToSenderDeclarationProducer
+            ReturnToSenderDeclarationProducer
                 .ExactMethodDeclaration,
             exclusion.Producer);
         var refusal = Assert.IsType<

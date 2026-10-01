@@ -266,6 +266,13 @@ than an inspected artifact:
   `type-find-population-scorecard <pattern> <check|time> <assembly>...`.
   The shipping column is `Selector`, not `Planner`, because it settles an
   already materialized population rather than executing a QuerySpace plan.
+- `tools/ReturnToSenderTargetScorecard` checks exact pre-cap RTS target Count
+  through the old eager selector, LINQ, pinned NLinq, and the shipping
+  QuerySpace Planner. Its evidence reports scanned bodies, declaration
+  candidates, eager rows, and Planner rows. Publish it for the target RID and
+  run `return-to-sender-target-scorecard <check|time> <assembly>...`;
+  `repeat-one` records exact base/head repeated terminal evidence, while
+  `once` supports process-start measurements.
 
 **The scorecard** scores Old, LINQ, NLinq, and Planner for Exists, Count,
 Head(N), Tail(N), Rows, and Rows(n..m), over one open query on pinned real

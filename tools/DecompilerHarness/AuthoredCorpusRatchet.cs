@@ -915,6 +915,7 @@ static class AuthoredCorpusExitContract
         "--validity-check",
         "--validity-predicate-scan",
         "--fidelity-check",
+        "--return-to-sender-target-count",
         "--return-to-sender",
         "--return-address",
         "--not-my-type",
