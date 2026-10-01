@@ -1,5 +1,6 @@
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Queries;
 
 namespace DotnetInspect.Cli.Sections;
 
@@ -167,7 +168,8 @@ public static class ApiMemberSectionDescriptors
             .Add<ExtensionMethods>(HasExtensionMethods)
             .Add<Events>()
             .Add<MethodAttributes>()
-            .Add<UnsafeMembers>()
+            .Add<UnsafeMembers>(
+                UnsafeEvidencePresenceQuery.Definition)
             .Add<ExceptionRegions>()
             .Add<CalledTypes>()
             .Add<AllocationFacts>()
@@ -429,6 +431,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
     }

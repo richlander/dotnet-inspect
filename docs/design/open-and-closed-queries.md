@@ -312,6 +312,39 @@ once per unit. The plan stays data, so requests can be validated, merged,
 explained, and carried between hosts. Execution becomes types wherever the
 shape is known.
 
+### Minimal execution strategy
+
+The pattern has two production lowering families:
+
+1. A **traversal kernel** runs the open query over a source cursor and applies
+   the closing's phases. One closed query may run as one specialized loop;
+   compatible closed queries may share one traversal and settle independently.
+2. A **source-native closing** lets the source issue the exact terminal result
+   without producing the reference row stream or acquiring layers that the
+   closing does not need. It remains the same closed query and must carry the
+   completion evidence required by
+   [Source delegation](source-delegation.md).
+
+The reference interpreter is the equivalence oracle, not a third production
+strategy. A feature-specific shortcut that cannot identify the open query,
+closing, result, outcome, and receipt it implements is a transition path, not
+another accepted lowering family.
+
+Terminal specialization is an execution choice inside a traversal kernel, not
+an author-facing pattern. A runtime request selects the kernel once before the
+cursor advances. The kernel may retain a runtime terminal branch when that is
+the smallest fast implementation, or specialize the processor and condition
+as type parameters when NativeAOT evidence shows that doing so removes
+material nested work. Both forms implement the same closing and pass the same
+equivalence gate. Binary-size growth and maintenance cost count against
+specialization just as latency and allocation count for it.
+
+This division keeps the strategy consistent without requiring unlike sources
+to have identical loops. A metadata table may answer Count from cardinality, a
+filtered metadata population may scan without projecting rows, and an IL
+population may visit raw operands without resolving row identities. Those are
+source-native implementations of the same closing, not new terminal APIs.
+
 A closed query may be lowered to a **kernel**: one loop specialized to its
 predicate or projection and its phases, with nothing else to coordinate in
 its pass. A closed query written as a constant in code is a concrete
@@ -336,6 +369,34 @@ A kernel substitutes for the reference execution, so it keeps the reference
 execution's semantics: failure containment, stopping before the next untrusted
 read, type scope, and the receipt, including units visited, per-producer
 participation, and layer acquisition.
+
+### Adoption proof
+
+A lowering strategy is proven for broad adoption only after it demonstrates
+all of these roles:
+
+- **Semantic equivalence.** The optimized result, outcome, failure boundary,
+  completion, and receipt equal the closed query's reference execution.
+- **Minimal work.** Scalar closings neither project nor retain rows, settled
+  closings receive no later units, and source-native closings acquire only
+  their declared layers. Structural receipts or counters name the avoided
+  work.
+- **NativeAOT performance.** Exact binaries measure latency, managed
+  allocation, and binary-size cost for every supported closing. Peak process
+  memory is added when avoided retained graphs or large intermediate
+  populations make managed allocation insufficient.
+- **Independent adoption.** The strategy serves at least one cheap metadata
+  population and one body or similarly nested population without adding
+  terminal-specific concepts to either producer's authoring surface.
+- **Fusion.** Count and Exists derive from Rows when their predicate completed,
+  while non-derivable or independently settling closings share traversal
+  without changing their individual failure or settlement semantics.
+
+The first adoption program uses Method-definition queries as the reusable
+traversal-kernel witness, exact member-group overloads as the independent
+metadata witness, and direct-call and body-use populations as source-native
+and nested-work witnesses. Each owner adopts the pattern separately; no one
+implementation PR sweeps those owners.
 
 ## Authoring
 
@@ -394,6 +455,14 @@ one read.
   run alone. This is **unverified**.
 - **Merging.** Closings merged across consumers each receive the shape they
   asked for. This is **unverified** until level 2 adopts closing (#8574).
+- **Minimal execution strategy.** Traversal kernels and source-native closings
+  each match the same reference result and receipt, and an adopter introduces
+  no third feature-specific execution contract. This is **unverified** until
+  the independent-adoption program above completes.
+- **Minimal work and performance.** Structural evidence proves that scalar
+  closings avoid row projection and retention, and exact NativeAOT evidence
+  records latency, managed allocation, and binary size for each lowering.
+  Cross-source proof and peak-memory evidence remain **unverified**.
 - **Per-unit routing and settlement.** The
   [bounded TLA+ model](models/open-query-routing-settlement/README.md) checks
   exclusive classification, inclusive fan-out, unit-ordered Head results,

@@ -115,6 +115,7 @@ public static partial class WorkspaceCommand
                 + "and cannot be combined with direct construction options.";
         }
         if (options.ActivePackage is not null
+            || options.ActiveEcosystem is not null
             || options.Library is not null || options.AllLibraries
             || options.Type is not null || options.Member is not null
             || options.Lens is not null)
