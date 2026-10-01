@@ -101,6 +101,15 @@ public partial class ApiCommand
             return null;
         }
 
+        if (memberOptions.SelectedBodyMethodToken is { } selectedMethodToken)
+        {
+            return WriteCallSiteCount(
+                assemblyPath,
+                selectedMethodToken,
+                memberOptions,
+                output);
+        }
+
         IReadOnlySet<string> requestedSections =
             GetRequestedMemberSections(type, memberOptions);
         List<ApiMember> methods =

@@ -612,6 +612,36 @@ public class MemberCallsSectionTests
         Assert.Empty(result.Output);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CallsSection_CountBodilessMethodCompletesWithZero(
+        bool includeAll)
+    {
+        var arguments = new List<string>
+        {
+            "member",
+            typeof(IMemberCallsBodilessFixture).FullName!,
+            "--library",
+            typeof(IMemberCallsBodilessFixture).Assembly.Location,
+            "-m",
+            nameof(IMemberCallsBodilessFixture.Dispose),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--tips",
+            "q"
+        };
+        if (includeAll)
+            arguments.Add("--all");
+
+        var result = await RunCliAsync([.. arguments]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal("0", result.Output.Trim());
+    }
+
     [Fact]
     public async Task CallsSection_TsvUsesPlainNormalizedValues()
     {
@@ -766,4 +796,9 @@ internal static class HiddenMemberCallsFixture
 {
     public static void Call() =>
         Console.WriteLine("hidden type");
+}
+
+public interface IMemberCallsBodilessFixture
+{
+    void Dispose();
 }
