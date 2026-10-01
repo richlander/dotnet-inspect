@@ -1,0 +1,11 @@
+name = "body-use-terminal-folding"
+version = "0.1.0"
+defaultTargets = ["body-use-terminal-folding"]
+
+[[lean_lib]]
+name = "BodyUseTerminalFolding"
+
+[[lean_exe]]
+name = "body-use-terminal-folding"
+root = "Main"
+

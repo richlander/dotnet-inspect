@@ -4,6 +4,11 @@
 # entry only when the configuration's exact outcome is a named repository gate.
 # Format: one canonical `<path-to-cfg>=<TLC-exit-code>` pair per line.
 
+docs/design/models/analysis-body-use-terminal-kernel-lifecycle/BrokenInvalidateSettled.cfg=12
+docs/design/models/analysis-body-use-terminal-kernel-lifecycle/BrokenSplitAdmission.cfg=12
+docs/design/models/analysis-body-use-terminal-kernel-lifecycle/ReachabilityEarlyPublication.cfg=12
+docs/design/models/analysis-body-use-terminal-kernel-lifecycle/SafetyComplete.cfg=0
+docs/design/models/analysis-body-use-terminal-kernel-lifecycle/SafetyFailure.cfg=0
 docs/design/models/artifact-content-ownership/BrokenImmediateRelease.cfg=12
 docs/design/models/artifact-content-ownership/BrokenQueryBoundChild.cfg=12
 docs/design/models/artifact-content-ownership/BrokenUnboundContent.cfg=12
