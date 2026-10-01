@@ -199,6 +199,27 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
+    public async Task TypeAuditEffectiveDiscovery_OmitsUnsafeMembersForSafeType()
+    {
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(SamplePInvokeClass).FullName,
+            AssemblyPath = typeof(SamplePInvokeClass).Assembly.Location,
+            Discover = [SectionCategoryNames.Audit],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            Tabular = true,
+            Tsv = true,
+            TabularExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.DoesNotContain("Unsafe Members\tsection", result.Output);
+    }
+
+    [Fact]
     public async Task MemberTypeUnsafeMembers_FiltersToSelectedType()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
