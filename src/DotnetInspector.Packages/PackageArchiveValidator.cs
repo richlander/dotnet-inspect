@@ -234,7 +234,9 @@ public static class PackageArchiveValidator
                     $"the archive contains more than {limits.MaxEntryCount} entries");
             }
 
-            if (!IsPublishableEntryPath(entry.FullName, out bool isDirectory))
+            if (!IsPublishableEntryPath(
+                    entry.FullName,
+                    out bool isDirectory))
             {
                 return new PackageArchiveValidation.Rejected(
                     "an archive entry has a path that cannot address stored content safely");
@@ -352,7 +354,9 @@ public static class PackageArchiveValidator
     /// True when an archive entry path can address stored content safely under
     /// the same rules <see cref="StorePath"/> applies to a store key.
     /// </summary>
-    static bool IsPublishableEntryPath(string entryPath, out bool isDirectory)
+    internal static bool IsPublishableEntryPath(
+        string entryPath,
+        out bool isDirectory)
     {
         isDirectory = IsDirectoryEntry(entryPath);
         if (entryPath.Length is 0 or > MaxEntryPathLength)

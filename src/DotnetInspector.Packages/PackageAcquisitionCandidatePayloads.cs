@@ -639,8 +639,21 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                     RangedOutcome.Fallback,
                     Fallback: PackageTransferFallbackReason.ArchiveChanged);
             }
-            IReadOnlyList<PackageContentEntry> entries =
-                DirectoryEntries(reader.Directory);
+            if (TryGetDirectoryEntries(
+                    reader.Directory,
+                    out IReadOnlyList<PackageContentEntry> entries)
+                is { } directoryProblem)
+            {
+                return new(
+                    RangedOutcome.Failed,
+                    Failure: new PackageAuthorityFailure(
+                        display,
+                        PackageAuthorityFailureKind.ResponseRejected,
+                        $"The package archive was rejected because {directoryProblem}.")
+                    {
+                        ResultSource = client.Source,
+                    });
+            }
             string producerKey = client.Source.Producer.Key;
             RangedPackageContent directory =
                 RangedPackageContent.CreateDirectory(entries, producerKey);
@@ -839,8 +852,19 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             return new EntryCacheState(null!, cached, Invalid: true);
         }
 
+        if (TryGetDirectoryEntries(
+                directory,
+                out IReadOnlyList<PackageContentEntry> entries)
+            is { } directoryProblem)
+        {
+            log?.Invoke(
+                $"The cached directory of {coordinate.PackageId} {coordinate.Version} "
+                + $"cannot be admitted ({directoryProblem}); it is kept and bypassed.");
+            return null;
+        }
+
         RangedPackageContent directoryView =
-            RangedPackageContent.CreateDirectory(DirectoryEntries(directory), producerKey);
+            RangedPackageContent.CreateDirectory(entries, producerKey);
         // An anchor requires its whole aligned block: a block is present when
         // all of its entries are, so a warm read naming a neighbour in a
         // cached block makes no request.
@@ -953,17 +977,31 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         }
     }
 
-    private static IReadOnlyList<PackageContentEntry> DirectoryEntries(
-        ZipDirectory directory)
+    private static string? TryGetDirectoryEntries(
+        ZipDirectory directory,
+        out IReadOnlyList<PackageContentEntry> entries)
     {
-        var entries = new List<PackageContentEntry>(directory.Entries.Count);
+        var admitted = new List<PackageContentEntry>(
+            directory.Entries.Count);
         foreach (ZipEntry entry in directory.Entries)
         {
-            if (entry.Name.Length == 0 || entry.Name.EndsWith('/'))
-                continue;
-            entries.Add(new PackageContentEntry(entry.Name, entry.ExpandedLength));
+            if (!PackageArchiveValidator.IsPublishableEntryPath(
+                    entry.Name,
+                    out bool isDirectory))
+            {
+                entries = [];
+                return "an archive entry has a path that cannot address stored content safely";
+            }
+            if (!isDirectory)
+            {
+                admitted.Add(
+                    new PackageContentEntry(
+                        entry.Name,
+                        entry.ExpandedLength));
+            }
         }
-        return entries.AsReadOnly();
+        entries = admitted.AsReadOnly();
+        return null;
     }
 
     private static ConfiguredPackagePayloadResult PayloadOperationTimedOut(

@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using DotnetInspector.Packages;
 using NuGetFetch;
+using ZipFetch;
 
 namespace DotnetInspector.Services.Tests;
 
@@ -180,6 +181,71 @@ public sealed partial class PackageRangedRealizationTests
                 PackageTransferRequestPurpose.DirectoryTail,
             ],
             receipt.Requests.Select(static request => request.Purpose));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SemanticFilesAndFileList_RangedUnsafeDirectoryIsRejected(
+        bool cacheDirectory)
+    {
+        const string PackageId = "Rejected.Directory";
+        const string Version = "1.0.0";
+        byte[] archive = TestPackageArchive.CreateWithContent(
+            ("README.md", "valid"u8.ToArray()),
+            ("../escape.txt", "invalid"u8.ToArray()),
+            ($"{PackageId}.nuspec", "<package />"u8.ToArray()));
+        var store = new InMemoryPackageStore();
+        IPackageEntryStore entryStore = store;
+        if (cacheDirectory)
+        {
+            ZipDirectory directory =
+                ZipArchiveReader.ReadDirectoryFromRegion(
+                    archive,
+                    archive.LongLength,
+                    ZipReadLimits.Default);
+            await entryStore.PublishDirectoryAsync(
+                PackageId,
+                Version,
+                directory.Region,
+                directory.ArchiveLength);
+        }
+
+        var server = new RangeFeed(PackageId, Version, archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        var settlement =
+            Assert.IsType<PackageHouseSettlement.ResourceFree>(
+                await environment.AcquireContentAsync(
+                    store,
+                    PackageHouseContentQuery.PackageFilesWithFileList(
+                        ["README.md"]),
+                    packageId: PackageId,
+                    version: Version));
+
+        PackageHouseResult.Rejected rejected =
+            Assert.IsType<PackageHouseResult.Rejected>(settlement.Result);
+        Assert.DoesNotContain(
+            "../escape.txt",
+            rejected.Reason.ToString(),
+            StringComparison.Ordinal);
+        Assert.Null(settlement.Result.Evidence.FileList);
+        Assert.Equal(1, server.FullRequests);
+        Assert.Equal(1, server.RangedRequests);
+        Assert.Null(
+            await entryStore.ReadEntryAsync(
+                PackageId,
+                Version,
+                "README.md"));
+        Assert.Equal(
+            cacheDirectory,
+            await entryStore.ReadDirectoryAsync(PackageId, Version) is not null);
+        Assert.Equal(
+            cacheDirectory,
+            environment.Log.Any(
+                static message => message.Contains(
+                    "cannot be admitted",
+                    StringComparison.Ordinal)));
     }
 
     [Fact]
