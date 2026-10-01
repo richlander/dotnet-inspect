@@ -47,6 +47,12 @@ public static partial class CatalogExports
             BrowserProductHomeDemos.ToCatalog(EcosystemPackCatalog.DiscoverDemos()),
             BrowserCatalogJsonContext.Default.BrowserHomeDemoCatalog);
 
+    [JSExport]
+    public static string ListEcosystems() =>
+        JsonSerializer.Serialize(
+            BrowserProductEcosystems.ToCatalog(EcosystemPackCatalog.Discover()),
+            BrowserCatalogJsonContext.Default.BrowserEcosystemCatalog);
+
     /// <summary>
     /// Resolves one product home demo. <c>found</c> is false when the id is unknown.
     /// </summary>
