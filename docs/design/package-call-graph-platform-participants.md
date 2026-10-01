@@ -44,7 +44,7 @@ Two independent gaps cause the result:
    creates `PackageDependencyEdgeRealizationRequest` without a
    `PlatformPruneInventory`. On `net11.0`, `System.Buffers`, `System.Memory`,
    `System.Runtime.CompilerServices.Unsafe`, and other subsumed packages are
-   therefore fetched and graphed as ordinary package participants.
+   therefore realized and graphed as ordinary package participants.
 2. **No Platform participants.** `PackageDependencyMemberCallGraphOperation`
    builds its graph context only from the realized package roles, so the
    operation returns `IntrinsicCoreLibraryContextNonParticipation`. Targets
@@ -82,7 +82,7 @@ focal length admits a registered Platform population, the inspection:
 
 1. derives the exact `PlatformFamilyTarget` for the traversal target from the
    focal scope receipt's Platform population and passes it with the matching
-   `PlatformPruneInventory` to dependency traversal and edge realization;
+   `PlatformPruneInventory` to edge realization;
 2. graphs pruned dependencies as the existing
    `PackageDependencyMemberCallGraphDestination.Platform` route, not as
    package participants;
@@ -142,12 +142,14 @@ classification, where a Platform node carries its exact `PlatformFamilyTarget`
 and certified Library identity. Pruned dependencies keep the existing typed
 `Platform` destination route. Neither fact carries display text.
 
-Hosts lower these facts through the existing
-[call-graph projection](call-graph-projection.md) boundary. The CLI lowers
-them in `CallGraphSectionAdapter` to a Markout `Graph`, so every format gets
-them. Inspect Web renders the same host-neutral outcome. This document adds
-no host-specific rendering path and does not change projection or lowering
-rules.
+Hosts lower these facts at their existing call-graph boundaries, following
+[call-graph projection](call-graph-projection.md). For `graph calls`, the
+lowering boundary is `ExternalCallGraphOutputAdapter`, which today receives
+only the `InspectionGraphDocument`. The CLI adoption slice passes the typed
+node classifications to that adapter beside the document, and the adapter
+lowers them to Markout for every format. Inspect Web renders the same
+host-neutral outcome. This document adds no new host-specific rendering path
+and does not change projection or lowering rules.
 
 ## Non-claims
 
@@ -180,15 +182,21 @@ Each slice is one reviewed PR with a production consumer, checked off on
 product usable after every slice.
 
 1. **Pruning inputs (CLI).** Supply the exact family target and prune
-   inventory through the inspection request; adopt in `graph calls`. This
-   change is visible on its own: subsumed packages leave the fetched set and
-   appear as Platform routes.
+   inventory to edge realization through the inspection request; adopt in
+   `graph calls`. This change is visible on its own: subsumed packages are
+   no longer realized or graphed as package participants and appear as
+   Platform routes. Dependency traversal may still read their manifests,
+   because `PackageDependencyTraversalRequest` takes no pruning input.
+   Pruning during traversal is a separate traversal-owner change and is not
+   claimed here.
 2. **Pruning inputs (Web).** Supply the same inputs from
-   `PackagePruningExports`; verify the motivating URL fetches the same set.
+   `PackagePruningExports`; verify the motivating URL realizes the same
+   set.
 3. **Mixed graph context.** Depends on PlatformHouse stage 4. Admit the
    certified exact-target Platform participants into the graph context, run
    the continuation and restart, and classify Platform nodes. Adopt in the
-   CLI with the `Serialize~faeffed6d4` and `JsonDocument.Dispose` tests.
+   CLI, including passing node classifications to
+   `ExternalCallGraphOutputAdapter`, with the `Serialize~faeffed6d4` and `JsonDocument.Dispose` tests.
 4. **Web adoption.** Adopt the same inspection outcome in Inspect Web,
    preserving the motivating URL, and hand off expansion-loop retirement to
    the ladder's stage 8.
