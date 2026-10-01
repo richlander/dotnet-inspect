@@ -75,6 +75,36 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         Assert.Contains(expected, source.GetProperty("text").GetString());
     }
 
+    [Fact]
+    public async Task
+        MemberSourceExport_UsesExactMemberDocumentAttachment()
+    {
+        await using Pair pair = await Pair.OpenAsync();
+        MemberSelection selection =
+            await pair.Selection("Counter", "Value");
+
+        string json = await SourceExports.QueryMemberSource(
+            selection.PackageId,
+            BeforeVersion,
+            selection.Framework,
+            selection.Assembly,
+            selection.TypeIdentity,
+            selection.MemberName,
+            selection.SelectorKey,
+            selection.MetadataToken,
+            "[]");
+
+        using var document = JsonDocument.Parse(json);
+        JsonElement source =
+            document.RootElement.GetProperty("source");
+        Assert.Equal(
+            "decompiled",
+            source.GetProperty("provider").GetString());
+        Assert.Contains(
+            "public int Value()",
+            source.GetProperty("text").GetString());
+    }
+
     [Theory]
     [InlineData("InitializedFieldGetter", true)]
     [InlineData("CalculatedFieldGetter", false)]

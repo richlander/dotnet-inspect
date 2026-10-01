@@ -446,10 +446,96 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             expected.BaselineOrdinal,
             ordinal.Subject.BaselineOrdinal);
         Assert.Equal(expected.Fingerprint, ordinal.Subject.Fingerprint);
+        Assert.Equal(expected.Anchor, ordinal.Subject.Anchor);
         Assert.Equal(expected.Binding, ordinal.Subject.Population);
         Assert.Equal(expected.DisplaySignature, ordinal.DisplaySignature);
         Assert.Equal(expected.CanonicalSignature, ordinal.CanonicalSignature);
         Assert.Equal(ordinal, fingerprint);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealSerialize_MemberDocumentAttachesOneExactSourceOutcome()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        MemberOverloadShape expected =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    Assert.IsType<
+                            MemberGroupDocumentInspectionOutcome.Available>(
+                            ExecuteDocument(library, "Serialize").Content)
+                        .Document.Overloads.Rows)
+                .Items[5];
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(
+                    MemberOverloadPopulationInspectionOperationTests)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "Member source attachment test"));
+        var sourceRequest = new AssemblyMemberSourceRequest(
+            expected.Binding.DeclaringType,
+            expected.Anchor,
+            expected.MetadataToken);
+        AssemblyMemberSourceEntry sourceOutcome =
+            new AssemblyMemberSourceEntry.Unavailable(
+                new AssemblyContextSubject(assembly),
+                sourceRequest,
+                new(
+                    AssemblySourceFailureKind
+                        .AuthoredDocumentUnavailable,
+                    "Source is unavailable for this test."));
+        int calls = 0;
+
+        using LibraryOperationLease operation = library.IssueOperation();
+        InspectionEnvelope<MemberDocumentInspectionOutcome> inspection =
+            await MemberDocumentInspectionOperation.ExecuteAsync(
+                new(
+                    library.Reference,
+                    new(
+                        new(
+                            Name(
+                                "System.Text.Json",
+                                "JsonSerializer"),
+                            "Serialize"),
+                        new(
+                            baselineOrdinal:
+                                expected.BaselineOrdinal),
+                        s_bounds,
+                        source: new())),
+                operation,
+                documentationProvider: null,
+                sourceProvider: (subject, request, _) =>
+                {
+                    calls++;
+                    Assert.Equal(
+                        MemberSourceAttachmentDemand.Source,
+                        request.Demand);
+                    Assert.True(request.AllowDecompiledFallback);
+                    Assert.Equal(expected.Anchor, subject.Anchor);
+                    return ValueTask.FromResult(
+                        new MemberSourceAttachment(
+                            subject,
+                            sourceOutcome));
+                },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        MemberDocument document =
+            Assert.IsType<MemberDocumentInspectionOutcome.Available>(
+                    inspection.Content)
+                .Document;
+        MemberSourceAttachment attachment =
+            Assert.IsType<MemberSourceAttachment>(document.Source);
+        Assert.Equal(1, calls);
+        Assert.Equal(document.Subject, attachment.Subject);
+        Assert.Same(sourceOutcome, attachment.Outcome);
 
         await library.RetireAsync();
     }
@@ -717,6 +803,77 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
 
     [Fact]
     public async Task
+        MemberDocumentRejectsSourceForAnotherExactSubject()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(
+                    MemberOverloadPopulationInspectionOperationTests)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "Member source attachment mismatch test"));
+
+        using LibraryOperationLease operation = library.IssueOperation();
+        InspectionEnvelope<MemberDocumentInspectionOutcome> inspection =
+            await MemberDocumentInspectionOperation.ExecuteAsync(
+                new(
+                    library.Reference,
+                    new(
+                        new(
+                            Name(
+                                "System.Text.Json",
+                                "JsonSerializer"),
+                            "Serialize"),
+                        new(baselineOrdinal: 1),
+                        s_bounds,
+                        source: new())),
+                operation,
+                documentationProvider: null,
+                sourceProvider: (subject, _, _) =>
+                {
+                    var sourceRequest =
+                        new AssemblyMemberSourceRequest(
+                            subject.Group.DeclaringType,
+                            subject.Anchor with
+                            {
+                                MemberName =
+                                    subject.Anchor.MemberName
+                                        + "Mismatch",
+                            },
+                            subject.MetadataToken);
+                    AssemblyMemberSourceEntry outcome =
+                        new AssemblyMemberSourceEntry.Unavailable(
+                            new AssemblyContextSubject(assembly),
+                            sourceRequest,
+                            new(
+                                AssemblySourceFailureKind
+                                    .AuthoredDocumentUnavailable,
+                                "Source is unavailable for this test."));
+                    return ValueTask.FromResult(
+                        new MemberSourceAttachment(
+                            subject,
+                            outcome));
+                },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            MemberDocumentInspectionFailure.SourceSubjectMismatch,
+            Assert.IsType<MemberDocumentInspectionOutcome.Failed>(
+                    inspection.Content)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
         MemberDocumentRejectsOutOfRangeAndAmbiguousSelectors()
     {
         byte[] content =
@@ -808,6 +965,9 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 first.DisplaySignature.Length
                 + first.CanonicalSignature.Length
                 + first.Fingerprint.Length
+                + first.Anchor.StableSelector.Length
+                + first.Anchor.TypeFullName.Length
+                + first.Anchor.MemberName.Length
                 + first.Accessibility.Length);
 
         MemberDocument exact =
@@ -1416,6 +1576,9 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             probe.DisplaySignature.Length
             + probe.CanonicalSignature.Length
             + probe.Fingerprint.Length
+            + probe.Anchor.StableSelector.Length
+            + probe.Anchor.TypeFullName.Length
+            + probe.Anchor.MemberName.Length
             + probe.Accessibility.Length;
         ApiSurfaceExtractionBounds oneRowBounds =
             Bounds(oneRowCharacters);

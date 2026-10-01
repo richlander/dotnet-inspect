@@ -1310,6 +1310,13 @@ ordinal selects from the current MemberGroup's stable baseline order; after
 resolution, the owner-issued exact identity and population binding replace that
 ordinal as the durable subject.
 
+Source remains explicit. Selecting `Source` for one exact ordinary Member
+settles the existing authored-first source operation and attaches its typed
+outcome to that `MemberDocument`; default exact-Member completion performs no
+source work. An unavailable authored declaration, decompiler fallback, and
+source failure retain their existing visible outcomes rather than becoming an
+empty Source section.
+
 `--all` is an API visibility option. API-level commands use their ordinary
 public-facing declaration population by default; add `--all` when the
 question includes non-public, hidden, or obsolete declarations. It is not a

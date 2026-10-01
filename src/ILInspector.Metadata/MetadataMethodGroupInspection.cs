@@ -44,6 +44,7 @@ public sealed record MetadataMethodGroupRow(
     string CanonicalSignature,
     string DocumentationId,
     string Fingerprint,
+    MemberAnchor Anchor,
     string Accessibility,
     MetadataMethodReceiver Receiver);
 
@@ -245,6 +246,7 @@ internal static class MetadataMethodGroupInspection
                 anchor.CanonicalSignature,
                 documentationIdentity.Value,
                 anchor.Fingerprint,
+                anchor,
                 declaration.Accessibility,
                 receiver);
         }
@@ -421,6 +423,9 @@ internal static class MetadataMethodGroupInspection
                         + row.DisplaySignature.Length
                         + row.CanonicalSignature.Length
                         + row.Fingerprint.Length
+                        + row.Anchor.StableSelector.Length
+                        + row.Anchor.TypeFullName.Length
+                        + row.Anchor.MemberName.Length
                         + row.Accessibility.Length);
                 if (retainedTextCharacters
                     > _maximumRetainedTextCharacters)
