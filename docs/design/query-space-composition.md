@@ -395,6 +395,37 @@ affects only that request and its declared dependents. No failure becomes an
 empty Rows result, zero Count, false Exists, omitted association, planner
 decline, or silent retry.
 
+### Preserve terminal-specialized plans
+
+A source plan is specialized for the question's terminal. Exists can stop at
+the first match without projecting rows. Count returns only a number: a
+source-native or cardinality-only plan may avoid row values, while a residual
+Count may still read or snapshot the rows its own predicates and semantic
+stages require. Rows executes cell projection and publishes the resulting
+rows. A request set does not erase those differences. Producer Planning lowers
+them as distinct closed-query descriptions and kernels; another source may
+answer a terminal natively.
+
+A singleton execution group uses the same terminal-specialized source plan as
+the request would use alone. It does not turn Exists or Count into Rows merely
+because Rows could produce their answers. That does not make every Count
+row-free: Count retains the input snapshot when its own residual requires row
+values, but it does not execute Rows' cell projection or publish a row result.
+When several requests share work, the accepted source plan may fuse their
+terminals, but each settled terminal stops receiving work and being charged at
+the point its independent execution would have stopped.
+
+Request-set planning consumes these resolved, owner-issued source plans. It
+does not open the subject or rebuild an adjacent owner's internal plan merely
+because that plan enters a request set. A source owner may retain and reuse its
+resource-free plan for an invariant terminal request.
+
+A complete request-set plan is reusable only for the same complete request
+set: the association and resource identities and every owner-resolved request
+meaning must match. A changed or runtime-authored set is planned anew. Reuse
+never transfers subject authority, completion, or a result, and it is not
+result caching, timed batching, retention, or memoization.
+
 ### Model boundary
 
 Request-set construction, validation, partitioning, and result association are
@@ -435,6 +466,18 @@ issue #8965. No adopter is complete when it wraps
 afterward, or adds an Analysis-owned request union beside Query Space.
 Rendering does not change: the CLI continues through its existing Markout
 lowering and the Browser through its existing typed projection.
+
+The reference planner and first production adopters record exact base/head
+NativeAOT evidence for each supported terminal. The evidence compares a direct
+terminal-specialized source plan with the singleton request-set path, first and
+repeated use of an invariant plan, and independent with collapsed execution.
+It reports fixed setup, allocation, source units visited, projection, and row
+materialization. Exists and Count report the Rows-terminal projection and row
+result work they avoided, while preserving any input rows or snapshot their own
+semantic stages require. A source-native or cardinality-only Count claiming no
+row access must prove that every remaining stage can execute without row
+values. Fewer execution groups or source traversals alone is not a performance
+result.
 
 ### Request-set pathological cases
 
@@ -1050,6 +1093,8 @@ slices:
 | `QuerySpacePreservesExistsClosing` | The unsafe-evidence descriptor advertises only Exists, its owner-issued request retains the method-definition row set and result contract, and request resolution lowers that closing to the Producer Planning Exists terminal before image acquisition. The production borrowed-context gate verifies successful early-stop execution publishes the corresponding producer receipt without prefetched image access; the incomplete-before-evidence gate verifies a failed execution preserves its typed producer outcome and receipt while pre-execution failures remain distinct. |
 | `RequestSetRejectsInvalidAssociationsWithoutWork` | Duplicate association identities, absent resource identities, unresolved requests, source bindings inconsistent with their resource associations, and result-contract mismatches reject the complete set before acquisition. |
 | `CollapsePreservesIndependentReferenceResults` | Source-native, shared-read, singleton, and deliberately unshared plans publish the same per-request values, outcomes, failure units, completion, and evidence as independent reference executions. |
+| `RequestSetPreservesTerminalSpecializedPlans` | A singleton Exists, Count, or Rows request uses the same terminal-specialized source plan, result, stopping point, and evidence as direct execution. Exists performs no row projection. Count does not execute cell projection or publish a row result, but it retains the complete input snapshot when its own residual requires row values; a cardinality-only Count is accepted only when every remaining stage needs no row values. A fused plan stops routing and charging a terminal when its independent execution settles. |
+| `RequestSetPreservesOwnerPlanLifetime` | Planning reads no subject and consumes the resolved owner-issued source plan without rebuilding it. A complete request-set plan is reused only for the same complete request set; changed association, resource, or owner-resolved request meaning forms a new plan. |
 | `SettledRequestSurvivesLaterSharedFailure` | An Exists request settled before a later Rows failure retains its result and settlement evidence; the failed request remains visibly failed and no settled request is charged for later units. |
 | `CoveringReadRequiresOwnerIdentityAndAcceptedCompletion` | Equal display paths with different owner-issued resource identities never group, and no handoff or native answer satisfies a request without its exact accepted completion requirement. |
 | `RequestSetPublishesEveryAssociationExactlyOnce` | Duplicate semantic queries may share work, but the detached result set retains one typed entry per caller-issued association in request-set order, with no missing or multiply assigned entry. |
