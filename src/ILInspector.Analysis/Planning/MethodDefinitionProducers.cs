@@ -552,11 +552,14 @@ internal struct MethodDefinitionUnit(
     MetadataReader reader,
     PEReader peReader,
     LibraryMethodAnalysisRunner? lookup,
-    MethodRowGate gate)
+    MethodRowGate gate,
+    MethodDefinitionSourceCoverageBuilder sourceCoverage)
 {
     readonly MetadataReader _reader = reader;
     readonly PEReader _peReader = peReader;
     readonly LibraryMethodAnalysisRunner? _lookup = lookup;
+    readonly MethodDefinitionSourceCoverageBuilder _sourceCoverage =
+        sourceCoverage;
     MethodBodyBlock? _body;
 
     /// <summary>The source's method-row gate, positioned on this unit.</summary>
@@ -583,6 +586,20 @@ internal struct MethodDefinitionUnit(
         TypeDefinition typeDefinition,
         MethodDefinitionHandle methodHandle)
     {
+        _sourceCoverage.RecordDefinitionExamined(methodHandle);
+        MoveToPreviouslyRead(
+            typeHandle,
+            typeDefinition,
+            methodHandle,
+            _reader.GetMethodDefinition(methodHandle));
+    }
+
+    public void MoveToPreviouslyRead(
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition,
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition)
+    {
         if (TypeHandle != typeHandle)
         {
             TypeHandle = typeHandle;
@@ -590,15 +607,24 @@ internal struct MethodDefinitionUnit(
         }
 
         MethodHandle = methodHandle;
-        MethodDefinition = _reader.GetMethodDefinition(methodHandle);
+        MethodDefinition = methodDefinition;
         _body = null;
         Ordinal++;
         Gate.MoveTo(typeHandle, typeDefinition, methodHandle, MethodDefinition);
+        _sourceCoverage.RecordMethodSelected(methodHandle);
     }
 
-    public MethodBodyBlock GetBody() =>
-        _body ??= _peReader.GetMethodBody(
+    public MethodBodyBlock GetBody()
+    {
+        if (_body is not null)
+            return _body;
+
+        MethodBodyBlock body = _peReader.GetMethodBody(
             MethodDefinition.RelativeVirtualAddress);
+        _body = body;
+        _sourceCoverage.RecordBodyAcquired(MethodHandle);
+        return body;
+    }
 
     /// <summary>
     /// A content-free label for a recoverable failure: the MethodDef token.
