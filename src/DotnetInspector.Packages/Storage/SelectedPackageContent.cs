@@ -55,17 +55,14 @@ internal class SelectedPackageContent :
             stream = null;
             return false;
         }
-        if (_content.TryOpenEntry(relativePath, out stream))
-            return true;
-        if (_content is not IPackageHousePayloadSource)
-        {
-            stream = null;
-            return false;
-        }
-        return TryOpenPayloadRead(
-            relativePath,
-            long.MaxValue,
-            out stream);
+        return _content is IPackageHousePayloadSource
+            ? TryOpenPayloadRead(
+                relativePath,
+                long.MaxValue,
+                out stream)
+            : _content.TryOpenEntry(
+                relativePath,
+                out stream);
     }
 
     public bool TryOpenEntry(
@@ -80,22 +77,15 @@ internal class SelectedPackageContent :
             stream = null;
             return false;
         }
-        if (_content.TryOpenEntry(
+        return _content is IPackageHousePayloadSource
+            ? TryOpenPayloadRead(
                 relativePath,
                 maxExpandedBytes,
-                out stream))
-        {
-            return true;
-        }
-        if (_content is not IPackageHousePayloadSource)
-        {
-            stream = null;
-            return false;
-        }
-        return TryOpenPayloadRead(
-            relativePath,
-            maxExpandedBytes,
-            out stream);
+                out stream)
+            : _content.TryOpenEntry(
+                relativePath,
+                maxExpandedBytes,
+                out stream);
     }
 
     public IEnumerable<string> EnumerateEntries() => _entries;

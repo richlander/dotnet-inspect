@@ -282,24 +282,34 @@ public sealed partial class PackageRangedRealizationTests
                 System.IO.Path.Combine(root, ".nupkg.metadata"),
                 "{}");
 
-            var content = new FileSystemPackageContent(
-                root,
-                nupkg,
-                fromCache: true,
-                producerKey: NuGetCache.GetSourceKey(Feed));
-            Assert.False(content.TryOpenEntry(Path, out _));
             await using RangedEnvironment environment =
                 RangedEnvironment.Create(
                     new RangeFeed(
                         PclStorage,
                         PclStorageVersion,
                         archiveBytes));
+            var content = new FileSystemPackageContent(
+                root,
+                nupkg,
+                fromCache: true,
+                producerKey: PackageSourceClientFactory
+                    .GetProducerIdentity(
+                        Assert.Single(
+                            environment.Authorization
+                                .AuthorizeSourcesFor(PclStorage)
+                                .Authorities)
+                            .Source)
+                    .Key);
+            Assert.False(content.TryOpenEntry(Path, out _));
 
             PackageFileAcquisitionResult.Acquired acquired =
                 Assert.IsType<PackageFileAcquisitionResult.Acquired>(
                     await environment.AcquireFileAsync(
                         new CachedContentStore(content),
                         Path));
+            Assert.Equal(
+                PackagePayloadOrigin.Cache,
+                acquired.Settlement.Payload.Origin);
             Assert.Contains(
                 acquired.FileList.Entries,
                 entry => entry.Path == Path);
@@ -355,24 +365,94 @@ public sealed partial class PackageRangedRealizationTests
             Assert.Equal(
                 expectedBytes.ToArray(),
                 actual.ToArray());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 
-            static byte[] ReadEntry(
-                byte[] archiveBytes,
-                string path)
+    [Fact]
+    public async Task SemanticFiles_GlobalPackagesDivergentPhysicalEntryIsRejected()
+    {
+        const string Path = "lib/net10.0/Sample.dll";
+        byte[] archiveBytes = TestPackageArchive.Create(
+            Path,
+            "PCLStorage.nuspec");
+        string root = Directory.CreateTempSubdirectory(
+            "inspect-global-package-divergent-").FullName;
+        try
+        {
+            string nupkg = System.IO.Path.Combine(
+                root,
+                $"{PclStorage}.{PclStorageVersion}.nupkg");
+            File.WriteAllBytes(nupkg, archiveBytes);
+            Directory.CreateDirectory(
+                System.IO.Path.Combine(root, "lib", "net10.0"));
+            File.WriteAllBytes(
+                System.IO.Path.Combine(
+                    root,
+                    "lib",
+                    "net10.0",
+                    "Sample.dll"),
+                [3, 2, 1]);
+            File.WriteAllText(
+                System.IO.Path.Combine(root, "pclstorage.nuspec"),
+                """<?xml version="1.0"?><package />""");
+
+            await using RangedEnvironment environment =
+                RangedEnvironment.Create(
+                    new RangeFeed(
+                        PclStorage,
+                        PclStorageVersion,
+                        archiveBytes));
+            var content = new FileSystemPackageContent(
+                root,
+                nupkg,
+                fromCache: true,
+                producerKey: PackageSourceClientFactory
+                    .GetProducerIdentity(
+                        Assert.Single(
+                            environment.Authorization
+                                .AuthorizeSourcesFor(PclStorage)
+                                .Authorities)
+                            .Source)
+                    .Key);
+
+            PackageFileAcquisitionResult.Acquired acquired =
+                Assert.IsType<PackageFileAcquisitionResult.Acquired>(
+                    await environment.AcquireFileAsync(
+                        new CachedContentStore(content),
+                        Path));
+            Assert.Equal(
+                PackagePayloadOrigin.Cache,
+                acquired.Settlement.Payload.Origin);
+
+            Assert.True(
+                acquired.Settlement.Payload.Content.TryOpenEntry(
+                    Path,
+                    out Stream? selected));
+            using (selected)
             {
-                using var archive = new ZipArchive(
-                    new MemoryStream(archiveBytes));
-                ZipArchiveEntry? entry = archive.GetEntry(path);
-                Assert.NotNull(entry);
-                using Stream stream = entry.Open();
-                return ReadAllBytes(stream);
+                Assert.Throws<InvalidDataException>(
+                    () => ReadAllBytes(selected));
             }
 
-            static byte[] ReadAllBytes(Stream stream)
+            PackageContentEntry selectedEntry =
+                Assert.Single(
+                    Assert.IsAssignableFrom<
+                            IPackageContentEntryManifest>(
+                            acquired.Settlement.Payload.Content)
+                        .EnumerateEntriesWithLengths());
+            Assert.True(
+                acquired.Settlement.Payload.Content.TryOpenEntry(
+                    Path,
+                    selectedEntry.Length,
+                    out Stream? bounded));
+            using (bounded)
             {
-                using var bytes = new MemoryStream();
-                stream.CopyTo(bytes);
-                return bytes.ToArray();
+                Assert.Throws<InvalidDataException>(
+                    () => ReadAllBytes(bounded));
             }
         }
         finally
@@ -438,6 +518,25 @@ public sealed partial class PackageRangedRealizationTests
             }
         }
         return output.ToArray();
+    }
+
+    private static byte[] ReadEntry(
+        byte[] archiveBytes,
+        string path)
+    {
+        using var archive = new ZipArchive(
+            new MemoryStream(archiveBytes));
+        ZipArchiveEntry? entry = archive.GetEntry(path);
+        Assert.NotNull(entry);
+        using Stream stream = entry.Open();
+        return ReadAllBytes(stream);
+    }
+
+    private static byte[] ReadAllBytes(Stream stream)
+    {
+        using var bytes = new MemoryStream();
+        stream.CopyTo(bytes);
+        return bytes.ToArray();
     }
 
     private sealed class CachedContentStore(IPackageContent content) :
