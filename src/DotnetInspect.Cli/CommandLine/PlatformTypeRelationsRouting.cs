@@ -294,13 +294,11 @@ internal static class PlatformTypeRelationsRouting
                         + "assembly identity.",
                     []);
             }
-            requestedFocus =
-                WorkspaceExactTypeFocusQuery.ExecuteFromDefinitionSurface(
-                    assembly,
-                    session.TypeDeclarations(),
-                    request.Type,
-                    request.SelectionKind,
-                    cancellationToken);
+            requestedFocus = ResolveImplementationFocus(
+                session,
+                assembly,
+                request,
+                cancellationToken);
         }
 
         if (requestedFocus
@@ -314,6 +312,71 @@ internal static class PlatformTypeRelationsRouting
             ExactTypeSelectionKind.DefinitionIdentity,
             cancellationToken: cancellationToken);
     }
+
+    private static WorkspaceExactTypeFocusOutcome ResolveImplementationFocus(
+        AssemblyInspectionSession session,
+        AssemblyReferenceIdentity assembly,
+        TypeRelationsInspectionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (IsSimpleAsciiMetadataName(request.Type))
+        {
+            MetadataTypeDefinitionNameSearchResult search =
+                session.FindTypeDefinitionsBySimpleName(request.Type);
+            if (search
+                is MetadataTypeDefinitionNameSearchResult.Found found)
+            {
+                return WorkspaceExactTypeFocusQuery
+                    .ExecuteFromDefinitionNames(
+                        assembly,
+                        found.Names,
+                        request.Type,
+                        request.SelectionKind,
+                        cancellationToken);
+            }
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The requested Library declaration surface is unavailable.",
+                []);
+        }
+
+        if (MetadataTypeDefinitionName.ParseSerialized(request.Type)
+            is MetadataTypeDefinitionNameResult.Valid parsed)
+        {
+            TypeDeclarationResult declaration =
+                session.ProbeDeclaration(parsed.Name);
+            if (declaration
+                is TypeDeclarationResult.Defined
+                    or TypeDeclarationResult.DefinitionKindUnavailable)
+            {
+                return new WorkspaceExactTypeFocusOutcome.Found(
+                    assembly,
+                    DefinitionOccurrence: null,
+                    parsed.Name);
+            }
+            if (request.SelectionKind
+                    == ExactTypeSelectionKind.DefinitionIdentity
+                || declaration is not TypeDeclarationResult.Missing)
+            {
+                return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                    "The requested Library does not declare the selected "
+                        + "exact Type.",
+                    []);
+            }
+        }
+
+        return WorkspaceExactTypeFocusQuery.ExecuteFromDefinitionSurface(
+            assembly,
+            session.TypeDeclarations(),
+            request.Type,
+            request.SelectionKind,
+            cancellationToken);
+    }
+
+    private static bool IsSimpleAsciiMetadataName(string type) =>
+        type.Length is > 0
+        && type.All(static character =>
+            char.IsAsciiLetterOrDigit(character)
+            || character is '_' or '`');
 
     private static WorkspaceRegistrationRevision RegistrationSnapshot(
         InspectionWorkspace workspace) =>

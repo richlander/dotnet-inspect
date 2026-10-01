@@ -34,6 +34,55 @@ public sealed record WorkspaceExactTypeFocusMemberOutcome(
 /// </summary>
 public static class WorkspaceExactTypeFocusQuery
 {
+    public static WorkspaceExactTypeFocusOutcome ExecuteFromDefinitionNames(
+        AssemblyReferenceIdentity assembly,
+        IEnumerable<MetadataTypeDefinitionName> definitions,
+        string type,
+        ExactTypeSelectionKind selectionKind,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(definitions);
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        if (!Enum.IsDefined(selectionKind))
+            throw new ArgumentOutOfRangeException(nameof(selectionKind));
+        if (selectionKind == ExactTypeSelectionKind.Query
+            && TypeMatcher.IsTypeGlobPattern(type))
+        {
+            throw new ArgumentException(
+                "Exact Type focus does not accept a Type glob.",
+                nameof(type));
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+
+        List<DefinitionFocusCandidate> candidates =
+        [
+            .. definitions.Select(static definition =>
+                new DefinitionFocusCandidate(
+                    Occurrence: null,
+                    definition,
+                    definition.ToEscapedFullName(),
+                    AssemblyTypeDeclarationKind.Definition)),
+        ];
+        List<DefinitionFocusCandidate> selected =
+            Select(candidates, type, selectionKind);
+        return selected switch
+        {
+            [var match] => new WorkspaceExactTypeFocusOutcome.Found(
+                assembly,
+                DefinitionOccurrence: null,
+                match.Type),
+            [] => new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The requested Library does not declare the selected exact "
+                    + "Type.",
+                []),
+            _ => new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact Type focus is ambiguous in the requested "
+                    + "Library.",
+                []),
+        };
+    }
+
     public static WorkspaceExactTypeFocusOutcome ExecuteFromDefinitionSurface(
         AssemblyReferenceIdentity assembly,
         AssemblyTypeDeclarationInventoryOutcome declarations,
@@ -62,37 +111,17 @@ public static class WorkspaceExactTypeFocusQuery
                 []);
         }
 
-        List<DefinitionFocusCandidate> candidates =
-        [
-            .. read.Inventory
+        return ExecuteFromDefinitionNames(
+            assembly,
+            read.Inventory
                 .GetDeclarations(includeAll: true)
                 .Where(static declaration =>
                     declaration.Kind
                         == AssemblyTypeDeclarationKind.Definition)
-                .Select(static declaration =>
-                    new DefinitionFocusCandidate(
-                        Occurrence: null,
-                        declaration.Name,
-                        declaration.Name.ToEscapedFullName(),
-                        declaration.Kind)),
-        ];
-        List<DefinitionFocusCandidate> selected =
-            Select(candidates, type, selectionKind);
-        return selected switch
-        {
-            [var match] => new WorkspaceExactTypeFocusOutcome.Found(
-                assembly,
-                DefinitionOccurrence: null,
-                match.Type),
-            [] => new WorkspaceExactTypeFocusOutcome.Unavailable(
-                "The requested Library does not declare the selected exact "
-                    + "Type.",
-                []),
-            _ => new WorkspaceExactTypeFocusOutcome.Unavailable(
-                "The exact Type focus is ambiguous in the requested "
-                    + "Library.",
-                []),
-        };
+                .Select(static declaration => declaration.Name),
+            type,
+            selectionKind,
+            cancellationToken);
     }
 
     public static WorkspaceExactTypeFocusOutcome ExecuteFromAssemblySurface(
