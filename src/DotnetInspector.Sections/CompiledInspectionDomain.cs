@@ -1,8 +1,7 @@
 using System.Collections.Immutable;
-using DotnetInspect.Cli.Options;
 using DotnetInspector.Queries;
 
-namespace DotnetInspect.Cli.Sections;
+namespace DotnetInspector.Sections;
 
 /// <summary>A typed query requested by the host for an attributed reason.</summary>
 public readonly record struct HostQueryDemand(
@@ -72,14 +71,14 @@ public sealed class CompiledInspectionLens<TContext, TModel>
     public SectionCatalog<TModel> Sections { get; }
 
     public CompiledInspectionPlan<TContext> Plan(
-        Verbosity verbosity,
+        SectionViewLevel view,
         HashSet<string>? include = null,
         bool fixedOverview = false,
         bool excludeUnbounded = false,
         IReadOnlyList<HostQueryDemand>? hostDemand = null)
     {
         SectionQueryPlan sectionPlan = Sections.PlanQueries(
-            verbosity,
+            view,
             include,
             fixedOverview,
             excludeUnbounded);
@@ -194,4 +193,34 @@ public readonly struct CompiledInspectionPlan<TContext>
             context,
             recordExecution,
             cancellationToken);
+
+    public CompiledInspectionPlan<TContext> WithoutQueries(
+        InspectionQueryCatalog<TContext> queryCatalog,
+        IReadOnlySet<InspectionQueryDefinition> removedQueries)
+    {
+        ArgumentNullException.ThrowIfNull(queryCatalog);
+        ArgumentNullException.ThrowIfNull(removedQueries);
+
+        ImmutableArray<InspectionQueryDefinition> requestedQueries =
+        [
+            .. RequestedQueries.Where(
+                query => !removedQueries.Contains(query)),
+        ];
+        var sectionPlan = new SectionQueryPlan(
+            requestedQueries,
+            [
+                .. SectionDemand.Where(
+                    demand => !removedQueries.Contains(demand.Query)),
+            ]);
+        ImmutableArray<HostQueryDemand> hostDemand =
+        [
+            .. HostDemand.Where(
+                demand => !removedQueries.Contains(demand.Query)),
+        ];
+        return new(
+            sectionPlan,
+            hostDemand,
+            requestedQueries,
+            queryCatalog.Plan(requestedQueries));
+    }
 }
