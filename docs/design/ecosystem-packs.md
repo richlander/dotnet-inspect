@@ -265,6 +265,7 @@ EcosystemPackDescriptor
   Title        string
   Summary      string
   Order        int
+  DependsOn    EcosystemPackId?
 
 EcosystemPackagePrefix
   Id           EcosystemPackagePrefixId

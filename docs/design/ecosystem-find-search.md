@@ -38,9 +38,10 @@ The first CLI production scenario is:
 dotnet-inspect find '.Add*' --ecosystem aspire --jsonl
 ```
 
-The bounded block completes first from `Aspire.Hosting` and
-`Aspire.Hosting.Testing`, including `AddProject`, `AddContainer`, and
-`AddParameter`. Prefix work then discovers and evaluates concrete `Aspire.*`
+The Aspire bounded block ranks first, by its layer ordinal, from
+`Aspire.Hosting` and `Aspire.Hosting.Testing`, including `AddProject`, `AddContainer`, and
+`AddParameter`. The ASP.NET Core, Microsoft.Extensions, and .NET Runtime
+lineage layers follow with later ordinals. Prefix work then discovers and evaluates concrete `Aspire.*`
 packages, producing package-scoped blocks such as `AddRedis` from
 `Aspire.Hosting.Redis` and `AddPostgres` from
 `Aspire.Hosting.PostgreSQL`.
