@@ -367,6 +367,7 @@ The request-set reference slice additionally supplies these Release gates:
 - `RequestSetRejectsInvalidAssociationsWithoutWork`
 - `CollapsePreservesIndependentReferenceResults`
 - `CollapsePreservesSettledResultAcrossLaterSourceEnumeration`
+- `CollapsePreservesRequestExcludedFromFailedSourceScope`
 - `CollapsePreservesSettledResultAcrossRequiredSourceFailure`
 - `CollapsePreservesTypedRowsAcrossDifferentTypeScopes`
 - `SettledRequestSurvivesLaterSharedFailure`
@@ -378,8 +379,9 @@ They verify typed whole-set rejection, exact identity grouping, shared and
 deliberately unshared reference equivalence, per-association publication,
 settled-result preservation across later producer or source-enumeration
 failure whether later work is disjoint or still required by an unsettled
-request, independently scoped typed-row equivalence, and one physical Producer
-Planning receipt per shared group. They do not claim an exact Method-source
+request, exclusion of requests whose scope did not require failed source work,
+independently scoped typed-row equivalence, and one physical Producer Planning
+receipt per shared group. They do not claim an exact Method-source
 work receipt or the still-remaining source-native Count, delegated row-handoff,
 target Method-source, or mixed production-adopter cases.
 

@@ -383,71 +383,84 @@ public sealed class MethodDefinitionExecution
             if (!anyInScope)
                 continue;
 
-            foreach (MethodDefinitionHandle methodHandle
-                     in typeDefinition.GetMethods())
+            try
             {
-                PassSourceToken = MetadataTokens.GetToken(methodHandle);
-                unit.MoveTo(typeHandle, typeDefinition, methodHandle);
-                visited++;
-                PassUnitsVisited = visited;
-                int unitToken = MetadataTokens.GetToken(methodHandle);
-                bool anyActive = false;
-                bool anyActiveInType = false;
-                foreach (ProducerState state in visiting)
+                foreach (MethodDefinitionHandle methodHandle
+                         in typeDefinition.GetMethods())
                 {
-                    // Only a producer with dependencies can gain a failed
-                    // prerequisite between units; the plan says which do.
-                    if (state.HasDependencies)
-                        FailIfPrerequisiteFailed(state);
-                    if (!state.IsActive)
-                        continue;
-
-                    if (!state.TypeInScopeNow)
+                    PassSourceToken = MetadataTokens.GetToken(methodHandle);
+                    unit.MoveTo(typeHandle, typeDefinition, methodHandle);
+                    visited++;
+                    PassUnitsVisited = visited;
+                    int unitToken = MetadataTokens.GetToken(methodHandle);
+                    bool anyActive = false;
+                    bool anyActiveInType = false;
+                    foreach (ProducerState state in visiting)
                     {
-                        anyActive = true;
-                        continue;
-                    }
-
-                    state.SourceOrdinal++;
-                    if (state.GuardStates.Length != 0
-                        && !InScope(state, unitToken))
-                    {
-                        anyActive = true;
-                        anyActiveInType = true;
-                        continue;
-                    }
-
-                    if (state.SourceGate is { } sourceGate)
-                    {
-                        bool? accepted = GateAccepts(ref unit, state, sourceGate);
-                        if (accepted is null)
+                        // Only a producer with dependencies can gain a failed
+                        // prerequisite between units; the plan says which do.
+                        if (state.HasDependencies)
+                            FailIfPrerequisiteFailed(state);
+                        if (!state.IsActive)
                             continue;
-                        if (!accepted.Value)
+
+                        if (!state.TypeInScopeNow)
+                        {
+                            anyActive = true;
+                            continue;
+                        }
+
+                        state.SourceOrdinal++;
+                        if (state.GuardStates.Length != 0
+                            && !InScope(state, unitToken))
                         {
                             anyActive = true;
                             anyActiveInType = true;
                             continue;
                         }
+
+                        if (state.SourceGate is { } sourceGate)
+                        {
+                            bool? accepted = GateAccepts(ref unit, state, sourceGate);
+                            if (accepted is null)
+                                continue;
+                            if (!accepted.Value)
+                            {
+                                anyActive = true;
+                                anyActiveInType = true;
+                                continue;
+                            }
+                        }
+
+                        VisitUnit(ref unit, state);
+                        anyActive |= state.IsActive;
+                        anyActiveInType |= state.IsActive;
                     }
 
-                    VisitUnit(ref unit, state);
-                    anyActive |= state.IsActive;
-                    anyActiveInType |= state.IsActive;
+                    // Stop before advancing either enumerator: the next read is
+                    // untrusted metadata that could throw and replace an answer
+                    // or diagnostic that is already settled. A visit changes only
+                    // its own producer's state, so the loop above sees every
+                    // producer's final activity for this unit.
+                    if (!anyActive)
+                        return visited;
+
+                    // Producers excluded from this whole type can still be active
+                    // for later types. Stop this type before advancing its method
+                    // enumerator once no in-scope producer remains.
+                    if (!anyActiveInType)
+                        break;
                 }
-
-                // Stop before advancing either enumerator: the next read is
-                // untrusted metadata that could throw and replace an answer
-                // or diagnostic that is already settled. A visit changes only
-                // its own producer's state, so the loop above sees every
-                // producer's final activity for this unit.
-                if (!anyActive)
+            }
+            catch (Exception ex)
+                when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+            {
+                FailCurrentTypeSourceReaders(
+                    visiting,
+                    PassSourceToken,
+                    ex);
+                if (!HasActiveSourceReader(visiting))
                     return visited;
-
-                // Producers excluded from this whole type can still be active
-                // for later types. Stop this type before advancing its method
-                // enumerator once no in-scope producer remains.
-                if (!anyActiveInType)
-                    break;
             }
         }
 
@@ -471,6 +484,36 @@ public sealed class MethodDefinitionExecution
                 ProducerFailure.Describe(ex));
             state.IsActive = false;
         }
+    }
+
+    static void FailCurrentTypeSourceReaders(
+        ProducerState[] visiting,
+        int token,
+        Exception ex)
+    {
+        foreach (ProducerState state in visiting)
+        {
+            if (!state.IsActive || !state.TypeInScopeNow)
+                continue;
+
+            state.Outcome = ProducerOutcome.Failed;
+            state.Failure = new ProducerFailure(
+                token,
+                "(source enumeration)",
+                ProducerFailure.Describe(ex));
+            state.IsActive = false;
+        }
+    }
+
+    static bool HasActiveSourceReader(ProducerState[] visiting)
+    {
+        foreach (ProducerState state in visiting)
+        {
+            if (state.IsActive)
+                return true;
+        }
+
+        return false;
     }
 
     static bool TypeInScope(

@@ -569,6 +569,80 @@ public partial class UnsafeEvidencePresenceTests
 
     [Fact]
     public void
+        CollapsePreservesRequestExcludedFromFailedSourceScope()
+    {
+        byte[] image = MetadataMethodPtrFixture.BuildTrailingOutOfRange(
+            [0x06, 0x2A]);
+        MethodDefinitionSourceRequest<int> independentUnsafe =
+            CreateSourceRequest(
+                MethodDefinitionSourceBinding.Create(),
+                UnsafeEvidencePresenceProducer.Instance,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceRequest<
+            ClosedQueryResult<ClassifiedMethodRow>> independentPInvoke =
+                CreateSourceRequest(
+                    MethodDefinitionSourceBinding.Create(),
+                    PInvokeAnalyzer.Instance,
+                    ProducerTerminal.Rows);
+        MethodDefinitionSourceBinding sharedBinding =
+            MethodDefinitionSourceBinding.Create();
+        MethodDefinitionSourceRequest<int> sharedUnsafe =
+            CreateSourceRequest(
+                sharedBinding,
+                UnsafeEvidencePresenceProducer.Instance,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceRequest<
+            ClosedQueryResult<ClassifiedMethodRow>> sharedPInvoke =
+                CreateSourceRequest(
+                    sharedBinding,
+                    PInvokeAnalyzer.Instance,
+                    ProducerTerminal.Rows);
+
+        (_, AssemblyAnalysisExecution independent) =
+            ExecuteRequests(
+                ImmutableArray.Create(image),
+                independentUnsafe,
+                independentPInvoke);
+        (_, AssemblyAnalysisExecution shared) =
+            ExecuteRequests(
+                ImmutableArray.Create(image),
+                sharedUnsafe,
+                sharedPInvoke);
+
+        Assert.Equal(
+            independent.ResultOf(independentUnsafe),
+            shared.ResultOf(sharedUnsafe));
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            shared.ResultOf(sharedUnsafe).Outcome);
+        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>>
+            independentPInvokeResult =
+                independent.ResultOf(independentPInvoke);
+        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>>
+            sharedPInvokeResult =
+                shared.ResultOf(sharedPInvoke);
+        Assert.Equal(
+            independentPInvokeResult,
+            sharedPInvokeResult);
+        Assert.Equal(
+            ProducerOutcome.Complete,
+            sharedPInvokeResult.Outcome);
+        Assert.Empty(sharedPInvokeResult.Value!.Rows);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.ProducerFailed,
+            shared.SourceReceiptOf(sharedUnsafe).Completion);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Exhausted,
+            shared.SourceReceiptOf(sharedPInvoke).Completion);
+        Assert.Equal(
+            0,
+            shared.SourceReceiptOf(sharedPInvoke).DefinitionsVisited);
+        Assert.Equal(2, independent.WorkReceipts.Length);
+        Assert.Single(shared.WorkReceipts);
+    }
+
+    [Fact]
+    public void
         CollapsePreservesSettledResultAcrossRequiredSourceFailure()
     {
         byte[] bytes = MetadataMethodPtrFixture.BuildTrailingOutOfRange(
