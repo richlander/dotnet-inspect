@@ -252,7 +252,7 @@ public abstract class ResearchTargetOutcome
             ResearchTargetRelationshipRole role,
             LibraryBodyModuleIdentity module,
             ImmutableArray<MemberTargetCandidate> candidates,
-            ResearchTargetBodyIdentity? bodyIdentity = null)
+            MethodBodyIdentity? bodyIdentity = null)
             : base(ResearchTargetOutcomeKind.Resolved)
         {
             Target = target;
@@ -299,7 +299,7 @@ public abstract class ResearchTargetOutcome
         /// produces <see cref="ResearchTargetTaintKind.BodyIdentityUnavailable"/>
         /// correspondence taint.
         /// </summary>
-        public ResearchTargetBodyIdentity? BodyIdentity { get; }
+        public MethodBodyIdentity? BodyIdentity { get; }
     }
 
     /// <summary>
