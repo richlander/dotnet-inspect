@@ -1094,8 +1094,8 @@ public class LibraryInspectionView
                 asyncDisposition.AbsentCount.ToString(),
                 null));
 
-        if (document.TypeLeverage is { } leverage)
-            AddTypeLeverageRows(rows, leverage);
+        if (document.StructuralSalience is { } structuralSalience)
+            AddStructuralSalienceRows(rows, structuralSalience);
 
         rows.AddRange(
             document.Diagnostics.Select(static diagnostic => new LibraryMetricRow(
@@ -1116,48 +1116,122 @@ public class LibraryInspectionView
         return rows;
     }
 
-    private static void AddTypeLeverageRows(
+    private static void AddStructuralSalienceRows(
         List<LibraryMetricRow> rows,
-        LibraryStructuralTypeLeverageDocument leverage)
+        LibraryStructuralSalienceDocument salience)
     {
-        IReadOnlyDictionary<
-            MetadataTypeDefinitionAddress,
-            LibraryStructuralTypeLeverageRow> byType =
-                leverage.Rows.ToDictionary(static row => row.Type);
-
         rows.Add(
             new(
+                "Namespace Leverage",
+                "Qualification",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                $"index {salience.NamespaceIndex.Disposition}; "
+                    + $"signature "
+                    + $"{salience.NamespaceIndex.SignatureUse.Disposition}; "
+                    + $"sites "
+                    + $"{salience.NamespaceIndex.SignatureUse.Coverage.Examined}/"
+                    + $"{salience.NamespaceIndex.SignatureUse.Coverage.Considered}; "
+                    + $"occurrences "
+                    + $"{salience.NamespaceIndex.SignatureUse.OccurrenceCount}; "
+                    + $"diagnostics "
+                    + salience.NamespaceIndex.SignatureUse.Diagnostics.Length));
+        rows.AddRange(
+            salience.NamespaceIndex.SignatureUse.Diagnostics.Select(diagnostic =>
+                new LibraryMetricRow(
+                    "Namespace Leverage Diagnostic",
+                    "Signature use",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    FormatSignatureUseDiagnostic(diagnostic))));
+        for (var index = 0;
+            index < salience.NamespaceIndex.Rows.Length;
+            index++)
+        {
+            LibraryStructuralNamespaceLeverageRow row =
+                salience.NamespaceIndex.Rows[index];
+            rows.Add(
+                new(
+                    "Namespace Leverage",
+                    "External incoming source Types",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Position: index + 1,
+                    Namespace: row.Namespace,
+                    Score: row.ExternalIncomingSourceTypeCount,
+                    Designation:
+                        row.TopLeverage ? "Top leverage" : null));
+        }
+
+        foreach (LibraryStructuralTypeLeverageShard shard
+            in salience.TypeLeverageShards)
+        {
+            AddTypeLeverageQualificationRows(rows, shard);
+            IReadOnlyDictionary<
+                MetadataTypeDefinitionAddress,
+                LibraryStructuralTypeLeverageRow> byType =
+                    shard.Rows.ToDictionary(static row => row.Type);
+            AddTypeLeverageOrder(
+                rows,
+                shard,
                 "Sea-Level Types",
-                "Qualification",
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                $"ranking {leverage.SeaLevel.Disposition}; "
-                    + $"role {leverage.RoleDisposition}; signature "
-                    + $"{leverage.SignatureUse.Disposition}; sites "
-                    + $"{leverage.SignatureUse.Coverage.Examined}/"
-                    + $"{leverage.SignatureUse.Coverage.Considered}; "
-                    + $"occurrences {leverage.SignatureUse.OccurrenceCount}; "
-                    + $"diagnostics "
-                    + leverage.SignatureUse.Diagnostics.Length));
-        AddTypeLeverageOrder(
-            rows,
-            "Sea-Level Types",
-            "Signature incoming",
-            leverage.SeaLevel.Types,
-            byType,
-            static row => row.SignatureIncomingDegree);
+                "Signature incoming",
+                shard.SeaLevel.Types,
+                byType,
+                static row => row.SignatureIncomingDegree,
+                static row =>
+                    row.Pole == LibraryStructuralTypePole.SeaLevel
+                        ? "Sea level"
+                        : null);
+            AddTypeLeverageOrder(
+                rows,
+                shard,
+                "Mountain-Peak Types",
+                "Signature outgoing",
+                shard.MountainPeak.Types,
+                byType,
+                static row => row.SignatureOutgoingDegree,
+                static row =>
+                    row.Pole == LibraryStructuralTypePole.MountainPeak
+                        ? "Mountain peak"
+                        : null);
+        }
+    }
 
+    private static void AddTypeLeverageQualificationRows(
+        List<LibraryMetricRow> rows,
+        LibraryStructuralTypeLeverageShard shard)
+    {
+        LibraryStructuralSignatureUseQualification signature =
+            shard.SignatureUse;
         rows.Add(
             new(
-                "Mountain-Peak Types",
+                "Type-Leverage Shard",
                 "Qualification",
                 null,
                 null,
@@ -1169,35 +1243,81 @@ public class LibraryInspectionView
                 null,
                 null,
                 null,
-                $"ranking {leverage.MountainPeak.Disposition}; "
-                    + $"role {leverage.RoleDisposition}; body "
-                    + $"{leverage.BodyUse.Disposition}; bodies "
-                    + $"{leverage.BodyUse.Coverage.BodiesExamined}/"
-                    + $"{leverage.BodyUse.Coverage.BodiesConsidered}; "
-                    + $"operands "
-                    + $"{leverage.BodyUse.Coverage.OperandsExamined}/"
-                    + $"{leverage.BodyUse.Coverage.OperandsConsidered}; "
-                    + $"occurrences {leverage.BodyUse.OccurrenceCount}; "
-                    + $"diagnostics "
-                    + leverage.BodyUse.Diagnostics.Length));
-        AddTypeLeverageOrder(
-            rows,
-            "Mountain-Peak Types",
-            "Body outgoing",
-            leverage.MountainPeak.Types,
-            byType,
-            static row => row.BodyOutgoingDegree);
+                $"sea-level {shard.SeaLevel.Disposition}; "
+                    + $"mountain-peak {shard.MountainPeak.Disposition}; "
+                    + $"roles {shard.RoleDisposition}; "
+                    + $"signature {signature.Disposition}",
+                Namespace: shard.Namespace));
+        rows.Add(
+            new(
+                "Type-Leverage Shard",
+                "Signature-use coverage",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                $"sites {signature.Coverage.Examined}/"
+                    + $"{signature.Coverage.Considered}; "
+                    + $"unavailable {signature.Coverage.Unavailable}; "
+                    + $"limited {signature.Coverage.Limited}; "
+                    + $"occurrences {signature.OccurrenceCount}",
+                Namespace: shard.Namespace));
+
+        rows.AddRange(
+            signature.Diagnostics.Select(diagnostic =>
+                new LibraryMetricRow(
+                    "Type-Leverage Shard Diagnostic",
+                    "Signature use",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    FormatSignatureUseDiagnostic(diagnostic),
+                    Namespace: shard.Namespace)));
+    }
+
+    private static string FormatSignatureUseDiagnostic(
+        MetadataLibrarySignatureUseDiagnostic diagnostic)
+    {
+        string token = diagnostic.MetadataToken is { } metadataToken
+            ? $" [0x{metadataToken:X8}]"
+            : "";
+        var qualification = new List<string>();
+        if (diagnostic.BudgetDimension is { } budgetDimension)
+            qualification.Add($"budget {budgetDimension}");
+        if (diagnostic.BudgetLimit is { } budgetLimit)
+            qualification.Add($"limit {budgetLimit}");
+        if (diagnostic.AttemptedCharge is { } attemptedCharge)
+            qualification.Add($"attempted {attemptedCharge}");
+        string suffix = qualification.Count == 0
+            ? ""
+            : $"; {string.Join("; ", qualification)}";
+        return $"{diagnostic.Kind}{token}: {diagnostic.Detail}{suffix}";
     }
 
     private static void AddTypeLeverageOrder(
         List<LibraryMetricRow> rows,
+        LibraryStructuralTypeLeverageShard shard,
         string category,
         string measure,
         IReadOnlyList<MetadataTypeDefinitionAddress> order,
         IReadOnlyDictionary<
             MetadataTypeDefinitionAddress,
             LibraryStructuralTypeLeverageRow> byType,
-        Func<LibraryStructuralTypeLeverageRow, int> degree)
+        Func<LibraryStructuralTypeLeverageRow, int> degree,
+        Func<LibraryStructuralTypeLeverageRow, string?> designation)
     {
         for (int index = 0; index < order.Count; index++)
         {
@@ -1224,7 +1344,9 @@ public class LibraryInspectionView
                         $"{address.ModuleVersionId:N}:"
                             + $"0x{address.Definition.Value:X8}",
                     Degree: degree(leverageRow),
-                    Role: leverageRow.Role));
+                    Role: leverageRow.Role,
+                    Namespace: shard.Namespace,
+                    Designation: designation(leverageRow)));
         }
     }
 
@@ -2367,7 +2489,10 @@ public record LibraryMetricRow(
     string? Type = null,
     string? TypeKey = null,
     int? Degree = null,
-    LibraryStructuralTypeRole? Role = null)
+    LibraryStructuralTypeRole? Role = null,
+    string? Namespace = null,
+    int? Score = null,
+    string? Designation = null)
 {
     /// <inheritdoc cref="LibraryViewText"/>
     public string Category { get; init; } = LibraryViewText.Contain(Category);
@@ -2437,6 +2562,17 @@ public record LibraryMetricRow(
 
     [MarkoutSkipNull]
     public LibraryStructuralTypeRole? Role { get; init; } = Role;
+
+    [MarkoutSkipNull]
+    public string? Namespace { get; init; } =
+        LibraryViewText.Contain(Namespace);
+
+    [MarkoutSkipNull]
+    public int? Score { get; init; } = Score;
+
+    [MarkoutSkipNull]
+    public string? Designation { get; init; } =
+        LibraryViewText.Contain(Designation);
 }
 
 /// <summary>

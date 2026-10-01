@@ -25,6 +25,8 @@ namespace DotnetInspect.Web.Interop.Analysis;
 [SupportedOSPlatform("browser")]
 public static partial class AnalysisExports
 {
+    private const int BrowserLibraryTypeLeverageSchemaVersion = 2;
+
     /// <summary>
     /// Exact method-body Analysis and metadata evidence for one implementation participant. The
     /// product query owns the retained snapshot and Analysis index; this adapter only resolves
@@ -603,6 +605,54 @@ public static partial class AnalysisExports
     }
 
     /// <summary>
+    /// Signature-only namespace leverage for one exact package Library. This
+    /// path does not run implementation profiles or body analysis.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageLibraryNamespaceLeverage(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName)
+    {
+        BrowserLibraryNamespaceLeverage leverage =
+            await PackageLibraryNamespaceLeverageAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName);
+        return JsonSerializer.Serialize(
+            leverage,
+            BrowserAnalysisJsonContext.Default
+                .BrowserLibraryNamespaceLeverage);
+    }
+
+    /// <summary>
+    /// Signature-only Type leverage for one exact namespace in one exact
+    /// package Library.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageNamespaceTypeLeverage(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string exactNamespace)
+    {
+        BrowserLibraryTypeLeverageShard leverage =
+            await PackageNamespaceTypeLeverageAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                exactNamespace);
+        return JsonSerializer.Serialize(
+            leverage,
+            BrowserAnalysisJsonContext.Default
+                .BrowserLibraryTypeLeverageShard);
+    }
+
+    /// <summary>
     /// Objective implementation profiles and exact overload relationships for
     /// one public overload family in a package implementation Library.
     /// </summary>
@@ -807,6 +857,300 @@ public static partial class AnalysisExports
                 AssemblyContextLibraryMetricsQuery.ExecuteParticipant);
         return ProjectLibraryMetrics(entry, compileLibrary);
     }
+
+    static async Task<BrowserLibraryNamespaceLeverage>
+        PackageLibraryNamespaceLeverageAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyName)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserCompileLibraryAvailability compileLibrary =
+            BrowserAnalysisWireProjection.Project(
+                BrowserCompileLibraryProjection.Project(coordinate.Selection));
+        if (!coordinate.Selection.IsSelected)
+        {
+            return UnavailableLibraryNamespaceLeverage(
+                "unavailable",
+                $"The package has no selected compile library ({compileLibrary.Status}).",
+                compileLibrary);
+        }
+
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyName);
+        AssemblyContextEntry<LibrarySurfaceLeverageResult> entry =
+            scope.UseMetadataParticipant(
+                participant,
+                static (group, selectedParticipant) =>
+                    AssemblyContextLibrarySurfaceLeverageQuery
+                        .ExecuteNamespaceIndexParticipant(
+                            group,
+                            selectedParticipant));
+        return ProjectLibraryNamespaceLeverage(entry, compileLibrary);
+    }
+
+    static async Task<BrowserLibraryTypeLeverageShard>
+        PackageNamespaceTypeLeverageAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyName,
+            string exactNamespace)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserCompileLibraryAvailability compileLibrary =
+            BrowserAnalysisWireProjection.Project(
+                BrowserCompileLibraryProjection.Project(coordinate.Selection));
+        if (!coordinate.Selection.IsSelected)
+        {
+            return UnavailableLibraryTypeLeverageShard(
+                "unavailable",
+                $"The package has no selected compile library ({compileLibrary.Status}).",
+                compileLibrary);
+        }
+
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyName);
+        AssemblyContextEntry<LibrarySurfaceLeverageResult> entry =
+            scope.UseMetadataParticipant(
+                participant,
+                (group, selectedParticipant) =>
+                    AssemblyContextLibrarySurfaceLeverageQuery
+                        .ExecuteTypeShardParticipant(
+                            group,
+                            selectedParticipant,
+                            exactNamespace));
+        return ProjectLibraryTypeLeverageShard(entry, compileLibrary);
+    }
+
+    internal static BrowserLibraryNamespaceLeverage
+        ProjectLibraryNamespaceLeverage(
+            AssemblyContextEntry<LibrarySurfaceLeverageResult> entry,
+            BrowserCompileLibraryAvailability compileLibrary) =>
+        entry switch
+        {
+            AssemblyContextEntry<LibrarySurfaceLeverageResult>.Available
+                available => ProjectLibraryNamespaceLeverage(
+                    available.Value,
+                    compileLibrary),
+            AssemblyContextEntry<LibrarySurfaceLeverageResult>.Rejected
+                rejected => UnavailableLibraryNamespaceLeverage(
+                    "unavailable",
+                    $"{rejected.Subject.Identity.Name}: "
+                        + $"{rejected.Failure.Kind} "
+                        + $"({rejected.Failure.Detail})",
+                    compileLibrary),
+            AssemblyContextEntry<LibrarySurfaceLeverageResult>.Failed failed =>
+                UnavailableLibraryNamespaceLeverage(
+                    "failed",
+                    $"{failed.Subject.Identity.Name}: {failed.Error.Message}",
+                    compileLibrary),
+            _ => throw new InvalidOperationException(
+                "Unknown Library surface leverage assembly-context result."),
+        };
+
+    internal static BrowserLibraryNamespaceLeverage
+        ProjectLibraryNamespaceLeverage(
+            LibrarySurfaceLeverageResult result,
+            BrowserCompileLibraryAvailability compileLibrary) =>
+        result switch
+        {
+            LibrarySurfaceLeverageResult.AvailableIndex available =>
+                ProjectLibraryNamespaceLeverage(
+                    available.Index,
+                    compileLibrary),
+            LibrarySurfaceLeverageResult.Rejected rejected =>
+                UnavailableLibraryNamespaceLeverage(
+                    "unavailable",
+                    $"Signature-use acquisition was rejected "
+                        + $"({rejected.Kind}): {rejected.Detail}",
+                    compileLibrary),
+            _ => throw new InvalidOperationException(
+                "Unknown Library surface leverage result."),
+        };
+
+    private static BrowserLibraryNamespaceLeverage
+        ProjectLibraryNamespaceLeverage(
+            ILInspector.Research.LibraryStructuralNamespaceLeverageIndex index,
+            BrowserCompileLibraryAvailability compileLibrary)
+        => new(
+            1,
+            "available",
+            index.MethodologyVersion,
+            index.EvidenceMode.ToString().ToLowerInvariant(),
+            index.Disposition.ToString().ToLowerInvariant(),
+            new(
+                index.SignatureUse.Coverage.Considered,
+                index.SignatureUse.Coverage.Examined,
+                index.SignatureUse.Coverage.Unavailable,
+                index.SignatureUse.Coverage.Limited),
+            [
+                .. index.Rows.Select(row =>
+                    new BrowserLibraryNamespaceLeverageRow(
+                        row.Namespace,
+                        row.TypeCount,
+                        row.ExternalIncomingSourceTypeCount,
+                        row.TopLeverage)),
+            ],
+            [
+                .. index.SignatureUse.Diagnostics.Select(
+                    static diagnostic => diagnostic.Detail),
+            ],
+            null,
+            compileLibrary);
+
+    internal static BrowserLibraryTypeLeverageShard
+        ProjectLibraryTypeLeverageShard(
+            AssemblyContextEntry<LibrarySurfaceLeverageResult> entry,
+            BrowserCompileLibraryAvailability compileLibrary) =>
+        entry switch
+        {
+            AssemblyContextEntry<LibrarySurfaceLeverageResult>.Available
+                available => ProjectLibraryTypeLeverageShard(
+                    available.Value,
+                    compileLibrary),
+            AssemblyContextEntry<LibrarySurfaceLeverageResult>.Rejected
+                rejected => UnavailableLibraryTypeLeverageShard(
+                    "unavailable",
+                    $"{rejected.Subject.Identity.Name}: "
+                        + $"{rejected.Failure.Kind} "
+                        + $"({rejected.Failure.Detail})",
+                    compileLibrary),
+            AssemblyContextEntry<LibrarySurfaceLeverageResult>.Failed failed =>
+                UnavailableLibraryTypeLeverageShard(
+                    "failed",
+                    $"{failed.Subject.Identity.Name}: {failed.Error.Message}",
+                    compileLibrary),
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type-leverage assembly-context result."),
+        };
+
+    internal static BrowserLibraryTypeLeverageShard
+        ProjectLibraryTypeLeverageShard(
+            LibrarySurfaceLeverageResult result,
+            BrowserCompileLibraryAvailability compileLibrary) =>
+        result switch
+        {
+            LibrarySurfaceLeverageResult.AvailableShard available =>
+                ProjectLibraryTypeLeverageShard(
+                    available.Shard,
+                    compileLibrary),
+            LibrarySurfaceLeverageResult.Rejected rejected =>
+                UnavailableLibraryTypeLeverageShard(
+                    "unavailable",
+                    $"Signature-use acquisition was rejected "
+                        + $"({rejected.Kind}): {rejected.Detail}",
+                    compileLibrary),
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type-leverage result."),
+        };
+
+    private static BrowserLibraryTypeLeverageShard
+        ProjectLibraryTypeLeverageShard(
+            ILInspector.Research.LibraryStructuralTypeLeverageShard document,
+            BrowserCompileLibraryAvailability compileLibrary)
+    {
+        Dictionary<
+            ILInspector.Metadata.MetadataTypeDefinitionAddress,
+            string> ids =
+                document.Rows.ToDictionary(
+                    static row => row.Type,
+                    static row => row.Name.ToEscapedFullName());
+        return new(
+            BrowserLibraryTypeLeverageSchemaVersion,
+            "available",
+            document.MethodologyVersion,
+            document.EvidenceMode.ToString().ToLowerInvariant(),
+            document.Namespace,
+            document.RoleDisposition.ToString().ToLowerInvariant(),
+            new(
+                document.SignatureUse.Coverage.Considered,
+                document.SignatureUse.Coverage.Examined,
+                document.SignatureUse.Coverage.Unavailable,
+                document.SignatureUse.Coverage.Limited),
+            [
+                .. document.Rows.Select(row =>
+                    new BrowserLibraryTypeLeverageRow(
+                        ids[row.Type],
+                        row.Name.ToMetadataFullName(),
+                        row.DesignationEligible,
+                        row.SignatureIncomingDegree,
+                        row.SignatureOutgoingDegree,
+                        row.Role.ToString().ToLowerInvariant(),
+                        row.Pole switch
+                        {
+                            LibraryStructuralTypePole.SeaLevel =>
+                                BrowserLibraryStructuralTypePole.SeaLevel,
+                            LibraryStructuralTypePole.MountainPeak =>
+                                BrowserLibraryStructuralTypePole.MountainPeak,
+                            null => null,
+                            _ => throw new InvalidOperationException(
+                                "Unknown structural Type pole."),
+                        })),
+            ],
+            [
+                .. document.SeaLevel.Types.Select(type => ids[type]),
+            ],
+            [
+                .. document.MountainPeak.Types.Select(type => ids[type]),
+            ],
+            [
+                .. document.SignatureUse.Diagnostics.Select(
+                    static diagnostic => diagnostic.Detail),
+            ],
+            null,
+            compileLibrary);
+    }
+
+    internal static BrowserLibraryNamespaceLeverage
+        UnavailableLibraryNamespaceLeverage(
+            string outcome,
+            string failure,
+            BrowserCompileLibraryAvailability compileLibrary) =>
+        new(
+            1,
+            outcome,
+            null,
+            null,
+            null,
+            null,
+            [],
+            [],
+            failure,
+            compileLibrary);
+
+    internal static BrowserLibraryTypeLeverageShard
+        UnavailableLibraryTypeLeverageShard(
+            string outcome,
+            string failure,
+            BrowserCompileLibraryAvailability compileLibrary) =>
+        new(
+            BrowserLibraryTypeLeverageSchemaVersion,
+            outcome,
+            null,
+            null,
+            null,
+            null,
+            null,
+            [],
+            [],
+            [],
+            [],
+            failure,
+            compileLibrary);
 
     static BrowserLibraryMetrics ProjectLibraryMetrics(
         AssemblyContextEntry<LibraryMetricsResult> entry,

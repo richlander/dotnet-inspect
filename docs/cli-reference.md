@@ -1328,8 +1328,11 @@ numeric distributions and maximum-body identities, async disposition, typed
 type summaries, cross-type relationships, Analysis diagnostics, and the
 methodology-v2 Type-leverage document. Type leverage preserves exact metadata
 type identities, the separately ordered sea-level and mountain-peak rankings,
-role and evidence qualifications, Metadata signature-use and Analysis body-use
-receipts, and Graph work receipts.
+raw directional degrees, one nullable dominant pole per Type, role and evidence
+qualifications, Metadata signature-use and Analysis body-use receipts, and
+Graph work receipts. A Type that qualifies at both directional maxima receives
+the larger-degree pole; an exact degree tie receives no pole while remaining
+in both rankings.
 `--envelope` emits identical `content` plus Share and operation diagnostics:
 
 ```bash

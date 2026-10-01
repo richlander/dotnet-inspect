@@ -1337,6 +1337,91 @@ async function installFacades(
     analysis: `
       ${surfaceLookup}
       let implementationProfileRequestCount = 0;
+      let structuralSalienceIndexRequestCount = 0;
+      let structuralSalienceShardRequestCount = 0;
+      function structuralSalienceIndex(surface, selected) {
+        document.documentElement.dataset.structuralSalienceIndexRequestCount =
+          String(++structuralSalienceIndexRequestCount);
+        return {
+          schemaVersion: 1,
+          outcome: "available",
+          methodologyVersion: "structural-salience.v2",
+          evidenceMode: "signature",
+          disposition: "complete",
+          coverage: {
+            considered: 1,
+            examined: 1,
+            unavailable: 0,
+            limited: 0
+          },
+          namespaces: [{
+            namespace: "Example",
+            typeCount: surface.types.filter(
+              item => item.assemblyId === selected.id
+                && item.namespace === "Example").length,
+            externalIncomingSourceTypeCount: 1,
+            topLeverage: true
+          }],
+          diagnostics: [],
+          failure: null,
+          compileLibrary: surface.compileLibrary
+        };
+      }
+      function structuralSalienceShard(surface, selected, exactNamespace) {
+        document.documentElement.dataset.structuralSalienceShardRequestCount =
+          String(++structuralSalienceShardRequestCount);
+        const selectedType = surface.types.find(
+          item => item.assemblyId === selected.id
+            && item.namespace === exactNamespace);
+        const types = selectedType ? [{
+          typeDefinitionId: selectedType.definitionId,
+          typeDisplay: selectedType.displayName,
+          designationEligible: true,
+          signatureIncomingDegree: 3,
+          signatureOutgoingDegree: 0,
+          role: "foundation",
+          pole: "SeaLevel"
+        }] : [];
+        return {
+          schemaVersion: 2,
+          outcome: "available",
+          methodologyVersion: "structural-salience.v2",
+          evidenceMode: "signature",
+          namespace: exactNamespace,
+          disposition: "complete",
+          coverage: {
+            considered: 1,
+            examined: 1,
+            unavailable: 0,
+            limited: 0
+          },
+          types,
+          seaLevelOrder: types.map(item => item.typeDefinitionId),
+          mountainPeakOrder: types.map(item => item.typeDefinitionId),
+          diagnostics: [],
+          failure: null,
+          compileLibrary: surface.compileLibrary
+        };
+      }
+      export async function queryPackageLibraryNamespaceLeverage(
+        id, version, framework, asset
+      ) {
+        const surface = surfaceFor(id, version, framework);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        return structuralSalienceIndex(surface, selected);
+      }
+      export async function queryPackageNamespaceTypeLeverage(
+        id, version, framework, asset, exactNamespace
+      ) {
+        const surface = surfaceFor(id, version, framework);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        return structuralSalienceShard(
+          surface,
+          selected,
+          exactNamespace);
+      }
       function implementationProfiles(
         subjectName,
         typeDefinitionId,
