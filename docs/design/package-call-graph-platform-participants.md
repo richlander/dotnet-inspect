@@ -124,7 +124,7 @@ reach the replacement, so the inspection prunes only when both hold:
 Otherwise the inspection does not prune, and keeps today's behavior: subsumed
 packages remain package participants. A pruned call never simply disappears
 from the graph. If binding still fails after pruning, the call target carries
-#8466's typed binding outcome.
+the typed binding outcome from #8466.
 
 ### Generation restart
 
