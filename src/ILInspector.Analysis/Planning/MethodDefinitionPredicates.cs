@@ -67,7 +67,12 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
         bool typeScoped = HasTypeScope;
         SourceGateGuard? sourceGate = SourceGate;
         TPredicate predicate = default;
-        var unit = new MethodDefinitionUnit(reader, peReader, lookup, gate);
+        var unit = new MethodDefinitionUnit(
+            reader,
+            peReader,
+            lookup,
+            gate,
+            state.Execution.SourceCoverageBuilder);
         int visited = 0;
         int attempted = 0;
         int completed = 0;
@@ -340,7 +345,12 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         TPredicate predicate = default;
         TProjection projection = default;
         TGate gateTests = default;
-        var unit = new MethodDefinitionUnit(reader, peReader, lookup, gate);
+        var unit = new MethodDefinitionUnit(
+            reader,
+            peReader,
+            lookup,
+            gate,
+            state.Execution.SourceCoverageBuilder);
         var accumulator = new QueryAccumulator<TRow>();
         int visited = 0;
         int attempted = 0;
