@@ -586,9 +586,17 @@ public partial class SectionPipelineTests
         var available = Assert.IsType<MethodClassificationBindingResult.Available>(shared);
         // Async Count (Library Info) and async Rows (the section) are separate closings.
         Assert.Equal(
-            [ClassificationClosing.Rows, ClassificationClosing.Count],
-            available.Result.Receipts.Keys.Order());
-        Assert.False(available.Result.Receipts[ClassificationClosing.Count].IdentityBudgetArmed);
+            [
+                new ClassificationExecution(ClassificationClosing.Rows),
+                new ClassificationExecution(ClassificationClosing.Count),
+            ],
+            available.Result.Receipts
+                .Select(static receipt => receipt.Execution)
+                .OrderBy(static key => key.Closing));
+        Assert.False(
+            available.Result.ReceiptOf(
+                new ClassificationExecution(
+                    ClassificationClosing.Count)).IdentityBudgetArmed);
         Assert.Equal(1, context.SharedQueryCount);
     }
 
@@ -616,8 +624,14 @@ public partial class SectionPipelineTests
         (ClassificationQuestion question, ClassificationAnswer answer) = Assert.Single(available.Result.Answers);
         Assert.Equal(ClassificationClosing.Count, question.Closing);
         Assert.True(Assert.IsType<ClassificationAnswer.Count>(answer).Value > 0);
-        Assert.Equal([ClassificationClosing.Count], available.Result.Receipts.Keys);
-        Assert.False(available.Result.Receipts[ClassificationClosing.Count].IdentityBudgetArmed);
+        Assert.Equal(
+            [new ClassificationExecution(ClassificationClosing.Count)],
+            available.Result.Receipts.Select(
+                static receipt => receipt.Execution));
+        Assert.False(
+            available.Result.ReceiptOf(
+                new ClassificationExecution(
+                    ClassificationClosing.Count)).IdentityBudgetArmed);
     }
 
     [Fact]
