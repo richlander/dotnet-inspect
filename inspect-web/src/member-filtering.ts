@@ -30,6 +30,11 @@ export interface FilterableMemberGroup extends MemberGroup {
   overloads: readonly FilterableMemberOverload[];
 }
 
+type FilteredMemberGroup<TGroup extends FilterableMemberGroup> =
+  Omit<TGroup, "overloads"> & {
+    overloads: Array<TGroup["overloads"][number]>;
+  };
+
 export function memberGroupMatches(
   group: FilterableMemberGroup,
   filters: MemberGroupFilters,
@@ -39,14 +44,14 @@ export function memberGroupMatches(
     return false;
   }
 
-  return group.overloads.some(overload => {
-    if (!memberMatchesTrait(overload, filters.trait ?? "")) {
-      return false;
-    }
-    return !query
-      || group.name.toLowerCase().includes(query)
-      || overload.signature.toLowerCase().includes(query);
-  });
+  const overloads = group.overloads.filter(
+    overload => memberMatchesTrait(overload, filters.trait ?? ""));
+  return overloads.length > 0 && (
+    !query
+    || group.name.toLowerCase().includes(query)
+    || overloads.some(
+      overload => overload.signature.toLowerCase().includes(query))
+  );
 }
 
 export function memberMatchesTrait(
@@ -71,11 +76,31 @@ export function memberMatchesTrait(
   }
 }
 
-export function filterMemberGroups(
-  groups: readonly FilterableMemberGroup[],
+export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
+  groups: readonly TGroup[],
   filters: MemberGroupFilters,
-): FilterableMemberGroup[] {
-  return groups.filter(group => memberGroupMatches(group, filters));
+): FilteredMemberGroup<TGroup>[] {
+  const query = (filters.query ?? "").trim().toLowerCase();
+  return groups.flatMap(group => {
+    if (filters.kind
+      && filters.kind !== "all"
+      && group.kind !== filters.kind) {
+      return [];
+    }
+
+    const overloads = group.overloads.filter(
+      overload => memberMatchesTrait(overload, filters.trait ?? ""));
+    if (overloads.length === 0 || (
+      query
+      && !group.name.toLowerCase().includes(query)
+      && !overloads.some(
+        overload => overload.signature.toLowerCase().includes(query))
+    )) {
+      return [];
+    }
+
+    return [{ ...group, overloads }];
+  });
 }
 
 export function memberKindCount(

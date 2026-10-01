@@ -1101,6 +1101,36 @@ test("member families show product-issued out-of-view counts", () => {
     /aria-label="2 more overloads are outside the public view\."/);
 });
 
+test("Trait-filtered families hide accessibility-only out-of-view counts", () => {
+  const group = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    completeCount: 7,
+    overloads: [
+      { signature: "static JsonDocument Parse(string json)" },
+    ],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 7,
+    visibleMemberCount: 1,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    selectedAccessibility: "public",
+    overloadFilterActive: true,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.doesNotMatch(html, /family-outside-count/);
+});
+
 test("member families disclose unavailable out-of-view counts", () => {
   const group = {
     key: "method:Parse",

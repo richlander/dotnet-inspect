@@ -1102,6 +1102,15 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     filters,
     /filterMemberGroups\(selectedMemberGroups\(type\), memberFilterState\(\)\)/);
   assert.match(
+    appSource,
+    /function selectedMember\([\s\S]*memberGroupForCurrentFilters\(type, state\.selectedMemberKey\)/);
+  assert.match(
+    appSource,
+    /function openMemberGroup\([\s\S]*memberGroupForCurrentFilters\(type, key\)/);
+  assert.match(
+    appSource,
+    /function openMemberGroup\([\s\S]*state\.memberTraitFilter[\s\S]*memberDocumentOrdinalForOverload\(group, 0\)[\s\S]*openMemberDocument\(filteredDocumentOrdinal\)/);
+  assert.match(
     filters,
     /function selectedMemberGroups\([\s\S]*?return declaredMemberGroups\(type\)/);
   assert.match(
@@ -1574,12 +1583,17 @@ test("member filters retain an exact selected graph target", () => {
     "onMemberFilterClear",
     "onMemberFilterKeyDown",
     "onMemberKindFilterSelect",
-    "onMemberTraitFilterSelect",
   ]) {
     assert.match(
       sourceText(callbackProperty(actions, name)),
       /normalizeMemberSelection\(\)/);
   }
+  assert.match(
+    sourceText(callbackProperty(actions, "onMemberTraitFilterSelect")),
+    /applyMemberTraitFilter\(value \?\? ""\)/);
+  assert.match(
+    sourceText(functionDeclaration("bindTypePanelEvents")),
+    /const applyMemberTraitFilter = \(value: string\) => \{[\s\S]*normalizeMemberSelection\(\)/);
   assert.match(
     sourceText(callbackProperty(
       actions,

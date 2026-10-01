@@ -630,7 +630,9 @@ correspondence. Extensions take precedence over metadata-static, so `static`,
 `instance`, and `extensions` partition the selected population while the other
 traits remain orthogonal. These facets are owner-issued from the exact
 population before the Browser boundary; the Browser does not count loaded
-rows.
+rows. Selecting a Trait narrows declarations within each retained Member group:
+a mixed overload family presents only its matching declarations, so the
+visible declaration Count agrees with the selected Trait Count.
 
 For example, System.Text.Json 10.0.0 `JsonDocument` has:
 

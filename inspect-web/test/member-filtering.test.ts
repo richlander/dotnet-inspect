@@ -196,6 +196,30 @@ test("member filters compose locally after managed accessibility selection", () 
     trait: "static",
     query: "",
   }), true);
+
+  const staticGroups = filterMemberGroups(groups, {
+    kind: "method",
+    accessibility: "public",
+    trait: "static",
+    query: "",
+  });
+  assert.equal(staticGroups.length, 1);
+  const staticGroup = staticGroups[0];
+  assert.ok(staticGroup);
+  assert.equal(staticGroup.overloads.length, 1);
+  assert.match(staticGroup.overloads[0]?.signature ?? "", /static/);
+
+  const instanceGroups = filterMemberGroups(groups, {
+    kind: "method",
+    accessibility: "public",
+    trait: "instance",
+    query: "build",
+  });
+  assert.equal(instanceGroups.length, 1);
+  const instanceGroup = instanceGroups[0];
+  assert.ok(instanceGroup);
+  assert.equal(instanceGroup.overloads.length, 1);
+  assert.doesNotMatch(instanceGroup.overloads[0]?.signature ?? "", /static/);
 });
 
 test("member traits use the complete selector vocabulary", () => {

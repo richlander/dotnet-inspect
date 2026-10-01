@@ -6841,7 +6841,18 @@ function renderMemberComposition(type: AppTypeSurface) {
 }
 
 function selectedMember(type: AppTypeSurface | null | undefined) {
-  return memberGroups(type).find(group => group.key === state.selectedMemberKey);
+  return memberGroupForCurrentFilters(type, state.selectedMemberKey);
+}
+
+function memberGroupForCurrentFilters(
+  type: AppTypeSurface | null | undefined,
+  key: string,
+) {
+  if (!type || !key) return undefined;
+  return visibleMemberGroups(type).find(group => group.key === key)
+    ?? memberGroups(type).find(group =>
+      group.key === key
+      && group.overloads.some(overload => overload.graphOnly));
 }
 
 // Selection sits on the structural subject ladder. Type and Member always retain
@@ -7756,7 +7767,12 @@ function openMemberGroup(key: string) {
   const type = selectedType();
   const preserveSection =
     state.memberBrowseTypeId === type?.id && Boolean(state.selectedMemberKey);
-  const group = memberGroups(type).find(candidate => candidate.key === key);
+  const group = memberGroupForCurrentFilters(type, key);
+  const filteredDocumentOrdinal =
+    Boolean(state.memberTraitFilter)
+    && group?.overloads.length === 1
+      ? memberDocumentOrdinalForOverload(group, 0)
+      : null;
   const graphOnlyTarget =
     group?.overloads.length === 1
       ? graphOnlyBodyTarget(group.overloads[0])
@@ -7771,6 +7787,10 @@ function openMemberGroup(key: string) {
     clearMemberGroupDocumentCache();
   }
   state.selectedBodyTarget = graphOnlyTarget;
+  if (filteredDocumentOrdinal !== null) {
+    openMemberDocument(filteredDocumentOrdinal);
+    return;
+  }
   if (methodGroup || !preserveSection) {
     state.memberSection = "overview";
   } else {
@@ -9245,6 +9265,7 @@ function renderMemberNavPane(type: AppTypeSurface) {
     selectedMemberKey: state.selectedMemberKey,
     selectedOverloadIndex: state.selectedOverloadIndex,
     selectedAccessibility: state.memberAccessibilityFilter,
+    overloadFilterActive: Boolean(state.memberTraitFilter),
     escapeHtml,
     typeDisplayName,
     shortKind,
@@ -11294,7 +11315,8 @@ function renderApiLens(item: AppTypeSurface) {
         const outsideMarker = familyOutsideMarkerHtml(
           group,
           state.memberAccessibilityFilter,
-          escapeHtml);
+          escapeHtml,
+          Boolean(state.memberTraitFilter));
         return `
         <button class="api-row" data-member="${escapeHtml(group.key)}">
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
@@ -12135,6 +12157,12 @@ function bindTypePanelEvents() {
     action();
     restoreContentNavigationFocus(focusGeneration);
   };
+  const applyMemberTraitFilter = (value: string) => {
+    state.memberTraitFilter = value;
+    state.selectedOverloadIndex = null;
+    resetMemberSectionState();
+    normalizeMemberSelection();
+  };
   bindTypePanel(document, {
     onClearFilters: () => {
       state.typeFilter = "";
@@ -12319,9 +12347,11 @@ function bindTypePanelEvents() {
     onMemberCompositionTraitSelect: value => {
       enterMemberNavigation(() => {
         resetMemberFilters();
-        state.memberTraitFilter = value;
+        applyMemberTraitFilter(value);
         enterMemberScope();
         render();
+        if (state.selectedMemberKey)
+          loadMemberSectionContent(state.memberSection);
       });
     },
     onMemberFilterChange: value => {
@@ -12334,8 +12364,12 @@ function bindTypePanelEvents() {
     },
     onMemberFilterClear: () => {
       resetMemberFilters();
+      state.selectedOverloadIndex = null;
+      resetMemberSectionState();
       normalizeMemberSelection();
       renderMemberFilterAndRestoreFocus("#clear-member-filter");
+      if (state.selectedMemberKey)
+        loadMemberSectionContent(state.memberSection);
     },
     onMemberFilterKeyDown: (event, value) => {
       if (event.key === "Escape") {
@@ -12374,17 +12408,19 @@ function bindTypePanelEvents() {
       }
     },
     onMemberSelect: memberKey => {
-      const group = memberGroups(selectedType())
-        .find(item => item.key === memberKey);
+      const group = memberGroupForCurrentFilters(
+        selectedType(),
+        memberKey ?? "");
       if (group) {
         showContentDetailAfterRender();
         selectMemberNavEntry({ kind: "member", group }, false);
       }
     },
     onMemberTraitFilterSelect: value => {
-      state.memberTraitFilter = value ?? "";
-      normalizeMemberSelection();
+      applyMemberTraitFilter(value ?? "");
       renderMemberFilterAndRestoreFocus();
+      if (state.selectedMemberKey)
+        loadMemberSectionContent(state.memberSection);
     },
     onNamespaceSelect: namespace => {
       state.namespaceFilter = namespace;
