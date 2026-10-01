@@ -101,6 +101,20 @@ public sealed class WorkspaceTopLevelInventoryTests
         Assert.True(ecosystem.HasIntegrationScanner);
         Assert.True(execution.Selection.HasAuthority);
         Assert.Equal(6, execution.Selection.Count);
+        var selected = Assert.IsType<
+            WorkspaceTopLevelInventorySelectionResolution.Selected>(
+                execution.Selection.Resolve(
+                    fixture.Lease,
+                    ecosystem.Key));
+        var ecosystemSelection = Assert.IsType<
+            WorkspaceTopLevelInventorySelection.Ecosystem>(
+                selected.Selection);
+        Assert.Same(
+            Assert.Single(
+                fixture.Lease.Definition.Registrations
+                    .EcosystemContributions).Ecosystem.Identity,
+            ecosystemSelection.Occurrence);
+        Assert.Equal(ecosystem.Id, ecosystemSelection.Id.Value);
     }
 
     [Fact]
@@ -488,6 +502,7 @@ public sealed class WorkspaceTopLevelInventoryTests
             typeof(WorkspaceTopLevelEcosystemPopulation.PackagePrefix),
             typeof(WorkspaceTopLevelInventorySelection.Package),
             typeof(WorkspaceTopLevelInventorySelection.Registration),
+            typeof(WorkspaceTopLevelInventorySelection.Ecosystem),
         ];
         foreach (Type root in roots)
             Visit(root);
