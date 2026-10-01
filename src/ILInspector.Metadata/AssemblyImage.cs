@@ -19,6 +19,7 @@ public sealed class AssemblyImage : IDisposable
     readonly MetadataImageFormatResult _format;
     readonly MetadataReader? _metadataReader;
     readonly bool _ownsReader;
+    readonly AssemblyArtifactIdentity? _artifactIdentity;
     bool _disposed;
 
     internal PEReader PEReader { get; }
@@ -28,7 +29,8 @@ public sealed class AssemblyImage : IDisposable
         PEReader peReader,
         bool ownsReader,
         Action? ensureLenderAlive = null,
-        MetadataImageFormatResult? admittedFormat = null)
+        MetadataImageFormatResult? admittedFormat = null,
+        AssemblyArtifactIdentity? artifactIdentity = null)
     {
         MetadataImageFormatResult format;
         if (admittedFormat is { } retainedAdmission)
@@ -71,6 +73,7 @@ public sealed class AssemblyImage : IDisposable
         _metadataReader = metadataReader;
         _ownsReader = ownsReader;
         _ensureLenderAlive = ensureLenderAlive;
+        _artifactIdentity = artifactIdentity;
     }
 
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
@@ -90,6 +93,15 @@ public sealed class AssemblyImage : IDisposable
         {
             EnsureAlive();
             return _format;
+        }
+    }
+
+    internal AssemblyArtifactIdentity? ArtifactIdentity
+    {
+        get
+        {
+            EnsureAlive();
+            return _artifactIdentity;
         }
     }
 
@@ -116,8 +128,16 @@ public sealed class AssemblyImage : IDisposable
     ///
     /// Gate: <c>BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed</c>.
     /// </summary>
-    internal static AssemblyImage Borrow(PEReader peReader, Action ensureLenderAlive)
-        => new(stream: null, peReader, ownsReader: false, ensureLenderAlive);
+    internal static AssemblyImage Borrow(
+        PEReader peReader,
+        Action ensureLenderAlive,
+        AssemblyArtifactIdentity? artifactIdentity = null) =>
+        new(
+            stream: null,
+            peReader,
+            ownsReader: false,
+            ensureLenderAlive,
+            artifactIdentity: artifactIdentity);
 
     /// <summary>
     /// Opens an image from a resolved assembly reference, using its stream opener. This is the
@@ -126,7 +146,9 @@ public sealed class AssemblyImage : IDisposable
     public static AssemblyImage Open(ResolvedAssemblyReference reference)
     {
         ArgumentNullException.ThrowIfNull(reference);
-        AssemblyImage image = FromStream(reference.OpenRead());
+        AssemblyImage image = FromStream(
+            reference.OpenRead(),
+            reference.Registration.ArtifactIdentity);
         try
         {
             reference.ValidateArtifactContent(image.PEReader);
@@ -189,7 +211,9 @@ public sealed class AssemblyImage : IDisposable
         }
     }
 
-    static AssemblyImage FromStream(Stream stream)
+    static AssemblyImage FromStream(
+        Stream stream,
+        AssemblyArtifactIdentity? artifactIdentity = null)
     {
         try
         {
@@ -198,7 +222,8 @@ public sealed class AssemblyImage : IDisposable
             return new AssemblyImage(
                 stream,
                 new PEReader(stream, PEStreamOptions.LeaveOpen),
-                ownsReader: true);
+                ownsReader: true,
+                artifactIdentity: artifactIdentity);
         }
         catch (Exception ex)
         {

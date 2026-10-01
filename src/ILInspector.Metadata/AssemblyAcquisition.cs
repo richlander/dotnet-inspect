@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 using Inspector.Artifacts;
 
@@ -191,6 +192,47 @@ public abstract record AssemblyResolutionProvenance
 }
 
 /// <summary>
+/// Metadata-owned opaque view of one acquisition-issued artifact identity.
+/// Equal values denote the same artifact inside the same artifact-set
+/// generation.
+/// </summary>
+public sealed class AssemblyArtifactIdentity :
+    IEquatable<AssemblyArtifactIdentity>
+{
+    readonly ArtifactIdentity _artifact;
+
+    internal AssemblyArtifactIdentity(ArtifactIdentity artifact)
+    {
+        ArgumentNullException.ThrowIfNull(artifact);
+        _artifact = artifact;
+    }
+
+    internal bool Matches(ArtifactIdentity artifact) =>
+        ReferenceEquals(_artifact, artifact);
+
+    public bool Equals(AssemblyArtifactIdentity? other) =>
+        other is not null
+        && ReferenceEquals(_artifact, other._artifact);
+
+    public override bool Equals(object? obj) =>
+        obj is AssemblyArtifactIdentity other && Equals(other);
+
+    public override int GetHashCode() =>
+        RuntimeHelpers.GetHashCode(_artifact);
+
+    public static bool operator ==(
+        AssemblyArtifactIdentity? left,
+        AssemblyArtifactIdentity? right) =>
+        ReferenceEquals(left, right)
+        || left is not null && left.Equals(right);
+
+    public static bool operator !=(
+        AssemblyArtifactIdentity? left,
+        AssemblyArtifactIdentity? right) =>
+        !(left == right);
+}
+
+/// <summary>
 /// Opaque reference-identity handle minted with one canonical acquisition
 /// descriptor.
 /// </summary>
@@ -204,6 +246,9 @@ public sealed class AssemblyAcquisitionRegistration
         ArtifactAcquisitionRegistration? artifactRegistration = null)
     {
         ArtifactRegistration = artifactRegistration;
+        ArtifactIdentity = artifactRegistration is null
+            ? null
+            : new(artifactRegistration.Artifact);
     }
 
     /// <summary>
@@ -211,6 +256,9 @@ public sealed class AssemblyAcquisitionRegistration
     /// descriptor, when the descriptor was projected from an artifact.
     /// </summary>
     public ArtifactAcquisitionRegistration? ArtifactRegistration { get; }
+
+    internal AssemblyArtifactIdentity? ArtifactIdentity { get; }
+
     internal Guid Value => _value;
 
     public static AssemblyAcquisitionRegistration ForArtifact(

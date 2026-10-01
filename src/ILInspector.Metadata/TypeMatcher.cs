@@ -195,9 +195,10 @@ public static class TypeMatcher
             if (MatchesNormalized(normalizedCandidate, normalizedTarget))
                 continue;
 
-            var candidateBase =
-                GetBaseName(GetSimpleName(normalizedCandidate));
-            var similarity = StringDistance.Similarity(candidateBase, targetBase);
+            var similarity =
+                NameSimilarityNormalized(
+                    normalizedCandidate,
+                    targetBase);
 
             if (similarity >= minSimilarity)
             {
@@ -209,6 +210,35 @@ public static class TypeMatcher
         {
             yield return result;
         }
+    }
+
+    /// <summary>
+    /// Computes the normalized similarity between the simple base names of a
+    /// candidate and target without ranking against any other candidate.
+    /// </summary>
+    public static double NameSimilarity(string candidate, string target)
+    {
+        if (string.IsNullOrEmpty(candidate)
+            || string.IsNullOrEmpty(target))
+        {
+            return 0;
+        }
+
+        string normalizedTarget = NormalizeForLookup(target);
+        string targetBase =
+            GetBaseName(GetSimpleName(normalizedTarget));
+        return NameSimilarityNormalized(
+            NormalizeForLookup(candidate),
+            targetBase);
+    }
+
+    private static double NameSimilarityNormalized(
+        string normalizedCandidate,
+        string targetBase)
+    {
+        string candidateBase =
+            GetBaseName(GetSimpleName(normalizedCandidate));
+        return StringDistance.Similarity(candidateBase, targetBase);
     }
 
     /// <summary>

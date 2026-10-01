@@ -1077,9 +1077,20 @@ async function installFacades(
           };
           group.members.push({
             ...populationMember(member),
-            baselineOrdinal: group.members.length + 1,
+            baselineOrdinal: null,
           });
           groups.set(key, group);
+        }
+        for (const group of groups.values()) {
+          const hasExactSelectors =
+            accessibility === "public"
+            && group.kind === "method"
+            && group.members.every(member =>
+              member.metadataAccessor !== true);
+          if (!hasExactSelectors) continue;
+          group.members.forEach((member, index) => {
+            member.baselineOrdinal = index + 1;
+          });
         }
         return {
           outcome: "Available",
@@ -1155,6 +1166,7 @@ async function installFacades(
         const overloads = type?.api.filter(member =>
           member.kind === "method"
           && member.name === memberName
+          && member.metadataAccessor !== true
           && !member.graphOnly) ?? [];
         if (!type || overloads.length === 0) {
           return {

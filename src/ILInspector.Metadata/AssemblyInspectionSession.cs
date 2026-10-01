@@ -148,7 +148,30 @@ public sealed class AssemblyInspectionSession :
     /// <c>BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed</c>.
     /// </summary>
     public static AssemblyInspectionSession Borrow(PdbContext context)
-        => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
+        => new(
+            AssemblyImage.Borrow(
+                context.BorrowedPEReader,
+                context.EnsureAliveForBorrower,
+                context.ArtifactIdentity));
+
+    /// <summary>
+    /// Exact acquisition-issued artifact identity retained by this image, when
+    /// the session was opened or borrowed from an artifact-backed descriptor.
+    /// </summary>
+    public AssemblyArtifactIdentity? ArtifactIdentity =>
+        _image.ArtifactIdentity;
+
+    /// <summary>
+    /// Whether this session and <paramref name="assembly"/> retain the same
+    /// acquisition-issued artifact identity.
+    /// </summary>
+    public bool IsSameArtifact(ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return ArtifactIdentity is { } sessionArtifact
+            && assembly.Registration.ArtifactIdentity is { } assemblyArtifact
+            && sessionArtifact == assemblyArtifact;
+    }
 
     public MetadataDeclarationSession CreateDeclarationSession(
         MetadataOperationContext operationContext)
@@ -412,6 +435,23 @@ public sealed class AssemblyInspectionSession :
     /// <summary>The public (or, with <paramref name="includeAll"/>, full) API surface.</summary>
     public ApiSurface ApiSurface(bool includeAll = false, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(_image.PEReader, includeAll, typesOnly);
+
+    /// <summary>
+    /// Reads API Types in metadata order and stops before the Type after
+    /// <paramref name="stopAfterType"/> first returns <see langword="true"/>.
+    /// </summary>
+    public ApiSurface ApiSurfaceUntil(
+        bool includeAll,
+        bool typesOnly,
+        Func<ApiType, bool> stopAfterType)
+    {
+        ArgumentNullException.ThrowIfNull(stopAfterType);
+        return ApiSurfaceExtractor.ExtractUntil(
+            _image.PEReader,
+            includeAll,
+            typesOnly,
+            stopAfterType);
+    }
 
     internal ApiSurface ApiSurface(
         ResolvedAssemblyReference source,
