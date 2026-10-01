@@ -208,7 +208,6 @@ public static class ExactTypeRelationsInspectionOperation
                         selectedPlatformAssemblies.Add(
                             required.Assembly.Name);
                         input = expandedInput;
-                        focusLibrary = null;
                         platformAssemblyDemand = required.Assembly;
                         continue;
                     }

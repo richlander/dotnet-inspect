@@ -195,7 +195,7 @@ public sealed partial class ExactTypeInspectionOperationTests
     }
 
     [Fact]
-    public async Task PlatformForwarderLoadsOnlyItsTerminalFocusContext()
+    public async Task PlatformForwarderPreservesExactLibraryAcrossExpansion()
     {
         const string runtimeVersion = "11.0.0";
         const string facade = "Facade";
@@ -225,7 +225,9 @@ public sealed partial class ExactTypeInspectionOperationTests
             Guid.NewGuid(),
             definesType: true,
             "Relations",
-            "IContract");
+            "IContract",
+            additionalTypeNamespace: "",
+            additionalTypeName: "IContract");
         var requestedAssemblies = new List<string>();
         PlatformSourceCapabilityIdentity capability =
             PlatformSourceCapabilityIdentity.Create(
@@ -328,8 +330,7 @@ public sealed partial class ExactTypeInspectionOperationTests
             await ExactTypeRelationsInspectionOperation.ExecuteAsync(
                 new TypeRelationsInspectionRequest(
                     input,
-                    "Relations.IContract",
-                    FocusAssemblyName: facade,
+                    "IContract",
                     FocusLibrary: focusLibrary),
                 LoadOptions(client, store),
                 plan,
@@ -360,6 +361,9 @@ public sealed partial class ExactTypeInspectionOperationTests
         var focus = Assert.IsType<
             StructuralSubjectIdentity.ContextTypeSubject>(
                 available.Relations.Relations.Focus);
+        Assert.Equal(
+            "Relations.IContract",
+            focus.Identity.Type.ToMetadataFullName());
         Assert.Equal(
             terminal,
             focus.Library.Identity.Assembly.Name);
