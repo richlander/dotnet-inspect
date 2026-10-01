@@ -1089,7 +1089,7 @@ public static class BodyUseScorecard
             BodyUseScorecardClosing.Exists =>
                 ProducerTerminal.Exists,
             BodyUseScorecardClosing.Count =>
-                ProducerTerminal.Complete,
+                ProducerTerminal.Count,
             BodyUseScorecardClosing.Rows =>
                 ProducerTerminal.Rows,
             _ => throw new ArgumentOutOfRangeException(nameof(closing)),
@@ -1188,7 +1188,7 @@ public static class BodyUseScorecard
                     {
                         return answer.Complete(retainRows: false);
                     }
-                    if (terminal == ProducerTerminal.Complete)
+                    if (terminal == ProducerTerminal.Count)
                     {
                         foreach (BodyTypeUseOccurrence _ in occurrences)
                             count++;
@@ -1199,7 +1199,7 @@ public static class BodyUseScorecard
                     }
                 }
             }
-            return terminal == ProducerTerminal.Complete
+            return terminal == ProducerTerminal.Count
                 ? answer.CompleteCount(count)
                 : terminal == ProducerTerminal.Rows
                     ? answer.CompleteRows(rows!.DrainToImmutable())
@@ -1258,7 +1258,7 @@ public static class BodyUseScorecard
                         retainOccurrences: false,
                         retainBodies:
                             terminal == ProducerTerminal.Rows));
-            return terminal == ProducerTerminal.Complete
+            return terminal == ProducerTerminal.Count
                 ? answer.CompleteCount(occurrences.Count())
                 : answer.CompleteRows([.. occurrences]);
         }
@@ -1295,7 +1295,7 @@ public static class BodyUseScorecard
                 terminal,
                 retainBodies:
                     terminal == ProducerTerminal.Rows);
-            return terminal == ProducerTerminal.Complete
+            return terminal == ProducerTerminal.Count
                 ? answer.CompleteCount(
                     occurrences.CountFold<
                         OccurrenceRows,

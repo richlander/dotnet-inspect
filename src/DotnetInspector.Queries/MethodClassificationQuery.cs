@@ -461,9 +461,9 @@ public static class MethodClassificationQuery
     static ProducerTerminal TerminalFor(ClassificationClosing closing) =>
         closing switch
         {
-            ClassificationClosing.Rows => ProducerTerminal.Rows,
-            ClassificationClosing.Head => ProducerTerminal.Rows,
-            ClassificationClosing.Count => ProducerTerminal.Complete,
+            ClassificationClosing.Rows or ClassificationClosing.Head =>
+                ProducerTerminal.Rows,
+            ClassificationClosing.Count => ProducerTerminal.Count,
             _ => ProducerTerminal.Exists,
         };
 
