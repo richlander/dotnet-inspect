@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using NuGetFetch;
 using ZipFetch;
 
@@ -534,6 +535,24 @@ public sealed partial class PackageRangedRealizationTests
                 Assert.Throws<InvalidDataException>(
                     () => ReadAllBytes(bounded));
             }
+
+            InspectionEnvelope<PackageFileContentDocument> inspection =
+                await PackageFileContentInspection.ExecuteAsync(
+                    new(
+                        acquired,
+                        PackageDocumentContentLimits.MaxDecodedBytes),
+                    TestContext.Current.CancellationToken);
+            Assert.Equal(
+                PackageFileContentStatus.Failed,
+                inspection.Content.Status);
+            Assert.Empty(inspection.Content.Content);
+            Assert.Equal(
+                "package-file-content.read-failed",
+                Assert.Single(inspection.Diagnostics).Code);
+            Assert.Contains(
+                "declared size or checksum",
+                inspection.Content.Detail?.ToString(),
+                StringComparison.Ordinal);
         }
         finally
         {

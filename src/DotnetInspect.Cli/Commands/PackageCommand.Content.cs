@@ -392,12 +392,22 @@ public partial class PackageCommand
             && HasUnstructuredOutputPath(options)
             && ProjectionDestinationWriter.IsFile(destination))
         {
-            await using PackageHousePayloadRead input =
-                file.OpenRead();
-            await ProjectionDestinationWriter.WriteExactBytesAsync(
-                    destination,
-                    input)
-                .ConfigureAwait(false);
+            try
+            {
+                await using PackageHousePayloadRead input =
+                    file.OpenRead();
+                await ProjectionDestinationWriter.WriteExactBytesAsync(
+                        destination,
+                        input)
+                    .ConfigureAwait(false);
+            }
+            catch (InvalidDataException exception)
+            {
+                CommandError.Write(
+                    "Could not read the selected package document.",
+                    exception.Message);
+                return 1;
+            }
             return 0;
         }
 
