@@ -338,6 +338,30 @@ function relationDecorations(
     : `<span class="member-diff-source-relations" aria-label="Relation facts">${labels.join("")}</span>`;
 }
 
+function finalLineTerminatorMarker(
+  kind: "context" | "removal" | "addition",
+  beforeIndex: number | null,
+  afterIndex: number | null,
+  diff: BrowserSourceDiff,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const beforeAbsent = beforeIndex === diff.before.lines.length - 1
+    && diff.before.finalLineTerminator === "Absent";
+  const afterAbsent = afterIndex === diff.after.lines.length - 1
+    && diff.after.finalLineTerminator === "Absent";
+  if (!beforeAbsent && !afterAbsent) return "";
+
+  const side = beforeAbsent && afterAbsent
+    ? "both"
+    : beforeAbsent
+      ? "before"
+      : "after";
+  const label = kind === "context" && side !== "both"
+    ? `${side === "before" ? "Before" : "After"}: No newline at end`
+    : "No newline at end";
+  return `<span class="member-diff-source-terminator" role="note" data-final-line-terminator="${side}">${escapeHtml(label)}</span>`;
+}
+
 function diffLine(
   kind: "context" | "removal" | "addition",
   beforeIndex: number | null,
@@ -358,11 +382,20 @@ function diffLine(
     <span class="member-diff-source-number">${beforeIndex === null ? "" : beforeIndex + 1}</span>
     <span class="member-diff-source-number">${afterIndex === null ? "" : afterIndex + 1}</span>
     <span class="member-diff-source-marker" aria-hidden="true">${marker}</span>
-    <code>${highlightedLine(
-      text,
-      changedSpans(change, side, index),
-      escapeHtml,
-    )}</code>
+    <span class="member-diff-source-content">
+      <code>${highlightedLine(
+        text,
+        changedSpans(change, side, index),
+        escapeHtml,
+      )}</code>
+      ${finalLineTerminatorMarker(
+        kind,
+        beforeIndex,
+        afterIndex,
+        diff,
+        escapeHtml,
+      )}
+    </span>
     ${relationDecorations(
       beforeIndex,
       afterIndex,

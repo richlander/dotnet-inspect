@@ -2194,7 +2194,9 @@ kbd {
 .member-diff-source-line-correspondence { background: transparent; }
 .member-diff-source-number { padding: 0 6px; border-right: 1px solid var(--line); color: var(--dim); text-align: right; user-select: none; }
 .member-diff-source-marker { padding-left: 6px; color: var(--muted); user-select: none; }
+.member-diff-source-content { display: flex; min-width: max-content; align-items: baseline; }
 .member-diff-source-line code { padding: 0 10px 0 2px; white-space: pre; }
+.member-diff-source-terminator { flex: none; padding-right: 10px; color: var(--yellow); font-size: 10px; white-space: nowrap; user-select: none; }
 .member-diff-source-line mark { border-radius: 2px; background: color-mix(in srgb, var(--yellow) 30%, transparent); color: inherit; }
 .member-diff-inline-source {
   margin: 6px 18px 0;

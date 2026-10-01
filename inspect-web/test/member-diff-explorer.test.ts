@@ -317,6 +317,7 @@ test("Member Diff Explore renders one full-width authored Source diff", () => {
   assert.match(html, /1 Before changed/);
   assert.match(html, /<mark>int<\/mark>/);
   assert.match(html, /<mark>long<\/mark>/);
+  assert.match(html, /data-final-line-terminator="after">After: No newline at end/);
   assert.doesNotMatch(
     html,
     /What changed|Declaration|Parameter type changed|Authored Source changed|member-diff-source-endpoint|Final line terminators|Mapped change evidence/,
@@ -337,6 +338,81 @@ test("unified Source rendering walks mapped changes in positional order", () => 
   assert.equal(
     (html.match(/data-relation-content="Unchanged" data-relation-placement="Stable"/g) ?? []).length,
     1,
+  );
+});
+
+test("a final-newline-only change identifies the affected side", () => {
+  const diff: BrowserSourceDiff = {
+    version: 1,
+    before: {
+      label: "Before",
+      lines: ["public void Run()"],
+      finalLineTerminator: "Present",
+    },
+    after: {
+      label: "After",
+      lines: ["public void Run()"],
+      finalLineTerminator: "Absent",
+    },
+    relations: [],
+    statistics: {
+      added: 0,
+      removed: 0,
+      changedBefore: 1,
+      changedAfter: 1,
+      movedBefore: 0,
+      movedAfter: 0,
+    },
+    changes: [{
+      before: { start: 0, count: 1 },
+      after: { start: 0, count: 1 },
+      innerMappings: [],
+      annotations: [],
+    }],
+  };
+
+  const html = renderMemberSourceDiff(diff, String);
+
+  assert.equal((html.match(/No newline at end/g) ?? []).length, 1);
+  const removal = html.indexOf('data-row-kind="removal"');
+  const addition = html.indexOf('data-row-kind="addition"');
+  const marker = html.indexOf('data-final-line-terminator="after"');
+  assert.ok(removal >= 0 && removal < addition && addition < marker);
+  assert.ok(marker < html.indexOf("</div>", addition));
+});
+
+test("a shared final row with no terminator renders one marker", () => {
+  const diff: BrowserSourceDiff = {
+    version: 1,
+    before: {
+      label: "Before",
+      lines: ["public void Run()"],
+      finalLineTerminator: "Absent",
+    },
+    after: {
+      label: "After",
+      lines: ["public void Run()"],
+      finalLineTerminator: "Absent",
+    },
+    relations: [],
+    statistics: {
+      added: 0,
+      removed: 0,
+      changedBefore: 0,
+      changedAfter: 0,
+      movedBefore: 0,
+      movedAfter: 0,
+    },
+    changes: [],
+  };
+
+  const html = renderMemberSourceDiff(diff, String);
+
+  assert.equal((html.match(/No newline at end/g) ?? []).length, 1);
+  assert.match(html, /data-row-kind="context"/);
+  assert.match(
+    html,
+    /data-final-line-terminator="both">No newline at end/,
   );
 });
 
