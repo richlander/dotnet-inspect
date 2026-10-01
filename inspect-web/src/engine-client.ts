@@ -134,6 +134,7 @@ type CatalogOperations =
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "inspectVocabulary"
+  | "listEcosystems"
   | "listHomeDemos"
   | "observeRetainedWorkspaceSettlement"
   | "preparePackageQueryWorkspaceDefinition"

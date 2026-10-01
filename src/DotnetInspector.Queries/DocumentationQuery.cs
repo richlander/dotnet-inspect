@@ -7,6 +7,52 @@ namespace DotnetInspector.Queries;
 public static partial class DocumentationQuery
 {
     /// <summary>
+    /// Executes already-authorized DocumentationHouse requests as one ordered
+    /// batch and retains each request's QuerySpace contract and exact outcome.
+    /// </summary>
+    public static async ValueTask<IReadOnlyList<DocumentationQueryResult>>
+        ExecuteManyAsync(
+            IReadOnlyList<DocumentationHouseRequest> requests,
+            LibraryOperationLease operationLease,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(requests);
+        ArgumentNullException.ThrowIfNull(operationLease);
+        if (requests.Count == 0)
+        {
+            throw new ArgumentException(
+                "At least one documentation request is required.",
+                nameof(requests));
+        }
+
+        IReadOnlyList<DocumentationHouseOutcome> outcomes =
+            await DocumentationHouse.DocumentationHouse.ExecuteManyAsync(
+                    requests,
+                    operationLease,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (outcomes.Count != requests.Count)
+        {
+            throw new InvalidOperationException(
+                "DocumentationHouse did not preserve the authorized request count.");
+        }
+
+        var results =
+            new DocumentationQueryResult[requests.Count];
+        for (int index = 0; index < requests.Count; index++)
+        {
+            DocumentationQueryPlan query =
+                ResolveDemand(
+                    requests[index].Demand,
+                    cancellationToken);
+            DocumentationHouseOutcome outcome = outcomes[index];
+            results[index] =
+                new(query.Request, outcome, Content(outcome));
+        }
+        return Array.AsReadOnly(results);
+    }
+
+    /// <summary>
     /// Executes one QuerySpace-resolved demand against an already-authorized
     /// DocumentationHouse operation plan.
     /// </summary>
@@ -37,6 +83,27 @@ public static partial class DocumentationQuery
                 .ConfigureAwait(false);
         return new(query.Request, outcome, Content(outcome));
     }
+
+    private static DocumentationQueryPlan ResolveDemand(
+        DocumentationDemand demand,
+        CancellationToken cancellationToken) =>
+        ResolveRequest(
+            CreateRequest(demand),
+            cancellationToken) switch
+        {
+            DocumentationQueryRequestResult.Accepted accepted =>
+                accepted.Plan,
+            DocumentationQueryRequestResult.Rejected rejected =>
+                throw new InvalidOperationException(
+                    $"The owner-issued documentation request was rejected "
+                        + $"({rejected.Kind})."),
+            DocumentationQueryRequestResult.IntentRejected rejected =>
+                throw new InvalidOperationException(
+                    $"The owner-issued documentation demand was rejected "
+                        + $"({rejected.Failure})."),
+            _ => throw new InvalidOperationException(
+                "Unknown documentation request resolution."),
+        };
 
     internal static DocumentationQueryOutcome Content(
         DocumentationHouseOutcome outcome)

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Runtime.Versioning;
+using DotnetInspector.DocumentationHouse;
 using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
 using DotnetInspector.PlatformHouse.Packages;
@@ -428,6 +429,81 @@ internal static class BrowserPlatformWorkspace
                 cancellationToken)
             .ConfigureAwait(false);
 
+    internal static async Task<DocumentationQueryOutcome>
+        QueryUnifiedMemberDocumentationAsync(
+            string targetFramework,
+            string platformVersion,
+            string assemblyFileName,
+            string pack,
+            string documentationId,
+            CancellationToken cancellationToken = default) =>
+        await QueryUnifiedMemberDocumentationAsync(
+                targetFramework,
+                platformVersion,
+                assemblyFileName,
+                pack,
+                documentationId,
+                BrowserPackageWorkspace.NetworkClient,
+                BrowserPackageWorkspace.Gallery,
+                BrowserPackageWorkspace.PackageSourceAuthorization,
+                BrowserPackageWorkspace.PackageOperationTimeout,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal static async Task<DocumentationQueryOutcome>
+        QueryUnifiedMemberDocumentationAsync(
+            string targetFramework,
+            string platformVersion,
+            string assemblyFileName,
+            string pack,
+            string documentationId,
+            HttpClient workspaceClient,
+            IPackageSourceClient packageClient,
+            IPackageSourceAuthorization sourceAuthorization,
+            TimeSpan operationTimeout,
+            CancellationToken cancellationToken = default)
+    {
+        await using BrowserPlatformScopeResolution resolution =
+            await OpenAssemblyAsync(
+                    targetFramework,
+                    platformVersion,
+                    assemblyFileName,
+                    pack,
+                    workspaceClient,
+                    packageClient,
+                    sourceAuthorization,
+                    acquireCompletePopulation: false,
+                    operationTimeout,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        AssemblyReferenceIdentity assemblyIdentity =
+            resolution.Participant.Participant.Assembly.Identity;
+        PlatformFamily family = resolution.Coordinate.Family switch
+        {
+            RuntimeFamily => PlatformFamily.DotNetRuntime,
+            AspNetCoreFamily => PlatformFamily.AspNetCore,
+            _ => throw new InvalidOperationException(
+                "The selected Browser Platform family is unsupported."),
+        };
+        var target = new PlatformFamilyTarget(
+            family,
+            PlatformTargetFramework.Parse(
+                resolution.Coordinate.Framework),
+            PlatformVersion.Parse(
+                resolution.Coordinate.Version));
+
+        return await BrowserPackageWorkspace.RunPackageOperationAsync(
+            deadline => QueryUnifiedMemberDocumentationCoreAsync(
+                target,
+                assemblyIdentity,
+                documentationId,
+                packageClient,
+                sourceAuthorization,
+                deadline),
+            operationTimeout,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     internal static async Task<CompiledDocumentationOutcome>
         QueryMemberDocumentationAsync(
             string targetFramework,
@@ -578,6 +654,81 @@ internal static class BrowserPlatformWorkspace
             : throw new InvalidOperationException(
                 "The single-subject Platform documentation inspection "
                     + $"returned {document.Outcomes.Length} outcomes.");
+
+    private static async Task<DocumentationQueryOutcome>
+        QueryUnifiedMemberDocumentationCoreAsync(
+            PlatformFamilyTarget target,
+            AssemblyReferenceIdentity assemblyIdentity,
+            string documentationId,
+            IPackageSourceClient sourceClient,
+            IPackageSourceAuthorization sourceAuthorization,
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
+    {
+        await using PackageSourceSettlementLease sourceLease =
+            PackageSourceSettlementService.IssueLease(
+                authority =>
+                    ReferenceEquals(
+                        authority.Association,
+                        sourceClient.Source.Association)
+                        ? sourceClient
+                        : throw new InvalidOperationException(
+                            "The Platform documentation request selected "
+                                + "another configured source."));
+        var source = new PackagePlatformSource(
+            sourceAuthorization,
+            new PackagePayloadAcquisitionPlan(
+                static (_, _) =>
+                    BrowserPackageWorkspace.SessionPackageStore,
+                BrowserPackageWorkspace.PackageLimits,
+                new BrowserPackageWorkspace
+                    .BrowserPackageOperationTransferPolicy(
+                        BrowserPackageWorkspace.PackageTransferPolicy,
+                        deadline)));
+        var adapter = new PackagePlatformHouseAdapter(
+            source,
+            "browser-platform-documentation");
+        TimeSpan sourceTimeout =
+            BrowserPackageWorkspace.SourceSettlementOperationTimeout(
+                deadline.Remaining);
+        var work = new PlatformHouseWorkBudget(
+            maxSourceOperations: 1,
+            maxTargetCandidates: 0,
+            maxAssemblies: 1,
+            maxXmlDocuments: 1,
+            maxPortablePdbs: 0,
+            maxSourceDocuments: 0,
+            maxBytes:
+                BrowserInspectionScope.MaxRetainedImageBytes
+                + 8L * 1024 * 1024,
+            maxForwardingHops: 0,
+            maxDuration: sourceTimeout);
+        IReadOnlyDictionary<string, DocumentationQueryOutcome> outcomes =
+            await PlatformDocumentationQuery.ExecutePackageBackedManyAsync(
+                    target,
+                    assemblyIdentity,
+                    [documentationId],
+                    DocumentationDemand.CompiledXml,
+                    adapter,
+                    sourceLease.IssueOperationLease(
+                        deadline.Token,
+                        sourceTimeout,
+                        sourceTimeout),
+                    work,
+                    new PlatformCompiledDocumentationQueryLimits
+                    {
+                        ApiSurface =
+                            BrowserApiSurfacePolicy.ExtractionBounds,
+                    },
+                    deadline.Token)
+                .ConfigureAwait(false);
+        return outcomes.TryGetValue(
+            documentationId,
+            out DocumentationQueryOutcome? outcome)
+                ? outcome
+                : throw new InvalidOperationException(
+                    "The Platform documentation query did not return the "
+                        + "requested exact subject.");
+    }
 
     internal static Task<BrowserPlatformScopeResolution> OpenAssemblyAsync(
         string targetFramework,
