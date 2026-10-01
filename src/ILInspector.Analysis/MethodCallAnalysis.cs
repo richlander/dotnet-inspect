@@ -52,6 +52,26 @@ internal interface IMethodCallResolver
 /// </summary>
 internal static partial class MethodCallAnalysis
 {
+    internal static int CountDirectInvocations(MethodBodyBlock body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+
+        int count = 0;
+        InstructionDecoder.Visit(
+            body,
+            (opcode, _, _) =>
+            {
+                if (opcode is ILOpCode.Call
+                    or ILOpCode.Callvirt
+                    or ILOpCode.Newobj)
+                {
+                    count++;
+                }
+                return true;
+            });
+        return count;
+    }
+
     internal static void CollectDirectCalls(
         MethodBodyAnalysisContext context,
         IMethodCallResolver resolver,

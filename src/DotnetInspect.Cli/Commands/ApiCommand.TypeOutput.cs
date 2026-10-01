@@ -347,6 +347,12 @@ public partial class ApiCommand
         if (sourceJson)
             return WriteSourceJson(options);
 
+        if (TryWriteDirectCallCount(type, options, sink)
+            is { } directCallCountResult)
+        {
+            return directCallCountResult;
+        }
+
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;

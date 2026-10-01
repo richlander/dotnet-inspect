@@ -417,6 +417,46 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void MetricPlan_DirectCallCountStopsAtDiscovery()
+    {
+        var request = new ImplementationMetricAnalysisRequest(
+            ImplementationMetricKind.DirectCallCount,
+            MetricLimits(),
+            ImplementationMetricRequestOrigin.Explicit);
+
+        ImplementationMetricAnalysisPlan plan =
+            ImplementationMetricAnalysisPlan.Create(request);
+
+        Assert.True(plan.UsesFocusedExecution);
+        Assert.True(plan.IncludesDirectCallCountMetric);
+        Assert.True(plan.RequiresDirectCallDiscovery);
+        Assert.False(plan.RequiresLocalSignatureDecode);
+        Assert.False(plan.RequiresCanonicalContext);
+        Assert.False(plan.RequiresDirectCallFacts);
+        Assert.Equal(
+            ImplementationMetricFactKind.SourceAttribution
+                | ImplementationMetricFactKind.ManagedBody
+                | ImplementationMetricFactKind.DirectCallDiscovery,
+            plan.RequiredFacts);
+        Assert.True(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .DirectCallDiscovery));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .LocalSignatureDecode));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .CanonicalMethodContext));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .DirectCallCollection));
+    }
+
+    [Fact]
     public void MetricPlan_DirectCallsUsesFocusedCallCollection()
     {
         var request = new ImplementationMetricAnalysisRequest(
@@ -814,6 +854,58 @@ public sealed class LibraryBodyAnalysisExecutionTests
             context.MetricCauses);
         Assert.Equal(1, context.AttemptedBodies);
         Assert.Equal(1, context.CompletedBodies);
+    }
+
+    [Fact]
+    public void
+        MetricExecution_DirectCallCountAvoidsTargetAndContextWork()
+    {
+        string path =
+            typeof(ImplementationProfileSample).Assembly.Location;
+        int token = typeof(ImplementationProfileSample)
+            .GetMethod(
+                nameof(ImplementationProfileSample.CallHiddenTwice),
+                BindingFlags.Public | BindingFlags.Static)!
+            .MetadataToken;
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateDirectCallCounts(
+                    MetricLimits(),
+                    new HashSet<int> { token }));
+
+        LibraryDirectCallCountAnalysisResult result =
+            execution.DirectCallCounts;
+        MethodDirectCallCountEvidence count =
+            Assert.Single(result.Counts);
+        Assert.True(result.WasRequested);
+        Assert.True(result.IsComplete);
+        Assert.Equal(token, count.Method.MetadataToken);
+        Assert.Equal(token, count.EvidenceMethod.MetadataToken);
+        Assert.Equal(2, count.Count);
+        Assert.Empty(result.UnavailableBodies);
+        Assert.True(result.Participation.WasPlanned);
+        Assert.Equal(1, result.Participation.AttemptedBodies);
+        Assert.Equal(1, result.Participation.CompletedBodies);
+        Assert.Equal(0, result.Participation.FailedBodies);
+        Assert.Empty(execution.CallGraph.DirectCalls);
+
+        MethodImplementationMetricEvidence body =
+            Assert.Single(
+                execution.ImplementationMetrics.Bodies);
+        Assert.Equal(2, body.DirectCallCount?.Count);
+        Assert.Null(body.DirectCalls);
+        Assert.DoesNotContain(
+            execution.ImplementationMetrics
+                .Participation!.ActualStages,
+            stage => stage.Stage
+                is ImplementationMetricWorkStage
+                    .LocalSignatureDecode
+                    or ImplementationMetricWorkStage
+                        .CanonicalMethodContext
+                    or ImplementationMetricWorkStage
+                        .DirectCallCollection);
     }
 
     [Fact]
@@ -1481,7 +1573,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
         ImplementationMetricDirectCalls calls =
             Assert.IsType<ImplementationMetricDirectCalls>(
                 body.DirectCalls);
-        Assert.Equal(1, calls.InvocationCount);
+        Assert.Equal(2, calls.InvocationCount);
         Assert.Equal(1, calls.DistinctTargetCount);
         Assert.False(calls.IsComplete);
         Assert.Contains(
@@ -1498,6 +1590,54 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(1, callCollection.AttemptedBodies);
         Assert.Equal(0, callCollection.CompletedBodies);
         Assert.Equal(1, callCollection.FailedBodies);
+    }
+
+    [Fact]
+    public void
+        MetricExecution_DirectCallCountDoesNotResolveMalformedTarget()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ImplementationProfileSample).Assembly.Location);
+        int token = ReplaceSecondCallTokenWithInvalidValue(image);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "MalformedDirectCall.dll",
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisRequest.CreateDirectCallCounts(
+                    MetricLimits(),
+                    new HashSet<int> { token }));
+
+        LibraryDirectCallCountAnalysisResult result =
+            execution.DirectCallCounts;
+        Assert.True(result.IsComplete);
+        Assert.Equal(2, Assert.Single(result.Counts).Count);
+        Assert.Empty(result.UnavailableBodies);
+        Assert.Empty(execution.CallGraph.DirectCalls);
+    }
+
+    [Fact]
+    public void
+        CompleteProfile_ComposesDiscoveryCountWithPartialTargetEvidence()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ImplementationProfileSample).Assembly.Location);
+        int token = ReplaceSecondCallTokenWithInvalidValue(image);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "MalformedDirectCall.dll",
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile(
+                        new HashSet<int> { token }));
+
+        MethodImplementationProfile profile =
+            Assert.Single(
+                execution.ImplementationProfiles.Profiles);
+        Assert.Equal(2, profile.DirectCallCount);
+        Assert.Equal(1, profile.DistinctCalleeCount);
+        Assert.Single(execution.CallGraph.DirectCalls);
     }
 
     [Fact]

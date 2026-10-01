@@ -121,6 +121,18 @@ public sealed class LibraryBodyAnalysisRequest
     }
 
     /// <summary>
+    /// Selects source-native direct-invocation counts for an explicit method
+    /// scope under finite work bounds.
+    /// </summary>
+    public static LibraryBodyAnalysisRequest CreateDirectCallCounts(
+        ImplementationMetricWorkLimits limits,
+        IReadOnlySet<int> bodyScope) =>
+        CreateImplementationMetrics(
+            ImplementationMetricKind.DirectCallCount,
+            limits,
+            bodyScope);
+
+    /// <summary>
     /// Selects Resource Occurrence Analysis with explicit admitted effect
     /// semantics. The producer is parameterized and therefore intentionally
     /// does not participate in <see cref="LibraryBodyAnalysisFeatures.All"/>.

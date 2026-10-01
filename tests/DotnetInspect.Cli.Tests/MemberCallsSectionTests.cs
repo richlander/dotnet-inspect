@@ -22,6 +22,42 @@ public class MemberCallsSectionTests
         Assert.Contains("`0x0A", result.Output);
     }
 
+    [Theory]
+    [InlineData(nameof(MemberCallsFixture.CallsWriteLineTwice))]
+    [InlineData(nameof(MemberCallsFixture.CallsWriteLineAfterYield))]
+    public async Task CallsSection_CountMatchesCompletedCallRows(
+        string memberName)
+    {
+        string[] args =
+        [
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            memberName,
+            "-S",
+            SectionNames.Calls,
+            "--tips",
+            "q",
+        ];
+
+        var rows = await RunCliAsync([.. args, "--json"]);
+        var count = await RunCliAsync([.. args, "--count"]);
+
+        Assert.Equal(0, rows.ExitCode);
+        Assert.Empty(rows.Error);
+        Assert.Equal(0, count.ExitCode);
+        Assert.Empty(count.Error);
+        using var document = JsonDocument.Parse(rows.Output);
+        Assert.Equal(
+            document.RootElement
+                .GetProperty("calls")
+                .GetArrayLength()
+                .ToString(),
+            count.Output.Trim());
+    }
+
     [Fact]
     public async Task CallsSection_SemanticTailSelectsTheSameCallSiteAcrossFormats()
     {
@@ -189,6 +225,32 @@ public class MemberCallsSectionTests
     }
 
     [Fact]
+    public async Task CallsSection_CountUnavailableWindowWithholdsOutput()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.CallsWriteLineTwice),
+            "-S",
+            SectionNames.Calls,
+            "--rows",
+            "3..3",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires call row 3, but only 2 call rows are available",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CallsSection_ExplicitLinesRejectJsonBeforeAcquisition()
     {
         string missingAssembly = Path.Combine(
@@ -320,6 +382,59 @@ public class MemberCallsSectionTests
         Assert.Contains("`System.Console.WriteLine(string)`", result.Output);
     }
 
+    [Theory]
+    [InlineData(1, "0")]
+    [InlineData(2, "1")]
+    public async Task CallsSection_CountUsesSelectedOverload(
+        int overloadIndex,
+        string expected)
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.Overloaded),
+            "--index",
+            overloadIndex.ToString(),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(expected, result.Output.Trim());
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task CallsSection_CountUsesSelectedPropertyAccessor(
+        int accessorIndex)
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.ValueWithCalls),
+            "--index",
+            accessorIndex.ToString(),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal("1", result.Output.Trim());
+    }
+
     [Fact]
     public async Task CallsSection_TsvUsesPlainNormalizedValues()
     {
@@ -406,6 +521,16 @@ public static class MemberCallsFixture
     public static void Overloaded(string value)
     {
         Console.WriteLine(value);
+    }
+
+    public static int ValueWithCalls
+    {
+        get
+        {
+            Console.WriteLine("get");
+            return 0;
+        }
+        set => Console.WriteLine(value);
     }
 
     // Non-public member: only selectable under --all. Regression coverage for #1323,

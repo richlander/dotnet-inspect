@@ -31,6 +31,9 @@ internal sealed record ImplementationMetricControlFlow(
         1 + ConditionalBranchCount - SwitchCount + SwitchTargetCount;
 }
 
+internal sealed record ImplementationMetricDirectCallCount(
+    int Count);
+
 internal sealed record ImplementationMetricDirectCalls(
     int InvocationCount,
     int DistinctTargetCount,
@@ -54,6 +57,7 @@ internal sealed record MethodImplementationMetricEvidence(
     ImplementationMetricLocalEvidence? Locals,
     ImplementationMetricInstructionShape? InstructionShape,
     ImplementationMetricControlFlow? ControlFlow,
+    ImplementationMetricDirectCallCount? DirectCallCount,
     ImplementationMetricDirectCalls? DirectCalls)
 {
     internal bool DirectCallCollectionAttempted { get; init; }

@@ -224,4 +224,66 @@ internal static class CliSemanticRowSelection
 
         return exact;
     }
+
+    public static bool TrySelectCount(
+        RowSelectionIntent<string>? intent,
+        int availableCount,
+        Func<int, int, int, string> formatFailure,
+        out int selectedCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(availableCount);
+        ArgumentNullException.ThrowIfNull(formatFailure);
+
+        selectedCount = availableCount;
+        if (intent is not { Operations.Count: > 0 })
+            return true;
+
+        for (int index = 0; index < intent.Operations.Count; index++)
+        {
+            RowSelectionIntentOperation<string> operation =
+                intent.Operations[index];
+            switch (operation.Kind)
+            {
+                case RowSelectionStageKind.Head:
+                case RowSelectionStageKind.Tail:
+                    selectedCount = Math.Min(
+                        selectedCount,
+                        operation.Count);
+                    break;
+                case RowSelectionStageKind.Window:
+                    if (operation.Start is null
+                        && operation.End is null)
+                    {
+                        break;
+                    }
+
+                    int requiredPosition =
+                        operation.End ?? operation.Start!.Value;
+                    if (requiredPosition > selectedCount)
+                    {
+                        CommandError.Write(
+                            formatFailure(
+                                index + 1,
+                                requiredPosition,
+                                selectedCount));
+                        selectedCount = 0;
+                        return false;
+                    }
+
+                    int firstIndex =
+                        (operation.Start ?? 1) - 1;
+                    int endExclusive =
+                        operation.End ?? selectedCount;
+                    selectedCount =
+                        endExclusive - firstIndex;
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        $"Unsupported semantic row-selection operation "
+                        + $"'{operation.Kind}'.");
+            }
+        }
+
+        return true;
+    }
 }

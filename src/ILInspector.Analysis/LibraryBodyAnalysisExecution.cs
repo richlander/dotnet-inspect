@@ -126,6 +126,50 @@ public sealed record LibraryImplementationProfileAnalysisResult(
 }
 
 /// <summary>
+/// Source-native direct-invocation count for one authenticated physical body.
+/// </summary>
+public sealed record MethodDirectCallCountEvidence(
+    MethodIdentity Method,
+    MethodIdentity EvidenceMethod,
+    int Count);
+
+/// <summary>
+/// Physical body that could not issue a direct-invocation count.
+/// </summary>
+public sealed record DirectCallCountUnavailableBody(
+    MethodIdentity EvidenceMethod,
+    AnalysisDiagnostic? Diagnostic);
+
+/// <summary>
+/// Actual direct-invocation discovery participation for one execution.
+/// </summary>
+public sealed record DirectCallCountParticipationReceipt(
+    bool WasPlanned,
+    int AttemptedBodies,
+    int CompletedBodies,
+    int FailedBodies);
+
+/// <summary>
+/// Detached source-native direct-invocation counts for one exact assembly
+/// execution.
+/// </summary>
+public sealed record LibraryDirectCallCountAnalysisResult(
+    LibraryBodyAnalysisReceipt Receipt,
+    bool WasRequested,
+    ImmutableArray<MethodIdentity> DeclaredMethods,
+    ImmutableArray<MethodIdentity> ManagedMethodBodies,
+    ImmutableArray<MethodDirectCallCountEvidence> Counts,
+    ImmutableArray<DirectCallCountUnavailableBody> UnavailableBodies,
+    DirectCallCountParticipationReceipt Participation,
+    ImmutableArray<AnalysisDiagnostic> Diagnostics)
+{
+    public bool IsComplete =>
+        WasRequested
+        && UnavailableBodies.IsEmpty
+        && Participation.FailedBodies == 0;
+}
+
+/// <summary>
 /// Detached terminal-resource facts produced from one resolution and body
 /// acquisition generation.
 /// </summary>
@@ -219,6 +263,11 @@ public sealed class LibraryBodyAnalysisExecution
                 CallGraph,
                 ImplementationProfiles,
                 plan);
+        DirectCallCounts =
+            CreateDirectCallCountResult(
+                Receipt,
+                ImplementationMetrics,
+                plan);
         Optimization = new(
             Receipt,
             analysis,
@@ -264,6 +313,9 @@ public sealed class LibraryBodyAnalysisExecution
     internal LibraryImplementationMetricAnalysisResult
         ImplementationMetrics
     { get; }
+
+    /// <summary>Source-native direct-invocation counts.</summary>
+    public LibraryDirectCallCountAnalysisResult DirectCallCounts { get; }
 
     /// <summary>Focused optimization-opportunity result.</summary>
     public LibraryOptimizationAnalysisResult Optimization { get; }
@@ -395,6 +447,109 @@ public sealed class LibraryBodyAnalysisExecution
             bodies,
             siblingRelationships,
             metricDiagnostics);
+    }
+
+    static LibraryDirectCallCountAnalysisResult
+        CreateDirectCallCountResult(
+            LibraryBodyAnalysisReceipt receipt,
+            LibraryImplementationMetricAnalysisResult metrics,
+            LibraryBodyAnalysisPlan plan)
+    {
+        bool wasRequested =
+            metrics.WasRequested
+            && metrics.Participation!.RequestedMetrics.HasFlag(
+                ImplementationMetricKind.DirectCallCount);
+        ImmutableArray<MethodDirectCallCountEvidence> counts =
+            !wasRequested
+                ? []
+                :
+                [
+                    .. metrics.Bodies
+                        .Where(static body =>
+                            body.DirectCallCount is not null)
+                        .Select(static body =>
+                            new MethodDirectCallCountEvidence(
+                                body.Method,
+                                body.EvidenceMethod,
+                                body.DirectCallCount!.Count)),
+                ];
+        Dictionary<int, AnalysisDiagnostic> diagnostics =
+            metrics.Diagnostics
+                .GroupBy(static diagnostic =>
+                    diagnostic.MethodToken)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.First());
+        HashSet<int> countedTokens =
+        [
+            .. counts.Select(static count =>
+                count.EvidenceMethod.MetadataToken),
+        ];
+        IReadOnlySet<int> requestedTokens =
+            plan.RequestedMethodScope
+            ?? ImmutableHashSet<int>.Empty;
+        HashSet<int> relevantDiagnosticTokens =
+        [
+            .. metrics.Diagnostics
+                .Where(diagnostic =>
+                    requestedTokens.Contains(
+                        diagnostic.MethodToken)
+                    || diagnostic.SourceMethodToken is { } sourceToken
+                        && requestedTokens.Contains(sourceToken))
+                .Select(static diagnostic =>
+                    diagnostic.MethodToken),
+        ];
+        ImmutableArray<DirectCallCountUnavailableBody> unavailable =
+            !wasRequested
+                ? []
+                :
+                [
+                    .. metrics.ManagedMethodBodies
+                        .Where(method =>
+                            !countedTokens.Contains(
+                                method.MetadataToken)
+                            && (metrics.Bodies.Any(body =>
+                                    body.EvidenceMethod.MetadataToken
+                                        == method.MetadataToken)
+                                || relevantDiagnosticTokens.Contains(
+                                    method.MetadataToken)))
+                        .Select(method =>
+                            new DirectCallCountUnavailableBody(
+                                method,
+                                diagnostics.GetValueOrDefault(
+                                    method.MetadataToken))),
+                ];
+        ImmutableArray<MethodIdentity> managedMethods =
+        [
+            .. counts
+                .Select(static count => count.EvidenceMethod)
+                .Concat(unavailable.Select(static body =>
+                    body.EvidenceMethod))
+                .Distinct(),
+        ];
+        ImplementationMetricStageParticipation? participation =
+            metrics.Participation?.ActualStages
+                .SingleOrDefault(static stage =>
+                    stage.Stage
+                        == ImplementationMetricWorkStage
+                            .DirectCallDiscovery);
+        return new(
+            receipt,
+            wasRequested,
+            [
+                .. metrics.DeclaredMethods.Where(method =>
+                    requestedTokens.Contains(
+                        method.MetadataToken)),
+            ],
+            managedMethods,
+            counts,
+            unavailable,
+            new(
+                WasPlanned: wasRequested,
+                participation?.AttemptedBodies ?? 0,
+                participation?.CompletedBodies ?? 0,
+                participation?.FailedBodies ?? 0),
+            metrics.Diagnostics);
     }
 
     static ImplementationMetricSiblingRelationships
@@ -579,6 +734,8 @@ public sealed class LibraryBodyAnalysisExecution
                     DirectCalls =
                         MethodImplementationProfileAnalysis
                             .MeasureDirectCalls(
+                                body.DirectCallCount?.Count
+                                    ?? 0,
                                 calls,
                                 callGraph.DeclaredMethodMap,
                                 incompleteReason),
@@ -626,7 +783,15 @@ public sealed class LibraryBodyAnalysisExecution
                 callGraph.DirectCalls,
                 callGraph.MethodSignals,
                 relationships,
-                callGraph.DeclaredMethodMap),
+                callGraph.DeclaredMethodMap,
+                analysis.Methods.ImplementationMetrics
+                    .Where(static body =>
+                        body.DirectCallCount is not null)
+                    .ToDictionary(
+                        static body =>
+                            body.EvidenceMethod.MetadataToken,
+                        static body =>
+                            body.DirectCallCount!.Count)),
             relationships,
             generatedFrameworkTypes.Types);
     }

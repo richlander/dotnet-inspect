@@ -376,8 +376,9 @@ The initial closed metric vocabulary is:
 | Control flow | Blocks, branches, switches, loops, and ordinary-flow complexity | Canonical method context |
 | Exception regions | Catch, filter, finally, and fault counts | Managed body acquisition |
 | Locals | Declared local count and decode completeness | Local-signature decode |
-| Direct calls | Invocation and distinct-target counts | Canonical method context and metric call collection |
-| Sibling overload relationships | Exact relationship rows and incoming/outgoing counts | Direct calls and family relationship projection |
+| Direct invocation count | Count of `call`, `callvirt`, and `newobj` sites | Managed body acquisition and direct-invocation discovery |
+| Distinct direct-call targets | Count of resolved target identities | Canonical method context and metric call collection |
+| Sibling overload relationships | Exact relationship rows and incoming/outgoing counts | Direct-call targets and family relationship projection |
 | Allocation count | The current implementation-profile allocation count | Canonical context and allocation-signal collection |
 | Allocation occurrences | Owner-issued allocation sites, shapes, escape, and multiplicity | Canonical context and allocation-occurrence collection |
 | Throw count | The current implementation-profile throw count | Canonical context and body-signal collection |
@@ -399,6 +400,15 @@ Unsafe presence does not select all `UnsafetyOccurrence` rows. Those richer
 safety rows retain their existing explicit request and owner-issued result
 contract.
 
+Direct invocation count and distinct direct-call targets are separate metrics.
+Invocation count is a discovery fact over qualifying IL opcodes. Distinct-target
+count is an identity fact over successfully resolved target members. A combined
+compatibility projection may carry both values, but it composes the two
+owner-issued results; it does not derive invocation count from the length of
+resolved rows. Failure to resolve one target therefore cannot reduce a complete
+invocation count, and a complete invocation count cannot make the distinct
+target result complete.
+
 Declared-source and generated-body attribution are mandatory result
 correspondence, not an optional metric. Every metric result identifies
 the logical declared method and the physical evidence method when that
@@ -406,10 +416,11 @@ relationship is authenticated. Requesting the Async metric controls
 publication of the async metric; it does not let a caller omit the
 correspondence required to interpret every other logical metric.
 
-The initial required-fact vocabulary is source attribution, managed body,
-local signature, canonical method context, direct calls, allocation signals,
-allocation occurrences, body signals, and safety. These facts are canonical
-Analysis prerequisites, not automatically published metric cells.
+The required-fact vocabulary is source attribution, managed body, direct-call
+discovery, local signature, canonical method context, direct-call targets,
+allocation signals, allocation occurrences, body signals, and safety. These
+facts are canonical Analysis prerequisites, not automatically published metric
+cells.
 
 ### Metric, fact, and work prerequisite normalization
 
@@ -423,24 +434,26 @@ requested metrics
 ```
 
 A canonical fact is owner-issued evidence required to evaluate one or more
-metrics. Sibling overload relationships, for example, require Direct Calls
-facts without adding the Direct Calls count metric to the requested metric set.
-The result records that prerequisite without publishing an unrequested metric
-cell.
+metrics. Sibling overload relationships, for example, require direct-call
+target facts without adding either direct-call metric to the requested metric
+set. The result records that prerequisite without publishing an unrequested
+metric cell.
 
-An executable work prerequisite is internal work required by an existing
-owner contract. Direct calls currently consume the canonical
+An executable work prerequisite is internal work required by an existing owner
+contract. Direct-call target resolution consumes the canonical
 `MethodBodyAnalysisContext`; that context includes decoded instructions,
-blocks, loop regions, exception regions, and decoded locals. Selecting direct
-calls therefore participates in the canonical-context stage, but it does not
+blocks, loop regions, exception regions, and decoded locals. Selecting target
+identity therefore participates in the canonical-context stage, but it does not
 add Instruction shape, Control flow, Exception regions, or Locals to the
-requested metric set and does not publish those metric cells.
+requested metric set and does not publish those metric cells. Direct invocation
+count does not require that context.
 
 The initial work-stage vocabulary is:
 
 - physical-scope and declared-source metadata attribution;
 - declared-source body probing;
 - managed body acquisition;
+- direct-invocation discovery;
 - local-signature decode;
 - canonical method-context construction;
 - metric direct-call collection and target classification;
@@ -460,6 +473,21 @@ without constructing the instruction and control-flow context. Instruction
 shape and every result whose current owner consumes
 `MethodBodyAnalysisContext` share exactly one canonical context per physical
 body.
+
+Direct-invocation discovery visits the acquired `MethodBodyBlock` and validates
+the complete instruction tiling while counting only `call`, `callvirt`, and
+`newobj`. It does not decode local signatures, construct control flow, resolve a
+metadata operand, allocate a `DirectCall`, or build incidence. `calli`, `ldftn`,
+and `ldvirtftn` remain outside this metric's current semantics. Extending that
+set requires a versioned metric change rather than silently changing existing
+counts.
+
+Malformed opcode or operand tiling makes the count outcome unavailable with the
+body diagnostic; it is never published as zero. A structurally valid call
+operand whose metadata target cannot be resolved still contributes to
+invocation count because target correspondence was not requested. The
+distinct-target result independently retains the resolution failure and any
+completed target evidence.
 
 Declared-source attribution may use its owner's separate body probe and
 instruction decoder before the effective metric body population is known. That
@@ -718,6 +746,44 @@ image acquisition, metadata table enumeration required to establish exact
 scope, or another explicitly co-running Analysis feature. Malformed metadata,
 body decode, and resolver failures remain visible typed evidence; no broad
 fallback converts them to zero metrics or a successful empty result.
+
+### Discovery-native direct-call Count adoption for #8945
+
+The prototype established that direct-invocation Count belongs below canonical
+context and target resolution. One exact NativeAOT head binary produced the
+same answers from discovery and complete rich rows over both measured corpora:
+
+| Corpus | Invocation sites | Existing exact-base rows | Discovery Count | Time ratio | Allocation ratio |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `ILInspector.Analysis`, `DotnetInspector.Queries`, and `dotnet-inspect` | 706,287 | 13,310.214 ms / 8,933,349,680 B | 43.198 ms / 14,696,664 B | 0.0032x | 0.0016x |
+| `Microsoft.CodeAnalysis` and `Microsoft.CodeAnalysis.CSharp` | 251,579 | 5,236.715 ms / 3,682,608,032 B | 21.089 ms / 7,959,048 B | 0.0040x | 0.0022x |
+
+The unchanged rich-row path at the prototype head measured 0.9821x and 0.9900x
+the exact-base time for the two corpora, with 1.0000x and 1.0001x allocation.
+The improvement therefore comes from stopping at discovery, not from an
+unrelated row-path change or a downstream incidence optimization.
+
+The production result is host-neutral and per physical body. Each available
+entry carries the authenticated logical method, physical evidence method, and
+invocation count under the execution receipt. Unavailable bodies retain their
+typed acquisition or decode diagnostic. The result also carries the requested
+and effective scope and direct-invocation discovery participation needed to
+prove that target collection did not run. Hosts do not consume the internal
+generic metric cells.
+
+The first production consumer is exact-member `Calls --count`. The CLI lowers
+that terminal to the count request after exact member resolution and before
+ordinary call-row Analysis. It sums the authenticated physical-body entries for
+the selected logical member. A row window resolves against the scalar
+cardinality, so `--head`, `--tail`, and `--rows` preserve the same count they
+would have produced over the metadata-ordered Calls table without constructing
+that table. Rich Calls output and projections continue to request target rows.
+
+This adoption does not add a second call-row producer, make Count a
+`Rows.Length` convenience, or expose `DirectCallIncidence` as a population.
+The complete-profile compatibility projection composes the discovery count
+with separately resolved distinct-target evidence until its remaining
+consumers move to focused results.
 
 ### Production adoption for #8450
 
