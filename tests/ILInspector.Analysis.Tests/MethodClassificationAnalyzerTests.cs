@@ -374,6 +374,41 @@ public sealed class MethodClassificationAnalyzerTests
         }
     }
 
+    [Theory]
+    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Exists)]
+    [InlineData(ProducerTerminal.Rows)]
+    public void Analyzers_AbortedKernelReceiptEqualsTheInterpretedExecutor(
+        ProducerTerminal terminal)
+    {
+        GateFixtureImage builder = new();
+        builder.Type("N", "Order")
+            .Method("Ordinary")
+            .Method("OverCap", WideSignature());
+        ImmutableArray<byte> image = builder.Build();
+
+        MethodDefinitionExecution kernel = Execute(
+            image,
+            new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal));
+        MethodDefinitionExecution interpreted = Execute(
+            image,
+            new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal),
+            new ProducerRequest(Independent.Instance));
+
+        Assert.NotNull(kernel.Receipt.Critical);
+        Assert.NotNull(interpreted.Receipt.Critical);
+        Assert.Equal(interpreted.Receipt.UnitsVisited, kernel.Receipt.UnitsVisited);
+        Assert.Equal(2, kernel.Receipt.UnitsVisited);
+        ProducerParticipation kp = kernel.Receipt.For(PointerSignatureAnalyzer.Instance);
+        ProducerParticipation ip = interpreted.Receipt.For(PointerSignatureAnalyzer.Instance);
+        Assert.Equal(
+            (ip.Outcome, ip.UnitsAttempted, ip.UnitsCompleted, ip.UnitsFailed),
+            (kp.Outcome, kp.UnitsAttempted, kp.UnitsCompleted, kp.UnitsFailed));
+        Assert.Equal(
+            (ProducerOutcome.Aborted, 2, 1, 0),
+            (kp.Outcome, kp.UnitsAttempted, kp.UnitsCompleted, kp.UnitsFailed));
+    }
+
     // ---- Helpers ----
 
     static readonly ProducerDeclaration<ClosedQueryResult<ClassifiedMethodRow>>[] Analyzers =
@@ -381,6 +416,18 @@ public sealed class MethodClassificationAnalyzerTests
 
     static BlobBuilder PointerParameter() =>
         GateFixtureImage.VoidSignature(static t => t.Pointer().Int32());
+
+    static BlobBuilder WideSignature()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        int parameters = MetadataSafetyPolicy.MaxSignatureTypeNodes + 16;
+        signature.WriteCompressedInteger(parameters);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < parameters; i++)
+            signature.WriteByte(0x08);
+        return signature;
+    }
 
     static BlobBuilder Bytes(params byte[] bytes)
     {

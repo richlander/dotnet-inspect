@@ -53,6 +53,12 @@
     <None Include="$(NuGetPackageRoot)microsoft.codeanalysis.common/5.0.0/lib/net9.0/Microsoft.CodeAnalysis.dll"
           Link="RealAssets/PrimitiveJoin/Microsoft.CodeAnalysis.dll"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.codeanalysis.common/5.0.0/lib/net9.0/Microsoft.CodeAnalysis.dll"
+          Link="RealAssets/PdbNestedLambda/Microsoft.CodeAnalysis.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.codeanalysis.common/5.0.0/lib/net9.0/Microsoft.CodeAnalysis.pdb"
+          Link="RealAssets/PdbNestedLambda/Microsoft.CodeAnalysis.pdb"
+          CopyToOutputDirectory="PreserveNewest" />
     <PackageDownload Include="System.CommandLine" Version="[3.0.0-preview.5.26302.115]" />
     <None Include="$(NuGetPackageRoot)system.commandline/3.0.0-preview.5.26302.115/lib/net10.0/System.CommandLine.dll"
           Link="RealAssets/NestedLambda/System.CommandLine.dll"
@@ -109,6 +115,7 @@
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\sourcelink\DotnetInspector.SourceLinkPartiallyMalformedFixtures\DotnetInspector.SourceLinkPartiallyMalformedFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PerformanceOracles\DotnetInspector.PerformanceOracles.csproj" />
     <ProjectReference Include="..\..\tools\HarnessReportProtocol\HarnessReportProtocol.csproj" />
     <ProjectReference Include="..\..\tools\RoundTripCompilation\RoundTripCompilation.csproj" />
     <!-- Built, not referenced: AuthoredCorpusHarnessProcessTests runs the harness

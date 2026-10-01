@@ -158,12 +158,12 @@ internal static class MemberSearchService
         Action markFailure)
     {
         List<MemberFindResult> results = [];
-        int? operationalLimit =
+        int? queryLimit =
             options.TypeFilter is null
                 ? options.Limit
                 : null;
         bool ReachedLimit() =>
-            operationalLimit is int limit
+            options.Limit is int limit
             && results.Count >= limit;
 
         await workspace.RunPerAssemblyAsync(
@@ -172,7 +172,7 @@ internal static class MemberSearchService
                 group,
                 patterns,
                 options.IncludeAll,
-                operationalLimit is int limit
+                queryLimit is int limit
                     ? limit - results.Count
                     : null),
             (assembly, entry) => AddMembers(
@@ -189,7 +189,7 @@ internal static class MemberSearchService
                     $"Could not read {assembly.Path}: {failure}");
             },
             markFailure,
-            operationalLimit is not null ? ReachedLimit : null);
+            options.Limit is not null ? ReachedLimit : null);
         if (options.Limit.HasValue
             && results.Count > options.Limit.Value)
         {

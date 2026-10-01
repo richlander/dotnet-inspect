@@ -219,6 +219,11 @@ import {
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
 import {
+  isProductEcosystemsPath,
+  productEcosystemsViewHtml,
+  setProductEcosystemCatalog,
+} from "./product-ecosystems.ts";
+import {
   installStaleDeploymentDetection,
   retainSuccessfulImport,
   STALE_DEPLOYMENT_NOTICE,
@@ -756,6 +761,12 @@ import type {
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
 } from "./facades/inspect-web-analysis.d.ts";
+import {
+  createTypeLeverageCoordinator,
+  typeLeverageMatchesFilter,
+  type TypeLeverageFilter,
+  type TypeLeveragePresentation,
+} from "./type-leverage.ts";
 import type {
   BrowserMemberSource,
   BrowserTypeExplorerInspection,
@@ -877,8 +888,16 @@ let inspectPackagePerformance:
   EngineClient["analysis"]["queryPackagePerformance"];
 let inspectPackageLibraryMetrics:
   EngineClient["analysis"]["queryPackageLibraryMetrics"];
+let inspectPackageLibraryNamespaceLeverage:
+  EngineClient["analysis"]["queryPackageLibraryNamespaceLeverage"];
+let inspectPackageNamespaceTypeLeverage:
+  EngineClient["analysis"]["queryPackageNamespaceTypeLeverage"];
 let inspectPlatformLibraryMetrics:
   EngineClient["analysis"]["queryPlatformLibraryMetrics"];
+let inspectPlatformLibraryNamespaceLeverage:
+  EngineClient["analysis"]["queryPlatformLibraryNamespaceLeverage"];
+let inspectPlatformNamespaceTypeLeverage:
+  EngineClient["analysis"]["queryPlatformNamespaceTypeLeverage"];
 let inspectPackageTypeImplementationHeat:
   EngineClient["analysis"]["queryPackageTypeImplementationHeat"];
 let inspectPlatformTypeImplementationHeat:
@@ -915,6 +934,7 @@ let inspectEncodeWorkspaceShareState:
   EngineClient["catalog"]["encodeWorkspaceShareState"];
 let inspectRunHomeDemo: EngineClient["catalog"]["runHomeDemo"];
 let productHomeDemoCatalogError = "";
+let productEcosystemCatalogError = "";
 
 // The Worker client stays off the first-paint path. It is imported after the
 // home view paints, then starts exactly one epoch when bootstrap supplies the
@@ -1061,11 +1081,19 @@ async function loadEngineModule() {
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
+      queryPackageLibraryNamespaceLeverage:
+        inspectPackageLibraryNamespaceLeverage,
+      queryPackageNamespaceTypeLeverage:
+        inspectPackageNamespaceTypeLeverage,
       queryPackageTypeImplementationHeat:
         inspectPackageTypeImplementationHeat,
       queryPlatformTypeImplementationHeat:
         inspectPlatformTypeImplementationHeat,
       queryPlatformLibraryMetrics: inspectPlatformLibraryMetrics,
+      queryPlatformLibraryNamespaceLeverage:
+        inspectPlatformLibraryNamespaceLeverage,
+      queryPlatformNamespaceTypeLeverage:
+        inspectPlatformNamespaceTypeLeverage,
       queryPlatformIntegrations: inspectPlatformIntegrations,
       queryPlatformOpportunities: inspectPlatformOpportunities,
       queryPlatformPerformance: inspectPlatformPerformance,
@@ -1254,6 +1282,17 @@ const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   memberFiltersExpanded: false,
   typeFiltersExpanded: false,
+  typeLeverageEnabled: false,
+  typeLeverageFilter: "" as TypeLeverageFilter,
+  typeLeverageLoading: false,
+  typeLeverageError: "",
+  typeLeverageKey: "",
+  typeLeveragePresentation: null as TypeLeveragePresentation | null,
+  libraryMetricsLeverageNamespace: null as string | null,
+  libraryMetricsLeverageLoading: false,
+  libraryMetricsLeverageError: "",
+  libraryMetricsLeverageKey: "",
+  libraryMetricsLeveragePresentation: null as TypeLeveragePresentation | null,
   packages: [],
   package: null,
   uploadedLibrary: null,
@@ -3327,6 +3366,75 @@ let keyboardHelpBindings = keybindings.bindingsFor();
 const operationAuthority = createOperationAuthorityPage();
 const typeHeatWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
+const typeLeverageWorkspaceGenerations =
+  new WeakMap<AppPackage, string>();
+const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
+  operationAuthority,
+  key: target => target.key,
+  libraryKey: target => target.libraryKey,
+  queryIndex: target => target.queryIndex(),
+  selectNamespaces: (target, index) => [
+    ...index.namespaces
+      .filter(row => row.topLeverage)
+      .map(row => row.namespace),
+    ...target.requestedNamespaces.filter(namespace =>
+      index.namespaces.some(row => row.namespace === namespace)),
+  ],
+  queryShard: (target, exactNamespace) =>
+    target.queryShard(exactNamespace),
+  isCurrent: target => target.consumer === "metrics"
+    ? currentLibraryMetricsTypeLeverageKey() === target.key
+    : state.typeLeverageEnabled
+      && currentTypeLeverageKey() === target.key,
+  describeError: errorMessage,
+  reportOperationDiagnostic: diagnostic => {
+    console.error("Type leverage operation authority failure.", diagnostic);
+    return undefined;
+  },
+  publish: published => {
+    if (currentLibraryMetricsTypeLeverageKey() === published.key) {
+      state.libraryMetricsLeverageKey = published.key;
+      switch (published.status) {
+        case "loading":
+          state.libraryMetricsLeverageLoading = true;
+          state.libraryMetricsLeverageError = "";
+          state.libraryMetricsLeveragePresentation = null;
+          break;
+        case "ready":
+          state.libraryMetricsLeverageLoading = false;
+          state.libraryMetricsLeverageError = "";
+          state.libraryMetricsLeveragePresentation = published.presentation;
+          break;
+        case "failed":
+          state.libraryMetricsLeverageLoading = false;
+          state.libraryMetricsLeverageError = published.message;
+          state.libraryMetricsLeveragePresentation = null;
+          break;
+      }
+      render();
+      return;
+    }
+    state.typeLeverageKey = published.key;
+    switch (published.status) {
+      case "loading":
+        state.typeLeverageLoading = true;
+        state.typeLeverageError = "";
+        state.typeLeveragePresentation = null;
+        break;
+      case "ready":
+        state.typeLeverageLoading = false;
+        state.typeLeverageError = "";
+        state.typeLeveragePresentation = published.presentation;
+        break;
+      case "failed":
+        state.typeLeverageLoading = false;
+        state.typeLeverageError = published.message;
+        state.typeLeveragePresentation = null;
+        break;
+    }
+    renderPreservingMemberFocus();
+  },
+});
 const typeHeat = createTypeHeatCoordinator({
   state,
   operationAuthority,
@@ -4389,6 +4497,7 @@ if (state.typeExplorerOpen) {
 }
 const diagnosticsOpen = isDiagnosticsPath(location.pathname);
 const productHomeDemosOpen = isProductHomeDemosPath(location.pathname);
+const productEcosystemsOpen = isProductEcosystemsPath(location.pathname);
 if (diagnosticsOpen) {
   state.diagnosticsCapturedAtUtc = new Date().toISOString();
   diagnosticsHeadingFocusPending = true;
@@ -4405,6 +4514,7 @@ state.home = state.credits
     && !state.packageActivityOpen
     && !state.typeExplorerOpen
     && !productHomeDemosOpen
+    && !productEcosystemsOpen
     && !initialLocation.package
     && !initialWorkspace.hasWorkspaceState
     && !initialLocation.routeFailure);
@@ -4653,6 +4763,7 @@ const memberDiffExplorer = createMemberDiffExplorer({
     );
     return undefined;
   },
+  renderPage: render,
 });
 const compareClone = createCompareCloneCoordinator({
   state,
@@ -4978,13 +5089,214 @@ function selectedType() {
 function filteredTypes() {
   if (!state.package) return [];
   const needle = state.typeFilter.toLowerCase();
+  const leverage = currentTypeLeveragePresentation();
+  const leverageFilter = leverage ? state.typeLeverageFilter : "";
   return state.package.types.filter(item => {
     return typeMatchesFilterText(item, needle)
-      && (!state.namespaceFilter || item.namespace === state.namespaceFilter)
+      && (selectedNamespaceFilter() === null
+        || item.namespace === selectedNamespaceFilter())
       && (!state.kindFilter || typeKind(item.kind) === state.kindFilter)
       && (!state.libraryScope || state.libraryScope.has(libraryKey(item)))
-      && state.accessibilityFilter.has(item.accessibilityId);
+      && state.accessibilityFilter.has(item.accessibilityId)
+      && typeLeverageMatchesFilter(
+        leverage?.byType.get(
+          item.definitionId ?? item.id,
+        ),
+        leverageFilter,
+      );
   });
+}
+
+interface TypeLeverageTarget {
+  readonly consumer: "type-browser" | "metrics";
+  readonly key: string;
+  readonly libraryKey: string;
+  readonly requestedNamespaces: readonly string[];
+  readonly queryIndex: () => ReturnType<
+    typeof inspectPackageLibraryNamespaceLeverage
+  >;
+  readonly queryShard: (exactNamespace: string) => ReturnType<
+    typeof inspectPackageNamespaceTypeLeverage
+  >;
+}
+
+function typeLeverageWorkspaceGeneration(pkg: AppPackage) {
+  const existing = typeLeverageWorkspaceGenerations.get(pkg);
+  if (existing) return existing;
+  const generation = crypto.randomUUID();
+  typeLeverageWorkspaceGenerations.set(pkg, generation);
+  return generation;
+}
+
+function createTypeLeverageTarget(
+  consumer: TypeLeverageTarget["consumer"],
+  requestedNamespaces: readonly string[],
+  allowLibraryRoot: boolean,
+): TypeLeverageTarget | null {
+  const pkg = state.package;
+  const library = selectedLibrary();
+  if (!pkg
+    || !library
+    || (!allowLibraryRoot && state.rootKind === "library")
+    || aggregateLibrarySubjectIsActive()) {
+    return null;
+  }
+  const generation = typeLeverageWorkspaceGeneration(pkg);
+  if (pkg.isRuntimePack) {
+    const row = platformLibraryForRequest(pkg, library.id);
+    const assemblyFileName = platformAssemblyRequest(row);
+    const salienceLibraryKey = JSON.stringify([
+      "library-structural-salience",
+      "structural-salience.v2",
+      "signature",
+      generation,
+      "platform",
+      pkg.activeFramework,
+      pkg.version,
+      row.pack,
+      assemblyFileName,
+    ]);
+    return {
+      consumer,
+      libraryKey: salienceLibraryKey,
+      requestedNamespaces,
+      key: JSON.stringify([salienceLibraryKey, consumer, requestedNamespaces]),
+      queryIndex: () => inspectPlatformLibraryNamespaceLeverage(
+        pkg.activeFramework,
+        pkg.version,
+        assemblyFileName,
+        row.pack,
+      ),
+      queryShard: exactNamespace => inspectPlatformNamespaceTypeLeverage(
+        pkg.activeFramework,
+        pkg.version,
+        assemblyFileName,
+        row.pack,
+        exactNamespace,
+      ),
+    };
+  }
+
+  const salienceLibraryKey = JSON.stringify([
+    "library-structural-salience",
+    "structural-salience.v2",
+    "signature",
+    generation,
+    "package",
+    pkg.id,
+    pkg.version,
+    pkg.activeFramework,
+    library.id,
+  ]);
+  return {
+    consumer,
+    libraryKey: salienceLibraryKey,
+    requestedNamespaces,
+    key: JSON.stringify([salienceLibraryKey, consumer, requestedNamespaces]),
+    queryIndex: () => inspectPackageLibraryNamespaceLeverage(
+      pkg.id,
+      pkg.version,
+      pkg.activeFramework,
+      library.id,
+    ),
+    queryShard: exactNamespace => inspectPackageNamespaceTypeLeverage(
+      pkg.id,
+      pkg.version,
+      pkg.activeFramework,
+      library.id,
+      exactNamespace,
+    ),
+  };
+}
+
+function typeLeverageTarget(): TypeLeverageTarget | null {
+  const requestedNamespaces = state.namespaceFilter !== ""
+    ? [state.namespaceFilter === GLOBAL_NAMESPACE_FILTER
+      ? ""
+      : state.namespaceFilter]
+    : [];
+  return createTypeLeverageTarget(
+    "type-browser",
+    requestedNamespaces,
+    false,
+  );
+}
+
+function libraryMetricsTypeLeverageTarget(): TypeLeverageTarget | null {
+  if (!state.atLibraryRoot || state.libraryLens !== "metrics") return null;
+  const requestedNamespaces =
+    state.libraryMetricsLeverageNamespace === null
+      ? []
+      : [state.libraryMetricsLeverageNamespace];
+  return createTypeLeverageTarget("metrics", requestedNamespaces, true);
+}
+
+function currentTypeLeverageKey() {
+  if (!state.typeLeverageEnabled) return null;
+  try {
+    return typeLeverageTarget()?.key ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function currentTypeLeveragePresentation() {
+  const key = currentTypeLeverageKey();
+  if (key === null || state.typeLeverageKey !== key) return null;
+  return state.typeLeveragePresentation ?? typeLeverage.presentation(key);
+}
+
+function currentLibraryMetricsTypeLeverageKey() {
+  try {
+    return libraryMetricsTypeLeverageTarget()?.key ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function currentLibraryMetricsTypeLeveragePresentation() {
+  const key = currentLibraryMetricsTypeLeverageKey();
+  if (key === null || state.libraryMetricsLeverageKey !== key) return null;
+  return state.libraryMetricsLeveragePresentation
+    ?? typeLeverage.presentation(key);
+}
+
+function loadTypeLeverage(retry = false) {
+  let target: TypeLeverageTarget | null;
+  try {
+    target = typeLeverageTarget();
+  } catch (error) {
+    state.typeLeverageLoading = false;
+    state.typeLeverageError = errorMessage(error);
+    state.typeLeveragePresentation = null;
+    renderPreservingMemberFocus();
+    return;
+  }
+
+  if (!target) return;
+  state.typeLeverageEnabled = true;
+  state.typeLeverageKey = target.key;
+  state.typeLeverageError = "";
+  if (retry) typeLeverage.retry(target);
+  else typeLeverage.request(target);
+}
+
+function loadLibraryMetricsTypeLeverage(retry = false) {
+  let target: TypeLeverageTarget | null;
+  try {
+    target = libraryMetricsTypeLeverageTarget();
+  } catch (error) {
+    state.libraryMetricsLeverageLoading = false;
+    state.libraryMetricsLeverageError = errorMessage(error);
+    state.libraryMetricsLeveragePresentation = null;
+    render();
+    return;
+  }
+  if (!target) return;
+  state.libraryMetricsLeverageKey = target.key;
+  state.libraryMetricsLeverageError = "";
+  if (retry) typeLeverage.retry(target);
+  else typeLeverage.request(target);
 }
 
 function platformForwarderKey(
@@ -5017,9 +5329,20 @@ function selectedForwarder() {
 
 function filteredTypeRows(): Array<AppTypeSurface | BrowserPlatformForwarderRow> {
   const definitions = filteredTypes();
-  const forwarders = filterForwardedTypes(
-    currentPlatformForwarderView()?.forwarders ?? [],
-    { text: state.typeFilter, namespace: state.namespaceFilter, kind: state.kindFilter });
+  const exactNamespace = selectedNamespaceFilter();
+  const leverage = currentTypeLeveragePresentation();
+  const leverageFilter = leverage ? state.typeLeverageFilter : "";
+  const forwarders = typeLeverageMatchesFilter(undefined, leverageFilter)
+    ? filterForwardedTypes(
+      currentPlatformForwarderView()?.forwarders ?? [],
+      {
+        text: state.typeFilter,
+        namespace: exactNamespace ?? "",
+        kind: state.kindFilter,
+      },
+    ).filter(row =>
+      exactNamespace === null || row.namespace === exactNamespace)
+    : [];
   return forwarders.length === 0 ? definitions : [...definitions, ...forwarders]
     .sort((left, right) =>
       left.namespace.localeCompare(right.namespace)
@@ -5538,7 +5861,8 @@ function revealTypeInFilters(type: AppTypeSurface | null | undefined) {
     type);
   if (!typeMatchesFilterText(type, state.typeFilter.toLowerCase()))
     state.typeFilter = "";
-  if (state.namespaceFilter && type.namespace !== state.namespaceFilter)
+  if (selectedNamespaceFilter() !== null
+    && type.namespace !== selectedNamespaceFilter())
     state.namespaceFilter = "";
   if (state.kindFilter && typeKind(type.kind) !== state.kindFilter)
     state.kindFilter = "";
@@ -5702,6 +6026,7 @@ function resetLocationFilters() {
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
+  state.typeLeverageFilter = "";
   state.libraryScope = null;
   state.typeCursor = 0;
   resetMemberFilters();
@@ -5984,6 +6309,64 @@ function accessibilityControl() {
   </div>`;
 }
 
+function typeLeverageControl() {
+  let target: TypeLeverageTarget | null;
+  try {
+    target = typeLeverageTarget();
+  } catch {
+    return "";
+  }
+  if (!target) return "";
+  const current = state.typeLeverageKey === target.key;
+  if (!state.typeLeverageEnabled || !current) {
+    return `<div class="type-leverage-control">
+      <button type="button" class="tiny-button" data-type-leverage-activate>Show structural salience</button>
+      <small>signature surface</small>
+    </div>`;
+  }
+  if (state.typeLeverageLoading) {
+    return `<div class="type-leverage-control" aria-live="polite">
+      <span class="loader"></span><small>Measuring structural salience…</small>
+    </div>`;
+  }
+  if (state.typeLeverageError) {
+    return `<div class="type-leverage-control metadata-warning" aria-live="polite">
+      <small>${escapeHtml(state.typeLeverageError)}</small>
+      <button type="button" class="tiny-button" data-type-leverage-activate>Retry</button>
+    </div>`;
+  }
+  const presentation = currentTypeLeveragePresentation();
+  if (!presentation) return "";
+  const shardStatus = presentation.loadedNamespaces.length
+    === presentation.byNamespace.size
+    ? `${presentation.loadedNamespaces.length} namespace shards`
+    : `${presentation.loadedNamespaces.length}/${presentation.byNamespace.size} namespace shards loaded`;
+  const qualified =
+    presentation.disposition.toLowerCase() !== "complete";
+  const qualification = qualified || presentation.diagnostics.length > 0
+    ? `<details class="type-leverage-qualification">
+        <summary>${qualified ? "qualified evidence" : "analysis notes"} · ${presentation.coverage.examined}/${presentation.coverage.considered} examined${presentation.diagnostics.length ? ` · ${presentation.diagnostics.length} diagnostics` : ""}</summary>
+        ${presentation.diagnostics.length
+          ? `<small>${presentation.diagnostics.map(escapeHtml).join("<br>")}</small>`
+          : ""}
+      </details>`
+    : "";
+  const retry = qualified
+    ? '<button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>'
+    : "";
+  return `<div class="type-leverage-control">
+    <div class="namespace-chips leverage-chips" aria-label="Structural salience filters">
+      <button class="${!state.typeLeverageFilter ? "active" : ""}" data-type-leverage-filter="">all types</button>
+      <button class="${state.typeLeverageFilter === "sea-level" ? "active" : ""}" data-type-leverage-filter="sea-level">sea level · ${presentation.seaLevelCount}</button>
+      <button class="${state.typeLeverageFilter === "mountain-peak" ? "active" : ""}" data-type-leverage-filter="mountain-peak">mountain peaks · ${presentation.mountainPeakCount}</button>
+    </div>
+    <small>${shardStatus}</small>
+    ${qualification}
+    ${retry}
+    <button type="button" class="tiny-button" data-type-leverage-activate>Hide salience</button>
+  </div>`;
+}
+
 function typeFilterSummary() {
   const buckets = accessibilityBuckets();
   const activeAccessibility =
@@ -5995,8 +6378,13 @@ function typeFilterSummary() {
       .join(", ");
   return [
     state.typeFilter,
-    state.namespaceFilter,
+    state.namespaceFilter === GLOBAL_NAMESPACE_FILTER
+      ? "(global namespace)"
+      : state.namespaceFilter,
     state.kindFilter,
+    currentTypeLeveragePresentation() && state.typeLeverageFilter
+      ? state.typeLeverageFilter.replace("-", " ")
+      : "",
     accessibilitySummary,
   ].filter(Boolean).join(" · ") || "All types";
 }
@@ -6017,8 +6405,22 @@ function namespaceOptions() {
   }
   return [...counts.keys()]
     .sort((a, b) => a.localeCompare(b))
-    .map(ns => `<option value="${escapeHtml(ns)}" ${state.namespaceFilter === ns ? "selected" : ""}>${escapeHtml(ns || "(global namespace)")} · ${counts.get(ns)}</option>`)
+    .map(ns => {
+      const value = namespaceFilterValue(ns);
+      return `<option value="${escapeHtml(value)}" ${state.namespaceFilter === value ? "selected" : ""}>${escapeHtml(ns || "(global namespace)")} · ${counts.get(ns)}</option>`;
+    })
     .join("");
+}
+
+const GLOBAL_NAMESPACE_FILTER = "__dotnet_inspect_global_namespace__";
+
+function namespaceFilterValue(exactNamespace: string): string {
+  return exactNamespace || GLOBAL_NAMESPACE_FILTER;
+}
+
+function selectedNamespaceFilter(): string | null {
+  if (state.namespaceFilter === GLOBAL_NAMESPACE_FILTER) return "";
+  return state.namespaceFilter || null;
 }
 
 // Collapse a raw kind string ("sealed class", "readonly struct", "enum", …) to a
@@ -6042,7 +6444,8 @@ const KIND_ORDER: readonly TypeKind[] =
 function typeKinds() {
   if (!state.package) return [];
   const present = new Set(state.package.types
-    .filter(item => !state.namespaceFilter || item.namespace === state.namespaceFilter)
+    .filter(item => selectedNamespaceFilter() === null
+      || item.namespace === selectedNamespaceFilter())
     .filter(item => !state.libraryScope || state.libraryScope.has(libraryKey(item)))
     .filter(item => state.accessibilityFilter.has(item.accessibilityId))
     .map(item => typeKind(item.kind)));
@@ -6454,8 +6857,8 @@ function selectLibraryLens(lens: LibraryLens) {
 
 // The exact subject Compare is presenting, or null when Compare is not the
 // active working surface. Library, Type, and Member share one inspector; Diff
-// projects the Library-root document at each level and Clone runs the
-// subject's own scoped query.
+// runs the subject's registered analyses while its specialized API view keeps
+// the complete Library-root document, and Clone runs its own scoped query.
 type CompareSubject =
   | {
       readonly kind: "library";
@@ -6534,6 +6937,10 @@ function typeIdentifierOf(type: AppTypeSurface): string {
   return type.definitionId ?? type.id;
 }
 
+function typeQueryIdentifierOf(type: AppTypeSurface): string {
+  return type.queryId ?? type.id;
+}
+
 function typeFullDisplay(type: AppTypeSurface): string {
   const name = typeDisplayName(type);
   return type.namespace ? `${type.namespace}.${name}` : name;
@@ -6552,6 +6959,13 @@ function compareSubjectLabel(subject: CompareSubject): string {
 function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
   const subject = currentCompareSubject();
   if (!subject || currentCompareMode() !== "diff") return null;
+  if (subject.kind === "member"
+    && (!subject.overload
+      || !subject.overload.anchorDigest
+      || !subject.overload.stableSelector
+      || !subject.overload.anchorTypeFullName)) {
+    return null;
+  }
   const { pkg, library } = subject;
   return {
     packageModel: pkg,
@@ -6559,6 +6973,52 @@ function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
     currentVersion: pkg.version,
     targetFramework: pkg.activeFramework,
     compileAssetId: library.id,
+    query: (() => {
+      switch (subject.kind) {
+        case "library":
+          return {
+            surface: "Library",
+            analyses: ["api"],
+            views: "Changes",
+            typeNames: [],
+            memberTargetIdentities: [],
+          };
+        case "type":
+          return {
+            surface: "Type",
+            analyses: ["api", "api-attribute"],
+            views: "Changes, Summary, Transitions",
+            typeNames: [typeQueryIdentifierOf(subject.type)],
+            memberTargetIdentities: [],
+          };
+        case "member": {
+          const overload = subject.overload;
+          if (!overload?.anchorDigest
+            || !overload.stableSelector
+            || !overload.anchorTypeFullName) {
+            throw new Error(
+              "Member Diff requires one complete owner-issued Member identity.",
+            );
+          }
+          return {
+            surface: "Member",
+            analyses: [
+              "api",
+              "allocation",
+              "call-site",
+              "unsafety",
+              "csharp",
+              "il",
+            ],
+            views: "Changes, Summary, Transitions",
+            typeNames: [overload.anchorTypeFullName],
+            memberTargetIdentities: [overload.stableSelector],
+          };
+        }
+        default:
+          return assertNever(subject, "Compare Diff subject");
+      }
+    })(),
     target: resolveEffectiveDiffTarget(
       packageComparisonTargets.get(pkg).diff,
       catalogRequests.packageVersions(pkg),
@@ -6802,10 +7262,18 @@ function renderCompareSurface(): string {
       selectedRank: state.compareCloneSelectedRank,
     });
   }
+  const options = libraryApiDiffRenderOptions(subject);
+  const memberContext = libraryApiDiffMemberExploreContext(
+    state.libraryApiDiff,
+    options,
+  );
   return renderLibraryApiDiff(state.libraryApiDiff, escapeHtml, {
-    ...libraryApiDiffRenderOptions(subject),
+    ...options,
     subjectLabel,
     targetText,
+    ...(memberContext === null
+      ? {}
+      : { memberDiffSection: memberDiffExplorer.renderInline(memberContext) }),
   });
 }
 
@@ -7873,12 +8341,18 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
       || state.platformSelection !== null
       || retainedWorkspacePostingVisible)
     && state.engineReady;
+  const productEcosystemsVisible =
+    isProductEcosystemsPath(location.pathname)
+    && state.engineReady;
   const showingInterstitial =
     (state.loading
       && !loadingPackageContent
       && !retainedWorkspacePostingVisible)
     || state.error
-    || (!state.home && !state.package && !workspaceCatalogVisible);
+    || (!state.home
+      && !state.package
+      && !workspaceCatalogVisible
+      && !productEcosystemsVisible);
   if (!showingInterstitial) loadingBotSrc = null;
   if ((state.loading
       && !loadingPackageContent
@@ -7888,6 +8362,22 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     return;
   }
   retainFailedWorkspaceUrl();
+  if (productEcosystemsVisible) {
+    renderProductEcosystemsPage();
+    if (state.settings) {
+      document.querySelector<HTMLElement>("#settings-title")
+        ?.focus({ preventScroll: true });
+    } else if (state.keyboardHelp) {
+      document.querySelector<HTMLElement>("#keyboard-help-title")
+        ?.focus({ preventScroll: true });
+    } else if (homeFocus) {
+      restoreHomeFocus(homeFocus);
+    } else if (levelOneHeadingHadFocus) {
+      focusLevelOneHeading();
+    }
+    restorePackageRouteReturnFocus();
+    return;
+  }
   if (state.workspaceSubjectOpen && isProductHomeDemosPath(location.pathname)) {
     renderProductDemosPage();
     if (state.settings) {
@@ -8634,8 +9124,10 @@ function renderTypeNavPane(
     kindFilter: state.kindFilter,
     namespaceCount: namespaces().length,
     namespaceOptionsHtml: namespaceOptions(),
+    namespaceSelectionValue: namespaceFilterValue,
     kindFilters: typeKinds(),
     accessibilityControlHtml: accessibilityControl(),
+    leverageControlHtml: typeLeverageControl(),
     library: activeLibrarySubjectName(),
     parentSubject: state.atLibraryRoot
       ? state.rootKind === "platform" && !currentViewHasPlatformRootParent()
@@ -8648,6 +9140,14 @@ function renderTypeNavPane(
     typeDisplayName,
     typeLibraryLabel: item => definingLibraries.get(item.id) ?? "",
     kindIcon,
+    namespaceLeverageCue: namespace =>
+      currentTypeLeveragePresentation()?.byNamespace.get(namespace)
+      ?? null,
+    typeLeverageCue: item => isForwardedType(item)
+      ? null
+      : currentTypeLeveragePresentation()?.byType.get(
+          item.definitionId ?? item.id,
+        ) ?? null,
     statusHtml: platformForwarderInventoryStatus(),
   });
 }
@@ -9592,6 +10092,10 @@ function renderPackageLibraryMetrics() {
     loading: state.packageLibraryMetricsLoading,
     error: state.packageLibraryMetricsError,
     data: state.packageLibraryMetrics,
+    salienceLoading: state.libraryMetricsLeverageLoading,
+    salienceError: state.libraryMetricsLeverageError,
+    salience: currentLibraryMetricsTypeLeveragePresentation(),
+    selectedSalienceNamespace: state.libraryMetricsLeverageNamespace,
     escapeHtml,
   });
 }
@@ -9644,8 +10148,13 @@ function maybeAutoLoadPackageLibraryMetrics() {
   if (!state.atLibraryRoot || state.libraryLens !== "metrics") return;
   if (aggregateLibrarySubjectIsActive()) return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packageLibraryMetricsKey === packageScopeSignature()) return;
-  observeAsync(loadPackageLibraryMetrics(), "Loading library metrics");
+  if (state.packageLibraryMetricsKey !== packageScopeSignature())
+    observeAsync(loadPackageLibraryMetrics(), "Loading library metrics");
+  const leverageKey = currentLibraryMetricsTypeLeverageKey();
+  if (leverageKey !== null
+    && state.libraryMetricsLeverageKey !== leverageKey) {
+    loadLibraryMetricsTypeLeverage();
+  }
 }
 
 // The Library Metadata lens describes one image-level container: metadata format version,
@@ -11292,7 +11801,8 @@ const packageViewActions: PackageViewBindingActions = {
     state.typeCursor = 0;
     const first = filteredTypeRows()[0];
     if (first) state.selectedTypeId = first.id;
-    render();
+    if (state.typeLeverageEnabled) loadTypeLeverage();
+    else render();
     loadCurrentSelectionData("Loading the selected Type");
   },
   onLibraryScopeSelect: (library, kind) => {
@@ -11317,7 +11827,8 @@ const packageViewActions: PackageViewBindingActions = {
     state.typeCursor = 0;
     const first = filteredTypeRows()[0];
     if (first) state.selectedTypeId = first.id;
-    render();
+    if (state.typeLeverageEnabled) loadTypeLeverage();
+    else render();
     loadCurrentSelectionData("Loading the selected Type");
   },
   onPerformanceMemberSelect: target => {
@@ -11476,7 +11987,10 @@ async function openPlatformLensLibrary(
     else await loadPackageIntegrations();
   }
   else if (lens === "analysis") await loadPackagePerformance();
-  else if (lens === "metrics") await loadPackageLibraryMetrics();
+  else if (lens === "metrics") {
+    loadLibraryMetricsTypeLeverage();
+    await loadPackageLibraryMetrics();
+  }
   else await loadPackageMetadata();
 }
 
@@ -11527,8 +12041,10 @@ function bindTypePanelEvents() {
       state.typeFilter = "";
       state.namespaceFilter = "";
       state.kindFilter = "";
+      state.typeLeverageFilter = "";
       state.accessibilityFilter = defaultAccessibilityFilter(state.package);
-      renderPreservingMemberFocus();
+      if (state.typeLeverageEnabled) loadTypeLeverage();
+      else renderPreservingMemberFocus();
     },
     onCopyAnchor: anchor => {
       const type = selectedType();
@@ -11616,6 +12132,36 @@ function bindTypePanelEvents() {
       state.kindFilter = kind;
       state.typeCursor = 0;
       const first = filteredTypeRows()[0];
+      if (first) state.selectedTypeId = first.id;
+      state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
+      resetMemberFilters();
+      if (state.typeLeverageEnabled) loadTypeLeverage();
+      else renderPreservingMemberFocus();
+      loadCurrentSelectionData("Loading the selected Type");
+    },
+    onTypeLeverageActivate: () => {
+      const current = currentTypeLeveragePresentation();
+      if (state.typeLeverageEnabled && current) {
+        state.typeLeverageEnabled = false;
+        state.typeLeverageFilter = "";
+        state.typeLeverageKey = "";
+        state.typeLeveragePresentation = null;
+        renderPreservingMemberFocus();
+        return;
+      }
+      loadTypeLeverage(Boolean(state.typeLeverageError));
+    },
+    onTypeLeverageRetry: () => loadTypeLeverage(true),
+    onTypeLeverageFilterSelect: filter => {
+      if (filter !== ""
+        && filter !== "sea-level"
+        && filter !== "mountain-peak") {
+        return;
+      }
+      state.typeLeverageFilter = filter;
+      state.typeCursor = 0;
+      const first = filteredTypes()[0];
       if (first) state.selectedTypeId = first.id;
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
@@ -11749,7 +12295,8 @@ function bindTypePanelEvents() {
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       resetMemberFilters();
-      renderPreservingMemberFocus();
+      if (state.typeLeverageEnabled) loadTypeLeverage();
+      else renderPreservingMemberFocus();
       loadCurrentSelectionData("Loading the selected Type");
     },
     onOverloadSelect: index => {
@@ -12489,6 +13036,12 @@ function bindEvents() {
   bindLibraryControlsEvents();
   bindLibraryMetricsInteractions(document, {
     activateType: activateLibraryMetricsType,
+    selectSalienceNamespace: exactNamespace => {
+      if (state.libraryMetricsLeverageNamespace === exactNamespace) return;
+      state.libraryMetricsLeverageNamespace = exactNamespace;
+      loadLibraryMetricsTypeLeverage();
+    },
+    retrySalience: () => loadLibraryMetricsTypeLeverage(true),
   });
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
@@ -13607,6 +14160,7 @@ function bindCompareEvents() {
     activateType: activateCompareType,
     activateMember: activateCompareMember,
   });
+  memberDiffExplorer.bindInline(document);
   const memberExplore = document.querySelector<HTMLElement>(
     "[data-member-diff-explore]",
   );
@@ -15812,6 +16366,63 @@ function openProductDemos(): void {
     focusWorkspaceOrHeading());
 }
 
+function openProductEcosystems(): void {
+  dismissModalsForRoutedNavigation();
+  navigationSequence.begin();
+  state.loading = !state.engineReady;
+  clearNavigationError();
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
+  supersedeRetainedLocationIntentForRoutedNavigation();
+  state.home = false;
+  state.credits = false;
+  discardPackageQueryTermEditors();
+  state.packageQueryOpen = false;
+  state.packageActivityOpen = false;
+  packageQueryController.cancel();
+  packageChangesController.cancel("disposed");
+  spotlight.reset();
+  workspaceLocation.push("/ecosystems");
+  render();
+  if (state.engineReady) {
+    afterCurrentNavigationFrame(() => focusLevelOneHeading());
+  }
+}
+
+function renderProductEcosystemsPage(): void {
+  document.title = "Ecosystems — dotnet-inspect";
+  replaceChildrenPreservingRenderedInteractions(app, `
+    <div class="home ecosystems-page"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
+      <header class="home-bar">
+        ${renderBrand()}
+        <div class="home-bar-actions">
+          <a class="home-link" href="/">Home</a>
+          <button id="home-settings" aria-label="Open settings" title="Settings">⚙</button>
+          <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
+        </div>
+      </header>
+      <div class="notice-stack">${renderQueryNotice()}</div>
+      <main class="detail-scroll ecosystems-content">
+        ${productEcosystemsViewHtml(escapeHtml, productEcosystemCatalogError)}
+      </main>
+      ${dataBarHtml({ buildIdentity: state.buildIdentity }, escapeHtml)}
+      ${state.spotlightOpen ? spotlight.modalHtml() : ""}
+    </div>
+    ${state.settings ? renderSettingsViewHtml() : ""}
+    ${state.keyboardHelp ? renderKeyboardHelpDialog(keyboardHelpBindings) : ""}
+    ${renderLibraryOpenDialog({
+      open: state.libraryOpen,
+      busy: state.libraryOpenBusy,
+      error: state.libraryOpenError,
+    }, escapeHtml)}`);
+  bindHomeShell(document, homeShellActions);
+  bindLibraryOpenEvents();
+  bindSettingsPanelEvents();
+  if (state.spotlightOpen) spotlight.bind(document, "modal");
+}
+
 function renderProductDemosPage(): void {
   document.title = "Demos — dotnet-inspect";
   replaceChildrenPreservingRenderedInteractions(app, `
@@ -16404,6 +17015,7 @@ function goHome(): boolean {
 
 function currentProductDestination(): ProductDestination | null {
   if (isDiagnosticsPath(location.pathname) || state.credits) return null;
+  if (isProductEcosystemsPath(location.pathname)) return "ecosystems";
   if (isProductHomeDemosPath(location.pathname)) return "demos";
   if (state.packageQueryOpen) return "query";
   if (state.packageActivityOpen) return "activity";
@@ -16460,6 +17072,10 @@ function navigateProductDestination(destination: ProductDestination): void {
   }
   if (destination === "activity") {
     openPackageActivityRoute("application-activity");
+    return;
+  }
+  if (destination === "ecosystems") {
+    openProductEcosystems();
     return;
   }
   if (destination === "demos") {
@@ -23390,6 +24006,15 @@ async function bootstrap() {
         `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
+      setProductEcosystemCatalog(
+        (await engineClient.catalog.listEcosystems()).ecosystems ?? []);
+      productEcosystemCatalogError = "";
+    } catch (error) {
+      setProductEcosystemCatalog([]);
+      productEcosystemCatalogError =
+        `Ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
+    }
+    try {
       state.packageChangesEcosystems = packageChangesEcosystems(
         await engineClient.package.listPackageActivityEcosystems());
       state.packageChangesCatalogError = "";
@@ -23437,6 +24062,13 @@ async function bootstrap() {
       state.diag = computeDiagnostics(tStart, tEngine, performance.now());
       render();
       focusPackageActivityInput();
+      return;
+    }
+    if (isProductEcosystemsPath(location.pathname)) {
+      state.loading = false;
+      state.diag = computeDiagnostics(tStart, tEngine, performance.now());
+      render();
+      afterCurrentNavigationFrame(() => focusLevelOneHeading());
       return;
     }
     if (isProductHomeDemosPath(location.pathname)) {
@@ -23658,6 +24290,10 @@ async function navigateInAppUrl(url: URL) {
   }
   if (isProductHomeDemosPath(url.pathname)) {
     openProductDemos();
+    return;
+  }
+  if (isProductEcosystemsPath(url.pathname)) {
+    openProductEcosystems();
     return;
   }
   if (isPackageQueryPath(url.pathname)) {
@@ -24418,6 +25054,7 @@ window.addEventListener("popstate", () => {
   }
   const unavailableGlobalWorkspace =
     historyWorkspaceReferenced
+    && !sourceHistoryWorkspaceAvailable
     && !managedHistoryWorkspaceAvailable
     && !historyWorkspaceAvailable
     && (isDiagnosticsPath(location.pathname)
@@ -24425,6 +25062,7 @@ window.addEventListener("popstate", () => {
       || isPackageActivityPath(location.pathname)
       || isTypeExplorerPath(location.pathname)
       || isCreditsPath(location.pathname)
+      || isProductEcosystemsPath(location.pathname)
       || isProductHomeDemosPath(location.pathname));
   if (unavailableGlobalWorkspace) {
     unavailableWorkspaceAdmissionRejected =
@@ -24516,6 +25154,23 @@ window.addEventListener("popstate", () => {
     render({
       synchronizeUrl: !unavailableWorkspaceAdmissionRejected,
     });
+    return;
+  }
+  if (isProductEcosystemsPath(location.pathname)) {
+    clearNavigationError();
+    if (!clearWorkspaceRouteFailure()) {
+      render();
+      return;
+    }
+    state.queryNotice = "";
+    state.queryNoticeRetryAction = null;
+    state.credits = false;
+    state.home = false;
+    state.loading = !state.engineReady;
+    render();
+    if (state.engineReady) {
+      afterCurrentNavigationFrame(() => focusLevelOneHeading());
+    }
     return;
   }
   if (isProductHomeDemosPath(location.pathname)) {
@@ -24645,6 +25300,7 @@ window.addEventListener("popstate", () => {
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
     if (historyWorkspaceReferenced
+      && !sourceHistoryWorkspaceAvailable
       && !managedHistoryWorkspaceAvailable
       && !historyWorkspaceAvailable) {
       unavailableWorkspaceAdmissionRejected =
@@ -24662,6 +25318,7 @@ window.addEventListener("popstate", () => {
     return;
   }
   if (historyWorkspaceReferenced
+    && !sourceHistoryWorkspaceAvailable
     && !managedHistoryWorkspaceAvailable
     && !historyWorkspaceAvailable) {
     observeAsync(

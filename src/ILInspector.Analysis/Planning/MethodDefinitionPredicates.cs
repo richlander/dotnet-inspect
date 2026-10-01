@@ -375,7 +375,6 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
                 {
                     unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                     visited++;
-                state.Execution.PassUnitsVisited = visited;
                     if (gateTests.Gated)
                     {
                         bool? accepted = gateTests.Accepts(ref unit, state, sourceGate);
@@ -420,6 +419,7 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         }
         catch (ProducerAbortException)
         {
+            state.Execution.PassUnitsVisited = visited;
             state.UnitsAttempted += attempted;
             state.UnitsCompleted += completed;
             throw;

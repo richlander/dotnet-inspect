@@ -10,7 +10,9 @@ namespace ILInspector.Analysis.Planning;
 /// a work description's passes over type definitions in metadata order and
 /// each type's methods in order, stops a producer when its Exists terminal is
 /// settled, contains a failing producer to itself and its dependents, and
-/// records participation. It stands in for level 2 until #8577.
+/// records participation. The first all-definitions Method Query Source slice
+/// delegates producer work to it while source planning, binding, and receipts
+/// remain owned above this executor.
 /// </summary>
 public sealed class MethodDefinitionExecution
 {

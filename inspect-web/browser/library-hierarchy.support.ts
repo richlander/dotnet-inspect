@@ -23,7 +23,8 @@ function subjectTab(page: Page, subject: string) {
 
 async function openProductDestination(
   page: Page,
-  destination: "home" | "query" | "workspace" | "activity",
+  destination:
+    "home" | "query" | "workspace" | "ecosystems" | "activity" | "demos",
 ): Promise<void> {
   await page.locator("[data-product-navigation-button]").click();
   await page.locator(
@@ -1337,6 +1338,91 @@ async function installFacades(
     analysis: `
       ${surfaceLookup}
       let implementationProfileRequestCount = 0;
+      let structuralSalienceIndexRequestCount = 0;
+      let structuralSalienceShardRequestCount = 0;
+      function structuralSalienceIndex(surface, selected) {
+        document.documentElement.dataset.structuralSalienceIndexRequestCount =
+          String(++structuralSalienceIndexRequestCount);
+        return {
+          schemaVersion: 1,
+          outcome: "available",
+          methodologyVersion: "structural-salience.v2",
+          evidenceMode: "signature",
+          disposition: "complete",
+          coverage: {
+            considered: 1,
+            examined: 1,
+            unavailable: 0,
+            limited: 0
+          },
+          namespaces: [{
+            namespace: "Example",
+            typeCount: surface.types.filter(
+              item => item.assemblyId === selected.id
+                && item.namespace === "Example").length,
+            externalIncomingSourceTypeCount: 1,
+            topLeverage: true
+          }],
+          diagnostics: [],
+          failure: null,
+          compileLibrary: surface.compileLibrary
+        };
+      }
+      function structuralSalienceShard(surface, selected, exactNamespace) {
+        document.documentElement.dataset.structuralSalienceShardRequestCount =
+          String(++structuralSalienceShardRequestCount);
+        const selectedType = surface.types.find(
+          item => item.assemblyId === selected.id
+            && item.namespace === exactNamespace);
+        const types = selectedType ? [{
+          typeDefinitionId: selectedType.definitionId,
+          typeDisplay: selectedType.displayName,
+          designationEligible: true,
+          signatureIncomingDegree: 3,
+          signatureOutgoingDegree: 0,
+          role: "foundation",
+          pole: "SeaLevel"
+        }] : [];
+        return {
+          schemaVersion: 2,
+          outcome: "available",
+          methodologyVersion: "structural-salience.v2",
+          evidenceMode: "signature",
+          namespace: exactNamespace,
+          disposition: "complete",
+          coverage: {
+            considered: 1,
+            examined: 1,
+            unavailable: 0,
+            limited: 0
+          },
+          types,
+          seaLevelOrder: types.map(item => item.typeDefinitionId),
+          mountainPeakOrder: types.map(item => item.typeDefinitionId),
+          diagnostics: [],
+          failure: null,
+          compileLibrary: surface.compileLibrary
+        };
+      }
+      export async function queryPackageLibraryNamespaceLeverage(
+        id, version, framework, asset
+      ) {
+        const surface = surfaceFor(id, version, framework);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        return structuralSalienceIndex(surface, selected);
+      }
+      export async function queryPackageNamespaceTypeLeverage(
+        id, version, framework, asset, exactNamespace
+      ) {
+        const surface = surfaceFor(id, version, framework);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        return structuralSalienceShard(
+          surface,
+          selected,
+          exactNamespace);
+      }
       function implementationProfiles(
         subjectName,
         typeDefinitionId,
@@ -2018,9 +2104,204 @@ async function installFacades(
       }`,
     catalog: `
       const homeDemos = ${JSON.stringify(homeDemos?.catalog ?? [])};
+      const productEcosystems = [{
+        id: "ecosystem.fixture-platform",
+        title: "Platform fixture",
+        summary: "Synthetic platform-backed Ecosystem.",
+        corePackageCount: 0,
+        namespaceRootCount: 2,
+        toolPackageCount: 0,
+        demoCount: 1,
+        hasPackageSet: false,
+        hasScanner: false,
+        hasPopulationLoader: true,
+        hasWorkspaceRegistration: true,
+      }, {
+        id: "ecosystem.fixture-package",
+        title: "Package fixture",
+        summary: "Synthetic package-backed Ecosystem.",
+        corePackageCount: 3,
+        namespaceRootCount: 1,
+        toolPackageCount: 1,
+        demoCount: 2,
+        hasPackageSet: true,
+        hasScanner: true,
+        hasPopulationLoader: false,
+        hasWorkspaceRegistration: true,
+      }];
       const homeDemoResults = ${JSON.stringify(homeDemos?.results ?? {})};
       const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
       const workspaceSources = ${JSON.stringify(workspaceSources)};
+      const retainedWorkspaceSurface = ${JSON.stringify(model)};
+      let preparedRetainedWorkspace = null;
+      function retainedWorkspacePosting(
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        canonicalPacket,
+      ) {
+        const workspaceId = "source-workspace";
+        const packageSubjectId = "source-package";
+        const definition = {
+          tabs: [{
+            id: "t0",
+            kind: "package",
+            source: retainedWorkspaceSurface.package,
+            version: retainedWorkspaceSurface.version,
+            framework: retainedWorkspaceSurface.activeFramework,
+            runtimeIdentifier: null,
+          }],
+          contexts: [{ id: "g0", tabIds: ["t0"] }],
+          registrations: [],
+          activeTabId: "t0",
+          selectedContextId: "g0",
+        };
+        const activeSubject = {
+          id: packageSubjectId,
+          kind: "Package",
+          label: retainedWorkspaceSurface.package,
+          summary: null,
+          parent: workspaceId,
+        };
+        const effectiveLens = {
+          id: "package.overview",
+          subject: activeSubject,
+          facet: "package.overview",
+        };
+        const navigation = {
+          operation: "Initialize",
+          request: "source-workspace-request",
+          snapshot: {
+            generation: "source-workspace-generation",
+            scope: { kind: "Current", runtimeFailure: null },
+            workspace: {
+              id: workspaceId,
+              kind: "Workspace",
+              label,
+              summary: null,
+              parent: null,
+            },
+            activePackage: packageSubjectId,
+            activeSubject,
+            typeInventoryLibraryContext: null,
+            packages: [{
+              order: 0,
+              subject: activeSubject,
+              packageId: retainedWorkspaceSurface.package,
+              version: retainedWorkspaceSurface.version,
+              framework: retainedWorkspaceSurface.activeFramework,
+              runtimeIdentifier: null,
+              realization: "source-realization",
+              realizationFailure: null,
+              state: "Active",
+              isCurrent: true,
+              action: null,
+            }],
+            hierarchy: [{
+              kind: "Workspace",
+              label,
+              subject: {
+                id: workspaceId,
+                kind: "Workspace",
+                label,
+                summary: null,
+                parent: null,
+              },
+              state: "Active",
+              isActive: false,
+              isRetained: true,
+              evidence: [],
+              action: null,
+            }, {
+              kind: "Package",
+              label: retainedWorkspaceSurface.package,
+              subject: activeSubject,
+              state: "Active",
+              isActive: true,
+              isRetained: true,
+              evidence: [],
+              action: null,
+            }],
+            libraries: [],
+            types: [],
+            members: [],
+            lenses: [{
+              facet: {
+                id: "package.overview",
+                kind: "Inspector",
+                title: "Overview",
+                summary: "Package overview",
+                order: 0,
+                role: null,
+              },
+              state: "Available",
+              isCurrent: true,
+              target: effectiveLens,
+              unavailability: null,
+              message: null,
+              action: null,
+            }],
+            lensOutcome: {
+              kind: "Applied",
+              basis: "Recommendation",
+              subject: activeSubject,
+              effectiveLens,
+              request: null,
+              preferredRole: null,
+              policyFailure: null,
+              resolution: null,
+              suspension: null,
+            },
+            diagnostics: [],
+          },
+          outcome: {
+            kind: "Applied",
+            rejection: null,
+            failureSource: null,
+            message: null,
+            request: null,
+            resolution: null,
+            scope: null,
+            diagnostics: [],
+            coordinateRetention: null,
+          },
+          synchronization: "SynchronizationRequired",
+          authority: {
+            session: "source-session",
+            revision: "source-revision",
+            intent: "source-intent",
+            epoch: "source-epoch",
+          },
+        };
+        const packages = [{
+          navigationId: "source-package-navigation",
+          contextIndex: 0,
+          consumerPackageSubjectId: packageSubjectId,
+          summary: {
+            selectedCompileFramework: retainedWorkspaceSurface.activeFramework,
+            libraryCount: retainedWorkspaceSurface.assemblies.length,
+            typeCount: retainedWorkspaceSurface.types.length,
+            memberCount: retainedWorkspaceSurface.totalMembers,
+            documentCount: retainedWorkspaceSurface.documents.length,
+            hasInspectionNotices:
+              retainedWorkspaceSurface.inspectionErrors.length > 0,
+          },
+        }];
+        return {
+          retainedDefinitionId,
+          label,
+          canonicalLocation,
+          canonicalPacket,
+          realizationId: "source-realization",
+          publicationOrdinal: 1,
+          definition,
+          navigation,
+          packages,
+          platforms: [],
+          predecessor: null,
+          cleanup: null,
+        };
+      }
       export function inspectVocabulary() {
         return {
           content: {
@@ -2044,6 +2325,9 @@ async function installFacades(
             "finish-home-demo-catalog", resolve, { once: true }));
         }
         return { demos: homeDemos };
+      }
+      export function listEcosystems() {
+        return { ecosystems: productEcosystems };
       }
       export async function runHomeDemo(id) {
         document.documentElement.dataset.homeDemoRun = id;
@@ -2167,6 +2451,83 @@ async function installFacades(
           }
         }
         return { succeeded: true, sources: workspaceSources, failure: null };
+      }
+      export async function prepareRetainedWorkspaceDefinition(
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        canonicalPacket,
+      ) {
+        preparedRetainedWorkspace = retainedWorkspacePosting(
+          retainedDefinitionId,
+          label,
+          canonicalLocation,
+          canonicalPacket,
+        );
+        return {
+          status: "prepared",
+          receipt: "source-receipt",
+          preparation: {
+            retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
+            label: preparedRetainedWorkspace.label,
+            canonicalLocation: preparedRetainedWorkspace.canonicalLocation,
+            canonicalPacket: preparedRetainedWorkspace.canonicalPacket,
+            definition: preparedRetainedWorkspace.definition,
+            navigation: preparedRetainedWorkspace.navigation,
+            packages: preparedRetainedWorkspace.packages,
+            platforms: preparedRetainedWorkspace.platforms,
+          },
+          posting: null,
+          failure: null,
+        };
+      }
+      export async function commitRetainedWorkspaceActivation() {
+        return {
+          status: "activated",
+          posting: preparedRetainedWorkspace,
+          failure: null,
+        };
+      }
+      export function completeRetainedWorkspaceActivation(
+        _receipt,
+        succeeded,
+        failure,
+      ) {
+        return {
+          status: "completed",
+          succeeded,
+          failure,
+          message: null,
+        };
+      }
+      export function validateRetainedWorkspaceNavigationAuthority() {
+        return true;
+      }
+      export function recordRetainedWorkspaceNavigationPosting() {
+        return "accepted";
+      }
+      export function acknowledgeRetainedWorkspaceNavigation() {
+        return "accepted";
+      }
+      export function abandonRetainedWorkspaceNavigation() {
+        return "accepted";
+      }
+      export async function admitRetainedWorkspacePackage() {
+        return {
+          status: "admitted",
+          package: {
+            navigationId: "source-package-navigation",
+            contextIndex: 0,
+            consumerPackageSubjectId: "source-package",
+            surface: retainedWorkspaceSurface,
+            typePage: {
+              offset: 0,
+              totalTypes: retainedWorkspaceSurface.types.length,
+              nextOffset: null,
+            },
+          },
+          message: null,
+        };
       }`,
   };
   const assetDirectory = new URL("../dist/assets/", import.meta.url);
