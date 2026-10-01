@@ -2,6 +2,7 @@ using System.Reflection;
 
 using ILInspector.Analysis;
 using ILInspector.Metadata;
+using Inspector.Graph;
 
 // `unsafe <assembly> [count]` — detect requires-unsafe methods under the new
 // memory-safety model (CallerUnsafeMode) and rank them by direct callers.
@@ -22,10 +23,30 @@ MemberPattern target =
     MemberPattern.Method(
         options.DeclaringType,
         options.MemberName);
+AnalysisCallGraph graph = AnalysisCallGraph.Create(callGraph);
+int[] targetNodeIds =
+[
+    .. graph.Document.Nodes
+        .Where(node => target.Matches(node.Subject.Member))
+        .Select(node => node.Id),
+];
+GraphAdjacencyResult adjacency =
+    GraphDocumentExecution.Adjacency(
+        graph.Document,
+        new GraphNeighborPlan<AnalysisCallRelationship>(
+            [AnalysisCallRelationship.Calls],
+            GraphTraversalDirection.Incoming,
+            GraphSelfLoopPolicy.Include));
 DirectCall[] matches =
 [
-    .. callGraph.DirectCalls.Where(call =>
-        target.Matches(call.Callee)),
+    .. targetNodeIds
+        .SelectMany(nodeId => adjacency.Rows[nodeId].EdgeIds)
+        .Distinct()
+        .Order()
+        .SelectMany(edgeId =>
+            graph.Document.Edges[edgeId].OccurrenceIds)
+        .Select(occurrenceId =>
+            graph.Document.Occurrences[occurrenceId].Evidence),
 ];
 
 Console.WriteLine($"Assembly: {options.AssemblyPath}");
@@ -194,6 +215,179 @@ static void WriteUsage()
     Console.Error.WriteLine("  dotnet run --project src/ILInspector.Analysis.App -c Release -- <assembly-path> [Type.Member|Type::Member] [limit]");
     Console.Error.WriteLine();
     Console.Error.WriteLine("Defaults: scan this app for System.Console.WriteLine, limit 40.");
+}
+
+enum AnalysisCallRelationship
+{
+    Calls,
+}
+
+sealed record AnalysisCallCharacteristic;
+
+sealed record AnalysisCallLimit;
+
+sealed record AnalysisCallFailure;
+
+sealed record AnalysisCallSubject
+{
+    AnalysisCallSubject(
+        GraphNodeIdentity identity,
+        MemberRef member)
+    {
+        Identity = identity;
+        Member = member;
+    }
+
+    public GraphNodeIdentity Identity { get; }
+    public MemberRef Member { get; }
+
+    public static AnalysisCallSubject FromDefinition(
+        MethodIdentity method)
+        => new(
+            GraphNodeIdentity.FromMethod(method),
+            new MemberRef(
+                method.DeclaringType,
+                method.Name,
+                method.ParameterTypes,
+                method.ReturnType,
+                MemberKind.Method)
+            {
+                GenericArity = method.GenericArity,
+                HasThis = !method.IsStatic,
+            });
+
+    public static AnalysisCallSubject FromReference(MemberRef member)
+        => new(GraphNodeIdentity.FromMember(member), member);
+
+    public bool Equals(AnalysisCallSubject? other) =>
+        other is not null && Identity == other.Identity;
+
+    public override int GetHashCode() => Identity.GetHashCode();
+}
+
+sealed class AnalysisCallGraph
+{
+    AnalysisCallGraph(
+        GraphDocument<
+            AnalysisCallSubject,
+            AnalysisCallRelationship,
+            DirectCall,
+            AnalysisCallCharacteristic,
+            AnalysisCallLimit,
+            AnalysisCallFailure> document)
+    {
+        Document = document;
+    }
+
+    public GraphDocument<
+        AnalysisCallSubject,
+        AnalysisCallRelationship,
+        DirectCall,
+        AnalysisCallCharacteristic,
+        AnalysisCallLimit,
+        AnalysisCallFailure> Document { get; }
+
+    public static AnalysisCallGraph Create(
+        LibraryCallGraphAnalysisResult callGraph)
+    {
+        var declaredMethods = callGraph.DeclaredMethods
+            .ToDictionary(method =>
+                (method.ModuleVersionId, method.MetadataToken));
+        var nodeIds = new Dictionary<AnalysisCallSubject, int>();
+        var nodes = new List<GraphNode<AnalysisCallSubject>>();
+        var occurrences =
+            new List<
+                GraphOccurrence<
+                    AnalysisCallSubject,
+                    AnalysisCallRelationship,
+                    DirectCall>>();
+        var edgeKeys = new List<(int FromNodeId, int ToNodeId)>();
+        var edgeOccurrences =
+            new Dictionary<(int FromNodeId, int ToNodeId), List<int>>();
+
+        foreach (DirectCall call in callGraph.DirectCalls)
+        {
+            AnalysisCallSubject source =
+                AnalysisCallSubject.FromDefinition(call.Caller);
+            AnalysisCallSubject target =
+                declaredMethods.TryGetValue(
+                    (
+                        call.Caller.ModuleVersionId,
+                        call.CalleeDefinitionToken),
+                    out MethodIdentity? targetDefinition)
+                    ? AnalysisCallSubject.FromDefinition(targetDefinition)
+                    : AnalysisCallSubject.FromReference(call.Callee);
+            int sourceNodeId =
+                GetOrAddNode(source, GraphNodeRole.Ordinary);
+            int targetNodeId =
+                GetOrAddNode(
+                    target,
+                    targetDefinition is null
+                        ? GraphNodeRole.External
+                        : GraphNodeRole.Ordinary);
+            int occurrenceId = occurrences.Count;
+            occurrences.Add(
+                new(
+                    occurrenceId,
+                    AnalysisCallRelationship.Calls,
+                    source,
+                    target,
+                    call,
+                    []));
+
+            var edgeKey = (sourceNodeId, targetNodeId);
+            if (!edgeOccurrences.TryGetValue(
+                    edgeKey,
+                    out List<int>? occurrenceIds))
+            {
+                occurrenceIds = [];
+                edgeOccurrences.Add(edgeKey, occurrenceIds);
+                edgeKeys.Add(edgeKey);
+            }
+            occurrenceIds.Add(occurrenceId);
+        }
+
+        GraphEdge<AnalysisCallRelationship>[] edges =
+        [
+            .. edgeKeys.Select((key, edgeId) =>
+                new GraphEdge<AnalysisCallRelationship>(
+                    edgeId,
+                    key.FromNodeId,
+                    key.ToNodeId,
+                    AnalysisCallRelationship.Calls,
+                    edgeOccurrences[key])),
+        ];
+
+        return new AnalysisCallGraph(
+            new(
+                GraphDocumentScope.SessionBound,
+                nodes,
+                groups: [],
+                edges,
+                occurrences,
+                characteristics: [],
+                seeds: [],
+                limits: [],
+                failures: []));
+
+        int GetOrAddNode(
+            AnalysisCallSubject subject,
+            GraphNodeRole role)
+        {
+            if (nodeIds.TryGetValue(subject, out int nodeId))
+                return nodeId;
+
+            nodeId = nodes.Count;
+            nodeIds.Add(subject, nodeId);
+            nodes.Add(
+                new(
+                    nodeId,
+                    subject,
+                    role,
+                    []));
+            return nodeId;
+        }
+    }
 }
 
 sealed record AppOptions(string AssemblyPath, string DeclaringType, string MemberName, int Limit);
