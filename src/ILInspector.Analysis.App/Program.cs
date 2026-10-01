@@ -24,10 +24,17 @@ MemberPattern target =
         options.DeclaringType,
         options.MemberName);
 AnalysisCallGraph graph = AnalysisCallGraph.Create(callGraph);
+HashSet<AnalysisCallSubject> targetSubjects =
+[
+    .. graph.Document.Occurrences
+        .Where(occurrence =>
+            target.Matches(occurrence.Evidence.Callee))
+        .Select(occurrence => occurrence.TargetSubject),
+];
 int[] targetNodeIds =
 [
     .. graph.Document.Nodes
-        .Where(node => target.Matches(node.Subject.Member))
+        .Where(node => targetSubjects.Contains(node.Subject))
         .Select(node => node.Id),
 ];
 GraphAdjacencyResult adjacency =
@@ -46,7 +53,8 @@ DirectCall[] matches =
         .SelectMany(edgeId =>
             graph.Document.Edges[edgeId].OccurrenceIds)
         .Select(occurrenceId =>
-            graph.Document.Occurrences[occurrenceId].Evidence),
+            graph.Document.Occurrences[occurrenceId].Evidence)
+        .Where(call => target.Matches(call.Callee)),
 ];
 
 Console.WriteLine($"Assembly: {options.AssemblyPath}");
@@ -310,21 +318,19 @@ sealed class AnalysisCallGraph
             AnalysisCallSubject source =
                 AnalysisCallSubject.FromDefinition(call.Caller);
             AnalysisCallSubject target =
-                declaredMethods.TryGetValue(
-                    (
-                        call.Caller.ModuleVersionId,
-                        call.CalleeDefinitionToken),
-                    out MethodIdentity? targetDefinition)
-                    ? AnalysisCallSubject.FromDefinition(targetDefinition)
-                    : AnalysisCallSubject.FromReference(call.Callee);
+                AnalysisCallSubject.FromReference(call.Callee);
+            bool targetIsDefined = declaredMethods.ContainsKey(
+                (
+                    call.Caller.ModuleVersionId,
+                    call.CalleeDefinitionToken));
             int sourceNodeId =
                 GetOrAddNode(source, GraphNodeRole.Ordinary);
             int targetNodeId =
                 GetOrAddNode(
                     target,
-                    targetDefinition is null
-                        ? GraphNodeRole.External
-                        : GraphNodeRole.Ordinary);
+                    targetIsDefined
+                        ? GraphNodeRole.Ordinary
+                        : GraphNodeRole.External);
             int occurrenceId = occurrences.Count;
             occurrences.Add(
                 new(
