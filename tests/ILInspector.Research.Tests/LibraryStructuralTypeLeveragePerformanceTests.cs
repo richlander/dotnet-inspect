@@ -5,7 +5,6 @@ using System.Text;
 
 using ILInspector.Analysis;
 using ILInspector.Metadata;
-using Inspector.Graph;
 
 namespace ILInspector.Research.Tests;
 
@@ -14,7 +13,7 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
 {
     [Fact]
     [Trait("Speed", "Slow")]
-    public void ParentAndLeverageRoutesRetainEquivalentReportFactsWithMeasuredCost()
+    public void NamespaceIndexShardAndExhaustiveCompositionHaveMeasuredCost()
     {
         string artifacts = Path.Combine(
             AppContext.BaseDirectory,
@@ -36,15 +35,12 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
 
         string[] lines =
         [
-            "asset\ttypes\tsignature_occurrences\tbody_occurrences"
-                + "\trows\tsea_level\tmountain_peak\tchecksum"
-                + "\tparent_ms\tparent_bytes\tchild_ms\tchild_bytes"
-                + "\ttime_ratio\tallocation_ratio"
-                + "\tgraph_composition_ms\tgraph_composition_bytes"
-                + "\tprojection_ms"
-                + "\tprojection_bytes\tcanonical_nodes"
-                + "\tcanonical_edges\tsignature_edges\tbody_edges"
-                + "\tcombined_edges\tadjacency_entries",
+            "asset\ttypes\tsignature_occurrences\tnamespaces"
+                + "\ttop_namespaces\tconnected_type_rows"
+                + "\tsea_level_designations\tmountain_peak_designations"
+                + "\tchecksum\tindex_ms\tindex_bytes"
+                + "\ttop_shard_ms\ttop_shard_bytes"
+                + "\texhaustive_ms\texhaustive_bytes",
             .. measurements.Select(Format),
         ];
         foreach (string line in lines)
@@ -65,103 +61,159 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
                 path,
                 LibraryBodyAnalysisRequest
                     .CreateCompleteImplementationProfile());
-        MetadataLibrarySignatureUseResult signature =
-            Signature(path, cancellationToken);
-        AnalysisLibraryBodyUseResult body =
-            Body(path, cancellationToken);
-
         LibraryStructuralReportDocument parent = Available(
             LibraryStructuralReport.Execute(analysis));
+        LibraryStructuralSalienceDocument salience =
+            Exhaustive(path, cancellationToken);
         LibraryStructuralReportDocument child = Available(
             LibraryStructuralReport.Execute(
                 analysis,
-                signature,
-                body));
+                salience));
         AssertUnchanged(parent, child);
-        LibraryStructuralTypeLeverageDocument leverage =
-            Assert.IsType<LibraryStructuralTypeLeverageDocument>(
-                child.TypeLeverage);
+
+        string topNamespace =
+            salience.NamespaceIndex.Rows[0].Namespace;
+        LibraryStructuralTypeLeverageShard standalone =
+            Shard(path, topNamespace, cancellationToken);
+        LibraryStructuralTypeLeverageShard composed =
+            Assert.Single(
+                salience.TypeLeverageShards,
+                shard => StringComparer.Ordinal.Equals(
+                    shard.Namespace,
+                    topNamespace));
+        Assert.Equivalent(composed, standalone, strict: true);
 
         for (var index = 0; index < 2; index++)
         {
-            _ = Parent(analysis);
-            _ = Child(analysis, signature, body);
+            _ = Index(path, cancellationToken);
+            _ = Shard(path, topNamespace, cancellationToken);
+            _ = Exhaustive(path, cancellationToken);
         }
 
         const int repetitions = 7;
-        ((double ParentMilliseconds, long ParentBytes) parentCost,
-            (double ChildMilliseconds, long ChildBytes) childCost) =
-                MeasurePair(
+        (double IndexMilliseconds, long IndexBytes) indexCost =
+            MeasureRepeated(
+                repetitions,
+                () => Index(path, cancellationToken));
+        (double ShardMilliseconds, long ShardBytes) shardCost =
+            MeasureRepeated(
+                repetitions,
+                () => Shard(
+                    path,
+                    topNamespace,
+                    cancellationToken));
+        (double ExhaustiveMilliseconds, long ExhaustiveBytes)
+            exhaustiveCost =
+                MeasureRepeated(
                     repetitions,
-                    () => Parent(analysis),
-                    () => Child(analysis, signature, body));
-        (double GraphMilliseconds, long GraphBytes) graphCost =
-            MeasureRepeated(
-                repetitions,
-                () => LibraryStructuralReport.ExecuteTypeLeverageGraph(
-                    analysis.Receipt,
-                    signature,
-                    body));
-        LibraryStructuralReport.TypeLeverageGraphExecution graph =
-            LibraryStructuralReport.ExecuteTypeLeverageGraph(
-                analysis.Receipt,
-                signature,
-                body);
-        (double ProjectionMilliseconds, long ProjectionBytes) projectionCost =
-            MeasureRepeated(
-                repetitions,
-                () => LibraryStructuralReport.ProjectTypeLeverage(
-                    signature,
-                    body,
-                    graph));
+                    () => Exhaustive(path, cancellationToken));
 
-        GraphExecutionWorkReceipt signatureWork =
-            leverage.GraphWork.SignatureIncomingDegree;
-        GraphExecutionWorkReceipt bodyWork =
-            leverage.GraphWork.BodyOutgoingDegree;
-        GraphExecutionWorkReceipt combinedWork =
-            leverage.GraphWork.CombinedIncomingDegree;
         return new(
             asset,
-            signature.Types.Length,
-            signature.Occurrences.Length,
-            body.Occurrences.Length,
-            leverage.Rows.Length,
-            leverage.SeaLevel.Types.Length,
-            leverage.MountainPeak.Types.Length,
-            Checksum(leverage),
-            parentCost.ParentMilliseconds,
-            parentCost.ParentBytes,
-            childCost.ChildMilliseconds,
-            childCost.ChildBytes,
-            childCost.ChildMilliseconds
-                / parentCost.ParentMilliseconds,
-            (double)childCost.ChildBytes / parentCost.ParentBytes,
-            graphCost.GraphMilliseconds,
-            graphCost.GraphBytes,
-            projectionCost.ProjectionMilliseconds,
-            projectionCost.ProjectionBytes,
-            signatureWork.CanonicalNodesExamined,
-            signatureWork.CanonicalEdgesExamined,
-            signatureWork.SelectedEdgesIndexed,
-            bodyWork.SelectedEdgesIndexed,
-            combinedWork.SelectedEdgesIndexed,
-            combinedWork.AdjacencyEntriesExamined);
+            salience.NamespaceIndex.Rows.Sum(
+                static row => row.TypeCount),
+            salience.NamespaceIndex.SignatureUse.OccurrenceCount,
+            salience.NamespaceIndex.Rows.Length,
+            salience.NamespaceIndex.Rows.Count(
+                static row => row.TopLeverage),
+            salience.TypeLeverageShards.Sum(
+                static shard => shard.Rows.Length),
+            salience.TypeLeverageShards.Sum(
+                static shard =>
+                    shard.Rows.Count(static row =>
+                        row.Pole
+                            == LibraryStructuralTypePole.SeaLevel)),
+            salience.TypeLeverageShards.Sum(
+                static shard =>
+                    shard.Rows.Count(
+                        static row =>
+                            row.Pole
+                                == LibraryStructuralTypePole.MountainPeak)),
+            Checksum(salience),
+            indexCost.IndexMilliseconds,
+            indexCost.IndexBytes,
+            shardCost.ShardMilliseconds,
+            shardCost.ShardBytes,
+            exhaustiveCost.ExhaustiveMilliseconds,
+            exhaustiveCost.ExhaustiveBytes);
     }
 
-    private static T Measure<T>(
-        Func<T> operation,
-        out double milliseconds,
-        out long allocated)
+    private static LibraryStructuralNamespaceLeverageIndex Index(
+        string path,
+        CancellationToken cancellationToken) =>
+        LibraryStructuralReport.CreateNamespaceLeverageIndex(
+            Signature(
+                path,
+                exactNamespace: null,
+                cancellationToken));
+
+    private static LibraryStructuralTypeLeverageShard Shard(
+        string path,
+        string exactNamespace,
+        CancellationToken cancellationToken) =>
+        LibraryStructuralReport.CreateTypeLeverageShard(
+            Signature(
+                path,
+                exactNamespace,
+                cancellationToken));
+
+    private static LibraryStructuralSalienceDocument Exhaustive(
+        string path,
+        CancellationToken cancellationToken)
     {
-        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
-        long timestamp = Stopwatch.GetTimestamp();
-        T result = operation();
-        milliseconds = Stopwatch.GetElapsedTime(
-            timestamp).TotalMilliseconds;
-        allocated =
-            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
-        return result;
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        MetadataLibrarySignatureUseResult whole =
+            Signature(
+                session,
+                exactNamespace: null,
+                cancellationToken);
+        LibraryStructuralNamespaceLeverageIndex index =
+            LibraryStructuralReport.CreateNamespaceLeverageIndex(whole);
+        LibraryStructuralTypeLeverageShard[] shards =
+        [
+            .. index.Rows.Select(row =>
+                LibraryStructuralReport.CreateTypeLeverageShard(
+                    Signature(
+                        session,
+                        row.Namespace,
+                        cancellationToken))),
+        ];
+        return LibraryStructuralReport.CreateStructuralSalience(
+            index,
+            shards);
+    }
+
+    private static MetadataLibrarySignatureUseResult Signature(
+        string path,
+        string? exactNamespace,
+        CancellationToken cancellationToken)
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        return Signature(
+            session,
+            exactNamespace,
+            cancellationToken);
+    }
+
+    private static MetadataLibrarySignatureUseResult Signature(
+        AssemblyInspectionSession session,
+        string? exactNamespace,
+        CancellationToken cancellationToken)
+    {
+        MetadataLibrarySignatureUseRequest request =
+            exactNamespace is null
+                ? new(MetadataOperationPolicy.Unbounded)
+                : new(
+                    MetadataOperationPolicy.Unbounded,
+                    exactNamespace);
+        MetadataLibrarySignatureUseOutcome outcome =
+            session.LibrarySignatureUses(
+                request,
+                cancellationToken);
+        return Assert.IsType<
+            MetadataLibrarySignatureUseOutcome.Available>(outcome).Result;
     }
 
     private static (double Milliseconds, long Bytes) MeasureRepeated<T>(
@@ -172,104 +224,23 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
         var allocations = new long[repetitions];
         for (var index = 0; index < repetitions; index++)
         {
-            T result = Measure(
-                operation,
-                out times[index],
-                out allocations[index]);
+            long allocatedBefore =
+                GC.GetAllocatedBytesForCurrentThread();
+            long timestamp = Stopwatch.GetTimestamp();
+            T result = operation();
+            times[index] =
+                Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
+            allocations[index] =
+                GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
             GC.KeepAlive(result);
         }
         return (Median(times), Median(allocations));
     }
 
-    private static (
-        (double Milliseconds, long Bytes) Before,
-        (double Milliseconds, long Bytes) After) MeasurePair<
-            TBefore,
-            TAfter>(
-        int repetitions,
-        Func<TBefore> before,
-        Func<TAfter> after)
-    {
-        var beforeTimes = new double[repetitions];
-        var beforeAllocations = new long[repetitions];
-        var afterTimes = new double[repetitions];
-        var afterAllocations = new long[repetitions];
-        for (var index = 0; index < repetitions; index++)
-        {
-            if ((index & 1) == 0)
-            {
-                TBefore beforeResult = Measure(
-                    before,
-                    out beforeTimes[index],
-                    out beforeAllocations[index]);
-                TAfter afterResult = Measure(
-                    after,
-                    out afterTimes[index],
-                    out afterAllocations[index]);
-                GC.KeepAlive(beforeResult);
-                GC.KeepAlive(afterResult);
-            }
-            else
-            {
-                TAfter afterResult = Measure(
-                    after,
-                    out afterTimes[index],
-                    out afterAllocations[index]);
-                TBefore beforeResult = Measure(
-                    before,
-                    out beforeTimes[index],
-                    out beforeAllocations[index]);
-                GC.KeepAlive(afterResult);
-                GC.KeepAlive(beforeResult);
-            }
-        }
-        return (
-            (Median(beforeTimes), Median(beforeAllocations)),
-            (Median(afterTimes), Median(afterAllocations)));
-    }
-
-    private static LibraryStructuralReportDocument Parent(
-        LibraryBodyAnalysisExecution analysis) =>
-        Available(LibraryStructuralReport.Execute(analysis));
-
-    private static LibraryStructuralReportDocument Child(
-        LibraryBodyAnalysisExecution analysis,
-        MetadataLibrarySignatureUseResult signature,
-        AnalysisLibraryBodyUseResult body) =>
-        Available(
-            LibraryStructuralReport.Execute(analysis, signature, body));
-
     private static LibraryStructuralReportDocument Available(
         LibraryStructuralReportResult result) =>
         Assert.IsType<LibraryStructuralReportResult.Available>(result)
             .Document;
-
-    private static MetadataLibrarySignatureUseResult Signature(
-        string path,
-        CancellationToken cancellationToken)
-    {
-        using AssemblyInspectionSession session =
-            AssemblyInspectionSession.Open(path);
-        MetadataLibrarySignatureUseOutcome outcome =
-            session.LibrarySignatureUses(
-                new(MetadataOperationPolicy.Unbounded),
-                cancellationToken);
-        return Assert.IsType<
-            MetadataLibrarySignatureUseOutcome.Available>(outcome).Result;
-    }
-
-    private static AnalysisLibraryBodyUseResult Body(
-        string path,
-        CancellationToken cancellationToken)
-    {
-        AnalysisLibraryBodyUseOutcome outcome =
-            AnalysisLibraryBodyUseService.ExecutePath(
-                path,
-                new(),
-                cancellationToken);
-        return Assert.IsType<
-            AnalysisLibraryBodyUseOutcome.Available>(outcome).Result;
-    }
 
     private static void AssertUnchanged(
         LibraryStructuralReportDocument parent,
@@ -300,23 +271,43 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
     }
 
     private static string Checksum(
-        LibraryStructuralTypeLeverageDocument leverage)
+        LibraryStructuralSalienceDocument salience)
     {
         var value = new StringBuilder();
-        foreach (LibraryStructuralTypeLeverageRow row in leverage.Rows)
+        foreach (LibraryStructuralNamespaceLeverageRow row
+            in salience.NamespaceIndex.Rows)
         {
-            value.Append(row.Type.Definition.Value);
+            value.Append(row.Namespace);
             value.Append(':');
-            value.Append(row.SignatureIncomingDegree);
+            value.Append(row.ExternalIncomingSourceTypeCount);
             value.Append(':');
-            value.Append(row.BodyOutgoingDegree);
-            value.Append(':');
-            value.Append(row.CombinedIncomingDegree);
-            value.Append(':');
-            value.Append(row.CombinedOutgoingDegree);
-            value.Append(':');
-            value.Append((int)row.Role);
+            value.Append(row.TopLeverage ? '1' : '0');
             value.Append(';');
+        }
+        foreach (LibraryStructuralTypeLeverageShard shard
+            in salience.TypeLeverageShards)
+        {
+            value.Append('[');
+            value.Append(shard.Namespace);
+            value.Append(']');
+            foreach (LibraryStructuralTypeLeverageRow row in shard.Rows)
+            {
+                value.Append(row.Type.Definition.Value);
+                value.Append(':');
+                value.Append(row.SignatureIncomingDegree);
+                value.Append(':');
+                value.Append(row.SignatureOutgoingDegree);
+                value.Append(':');
+                value.Append(row.Pole switch
+                {
+                    LibraryStructuralTypePole.SeaLevel => 'S',
+                    LibraryStructuralTypePole.MountainPeak => 'M',
+                    null => '-',
+                    _ => throw new InvalidOperationException(
+                        "Unknown structural Type pole."),
+                });
+                value.Append(';');
+            }
         }
         byte[] hash = SHA256.HashData(
             Encoding.UTF8.GetBytes(value.ToString()));
@@ -342,74 +333,45 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
             measurement.Types.ToString(CultureInfo.InvariantCulture),
             measurement.SignatureOccurrences.ToString(
                 CultureInfo.InvariantCulture),
-            measurement.BodyOccurrences.ToString(
+            measurement.Namespaces.ToString(CultureInfo.InvariantCulture),
+            measurement.TopNamespaces.ToString(
                 CultureInfo.InvariantCulture),
-            measurement.Rows.ToString(CultureInfo.InvariantCulture),
-            measurement.SeaLevel.ToString(CultureInfo.InvariantCulture),
-            measurement.MountainPeak.ToString(
+            measurement.ConnectedTypeRows.ToString(
+                CultureInfo.InvariantCulture),
+            measurement.SeaLevelDesignations.ToString(
+                CultureInfo.InvariantCulture),
+            measurement.MountainPeakDesignations.ToString(
                 CultureInfo.InvariantCulture),
             measurement.Checksum,
-            measurement.ParentMilliseconds.ToString(
+            measurement.IndexMilliseconds.ToString(
                 "F4",
                 CultureInfo.InvariantCulture),
-            measurement.ParentBytes.ToString(
-                CultureInfo.InvariantCulture),
-            measurement.ChildMilliseconds.ToString(
+            measurement.IndexBytes.ToString(CultureInfo.InvariantCulture),
+            measurement.TopShardMilliseconds.ToString(
                 "F4",
                 CultureInfo.InvariantCulture),
-            measurement.ChildBytes.ToString(
+            measurement.TopShardBytes.ToString(
                 CultureInfo.InvariantCulture),
-            measurement.TimeRatio.ToString(
+            measurement.ExhaustiveMilliseconds.ToString(
                 "F4",
                 CultureInfo.InvariantCulture),
-            measurement.AllocationRatio.ToString(
-                "F4",
-                CultureInfo.InvariantCulture),
-            measurement.GraphMilliseconds.ToString(
-                "F4",
-                CultureInfo.InvariantCulture),
-            measurement.GraphBytes.ToString(CultureInfo.InvariantCulture),
-            measurement.ProjectionMilliseconds.ToString(
-                "F4",
-                CultureInfo.InvariantCulture),
-            measurement.ProjectionBytes.ToString(
-                CultureInfo.InvariantCulture),
-            measurement.CanonicalNodes.ToString(
-                CultureInfo.InvariantCulture),
-            measurement.CanonicalEdges.ToString(
-                CultureInfo.InvariantCulture),
-            measurement.SignatureEdges.ToString(
-                CultureInfo.InvariantCulture),
-            measurement.BodyEdges.ToString(
-                CultureInfo.InvariantCulture),
-            measurement.CombinedEdges.ToString(
-                CultureInfo.InvariantCulture),
-            measurement.AdjacencyEntries.ToString(
+            measurement.ExhaustiveBytes.ToString(
                 CultureInfo.InvariantCulture));
 
     private sealed record Measurement(
         string Asset,
         int Types,
         int SignatureOccurrences,
-        int BodyOccurrences,
-        int Rows,
-        int SeaLevel,
-        int MountainPeak,
+        int Namespaces,
+        int TopNamespaces,
+        int ConnectedTypeRows,
+        int SeaLevelDesignations,
+        int MountainPeakDesignations,
         string Checksum,
-        double ParentMilliseconds,
-        long ParentBytes,
-        double ChildMilliseconds,
-        long ChildBytes,
-        double TimeRatio,
-        double AllocationRatio,
-        double GraphMilliseconds,
-        long GraphBytes,
-        double ProjectionMilliseconds,
-        long ProjectionBytes,
-        int CanonicalNodes,
-        int CanonicalEdges,
-        int SignatureEdges,
-        int BodyEdges,
-        int CombinedEdges,
-        int AdjacencyEntries);
+        double IndexMilliseconds,
+        long IndexBytes,
+        double TopShardMilliseconds,
+        long TopShardBytes,
+        double ExhaustiveMilliseconds,
+        long ExhaustiveBytes);
 }

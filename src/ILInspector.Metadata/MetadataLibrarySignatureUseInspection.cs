@@ -106,6 +106,7 @@ internal static class MetadataLibrarySignatureUseInspection
                 moduleVersionId,
                 inventory,
                 operation,
+                request.ExactNamespace,
                 cancellationToken).Execute();
         }
         catch (MetadataOperationBudgetExceededException exception)
@@ -139,6 +140,7 @@ internal static class MetadataLibrarySignatureUseInspection
         private readonly Guid _moduleVersionId;
         private readonly AssemblyTypeDeclarationInventory _inventory;
         private readonly MetadataOperationContext _operation;
+        private readonly string? _exactNamespace;
         private readonly CancellationToken _cancellationToken;
         private readonly Dictionary<
             MetadataTypeDefinitionName,
@@ -173,6 +175,7 @@ internal static class MetadataLibrarySignatureUseInspection
             Guid moduleVersionId,
             AssemblyTypeDeclarationInventory inventory,
             MetadataOperationContext operation,
+            string? exactNamespace,
             CancellationToken cancellationToken)
         {
             _image = image;
@@ -181,6 +184,7 @@ internal static class MetadataLibrarySignatureUseInspection
             _moduleVersionId = moduleVersionId;
             _inventory = inventory;
             _operation = operation;
+            _exactNamespace = exactNamespace;
             _cancellationToken = cancellationToken;
             int typeRowCapacity =
                 checked(reader.TypeDefinitions.Count + 1);
@@ -196,6 +200,7 @@ internal static class MetadataLibrarySignatureUseInspection
         {
             BuildTypeInventory();
             ScanSites();
+            PrepareInheritanceClassification();
             ClassifyInheritance();
             int considered = _limited
                 ? CountSites()
@@ -212,7 +217,9 @@ internal static class MetadataLibrarySignatureUseInspection
             }
 
             ImmutableArray<MetadataLibrarySignatureType> types =
-                [.. _types.Select(
+                [.. _types
+                    .Where(IsAdmitted)
+                    .Select(
                     static entry =>
                         new MetadataLibrarySignatureType(
                             entry.Address,
@@ -228,6 +235,7 @@ internal static class MetadataLibrarySignatureUseInspection
                     new(
                         _moduleVersionId,
                         _assembly,
+                        _exactNamespace,
                         _operation.Counters),
                     disposition,
                     types,
@@ -297,11 +305,32 @@ internal static class MetadataLibrarySignatureUseInspection
         {
             foreach (TypeEntry entry in _types)
             {
+                if (!IsAdmitted(entry))
+                    continue;
                 _cancellationToken.ThrowIfCancellationRequested();
                 entry.Classification |=
                     SafeInheritanceClassification(entry);
             }
         }
+
+        private void PrepareInheritanceClassification()
+        {
+            foreach (TypeEntry entry in _types)
+            {
+                if (IsAdmitted(entry))
+                    continue;
+                TypeDefinition definition =
+                    _reader.GetTypeDefinition(entry.Handle);
+                _baseSiteExamined[TypeRow(entry.Handle)] =
+                    !definition.BaseType.IsNil;
+            }
+        }
+
+        private bool IsAdmitted(TypeEntry entry) =>
+            _exactNamespace is null
+                || StringComparer.Ordinal.Equals(
+                    entry.Name.Namespace,
+                    _exactNamespace);
 
         private MetadataLibraryTypeClassification
             SafeInitialClassification(
@@ -537,6 +566,8 @@ internal static class MetadataLibrarySignatureUseInspection
             int count = 0;
             foreach (TypeEntry entry in _types)
             {
+                if (!IsAdmitted(entry))
+                    continue;
                 _cancellationToken.ThrowIfCancellationRequested();
                 TypeDefinition definition =
                     _reader.GetTypeDefinition(entry.Handle);
@@ -584,6 +615,8 @@ internal static class MetadataLibrarySignatureUseInspection
         {
             foreach (TypeEntry source in _types)
             {
+                if (!IsAdmitted(source))
+                    continue;
                 _cancellationToken.ThrowIfCancellationRequested();
                 if (_limited)
                     return;
@@ -966,7 +999,8 @@ internal static class MetadataLibrarySignatureUseInspection
                 if (occurrence.Participates
                     && TryBind(
                         occurrence.Reference,
-                        out TypeEntry? target))
+                        out TypeEntry? target)
+                    && IsAdmitted(target))
                 {
                     pending.Occurrences.Add(
                         new(target, kind, currentOrdinal));

@@ -11,6 +11,72 @@ namespace ILInspector.Metadata.Tests;
 public sealed class MetadataLibrarySignatureUseTests
 {
     [Fact]
+    public void ExactNamespaceAdmitsOnlyItsTypesSitesAndRelationships()
+    {
+        const string exactNamespace =
+            "ILInspector.Metadata.SignatureUseFixtures.ShardA";
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                typeof(FixtureAnchor).Assembly.Location);
+
+        MetadataLibrarySignatureUseResult whole =
+            Available(
+                session.LibrarySignatureUses(
+                    new(MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+        MetadataLibrarySignatureUseResult shard =
+            Available(
+                session.LibrarySignatureUses(
+                    new(
+                        MetadataOperationPolicy.Unbounded,
+                        exactNamespace),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Null(whole.Receipt.ExactNamespace);
+        Assert.Equal(exactNamespace, shard.Receipt.ExactNamespace);
+        Assert.Equal(
+            ["NamespaceSource", "NamespacePeer"],
+            shard.Types.Select(
+                static type => type.Name.Segments.Single()));
+        Assert.All(
+            shard.Types,
+            type => Assert.Equal(exactNamespace, type.Name.Namespace));
+        Assert.All(
+            shard.Occurrences,
+            occurrence =>
+            {
+                Assert.Equal(
+                    exactNamespace,
+                    occurrence.SourceType.Namespace);
+                Assert.Equal(
+                    exactNamespace,
+                    occurrence.TargetType.Namespace);
+            });
+        Assert.Contains(
+            shard.Occurrences,
+            static occurrence =>
+                occurrence.SourceType.Segments is ["NamespaceSource"]
+                && occurrence.TargetType.Segments is ["NamespacePeer"]);
+        Assert.Contains(
+            shard.Occurrences,
+            static occurrence =>
+                occurrence.SourceType.Segments is ["NamespacePeer"]
+                && occurrence.TargetType.Segments is ["NamespaceSource"]);
+        Assert.DoesNotContain(
+            shard.Types,
+            static type =>
+                type.Name.Segments is ["NamespaceExternal"]);
+        Assert.True(
+            shard.Coverage.Considered < whole.Coverage.Considered);
+        Assert.Contains(
+            whole.Occurrences,
+            static occurrence =>
+                occurrence.SourceType.Segments is ["NamespaceSource"]
+                && occurrence.TargetType.Segments
+                    is ["NamespaceExternal"]);
+    }
+
+    [Fact]
     public void CompletePopulationRetainsEveryDeclarationSiteAndExactEndpoint()
     {
         using AssemblyInspectionSession session =
