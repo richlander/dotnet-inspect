@@ -459,6 +459,16 @@ public static partial class ResearchDiff
         Dictionary<ResearchTargetDomainKey, IReadOnlySet<string>>
             returnTypeCollisions)
     {
+        if (basis
+            is ResearchProducerWorkBasis.Correspondence correspondence)
+        {
+            return SubjectFromCorrespondence(
+                resolution,
+                population,
+                correspondence.Outcome,
+                returnTypeCollisions);
+        }
+
         ResearchTargetAttempt? attempt = basis switch
         {
             ResearchProducerWorkBasis.DesignatedPair designated =>
@@ -466,22 +476,57 @@ public static partial class ResearchDiff
                     is ResearchTargetOutcome.Resolved
                         ? designated.Pair.After
                         : designated.Pair.Before,
-            ResearchProducerWorkBasis.Correspondence
-                {
-                    Outcome: ResearchTargetCorrespondenceOutcome.Paired paired,
-                } => paired.After.Attempt,
-            ResearchProducerWorkBasis.Correspondence
-                {
-                    Outcome:
-                        ResearchTargetCorrespondenceOutcome.BeforeOnly beforeOnly,
-                } => beforeOnly.Before.Attempt,
-            ResearchProducerWorkBasis.Correspondence
-                {
-                    Outcome:
-                        ResearchTargetCorrespondenceOutcome.AfterOnly afterOnly,
-                } => afterOnly.After.Attempt,
             _ => null,
         };
+        return SubjectFromAttempt(
+            resolution,
+            population,
+            attempt,
+            attempt?.Request.Scope,
+            ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
+                WorkBasisMethods(population, basis)));
+    }
+
+    internal static ResearchSubjectKey SubjectFromCorrespondence(
+        ResearchTargetResolution resolution,
+        ResearchAdmittedPopulation population,
+        ResearchTargetCorrespondenceOutcome correspondence,
+        Dictionary<ResearchTargetDomainKey, IReadOnlySet<string>>
+            returnTypeCollisions)
+    {
+        ArgumentNullException.ThrowIfNull(resolution);
+        ArgumentNullException.ThrowIfNull(population);
+        ArgumentNullException.ThrowIfNull(correspondence);
+        ArgumentNullException.ThrowIfNull(returnTypeCollisions);
+
+        ResearchTargetAttempt? attempt = correspondence switch
+        {
+            ResearchTargetCorrespondenceOutcome.Paired paired =>
+                paired.After.Attempt,
+            ResearchTargetCorrespondenceOutcome.BeforeOnly beforeOnly =>
+                beforeOnly.Before.Attempt,
+            ResearchTargetCorrespondenceOutcome.AfterOnly afterOnly =>
+                afterOnly.After.Attempt,
+            _ => null,
+        };
+        return SubjectFromAttempt(
+            resolution,
+            population,
+            attempt,
+            correspondence.Scope,
+            ReturnTypeCollisions(
+                population,
+                correspondence.Domain,
+                returnTypeCollisions));
+    }
+
+    static ResearchSubjectKey SubjectFromAttempt(
+        ResearchTargetResolution resolution,
+        ResearchAdmittedPopulation population,
+        ResearchTargetAttempt? attempt,
+        ResearchTargetScopeId? scopeId,
+        IReadOnlySet<string> returnTypeCollisions)
+    {
         if (attempt?.Outcome is ResearchTargetOutcome.Resolved
             {
                 Address: { } address,
@@ -497,14 +542,9 @@ public static partial class ResearchDiff
             {
                 ResearchSubjectKey baseSubject =
                     ResearchMemberIdentity.SubjectFromMethod(method);
-                IReadOnlySet<string> collisions =
-                    ReturnTypeCollisions(
-                        population,
-                        basis,
-                        returnTypeCollisions);
                 return ResearchMemberIdentity.SubjectFromMethod(
                     method,
-                    collisions.Contains(baseSubject.Id));
+                    returnTypeCollisions.Contains(baseSubject.Id));
             }
 
             return ResearchMemberIdentity.SubjectFromAnchor(
@@ -512,8 +552,11 @@ public static partial class ResearchDiff
                 target.Anchor.CanonicalSignature);
         }
 
-        ResearchTargetScopeId scopeId =
-            ((ResearchProducerWorkBasis.Correspondence)basis).Outcome.Scope;
+        if (scopeId is null)
+        {
+            throw new InvalidOperationException(
+                "Implementation subject projection requires a target scope.");
+        }
         ResearchTargetScope scope = resolution.Scopes.Single(
             scope => ReferenceEquals(scope.Id, scopeId));
         string display =
@@ -526,25 +569,23 @@ public static partial class ResearchDiff
             scope.Selector.RequestedText);
     }
 
-    static IReadOnlySet<string> ReturnTypeCollisions(
+    internal static IReadOnlySet<string> ReturnTypeCollisions(
         ResearchAdmittedPopulation population,
-        ResearchProducerWorkBasis basis,
+        ResearchTargetDomain domain,
         Dictionary<ResearchTargetDomainKey, IReadOnlySet<string>> cache)
     {
-        if (basis
-            is not ResearchProducerWorkBasis.Correspondence correspondence)
-        {
-            return ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
-                WorkBasisMethods(population, basis));
-        }
+        ArgumentNullException.ThrowIfNull(population);
+        ArgumentNullException.ThrowIfNull(domain);
+        ArgumentNullException.ThrowIfNull(cache);
 
-        ResearchTargetDomainKey domain = correspondence.Outcome.Domain.Key;
-        if (!cache.TryGetValue(domain, out IReadOnlySet<string>? collisions))
+        if (!cache.TryGetValue(
+            domain.Key,
+            out IReadOnlySet<string>? collisions))
         {
             collisions =
                 ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
-                    WorkBasisMethods(population, basis));
-            cache.Add(domain, collisions);
+                    WorkBasisMethods(population, domain));
+            cache.Add(domain.Key, collisions);
         }
 
         return collisions;
@@ -562,14 +603,31 @@ public static partial class ResearchDiff
                 designated.Pair.After.Request.Input,
             ],
             ResearchProducerWorkBasis.Correspondence correspondence =>
-                correspondence.Outcome.Domain.Inputs
-                    .Where(static input =>
-                        input.Role == ResearchTargetInputRole.Implementation)
-                    .Select(
-                        static input => input.Input),
+                ImplementationInputs(correspondence.Outcome.Domain),
             _ => throw new ArgumentOutOfRangeException(nameof(basis)),
         };
 
+        return WorkBasisMethods(population, inputs);
+    }
+
+    static IEnumerable<MethodIdentity> WorkBasisMethods(
+        ResearchAdmittedPopulation population,
+        ResearchTargetDomain domain)
+        => WorkBasisMethods(
+            population,
+            ImplementationInputs(domain));
+
+    static IEnumerable<ResearchComparisonInputId> ImplementationInputs(
+        ResearchTargetDomain domain)
+        => domain.Inputs
+            .Where(static input =>
+                input.Role == ResearchTargetInputRole.Implementation)
+            .Select(static input => input.Input);
+
+    static IEnumerable<MethodIdentity> WorkBasisMethods(
+        ResearchAdmittedPopulation population,
+        IEnumerable<ResearchComparisonInputId> inputs)
+    {
         foreach (ResearchComparisonInputId input in inputs)
         {
             if (population.GetInput(input).Occurrence

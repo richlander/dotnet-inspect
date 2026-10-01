@@ -301,7 +301,9 @@ public static class ImplementationComparisonQuery
                     [.. input.NewAssemblies.Select(
                         static assembly => assembly.ProfileAnalysis)],
                     input.TypeFilters,
-                    TargetResolution: resolved.Resolution)),
+                    TargetContext: new(
+                        resolved.Resolution,
+                        resolved.Projected.Admission))),
         };
         return new ImplementationComparisonResult.Compared(
             comparison,

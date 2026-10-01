@@ -304,9 +304,9 @@ source-level C# cyclomatic-complexity value and does not imply a quality score.
 
 `ImplementationComplexityService` accepts the focused profile results from both
 Implementation Diff endpoints and pairs those observations by the existing
-stable member identity plus physical evidence-method identity. The typed result retains
-unchanged, changed, added, removed, and incomplete observations, including
-old/new values and completeness flags. If either endpoint did not request
+stable member identity plus physical evidence-method identity. The typed result
+retains unchanged, changed, added, removed, and incomplete observations,
+including old/new values and completeness flags. If either endpoint did not request
 profiles, or requested them over a scoped (not whole-assembly) method-evidence
 population, the complexity lane is unavailable rather than silently treated as
 a complete comparison. Assemblies present on only one side of a multi-assembly
@@ -331,6 +331,16 @@ non-unchanged complexity observations alongside its existing C#, IL, and PDB
 Source evidence lanes; broad PDB-source enrichment preserves an already
 computed complexity lane rather than resetting it to unavailable. Quality
 shades remain a later consumer.
+
+For a focused member comparison, Research correspondence replaces independent
+profile-key pairing. The complexity request carries the matching admitted
+population and target resolution as one typed context. Each correspondence
+supplies the authoritative subject and exact endpoint MethodDef addresses;
+complexity selects the Analysis logical-owner profiles at those addresses and
+pairs a single physical observation per endpoint directly, without rebuilding
+identity from generic-parameter spelling or another profile-local string.
+Logical owners with several physical evidence bodies retain the existing
+conservative evidence-method pairing and Incomplete result.
 
 Every change with a non-null `Delta` also carries an
 `ImplementationComplexityPopulationContext` (`PopulationSize`,
@@ -517,7 +527,10 @@ profile's Analysis-issued logical owner, then retains every associated physical
 evidence method, including generated state-machine bodies. Return-type
 collision qualification considers the declared methods from both endpoint
 populations in the correspondence domain, so native and complexity evidence
-use the same subject when a collision exists on only one endpoint.
+use the same subject when a collision exists on only one endpoint. Complexity
+also consumes the correspondence-issued endpoint pairing, so generic-parameter
+renames and other profile-local spelling differences cannot turn one paired
+logical method into separate Added and Removed observations.
 
 Repeated selection occurrences remain distinct in the target resolution and
 portable request. When two occurrences resolve to the same physical endpoint
@@ -2264,7 +2277,9 @@ The document contains:
   exists to project;
 - complexity changes with endpoint completeness and image-issued method
   evidence coordinates plus the owner-issued local population context for
-  delta-bearing changes; and
+  delta-bearing changes. Focused complexity changes reuse the same
+  correspondence-issued subject and endpoint pair as native evidence rather
+  than re-deriving either from profile-local display identity; and
 - per-mechanism coverage that distinguishes evaluated, exact, changed,
   unavailable, incomplete, and failed work. Every `*SubjectCount` is the
   distinct count of `Subject.Id` values in that category; a subject with

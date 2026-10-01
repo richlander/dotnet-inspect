@@ -512,10 +512,10 @@ public sealed class ImplementationComparisonQueryTests
                 .GetProperty(nameof(ImplementationDiffDocumentRequest.MemberSelections))!
                 .PropertyType);
         Assert.Equal(
-            typeof(ResearchTargetResolution),
+            typeof(ImplementationComplexityTargetContext),
             typeof(ImplementationComplexityComparisonRequest)
                 .GetProperty(
-                    nameof(ImplementationComplexityComparisonRequest.TargetResolution))!
+                    nameof(ImplementationComplexityComparisonRequest.TargetContext))!
                 .PropertyType);
 
         PropertyInfo[] analysisProperties =
@@ -1123,6 +1123,38 @@ public sealed class ImplementationComparisonQueryTests
             Assert.Single(document.Complexity.Changes);
         Assert.Equal(member.Subject, complexity.Subject);
         Assert.Equal("SelectedMixed", member.Subject.MemberName);
+    }
+
+    [Fact]
+    public void DocumentQuery_TargetedBodylessCollisionUsesOneSubject()
+    {
+        ImplementationDiffDocument document =
+            CompareBodylessReturnTypeCollision();
+
+        ImplementationDiffDocumentMember member =
+            Assert.Single(document.Members);
+        ImplementationDiffDocumentComplexityChange complexity =
+            Assert.Single(document.Complexity.Changes);
+        Assert.Equal(member.Subject, complexity.Subject);
+        Assert.Equal("Changed", member.Subject.MemberName);
+    }
+
+    [Fact]
+    public void DocumentQuery_GenericParameterRenameUsesCorrespondencePair()
+    {
+        ImplementationDiffDocument document =
+            CompareGenericParameterRename();
+
+        ImplementationDiffDocumentMember member =
+            Assert.Single(document.Members);
+        ImplementationDiffDocumentComplexityChange complexity =
+            Assert.Single(document.Complexity.Changes);
+        Assert.Equal(member.Subject, complexity.Subject);
+        Assert.Equal(
+            ImplementationComplexityChangeKind.Unchanged,
+            complexity.Kind);
+        Assert.NotNull(complexity.OldEvidence);
+        Assert.NotNull(complexity.NewEvidence);
     }
 
     [Fact]
@@ -2094,6 +2126,136 @@ public sealed class ImplementationComparisonQueryTests
             stringIl.Emit(OpCodes.Ldstr, stringValue);
             stringIl.Emit(OpCodes.Ret);
         }
+        type.CreateType();
+        assembly.Save(path);
+    }
+
+    static ImplementationDiffDocument CompareBodylessReturnTypeCollision()
+        => CompareProfiledFixture(
+            "BodylessCollisionSample",
+            "Changed:1",
+            static path => EmitBodylessReturnTypeCollision(
+                path,
+                value: 1,
+                includeBodylessOverload: true),
+            static path => EmitBodylessReturnTypeCollision(
+                path,
+                value: 2,
+                includeBodylessOverload: false));
+
+    static ImplementationDiffDocument CompareGenericParameterRename()
+        => CompareProfiledFixture(
+            "GenericRenameSample",
+            "Changed:1",
+            static path => EmitGenericParameterRename(
+                path,
+                value: 1,
+                genericParameterName: "T"),
+            static path => EmitGenericParameterRename(
+                path,
+                value: 2,
+                genericParameterName: "TValue"));
+
+    static ImplementationDiffDocument CompareProfiledFixture(
+        string typeName,
+        string memberSelector,
+        Action<string> emitBefore,
+        Action<string> emitAfter)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-target-correspondence-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string oldPath = Path.Combine(directory, "before.dll");
+            string newPath = Path.Combine(directory, "after.dll");
+            emitBefore(oldPath);
+            emitAfter(newPath);
+            return ImplementationDiffDocumentQuery.Execute(
+                new ImplementationComparisonInput(
+                    [ProfiledStreamBackedInput(oldPath, "before.dll")],
+                    [ProfiledStreamBackedInput(newPath, "after.dll")],
+                    TypeFilters: new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        typeName,
+                    },
+                    MemberSelections:
+                    [
+                        new ComparisonMemberSelection(
+                            TypeName(typeName),
+                            MemberTargetSelector.Parse(memberSelector)),
+                    ]));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static void EmitBodylessReturnTypeCollision(
+        string path,
+        int value,
+        bool includeBodylessOverload)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("BodylessCollisionFixture"),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule("BodylessCollisionFixture");
+        TypeBuilder type = module.DefineType(
+            "BodylessCollisionSample",
+            TypeAttributes.Public | TypeAttributes.Abstract);
+        MethodBuilder method = type.DefineMethod(
+            "Changed",
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            typeof(int),
+            Type.EmptyTypes);
+        ILGenerator il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldc_I4, value);
+        il.Emit(OpCodes.Ret);
+        if (includeBodylessOverload)
+        {
+            type.DefineMethod(
+                "Changed",
+                MethodAttributes.Public
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.NewSlot,
+                typeof(string),
+                Type.EmptyTypes);
+        }
+        type.CreateType();
+        assembly.Save(path);
+    }
+
+    static void EmitGenericParameterRename(
+        string path,
+        int value,
+        string genericParameterName)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("GenericRenameFixture"),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule("GenericRenameFixture");
+        TypeBuilder type = module.DefineType(
+            "GenericRenameSample",
+            TypeAttributes.Public | TypeAttributes.Abstract);
+        MethodBuilder method = type.DefineMethod(
+            "Changed",
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            typeof(int),
+            Type.EmptyTypes);
+        method.DefineGenericParameters(genericParameterName);
+        ILGenerator il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldc_I4, value);
+        il.Emit(OpCodes.Ret);
         type.CreateType();
         assembly.Save(path);
     }
