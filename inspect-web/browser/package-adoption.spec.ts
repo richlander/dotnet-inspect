@@ -3022,6 +3022,9 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.locator(".library-api-diff-endpoint")).toHaveCount(0);
     await expect(panel).not.toContainText("Member evidence");
     await expect(panel.locator("#library-api-diff-changes-title")).toHaveText("What changed");
+    await expect(panel.locator(
+      ".member-diff-inline-source .member-diff-source-unavailable",
+    )).toContainText("Before: Not present on this side.");
     await expect(panel).toContainText(
       "No Member-level change is classified: the containing Type was added as a whole.",
     );

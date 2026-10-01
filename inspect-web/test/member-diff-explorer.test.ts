@@ -461,6 +461,74 @@ test("inline Member Diff keeps source work explicit", () => {
   assert.doesNotMatch(html, /Loading authored Source/);
 });
 
+test("inline one-sided Member Diff preserves concise endpoint outcomes", () => {
+  const value = context(destination(null, afterMember));
+  const idle = renderInlineMemberSourceDiff(
+    value,
+    { status: "idle" },
+    String,
+  );
+  assert.match(idle, /<strong>Before<\/strong>: Not present on this side\./);
+  assert.match(idle, /Show authored Source diff/);
+  assert.doesNotMatch(idle, /member-diff-source-endpoint/);
+
+  const result = sourceResult(value, null);
+  if (result.value === null) throw new Error("Expected Source comparison.");
+  const ready = renderInlineMemberSourceDiff(
+    value,
+    {
+      status: "ready",
+      result: {
+        ...result,
+        value: {
+          ...result.value,
+          before: {
+            ...sourceEndpoint("1.0.0", "Unrequested"),
+            memberIdentity: null,
+            metadataToken: null,
+            detail: null,
+          },
+          after: sourceEndpoint(
+            "2.0.0",
+            "Available",
+            "public void Run(long value)",
+          ),
+        },
+      },
+    },
+    String,
+  );
+  assert.match(ready, /<strong>Before<\/strong>: Not present on this side\./);
+  assert.match(ready, /paired authored Source comparison is unavailable/);
+  assert.doesNotMatch(
+    ready,
+    /member-diff-source-endpoint|public void Run\(long value\)/,
+  );
+});
+
+test("inline Member Diff renders typed Source unavailability without cards", () => {
+  const value = context();
+  const result = sourceResult(value, null);
+  if (result.value === null) throw new Error("Expected Source comparison.");
+  const html = renderInlineMemberSourceDiff(
+    value,
+    {
+      status: "ready",
+      result: {
+        ...result,
+        value: {
+          ...result.value,
+          before: sourceEndpoint("1.0.0", "Unavailable"),
+        },
+      },
+    },
+    String,
+  );
+
+  assert.match(html, /<strong>Before<\/strong>: Source was not published\./);
+  assert.doesNotMatch(html, /member-diff-source-endpoint/);
+});
+
 test("inline Member Diff renders only the authored Source document", () => {
   const value = context();
   const html = renderInlineMemberSourceDiff(

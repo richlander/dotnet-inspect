@@ -483,7 +483,8 @@ export function renderInlineMemberSourceDiff(
   escapeHtml: (value: unknown) => string,
 ): string {
   const content = source.status === "idle"
-    ? '<button type="button" class="secondary" data-member-diff-source-show>Show authored Source diff</button>'
+    ? `${compactDestinationNotices(context, escapeHtml)}
+      <button type="button" class="secondary" data-member-diff-source-show>Show authored Source diff</button>`
     : renderSourcePane(source, context, escapeHtml, true);
   return `<section class="library-api-diff-change-section member-diff-inline-source" aria-labelledby="member-diff-inline-source-title">
     <h2 id="member-diff-inline-source-title">Authored Source</h2>
@@ -530,6 +531,56 @@ function requestedEndpoints(
   </div>`;
 }
 
+function compactEndpointNotice(
+  destination: BrowserLibraryApiDiffMemberExploreEndpoint,
+  endpoint: BrowserSourceComparisonEndpoint | null,
+  label: string,
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (destination.member === null) {
+    return `<p class="member-diff-source-unavailable"><strong>${escapeHtml(label)}</strong>: Not present on this side.</p>`;
+  }
+  if (endpoint === null || endpoint.state === "Available") {
+    return "";
+  }
+  return `<p class="member-diff-source-unavailable"><strong>${escapeHtml(label)}</strong>: ${escapeHtml(endpoint.detail ?? endpoint.state)}</p>`;
+}
+
+function compactDestinationNotices(
+  context: LibraryApiDiffMemberExploreContext,
+  escapeHtml: (value: unknown) => string,
+): string {
+  return `${compactEndpointNotice(
+    context.destination.target,
+    null,
+    "Before",
+    escapeHtml,
+  )}${compactEndpointNotice(
+    context.destination.current,
+    null,
+    "After",
+    escapeHtml,
+  )}`;
+}
+
+function compactComparisonNotices(
+  value: BrowserSourceComparison,
+  context: LibraryApiDiffMemberExploreContext,
+  escapeHtml: (value: unknown) => string,
+): string {
+  return `${compactEndpointNotice(
+    context.destination.target,
+    value.before,
+    "Before",
+    escapeHtml,
+  )}${compactEndpointNotice(
+    context.destination.current,
+    value.after,
+    "After",
+    escapeHtml,
+  )}`;
+}
+
 function renderComparedSource(
   value: BrowserSourceComparison,
   context: LibraryApiDiffMemberExploreContext,
@@ -545,7 +596,9 @@ function renderComparedSource(
     ${endpointStatus(value.before, context.destination.target, "Before", escapeHtml)}
     ${endpointStatus(value.after, context.destination.current, "After", escapeHtml)}
   </div>`;
-  const endpoints = compact ? "" : endpointCards;
+  const endpoints = compact
+    ? compactComparisonNotices(value, context, escapeHtml)
+    : endpointCards;
   if (value.status === "Compared" && value.diff !== null) {
     return compact
       ? `${exact}${renderMemberSourceDiff(value.diff, escapeHtml, true)}`
@@ -570,7 +623,9 @@ function renderSourcePane(
   compact = false,
 ): string {
   const endpointContext = (stateText: string): string => {
-    return compact ? "" : requestedEndpoints(context, stateText, escapeHtml);
+    return compact
+      ? compactDestinationNotices(context, escapeHtml)
+      : requestedEndpoints(context, stateText, escapeHtml);
   };
   switch (state.status) {
     case "idle":
