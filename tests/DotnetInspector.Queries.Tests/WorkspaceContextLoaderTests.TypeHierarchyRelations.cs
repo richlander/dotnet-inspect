@@ -258,6 +258,13 @@ public sealed partial class WorkspaceContextLoaderTests
                 workspace,
                 await LocatorContext(workspace, image));
 
+        Assert.IsType<WorkspaceExactTypeFocusOutcome.Found>(
+            WorkspaceExactTypeFocusQuery.Execute(
+                population,
+                "Probe.HiddenDisposable",
+                includeAll: false,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
         Assert.IsType<WorkspaceExactTypeFocusOutcome.Unavailable>(
             WorkspaceExactTypeFocusQuery.Execute(
                 population,

@@ -84,7 +84,6 @@ public static class WorkspaceExactTypeFocusQuery
                 selectionKind,
                 assemblyName,
                 library,
-                includeAll,
                 cancellationToken)
                 is { } simpleSelection)
         {
@@ -129,7 +128,7 @@ public static class WorkspaceExactTypeFocusQuery
 
             outcomes.Add(new(member, IsComplete: true));
             foreach (AssemblyTypeDeclaration declaration
-                in read.Inventory.GetDeclarations(includeAll))
+                in read.Inventory.GetDeclarations(includeAll: true))
             {
                 if (declaration.Kind is not (
                     AssemblyTypeDeclarationKind.Definition
@@ -232,7 +231,6 @@ public static class WorkspaceExactTypeFocusQuery
             ExactTypeSelectionKind selectionKind,
             string? assemblyName,
             ExactLibrarySourceCoordinate? library,
-            bool includeAll,
             CancellationToken cancellationToken)
     {
         var matches = new List<DefinitionFocusCandidate>();
@@ -269,7 +267,7 @@ public static class WorkspaceExactTypeFocusQuery
 
             outcomes.Add(new(member, IsComplete: true));
             foreach (AssemblyTypeDeclaration declaration
-                in read.Inventory.GetDeclarations(includeAll))
+                in read.Inventory.GetDeclarations(includeAll: true))
             {
                 if (declaration.Kind is (
                         AssemblyTypeDeclarationKind.Definition
