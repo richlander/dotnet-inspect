@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection.Metadata;
 
 using ILInspector.Analysis;
 using ILInspector.Analysis.Planning;
@@ -246,9 +247,8 @@ public static class UnsafeEvidencePresenceQuery
 
     private static readonly MethodDefinitionSourceRequest<int>
         OwnerMethodSource =
-            MethodDefinitionSourceRequest<int>.Create(
-                OwnerPlan.Work,
-                UnsafeEvidencePresenceProducer.Instance);
+            CreateMethodSource(
+                MethodDefinitionSourceBreadth.AllDefinitions);
 
     public static InspectionQuery<UnsafeEvidencePresenceResult> Definition { get; } =
         new("Unsafe evidence presence", InspectionCost.NetworkFree);
@@ -329,12 +329,38 @@ public static class UnsafeEvidencePresenceQuery
     public static UnsafeEvidencePresenceResult Execute(
         string path,
         PdbContext context)
+        => Execute(path, context, OwnerMethodSource);
+
+    public static UnsafeEvidencePresenceResult ExecuteExactTypes(
+        string path,
+        PdbContext context,
+        params TypeDefinitionHandle[] types)
+    {
+        ArgumentNullException.ThrowIfNull(types);
+        return Execute(
+            path,
+            context,
+            CreateMethodSource(
+                MethodDefinitionSourceBreadth.ExactTypes(types)));
+    }
+
+    static MethodDefinitionSourceRequest<int> CreateMethodSource(
+        MethodDefinitionSourceBreadth breadth) =>
+        MethodDefinitionSourceRequest<int>.Create(
+            OwnerPlan.Work,
+            UnsafeEvidencePresenceProducer.Instance,
+            breadth);
+
+    static UnsafeEvidencePresenceResult Execute(
+        string path,
+        PdbContext context,
+        MethodDefinitionSourceRequest<int> methodSource)
     {
         try
         {
             var operation = AssemblyAnalysisOperation<int>.Create(
                 path,
-                OwnerMethodSource);
+                methodSource);
             using AssemblyInspectionSession session =
                 AssemblyInspectionSession.Borrow(context);
             return session.SnapshotOperation<

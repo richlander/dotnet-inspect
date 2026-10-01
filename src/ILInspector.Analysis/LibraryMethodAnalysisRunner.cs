@@ -990,6 +990,26 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         caller,
                         metadataBody);
             }
+            if (plan.ImplementationMetrics
+                    is { RequiresDirectCallDiscovery: true }
+                && metricBodyAdmitted)
+            {
+                using ImplementationMetricExecutionRecorder.StageAttempt?
+                    discovery = StartMetricStage(
+                        plan,
+                        ImplementationMetricWorkStage
+                            .DirectCallDiscovery);
+                MethodCallAnalysis.DiscoveryCounts counts =
+                    MethodCallAnalysis.DiscoverCounts(body);
+                discovery?.Complete();
+                result.ImplementationMetrics =
+                    CreateDirectCallDiscoveryMetrics(
+                        plan.ImplementationMetrics!,
+                        result.ImplementationMetrics,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        counts);
+            }
             using ImplementationMetricExecutionRecorder.StageAttempt?
                 localDecode = StartMetricStage(
                     plan,
@@ -1585,7 +1605,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 _infrastructure.PeReader,
                 caller.MetadataToken);
             MethodBodyBlock? body =
-                metricPlan.RequiresLocalSignatureDecode
+                metricPlan.RequiresMethodBodyBlock
                     ? _infrastructure.PeReader.GetMethodBody(
                         methodDefinition.RelativeVirtualAddress)
                     : null;
@@ -1603,6 +1623,47 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         metadataBody);
             }
             if (body is null)
+                return result;
+
+            if (metricPlan.RequiresDirectCallDiscovery)
+            {
+                try
+                {
+                    using ImplementationMetricExecutionRecorder.StageAttempt?
+                        discovery = StartMetricStage(
+                            plan,
+                            ImplementationMetricWorkStage
+                                .DirectCallDiscovery);
+                    MethodCallAnalysis.DiscoveryCounts counts =
+                        MethodCallAnalysis.DiscoverCounts(body);
+                    discovery?.Complete();
+                    result.ImplementationMetrics =
+                        CreateDirectCallDiscoveryMetrics(
+                            metricPlan,
+                            result.ImplementationMetrics,
+                            result.DeclaredMethod ?? caller,
+                            caller,
+                            counts);
+                }
+                catch (Exception ex)
+                    when (IsRecoverableMethodFailure(ex))
+                {
+                    result.ImplementationMetricDiagnostic =
+                        new AnalysisDiagnostic(
+                            caller.MetadataToken,
+                            MethodLabel(
+                                typeHandle,
+                                methodHandle),
+                            $"{ex.GetType().Name}: {ex.Message}",
+                            SourceMethodToken:
+                                result.DeclaredSource?.MetadataToken,
+                            DeclaringType:
+                                caller.DeclaringType,
+                            SourceDeclaringType:
+                                result.DeclaredSource?.DeclaringType);
+                }
+            }
+            if (!metricPlan.RequiresLocalSignatureDecode)
                 return result;
 
             LocalTypeDecodeResult localTypes;
@@ -1855,7 +1916,45 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             null,
             null,
             null,
+            null,
+            null,
             null);
+    }
+
+    static MethodImplementationMetricEvidence
+        CreateDirectCallDiscoveryMetrics(
+            ImplementationMetricAnalysisPlan plan,
+            MethodImplementationMetricEvidence? existing,
+            MethodIdentity method,
+            MethodIdentity evidenceMethod,
+            MethodCallAnalysis.DiscoveryCounts counts)
+    {
+        ImplementationMetricDirectCallCount? invocationEvidence =
+            plan.IncludesDirectCallCountMetric
+                || plan.IncludesDirectCallMetric
+                ? new(counts.InvocationCount)
+                : null;
+        ImplementationMetricCallSiteCount? callSiteEvidence =
+            plan.IncludesCallSiteCountMetric
+                ? new(counts.CallSiteCount)
+                : null;
+        return existing is null
+            ? new(
+                method,
+                evidenceMethod,
+                null,
+                null,
+                null,
+                null,
+                null,
+                invocationEvidence,
+                callSiteEvidence,
+                null)
+            : existing with
+            {
+                DirectCallCount = invocationEvidence,
+                CallSiteCount = callSiteEvidence,
+            };
     }
 
     static MethodImplementationMetricEvidence CreateLocalMetrics(
@@ -1877,6 +1976,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 evidence,
                 null,
                 null,
+                null,
+                null,
                 null)
             : existing with { Locals = evidence };
     }
@@ -1896,6 +1997,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 null,
                 measurements.InstructionShape,
                 measurements.ControlFlow,
+                null,
+                null,
                 null)
             : existing with
             {
@@ -1915,6 +2018,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             ?? new(
                 method,
                 evidenceMethod,
+                null,
+                null,
                 null,
                 null,
                 null,

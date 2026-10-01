@@ -606,6 +606,20 @@ public sealed class NavigationLensRecommendationTests
         yield return (
             context.Workspace,
             ViewFacetRole.WorkspaceOverview);
+        var ecosystem = new WorkspaceEcosystemRegistrationOccurrence(
+            new WorkspaceEcosystemRegistrationOccurrenceIdentity(
+                context.Workspace.Identity),
+            new WorkspaceEcosystemRegistrationDeclaration(
+                WorkspaceEcosystemRegistrationId.Create(
+                    "ecosystem.aspire"),
+                ["Aspire"],
+                [],
+                []));
+        yield return (
+            StructuralSubjectIdentity.ForEcosystem(
+                context.Workspace,
+                ecosystem),
+            ViewFacetRole.EcosystemOverview);
         yield return (
             context.Subject,
             ViewFacetRole.PackageOverview);
