@@ -8,22 +8,22 @@ import {
 } from "../src/product-ecosystems.ts";
 
 const ecosystems = [{
-  id: "ecosystem.runtime",
-  title: ".NET Runtime",
-  summary: ".NET Runtime libraries and product demos.",
+  id: "ecosystem.fixture-platform",
+  title: "Platform fixture",
+  summary: "Synthetic platform-backed Ecosystem.",
   corePackageCount: 0,
-  namespaceRootCount: 1,
+  namespaceRootCount: 2,
   toolPackageCount: 0,
-  demoCount: 3,
+  demoCount: 1,
   hasPackageSet: false,
   hasScanner: false,
   hasPopulationLoader: true,
   hasWorkspaceRegistration: true,
 }, {
-  id: "ecosystem.aspire",
-  title: "Aspire",
-  summary: "Aspire package and demo content.",
-  corePackageCount: 2,
+  id: "ecosystem.fixture-package",
+  title: "Package fixture",
+  summary: "Synthetic package-backed Ecosystem.",
+  corePackageCount: 3,
   namespaceRootCount: 1,
   toolPackageCount: 1,
   demoCount: 2,
@@ -41,9 +41,9 @@ test("Ecosystems renders managed catalog order and capability metadata", () => {
   assert.match(html, /<h1 id="ecosystems-heading" tabindex="-1">Ecosystems<\/h1>/);
   assert.match(
     html,
-    /data-ecosystem="ecosystem.runtime"[\s\S]*data-ecosystem="ecosystem.aspire"/);
-  assert.match(html, /\.NET Runtime libraries and product demos/);
-  assert.match(html, /2 core packages/);
+    /data-ecosystem="ecosystem.fixture-platform"[\s\S]*data-ecosystem="ecosystem.fixture-package"/);
+  assert.match(html, /Synthetic platform-backed Ecosystem/);
+  assert.match(html, /3 core packages/);
   assert.match(html, /1 tool/);
   assert.match(html, /Package set/);
   assert.match(html, /Integration scanner/);

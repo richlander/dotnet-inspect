@@ -227,11 +227,12 @@ test("Ecosystems is a first-class product catalog destination", async ({
   await expect(page.getByRole("heading", { name: "Ecosystems", exact: true }))
     .toBeFocused();
   await expect(page.locator(
-    "[data-ecosystem='ecosystem.runtime'] + [data-ecosystem='ecosystem.aspire']",
+    "[data-ecosystem='ecosystem.fixture-platform']"
+      + " + [data-ecosystem='ecosystem.fixture-package']",
   )).toBeVisible();
-  await expect(page.locator("[data-ecosystem='ecosystem.aspire']"))
-    .toContainText("2 core packages");
-  await expect(page.locator("[data-ecosystem='ecosystem.aspire']"))
+  await expect(page.locator("[data-ecosystem='ecosystem.fixture-package']"))
+    .toContainText("3 core packages");
+  await expect(page.locator("[data-ecosystem='ecosystem.fixture-package']"))
     .toContainText("Integration scanner");
   await expect(page.locator(".ecosystem-catalog button, .ecosystem-catalog a"))
     .toHaveCount(0);
@@ -246,7 +247,8 @@ test("Ecosystems is a first-class product catalog destination", async ({
   await page.getByRole("link", { name: "Ecosystems", exact: true }).click();
   await expect(page).toHaveURL("/ecosystems");
   await page.reload();
-  await expect(page.locator("[data-ecosystem='ecosystem.runtime']")).toBeVisible();
+  await expect(page.locator(
+    "[data-ecosystem='ecosystem.fixture-platform']")).toBeVisible();
   await page.getByRole("link", { name: "Home", exact: true }).click();
   await page.goBack();
   await expect(page).toHaveURL("/ecosystems");
