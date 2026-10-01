@@ -216,7 +216,8 @@ public static partial class GraphDocumentExecution
 
         List<int>[] forward = CreateAdjacency(sourceGroupIds.Count);
         List<int>[] reverse = CreateAdjacency(sourceGroupIds.Count);
-        var structuralArcs = new HashSet<long>();
+        var structuralTargets = new HashSet<int>?[sourceGroupIds.Count];
+        var structuralArcCount = 0;
         var inducedEdges =
             new List<GraphProjectedEdge<TRelationship>>();
         foreach (GraphProjectedEdge<TRelationship> edge in projection.Edges)
@@ -232,10 +233,12 @@ public static partial class GraphDocumentExecution
             }
 
             inducedEdges.Add(edge);
-            long arc = Pair(fromVertex, toVertex);
-            if (!structuralArcs.Add(arc))
+            HashSet<int> targets =
+                structuralTargets[fromVertex] ??= [];
+            if (!targets.Add(toVertex))
                 continue;
 
+            structuralArcCount++;
             forward[fromVertex].Add(toVertex);
             reverse[toVertex].Add(fromVertex);
         }
@@ -248,8 +251,9 @@ public static partial class GraphDocumentExecution
             discoveredComponentByVertex,
             discoveredComponentCount);
 
-        var contributorsByComponentPair =
-            new Dictionary<long, List<int>>();
+        var contributorsByTargetByComponent =
+            new Dictionary<int, List<int>>?[discoveredComponentCount];
+        var componentPairs = new List<long>();
         var retainedSourceEdgeCount = 0;
         var intraComponentProjectedEdges = 0;
         var crossComponentProjectedEdges = 0;
@@ -268,13 +272,17 @@ public static partial class GraphDocumentExecution
             }
 
             crossComponentProjectedEdges++;
-            long pair = Pair(fromComponentId, toComponentId);
-            if (!contributorsByComponentPair.TryGetValue(
-                pair,
+            Dictionary<int, List<int>> contributorsByTarget =
+                contributorsByTargetByComponent[fromComponentId] ??= [];
+            if (!contributorsByTarget.TryGetValue(
+                toComponentId,
                 out List<int>? sourceEdgeIds))
             {
                 sourceEdgeIds = [];
-                contributorsByComponentPair.Add(pair, sourceEdgeIds);
+                contributorsByTarget.Add(toComponentId, sourceEdgeIds);
+                componentPairs.Add(Pair(
+                    fromComponentId,
+                    toComponentId));
             }
             foreach (int sourceEdgeId in edge.SourceEdgeIds)
             {
@@ -284,7 +292,7 @@ public static partial class GraphDocumentExecution
         }
 
         long[] orderedComponentPairs = OrderComponentPairs(
-            contributorsByComponentPair.Keys,
+            componentPairs,
             discoveredComponentCount);
         var condensationEdges =
             ImmutableArray.CreateBuilder<GraphCondensationEdge>(
@@ -297,7 +305,8 @@ public static partial class GraphDocumentExecution
                     PairFirst(pair),
                     PairSecond(pair),
                     OrderSourceEdgeIds(
-                        contributorsByComponentPair[pair])));
+                        contributorsByTargetByComponent[
+                            PairFirst(pair)]![PairSecond(pair)])));
         }
 
         int[] levels = SettleLevels(
@@ -319,7 +328,7 @@ public static partial class GraphDocumentExecution
             sourceGroupIds.Count,
             projection.Edges.Length,
             inducedEdges.Count,
-            structuralArcs.Count,
+            structuralArcCount,
             components.Length,
             memberships.Length,
             intraComponentProjectedEdges,

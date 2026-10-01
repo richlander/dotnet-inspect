@@ -370,6 +370,56 @@ public sealed class GraphComponentAnalysisTests
             result.Receipt.ComponentsWithLevelsSettled);
     }
 
+    [Fact]
+    public void
+        ComponentAnalysis_ManyDisconnectedDependenciesRemainSparse()
+    {
+        const int dependencyCount = 16384;
+        const int groupCount = dependencyCount * 2;
+        var edges = new ComponentEdge[dependencyCount];
+        for (var dependency = 0;
+            dependency < dependencyCount;
+            dependency++)
+        {
+            int fromGroupId = dependency * 2;
+            edges[dependency] =
+                new(fromGroupId, fromGroupId + 1, Call);
+        }
+        GraphGroupProjectionResult<Relationship> projection =
+            Projection(groupCount, edges);
+
+        GraphComponentAnalysisResult result = Analyze(
+            projection,
+            new(
+                projection.Receipt.SourceDocument,
+                [.. Enumerable.Range(0, groupCount)]));
+
+        Assert.Equal(groupCount, result.Components.Length);
+        Assert.Equal(dependencyCount, result.CondensationEdges.Length);
+        Assert.Equal(1, result.Components[0].Level);
+        Assert.Equal(0, result.Components[1].Level);
+        Assert.Equal(1, result.Components[^2].Level);
+        Assert.Equal(0, result.Components[^1].Level);
+        Assert.Equal(
+            (0, 1, 0),
+            (
+                result.CondensationEdges[0].FromComponentId,
+                result.CondensationEdges[0].ToComponentId,
+                result.CondensationEdges[0].SourceEdgeIds[0]));
+        Assert.Equal(
+            (groupCount - 2, groupCount - 1, dependencyCount - 1),
+            (
+                result.CondensationEdges[^1].FromComponentId,
+                result.CondensationEdges[^1].ToComponentId,
+                result.CondensationEdges[^1].SourceEdgeIds[0]));
+        Assert.Equal(
+            dependencyCount,
+            result.Receipt.DistinctStructuralArcsIndexed);
+        Assert.Equal(
+            dependencyCount,
+            result.Receipt.CondensationEdgesIssued);
+    }
+
     static GraphComponentAnalysisResult OrderedAnalysis(
         int hashCode,
         bool reversePlan)
