@@ -66,8 +66,15 @@ internal static class ForeachIteratorReconstruction
         var blocks = work.Body.Blocks;
         if (blocks.Count == 0)
             return false;
-        if (!TryGetUsingDisposalResources(work, handoff, context, out var resources))
+        if (!TryGetUsingDisposalResources(
+                work,
+                handoff,
+                context,
+                out var resources,
+                out var disposeYieldState))
+        {
             return false;
+        }
 
         var stateStore = blocks[0].Children.OfType<StoreLocal>()
             .FirstOrDefault(s => s.Value is LoadField
@@ -126,7 +133,8 @@ internal static class ForeachIteratorReconstruction
                 dispatchEnd,
                 stateLocal,
                 returnLocal,
-                yieldStores))
+                yieldStores,
+                disposeYieldState))
         {
             return false;
         }
@@ -229,7 +237,8 @@ internal static class ForeachIteratorReconstruction
         int bodyStart,
         int stateLocal,
         int returnLocal,
-        IReadOnlySet<StoreField> yieldStores)
+        IReadOnlySet<StoreField> yieldStores,
+        int disposeYieldState)
     {
         var dispatchTargets = new Dictionary<int, int>();
         for (var i = 0; i < stateDispatchEnd; i++)
@@ -280,6 +289,7 @@ internal static class ForeachIteratorReconstruction
                 ]
                 || storedReturnLocal != returnLocal
                 || yieldState <= 0
+                || yieldState != disposeYieldState
                 || !matchedStates.Add(yieldState)
                 || !dispatchTargets.TryGetValue(yieldState, out var resumeTarget)
                 || !blockIndices.TryGetValue(resumeTarget, out var resumeIndex)
@@ -655,9 +665,11 @@ internal static class ForeachIteratorReconstruction
         IrFunction work,
         NewObject handoff,
         PassContext context,
-        out List<DisposalResource> resources)
+        out List<DisposalResource> resources,
+        out int disposeYieldState)
     {
         resources = [];
+        disposeYieldState = 0;
         if (context.ImportMethodBody is null
             || work.Regions is not [{ Kind: HandlerKind.Fault }]
             || work.Body.Blocks.Count(block => block.Children is
@@ -764,6 +776,13 @@ internal static class ForeachIteratorReconstruction
         {
             return false;
         }
+        if (!TryValidateStateMachineDisposeRouting(
+                stateMachineDispose,
+                matchedResources,
+                out disposeYieldState))
+        {
+            return false;
+        }
 
         var resetFields = stateMachineDispose.Descendants.OfType<StoreField>()
             .Where(store => store is
@@ -808,6 +827,197 @@ internal static class ForeachIteratorReconstruction
 
         return true;
     }
+
+    static bool TryValidateStateMachineDisposeRouting(
+        IrFunction dispose,
+        IReadOnlyList<DisposalResource> resources,
+        out int yieldState)
+    {
+        yieldState = 0;
+        if (resources.Count != 2
+            || dispose.Body.Blocks is not
+            [
+                var entryRange,
+                var entryYield,
+                var outerEntry,
+                var innerStateTest,
+                var yieldStateTest,
+                var outerLeave,
+                var innerEntry,
+                var innerLeave,
+                var innerHandler,
+                var outerHandler,
+                var terminal,
+            ]
+            || outerEntry.Children.Count != 0
+            || innerEntry.Children.Count != 0)
+        {
+            return false;
+        }
+
+        if (entryRange.Children is not
+            [
+                StoreLocal
+                {
+                    Index: var stateLocal,
+                    Value: LoadField
+                    {
+                        Instance: LoadArgument { Index: 0 },
+                        Field.Name: "<>1__state",
+                    },
+                },
+                ConditionalBranch rangeBranch,
+            ]
+            || !TryGetAdjacentStateRange(
+                rangeBranch.Condition,
+                stateLocal,
+                out var innerActiveState)
+            || innerActiveState + 1 != resources[1].RestoredState
+            || rangeBranch.TargetOffset != outerEntry.StartOffset)
+        {
+            return false;
+        }
+
+        if (entryYield.Children is not [ConditionalBranch entryYieldBranch]
+            || !TryGetStateComparison(
+                entryYieldBranch.Condition,
+                stateLocal,
+                ComparisonKind.NotEqual,
+                out yieldState)
+            || yieldState <= 0
+            || entryYieldBranch.TargetOffset != terminal.StartOffset
+            || innerStateTest.Children is not [ConditionalBranch innerStateBranch]
+            || !IsStateComparison(
+                innerStateBranch.Condition,
+                stateLocal,
+                ComparisonKind.Equal,
+                innerActiveState)
+            || innerStateBranch.TargetOffset != innerEntry.StartOffset
+            || yieldStateTest.Children is not [ConditionalBranch yieldStateBranch]
+            || !IsStateComparison(
+                yieldStateBranch.Condition,
+                stateLocal,
+                ComparisonKind.Equal,
+                yieldState)
+            || yieldStateBranch.TargetOffset != innerEntry.StartOffset
+            || outerLeave.Children is not [Leave { TargetOffset: var outerTarget }]
+            || innerLeave.Children is not [Leave { TargetOffset: var innerTarget }]
+            || outerTarget != terminal.StartOffset
+            || innerTarget != terminal.StartOffset)
+        {
+            return false;
+        }
+
+        if (innerHandler.Children is not
+            [
+                ExpressionStatement
+                {
+                    Expression: Call
+                    {
+                        Callee: var innerFinally,
+                        Arguments: [LoadArgument { Index: 0 }],
+                    },
+                },
+                EndFinally,
+            ]
+            || outerHandler.Children is not
+            [
+                ExpressionStatement
+                {
+                    Expression: Call
+                    {
+                        Callee: var outerFinally,
+                        Arguments: [LoadArgument { Index: 0 }],
+                    },
+                },
+                EndFinally,
+            ]
+            || !Equals(innerFinally, resources[1].Finally)
+            || !Equals(outerFinally, resources[0].Finally))
+        {
+            return false;
+        }
+
+        var innerRegion = dispose.Regions.SingleOrDefault(
+            region => region.HandlerOffset == innerHandler.StartOffset);
+        var outerRegion = dispose.Regions.SingleOrDefault(
+            region => region.HandlerOffset == outerHandler.StartOffset);
+        if (innerRegion is null
+            || outerRegion is null
+            || innerRegion.TryOffset != innerLeave.StartOffset
+            || innerRegion.TryOffset + innerRegion.TryLength != innerHandler.StartOffset
+            || outerRegion.TryOffset != innerStateTest.StartOffset
+            || outerRegion.TryOffset + outerRegion.TryLength != outerHandler.StartOffset
+            || outerRegion.TryOffset > innerRegion.TryOffset
+            || outerRegion.TryOffset + outerRegion.TryLength
+                < innerRegion.TryOffset + innerRegion.TryLength)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool TryGetAdjacentStateRange(
+        IrExpression condition,
+        int stateLocal,
+        out int firstState)
+    {
+        firstState = 0;
+        if (condition is not Comparison
+            {
+                Kind: ComparisonKind.LessThanOrEqual,
+                IsUnsigned: true,
+                Left: Binary
+                {
+                    Kind: BinaryKind.Subtract,
+                    IsChecked: false,
+                    IsUnsigned: false,
+                    Left: LoadLocal load,
+                    Right: Constant { Value: int value },
+                },
+                Right: Constant { Value: 1 },
+            }
+            || load.Index != stateLocal)
+        {
+            return false;
+        }
+
+        firstState = value;
+        return true;
+    }
+
+    static bool TryGetStateComparison(
+        IrExpression condition,
+        int stateLocal,
+        ComparisonKind kind,
+        out int state)
+    {
+        state = 0;
+        if (condition is not Comparison
+            {
+                Kind: var actualKind,
+                IsUnsigned: false,
+                Left: LoadLocal load,
+                Right: Constant { Value: int value },
+            }
+            || actualKind != kind
+            || load.Index != stateLocal)
+        {
+            return false;
+        }
+
+        state = value;
+        return true;
+    }
+
+    static bool IsStateComparison(
+        IrExpression condition,
+        int stateLocal,
+        ComparisonKind kind,
+        int state)
+        => TryGetStateComparison(condition, stateLocal, kind, out var actualState)
+            && actualState == state;
 
     static bool TryGetDisposalResource(
         IrFunction disposalBody,

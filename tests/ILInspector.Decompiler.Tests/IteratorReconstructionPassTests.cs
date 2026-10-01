@@ -1006,6 +1006,7 @@ public class IteratorReconstructionPassTests
     [InlineData("dispose-omits-helper")]
     [InlineData("dispose-wrong-helper-receiver")]
     [InlineData("dispose-helper-outside-finally")]
+    [InlineData("dispose-yield-state-skips-inner-helper")]
     [InlineData("yield-state-not-dispatched")]
     public void TwoEnumeratorUsingIterator_MalformedDisposalEvidenceDeclines(string shape)
     {
@@ -1070,6 +1071,29 @@ public class IteratorReconstructionPassTests
                     call.SetSourceOffset(entry.StartOffset);
                     entry.Add(statement);
                     entry.Add(terminal);
+                }
+                else if (shape == "dispose-yield-state-skips-inner-helper"
+                    && method.Name == "System.IDisposable.Dispose")
+                {
+                    var branch = Assert.Single(
+                        imported.Descendants.OfType<ConditionalBranch>(),
+                        candidate => candidate.Condition is Comparison
+                        {
+                            Kind: ComparisonKind.Equal,
+                            Right: Constant { Value: 1 },
+                        });
+                    var block = Assert.IsType<Block>(branch.Parent);
+                    var blocks = imported.Body.Blocks;
+                    var blockIndex = blocks.ToList().IndexOf(block);
+                    var outerLeave = blocks[blockIndex + 1];
+                    Assert.IsType<Leave>(Assert.Single(outerLeave.Children));
+                    var condition = (IrExpression)branch.DetachChildren()[0];
+                    var replacement = new ConditionalBranch(
+                        condition,
+                        outerLeave.StartOffset,
+                        branch.Origin);
+                    replacement.InheritSourceOffset(branch);
+                    branch.ReplaceWith(replacement);
                 }
                 else if (shape == "yield-state-not-dispatched"
                     && method.Name == "MoveNext")
