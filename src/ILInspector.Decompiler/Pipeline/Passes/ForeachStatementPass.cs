@@ -54,7 +54,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// nested indexed loops over hidden array-copy, per-dimension upper-bound, and
 /// index locals, using <c>GetLowerBound(d)</c>, <c>GetUpperBound(d)</c>, and the
 /// array's generated <c>Get(i0, .., iN-1)</c> accessor. The rank is read from the
-/// array copy's type, so rank 2 and higher ranks match through one path.</para>
+/// array copy's type, so rank 2 and higher ranks match through one path. Local
+/// slots are scoped to the current function body; nested lambda and local-function
+/// bodies have independent slot spaces and are excluded from these proofs.</para>
 ///
 /// <para>The compiler may reuse one indexed-copy/index pair across several
 /// sibling <c>foreach</c> loops in a method. The indexed phase therefore
@@ -71,7 +73,7 @@ public sealed class ForeachStatementPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        foreach (var usingStatement in function.Descendants.OfType<UsingStatement>().ToList())
+        foreach (var usingStatement in function.DescendantsOutsideNestedFunctions.OfType<UsingStatement>().ToList())
         {
             if (TryMatchAsyncEnumerator(function, usingStatement) is { } asyncMatch)
             {
@@ -127,7 +129,7 @@ public sealed class ForeachStatementPass : IIrPass
             usingStatement.ReplaceWith(foreachStatement);
         }
 
-        foreach (var loop in function.Descendants.OfType<WhileLoop>().ToList())
+        foreach (var loop in function.DescendantsOutsideNestedFunctions.OfType<WhileLoop>().ToList())
         {
             if (TryMatchPattern(function, loop) is not { } match)
                 continue;
@@ -151,7 +153,7 @@ public sealed class ForeachStatementPass : IIrPass
         // foreach loops in the same method (which would otherwise make each loop
         // look like it has stray references to the others' nodes).
         var candidates = new List<IndexedCandidate>();
-        foreach (var loop in function.Descendants.OfType<ForLoop>().ToList())
+        foreach (var loop in function.DescendantsOutsideNestedFunctions.OfType<ForLoop>().ToList())
         {
             if (TryMatchRectangularArray(function, loop) is { } rectangular)
             {
@@ -493,7 +495,7 @@ public sealed class ForeachStatementPass : IIrPass
         // operation in the loop body's own scope. Also require the read to sit
         // outside any nested lambda/local function, where a hoist would change
         // when it runs.
-        var currentReads = loop.Body.Descendants.OfType<LoadProperty>()
+        var currentReads = loop.Body.DescendantsOutsideNestedFunctions.OfType<LoadProperty>()
             .Where(p => IsCurrentOn(p, enumeratorIndex))
             .ToList();
         if (currentReads is [var inlineCurrent]
@@ -524,7 +526,7 @@ public sealed class ForeachStatementPass : IIrPass
             allowed.Add(moveNextReceiver);
         if (inlineCurrent.Instance is { } currentReceiver)
             allowed.Add(currentReceiver);
-        foreach (var node in loop.Descendants)
+        foreach (var node in loop.DescendantsOutsideNestedFunctions)
         {
             bool references = node switch
             {
@@ -1046,7 +1048,7 @@ public sealed class ForeachStatementPass : IIrPass
         => expression is LoadLocal load && load.Index == index;
 
     static bool ReferencesLocal(IrNode node, int index)
-        => node.Descendants.Prepend(node).Any(candidate => candidate switch
+        => node.DescendantsOutsideNestedFunctions.Prepend(node).Any(candidate => candidate switch
         {
             LoadLocal load => load.Index == index,
             LoadLocalAddress address => address.Index == index,
@@ -1056,7 +1058,7 @@ public sealed class ForeachStatementPass : IIrPass
 
     static bool ReferencedOnlyBy(IrFunction function, int index, HashSet<IrNode> allowed)
     {
-        foreach (var node in function.Descendants)
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             bool references = node switch
             {
