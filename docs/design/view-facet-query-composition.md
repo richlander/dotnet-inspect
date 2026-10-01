@@ -9,7 +9,8 @@ connected experience goals:
 
 - selectable views have stable registry identity separate from display names;
 - semantic result shape supplies the omitted-format default; and
-- explanation is available either as primary output or as a one-shot sidecar.
+- explanation, tips, and selected-row references are available through one
+  explicit companion-output family.
 
 This map owns one composition claim:
 
@@ -18,9 +19,10 @@ This map owns one composition claim:
 > owner-issued bindings, retain the result owners' semantic shapes, and let the
 > CLI choose each admitted selection's natural presentation only when the user
 > did not select a format. Discovery, execution, and explanation consume the
-> same identities and descriptors. No host derives identity, query behavior,
-> result shape, or presentation support from a display label or rendered
-> section.
+> same identities and descriptors; named companion projections preserve the
+> selected semantic request and rows. No host derives identity, query behavior,
+> result shape, reference, or presentation support from a display label or
+> rendered section.
 
 The map sequences focused owner adoptions. It does not redefine View Facet
 identity, QuerySpace execution, result construction, output representability,
@@ -36,6 +38,11 @@ section-substrate programs:
   short-only, zero-arity `-T` parser and post-success output migration. It may
   land independently. The later `-E` adoption replaces that public syntax while
   reusing its stream-separation, laziness, and positional-ownership evidence.
+- [#8148](https://github.com/richlander/dotnet-inspect/issues/8148) owns the
+  current reusable-reference proposal. The later `-E references` adoption
+  preserves its owner-issued row references, order, cardinality, and reusable
+  spelling while moving them from primary-output replacement to explicit
+  companion output.
 - [#9095](https://github.com/richlander/dotnet-inspect/pull/9095) moves section
   planning into L2 without changing section identity, selection, or output.
   Facet and facet-set adoption follows or integrates that extraction rather
@@ -50,7 +57,7 @@ effective bases.
 
 ## Product outcome
 
-The target CLI has three compact metadata and execution gestures:
+The target CLI has one compact discovery, query, and companion-output model:
 
 | Gesture | Role |
 | --- | --- |
@@ -58,6 +65,7 @@ The target CLI has three compact metadata and execution gestures:
 | `-Q <facet>` | Execute one or more registered facets. |
 | `-E` | Emit the complete default explanation for the executed request as a final `stderr` sidecar. |
 | `-E tips` | Emit only the bounded related-gesture projection from that explanation. |
+| `-E references` | Emit one owner-issued reusable reference per selected semantic row as the final `stderr` sidecar. |
 
 `--explain` remains the terminal form: it returns explanation Content on
 `stdout` instead of executing the selected facet. Top-level `explain` remains
@@ -84,6 +92,19 @@ dotnet-inspect library System.Text.Json \
   -E \
   > opportunities.tsv \
   2> opportunities.explain.md
+```
+
+Selected rows can instead retain ordinary output while exporting reusable
+references:
+
+```console
+dotnet-inspect member JsonSerializer \
+  --package System.Text.Json \
+  -Q member.index \
+  --where "<member predicate>" \
+  -E references \
+  > members.tsv \
+  2> members.refs
 ```
 
 Or explain the registered query without executing its producer:
@@ -119,8 +140,8 @@ command or resolved subject
   -> stdout
 
 the same ViewFacetId and resolved request
-  -> owner-issued explanation descriptors
-  -> terminal explanation on stdout, or explicit sidecar on stderr
+  -> owner-issued explanation, gesture, or selected-row-reference facts
+  -> terminal explanation on stdout, or one explicit companion on stderr
 ```
 
 Equal display titles, section headings, result schemas, or query keys do not
@@ -348,7 +369,7 @@ Structural field, column, and item discovery remains with Schema Query. The CLI
 may present those resources beneath the selected facet, but it must not merge
 facet and schema identity or recover either from a rendered document.
 
-## Explanation
+## Explanation and companion output
 
 Facet explanation composes existing owner-issued facts around exact
 `ViewFacetId` identity. It can report:
@@ -386,51 +407,81 @@ dotnet-inspect library System.Text.Json \
   -E
 ```
 
-### Explanation sidecar
+### Companion family
 
-`-E` explicitly requests the complete default contextual explanation for the
-resolved request. Complete means complete at the explanation owner's documented
+`-E` is the explicit companion-output family. Exactly one projection is
+selected per invocation:
+
+- bare `-E` requests the complete default contextual explanation for the
+  resolved request;
+- `-E tips` requests only the deterministic bounded executable-gesture
+  projection; and
+- `-E references` requests one owner-issued reusable reference for every
+  selected semantic row, in selected order.
+
+Complete explanation means complete at the explanation owner's documented
 finite default extent. It does not mean recursive traversal, execution of Info
 facets, exhaustive vocabulary enumeration, or authorization of unrelated
-analysis.
+analysis. Tips do not invoke an independent tip registry.
 
-`-E tips` selects only the deterministic bounded executable-gesture projection
-from that same contextual model. It does not invoke an independent tip
-registry.
+References are not reconstructed from display cells, rendered output, command
+text, or a second resolution. They consume the command owner's selected
+semantic row sequence after facet, predicate, order, and row-window selection.
+Each row contributes its already-issued reusable reference. A selected row set
+without a complete reference projection fails before output rather than
+falling through to ordinary Content or omitting rows.
 
 Without `-E`, explanation descriptors, affordances, host bindings, ranking,
-and sidecar rendering remain unrealized beyond ordinary option parsing and
-descriptor work already required by the selected facet.
+reference projection, and companion rendering remain unrealized beyond
+ordinary option parsing and descriptor work already required by the selected
+facet.
 
-When `-E` is requested, the CLI:
+When any `-E` projection is requested, the CLI:
 
 1. resolves and produces ordinary Content once;
-2. constructs explanation from the retained typed subject, facet identity,
-   request, and result facts without reacquisition;
+2. constructs the selected companion from retained typed subject, facet
+   identity, request, result facts, or row references without reacquisition;
 3. validates and materializes both outputs before publication;
 4. writes and flushes primary `stdout` completely;
-5. writes the explanation as the final successful `stderr` block; and
+5. writes the selected companion as the final successful `stderr` block; and
 6. flushes `stderr` before returning success.
 
 This is an application write-order guarantee. It does not claim that every
 terminal, shell, pipe, remote transport, or independent file-descriptor reader
 visually interleaves the streams in that order. Progress, warnings, and
-diagnostics may precede primary output; the requested explanation block is the
+diagnostics may precede primary output; the requested companion block is the
 final successful `stderr` block.
+
+Each companion block begins with a stable projection-specific marker and
+extends to end of stream. Earlier diagnostics remain outside that frame, so a
+redirected sidecar can locate the requested companion without treating a
+warning as explanation, a tip, or a reference.
 
 Full `-E` uses the explanation owner's Markdown lowering so redirection creates
 an agent-friendly sidecar. It does not inherit the primary output's
 `--format`. Structured explanation remains available through terminal
 `--explain --format json`.
 
-Explanation construction failure prevents primary output publication. A sink
+`-E references` uses one legible, shell-safe reusable reference per line. The
+framed reference block preserves selected-row order and cardinality. Each
+reference line is accepted unchanged by top-level `explain`. The block does not
+inherit the primary output's format and contains no diagnostics or prose beyond
+its framing marker.
+
+Companion construction failure prevents primary output publication. A sink
 failure after one stream has committed remains a visible non-success under the
 owning output-sink contract; the process cannot roll back bytes already
 accepted by an external stream.
 
 `--explain -E` is rejected as duplicate full explanation. `--explain -E tips`
-is useful and remains admitted. The focused CLI grammar adoption defines how
-the exact `tips` token is consumed without stealing unrelated positional input.
+is useful and remains admitted. `--explain -E references` is rejected because
+terminal explanation does not execute and select the ordinary semantic rows
+whose references it would project. The focused CLI grammar adoption defines
+how the exact `tips` and `references` tokens are consumed without stealing
+unrelated positional input.
+
+The current `--references` primary-output projection retires when
+`-E references` reaches replacement parity. It does not remain as an alias.
 
 ## Browser/Wasm
 
@@ -458,8 +509,8 @@ does not render CLI command text or interpret `-E`.
 | Explicit format and destination grammar | [CLI Output Format and Destination](cli-output-format-and-destination.md) | Retains `--format`, `--output`, precedence, and unsupported-pair admission. |
 | Natural omitted-format policy | Output Shapes and Progressive Disclosure focused adoption | Maps admitted complete semantic shapes to Markdown, TSV, or Tree without changing Content. |
 | Primary subject defaults and Info separation | [Primary Subject Views](primary-subject-views.md) and each command owner | Supply exact default and Info facet identities and subject-specific Content. |
-| Installed and contextual explanation | [Resource Explanation](resource-explanation.md) and [Contextual Resource Explanation](contextual-resource-explanation.md) | Compose owner-issued descriptors and provide terminal and sidecar projections. |
-| CLI grammar and stream publication | CLI host | Owns `-D`, `-Q`, `-E`, display-title convenience, diagnostics, completion, and output ordering. |
+| Installed and contextual explanation | [Resource Explanation](resource-explanation.md) and [Contextual Resource Explanation](contextual-resource-explanation.md) | Compose owner-issued descriptors and provide terminal explanation, tips, and reusable-reference companion projections. |
+| CLI grammar and stream publication | CLI host | Owns `-D`, `-Q`, the `-E` companion family, display-title convenience, diagnostics, completion, and output ordering. |
 | Browser interaction | Inspect Web owners | Bind the same descriptors to native controls and presentations. |
 
 This map transfers none of those internal responsibilities.
@@ -488,9 +539,11 @@ Each slice changes one focused owner and references this map.
 6. **Adopt explanation composition.** Project identity, Content, shape,
    formats, query capabilities, costs, effects, and related operations through
    Resource Explanation without duplicating owner descriptors.
-7. **Adopt `-E`.** Replace the standalone tips projection with full contextual
-   explanation and `-E tips`, preserving lazy absent-demand behavior and the
-   stdout-before-sidecar publication contract.
+7. **Adopt the `-E` companion family.** Replace the standalone tips projection
+   with full contextual explanation and `-E tips`; replace primary
+   `--references` with additive `-E references`. Preserve lazy absent-demand
+   behavior, selected-row reference order and cardinality, atomic companion
+   materialization, and the stdout-before-sidecar publication contract.
 8. **Cut over CLI selection.** Reclaim `-Q` for exact facet execution, migrate
    `-S` selections and query-help examples, retain `-D` for discovery, and
    retire synthetic `Query: ...` companion sections.
@@ -500,9 +553,9 @@ Each slice changes one focused owner and references this map.
     host-native controls and remove local catalogs that duplicate product
     registration.
 11. **Retire superseded surfaces.** Remove `-S`, current query-help `-Q`,
-    compatibility-only section aliases, and scattered tip construction after
-    replacement parity. Update CLI reference and shipped product skills in the
-    behavior-changing slices.
+    `--references`, compatibility-only section aliases, and scattered tip
+    construction after replacement parity. Update CLI reference and shipped
+    product skills in the behavior-changing slices.
 
 The sequence may use a stack where one production consumer depends on the
 preceding substrate. No slice adopts several command owners merely to complete
@@ -539,12 +592,20 @@ Focused adoptions must demonstrate:
     never chooses by registration order.
 11. **Query scope.** `--where` and ordering terms bind only to row sets declared
     by the exact selected facet; equal column labels do not transfer operators.
-12. **Explanation failure.** Explicit `-E` does not publish primary output when
-    explanation construction fails, and emits no plausible empty sidecar.
-13. **Output ordering.** Successful primary output is flushed before the final
-    explanation block is written to `stderr`.
-14. **Absent explanation demand.** An invocation without `-E` realizes no
-    explanation-only registry, affordance, ranking, or rendering work.
+12. **Reference correspondence.** `-E references` emits exactly one
+    owner-issued reference per selected semantic row in selected order, and
+    every value is accepted unchanged by top-level `explain`.
+13. **Incomplete references.** One unreferenceable selected row prevents both
+    primary and companion publication rather than producing a partial reference
+    file or ordinary-output fallback.
+14. **Companion failure.** Explicit `-E` does not publish primary output when
+    the selected companion cannot be constructed, and emits no plausible empty
+    sidecar.
+15. **Output ordering.** Successful primary output is flushed before the final
+    companion block is written to `stderr`.
+16. **Absent companion demand.** An invocation without `-E` realizes no
+    explanation-only registry, affordance, reference projection, ranking, or
+    companion-rendering work.
 
 ## Evidence plan
 
@@ -562,6 +623,8 @@ The composition requires, across those slices:
 - target-free discovery without acquisition;
 - query explanation without producer execution;
 - one-shot execution plus explanation without reacquisition;
+- selected-row reference order, cardinality, round-trip acceptance, and
+  all-or-nothing materialization;
 - lazy absent-demand behavior;
 - stdout-before-sidecar application write order;
 - CLI and Browser descriptor parity; and
@@ -590,6 +653,8 @@ This map does not:
 - require every shape to support every format;
 - turn Graph into Hierarchy or exact payload into Document;
 - combine explanation with ordinary Content in one universal envelope;
+- reinterpret reusable references as explanation prose or reconstruct them
+  from rendered rows;
 - guarantee cross-file-descriptor visual interleaving outside application
   write order;
 - specify Browser layout or CLI completion implementation; or
