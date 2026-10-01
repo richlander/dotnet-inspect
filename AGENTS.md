@@ -435,7 +435,7 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    Pending status follows [Bounded status
    waiting](docs/round-orchestration.md#bounded-status-waiting); non-boundary
    Markdown-only rounds substitute pre-commit `markdownlint`.
-7. **Six rounds, then stop** and ask for another block.
+7. **Continue until a clear result or block boundary;** pause sooner only for an unresolved design question.
 8. **Never merge without explicit user authorization** for that specific PR.
    A recorded exact-head merge authorization satisfies this rule; see the
    [user-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments).
@@ -509,9 +509,10 @@ optional [review frame checklist](docs/templates/adversarial-review-prompt.md). 
 and reporting.
 
 After every completed round and before any next round or approval prompt, emit
-this complete visible report as the assistant response. Fill every field,
-choose one feedback classification and recommendation, omit only empty
-`Blocked`/`Waiting` lines, and never replace it with a shorter summary:
+this complete visible report as a checkpoint, not a pause. Continue immediately
+when the next-round plan is clear and authorized; stop for operator input only
+for an unresolved design question or expired six-round grant. Fill every field
+as specified, omit only empty `Blocked`/`Waiting` lines, and never shorten it:
 
 ```text
 Round <n> is complete for PR <number>.
@@ -545,10 +546,9 @@ anything outside them is a scope proposal unless the operator approves it.
 
 ### Stop after six rounds
 
-Review blocks hot-start. Rounds 1-6 begin automatically, and every fix-producing
-replacement within an authorized block dispatches without asking, setting
-`HELP`, or waiting for user input. Approval is required only before rounds 7,
-13, 19, and so on; each approval authorizes at most six more rounds.
+Review blocks hot-start: authorized rounds continue without asking, setting
+`HELP`, or waiting while the next-round plan is clear. Approval is required
+before rounds 7, 13, 19, and so on; each grant authorizes at most six rounds.
 
 At each block boundary, reviewer dispatch waits for approval after fresh green
 current-head CI and positive mergeability; round 12 and later presume splitting
