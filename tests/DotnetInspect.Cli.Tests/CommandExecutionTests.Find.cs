@@ -101,9 +101,7 @@ public partial class CommandExecutionTests
             "-n",
             "1",
             "--json",
-            "--compact",
-            "--tips",
-            "q");
+            "--compact");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -128,9 +126,7 @@ public partial class CommandExecutionTests
             "-n",
             "1",
             "--json",
-            "--compact",
-            "--tips",
-            "q");
+            "--compact");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -787,8 +783,6 @@ public partial class CommandExecutionTests
             missing,
             "-n",
             "1",
-            "--tips",
-            "q",
         };
         if (format is not null)
             args.Add(format);
@@ -816,9 +810,7 @@ public partial class CommandExecutionTests
             missing,
             "-n",
             "1",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -841,9 +833,7 @@ public partial class CommandExecutionTests
             missing,
             "--rows",
             "2..3",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("2", output.Trim());
@@ -867,9 +857,7 @@ public partial class CommandExecutionTests
             "--rows",
             "1..100000",
             "--json",
-            "--compact",
-            "--tips",
-            "q");
+            "--compact");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -895,9 +883,7 @@ public partial class CommandExecutionTests
             missing,
             "-n",
             "1",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Contains(
@@ -923,9 +909,7 @@ public partial class CommandExecutionTests
             missing,
             "--rows",
             "2..3",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("2", output.Trim());
@@ -952,9 +936,7 @@ public partial class CommandExecutionTests
             missing,
             "--rows",
             "2..3",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("2", output.Trim());
@@ -979,9 +961,7 @@ public partial class CommandExecutionTests
             "--rows",
             "1..2",
             "--json",
-            "--compact",
-            "--tips",
-            "q");
+            "--compact");
 
         Assert.Equal(0, exit);
         Assert.False(string.IsNullOrWhiteSpace(output));
@@ -1004,9 +984,7 @@ public partial class CommandExecutionTests
             missing,
             "-n",
             "1",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Contains(nameof(CommandExecutionTests), output);
@@ -1030,9 +1008,7 @@ public partial class CommandExecutionTests
             "-n",
             "1",
             "--tail",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Contains(nameof(CommandExecutionTests), output);
@@ -1055,9 +1031,7 @@ public partial class CommandExecutionTests
             missing,
             "-n",
             "1",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -1629,9 +1603,7 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "-n",
             "3",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
