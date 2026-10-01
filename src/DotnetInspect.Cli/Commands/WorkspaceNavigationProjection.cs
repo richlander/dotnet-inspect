@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 
@@ -464,6 +465,8 @@ internal static class WorkspaceNavigationProjection
         {
             StructuralSubjectIdentity.WorkspaceSubject =>
                 "Workspace",
+            StructuralSubjectIdentity.EcosystemSubject ecosystem =>
+                EcosystemTitle(ecosystem.Id.Value),
             StructuralSubjectIdentity.PackageSubject package =>
                 $"{package.Descriptor.PackageId}"
                     + $"@{package.Descriptor.PackageVersion}",
@@ -483,6 +486,16 @@ internal static class WorkspaceNavigationProjection
             _ => throw new InvalidOperationException(
                 "Unknown structural subject."),
         };
+
+    static string EcosystemTitle(string value)
+    {
+        if (!EcosystemPackId.TryCreate(value, out EcosystemPackId? id))
+            return value;
+        return EcosystemPackCatalog.Lookup(id)
+            is EcosystemPackLookupResult.Known known
+                ? known.Descriptor.Title
+                : value;
+    }
 
     static string AssetId(
         NavigationWorkspaceSnapshot snapshot,

@@ -43,6 +43,8 @@ public sealed record ViewFacetId
         ReadOnlySpan<char> prefix = value.AsSpan(0, dot);
         if (prefix.SequenceEqual("workspace"))
             kind = StructuralSubjectKind.Workspace;
+        else if (prefix.SequenceEqual("ecosystem"))
+            kind = StructuralSubjectKind.Ecosystem;
         else if (prefix.SequenceEqual("package"))
             kind = StructuralSubjectKind.Package;
         else if (prefix.SequenceEqual("library"))
@@ -93,6 +95,7 @@ public sealed record ViewFacetId
 public enum ViewFacetRole
 {
     WorkspaceOverview,
+    EcosystemOverview,
     PackageOverview,
     LibraryReferences,
     TypeApi,
