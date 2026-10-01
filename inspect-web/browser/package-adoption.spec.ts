@@ -2924,6 +2924,10 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // Library Compare: one frame, Diff active, Package-owned target explained.
     const panel = page.locator("#inspector-panel");
     const frame = panel.locator(".compare-surface");
+    const settledLocationAfter = async (previousLocation: string) => {
+      await expect.poll(() => page.url()).not.toBe(previousLocation);
+      return page.url();
+    };
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
     await expect(panel.locator('[data-compare-mode="diff"]'))
       .toHaveAttribute("aria-selected", "true");
@@ -2971,6 +2975,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveCount(7);
     expect(registry.downloadCount(libraryDiffV1)).toBe(1);
     expect(registry.downloadCount(libraryDiffV2)).toBe(1);
+    const libraryLocation = page.url();
 
     // Library -> Type keeps Compare and Diff active with the same target.
     await panel.locator(
@@ -3000,6 +3005,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveCount(0);
     expect(registry.downloadCount(libraryDiffV1)).toBe(1);
     expect(registry.downloadCount(libraryDiffV2)).toBe(1);
+    const addedTypeLocation = await settledLocationAfter(libraryLocation);
 
     // Type -> Member is the detailed-result boundary.
     await panel.locator(".library-api-diff-member button", { hasText: "First" })
@@ -3019,7 +3025,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     );
     const explore = page.locator("#member-diff-explore");
     await expect(explore).toBeVisible();
-    const memberLocation = page.url();
+    const memberLocation = await settledLocationAfter(addedTypeLocation);
     const memberHistoryLength = await page.evaluate(() => history.length);
     await explore.focus();
     await explore.click();
@@ -3064,7 +3070,10 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
 
     // A Member with its own classified change shows the producer's change row.
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(addedTypeLocation);
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(libraryLocation);
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
     await panel.locator(
       '[data-compare-type-id="LibraryApiDiffFixture.HardChangedType"]',
@@ -3072,11 +3081,13 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await expect(panel.locator(".library-api-diff-member .library-api-diff-change-chip"))
       .toHaveText(["Breaking · virtual removed"]);
+    const hardChangedTypeLocation = await settledLocationAfter(libraryLocation);
     await panel.locator(".library-api-diff-member button", { hasText: "First" })
       .click();
     await expect(frame).toHaveClass(/compare-surface-member/, { timeout: 60_000 });
     await expect(panel.locator(".compare-status"))
       .toContainText("Member changed", { timeout: 60_000 });
+    await settledLocationAfter(hardChangedTypeLocation);
     const changeRows = panel.locator('[aria-label="What changed"] .library-api-diff-change');
     await expect(changeRows).toHaveCount(1);
     await expect(changeRows.first()).toContainText("virtual removed");
@@ -3105,9 +3116,11 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await page.locator("#nav-back")
       .evaluate((button: HTMLButtonElement) => button.click());
     await expect(memberDiffExplorer).toHaveCount(0);
+    await expect.poll(() => page.url()).toBe(hardChangedTypeLocation);
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await expect(panel.locator("#compare-title")).toBeFocused();
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(libraryLocation);
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
 
     // A Member the producer placed under two Types: the Before placement is
@@ -3117,6 +3130,8 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       '[data-compare-type-id="LibraryApiDiffFixture.ProjectionExtensions"]',
     ).click();
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    const projectionExtensionsLocation =
+      await settledLocationAfter(libraryLocation);
     const movedAway = panel.locator(".library-api-diff-member", { hasText: "Transform" });
     await expect(movedAway).toHaveClass(/library-api-diff-member-inert/);
     await expect(movedAway).toContainText(
@@ -3128,6 +3143,8 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await expect(panel.locator("#compare-title"))
       .toHaveText("LibraryApiDiffFixture.ProjectionReceiver");
+    const projectionReceiverLocation =
+      await settledLocationAfter(projectionExtensionsLocation);
     const movedHere = panel.locator(".library-api-diff-member", { hasText: "Transform" });
     await expect(movedHere.locator(".library-api-diff-moved"))
       .toContainText("Moved from LibraryApiDiffFixture.ProjectionExtensions");
@@ -3136,9 +3153,15 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.locator(".library-api-diff-correspondence")).toContainText(
       "Moved from LibraryApiDiffFixture.ProjectionExtensions to LibraryApiDiffFixture.ProjectionReceiver",
     );
+    await settledLocationAfter(projectionReceiverLocation);
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(projectionReceiverLocation);
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(projectionExtensionsLocation);
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(libraryLocation);
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
     await panel.locator(
       '[data-compare-type-id="LibraryApiDiffFixture.AddedType"]',
