@@ -133,15 +133,33 @@ public partial class ApiCommand
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
         var unprobed = memberPipeline.GetUnprobedSections();
         var bareDiscover = options.Discover is null or { Length: 0 };
+        HashSet<string> requestedDiscoverySections = bareDiscover
+            ? []
+            : GetRequestedMemberSections(filteredType, options);
         var discoveryRenderSections = bareDiscover
             ? options.BodyKindQuery.HasFilter
                 ? effective
                 : options is MemberOptions { OverloadIndex: not null }
                 ? [.. effective.Where(s => !unprobed.Contains(s))]
                 : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
-            : [.. GetRequestedMemberSections(filteredType, options)
+            : [.. requestedDiscoverySections
                 .Where(section => !unprobed.Contains(section))];
-        var renderManifest = BuildTypeRenderManifest(filteredType, options, discoveryRenderSections, acquisition);
+        HashSet<string> externallyProbedSections = memberPipeline
+            .QueryBoundSections
+            .Select(static binding => binding.Name)
+            .Where(unprobed.Contains)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        bool discoversOnlyExternallyProbedSections =
+            requestedDiscoverySections.Count > 0
+            && requestedDiscoverySections.All(
+                externallyProbedSections.Contains);
+        var renderManifest = discoversOnlyExternallyProbedSections
+            ? new RenderedSectionManifest()
+            : BuildTypeRenderManifest(
+                filteredType,
+                options,
+                discoveryRenderSections,
+                acquisition);
         if (bodyFilteredType is not null)
         {
             var bodyRenderManifest = BuildTypeRenderManifest(
@@ -323,9 +341,7 @@ public partial class ApiCommand
         IReadOnlyCollection<string>? discoverySections,
         TypeAcquisitionContext? acquisition = null)
     {
-        if (discoverySections is { Count: 0 })
-            return [];
-        if (discoverySections is null)
+        if (discoverySections is not { Count: > 0 })
             return [BuildTypeRenderDocument(type, options, acquisition)];
 
         return
