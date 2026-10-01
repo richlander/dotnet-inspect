@@ -1262,8 +1262,22 @@ kbd {
 .filter-disclosure summary small { min-width: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font: inherit; }
 .member-filter-disclosure { border-top: 1px solid var(--line); }
 .member-filter-disclosure .member-search { border-top: 1px solid var(--line); }
-.member-filter-stack { min-width: 0; }
-.member-filter-stack .namespace-chips:last-child { border-bottom: 0; }
+.member-filter-selects {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 9px;
+}
+.member-filter-select {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  color: var(--dim);
+  font: 10px var(--mono);
+}
+.member-filter-select .scope-select { min-width: 0; text-transform: none; }
 .type-filter-disclosure { border-bottom: 1px solid var(--line); }
 .type-filter-disclosure .type-search { min-height: 38px; border-top: 1px solid var(--line); }
 .type-filter-disclosure .chip-stack .namespace-chips:last-child { border-bottom: 0; }

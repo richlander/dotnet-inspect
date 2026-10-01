@@ -110,11 +110,10 @@ async function selectMemberAccessibility(
   page: Page,
   accessibility: "public" | "private",
 ) {
-  const button = page.locator(
-    `[data-member-access-filter="${accessibility}"]`);
-  if (!await button.isVisible())
+  const select = page.locator("[data-member-access-filter]");
+  if (!await select.isVisible())
     await page.locator("#member-filter-summary").click();
-  await button.click();
+  await select.selectOption(accessibility);
 }
 
 test("Type heat paints the member list without an Implementation section", async ({

@@ -1066,7 +1066,8 @@ async function installFacades(
         }
         const groups = new Map();
         for (const member of members) {
-          if (accessibilityBucket(member) !== accessibility) continue;
+          if (accessibility !== "all"
+              && accessibilityBucket(member) !== accessibility) continue;
           const key = member.kind + ":" + member.name;
           const group = groups.get(key) ?? {
             key,

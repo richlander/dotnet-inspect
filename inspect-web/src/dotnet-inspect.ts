@@ -1130,7 +1130,12 @@ interface AppMemberGroup {
   completeCountStatus: "available" | "pending" | "failed";
 }
 
-type MemberAccessibility = "public" | "protected" | "internal" | "private";
+type MemberAccessibility =
+  | "all"
+  | "public"
+  | "protected"
+  | "internal"
+  | "private";
 
 function waitForHomePaint() {
   if (document.visibilityState === "hidden") return Promise.resolve();
@@ -6605,11 +6610,12 @@ function memberKinds(type: AppTypeSurface) {
 
 function memberAccessibilities(type: AppTypeSurface): MemberAccessibility[] {
   void type;
-  return ["public", "protected", "internal", "private"];
+  return ["all", "public", "protected", "internal", "private"];
 }
 
 function isMemberAccessibility(value: string): value is MemberAccessibility {
-  return value === "public"
+  return value === "all"
+    || value === "public"
     || value === "protected"
     || value === "internal"
     || value === "private";
@@ -6627,8 +6633,15 @@ function renderMemberFilterControls(type: AppTypeSurface) {
   const accessibilities = memberAccessibilities(type);
   const traits = availableMemberTraits(type);
   const composition = currentTypeMemberPopulation(type)?.composition;
-  const accessibilityCount = (accessibility: MemberAccessibility) =>
-    composition?.[accessibility] ?? null;
+  const accessibilityCount = (accessibility: MemberAccessibility) => {
+    if (!composition) return null;
+    return accessibility === "all"
+      ? composition.public
+        + composition.protected
+        + composition.internal
+        + composition.private
+      : composition[accessibility];
+  };
   const activeTrait = traits.find(
     ([property]) => property === state.memberTraitFilter)?.[1];
   const filterSummary = [
@@ -6636,7 +6649,9 @@ function renderMemberFilterControls(type: AppTypeSurface) {
     state.memberKindFilter === "all"
       ? ""
       : state.memberKindFilter.replaceAll("-", " "),
-    state.memberAccessibilityFilter,
+    state.memberAccessibilityFilter === "all"
+      ? "all access"
+      : state.memberAccessibilityFilter,
     state.memberSpelling === "metadata" ? "metadata spelling" : "",
     activeTrait ?? "",
   ].filter(Boolean).join(" · ");
@@ -6648,25 +6663,37 @@ function renderMemberFilterControls(type: AppTypeSurface) {
         <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
         <button class="tiny-button" id="clear-member-filter" title="Clear member filters" aria-label="Clear member filters">×</button>
       </div>
-      <div class="member-filter-stack">
-        <div class="namespace-chips kind-chips" aria-label="Member kind filters">
-          <button class="${state.memberKindFilter === "all" ? "active" : ""}" data-member-kind-filter="all" aria-pressed="${state.memberKindFilter === "all"}">all kinds</button>
-          ${kinds.map(kind => `<button class="${state.memberKindFilter === kind ? "active" : ""}" data-member-kind-filter="${escapeHtml(kind)}" aria-pressed="${state.memberKindFilter === kind}">${escapeHtml(kind.replaceAll("-", " "))}</button>`).join("")}
-        </div>
-        ${accessibilities.length ? `<div class="namespace-chips access-chips" aria-label="Member accessibility filters">
-          ${accessibilities.map(accessibility => {
-            const count = accessibilityCount(accessibility);
-            return `<button class="${state.memberAccessibilityFilter === accessibility ? "active" : ""}" data-member-access-filter="${escapeHtml(accessibility)}" aria-pressed="${state.memberAccessibilityFilter === accessibility}">${escapeHtml(accessibility)}${count === null ? "" : ` <span aria-hidden="true">| ${count}</span>`}</button>`;
-          }).join("")}
-        </div>` : ""}
-        <div class="namespace-chips spelling-chips" aria-label="Member spelling">
-          <button class="${state.memberSpelling === "csharp" ? "active" : ""}" data-member-spelling="csharp" aria-pressed="${state.memberSpelling === "csharp"}">C#</button>
-          <button class="${state.memberSpelling === "metadata" ? "active" : ""}" data-member-spelling="metadata" aria-pressed="${state.memberSpelling === "metadata"}">metadata</button>
-        </div>
-        ${traits.length ? `<div class="namespace-chips member-trait-chips" aria-label="Member trait filters">
-          <button class="${!state.memberTraitFilter ? "active" : ""}" data-member-trait-filter="" aria-pressed="${!state.memberTraitFilter}">all traits</button>
-          ${traits.map(([property, label]) => `<button class="${state.memberTraitFilter === property ? "active" : ""}" data-member-trait-filter="${property}" aria-pressed="${state.memberTraitFilter === property}">${label}</button>`).join("")}
-        </div>` : ""}
+      <div class="member-filter-selects">
+        <label class="member-filter-select">
+          <span>Kind</span>
+          <select class="scope-select" data-member-kind-filter aria-label="Member kind">
+            <option value="all" ${state.memberKindFilter === "all" ? "selected" : ""}>all kinds</option>
+            ${kinds.map(kind => `<option value="${escapeHtml(kind)}" ${state.memberKindFilter === kind ? "selected" : ""}>${escapeHtml(kind.replaceAll("-", " "))}</option>`).join("")}
+          </select>
+        </label>
+        <label class="member-filter-select">
+          <span>Accessibility</span>
+          <select class="scope-select" data-member-access-filter aria-label="Member accessibility">
+            ${accessibilities.map(accessibility => {
+              const count = accessibilityCount(accessibility);
+              return `<option value="${escapeHtml(accessibility)}" ${state.memberAccessibilityFilter === accessibility ? "selected" : ""}>${escapeHtml(accessibility)}${count === null ? "" : ` · ${count}`}</option>`;
+            }).join("")}
+          </select>
+        </label>
+        <label class="member-filter-select">
+          <span>Spelling</span>
+          <select class="scope-select" data-member-spelling aria-label="Member spelling">
+            <option value="csharp" ${state.memberSpelling === "csharp" ? "selected" : ""}>C#</option>
+            <option value="metadata" ${state.memberSpelling === "metadata" ? "selected" : ""}>metadata</option>
+          </select>
+        </label>
+        ${traits.length ? `<label class="member-filter-select">
+          <span>Trait</span>
+          <select class="scope-select" data-member-trait-filter aria-label="Member trait">
+            <option value="" ${!state.memberTraitFilter ? "selected" : ""}>all traits</option>
+            ${traits.map(([property, label]) => `<option value="${property}" ${state.memberTraitFilter === property ? "selected" : ""}>${label}</option>`).join("")}
+          </select>
+        </label>` : ""}
       </div>
     </details>`;
 }
@@ -6724,6 +6751,10 @@ function renderMemberComposition(type: AppTypeSurface) {
   const composition = currentTypeMemberPopulation(type)?.composition;
   const counts = composition
     ? {
+        all: composition.public
+          + composition.protected
+          + composition.internal
+          + composition.private,
         public: composition.public,
         protected: composition.protected,
         internal: composition.internal,
