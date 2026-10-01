@@ -44,6 +44,28 @@ public abstract record WorkspaceTopLevelInventorySelection
 
         public int SourceIndex { get; }
     }
+
+    public sealed record Ecosystem : WorkspaceTopLevelInventorySelection
+    {
+        internal Ecosystem(
+            WorkspaceEcosystemRegistrationOccurrence occurrence,
+            int sourceIndex)
+        {
+            ArgumentNullException.ThrowIfNull(occurrence);
+            Occurrence = occurrence.Identity;
+            Id = occurrence.Declaration.Id;
+            SourceIndex = sourceIndex;
+        }
+
+        public WorkspaceEcosystemRegistrationOccurrenceIdentity Occurrence
+        {
+            get;
+        }
+
+        public WorkspaceEcosystemRegistrationId Id { get; }
+
+        public int SourceIndex { get; }
+    }
 }
 
 public abstract record WorkspaceTopLevelInventorySelectionResolution

@@ -5,6 +5,11 @@
     "purpose": "Current Workspace scope, ordered packages, and realization status."
   },
   {
+    "id": "ecosystem.overview",
+    "kind": "Ecosystem",
+    "purpose": "Registered Ecosystem identity, declarations, and population capabilities."
+  },
+  {
     "id": "package.overview",
     "kind": "Package",
     "purpose": "Package identity, selected target, assets, and summary facts."
