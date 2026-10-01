@@ -1205,6 +1205,9 @@ dotnet-inspect workspace \
   --active-ecosystem aspire
 ```
 
+This acquisition-absence claim is unverified by a dedicated composition gate;
+the Release tests verify the visible structural result.
+
 Add `--active-package N` to evaluate one exact occurrence by its one-based
 Workspace order. The detailed result includes the active subject, complete
 Workspace-to-Member hierarchy slots, Library asset IDs, bounded Type and Member

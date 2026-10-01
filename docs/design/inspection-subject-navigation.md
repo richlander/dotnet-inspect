@@ -123,6 +123,8 @@ subject with effective Ecosystem Overview. They do not yet prove Ecosystem
 action-state restoration, Ecosystem-to-Package or
 Ecosystem-to-Library routes, direct Workspace-to-Library routes,
 route-independent Library identity, or route reconciliation.
+No dedicated composition gate verifies the acquisition-absence claim for the
+registered-empty Ecosystem slice; by operator choice, that claim is unverified.
 
 The first preparatory Ecosystem-intake slice is implemented by
 `EcosystemPopulationNavigationProjection` and its closed result shapes in
