@@ -38,6 +38,8 @@ using BrowserMemberGroupDocumentInspection =
     DotnetInspect.Web.Interop.Metadata.BrowserMemberGroupDocumentInspection;
 using BrowserMemberGroupDocumentRow =
     DotnetInspect.Web.Interop.Metadata.BrowserMemberGroupDocumentRow;
+using AttachedDocumentationQueryOutcome =
+    DotnetInspect.Web.Interop.Metadata.Wire.DocumentationQueryOutcome;
 using MetadataExports =
     DotnetInspect.Web.Interop.Metadata.MetadataExports;
 
@@ -704,7 +706,7 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserMemberDocument document =
             Assert.IsType<BrowserMemberDocument>(inspection.Document);
         var completed =
-            Assert.IsType<DocumentationQueryOutcome.Completed>(
+            Assert.IsType<AttachedDocumentationQueryOutcome.Completed>(
                 document.Documentation);
         Assert.Contains(
             completed.Fields.Summary.Contributions,

@@ -230,10 +230,11 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Equal(
             singletonRow.CanonicalSignature,
             exactDocument.CanonicalSignature);
-        Assert.Equal(
+        Assert.Equivalent(
             exactDocument,
             Assert.IsType<BrowserMemberDocument>(
-                fingerprintMember.Document));
+                fingerprintMember.Document),
+            strict: true);
 
         BrowserMemberDocumentInspection missingMember =
             MemberDocument(

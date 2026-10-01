@@ -948,18 +948,18 @@ export interface TypeDependencySectionResult {
   readonly rowSelection: TypeDependencyRowSelectionResult;
 }
 
-export interface Completed {
+export interface type_0823c3ba {
   readonly kind: "completed";
   readonly subject: AssemblyContextSubject;
 }
 
-export interface Rejected {
+export interface type_0f38b196 {
   readonly kind: "rejected";
   readonly subject: AssemblyContextSubject;
   readonly failure: CandidateOpenFailure;
 }
 
-export type AssemblyContextTypeDependencyEntry = Completed | Rejected;
+export type AssemblyContextTypeDependencyEntry = type_0823c3ba | type_0f38b196;
 
 export interface DesignatedAsset {
   readonly kind: "designated";
@@ -1030,19 +1030,19 @@ export interface Incomplete {
   readonly observation: AuthoredDocumentationObservation | null;
 }
 
+export interface Rejected {
+  readonly kind: "rejected";
+  readonly reason: AuthoredDocumentationRejectionReason;
+  readonly observation: AuthoredDocumentationObservation | null;
+}
+
 export interface Unavailable {
   readonly kind: "unavailable";
   readonly reason: AuthoredDocumentationUnavailableReason;
   readonly observation: AuthoredDocumentationObservation | null;
 }
 
-export interface type_4abeed2d {
-  readonly kind: "rejected";
-  readonly reason: AuthoredDocumentationRejectionReason;
-  readonly observation: AuthoredDocumentationObservation | null;
-}
-
-export type AuthoredDocumentationOutcome = Available | Absent | Unavailable | Ambiguous | type_4abeed2d | Failed | Incomplete;
+export type AuthoredDocumentationOutcome = Available | Absent | Unavailable | Ambiguous | Rejected | Failed | Incomplete;
 
 export interface ContentAccessFailed {
   readonly kind: "contentAccessFailed";
@@ -1069,58 +1069,45 @@ export interface RequestRejected {
   readonly reason: CompiledDocumentationRequestRejectionKind;
 }
 
-export interface type_09ed4ff7 {
+export interface type_384f12c4 {
+  readonly kind: "incomplete";
+  readonly subject: CompiledDocumentationSubject;
+  readonly reason: CompiledDocumentationIncompleteReason;
+  readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
+  readonly sourcesTruncated?: boolean;
+}
+
+export interface type_59f22990 {
   readonly kind: "ambiguous";
   readonly subject: CompiledDocumentationSubject;
   readonly candidates: ReadonlyArray<CompiledDocumentationSource>;
   readonly candidatesTruncated?: boolean;
 }
 
-export interface type_b58c2bef {
-  readonly kind: "available";
-  readonly subject: CompiledDocumentationSubject;
-  readonly source: CompiledDocumentationSource;
-  readonly documentation: CompiledDocumentationEntry;
-}
-
-export interface type_c09463af {
-  readonly kind: "incomplete";
-  readonly subject: CompiledDocumentationSubject;
-  readonly reason: CompiledDocumentationIncompleteReason;
-  readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
-  readonly sourcesTruncated?: boolean;
-}
-
-export interface type_d6f98266 {
-  readonly kind: "unavailable";
-  readonly subject: CompiledDocumentationSubject;
-  readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
-  readonly sourcesTruncated?: boolean;
-}
-
-export interface type_fabd3005 {
+export interface type_7b63ecb5 {
   readonly kind: "absent";
   readonly subject: CompiledDocumentationSubject;
   readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
   readonly sourcesTruncated?: boolean;
 }
 
-export type CompiledDocumentationOutcome = type_b58c2bef | type_fabd3005 | type_d6f98266 | type_09ed4ff7 | ContributionsRejected | MalformedOrUnreadableDocument | type_c09463af | RequestRejected | ContentAccessFailed;
-
-export interface type_0808982e {
-  readonly kind: "failed";
+export interface type_8987f9f5 {
+  readonly kind: "unavailable";
   readonly subject: CompiledDocumentationSubject;
-  readonly reason: DocumentationQueryFailureReason;
+  readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
+  readonly sourcesTruncated?: boolean;
+}
+
+export interface type_fd49d937 {
+  readonly kind: "available";
+  readonly subject: CompiledDocumentationSubject;
   readonly source: CompiledDocumentationSource;
+  readonly documentation: CompiledDocumentationEntry;
 }
 
-export interface type_29dfca00 {
-  readonly kind: "incomplete";
-  readonly subject: CompiledDocumentationSubject;
-  readonly reason: CompiledDocumentationIncompleteReason;
-}
+export type CompiledDocumentationOutcome = type_fd49d937 | type_7b63ecb5 | type_8987f9f5 | type_59f22990 | ContributionsRejected | MalformedOrUnreadableDocument | type_384f12c4 | RequestRejected | ContentAccessFailed;
 
-export interface type_34d65d9a {
+export interface Completed {
   readonly kind: "completed";
   readonly subject: CompiledDocumentationSubject;
   readonly compiledXml: CompiledDocumentationOutcome | null;
@@ -1128,13 +1115,26 @@ export interface type_34d65d9a {
   readonly fields: DocumentationQueryFieldSettlement;
 }
 
-export interface type_4486029c {
+export interface type_89c2be37 {
+  readonly kind: "failed";
+  readonly subject: CompiledDocumentationSubject;
+  readonly reason: DocumentationQueryFailureReason;
+  readonly source: CompiledDocumentationSource;
+}
+
+export interface type_8f701805 {
+  readonly kind: "incomplete";
+  readonly subject: CompiledDocumentationSubject;
+  readonly reason: CompiledDocumentationIncompleteReason;
+}
+
+export interface type_df60848f {
   readonly kind: "requestRejected";
   readonly subject: CompiledDocumentationSubject;
   readonly reason: DocumentationQueryRequestRejectionReason;
 }
 
-export type DocumentationQueryOutcome = type_34d65d9a | type_4486029c | type_0808982e | type_29dfca00;
+export type DocumentationQueryOutcome = Completed | type_df60848f | type_89c2be37 | type_8f701805;
 
 export interface NonProjectable {
   readonly kind: "nonProjectable";

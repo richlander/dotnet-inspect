@@ -348,7 +348,10 @@ public static partial class MetadataExports
                 document.Subject.Fingerprint.ToString(),
                 document.Accessibility.ToString(),
                 document.Receiver.ToString(),
-                document.Documentation?.Outcome),
+                document.Documentation is null
+                    ? null
+                    : BrowserDocumentationWireProjection.Project(
+                        document.Documentation.Outcome)),
             diagnostics);
 
     private static string SerializeMemberDocument(

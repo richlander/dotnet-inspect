@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using Wire = DotnetInspect.Web.Interop.Metadata.Wire;
 
 namespace DotnetInspect.Web.Interop.Metadata;
 
@@ -320,7 +321,7 @@ public sealed record BrowserMemberDocument(
     string Fingerprint,
     string Accessibility,
     string Receiver,
-    DocumentationQueryOutcome? Documentation);
+    Wire.DocumentationQueryOutcome? Documentation);
 
 public sealed record BrowserTypeMemberPopulationInspection(
     BrowserTypeMemberPopulationOutcome Outcome,
@@ -437,68 +438,68 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserMemberGroupDocumentInspection))]
 [JsonSerializable(typeof(BrowserMemberDocumentInspection))]
 [JsonSerializable(
-    typeof(DocumentationQueryOutcome),
+    typeof(Wire.DocumentationQueryOutcome),
     TypeInfoPropertyName = "DocumentationQueryOutcome")]
 [JsonSerializable(
-    typeof(DocumentationQueryOutcome.Completed),
+    typeof(Wire.DocumentationQueryOutcome.Completed),
     TypeInfoPropertyName = "DocumentationQueryCompleted")]
 [JsonSerializable(
-    typeof(DocumentationQueryOutcome.RequestRejected),
+    typeof(Wire.DocumentationQueryOutcome.RequestRejected),
     TypeInfoPropertyName = "DocumentationQueryRequestRejected")]
 [JsonSerializable(
-    typeof(DocumentationQueryOutcome.Failed),
+    typeof(Wire.DocumentationQueryOutcome.Failed),
     TypeInfoPropertyName = "DocumentationQueryFailed")]
 [JsonSerializable(
-    typeof(DocumentationQueryOutcome.Incomplete),
+    typeof(Wire.DocumentationQueryOutcome.Incomplete),
     TypeInfoPropertyName = "DocumentationQueryIncomplete")]
 [JsonSerializable(
-    typeof(CompiledDocumentationOutcome.Available),
+    typeof(Wire.CompiledDocumentationOutcome.Available),
     TypeInfoPropertyName = "CompiledDocumentationAvailable")]
 [JsonSerializable(
-    typeof(CompiledDocumentationOutcome.Absent),
+    typeof(Wire.CompiledDocumentationOutcome.Absent),
     TypeInfoPropertyName = "CompiledDocumentationAbsent")]
 [JsonSerializable(
-    typeof(CompiledDocumentationOutcome.Unavailable),
+    typeof(Wire.CompiledDocumentationOutcome.Unavailable),
     TypeInfoPropertyName = "CompiledDocumentationUnavailable")]
 [JsonSerializable(
-    typeof(CompiledDocumentationOutcome.Ambiguous),
+    typeof(Wire.CompiledDocumentationOutcome.Ambiguous),
     TypeInfoPropertyName = "CompiledDocumentationAmbiguous")]
 [JsonSerializable(
-    typeof(CompiledDocumentationOutcome.ContributionsRejected),
+    typeof(Wire.CompiledDocumentationOutcome.ContributionsRejected),
     TypeInfoPropertyName = "CompiledDocumentationContributionsRejected")]
 [JsonSerializable(
-    typeof(CompiledDocumentationOutcome.MalformedOrUnreadableDocument),
+    typeof(Wire.CompiledDocumentationOutcome.MalformedOrUnreadableDocument),
     TypeInfoPropertyName =
         "CompiledDocumentationMalformedOrUnreadableDocument")]
 [JsonSerializable(
-    typeof(CompiledDocumentationOutcome.Incomplete),
+    typeof(Wire.CompiledDocumentationOutcome.Incomplete),
     TypeInfoPropertyName = "CompiledDocumentationIncomplete")]
 [JsonSerializable(
-    typeof(CompiledDocumentationOutcome.RequestRejected),
+    typeof(Wire.CompiledDocumentationOutcome.RequestRejected),
     TypeInfoPropertyName = "CompiledDocumentationRequestRejected")]
 [JsonSerializable(
-    typeof(CompiledDocumentationOutcome.ContentAccessFailed),
+    typeof(Wire.CompiledDocumentationOutcome.ContentAccessFailed),
     TypeInfoPropertyName = "CompiledDocumentationContentAccessFailed")]
 [JsonSerializable(
-    typeof(AuthoredDocumentationOutcome.Available),
+    typeof(Wire.AuthoredDocumentationOutcome.Available),
     TypeInfoPropertyName = "AuthoredDocumentationAvailable")]
 [JsonSerializable(
-    typeof(AuthoredDocumentationOutcome.Absent),
+    typeof(Wire.AuthoredDocumentationOutcome.Absent),
     TypeInfoPropertyName = "AuthoredDocumentationAbsent")]
 [JsonSerializable(
-    typeof(AuthoredDocumentationOutcome.Unavailable),
+    typeof(Wire.AuthoredDocumentationOutcome.Unavailable),
     TypeInfoPropertyName = "AuthoredDocumentationUnavailable")]
 [JsonSerializable(
-    typeof(AuthoredDocumentationOutcome.Ambiguous),
+    typeof(Wire.AuthoredDocumentationOutcome.Ambiguous),
     TypeInfoPropertyName = "AuthoredDocumentationAmbiguous")]
 [JsonSerializable(
-    typeof(AuthoredDocumentationOutcome.Rejected),
+    typeof(Wire.AuthoredDocumentationOutcome.Rejected),
     TypeInfoPropertyName = "AuthoredDocumentationRejected")]
 [JsonSerializable(
-    typeof(AuthoredDocumentationOutcome.Failed),
+    typeof(Wire.AuthoredDocumentationOutcome.Failed),
     TypeInfoPropertyName = "AuthoredDocumentationFailed")]
 [JsonSerializable(
-    typeof(AuthoredDocumentationOutcome.Incomplete),
+    typeof(Wire.AuthoredDocumentationOutcome.Incomplete),
     TypeInfoPropertyName = "AuthoredDocumentationIncomplete")]
 [JsonSerializable(typeof(BrowserTypeMemberPopulationInspection))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]

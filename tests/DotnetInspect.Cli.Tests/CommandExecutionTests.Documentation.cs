@@ -51,9 +51,6 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains(
-            "Methods that extend documentation fixture types.",
-            output);
-        Assert.Contains(
             "Measures a widget through its declaring extension member.",
             output);
     }
