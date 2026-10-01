@@ -77,6 +77,7 @@ static class Program
         string? diffValidityDefects = null;
         bool fidelityCheck = false;
         bool returnToSender = false;
+        bool returnToSenderTargetCount = false;
         bool fuzzSignatures = false;
         bool fuzzUnguarded = false;
         int fuzzIterations = 100_000;
@@ -216,6 +217,9 @@ static class Program
                     case "--diff-validity-defects": diffValidityDefects = NextArg(args, ref i, flag); break;
                     case "--fidelity-check": fidelityCheck = true; break;
                     case "--return-to-sender": returnToSender = true; break;
+                    case "--return-to-sender-target-count":
+                        returnToSenderTargetCount = true;
+                        break;
                     case "--return-address": returnAddress = true; break;
                     case "--fuzz-signatures": fuzzSignatures = true; break;
                     case "--fuzz-unguarded": fuzzSignatures = true; fuzzUnguarded = true; break;
@@ -446,6 +450,8 @@ static class Program
             ("--validity-check", validityCheckMode),
             ("--validity-predicate-scan", validityPredicateScan),
             ("--fidelity-check", fidelityCheckMode),
+            ("--return-to-sender-target-count",
+                returnToSenderTargetCount),
             ("--return-to-sender", returnToSender),
             ("--return-address", returnAddress),
             ("--not-my-type", notMyType),
@@ -614,6 +620,9 @@ static class Program
 
         if (fidelityCheck)
             return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered, fidelityTimings, fidelityZeroSignalGuard);
+
+        if (returnToSenderTargetCount)
+            return ReturnToSenderTargetCount.Run(assemblies);
 
         if (returnToSender)
             return await ReturnToSender.Run(assemblies, cap, maxExamples);
@@ -2415,6 +2424,10 @@ static class Program
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL
                                 opcodes.
+          --return-to-sender-target-count
+                                query the exact eligible raised RTS target Count
+                                without materializing candidate rows or running
+                                artifact, compilation, or comparison work.
           --return-address        equivalence census: compare the two product
                                 member-identity producers (GetMemberAnchor vs
                                 CreateMethodAnchor) per member and report the

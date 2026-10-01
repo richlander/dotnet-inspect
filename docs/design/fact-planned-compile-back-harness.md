@@ -300,13 +300,50 @@ the exact selected body while assigning sibling policy to the other
 conventional accessors. Stable sampling and the cross-assembly cap apply only
 after those product decisions and the canonical target signature are complete.
 
-Before QuerySpace adoption, a test-only NLinq baseline reads the complete
-pre-cap declaration-candidate population independently of the standalone
-selector. It reuses the product-owned CSharp decisions, then queries exact
-eligible Count, complete eligible target Rows, and deterministically ordered
-typed exclusion Rows. The baseline is behavioral evidence for the later
-QuerySpace replacement; it is not a production source adapter or performance
-claim, and it does not replace stable sampling or cap selection.
+The `DotnetInspector.ResearchQueries` operation owner owns the metadata/CSharp
+target decision and complete pre-cap source scan. The standalone selector and
+the test-only NLinq oracle both consume that decision; neither the
+DecompilerHarness host nor the oracle duplicates it. The NLinq oracle still
+enumerates metadata candidates independently, then queries exact eligible
+Count, complete eligible target Rows, and deterministically ordered typed
+exclusion Rows.
+
+The first production QuerySpace slice exposes exact eligible Count through one
+operation, one candidate row set, and the Count terminal. The operation-owned
+source performs the complete eligibility scan without constructing eligible
+target rows, then `DotnetInspector.ResearchSections` supplies the owner-issued
+exact cardinality and completion receipt to the generic section-row Count
+executor.
+The receipt records scanned bodies, declaration candidates, and zero
+materialized target rows. DecompilerHarness consumes this path through
+`--return-to-sender-target-count`.
+
+This slice does not expose production Rows, realize targets through House,
+replace stable sampling or the cross-assembly cap, or cut raised standalone
+RTS execution over to QuerySpace. The NLinq population remains independent
+behavioral evidence for Count, Rows, and exclusions rather than a production
+source adapter or performance claim.
+
+The Count performance gate uses the pinned 14-assembly, 89,065-body corpus.
+Old, LINQ, NLinq, and Planner agree on all 14 exact Counts: 42 comparisons,
+zero mismatches, 64,453 declaration-candidate rows, and 61,463 eligible
+targets. Old materializes all 64,453 decision rows; Planner materializes zero.
+The Count-only operation opens 14 assembly/source sessions and performs no
+House realization, product-artifact production, Roslyn compilation, or IL
+comparison.
+
+NativeAOT base/head evidence compares base
+`16d3c9211be31b359bb48ba93cecef3fef36e37f` with this Count slice. Three
+repeated full-corpus executions preserve Count exactly; median elapsed moves
+from 74.647 seconds to 75.485 seconds and median current-thread allocation from
+112,618,301,240 bytes to 112,408,864,904 bytes. Four rotated process-start
+executions report median elapsed of 77.80 versus 80.48 seconds, while median
+peak RSS falls from 454,962 KB to 329,384 KB. On the small StructuredTypes
+witness, the four-column NativeAOT scorecard reports Old 9,085.9 us, LINQ
+8,988.9 us, NLinq 9,152.1 us, and Planner 8,743.0 us. The committed
+`ReturnToSenderTargetScorecard` owns the reproducible check and timing
+invocations; these measurements establish the Count slice only, not the later
+Rows or House realization work.
 
 ### Product artifact provider
 

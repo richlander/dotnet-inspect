@@ -132,12 +132,8 @@ src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PlatformHouse.Execution.Installed
 src/DotnetInspector.PlatformHouse.Installed
 src/DotnetInspector.Platforms.Installed
-src/DotnetInspector.Presentation
-src/DotnetInspector.ResearchSections
-src/DotnetInspector.Sections
 src/DotnetInspector.Sections.Installed
 src/DotnetInspector.SourceDelegation
-src/DotnetInspector.Vocabulary
 src/ILInspector.Analysis.App
 src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration
@@ -240,6 +236,7 @@ tools/MethodClassificationScorecard
 tools/OwnershipIncidenceScorecard
 tools/PackageHouse.CliBenchmarks
 tools/QuerySpaceScorecard
+tools/ReturnToSenderTargetScorecard
 tools/SectionRegistrySpike
 tools/SourceCorpusCensus
 tools/StructuralSaliencePerformance

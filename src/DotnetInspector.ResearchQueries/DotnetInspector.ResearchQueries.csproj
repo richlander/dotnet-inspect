@@ -13,6 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CSharpText\CSharpText.csproj" />
     <ProjectReference Include="..\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.PlatformHouse\DotnetInspector.PlatformHouse.csproj" />
     <ProjectReference Include="..\DotnetInspector.PlatformHouse.Execution\DotnetInspector.PlatformHouse.Execution.csproj" />
@@ -20,9 +21,12 @@
     <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
     <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
+    <ProjectReference Include="..\ILInspector.CSharp\ILInspector.CSharp.csproj" />
+    <ProjectReference Include="..\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
     <ProjectReference Include="..\Inspector.Findings\Inspector.Findings.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\ILInspector.Research\ILInspector.Research.csproj" />
+    <ProjectReference Include="..\QuerySpace\QuerySpace.csproj" />
   </ItemGroup>
 
   <ItemGroup>
