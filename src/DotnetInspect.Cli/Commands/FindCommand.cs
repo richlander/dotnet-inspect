@@ -76,7 +76,7 @@ public class FindCommand
                 return new(1, RowCount: null);
             }
             FindOptions searchOptions =
-                CreateSearchOptions(options);
+                CreateSearchOptions(options, patterns);
 
             PlatformFindSearchWorkspace? platformWorkspace = null;
             if (searchOptions.UsesImplicitPlatform)
@@ -225,17 +225,29 @@ public class FindCommand
     }
 
     private static FindOptions CreateSearchOptions(
-        FindOptions options)
+        FindOptions options,
+        string[] patterns)
     {
-        if (options.QueryPlan?.ResultLimit is not int resultLimit)
+        if (options.QueryPlan?.InputRowLimit is not int inputRowLimit)
         {
             return options;
         }
 
+        RowSelectionIntentOperation<string> operation =
+            options.QueryPlan.Rows.Operations.Single();
+        bool canDelegate =
+            options.Members
+            || operation.Kind == RowSelectionStageKind.Head
+            || operation.Kind == RowSelectionStageKind.Window
+                && patterns.All(static pattern =>
+                    !MayRunImplicitMemberFallback(pattern));
+        if (!canDelegate)
+            return options;
+
         int effectiveLimit =
             options.Limit is int existingLimit
-                ? Math.Min(existingLimit, resultLimit)
-                : resultLimit;
+                ? Math.Min(existingLimit, inputRowLimit)
+                : inputRowLimit;
         return options with { Limit = effectiveLimit };
     }
 
@@ -275,8 +287,7 @@ public class FindCommand
         [
             .. patterns.Where(pattern =>
                 !settled.Contains(pattern)
-                && !pattern.Contains('.')
-                && TypeNameMatchRanking.IsBroadenable(pattern)),
+                && MayRunImplicitMemberFallback(pattern)),
         ];
         if (memberPatterns.Length == 0)
             return null;
@@ -290,6 +301,11 @@ public class FindCommand
             platformWorkspace,
             explicitWorkspace);
     }
+
+    private static bool MayRunImplicitMemberFallback(
+        string pattern) =>
+        !pattern.Contains('.')
+        && TypeNameMatchRanking.IsBroadenable(pattern);
 
     /// <summary>
     /// Applies semantic row selection to the answer in presented order: the

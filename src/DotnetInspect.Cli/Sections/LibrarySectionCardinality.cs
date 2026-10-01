@@ -8,17 +8,21 @@ internal static class LibrarySectionCardinality
 {
     public static IReadOnlyDictionary<
         string,
-        SectionCardinalityDeclaration> ExactDeclarations { get; } =
+        SectionCardinalityDeclaration> ExactDeclarations
+    { get; } =
         new Dictionary<string, SectionCardinalityDeclaration>(
             StringComparer.OrdinalIgnoreCase)
         {
             [SectionNames.LibraryInfo] =
                 SectionCardinalityDeclaration.Scalar,
+            [SectionNames.NameFamilies] =
+                SectionCardinalityDeclaration.Inventory,
         };
 
     public static IReadOnlyDictionary<
         string,
-        SectionCardinalityDeclaration> AggregateDeclarations { get; } =
+        SectionCardinalityDeclaration> AggregateDeclarations
+    { get; } =
         new Dictionary<string, SectionCardinalityDeclaration>(
             StringComparer.OrdinalIgnoreCase)
         {

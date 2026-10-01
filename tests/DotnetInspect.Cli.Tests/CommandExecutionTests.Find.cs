@@ -836,6 +836,60 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_FiniteTypeWindowStopsBeforeLaterTypeSource()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindTypeWindow-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "*",
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "--rows",
+            "2..3",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2", output.Trim());
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task Find_FiniteTypeWindowKeepsIncompleteSourceVisible()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindIncompleteWindow-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "*",
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "--rows",
+            "1..100000",
+            "--json",
+            "--compact",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Directory not found", error);
+        Assert.Contains(
+            "requires type row 100000",
+            error);
+    }
+
+    [Fact]
     public async Task Find_SemanticHeadStopsBeforeLaterMemberSource()
     {
         string missing = Path.Combine(
@@ -860,6 +914,88 @@ public partial class CommandExecutionTests
             nameof(Find_BroadenedMemberFallbackReusesExplicitWorkspace),
             output);
         Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task Find_FiniteMemberWindowStopsBeforeLaterMemberSource()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindMemberWindow-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "*",
+            "--members",
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "--rows",
+            "2..3",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2", output.Trim());
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task
+        Find_FilteredFiniteMemberWindowStopsBeforeLaterMemberSource()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindFilteredMemberWindow-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "*",
+            "--members",
+            "--type",
+            typeof(CommandExecutionTests).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "--rows",
+            "2..3",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2", output.Trim());
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task
+        Find_FiniteWindowWithPossibleMemberFallbackRemainsExhaustive()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindComposedWindow-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            nameof(CommandExecutionTests),
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "--rows",
+            "1..2",
+            "--json",
+            "--compact",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.False(string.IsNullOrWhiteSpace(output));
+        Assert.Contains("Directory not found", error);
     }
 
     [Fact]

@@ -3,7 +3,9 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using InertText;
+using QuerySpace.Rows;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspect.Cli.Sections;
@@ -64,6 +66,13 @@ public sealed class InspectionQueryContext : IDisposable
     /// <c>--count</c>: a row section asks for its count instead of its rows.
     /// </summary>
     public bool CountOnly { get; init; }
+
+    public LibraryNameFamilyPopulationKind NameFamilyPopulation
+    { get; init; } =
+        LibraryNameFamilyPopulationKind.AllTypes;
+
+    public RowSelectionIntent<string>? NameFamilyRowSelection
+    { get; init; }
 
     private MethodBodyInspectionSession? _bodySession;
     private MethodClassificationBindingResult? _methodClassification;
