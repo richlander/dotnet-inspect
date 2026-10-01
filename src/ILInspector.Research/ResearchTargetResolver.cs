@@ -643,7 +643,7 @@ public static class ResearchTargetResolver
             }
         }
 
-        ResearchTargetBodyIdentity? bodyIdentity = null;
+        MethodBodyIdentity? bodyIdentity = null;
         if (role != ResearchTargetRelationshipRole.None)
         {
             TryCreateBodyIdentity(
@@ -668,7 +668,7 @@ public static class ResearchTargetResolver
         int metadataToken,
         ResolvedMemberTarget target,
         ResearchTargetRelationshipRole role,
-        out ResearchTargetBodyIdentity? identity)
+        out MethodBodyIdentity? identity)
     {
         identity = null;
         MethodIdentity? method = null;
@@ -683,7 +683,7 @@ public static class ResearchTargetResolver
         }
 
         return method is not null
-            && ResearchTargetBodyIdentity.TryCreate(
+            && ResearchTargetBodyIdentityProjection.TryCreate(
                 method,
                 target,
                 role,
