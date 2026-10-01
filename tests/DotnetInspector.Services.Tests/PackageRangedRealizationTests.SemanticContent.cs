@@ -254,6 +254,81 @@ public sealed partial class PackageRangedRealizationTests
     }
 
     [Fact]
+    public async Task SemanticFiles_GlobalPackagesOmissionReadsFromRetainedArchive()
+    {
+        const string Path = "[Content_Types].xml";
+        byte[] archiveBytes = TestPackageArchive.Create(
+            "lib/net10.0/Sample.dll",
+            "PCLStorage.nuspec",
+            Path,
+            "_rels/.rels");
+        string root = Directory.CreateTempSubdirectory(
+            "inspect-global-package-").FullName;
+        try
+        {
+            string nupkg = System.IO.Path.Combine(
+                root,
+                $"{PclStorage}.{PclStorageVersion}.nupkg");
+            File.WriteAllBytes(nupkg, archiveBytes);
+            Directory.CreateDirectory(
+                System.IO.Path.Combine(root, "lib", "net10.0"));
+            File.WriteAllBytes(
+                System.IO.Path.Combine(root, "lib", "net10.0", "Sample.dll"),
+                [1, 2, 3]);
+            File.WriteAllText(
+                System.IO.Path.Combine(root, "pclstorage.nuspec"),
+                """<?xml version="1.0"?><package />""");
+            File.WriteAllText(
+                System.IO.Path.Combine(root, ".nupkg.metadata"),
+                "{}");
+
+            var content = new FileSystemPackageContent(
+                root,
+                nupkg,
+                fromCache: true,
+                producerKey: NuGetCache.GetSourceKey(Feed));
+            Assert.False(content.TryOpenEntry(Path, out _));
+            await using RangedEnvironment environment =
+                RangedEnvironment.Create(
+                    new RangeFeed(
+                        PclStorage,
+                        PclStorageVersion,
+                        archiveBytes));
+
+            PackageFileAcquisitionResult.Acquired acquired =
+                Assert.IsType<PackageFileAcquisitionResult.Acquired>(
+                    await environment.AcquireFileAsync(
+                        new CachedContentStore(content),
+                        Path));
+            Assert.Contains(
+                acquired.FileList.Entries,
+                entry => entry.Path == Path);
+
+            await using PackageHousePayloadRead read =
+                acquired.OpenRead();
+            using var actual = new MemoryStream();
+            await read.CopyToAsync(
+                actual,
+                TestContext.Current.CancellationToken);
+            using var oracle = new ZipArchive(
+                new MemoryStream(archiveBytes));
+            ZipArchiveEntry? expectedEntry =
+                oracle.GetEntry(Path);
+            Assert.NotNull(expectedEntry);
+            using Stream expected = expectedEntry.Open();
+            using var expectedBytes = new MemoryStream();
+            expected.CopyTo(expectedBytes);
+            Assert.Equal(
+                expectedBytes.ToArray(),
+                actual.ToArray());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SemanticFiles_RequiresHouseOwnedPayloadPlanning()
     {
         await using RangedEnvironment environment =
@@ -310,6 +385,30 @@ public sealed partial class PackageRangedRealizationTests
             }
         }
         return output.ToArray();
+    }
+
+    private sealed class CachedContentStore(IPackageContent content) :
+        IPackageStore
+    {
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null) =>
+            allowedSourceKeys?.Contains(
+                content.ProducerKey,
+                StringComparer.Ordinal) == true
+                ? content
+                : null;
+
+        public ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException(
+                "The test store serves only cached package content.");
     }
 
     private sealed class TemporaryFileSystemPackageStore :

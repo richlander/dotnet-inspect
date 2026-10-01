@@ -103,41 +103,58 @@ internal class SelectedPackageContent :
 
     internal static IPackageContent Create(
         IPackageContent content,
-        IReadOnlyList<string> entries) =>
-        content is IPackageContentEntryManifest manifest
-            ? new WithManifest(content, manifest, entries)
+        IReadOnlyList<string> entries)
+    {
+        if (content is IPackageArchiveEntryManifest archiveManifest
+            && archiveManifest.TryGetArchiveEntries(
+                out IReadOnlyList<PackageContentEntry>? archiveEntries))
+        {
+            return new WithManifest(
+                content,
+                archiveEntries,
+                entries);
+        }
+
+        return content is IPackageContentEntryManifest manifest
+            ? new WithManifest(
+                content,
+                manifest.EnumerateEntriesWithLengths(),
+                entries)
             : new SelectedPackageContent(content, entries);
+    }
 
     private sealed class WithManifest :
         SelectedPackageContent,
         IPackageContentEntryManifest
     {
-        private readonly IPackageContentEntryManifest _manifest;
         private readonly IReadOnlyList<PackageContentEntry> _manifestEntries;
-        private readonly HashSet<string> _manifestEntrySet;
+        private readonly IReadOnlyDictionary<string, long> _lengthByPath;
 
         internal WithManifest(
             IPackageContent content,
-            IPackageContentEntryManifest manifest,
+            IReadOnlyList<PackageContentEntry> availableEntries,
             IReadOnlyList<string> entries)
             : base(content, entries)
         {
-            _manifest = manifest;
-            _manifestEntrySet = new HashSet<string>(
-                entries,
-                StringComparer.OrdinalIgnoreCase);
             _manifestEntries =
             [
                 .. entries.Select(path =>
                 {
-                    if (!_manifest.TryGetEntryLength(path, out long length))
+                    PackageContentEntry? entry = FindExactEntry(
+                        availableEntries,
+                        path);
+                    if (entry is null)
                     {
                         throw new InvalidOperationException(
                             $"The selected package entry '{path}' has no manifest length.");
                     }
-                    return new PackageContentEntry(path, length);
+                    return entry.Value;
                 }),
             ];
+            _lengthByPath = _manifestEntries.ToDictionary(
+                entry => entry.Path,
+                entry => entry.Length,
+                StringComparer.OrdinalIgnoreCase);
         }
 
         public bool TryGetEntryLength(
@@ -145,15 +162,29 @@ internal class SelectedPackageContent :
             out long length)
         {
             ArgumentNullException.ThrowIfNull(relativePath);
-            if (!_manifestEntrySet.Contains(relativePath))
-            {
-                length = 0;
-                return false;
-            }
-            return _manifest.TryGetEntryLength(relativePath, out length);
+            return _lengthByPath.TryGetValue(
+                relativePath,
+                out length);
         }
 
         public PackageContentEntryScanner CreateEntryScanner() =>
             PackageContentEntryScanner.From(_manifestEntries);
+
+        private static PackageContentEntry? FindExactEntry(
+            IReadOnlyList<PackageContentEntry> availableEntries,
+            string path)
+        {
+            foreach (PackageContentEntry entry in availableEntries)
+            {
+                if (entry.Path.Equals(
+                        path,
+                        StringComparison.Ordinal))
+                {
+                    return entry;
+                }
+            }
+
+            return null;
+        }
     }
 }

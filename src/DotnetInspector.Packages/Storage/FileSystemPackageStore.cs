@@ -177,7 +177,8 @@ public sealed class FileSystemPackageStore : IPackageStore, IPreparedPackageStor
                 fromCache: true,
                 committed.Package.ProducerKey,
                 requiresArchiveTreeMatch: true);
-            content.RememberArchiveEntries(archive);
+            if (committed.PublishedStagedContent)
+                content.RememberArchiveEntries(archive);
             return new PreparedPackageCommit(
                 content,
                 RequiresAdmission: !committed.PublishedStagedContent);

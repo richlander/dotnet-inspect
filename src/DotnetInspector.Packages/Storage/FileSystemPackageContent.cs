@@ -211,30 +211,46 @@ public sealed class FileSystemPackageContent :
         }
 
         var file = new FileInfo(path);
-        if (!file.Exists)
+        Stream content;
+        IDisposable? owner = null;
+        if (file.Exists)
         {
-            stream = null;
-            return false;
+            if ((ulong)file.Length != entry.ExpandedLength)
+            {
+                throw new InvalidDataException(
+                    "Extracted package entry does not match its declared size.");
+            }
+
+            content = file.OpenRead();
         }
-        if ((ulong)file.Length != entry.ExpandedLength)
+        else
         {
-            throw new InvalidDataException(
-                "Extracted package entry does not match its declared size.");
+            if (!TryOpenRetainedArchiveEntry(
+                    relativePath,
+                    out Stream? archiveContent,
+                    out owner))
+            {
+                stream = null;
+                return false;
+            }
+
+            content = archiveContent;
         }
 
-        Stream content = file.OpenRead();
         try
         {
             stream = new PackageArchiveEntryReadStream(
                 content,
                 entry.ExpandedLength,
                 entry.Crc32,
-                maxExpandedBytes);
+                maxExpandedBytes,
+                owner);
             return true;
         }
         catch
         {
             content.Dispose();
+            owner?.Dispose();
             throw;
         }
     }
@@ -285,6 +301,43 @@ public sealed class FileSystemPackageContent :
             checked((ulong)entry.Length),
             entry.Crc32);
         return true;
+    }
+
+    private bool TryOpenRetainedArchiveEntry(
+        string relativePath,
+        [NotNullWhen(true)] out Stream? content,
+        [NotNullWhen(true)] out IDisposable? owner)
+    {
+        FileStream? package = File.OpenRead(NupkgPath!);
+        ZipArchive? archive = null;
+        try
+        {
+            archive = new ZipArchive(
+                package,
+                ZipArchiveMode.Read);
+            package = null;
+            ZipArchiveEntry? entry = archive.GetEntry(relativePath)
+                ?? archive.Entries.FirstOrDefault(candidate =>
+                    candidate.FullName.Equals(
+                        relativePath,
+                        StringComparison.OrdinalIgnoreCase));
+            if (entry is null)
+            {
+                content = null;
+                owner = null;
+                return false;
+            }
+
+            content = entry.Open();
+            owner = archive;
+            archive = null;
+            return true;
+        }
+        finally
+        {
+            archive?.Dispose();
+            package?.Dispose();
+        }
     }
 
     /// <inheritdoc />
