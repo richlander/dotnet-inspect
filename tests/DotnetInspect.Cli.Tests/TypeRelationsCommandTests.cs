@@ -132,7 +132,7 @@ public sealed class TypeRelationsCommandTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "exact Type focus could not be resolved",
+            "does not declare the selected exact Type",
             result.Error,
             StringComparison.OrdinalIgnoreCase);
     }

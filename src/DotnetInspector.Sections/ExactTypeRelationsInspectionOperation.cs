@@ -170,16 +170,6 @@ public static class ExactTypeRelationsInspectionOperation
                     : detail);
         }
 
-        InspectionEnvelope<
-            SelectedContextExactTypeInspectionResult>? inspection =
-            request.IncludeTypeInspection
-                ? SelectedContextExactTypeInspectionOperation.Execute(
-                        workspace,
-                        context,
-                        new(
-                            request.Type,
-                            request.SelectionKind))
-                : null;
         WorkspaceDeclarationPopulation population =
             workspace.CaptureDeclarationPopulation([context])
                 is WorkspaceDeclarationPopulationCapture.Captured captured
@@ -216,11 +206,54 @@ public static class ExactTypeRelationsInspectionOperation
                             + $"{string.Join(", ", incomplete)}."));
         }
 
+        return Execute(
+            workspace,
+            context,
+            request,
+            population,
+            found,
+            plan,
+            count,
+            rows,
+            rowSelection,
+            includeNonPublic,
+            cancellationToken);
+    }
+
+    public static ExactTypeRelationsInspectionOutcome Execute(
+        InspectionWorkspace workspace,
+        WorkspaceDeclarationContext context,
+        TypeRelationsInspectionRequest request,
+        WorkspaceDeclarationPopulation population,
+        WorkspaceExactTypeFocusOutcome.Found focus,
+        SubjectRelationsQueryPlan plan,
+        SubjectRelationPopulationCountRequest? count = null,
+        SubjectRelationPopulationRowsRequest? rows = null,
+        RowSelectionIntent<string>? rowSelection = null,
+        bool includeNonPublic = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(population);
+        ArgumentNullException.ThrowIfNull(focus);
+        ArgumentNullException.ThrowIfNull(plan);
+        InspectionEnvelope<
+            SelectedContextExactTypeInspectionResult>? inspection =
+            request.IncludeTypeInspection
+                ? SelectedContextExactTypeInspectionOperation.Execute(
+                        workspace,
+                        context,
+                        new(
+                            request.Type,
+                            request.SelectionKind))
+                : null;
         WorkspaceTypeRelationsInspectionResult relations =
             WorkspaceTypeRelationsInspectionOperation.Execute(
                 workspace,
                 population,
-                found,
+                focus,
                 plan,
                 count,
                 rows,
