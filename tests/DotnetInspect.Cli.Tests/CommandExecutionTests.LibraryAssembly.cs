@@ -925,7 +925,8 @@ public partial class CommandExecutionTests
         Assert.Equal(1, section.Exit);
         Assert.Empty(section.Output);
         Assert.Contains(
-            "accepts only the exact \"Library Metrics\" section selection",
+            "accepts only the exact \"Library Metrics\" or \"Name Families\" "
+                + "section selection",
             section.Error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(

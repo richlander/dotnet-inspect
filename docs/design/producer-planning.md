@@ -457,8 +457,10 @@ The gate's classification is a unit class that source-gate scope guards
 accept, as
 [Scope is declared on the edge](#scope-is-declared-on-the-edge-not-tested-inside-the-visit)
 describes. A source-gate guard is not a dependency, so a producer asked alone
-still has no dependencies and still qualifies for a closed-query kernel. That kernel is
-one loop, specialized to the gate, the predicate, and the closing.
+still has no dependencies and still qualifies for a closed-query kernel. That
+kernel is one loop specialized to the gate, predicate, and projection. The
+planned closing controls accumulation and early stop inside the loop; Count
+and Exists omit projection-only fields.
 
 *Lets the lower levels:* share scope, classification, and decoding among every
 producer without a classifier producer, and prove from the plan alone that a
