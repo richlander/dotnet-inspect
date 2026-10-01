@@ -302,9 +302,14 @@ acquire each ordered source at most once. A pure CLI semantic Head plan
 supplies one operational limit across its Type patterns. Compatibility and
 Platform collection classify each retained Type in metadata order and stop
 before the next Type, query participant, pattern group, or source after the
-Nth accepted unique candidate. Tail and Window do not supply an operational
-limit. The command owns the retained source lifetime across Type classification
-and the separately composed Member search.
+Nth accepted unique candidate. A sole finite Window supplies its inclusive end
+as a route-local input-row limit. Explicit Member Find forwards that limit
+directly. Type Find forwards it only when every pattern is syntactically
+ineligible for implicit Member fallback; otherwise the Type search remains
+exhaustive because fallback Member rows can precede Type rows and suppress weak
+Type matches. Tail, open-ended Window, and multi-stage row selection do not
+supply an operational limit. The command owns the retained source lifetime
+across Type classification and the separately composed Member search.
 Each admitted assembly executes the same inventory query, and the service
 projects its type name, namespace, full name, kind, library file base name,
 source, and source version into the internal `TypeSearchResult` currency. The
@@ -406,6 +411,15 @@ after the Nth accepted unique candidate, then avoids later participants,
 patterns, sources, and implicit broadened Member fallback. On the locator path
 it selects Head after the complete resident locator census and therefore makes
 no inventory-read reduction claim.
+
+Find Query exposes a route-local input-row limit for a sole Head or finite
+Window. Head supplies N; Window supplies its inclusive end B. Reaching B lets
+the complete-sequence evaluator select A through B without reading row B + 1.
+Exhaustion below B still reaches the evaluator and produces its structured
+strict-window failure. The CLI does not forward a Window limit across possible
+implicit Member composition: proving that no later Member row precedes the
+bounded Type prefix requires the exhaustive Type result that this optimization
+would avoid.
 
 `FindSearchCompletion` records `ResultLimitReached` when Head settled,
 `Exhausted` when the source ended below N, and `Incomplete` when failure or
