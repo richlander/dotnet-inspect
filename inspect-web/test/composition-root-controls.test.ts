@@ -82,7 +82,7 @@ test("qualified Type leverage exposes a cache-bypassing retry", () => {
   );
 });
 
-test("Metrics lens requests and presents exact structural-salience shards", () => {
+test("Metrics lens requests and presents exhaustive structural salience", () => {
   const target = sourceText(
     functionDeclaration("libraryMetricsTypeLeverageTarget"),
   );
@@ -98,7 +98,7 @@ test("Metrics lens requests and presents exact structural-salience shards", () =
 
   assert.match(
     target,
-    /state\.atLibraryRoot[\s\S]*state\.libraryLens !== "metrics"[\s\S]*libraryMetricsLeverageNamespace[\s\S]*createTypeLeverageTarget\("metrics", requestedNamespaces, true\)/,
+    /state\.atLibraryRoot[\s\S]*state\.libraryLens !== "metrics"[\s\S]*createTypeLeverageTarget\("metrics", true\)/,
   );
   assert.match(
     loader,
@@ -1360,16 +1360,20 @@ test("typed type panel owns its rendered control bindings", () => {
       "#namespace-jump": 0,
     });
 
-    test("structural salience requests only indexed exact namespaces", () => {
+    test("structural salience requests one exhaustive Library document", () => {
+      const target = sourceText(
+        functionDeclaration("createTypeLeverageTarget"),
+      );
       assert.match(
-        appSource,
-        /target\.requestedNamespaces\.filter\(namespace =>\s*index\.namespaces\.some\(row => row\.namespace === namespace\)\)/);
+        target,
+        /key: JSON\.stringify\(\[salienceLibraryKey, consumer\]\)/);
+      assert.doesNotMatch(target, /requestedNamespaces|namespaceFilter/);
       assert.match(
         appSource,
         /const GLOBAL_NAMESPACE_FILTER = "__dotnet_inspect_global_namespace__"/);
       assert.match(
-        appSource,
-        /state\.namespaceFilter === GLOBAL_NAMESPACE_FILTER\s*\? ""\s*: state\.namespaceFilter/);
+        sourceText(functionDeclaration("selectedNamespaceFilter")),
+        /state\.namespaceFilter === GLOBAL_NAMESPACE_FILTER\) return ""/);
       assert.match(
         appSource,
         /const value = namespaceFilterValue\(ns\)/);

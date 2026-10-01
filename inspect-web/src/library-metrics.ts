@@ -4,6 +4,10 @@ import type {
   TypeLeverageShardPresentation,
 } from "./type-leverage.ts";
 import { typeLeveragePole } from "./type-leverage.ts";
+import {
+  renderItemAchievementRail,
+  type ItemAchievement,
+} from "./item-achievements.ts";
 
 const TREEMAP_WIDTH = 900;
 const TREEMAP_HEIGHT = 360;
@@ -78,8 +82,11 @@ function renderSalienceOrder(
     const poleText = pole === "sea-level"
       ? "sea level"
       : pole === "mountain-peak" ? "mountain peak" : "";
+    const achievements: readonly ItemAchievement[] = pole
+      ? [{ kind: pole, description: `${poleText} Type` }]
+      : [];
     return `<button type="button" class="metrics-salience-type${pole ? ` ${pole}` : ""}" data-metrics-salience-type-key="${escapeHtml(row.typeDefinitionId)}">
-      <span class="metrics-salience-pole" aria-hidden="true">${pole === "sea-level" ? "▁" : pole === "mountain-peak" ? "▲" : ""}</span>
+      ${renderItemAchievementRail(achievements, escapeHtml)}
       <span class="metrics-salience-type-name">${escapeHtml(shortTypeName(row.typeDisplay))}</span>
       <small>${formatNumber(row[degree])} ${degree === "signatureIncomingDegree" ? "incoming" : "outgoing"} peers · ${escapeHtml(row.role)}${poleText ? ` · ${poleText}` : ""}</small>
     </button>`;
@@ -117,18 +124,17 @@ function renderStructuralSalience(
   }
   if (!salience) {
     return `<section class="document-section metrics-salience-section">
-      <div class="metrics-visual-copy"><h2>Structural Salience</h2><p>Namespace leverage and exact Type structure are loading independently from implementation metrics.</p></div>
+      <div class="metrics-visual-copy"><h2>Structural Salience</h2><p>The complete signature-surface document is loading independently from implementation metrics.</p></div>
       ${salienceLoading ? `<span class="loader"></span>` : ""}
     </section>`;
   }
 
-  const loaded = new Set(salience.loadedNamespaces);
   const defaultNamespace = salience.namespaceOrder.find(row =>
-    row.topLeverage && loaded.has(row.namespace))?.namespace
-    ?? salience.loadedNamespaces[0]
+    row.topLeverage)?.namespace
+    ?? salience.namespaceOrder[0]?.namespace
     ?? null;
   const exactNamespace = selectedSalienceNamespace !== null
-    && loaded.has(selectedSalienceNamespace)
+    && salience.shardsByNamespace.has(selectedSalienceNamespace)
     ? selectedSalienceNamespace
     : defaultNamespace;
   const shard = exactNamespace === null
@@ -145,8 +151,8 @@ function renderStructuralSalience(
     : `<div class="metadata-warning"><strong>Structural salience is qualified</strong><p>${escapeHtml(salience.disposition)} · ${formatNumber(salience.coverage.examined)} of ${formatNumber(salience.coverage.considered)} signature sites examined.</p>${salience.diagnostics.length ? `<ul>${salience.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul>` : ""}</div>`;
   const orders = shard
     ? `<div class="metrics-salience-orders">
-        ${renderSalienceOrder("Sea level", shard.seaLevelOrder, "signatureIncomingDegree", escapeHtml)}
-        ${renderSalienceOrder("Mountain peaks", shard.mountainPeakOrder, "signatureOutgoingDegree", escapeHtml)}
+        ${renderSalienceOrder("Incoming peers", shard.seaLevelOrder, "signatureIncomingDegree", escapeHtml)}
+        ${renderSalienceOrder("Outgoing peers", shard.mountainPeakOrder, "signatureOutgoingDegree", escapeHtml)}
       </div>`
     : `<p class="metrics-salience-loading">Choose an exact namespace to load its Type orders.</p>`;
   return `<section class="document-section metrics-salience-section">
@@ -154,7 +160,7 @@ function renderStructuralSalience(
     <label class="metrics-salience-namespace"><span>Namespace</span><select data-metrics-salience-namespace>${optionsHtml}</select></label>
     ${qualification}
     ${orders}
-    <p class="metrics-visual-caption">${salience.loadedNamespaces.length.toLocaleString()} of ${salience.namespaceOrder.length.toLocaleString()} exact namespace shards loaded · ${escapeHtml(salience.methodologyVersion)} · ${escapeHtml(salience.evidenceMode)}</p>
+    <p class="metrics-visual-caption">${formatCount(salience.namespaceOrder.length, "exact namespace")} analyzed · ${escapeHtml(salience.methodologyVersion)} · ${escapeHtml(salience.evidenceMode)}</p>
   </section>`;
 }
 

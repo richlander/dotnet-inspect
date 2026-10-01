@@ -114,48 +114,45 @@ test("renders owner-issued structural salience orders and qualification", () => 
     outcome: "available",
     methodologyVersion: "structural-salience.v2",
     evidenceMode: "signature",
-    disposition: "Qualified",
-    coverage: { considered: 5, examined: 4, unavailable: 1, limited: 0 },
-    namespaces: [{
+    namespaceIndex: {
+      disposition: "Qualified",
+      coverage: { considered: 5, examined: 4, unavailable: 1, limited: 0 },
+      namespaces: [{
+        namespace: "Example.Core",
+        typeCount: 2,
+        externalIncomingSourceTypeCount: 6,
+        topLeverage: true,
+      }],
+      diagnostics: ["One signature was unavailable."],
+    },
+    typeLeverageShards: [{
       namespace: "Example.Core",
-      typeCount: 2,
-      externalIncomingSourceTypeCount: 6,
-      topLeverage: true,
+      disposition: "complete",
+      coverage: { considered: 2, examined: 2, unavailable: 0, limited: 0 },
+      types: [{
+        typeDefinitionId: "Example.Core.Engine",
+        typeDisplay: "Example.Core.Engine",
+        designationEligible: true,
+        signatureIncomingDegree: 6,
+        signatureOutgoingDegree: 2,
+        role: "foundation",
+        pole: "SeaLevel",
+      }, {
+        typeDefinitionId: "Example.Core.Store",
+        typeDisplay: "Example.Core.Store",
+        designationEligible: true,
+        signatureIncomingDegree: 1,
+        signatureOutgoingDegree: 5,
+        role: "orchestrator",
+        pole: "MountainPeak",
+      }],
+      seaLevelOrder: ["Example.Core.Engine", "Example.Core.Store"],
+      mountainPeakOrder: ["Example.Core.Store", "Example.Core.Engine"],
+      diagnostics: [],
     }],
-    diagnostics: ["One signature was unavailable."],
     failure: null,
     compileLibrary: data.compileLibrary,
-  }, [{
-    schemaVersion: 2,
-    outcome: "available",
-    methodologyVersion: "structural-salience.v2",
-    evidenceMode: "signature",
-    namespace: "Example.Core",
-    disposition: "complete",
-    coverage: { considered: 2, examined: 2, unavailable: 0, limited: 0 },
-    types: [{
-      typeDefinitionId: "Example.Core.Engine",
-      typeDisplay: "Example.Core.Engine",
-      designationEligible: true,
-      signatureIncomingDegree: 6,
-      signatureOutgoingDegree: 2,
-      role: "foundation",
-      pole: "SeaLevel",
-    }, {
-      typeDefinitionId: "Example.Core.Store",
-      typeDisplay: "Example.Core.Store",
-      designationEligible: true,
-      signatureIncomingDegree: 1,
-      signatureOutgoingDegree: 5,
-      role: "orchestrator",
-      pole: "MountainPeak",
-    }],
-    seaLevelOrder: ["Example.Core.Engine", "Example.Core.Store"],
-    mountainPeakOrder: ["Example.Core.Store", "Example.Core.Engine"],
-    diagnostics: [],
-    failure: null,
-    compileLibrary: data.compileLibrary,
-  }]);
+  });
   const html = render({
     salienceLoading: false,
     salience,
@@ -163,15 +160,17 @@ test("renders owner-issued structural salience orders and qualification", () => 
 
   assert.match(html, /Structural Salience/);
   assert.match(html, /Example\.Core · 6 external source Types · top leverage/);
-  assert.match(html, /Sea level/);
+  assert.match(html, /Incoming peers/);
   assert.match(html, /Engine/);
   assert.match(html, /6 incoming peers · foundation/);
   assert.match(html, /6 incoming peers · foundation · sea level/);
-  assert.match(html, /Mountain peaks/);
+  assert.match(html, /Outgoing peers/);
   assert.match(html, /5 outgoing peers · orchestrator/);
   assert.match(html, /5 outgoing peers · orchestrator · mountain peak/);
   assert.match(html, /metrics-salience-type sea-level/);
   assert.match(html, /metrics-salience-type mountain-peak/);
+  assert.match(html, /item-achievement-glyph sea-level/);
+  assert.match(html, /item-achievement-glyph mountain-peak/);
   assert.match(html, /Structural salience is qualified/);
   assert.match(html, /One signature was unavailable\./);
   assert.match(
@@ -197,19 +196,30 @@ test("a sole zero-leverage namespace remains explicitly selectable", () => {
     outcome: "available",
     methodologyVersion: "structural-salience.v2",
     evidenceMode: "signature",
-    disposition: "complete",
-    coverage: { considered: 4, examined: 4, unavailable: 0, limited: 0 },
-    namespaces: [{
+    namespaceIndex: {
+      disposition: "complete",
+      coverage: { considered: 4, examined: 4, unavailable: 0, limited: 0 },
+      namespaces: [{
+        namespace: "Only",
+        typeCount: 4,
+        externalIncomingSourceTypeCount: 0,
+        topLeverage: false,
+      }],
+      diagnostics: [],
+    },
+    typeLeverageShards: [{
       namespace: "Only",
-      typeCount: 4,
-      externalIncomingSourceTypeCount: 0,
-      topLeverage: false,
+      disposition: "complete",
+      coverage: { considered: 4, examined: 4, unavailable: 0, limited: 0 },
+      types: [],
+      seaLevelOrder: [],
+      mountainPeakOrder: [],
+      diagnostics: [],
     }],
-    diagnostics: [],
     failure: null,
     compileLibrary: data.compileLibrary,
   } as const;
-  const salience = projectTypeLeverage(zeroLeverageIndex, []);
+  const salience = projectTypeLeverage(zeroLeverageIndex);
   const html = render({
     salienceLoading: false,
     salience,
@@ -217,24 +227,34 @@ test("a sole zero-leverage namespace remains explicitly selectable", () => {
 
   assert.match(
     html,
-    /<option value="__choose_namespace__" selected disabled>Choose a namespace<\/option><option value="Only">/,
+    /<option value="Only" selected>/,
   );
-  assert.match(html, /Choose an exact namespace to load its Type orders\./);
-  assert.doesNotMatch(html, /Loading the exact namespace shard/);
+  assert.equal(
+    [...html.matchAll(/0 owner-issued rows/g)].length,
+    2,
+  );
+  assert.match(html, /1 exact namespace analyzed/);
 
   const globalHtml = render({
     salienceLoading: false,
     salience: projectTypeLeverage({
       ...zeroLeverageIndex,
-      namespaces: [{
-        ...zeroLeverageIndex.namespaces[0],
+      namespaceIndex: {
+        ...zeroLeverageIndex.namespaceIndex,
+        namespaces: [{
+          ...zeroLeverageIndex.namespaceIndex.namespaces[0],
+          namespace: "",
+        }],
+      },
+      typeLeverageShards: [{
+        ...zeroLeverageIndex.typeLeverageShards[0],
         namespace: "",
       }],
-    }, []),
+    }),
   });
   assert.match(
     globalHtml,
-    /selected disabled>Choose a namespace<\/option><option value="">\(global namespace\)/,
+    /<option value="" selected>\(global namespace\)/,
   );
 });
 

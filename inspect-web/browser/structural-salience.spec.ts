@@ -26,12 +26,17 @@ test("Clear filters preserves the active structural-salience view", async ({
     "button",
     { name: "Hide salience", exact: true },
   )).toBeVisible();
-  await expect(page.locator(".type-leverage-icon")).toHaveCount(1);
+  expect(await page.getByRole("img", {
+    name: /sea-level Type/,
+  }).getAttribute("class")).toContain("item-achievement-rail");
   await expect(page.locator(".type-row.sea-level")).toHaveCount(1);
   await expect(page.locator(".type-row.sea-level.mountain-peak"))
     .toHaveCount(0);
-  await expect(page.locator(".type-leverage-icon.sea-level"))
-    .toHaveText("▁");
+  expect(await page.locator(".item-achievement-glyph.sea-level").evaluate(
+    element => getComputedStyle(element).maskImage,
+  )).not.toBe("none");
+  await expect(page.locator(".type-leverage-control"))
+    .toContainText("1 namespace analyzed");
 
   await page.locator('[data-namespace="Example"]').click();
   await page.locator(
@@ -43,16 +48,12 @@ test("Clear filters preserves the active structural-salience view", async ({
     "button",
     { name: "Hide salience", exact: true },
   )).toBeVisible();
-  await expect(page.locator(".type-leverage-icon")).toHaveCount(1);
+  await expect(page.locator(".item-achievement-glyph")).toHaveCount(1);
   await expect(page.locator(
     '[data-type-leverage-filter=""]',
   )).toHaveClass(/\bactive\b/);
   await expect(page.locator("html")).toHaveAttribute(
-    "data-structural-salience-index-request-count",
-    "1",
-  );
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-structural-salience-shard-request-count",
+    "data-structural-salience-request-count",
     "1",
   );
   await page.locator(".type-browser").screenshot({
