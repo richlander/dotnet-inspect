@@ -1387,8 +1387,6 @@ public static class MemberCommand
                 return writeExitCode;
 
             if (effectiveOptions.TipLevel != TipLevel.Quiet
-                && !effectiveOptions.FormatExplicitlySet
-                && !effectiveOptions.IsRawOutput
                 && effectiveOptions.OverloadIndex == null)
             {
                 var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"

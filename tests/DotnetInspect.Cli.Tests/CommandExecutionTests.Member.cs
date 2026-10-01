@@ -20,6 +20,30 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    [Fact]
+    public async Task Member_JsonTipsPreserveStdoutAndUseStderr()
+    {
+        string[] arguments =
+        [
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "--json",
+        ];
+
+        var withoutTips = await RunAppAsync(arguments);
+        var withTips = await RunAppAsync([.. arguments, "-T"]);
+
+        Assert.Equal(0, withoutTips.Exit);
+        Assert.Equal(0, withTips.Exit);
+        Assert.Empty(withoutTips.Error);
+        Assert.Equal(withoutTips.Output, withTips.Output);
+        Assert.Contains("Tips:", withTips.Error);
+        using var document = JsonDocument.Parse(withTips.Output);
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+    }
+
     [Theory]
     [InlineData("--mermaid", false)]
     [InlineData("--tree", false)]

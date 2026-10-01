@@ -394,9 +394,7 @@ public static class TypeCommand
                             != ApiSurface.ConstraintResolutionOperation);
 
                 if (!loaded.IsSummary
-                    && options.TipLevel != TipLevel.Quiet
-                    && !options.FormatExplicitlySet
-                    && !options.IsRawOutput)
+                    && options.TipLevel != TipLevel.Quiet)
                 {
                     var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                         : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
@@ -713,9 +711,7 @@ public static class TypeCommand
                         ApiCommand.WarnEmptySelectedSections(apiType, effectiveOptions, memberPipeline);
                     }
 
-                    if (effectiveOptions.TipLevel != TipLevel.Quiet
-                        && !effectiveOptions.FormatExplicitlySet
-                        && !effectiveOptions.IsRawOutput)
+                    if (effectiveOptions.TipLevel != TipLevel.Quiet)
                     {
                         var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
                             : !string.IsNullOrEmpty(options.PackagePath) ? $"--package {packageName ?? options.PackagePath}"
@@ -1101,14 +1097,10 @@ public static class TypeCommand
         if (writeExitCode != 0)
             return writeExitCode;
 
-        if (!options.FormatExplicitlySet
-            && !options.IsRawOutput)
-        {
-            WriteExactLibraryTips(
-                options,
-                request,
-                execution.Surface);
-        }
+        WriteExactLibraryTips(
+            options,
+            request,
+            execution.Surface);
 
         return result.IsComplete ? 0 : 1;
     }

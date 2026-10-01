@@ -523,9 +523,7 @@ public static class PackageCommandDefinitions
                             && success.Options.TipLevel != TipLevel.Quiet
                             && success.Options.PackageArgs.Length > 0
                             && success.Options.PackageLibrary == null
-                            && !success.Options.AllLibraries
-                            && !success.Options.FormatExplicitlySet
-                            && !success.Options.IsRawOutput)
+                            && !success.Options.AllLibraries)
                         {
                             var target = PackageExtractor.ParsePackageTarget(success.Options.PackageArgs[0]);
                             var pkg = target.IsLocalFile

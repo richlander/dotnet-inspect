@@ -192,17 +192,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_ZeroStructuredResults_DoNotEmitHumanGuidance()
+    public async Task Find_ZeroStructuredResults_PreserveJsonAndEmitTipsOnStderr()
     {
-        var (exit, output, error) = await RunAppAsync(
+        var withoutTips = await RunAppAsync(
+            "find",
+            MissingPackageLikeApiSymbol,
+            "--json");
+        var withTips = await RunAppAsync(
             "find",
             MissingPackageLikeApiSymbol,
             "--json",
             "-T");
 
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        using var document = JsonDocument.Parse(output);
+        Assert.Equal(0, withoutTips.Exit);
+        Assert.Equal(0, withTips.Exit);
+        Assert.Empty(withoutTips.Error);
+        Assert.Equal(withoutTips.Output, withTips.Output);
+        Assert.Contains(
+            $"package query {MissingPackageLikeApiSymbol}",
+            withTips.Error);
+        using var document = JsonDocument.Parse(withTips.Output);
         Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
         Assert.Empty(document.RootElement.EnumerateArray().ToArray());
     }

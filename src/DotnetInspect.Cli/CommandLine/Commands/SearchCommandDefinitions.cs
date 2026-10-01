@@ -188,9 +188,7 @@ public static class SearchCommandDefinitions
                         success.Options,
                         ct);
 
-                    if (execution.ExitCode == 0
-                        && !success.Options.FormatExplicitlySet
-                        && !success.Options.IsRawOutput)
+                    if (execution.ExitCode == 0)
                     {
                         Hints.WriteTips(
                             success.TipLevel,
