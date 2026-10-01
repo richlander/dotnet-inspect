@@ -2813,6 +2813,83 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     == generated.EvidenceMethod.MetadataToken);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void
+        AsyncBodyDecodeFailure_PublishesIncompleteAttributionSource(
+            bool completeProfileCompatibility)
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ImplementationProfileSample)
+                .Assembly.Location);
+        int ownerToken = typeof(ImplementationProfileSample)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Single(method =>
+                method.Name
+                    == nameof(ImplementationProfileSample.AnalyzeAsync)
+                && method.GetParameters()[0].ParameterType
+                    == typeof(int))
+            .MetadataToken;
+        LibraryBodyAnalysisRequest request =
+            completeProfileCompatibility
+                ? LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile(
+                        new HashSet<int> { ownerToken })
+                : LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricKind.BodySize,
+                        RelationshipMetricLimits(),
+                        new HashSet<int> { ownerToken });
+        LibraryBodyAnalysisExecution baseline =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "AsyncBodyDecodeFailure.dll",
+                ImmutableArray.Create(image),
+                request);
+        MethodImplementationMetricEvidence generated =
+            Assert.Single(
+                baseline.ImplementationMetrics.Bodies,
+                body =>
+                    body.Method.MetadataToken == ownerToken
+                    && body.EvidenceMethod.MetadataToken
+                        != ownerToken
+                    && body.EvidenceMethod.Name == "MoveNext");
+
+        CorruptMethodBodyHeader(
+            image,
+            generated.EvidenceMethod.MetadataToken);
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "AsyncBodyDecodeFailure.dll",
+                ImmutableArray.Create(image),
+                request);
+
+        ImplementationMetricAttributionClosure closure =
+            Assert.IsType<ImplementationMetricAttributionClosure>(
+                execution.ImplementationMetrics
+                    .AttributionClosure);
+        Assert.False(closure.IsComplete);
+        MethodIdentity incompleteSource =
+            Assert.Single(
+                closure.IncompleteSourceMethods,
+            source => source.MetadataToken == ownerToken);
+        Assert.Equal(ownerToken, incompleteSource.MetadataToken);
+        Assert.Contains(
+            execution.ImplementationMetrics.Bodies,
+            body =>
+                body.Method.MetadataToken == ownerToken
+                && body.EvidenceMethod.MetadataToken
+                    == ownerToken
+                && body.ILBytes is not null);
+        Assert.Contains(
+            execution.ImplementationMetrics.Diagnostics,
+            diagnostic =>
+                diagnostic.MethodToken
+                    == generated.EvidenceMethod.MetadataToken
+                && diagnostic.SourceMethodToken
+                    == ownerToken);
+    }
+
     [Fact]
     public void ExecuteImage_ProfileCoverageRetainsTokenOnlyIdentityFailures()
     {

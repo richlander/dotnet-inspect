@@ -633,6 +633,85 @@ public sealed class MemberMetricsInspectionOperationTests
     }
 
     [Fact]
+    public async Task
+        AsyncBodyDecodeFailure_PreventsAuthoritativeTop()
+    {
+        byte[] image = await Fixture(
+            FixtureCatalog.AnalysisOverloadFamilyLens);
+        ImmutableArray<int> ownerTokens =
+            MethodTokens(
+                image,
+                "ILInspector.Analysis.ImplementationProfileFixtures",
+                "ImplementationProfileSample",
+                "AnalyzeAsync");
+        LibraryBodyAnalysisExecution baseline =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "MemberMetricsInspectBaseline",
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricKind.BodySize,
+                        DefaultLimits().Analysis,
+                        ownerTokens.ToHashSet()));
+        MethodImplementationMetricEvidence generated =
+            baseline.ImplementationMetrics.Bodies.First(body =>
+                ownerTokens.Contains(
+                    body.Method.MetadataToken)
+                && body.EvidenceMethod.MetadataToken
+                    != body.Method.MetadataToken
+                && body.EvidenceMethod.Name == "MoveNext");
+        CorruptMethodBodyHeader(
+            image,
+            generated.EvidenceMethod.MetadataToken);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberGroupDocument document =
+            Document(
+                ExecuteDocument(
+                    library,
+                    Subject(
+                        "ILInspector.Analysis.ImplementationProfileFixtures",
+                        "ImplementationProfileSample",
+                        "AnalyzeAsync")));
+        RowQueryIntent rowIntent =
+            RowQueryIntent.Create(
+                [],
+                baselineOrder: null,
+                RowSelectionIntent<RowQueryOrderIntent>.Create(
+                    [
+                        RowSelectionIntentOperation<
+                            RowQueryOrderIntent>.Top(1),
+                    ]));
+
+        MemberMetricsInspectionContent content =
+            Available(
+                MemberMetricsInspectionOperation.Execute(
+                    Request(
+                        library,
+                        document,
+                        MemberMetricKind.BodySize,
+                        MemberMetricKind.BodySize,
+                        rowIntent,
+                        QuerySpaceTerminalRequirement.Rows),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+        MemberMetricsPopulationOutcome.Incomplete incomplete =
+            Assert.IsType<
+                MemberMetricsPopulationOutcome.Incomplete>(
+                content.Population);
+
+        Assert.Equal(
+            MemberMetricsPopulationIncompleteReason.RequiredEvidence,
+            incomplete.Reason);
+        Assert.Equal(
+            MemberMetricKind.BodySize,
+            incomplete.RequiredMetrics);
+        Assert.Equal(1, content.Coverage.IncompleteCount);
+    }
+
+    [Fact]
     public async Task BodylessDeclaration_RemainsAnExactMetricRow()
     {
         byte[] image = await Fixture(

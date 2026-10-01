@@ -269,6 +269,10 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         LibraryBodyAnalysisResult analysis,
         LibraryBodyAnalysisPlan plan)
     {
+        ImplementationMetricAttributionClosure
+            scopeAttributionClosure =
+                _liftedSourceOwnerResolver
+                    .AttributionClosure();
         return analysis with
         {
             Diagnostics =
@@ -279,8 +283,19 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                             analysis.Diagnostics,
                             plan.ScopeExpansionDiagnostics),
             ImplementationMetricAttributionClosure =
-                _liftedSourceOwnerResolver
-                    .AttributionClosure(),
+                new(
+                [
+                    .. analysis
+                        .ImplementationMetricAttributionClosure
+                        .IncompleteSourceMethods
+                        .Concat(
+                            scopeAttributionClosure
+                                .IncompleteSourceMethods)
+                        .DistinctBy(static source =>
+                            source.MetadataToken)
+                        .OrderBy(static source =>
+                            source.MetadataToken),
+                ]),
         };
     }
 

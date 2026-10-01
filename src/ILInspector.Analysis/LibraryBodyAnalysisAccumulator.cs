@@ -68,6 +68,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 .CreateBuilder<MethodImplementationMetricEvidence>();
         var implementationMetricDiagnostics =
             ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
+        var incompleteAttributionSources =
+            new Dictionary<int, MethodIdentity>();
         int none = 0, impl = 0, expl = 0, unavailable = 0;
 
         foreach (var result in results)
@@ -246,6 +248,13 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 implementationMetrics.Add(implementationMetric);
             if (r.ImplementationMetricDiagnostic is { } metricDiagnostic)
                 implementationMetricDiagnostics.Add(metricDiagnostic);
+            if (r.IncompleteImplementationMetricAttributionSource
+                is { } incompleteAttributionSource)
+            {
+                incompleteAttributionSources.TryAdd(
+                    incompleteAttributionSource.MetadataToken,
+                    incompleteAttributionSource);
+            }
             if (r.ImplementationProfile is { } implementationProfile)
             {
                 if (r.Diagnostic is { } profileDiagnostic)
@@ -335,7 +344,16 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 ScopeExcludedMethodTokens:
                     scopeExcludedOpportunityTokens,
                 ExceptionTypeNames: _exceptionTypeNames),
-            Diagnostics: diagnostics.ToImmutable());
+            Diagnostics: diagnostics.ToImmutable())
+        {
+            ImplementationMetricAttributionClosure =
+                new(
+                [
+                    .. incompleteAttributionSources.Values
+                        .OrderBy(static source =>
+                            source.MetadataToken),
+                ]),
+        };
     }
 
     static ImmutableArray<DirectCall> NormalizeSameImageCallContracts(

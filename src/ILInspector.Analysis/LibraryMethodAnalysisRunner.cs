@@ -213,6 +213,8 @@ internal sealed class LibraryMethodAnalysisResult
     public BodySignals Signals;
     public MethodImplementationMetricEvidence? ImplementationMetrics;
     public AnalysisDiagnostic? ImplementationMetricDiagnostic;
+    public MethodIdentity?
+        IncompleteImplementationMetricAttributionSource;
     public MethodBodyImplementationMetrics? ImplementationProfile;
     public AnalysisDiagnostic? Diagnostic;
     public MethodIdentity? DeclaredSource;
@@ -947,11 +949,19 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     plan,
                     ImplementationMetricWorkStage
                         .ManagedBodyAcquisition);
-            MethodBodyData metadataBody = RequireMethodBody(
-                _infrastructure.PeReader,
-                caller.MetadataToken);
-            var body = _infrastructure.PeReader.GetMethodBody(
-                methodDefinition.RelativeVirtualAddress);
+            (
+                MethodBodyData metadataBody,
+                MethodBodyBlock? acquiredBody) =
+                AcquireImplementationMetricBody(
+                    result,
+                    caller,
+                    methodDefinition,
+                    readMethodBodyBlock: true,
+                    recordIncompleteAttribution:
+                        plan.ImplementationMetrics is not null);
+            MethodBodyBlock body = acquiredBody
+                ?? throw new InvalidOperationException(
+                    "Managed body acquisition did not return a body block.");
             bodyAcquisition?.Complete();
             bool metricBodyAdmitted = true;
             try
@@ -1581,14 +1591,15 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     plan,
                     ImplementationMetricWorkStage
                         .ManagedBodyAcquisition);
-            MethodBodyData metadataBody = RequireMethodBody(
-                _infrastructure.PeReader,
-                caller.MetadataToken);
-            MethodBodyBlock? body =
-                metricPlan.RequiresLocalSignatureDecode
-                    ? _infrastructure.PeReader.GetMethodBody(
-                        methodDefinition.RelativeVirtualAddress)
-                    : null;
+            (
+                MethodBodyData metadataBody,
+                MethodBodyBlock? body) =
+                AcquireImplementationMetricBody(
+                    result,
+                    caller,
+                    methodDefinition,
+                    metricPlan.RequiresLocalSignatureDecode,
+                    recordIncompleteAttribution: true);
             bodyAcquisition?.Complete();
             _implementationMetricWork?.AdmitMetricBody(
                 caller.MetadataToken,
@@ -1792,6 +1803,44 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     result.DeclaredSource?.DeclaringType);
         }
         return result;
+    }
+
+    (
+        MethodBodyData MetadataBody,
+        MethodBodyBlock? BodyBlock)
+        AcquireImplementationMetricBody(
+            LibraryMethodAnalysisResult result,
+            MethodIdentity caller,
+            MethodDefinition methodDefinition,
+            bool readMethodBodyBlock,
+            bool recordIncompleteAttribution)
+    {
+        try
+        {
+            MethodBodyData metadataBody = RequireMethodBody(
+                _infrastructure.PeReader,
+                caller.MetadataToken);
+            MethodBodyBlock? bodyBlock =
+                readMethodBodyBlock
+                    ? _infrastructure.PeReader.GetMethodBody(
+                        methodDefinition.RelativeVirtualAddress)
+                    : null;
+            return (metadataBody, bodyBlock);
+        }
+        catch (Exception ex)
+            when (IsRecoverableMethodFailure(ex))
+        {
+            if (recordIncompleteAttribution
+                && result.DeclaredSource is { } source
+                && source.MetadataToken
+                    != caller.MetadataToken)
+            {
+                result
+                    .IncompleteImplementationMetricAttributionSource =
+                        source;
+            }
+            throw;
+        }
     }
 
     ImplementationMetricExecutionRecorder.StageAttempt?

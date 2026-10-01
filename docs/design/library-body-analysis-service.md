@@ -507,6 +507,11 @@ source methods. It does not claim that omitted generated bodies do not exist.
 decoration but cannot issue an authoritative Count, Top, or complete-family
 relationship result from that scope.
 
+The same closure records an authenticated logical source when its attributed
+physical body fails managed-body acquisition, including async state-machine
+execution bodies. Failures in later independent producers do not alter
+completed body-header evidence.
+
 The execution receipt proves exact Analysis scope; it does not prove that a
 caller supplied a complete overload family. `MemberMetricsInspect` establishes
 that population fact from its Member subject and `Overloads` receipt before
@@ -1162,6 +1167,8 @@ The selective implementation-metric migration additionally gates:
   exhaustion marks physical scope incomplete without claiming closure;
 - recoverable generated-body decode failure publishes the affected logical
   source through typed attribution-closure state;
+- recoverable attributed async-body acquisition failure publishes the affected
+  logical source without downgrading independent later-producer failures;
 - actual stage participation is recorded from execution and can differ from a
   selected-but-not-started stage;
 - co-running feature work records its separate cause rather than appearing as
