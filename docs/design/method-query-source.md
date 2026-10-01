@@ -21,11 +21,14 @@ access or direct TypeDef method ranges rather than a table scan.
 The implemented slices route the Assembly Analysis service through this
 owner-issued source for unsafe-evidence requests and publish compact exact
 MethodDef coverage for definitions examined, physical methods selected, and
-terminal bodies acquired. The source owns resource-free planning, exact
-subject binding, serial reference execution, source-receipt translation, and
-detached publication. Metadata-predicate breadth, generated-body expansion,
-body packets, exact source-failure classification, and collapsed request
-groups remain **unverified**.
+terminal bodies acquired. Type `Unsafe Members` effective discovery is the
+first sparse production consumer: it closes the unsafe-evidence producer with
+`Exists` over the selected TypeDef instead of rendering the ordinary section
+through a scoped `LibraryBodyIndex`. The source owns resource-free planning,
+exact subject binding, serial reference execution, source-receipt translation,
+and detached publication. Metadata-predicate breadth, generated-body
+expansion, body packets, exact source-failure classification, and collapsed
+request groups remain **unverified**.
 
 ## Demo and pathological case
 
@@ -452,6 +455,8 @@ Migration is incremental:
    slice is implemented.
 4. Move one sparse production body producer and its real CLI consumer,
    preserving its focused result rather than filtering a legacy aggregate.
+   Type `Unsafe Members` effective discovery implements this step with exact
+   TypeDef breadth.
 5. Add authenticated generated-body expansion for that consumer.
 6. Add referenced-body expansion only with a consumer that requires it.
 7. Let the host-neutral request-set planner from #8574 group compatible
@@ -482,6 +487,13 @@ The exact-breadth slice is gated in Release:
 - `MethodQuerySource_ExactTypeBreadthVisitsOnlyDeclaredMethods`
 - `MethodQuerySource_ReceiptSeparatesExaminedSelectedAndAcquiredWork`
 - `MethodQuerySource_ExactExistsPublishesVisitedSparsePrefix`
+
+The first production adoption is gated in Release:
+
+- `ExactTypeBreadthReceiptsOnlyTheSelectedType`
+- `TypeAuditEffectiveDiscovery_ListsUnsafeMembers`
+- `TypeAuditEffectiveDiscovery_OmitsUnsafeMembersForSafeType`
+- `TypeCommand_UnsafeMembersDiscovery_DoesNotBuildIndex`
 
 The following deeper-source gates remain **unverified**:
 
