@@ -192,37 +192,30 @@ public static partial class GraphDocumentExecution
         if (plan.SourceGroupIds.IsEmpty)
             return EmptyComponentAnalysis(plan.SourceDocument);
 
-        int[] sourceGroupIds = [.. plan.SourceGroupIds];
-        Array.Sort(sourceGroupIds);
-        var vertexBySourceGroupId = new Dictionary<int, int>(
-            sourceGroupIds.Length);
-        for (var vertex = 0; vertex < sourceGroupIds.Length; vertex++)
-            vertexBySourceGroupId.Add(sourceGroupIds[vertex], vertex);
+        var selectedSourceGroupIds =
+            new HashSet<int>(plan.SourceGroupIds);
+        var sourceGroupIds = new List<int>(plan.SourceGroupIds.Length);
 
         var vertexByProjectedNodeId = new Dictionary<int, int>(
-            sourceGroupIds.Length);
-        var admittedSourceGroups = 0;
+            plan.SourceGroupIds.Length);
         foreach (GraphProjectedGroupNode node in projection.Nodes)
         {
-            if (!vertexBySourceGroupId.TryGetValue(
-                node.SourceGroupId,
-                out int vertex))
-            {
+            if (!selectedSourceGroupIds.Contains(node.SourceGroupId))
                 continue;
-            }
 
+            int vertex = sourceGroupIds.Count;
+            sourceGroupIds.Add(node.SourceGroupId);
             vertexByProjectedNodeId.Add(node.Id, vertex);
-            admittedSourceGroups++;
         }
-        if (admittedSourceGroups != sourceGroupIds.Length)
+        if (sourceGroupIds.Count != plan.SourceGroupIds.Length)
         {
             throw new ArgumentException(
                 "Every selected source group must occur in the projection.",
                 nameof(plan));
         }
 
-        List<int>[] forward = CreateAdjacency(sourceGroupIds.Length);
-        List<int>[] reverse = CreateAdjacency(sourceGroupIds.Length);
+        List<int>[] forward = CreateAdjacency(sourceGroupIds.Count);
+        List<int>[] reverse = CreateAdjacency(sourceGroupIds.Count);
         var structuralArcs = new HashSet<long>();
         var inducedEdges =
             new List<GraphProjectedEdge<TRelationship>>();
@@ -248,16 +241,16 @@ public static partial class GraphDocumentExecution
         }
 
         int[] discoveredComponentByVertex;
-        List<int[]> discoveredComponents;
-        (discoveredComponentByVertex, discoveredComponents) =
+        int discoveredComponentCount;
+        (discoveredComponentByVertex, discoveredComponentCount) =
             DiscoverStrongComponents(forward, reverse);
         int[] componentByVertex = OrderComponents(
             discoveredComponentByVertex,
-            discoveredComponents);
+            discoveredComponentCount);
 
         var contributorsByComponentPair =
-            new Dictionary<long, HashSet<int>>();
-        var retainedSourceEdgeIds = new HashSet<int>();
+            new Dictionary<long, List<int>>();
+        var retainedSourceEdgeCount = 0;
         var intraComponentProjectedEdges = 0;
         var crossComponentProjectedEdges = 0;
         foreach (GraphProjectedEdge<TRelationship> edge in inducedEdges)
@@ -278,7 +271,7 @@ public static partial class GraphDocumentExecution
             long pair = Pair(fromComponentId, toComponentId);
             if (!contributorsByComponentPair.TryGetValue(
                 pair,
-                out HashSet<int>? sourceEdgeIds))
+                out List<int>? sourceEdgeIds))
             {
                 sourceEdgeIds = [];
                 contributorsByComponentPair.Add(pair, sourceEdgeIds);
@@ -286,43 +279,44 @@ public static partial class GraphDocumentExecution
             foreach (int sourceEdgeId in edge.SourceEdgeIds)
             {
                 sourceEdgeIds.Add(sourceEdgeId);
-                retainedSourceEdgeIds.Add(sourceEdgeId);
+                retainedSourceEdgeCount++;
             }
         }
 
-        List<long> orderedComponentPairs =
-            [.. contributorsByComponentPair.Keys];
-        orderedComponentPairs.Sort();
+        long[] orderedComponentPairs = OrderComponentPairs(
+            contributorsByComponentPair.Keys,
+            discoveredComponentCount);
         var condensationEdges =
             ImmutableArray.CreateBuilder<GraphCondensationEdge>(
-                orderedComponentPairs.Count);
+                orderedComponentPairs.Length);
         foreach (long pair in orderedComponentPairs)
         {
-            int[] sourceEdgeIds =
-                [.. contributorsByComponentPair[pair]];
-            Array.Sort(sourceEdgeIds);
             condensationEdges.Add(
                 new(
                     condensationEdges.Count,
                     PairFirst(pair),
                     PairSecond(pair),
-                    [.. sourceEdgeIds]));
+                    OrderSourceEdgeIds(
+                        contributorsByComponentPair[pair])));
         }
 
         int[] levels = SettleLevels(
-            discoveredComponents.Count,
+            discoveredComponentCount,
             orderedComponentPairs);
+        int[] orderedSourceGroupIds = [.. sourceGroupIds];
         ImmutableArray<GraphStrongComponent> components =
             CreateComponents(
-                sourceGroupIds,
+                orderedSourceGroupIds,
                 componentByVertex,
                 levels);
         ImmutableArray<GraphComponentMembership> memberships =
-            CreateMemberships(sourceGroupIds, componentByVertex);
+            CreateMemberships(
+                orderedSourceGroupIds,
+                componentByVertex);
         var receipt = new GraphComponentAnalysisWorkReceipt(
             plan.SourceDocument,
             projection.Nodes.Length,
-            sourceGroupIds.Length,
+            sourceGroupIds.Count,
             projection.Edges.Length,
             inducedEdges.Count,
             structuralArcs.Count,
@@ -331,7 +325,7 @@ public static partial class GraphDocumentExecution
             intraComponentProjectedEdges,
             crossComponentProjectedEdges,
             condensationEdges.Count,
-            retainedSourceEdgeIds.Count,
+            retainedSourceEdgeCount,
             levels.Length,
             terminalSettled: true);
         return new(
@@ -371,7 +365,7 @@ public static partial class GraphDocumentExecution
         return adjacency;
     }
 
-    static (int[] ComponentByVertex, List<int[]> Components)
+    static (int[] ComponentByVertex, int ComponentCount)
         DiscoverStrongComponents(
             List<int>[] forward,
             List<int>[] reverse)
@@ -379,22 +373,21 @@ public static partial class GraphDocumentExecution
         List<int> finishingOrder = FinishingOrder(forward);
         var componentByVertex = new int[forward.Length];
         Array.Fill(componentByVertex, -1);
-        var components = new List<int[]>();
         var stack = new Stack<int>();
+        var componentCount = 0;
         for (var index = finishingOrder.Count - 1; index >= 0; index--)
         {
             int root = finishingOrder[index];
             if (componentByVertex[root] >= 0)
                 continue;
 
-            int componentId = components.Count;
-            var members = new List<int>();
+            int componentId = componentCount;
+            componentCount++;
             componentByVertex[root] = componentId;
             stack.Push(root);
             while (stack.Count > 0)
             {
                 int vertex = stack.Pop();
-                members.Add(vertex);
                 foreach (int neighbor in reverse[vertex])
                 {
                     if (componentByVertex[neighbor] >= 0)
@@ -403,11 +396,8 @@ public static partial class GraphDocumentExecution
                     stack.Push(neighbor);
                 }
             }
-            int[] memberArray = [.. members];
-            Array.Sort(memberArray);
-            components.Add(memberArray);
         }
-        return (componentByVertex, components);
+        return (componentByVertex, componentCount);
     }
 
     static List<int> FinishingOrder(List<int>[] adjacency)
@@ -449,24 +439,26 @@ public static partial class GraphDocumentExecution
 
     static int[] OrderComponents(
         int[] discoveredComponentByVertex,
-        List<int[]> discoveredComponents)
+        int discoveredComponentCount)
     {
-        int[] orderedDiscoveredComponentIds =
-            [.. Enumerable.Range(0, discoveredComponents.Count)];
-        Array.Sort(
-            orderedDiscoveredComponentIds,
-            (left, right) =>
-                discoveredComponents[left][0].CompareTo(
-                    discoveredComponents[right][0]));
-
         var orderedComponentByDiscoveredComponent =
-            new int[discoveredComponents.Count];
-        for (var componentId = 0;
-            componentId < orderedDiscoveredComponentIds.Length;
-            componentId++)
+            new int[discoveredComponentCount];
+        Array.Fill(orderedComponentByDiscoveredComponent, -1);
+        var componentCount = 0;
+        for (var vertex = 0;
+            vertex < discoveredComponentByVertex.Length;
+            vertex++)
         {
+            int discoveredComponentId =
+                discoveredComponentByVertex[vertex];
+            if (orderedComponentByDiscoveredComponent[
+                discoveredComponentId] >= 0)
+            {
+                continue;
+            }
             orderedComponentByDiscoveredComponent[
-                orderedDiscoveredComponentIds[componentId]] = componentId;
+                discoveredComponentId] = componentCount;
+            componentCount++;
         }
 
         var componentByVertex =
@@ -484,7 +476,7 @@ public static partial class GraphDocumentExecution
 
     static int[] SettleLevels(
         int componentCount,
-        List<long> orderedComponentPairs)
+        IReadOnlyList<long> orderedComponentPairs)
     {
         List<int>[] predecessors = CreateAdjacency(componentCount);
         var remainingOutgoingEdges = new int[componentCount];
@@ -528,6 +520,85 @@ public static partial class GraphDocumentExecution
                 "Strong-component condensation must be acyclic.");
         }
         return levels;
+    }
+
+    static long[] OrderComponentPairs(
+        IEnumerable<long> componentPairs,
+        int componentCount)
+    {
+        long[] ordered = [.. componentPairs];
+        CountingSortPairs(
+            ordered,
+            componentCount,
+            sortByFirst: false);
+        CountingSortPairs(
+            ordered,
+            componentCount,
+            sortByFirst: true);
+        return ordered;
+    }
+
+    static void CountingSortPairs(
+        long[] values,
+        int componentCount,
+        bool sortByFirst)
+    {
+        var positions = new int[componentCount];
+        foreach (long value in values)
+        {
+            int key = sortByFirst
+                ? PairFirst(value)
+                : PairSecond(value);
+            positions[key]++;
+        }
+
+        var position = 0;
+        for (var key = 0; key < positions.Length; key++)
+        {
+            int count = positions[key];
+            positions[key] = position;
+            position += count;
+        }
+
+        var ordered = new long[values.Length];
+        foreach (long value in values)
+        {
+            int key = sortByFirst
+                ? PairFirst(value)
+                : PairSecond(value);
+            ordered[positions[key]] = value;
+            positions[key]++;
+        }
+        ordered.CopyTo(values, 0);
+    }
+
+    static ImmutableArray<int> OrderSourceEdgeIds(List<int> sourceEdgeIds)
+    {
+        int[] ordered = [.. sourceEdgeIds];
+        var buffer = new int[ordered.Length];
+        for (var shift = 0; shift < 32; shift += 8)
+        {
+            var positions = new int[256];
+            foreach (int sourceEdgeId in ordered)
+                positions[(sourceEdgeId >> shift) & 0xff]++;
+
+            var position = 0;
+            for (var bucket = 0; bucket < positions.Length; bucket++)
+            {
+                int count = positions[bucket];
+                positions[bucket] = position;
+                position += count;
+            }
+
+            foreach (int sourceEdgeId in ordered)
+            {
+                int bucket = (sourceEdgeId >> shift) & 0xff;
+                buffer[positions[bucket]] = sourceEdgeId;
+                positions[bucket]++;
+            }
+            (ordered, buffer) = (buffer, ordered);
+        }
+        return [.. ordered];
     }
 
     static ImmutableArray<GraphStrongComponent> CreateComponents(

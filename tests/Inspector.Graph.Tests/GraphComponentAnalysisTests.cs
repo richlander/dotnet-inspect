@@ -180,9 +180,9 @@ public sealed class GraphComponentAnalysisTests
                 [
                     new(0, 2, Call),
                     new(2, 0, Call),
-                    new(0, 1, Call),
-                    new(0, 1, Reference),
                     new(2, 1, Call),
+                    new(0, 1, Reference),
+                    new(0, 1, Call),
                     new(1, 3, Call),
                 ]);
 
@@ -314,7 +314,7 @@ public sealed class GraphComponentAnalysisTests
         Assert.Equal(StructuralRows(first), StructuralRows(second));
         Assert.Equal(
             [
-                "C0:L0:0,2",
+                "C0:L1:0,2",
                 "C1:L2:1",
                 "C2:L1:3",
                 "C3:L0:4",
@@ -323,8 +323,9 @@ public sealed class GraphComponentAnalysisTests
                 "M2:0",
                 "M3:2",
                 "M4:3",
-                "E0:1>2:2,3",
-                "E1:2>3:4",
+                "E0:0>3:5",
+                "E1:1>2:2,3",
+                "E2:2>3:4",
             ],
             StructuralRows(first));
     }
@@ -381,6 +382,7 @@ public sealed class GraphComponentAnalysisTests
                 new(1, 3, Call),
                 new(1, 3, Reference),
                 new(3, 4, Call),
+                new(2, 4, Call),
             ],
             new RelationshipHashComparer(hashCode));
         Relationship[] relationships = [Call, Reference];
