@@ -568,6 +568,81 @@ public partial class UnsafeEvidencePresenceTests
     }
 
     [Fact]
+    public void
+        CollapsePreservesSettledResultAcrossRequiredSourceFailure()
+    {
+        byte[] bytes = MetadataMethodPtrFixture.BuildTrailingOutOfRange(
+            [0x0A, 0xFE, 0x0F]);
+        int moduleName = bytes.AsSpan().IndexOf("<Module>\0"u8);
+        Assert.True(moduleName >= 0);
+        "VisibleT\0"u8.CopyTo(bytes.AsSpan(moduleName));
+        ImmutableArray<byte> image = ImmutableArray.Create(bytes);
+        MethodDefinitionSourceRequest<int> independentUnsafe =
+            CreateSourceRequest(
+                MethodDefinitionSourceBinding.Create(),
+                UnsafeEvidencePresenceProducer.Instance,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceRequest<
+            ClosedQueryResult<ClassifiedMethodRow>> independentPInvoke =
+                CreateSourceRequest(
+                    MethodDefinitionSourceBinding.Create(),
+                    PInvokeAnalyzer.Instance,
+                    ProducerTerminal.Rows);
+        MethodDefinitionSourceBinding sharedBinding =
+            MethodDefinitionSourceBinding.Create();
+        MethodDefinitionSourceRequest<int> sharedUnsafe =
+            CreateSourceRequest(
+                sharedBinding,
+                UnsafeEvidencePresenceProducer.Instance,
+                ProducerTerminal.Exists);
+        MethodDefinitionSourceRequest<
+            ClosedQueryResult<ClassifiedMethodRow>> sharedPInvoke =
+                CreateSourceRequest(
+                    sharedBinding,
+                    PInvokeAnalyzer.Instance,
+                    ProducerTerminal.Rows);
+
+        (_, AssemblyAnalysisExecution independent) =
+            ExecuteRequests(
+                image,
+                independentUnsafe,
+                independentPInvoke);
+        (_, AssemblyAnalysisExecution shared) =
+            ExecuteRequests(
+                image,
+                sharedUnsafe,
+                sharedPInvoke);
+
+        Assert.Equal(
+            independent.ResultOf(independentUnsafe),
+            shared.ResultOf(sharedUnsafe));
+        Assert.Equal(
+            new ProducerResult<int>(ProducerOutcome.Stopped, 1),
+            shared.ResultOf(sharedUnsafe));
+        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>>
+            independentPInvokeResult =
+                independent.ResultOf(independentPInvoke);
+        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>>
+            sharedPInvokeResult =
+                shared.ResultOf(sharedPInvoke);
+        Assert.Equal(
+            independentPInvokeResult,
+            sharedPInvokeResult);
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            sharedPInvokeResult.Outcome);
+        Assert.NotNull(sharedPInvokeResult.Failure);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Satisfied,
+            shared.SourceReceiptOf(sharedUnsafe).Completion);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.ProducerFailed,
+            shared.SourceReceiptOf(sharedPInvoke).Completion);
+        Assert.Equal(2, independent.WorkReceipts.Length);
+        Assert.Single(shared.WorkReceipts);
+    }
+
+    [Fact]
     public void CollapsePreservesTypedRowsAcrossDifferentTypeScopes()
     {
         ImmutableArray<byte> image =

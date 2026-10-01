@@ -24,6 +24,12 @@ public sealed class MethodDefinitionExecution
     /// </summary>
     internal int PassUnitsVisited;
 
+    /// <summary>
+    /// Last source token reached by the pass in progress, so a source read
+    /// failure remains attributable after its enumerator unwinds.
+    /// </summary>
+    internal int PassSourceToken;
+
     MethodDefinitionExecution(WorkDescription description)
     {
         _description = description;
@@ -311,10 +317,36 @@ public sealed class MethodDefinitionExecution
         MethodRowGate gate,
         ProducerState[] visiting)
     {
+        PassSourceToken = 0;
+        try
+        {
+            return VisitUnitsCore(
+                reader,
+                peReader,
+                lookup,
+                gate,
+                visiting);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+        {
+            FailActiveSourceReaders(visiting, PassSourceToken, ex);
+            return PassUnitsVisited;
+        }
+    }
+
+    int VisitUnitsCore(
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
+        ProducerState[] visiting)
+    {
         var unit = new MethodDefinitionUnit(reader, peReader, lookup, gate);
         int visited = 0;
         foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
         {
+            PassSourceToken = MetadataTokens.GetToken(typeHandle);
             TypeDefinition typeDefinition =
                 reader.GetTypeDefinition(typeHandle);
 
@@ -354,6 +386,7 @@ public sealed class MethodDefinitionExecution
             foreach (MethodDefinitionHandle methodHandle
                      in typeDefinition.GetMethods())
             {
+                PassSourceToken = MetadataTokens.GetToken(methodHandle);
                 unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                 visited++;
                 PassUnitsVisited = visited;
@@ -419,6 +452,25 @@ public sealed class MethodDefinitionExecution
         }
 
         return visited;
+    }
+
+    static void FailActiveSourceReaders(
+        ProducerState[] visiting,
+        int token,
+        Exception ex)
+    {
+        foreach (ProducerState state in visiting)
+        {
+            if (!state.IsActive)
+                continue;
+
+            state.Outcome = ProducerOutcome.Failed;
+            state.Failure = new ProducerFailure(
+                token,
+                "(source enumeration)",
+                ProducerFailure.Describe(ex));
+            state.IsActive = false;
+        }
     }
 
     static bool TypeInScope(

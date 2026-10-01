@@ -72,6 +72,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
         int attempted = 0;
         int completed = 0;
         int count = 0;
+        int sourceToken = 0;
 
         // An abort unwinds this loop; the counts observed so far still reach
         // the receipt, but the accumulator is never published.
@@ -79,6 +80,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
         {
             foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
             {
+                sourceToken = MetadataTokens.GetToken(typeHandle);
                 TypeDefinition typeDefinition = reader.GetTypeDefinition(typeHandle);
                 if (sourceGate is not null)
                 {
@@ -118,6 +120,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
 
                 foreach (MethodDefinitionHandle methodHandle in typeDefinition.GetMethods())
                 {
+                    sourceToken = MetadataTokens.GetToken(methodHandle);
                     unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                     state.SourceOrdinal++;
                     visited++;
@@ -161,6 +164,11 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
                 }
             }
 
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+        {
+            Fail(state, sourceToken, "(source enumeration)", ex);
         }
         catch (ProducerAbortException)
         {
@@ -346,6 +354,7 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         int visited = 0;
         int attempted = 0;
         int completed = 0;
+        int sourceToken = 0;
 
         // An abort unwinds this loop; the counts observed so far still reach
         // the receipt, but the accumulator is never published.
@@ -353,6 +362,7 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         {
             foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
             {
+                sourceToken = MetadataTokens.GetToken(typeHandle);
                 TypeDefinition typeDefinition = reader.GetTypeDefinition(typeHandle);
                 try
                 {
@@ -374,6 +384,7 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
 
                 foreach (MethodDefinitionHandle methodHandle in typeDefinition.GetMethods())
                 {
+                    sourceToken = MetadataTokens.GetToken(methodHandle);
                     unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                     state.SourceOrdinal++;
                     visited++;
@@ -419,6 +430,15 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
                 }
             }
 
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+        {
+            QueryFail(
+                state,
+                sourceToken,
+                "(source enumeration)",
+                ex);
         }
         catch (ProducerAbortException)
         {
