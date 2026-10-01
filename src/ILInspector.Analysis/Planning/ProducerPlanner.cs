@@ -6,16 +6,21 @@ namespace ILInspector.Analysis.Planning;
 public enum ProducerTerminal
 {
     /// <summary>
-    /// Complete the fold: every unit in scope contributes to the result, and
-    /// the request never stops early.
+    /// Complete an owner-defined fold: every unit in scope contributes to the
+    /// result, and the request never stops early.
     /// </summary>
-    Complete,
+    Complete = 0,
 
     /// <summary>
     /// The request is settled by the first unit fact the producer reports as
     /// settling; no later unit is visited for it.
     /// </summary>
-    Exists,
+    Exists = 1,
+
+    /// <summary>
+    /// Count every unit selected by an open query without projecting rows.
+    /// </summary>
+    Count = 3,
 
     /// <summary>
     /// Each unit that satisfies the producer's open query is projected to a
@@ -26,7 +31,7 @@ public enum ProducerTerminal
     /// Planning never derives another closing from it: a consumer that needs
     /// Count or Exists requests that closing in its own work description.
     /// </summary>
-    Rows,
+    Rows = 2,
 }
 
 /// <summary>

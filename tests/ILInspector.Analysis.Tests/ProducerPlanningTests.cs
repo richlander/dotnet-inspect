@@ -118,7 +118,7 @@ public sealed class ProducerPlanningTests
             image,
             Plan(new ProducerRequest(
                 UnsafeEvidencePresenceProducer.Instance,
-                ProducerTerminal.Complete)));
+                ProducerTerminal.Count)));
         ProducerResult<int> allResult = all.ResultOf(
             UnsafeEvidencePresenceProducer.Instance);
         Assert.Equal(ProducerOutcome.Complete, allResult.Outcome);
@@ -461,7 +461,7 @@ public sealed class ProducerPlanningTests
     }
 
     [Theory]
-    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Count)]
     [InlineData(ProducerTerminal.Exists)]
     public void ClosedQueryKernel_MatchesTheInterpretedExecutor(ProducerTerminal terminal)
     {

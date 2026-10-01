@@ -130,7 +130,7 @@ public sealed class MethodClassificationAnalyzerTests
     }
 
     [Theory]
-    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Count)]
     [InlineData(ProducerTerminal.Exists)]
     [InlineData(ProducerTerminal.Rows)]
     public void Async_CompilerAsyncDeclaresNoRelationshipAndCountEqualsRows(ProducerTerminal terminal)
@@ -155,7 +155,7 @@ public sealed class MethodClassificationAnalyzerTests
             case ProducerTerminal.Rows:
                 Assert.Equal(2, value.Rows.Length);
                 break;
-            case ProducerTerminal.Complete:
+            case ProducerTerminal.Count:
                 Assert.Equal(2, value.Count);
                 Assert.False(execution.Receipt.IdentityBudgetArmed);
                 break;
@@ -196,7 +196,7 @@ public sealed class MethodClassificationAnalyzerTests
     }
 
     [Theory]
-    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Count)]
     [InlineData(ProducerTerminal.Exists)]
     public void Analyzers_MalformedPointerSignatureFailsNamingTheMethod(ProducerTerminal terminal)
     {
@@ -229,7 +229,7 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("B", PointerParameter(), implAttributes: RuntimeAsync);
         ImmutableArray<byte> image = builder.Build();
 
-        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.Complete, ProducerTerminal.Exists })
+        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.Count, ProducerTerminal.Exists })
         {
             MethodDefinitionExecution execution = Execute(
                 image,
@@ -259,7 +259,7 @@ public sealed class MethodClassificationAnalyzerTests
         // Each closing is its own request in its own work description:
         // nothing derives Count from Rows.
         MethodDefinitionExecution rows = Execute(image, new ProducerRequest(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Rows));
-        MethodDefinitionExecution count = Execute(image, new ProducerRequest(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Complete));
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Count));
 
         ClosedQueryResult<ClassifiedMethodRow> listed = rows.ResultOf(RuntimeAsyncAnalyzer.Instance).Value!;
         ClosedQueryResult<ClassifiedMethodRow> counted = count.ResultOf(RuntimeAsyncAnalyzer.Instance).Value!;
@@ -273,7 +273,7 @@ public sealed class MethodClassificationAnalyzerTests
 
     [Theory]
     [InlineData(ProducerTerminal.Exists)]
-    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Count)]
     [InlineData(ProducerTerminal.Rows)]
     public void GateCache_TypedKernelTestsInlineAndInterpretedPassResolvesOnce(ProducerTerminal terminal)
     {
@@ -304,12 +304,12 @@ public sealed class MethodClassificationAnalyzerTests
     }
 
     [Theory]
-    [InlineData(ProducerTerminal.Rows, ProducerTerminal.Complete)]
-    [InlineData(ProducerTerminal.Complete, ProducerTerminal.Rows)]
+    [InlineData(ProducerTerminal.Rows, ProducerTerminal.Count)]
+    [InlineData(ProducerTerminal.Count, ProducerTerminal.Rows)]
     [InlineData(ProducerTerminal.Rows, ProducerTerminal.Exists)]
     [InlineData(ProducerTerminal.Exists, ProducerTerminal.Rows)]
-    [InlineData(ProducerTerminal.Complete, ProducerTerminal.Exists)]
-    [InlineData(ProducerTerminal.Exists, ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Count, ProducerTerminal.Exists)]
+    [InlineData(ProducerTerminal.Exists, ProducerTerminal.Count)]
     public void Planner_DistinctClosingsForOneProducerAreAContractError(ProducerTerminal first, ProducerTerminal second)
     {
         // Planning never ranks or merges closings, so no order yields a lossy plan.
@@ -325,7 +325,7 @@ public sealed class MethodClassificationAnalyzerTests
 
     [Theory]
     [InlineData(ProducerTerminal.Rows)]
-    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Count)]
     [InlineData(ProducerTerminal.Exists)]
     public void Planner_IdenticalDuplicateRequestIsAccepted(ProducerTerminal terminal)
     {
@@ -386,7 +386,7 @@ public sealed class MethodClassificationAnalyzerTests
 
         ProducerRequest[] requests =
         [
-            new(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Complete),
+            new(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Count),
             new(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Exists),
             new(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Rows),
             ProducerRequest.Head(RuntimeAsyncAnalyzer.Instance, 1),
@@ -421,7 +421,7 @@ public sealed class MethodClassificationAnalyzerTests
     }
 
     [Theory]
-    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Count)]
     [InlineData(ProducerTerminal.Exists)]
     [InlineData(ProducerTerminal.Rows)]
     public void Analyzers_AbortedKernelReceiptEqualsTheInterpretedExecutor(

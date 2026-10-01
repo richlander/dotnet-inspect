@@ -131,6 +131,15 @@ public sealed class LibraryBodyIndex
         UnsafeModes = analysis.Safety.Modes;
         _implementationProfiles =
             analysis.Methods.ImplementationProfiles;
+        _directInvocationCounts =
+            analysis.Methods.ImplementationMetrics
+                .Where(static body =>
+                    body.DirectCallCount is not null)
+                .ToDictionary(
+                    static body =>
+                        body.EvidenceMethod.MetadataToken,
+                    static body =>
+                        body.DirectCallCount!.Count);
         _allocationOccurrences = analysis.Allocations.Occurrences;
         _unsafetyOccurrences = analysis.Safety.Occurrences;
         Features = features;
@@ -374,6 +383,8 @@ public sealed class LibraryBodyIndex
 
     readonly ImmutableArray<MethodBodyImplementationMetrics>
         _implementationProfiles;
+    readonly IReadOnlyDictionary<int, int>
+        _directInvocationCounts;
     ImmutableArray<MethodImplementationProfile>
         _projectedImplementationProfiles;
     ImmutableArray<OverloadCallRelationship>
@@ -417,7 +428,8 @@ public sealed class LibraryBodyIndex
                     DirectCalls,
                     Signals,
                     OverloadRelationships(),
-                    DeclaredMethodMap);
+                    DeclaredMethodMap,
+                    _directInvocationCounts);
         }
 
         return scope is null

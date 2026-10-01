@@ -11,12 +11,43 @@ public sealed class StructuralSubjectIdentityTests
         Assert.Equal(
             [
                 StructuralSubjectKind.Workspace,
+                StructuralSubjectKind.Ecosystem,
                 StructuralSubjectKind.Package,
                 StructuralSubjectKind.Library,
                 StructuralSubjectKind.Type,
                 StructuralSubjectKind.Member,
             ],
             Enum.GetValues<StructuralSubjectKind>());
+    }
+
+    [Fact]
+    public async Task EcosystemSubject_BindsExactWorkspaceOccurrence()
+    {
+        WorkspaceEcosystemRegistrationDeclaration declaration =
+            Ecosystem("ecosystem.aspire");
+        await using var owner = new InspectionWorkspace(
+            [new WorkspaceRegistration.Ecosystem(declaration)]);
+        await using var otherOwner = new InspectionWorkspace(
+            [new WorkspaceRegistration.Ecosystem(declaration)]);
+        WorkspaceEcosystemRegistrationOccurrence occurrence =
+            Assert.Single(Current(owner).EcosystemContributions).Ecosystem;
+        WorkspaceEcosystemRegistrationOccurrence foreign =
+            Assert.Single(Current(otherOwner).EcosystemContributions).Ecosystem;
+        StructuralSubjectIdentity.WorkspaceSubject workspace =
+            StructuralSubjectIdentity.ForWorkspace(owner.Identity);
+
+        StructuralSubjectIdentity.EcosystemSubject subject =
+            StructuralSubjectIdentity.ForEcosystem(workspace, occurrence);
+
+        Assert.Same(workspace, subject.Workspace);
+        Assert.Same(occurrence.Identity, subject.Occurrence);
+        Assert.Same(declaration.Id, subject.Id);
+        Assert.Equal(StructuralSubjectKind.Ecosystem, subject.Kind);
+        Assert.False(subject.IsPortable);
+        Assert.Throws<ArgumentException>(
+            () => StructuralSubjectIdentity.ForEcosystem(
+                workspace,
+                foreign));
     }
 
     [Fact]
@@ -308,4 +339,16 @@ public sealed class StructuralSubjectIdentityTests
             MemberAnchor.ComputeFingerprint($"{type}.{member}()"),
             type,
             member);
+
+    static WorkspaceRegistrationRevision Current(
+        InspectionWorkspace workspace) =>
+        Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+            workspace.GetRegistrationSnapshot()).Revision;
+
+    static WorkspaceEcosystemRegistrationDeclaration Ecosystem(string id) =>
+        new(
+            WorkspaceEcosystemRegistrationId.Create(id),
+            ["Aspire"],
+            [],
+            []);
 }
