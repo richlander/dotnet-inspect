@@ -2924,6 +2924,10 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // Library Compare: one frame, Diff active, Package-owned target explained.
     const panel = page.locator("#inspector-panel");
     const frame = panel.locator(".compare-surface");
+    const settledLocationAfter = async (previousLocation: string) => {
+      await expect.poll(() => page.url()).not.toBe(previousLocation);
+      return page.url();
+    };
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
     await expect(panel.locator('[data-compare-mode="diff"]'))
       .toHaveAttribute("aria-selected", "true");
@@ -2934,15 +2938,17 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.locator(".compare-head .compare-status"))
       .toContainText("Comparison complete", { timeout: 60_000 });
     await expect(frame.locator(":scope > .compare-status")).toHaveCount(0);
+    await expect(frame.locator(":scope > .compare-target")).toHaveCount(0);
     const headerBox = await frame.locator(".compare-head").boundingBox();
-    const targetBox = await frame.locator(".compare-target").boundingBox();
+    const contextBox = await frame.locator(".compare-context").boundingBox();
     const resultBox = await frame.locator(".compare-panel").boundingBox();
     expect(headerBox).not.toBeNull();
-    expect(targetBox).not.toBeNull();
+    expect(contextBox).not.toBeNull();
     expect(resultBox).not.toBeNull();
-    expect(Math.abs(targetBox!.y - headerBox!.y - headerBox!.height))
-      .toBeLessThanOrEqual(1);
-    expect(Math.abs(resultBox!.y - targetBox!.y - targetBox!.height))
+    expect(contextBox!.y).toBeGreaterThanOrEqual(headerBox!.y);
+    expect(contextBox!.y + contextBox!.height)
+      .toBeLessThanOrEqual(headerBox!.y + headerBox!.height + 1);
+    expect(Math.abs(resultBox!.y - headerBox!.y - headerBox!.height))
       .toBeLessThanOrEqual(1);
     await expect(panel.locator(".library-api-diff-type")).toHaveCount(8);
     await expect(panel).toContainText("LibraryApiDiffFixture.RemovedType");
@@ -2969,6 +2975,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveCount(7);
     expect(registry.downloadCount(libraryDiffV1)).toBe(1);
     expect(registry.downloadCount(libraryDiffV2)).toBe(1);
+    const libraryLocation = page.url();
 
     // Library -> Type keeps Compare and Diff active with the same target.
     await panel.locator(
@@ -2993,11 +3000,14 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.locator('[aria-label="Type-level changes"] .library-api-diff-change'))
       .toHaveCount(1);
     await expect(panel.locator('[aria-label="Type-level changes"]'))
-      .toContainText("type added");
+      .toContainText("Additive");
+    await expect(panel.locator('[aria-label="Type-level changes"]'))
+      .toContainText("Type 'LibraryApiDiffFixture.AddedType' was added");
     await expect(panel.locator(".library-api-diff-member .library-api-diff-change-chip"))
       .toHaveCount(0);
     expect(registry.downloadCount(libraryDiffV1)).toBe(1);
     expect(registry.downloadCount(libraryDiffV2)).toBe(1);
+    const addedTypeLocation = await settledLocationAfter(libraryLocation);
 
     // Type -> Member is the detailed-result boundary.
     await panel.locator(".library-api-diff-member button", { hasText: "First" })
@@ -3009,15 +3019,18 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveText("LibraryApiDiffFixture.AddedType.First");
     await expect(panel.locator(".compare-status"))
       .toContainText("Member added", { timeout: 60_000 });
-    await expect(panel.locator(".library-api-diff-endpoint")).toHaveCount(2);
-    await expect(panel.locator(".library-api-diff-absent")).toHaveCount(1);
+    await expect(panel.locator(".library-api-diff-endpoint")).toHaveCount(0);
+    await expect(panel).not.toContainText("Member evidence");
     await expect(panel.locator("#library-api-diff-changes-title")).toHaveText("What changed");
+    await expect(panel.locator(
+      ".member-diff-inline-source .member-diff-source-unavailable",
+    )).toContainText("Before: Not present on this side.");
     await expect(panel).toContainText(
       "No Member-level change is classified: the containing Type was added as a whole.",
     );
     const explore = page.locator("#member-diff-explore");
     await expect(explore).toBeVisible();
-    const memberLocation = page.url();
+    const memberLocation = await settledLocationAfter(addedTypeLocation);
     const memberHistoryLength = await page.evaluate(() => history.length);
     await explore.focus();
     await explore.click();
@@ -3062,7 +3075,10 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
 
     // A Member with its own classified change shows the producer's change row.
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(addedTypeLocation);
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(libraryLocation);
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
     await panel.locator(
       '[data-compare-type-id="LibraryApiDiffFixture.HardChangedType"]',
@@ -3070,18 +3086,26 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await expect(panel.locator(".library-api-diff-member .library-api-diff-change-chip"))
       .toHaveText(["Breaking · virtual removed"]);
+    const hardChangedTypeLocation = await settledLocationAfter(libraryLocation);
     await panel.locator(".library-api-diff-member button", { hasText: "First" })
       .click();
     await expect(frame).toHaveClass(/compare-surface-member/, { timeout: 60_000 });
     await expect(panel.locator(".compare-status"))
       .toContainText("Member changed", { timeout: 60_000 });
+    await settledLocationAfter(hardChangedTypeLocation);
     const changeRows = panel.locator('[aria-label="What changed"] .library-api-diff-change');
     await expect(changeRows).toHaveCount(1);
-    await expect(changeRows.first()).toContainText("virtual removed");
+    await expect(changeRows.first())
+      .toContainText("Member 'First' is no longer virtual");
+    await expect(changeRows.first()).not.toContainText("virtual removed");
     await expect(changeRows.first().locator(".library-api-diff-change-chip"))
       .toHaveText("Breaking");
     await expect(changeRows.first().locator(".library-api-diff-change-category"))
-      .toHaveText("Signature");
+      .toHaveCount(0);
+    await expect(panel.locator(".library-api-diff-member-summary"))
+      .toHaveCount(0);
+    await expect(panel.locator(".library-api-diff-member-evidence"))
+      .toHaveCount(0);
     await expect(explore).toBeVisible();
     await explore.click();
     await expect(memberDiffExplorer).toBeVisible();
@@ -3103,9 +3127,11 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await page.locator("#nav-back")
       .evaluate((button: HTMLButtonElement) => button.click());
     await expect(memberDiffExplorer).toHaveCount(0);
+    await expect.poll(() => page.url()).toBe(hardChangedTypeLocation);
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await expect(panel.locator("#compare-title")).toBeFocused();
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(libraryLocation);
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
 
     // A Member the producer placed under two Types: the Before placement is
@@ -3115,6 +3141,8 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       '[data-compare-type-id="LibraryApiDiffFixture.ProjectionExtensions"]',
     ).click();
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    const projectionExtensionsLocation =
+      await settledLocationAfter(libraryLocation);
     const movedAway = panel.locator(".library-api-diff-member", { hasText: "Transform" });
     await expect(movedAway).toHaveClass(/library-api-diff-member-inert/);
     await expect(movedAway).toContainText(
@@ -3126,6 +3154,8 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await expect(panel.locator("#compare-title"))
       .toHaveText("LibraryApiDiffFixture.ProjectionReceiver");
+    const projectionReceiverLocation =
+      await settledLocationAfter(projectionExtensionsLocation);
     const movedHere = panel.locator(".library-api-diff-member", { hasText: "Transform" });
     await expect(movedHere.locator(".library-api-diff-moved"))
       .toContainText("Moved from LibraryApiDiffFixture.ProjectionExtensions");
@@ -3134,9 +3164,15 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.locator(".library-api-diff-correspondence")).toContainText(
       "Moved from LibraryApiDiffFixture.ProjectionExtensions to LibraryApiDiffFixture.ProjectionReceiver",
     );
+    await settledLocationAfter(projectionReceiverLocation);
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(projectionReceiverLocation);
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(projectionExtensionsLocation);
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(libraryLocation);
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
     await panel.locator(
       '[data-compare-type-id="LibraryApiDiffFixture.AddedType"]',
