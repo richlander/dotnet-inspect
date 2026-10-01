@@ -228,7 +228,7 @@ public class FindCommand
         FindOptions options,
         string[] patterns)
     {
-        if (options.QueryPlan?.InputRowLimit is not int inputRowLimit)
+        if (options.QueryPlan?.InputRows is not { } inputRows)
         {
             return options;
         }
@@ -246,9 +246,17 @@ public class FindCommand
 
         int effectiveLimit =
             options.Limit is int existingLimit
-                ? Math.Min(existingLimit, inputRowLimit)
-                : inputRowLimit;
-        return options with { Limit = effectiveLimit };
+                ? Math.Min(existingLimit, inputRows.End)
+                : inputRows.End;
+        return options with
+        {
+            Limit = effectiveLimit,
+            InputRows =
+                options.Members
+                && operation.Kind == RowSelectionStageKind.Window
+                    ? inputRows
+                    : null,
+        };
     }
 
     /// <summary>
@@ -447,12 +455,48 @@ public class FindCommand
                 platformWorkspace,
                 explicitWorkspace);
         List<MemberFindResult> results = search.Rows;
-        int observedRowCount = results.Count;
-        if (!TrySelectRows(
-                rowSelection,
-                results,
-                "member",
-                out IReadOnlyList<MemberFindResult> selectedMembers))
+        int observedRowCount =
+            search.InputRows?.AcceptedCount
+            ?? results.Count;
+        IReadOnlyList<MemberFindResult> selectedMembers;
+        if (search.InputRows is { } receipt)
+        {
+            if (options.QueryPlan?.InputRows != receipt.Selection)
+            {
+                throw new InvalidOperationException(
+                    "Member Find returned an accepted-row receipt for a "
+                    + "different query-plan selection.");
+            }
+            if (!CliSemanticRowSelection.TrySelectCount(
+                    rowSelection,
+                    observedRowCount,
+                    failure =>
+                        $"Find row selection stage "
+                        + $"{failure.StageNumber} requires member row "
+                        + $"{failure.RequiredPosition}, but only "
+                        + $"{failure.AvailableCount} member rows are "
+                        + "available.",
+                    out int selectedCount))
+            {
+                return new(1, RowCount: null);
+            }
+            if (selectedCount != results.Count)
+            {
+                throw new InvalidOperationException(
+                    "Member Find's retained rows do not match its accepted-"
+                    + $"row selection receipt: selected {selectedCount}, "
+                    + $"retained {results.Count}, accepted "
+                    + $"{observedRowCount}, input "
+                    + $"{receipt.Selection.Start}.."
+                    + $"{receipt.Selection.End}.");
+            }
+            selectedMembers = results;
+        }
+        else if (!TrySelectRows(
+                     rowSelection,
+                     results,
+                     "member",
+                     out selectedMembers))
         {
             return new(1, RowCount: null);
         }

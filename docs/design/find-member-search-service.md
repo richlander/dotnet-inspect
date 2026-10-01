@@ -10,9 +10,12 @@ shared with Type Find through `FindSourceCollector`.
 The exact claim is:
 
 > Given one or more member-name patterns and an authorized source scope,
-> Member Find returns every admitted matching member row, subject to the
-> requested operation limit, and classifies each row as `Direct` or `Glob`
-> according to the pattern grammar. It does not select one terminal member.
+> Member Find returns the admitted matching member rows selected by its
+> route-local accepted-row plan, in owner-issued order, and classifies each row
+> as `Direct` or `Glob` according to the pattern grammar. A finite Window may
+> discard accepted positions before A and stop after B only when its result,
+> strict outcome, and completion evidence equal complete-sequence execution.
+> Member Find does not select one terminal member.
 
 This is the Member counterpart to
 [Find type-search service](find-search-service.md). The two services share
@@ -78,9 +81,10 @@ the same Member Find operation.
 
 1. builds the same authorized source request as Type Find;
 2. executes `AssemblyContextMemberMatchesQuery` for every admitted assembly;
-3. applies an optional declaring-Type filter before the trusted result limit;
-4. attaches source provenance to Metadata-issued member facts; and
-5. returns flat `MemberFindResult` rows plus visible failure state.
+3. applies an optional declaring-Type filter before accepted-row phases;
+4. attaches source provenance to retained Metadata-issued member facts; and
+5. returns flat `MemberFindResult` rows plus accepted-count, completion, and
+   visible failure state.
 
 The service does not parse exact-member selectors, choose one overload,
 reconstruct identity from signatures, or turn rejected metadata into an empty
@@ -92,6 +96,51 @@ glob. The CLI projection currently omits the match kind from rendered
 Markdown, table, TSV, JSONL, and projected JSON rows. Unprojected `--json`
 serializes `MemberFindResult` directly and therefore exposes the
 `MemberFindMatchKind` enum name.
+
+## Finite Window phases
+
+A sole finite semantic Window lowers for explicit Member Find to the phases
+already owned by
+[open and closed queries](open-and-closed-queries.md#phases):
+`Skip(A - 1)` followed by `Rows(B - A + 1)`. The normalized route-local input
+selection carries one-based inclusive Start and End positions. Head remains
+the degenerate selection `1..N`; Tail, open-ended Window, and multi-stage
+selection expose no input selection.
+
+Accepted positions follow the existing Member discovery order: ordered source,
+query participant, Metadata Type, member, then caller pattern. Matching and an
+optional declaring-Type filter run before an observation spends an accepted
+position. Positions before Start increment the accepted count but do not
+construct `MemberFindResult` rows or attach source provenance. Positions Start
+through End are projected and retained; End is retained before traversal
+stops.
+
+When no declaring-Type filter changes acceptance,
+`AssemblyContextMemberMatchesQuery` forwards the same accepted-row selection
+to Metadata `MemberSearch`. Metadata still evaluates the established
+direct/glob predicate for every visited member, but it does not construct
+`MemberSearchResult` projections for accepted positions before Start. With a
+declaring-Type filter, the query remains unwindowed inside the current
+participant because the CLI-owned filter must run first; the service still
+avoids `MemberFindResult` projection for filtered accepted positions before
+Start and stops later participants and sources after End.
+
+The result receipt records the total accepted count observed before End or
+source exhaustion and whether the route-local input selection was applied.
+The command uses QuerySpace's count evaluator over that accepted count to
+interpret the original semantic plan. Reaching End therefore publishes the
+retained Window directly; exhaustion below End produces the same structured
+strict failure as complete-sequence execution. A source failure before End
+keeps its diagnostic and incomplete completion. Work not entered after End
+cannot add diagnostics.
+
+This adoption adds no general phase executor. Find Query declares the
+route-local accepted-row selection, Metadata and the CLI Member service execute
+their existing owned parts, and the shared evaluator remains the semantic
+oracle. The executable equivalence gates compare selected identities, strict
+failure, and completion against complete collection. The existing semantic
+row-selection and open-query models support those owner-neutral contracts; no
+new model is required for this one-owner adoption.
 
 ## Demo
 
@@ -170,6 +219,10 @@ This design does not:
 - define exact-member selector resolution;
 - add signature, return-Type, relation, or body predicates;
 - add fuzzy or namespace-prefix member matching;
-- change source acquisition, ordering, limits, or row selection;
+- change source acquisition or ordering;
+- avoid complete API-surface extraction;
+- lower Type Find, implicit Member/Type composition, Tail, open-ended Window,
+  or multi-stage selection;
+- add a general QuerySpace delegation protocol or Producer Planning kernel;
 - add a Match column to rendered Member Find output; or
 - define Member discovery for a new host.

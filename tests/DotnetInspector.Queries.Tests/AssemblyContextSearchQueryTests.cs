@@ -229,6 +229,44 @@ public sealed class AssemblyContextSearchQueryTests
     }
 
     [Fact]
+    public async Task MemberMatches_WindowCrossesParticipants()
+    {
+        string first =
+            typeof(WorkspaceQueryImplementation).Assembly.Location;
+        string second = typeof(string).Assembly.Location;
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            CreateGroup(workspace, first, second);
+
+        AssemblyContextResult<AssemblyMemberMatches> result =
+            AssemblyContextMemberMatchesQuery.ExecuteWindow(
+                group,
+                [
+                    nameof(
+                        WorkspaceQueryImplementation.WorkspaceQueryMember),
+                    nameof(string.Concat),
+                ],
+                includeAll: true,
+                window: new MemberSearchWindow(2, 3));
+
+        var available = result.Assemblies
+            .OfType<
+                AssemblyContextEntry<
+                    AssemblyMemberMatches>.Available>()
+            .ToArray();
+        Assert.Equal(2, available.Length);
+        Assert.Empty(available[0].Value.Members);
+        Assert.Equal(1, available[0].Value.AcceptedCount);
+        Assert.Equal(2, available[1].Value.AcceptedCount);
+        Assert.Equal(2, available[1].Value.Members.Length);
+        Assert.All(
+            available[1].Value.Members,
+            member => Assert.Equal(
+                nameof(string.Concat),
+                member.MemberName));
+    }
+
+    [Fact]
     public async Task SurfaceQueries_PreserveHealthyRowsAndInspectionFailures()
     {
         string path = Path.Combine(

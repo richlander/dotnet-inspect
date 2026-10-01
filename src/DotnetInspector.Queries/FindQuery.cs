@@ -12,11 +12,33 @@ public enum FindQueryRouteKind
     MemberResults
 }
 
+public sealed record FindInputRowSelection
+{
+    public FindInputRowSelection(int start, int end)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(start);
+        if (end < start)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(end),
+                end,
+                "The input-row end must not precede its start.");
+        }
+
+        Start = start;
+        End = end;
+    }
+
+    public int Start { get; }
+
+    public int End { get; }
+}
+
 public sealed record FindQueryPlan(
     FindQueryRouteKind RouteKind,
     PortableQueryIntent Intent,
     RowSelectionIntent<string> Rows,
-    int? InputRowLimit);
+    FindInputRowSelection? InputRows);
 
 public abstract record FindQueryPlanResult
 {
@@ -68,7 +90,7 @@ public static class FindQuery
                 kind,
                 resolution.Plan.Intent,
                 resolution.Plan.Rows,
-                resolution.Plan.InputRowLimit));
+                resolution.Plan.InputRows));
     }
 
     private static QueryOperationRoute<
@@ -89,7 +111,7 @@ public static class FindQuery
     private sealed record FindQueryCorePlan(
         PortableQueryIntent Intent,
         RowSelectionIntent<string> Rows,
-        int? InputRowLimit);
+        FindInputRowSelection? InputRows);
 
     private sealed class FindQueryVocabulary
         : PortableQueryVocabulary<
@@ -164,18 +186,22 @@ public static class FindQuery
                                         + $"stage '{stage.Kind}'."),
                             }),
                     ]);
-            int? inputRowLimit =
+            FindInputRowSelection? inputRows =
                 resolved.Stages.Count == 1
                     ? resolved.Stages[0].Kind switch
                     {
                         RowSelectionStageKind.Head =>
-                            resolved.Stages[0].Count,
+                            new(1, resolved.Stages[0].Count),
                         RowSelectionStageKind.Window =>
-                            resolved.Stages[0].End,
+                            resolved.Stages[0].End is int end
+                                ? new(
+                                    resolved.Stages[0].Start ?? 1,
+                                    end)
+                                : null,
                         _ => null,
                     }
                     : null;
-            return new(intent, rows, inputRowLimit);
+            return new(intent, rows, inputRows);
         }
     }
 

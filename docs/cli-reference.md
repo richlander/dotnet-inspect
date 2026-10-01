@@ -193,10 +193,11 @@ metadata traversal directly.
 A sole finite `--rows A..B` or `--rows ..B` similarly stops after accepted row
 B for explicit Member Find and for Type patterns that cannot enter implicit
 Member fallback, such as wildcard or dotted patterns. The strict window still
-fails when row B does not exist. Ordinary undotted Type patterns remain
-exhaustive because fallback Member rows can precede Type rows and suppress weak
-Type matches. `--tail`, open-ended windows, and multi-stage row selection also
-remain exhaustive.
+fails when row B does not exist. Explicit Member Find also counts but does not
+project accepted rows before A; an optional `--type` filter runs before that
+count. Ordinary undotted Type patterns remain exhaustive because fallback
+Member rows can precede Type rows and suppress weak Type matches. `--tail`,
+open-ended windows, and multi-stage row selection also remain exhaustive.
 
 ### Library namespace Type listings
 

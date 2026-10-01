@@ -53,7 +53,8 @@ public sealed record AssemblyTypeInventory(
 /// </summary>
 public sealed record AssemblyMemberMatches(
     ImmutableArray<MemberSearchResult> Members,
-    ImmutableArray<ApiSurfaceInspectionFailure> InspectionFailures);
+    ImmutableArray<ApiSurfaceInspectionFailure> InspectionFailures,
+    int AcceptedCount);
 
 /// <summary>One type reached through public members of the requested root type.</summary>
 public sealed record ExtensionReachableTypePath(
@@ -354,6 +355,7 @@ public static class AssemblyContextMemberMatchesQuery
             int? limit = null)
     {
         ArgumentNullException.ThrowIfNull(patterns);
+        ArgumentOutOfRangeException.ThrowIfNegative(limit ?? 0);
         if (limit is null)
         {
             return AssemblyContextQueryExecutor.Execute(
@@ -364,18 +366,41 @@ public static class AssemblyContextMemberMatchesQuery
                         session,
                         patterns,
                         includeAll,
-                        limit));
+                        window: null));
         }
+
+        if (limit == 0)
+            return new([]);
+
+        return ExecuteWindow(
+            group,
+            patterns,
+            new MemberSearchWindow(1, limit.Value),
+            includeAll);
+    }
+
+    public static AssemblyContextResult<AssemblyMemberMatches>
+        ExecuteWindow(
+            AssemblyContextGroup group,
+            IReadOnlyList<string> patterns,
+            MemberSearchWindow window,
+            bool includeAll = false)
+    {
+        ArgumentNullException.ThrowIfNull(patterns);
+        ArgumentNullException.ThrowIfNull(window);
 
         var entries =
             ImmutableArray.CreateBuilder<
                 AssemblyContextEntry<AssemblyMemberMatches>>();
-        int remaining = limit.Value;
+        int acceptedCount = 0;
         foreach (AssemblyContextParticipant participant
             in group.Participants)
         {
-            if (remaining <= 0)
+            if (acceptedCount >= window.End)
                 break;
+            var participantWindow = new MemberSearchWindow(
+                Math.Max(1, window.Start - acceptedCount),
+                window.End - acceptedCount);
             AssemblyContextEntry<AssemblyMemberMatches> entry =
                 AssemblyContextQueryExecutor.ExecuteParticipant(
                     group,
@@ -386,13 +411,13 @@ public static class AssemblyContextMemberMatchesQuery
                             session,
                             patterns,
                             includeAll,
-                            remaining));
+                            participantWindow));
             entries.Add(entry);
             if (entry
                 is AssemblyContextEntry<
                     AssemblyMemberMatches>.Available available)
             {
-                remaining -= available.Value.Members.Length;
+                acceptedCount += available.Value.AcceptedCount;
             }
         }
         return new(entries.ToImmutable());
@@ -403,17 +428,31 @@ public static class AssemblyContextMemberMatchesQuery
         AssemblyInspectionSession session,
         IReadOnlyList<string> patterns,
         bool includeAll,
-        int? limit)
+        MemberSearchWindow? window)
     {
         ApiSurface surface = session.ApiSurface(includeAll);
-        return new AssemblyMemberMatches(
-            MemberSearch.Search(
+        MemberSearchWindowResult search;
+        if (window is null)
+        {
+            IReadOnlyList<MemberSearchResult> results =
+                MemberSearch.Search(
+                    surface,
+                    assemblyName,
+                    patterns);
+            search = new(results, results.Count);
+        }
+        else
+        {
+            search = MemberSearch.SearchWindow(
                 surface,
                 assemblyName,
                 patterns,
-                limit)
-            .ToImmutableArray(),
-            surface.InspectionFailures.ToImmutableArray());
+                window);
+        }
+        return new AssemblyMemberMatches(
+            search.Results.ToImmutableArray(),
+            surface.InspectionFailures.ToImmutableArray(),
+            search.AcceptedCount);
     }
 }
 

@@ -14,6 +14,10 @@ internal enum FindSearchCompletion
     Incomplete,
 }
 
+internal sealed record FindAcceptedRowSelectionReceipt(
+    FindInputRowSelection Selection,
+    int AcceptedCount);
+
 internal sealed record FindSearchResult<T>(
     List<T> Rows,
     bool HasFailures,
@@ -23,6 +27,8 @@ internal sealed record FindSearchResult<T>(
 
     public FindSearchCompletion Completion { get; init; } =
         FindSearchCompletion.Exhausted;
+
+    public FindAcceptedRowSelectionReceipt? InputRows { get; init; }
 
     public IReadOnlyList<
         InspectionEnvelope<TypeDeclarationLocatorSectionResult>>

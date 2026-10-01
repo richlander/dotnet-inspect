@@ -224,4 +224,62 @@ internal static class CliSemanticRowSelection
 
         return exact;
     }
+
+    public static bool TrySelectCount(
+        RowSelectionIntent<string>? intent,
+        int observedCount,
+        Func<RowWindowFailure, string> formatFailure,
+        out int selectedCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(observedCount);
+        ArgumentNullException.ThrowIfNull(formatFailure);
+
+        if (intent is not { Operations.Count: > 0 })
+        {
+            selectedCount = observedCount;
+            return true;
+        }
+
+        RowSelectionPlan<string> plan =
+            RowSelectionPlan<string>.Create(
+                [
+                    .. intent.Operations.Select(
+                        static operation =>
+                            operation.Kind switch
+                            {
+                                RowSelectionStageKind.Head =>
+                                    RowSelectionStage<string>.Head(
+                                        operation.Count),
+                                RowSelectionStageKind.Tail =>
+                                    RowSelectionStage<string>.Tail(
+                                        operation.Count),
+                                RowSelectionStageKind.Window =>
+                                    RowSelectionStage<string>.Window(
+                                        operation.Start,
+                                        operation.End),
+                                _ => throw new InvalidOperationException(
+                                    "Count-only semantic row selection does "
+                                    + "not support "
+                                    + $"'{operation.Kind}'."),
+                            }),
+                ]);
+        if (!RowSelectionCountExecutor.TryApply(
+                observedCount,
+                plan,
+                out RowSelectionCountResult result))
+        {
+            throw new InvalidOperationException(
+                "Find resolved a row-selection plan that cannot execute "
+                + "against an accepted-row count.");
+        }
+        if (result.IsSuccess)
+        {
+            selectedCount = result.Count;
+            return true;
+        }
+
+        CommandError.Write(formatFailure(result.Failure!));
+        selectedCount = 0;
+        return false;
+    }
 }

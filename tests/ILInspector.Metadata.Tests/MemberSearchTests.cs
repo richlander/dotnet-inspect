@@ -100,6 +100,31 @@ namespace ILInspector.Metadata.Tests
         }
 
         [Fact]
+        public void SearchWindow_counts_skipped_matches_without_retaining_them()
+        {
+            IReadOnlyList<MemberSearchResult> complete =
+                MemberSearch.SearchAssembly(
+                    SelfAssembly,
+                    ["MemberSearchProbe*"]);
+            ApiSurface surface = Assert.IsType<ApiSurface>(
+                AssemblyReader.ExtractApiSurface(
+                    SelfAssembly,
+                    includeAll: false,
+                    typesOnly: false));
+
+            MemberSearchWindowResult window = MemberSearch.SearchWindow(
+                surface,
+                Path.GetFileNameWithoutExtension(SelfAssembly),
+                ["MemberSearchProbe*"],
+                new MemberSearchWindow(2, 3));
+
+            Assert.Equal(3, window.AcceptedCount);
+            Assert.Equal(
+                complete.Skip(1).Take(2),
+                window.Results);
+        }
+
+        [Fact]
         public void Search_empty_patterns_returns_empty_outcome()
         {
             var outcome = MemberSearch.Search([SelfAssembly], []);

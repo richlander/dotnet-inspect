@@ -85,7 +85,7 @@ public sealed class FindQueryTests
                 (RowSelectionStageKind.Tail, null, null, 1),
             ],
             plan.Rows.Operations.Select(Operation));
-        Assert.Null(plan.InputRowLimit);
+        Assert.Null(plan.InputRows);
 
         static (
             RowSelectionStageKind Kind,
@@ -113,7 +113,7 @@ public sealed class FindQueryTests
     [Theory]
     [InlineData(FindQueryRouteKind.TypeResults)]
     [InlineData(FindQueryRouteKind.MemberResults)]
-    public void PureHead_ExposesTheMaximumInputRowCount(
+    public void PureHead_ExposesItsAcceptedInputRows(
         FindQueryRouteKind kind)
     {
         FindQueryPlan plan = Accepted(
@@ -126,13 +126,15 @@ public sealed class FindQueryTests
                     []),
                 TestContext.Current.CancellationToken));
 
-        Assert.Equal(3, plan.InputRowLimit);
+        Assert.Equal(
+            new FindInputRowSelection(1, 3),
+            plan.InputRows);
     }
 
     [Theory]
     [InlineData(FindQueryRouteKind.TypeResults)]
     [InlineData(FindQueryRouteKind.MemberResults)]
-    public void FiniteWindow_ExposesItsEndAsTheMaximumInputRowCount(
+    public void FiniteWindow_ExposesItsAcceptedInputRows(
         FindQueryRouteKind kind)
     {
         FindQueryPlan plan = Accepted(
@@ -145,7 +147,9 @@ public sealed class FindQueryTests
                     []),
                 TestContext.Current.CancellationToken));
 
-        Assert.Equal(5, plan.InputRowLimit);
+        Assert.Equal(
+            new FindInputRowSelection(2, 5),
+            plan.InputRows);
     }
 
     [Theory]
@@ -173,8 +177,18 @@ public sealed class FindQueryTests
                     []),
                 TestContext.Current.CancellationToken));
 
-        Assert.Null(openWindow.InputRowLimit);
-        Assert.Null(tail.InputRowLimit);
+        Assert.Null(openWindow.InputRows);
+        Assert.Null(tail.InputRows);
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 0)]
+    [InlineData(2, 1)]
+    public void InputRows_RejectInvalidBounds(int start, int end)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new FindInputRowSelection(start, end));
     }
 
     [Theory]
