@@ -38,26 +38,42 @@ internal static class MemberSearchService
         {
             cancellationToken.ThrowIfCancellationRequested();
             var collector = new MemberResultCollector(options);
-            MemberSearchWindow? inputWindow =
-                collector.MetadataWindow();
-            AssemblyContextResult<AssemblyMemberMatches> queryResult =
-                inputWindow is null
-                    ? platformWorkspace.QueryMembers(
-                        patterns,
-                        options.IncludeAll,
-                        collector.QueryLimit())
-                    : platformWorkspace.QueryMemberWindow(
-                        patterns,
-                        options.IncludeAll,
-                        inputWindow);
-            foreach (AssemblyContextEntry<AssemblyMemberMatches> entry
-                in queryResult.Assemblies)
+            if (collector.RequiresParticipantStop)
             {
-                collector.Add(
-                    platformWorkspace.SourceFor(entry.Subject),
-                    entry,
-                    logger,
-                    MarkFailure);
+                _ = platformWorkspace.QueryMembersEach(
+                    patterns,
+                    options.IncludeAll,
+                    entry =>
+                        collector.Add(
+                            platformWorkspace.SourceFor(entry.Subject),
+                            entry,
+                            logger,
+                            MarkFailure),
+                    collector.ReachedLimit);
+            }
+            else
+            {
+                MemberSearchWindow? inputWindow =
+                    collector.MetadataWindow();
+                AssemblyContextResult<AssemblyMemberMatches> queryResult =
+                    inputWindow is null
+                        ? platformWorkspace.QueryMembers(
+                            patterns,
+                            options.IncludeAll,
+                            collector.QueryLimit())
+                        : platformWorkspace.QueryMemberWindow(
+                            patterns,
+                            options.IncludeAll,
+                            inputWindow);
+                foreach (AssemblyContextEntry<AssemblyMemberMatches> entry
+                    in queryResult.Assemblies)
+                {
+                    collector.Add(
+                        platformWorkspace.SourceFor(entry.Subject),
+                        entry,
+                        logger,
+                        MarkFailure);
+                }
             }
             cancellationToken.ThrowIfCancellationRequested();
             return collector.ToSearchResult(
@@ -192,45 +208,69 @@ internal static class MemberSearchService
         CancellationToken cancellationToken)
     {
         var collector = new MemberResultCollector(options);
-        MemberSearchWindow? inputWindow =
-            collector.MetadataWindow();
         ConfiguredPackageSearchQueryResult<
-            AssemblyContextResult<AssemblyMemberMatches>>? execution =
+            MemberSearchQueryReceipt>? execution =
                 await workspace.QuerySurfaceAsync(
                     context =>
-                        inputWindow is null
-                            ? AssemblyContextMemberMatchesQuery.Execute(
+                    {
+                        if (collector.RequiresParticipantStop)
+                        {
+                            _ = AssemblyContextMemberMatchesQuery.ExecuteEach(
                                 context.Group,
                                 patterns,
                                 options.IncludeAll,
-                                collector.QueryLimit())
-                            : AssemblyContextMemberMatchesQuery.ExecuteWindow(
-                                context.Group,
-                                patterns,
-                                inputWindow,
-                                options.IncludeAll),
+                                entry =>
+                                    collector.Add(
+                                        context.Sources.SourceFor(
+                                            entry.Subject),
+                                        entry,
+                                        logger,
+                                        markFailure),
+                                collector.ReachedLimit);
+                            return MemberSearchQueryReceipt.Instance;
+                        }
+
+                        MemberSearchWindow? inputWindow =
+                            collector.MetadataWindow();
+                        AssemblyContextResult<AssemblyMemberMatches>
+                            queryResult =
+                                inputWindow is null
+                                    ? AssemblyContextMemberMatchesQuery.Execute(
+                                        context.Group,
+                                        patterns,
+                                        options.IncludeAll,
+                                        collector.QueryLimit())
+                                    : AssemblyContextMemberMatchesQuery
+                                        .ExecuteWindow(
+                                            context.Group,
+                                            patterns,
+                                            inputWindow,
+                                            options.IncludeAll);
+                        foreach (AssemblyContextEntry<AssemblyMemberMatches>
+                            entry in queryResult.Assemblies)
+                        {
+                            collector.Add(
+                                context.Sources.SourceFor(entry.Subject),
+                                entry,
+                                logger,
+                                markFailure);
+                        }
+                        return MemberSearchQueryReceipt.Instance;
+                    },
                     cancellationToken);
         if (execution is null)
         {
             markFailure();
             return collector;
         }
-        if (execution.Sources is not { } sources
-            || execution.Result is not { } queryResult)
-        {
+        if (execution.Result is null)
             return collector;
-        }
-
-        foreach (AssemblyContextEntry<AssemblyMemberMatches> entry
-            in queryResult.Assemblies)
-        {
-            collector.Add(
-                sources.SourceFor(entry.Subject),
-                entry,
-                logger,
-                markFailure);
-        }
         return collector;
+    }
+
+    private sealed class MemberSearchQueryReceipt
+    {
+        internal static MemberSearchQueryReceipt Instance { get; } = new();
     }
 
     private sealed class MemberResultCollector
@@ -250,6 +290,10 @@ internal static class MemberSearchService
         internal List<MemberFindResult> Results { get; } = [];
 
         internal int AcceptedCount { get; private set; }
+
+        internal bool RequiresParticipantStop =>
+            _typeFilter is not null
+            && _limit is not null;
 
         internal bool ReachedLimit() =>
             _limit is int limit

@@ -267,6 +267,50 @@ public sealed class AssemblyContextSearchQueryTests
     }
 
     [Fact]
+    public async Task MemberMatches_StopAvoidsLaterFailingParticipant()
+    {
+        string first =
+            typeof(WorkspaceQueryImplementation).Assembly.Location;
+        string second = Path.Combine(
+            Path.GetTempPath(),
+            $"workspace-query-partial-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(second, BuildPartialSurfaceImage());
+        try
+        {
+            await using var workspace = new InspectionWorkspace();
+            using AssemblyContextGroup group =
+                CreateGroup(workspace, first, second);
+            var entries =
+                new List<
+                    AssemblyContextEntry<AssemblyMemberMatches>>();
+
+            bool complete =
+                AssemblyContextMemberMatchesQuery.ExecuteEach(
+                    group,
+                    [
+                        nameof(
+                            WorkspaceQueryImplementation
+                                .WorkspaceQueryMember),
+                    ],
+                    includeAll: true,
+                    consume: entries.Add,
+                    stop: () => entries.Count == 1);
+
+            Assert.False(complete);
+            var available = Assert.IsType<
+                AssemblyContextEntry<
+                    AssemblyMemberMatches>.Available>(
+                        Assert.Single(entries));
+            Assert.Single(available.Value.Members);
+            Assert.Empty(available.Value.InspectionFailures);
+        }
+        finally
+        {
+            File.Delete(second);
+        }
+    }
+
+    [Fact]
     public async Task SurfaceQueries_PreserveHealthyRowsAndInspectionFailures()
     {
         string path = Path.Combine(

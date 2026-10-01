@@ -208,6 +208,14 @@ The Release gates are:
 - `FindCommandTests.MemberMatchVocabulary_UsesDirectInTypedJson` for the
   unprojected machine-schema value.
 
+Finite Window execution is additionally gated by:
+
+- `MemberSearchTests.SearchWindow_counts_skipped_matches_without_retaining_them`;
+- `AssemblyContextSearchQueryTests.MemberMatches_WindowCrossesParticipants`
+  and `MemberMatches_StopAvoidsLaterFailingParticipant`; and
+- `CommandExecutionTests` Window parity, filtered parity, strict failure,
+  incomplete-source, and later-source stopping cases.
+
 The real Platform commands above are reproducible design evidence, not a
 separate gate.
 

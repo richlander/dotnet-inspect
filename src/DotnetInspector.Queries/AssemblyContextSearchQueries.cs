@@ -423,6 +423,37 @@ public static class AssemblyContextMemberMatchesQuery
         return new(entries.ToImmutable());
     }
 
+    public static bool ExecuteEach(
+        AssemblyContextGroup group,
+        IReadOnlyList<string> patterns,
+        bool includeAll,
+        Action<AssemblyContextEntry<AssemblyMemberMatches>> consume,
+        Func<bool>? stop = null)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(patterns);
+        ArgumentNullException.ThrowIfNull(consume);
+
+        foreach (AssemblyContextParticipant participant
+            in group.Participants)
+        {
+            if (stop?.Invoke() == true)
+                return false;
+            consume(
+                AssemblyContextQueryExecutor.ExecuteParticipant(
+                    group,
+                    participant,
+                    session =>
+                        Inspect(
+                            participant.Assembly.Identity.Name,
+                            session,
+                            patterns,
+                            includeAll,
+                            window: null)));
+        }
+        return true;
+    }
+
     private static AssemblyMemberMatches Inspect(
         string assemblyName,
         AssemblyInspectionSession session,
