@@ -163,6 +163,31 @@ public sealed class TypeRelationsCommandTests
     }
 
     [Fact]
+    public async Task
+        PinnedPlatformCoordinateFallsBackForGenericShortName()
+    {
+        var (_, _, version, error) = PlatformResolver.ResolveAssembly(
+            "System.Private.CoreLib",
+            "runtime");
+        Assert.Null(error);
+        Assert.NotNull(version);
+        var result = await ExecuteAsync(
+            "type",
+            "IAsyncEnumerable",
+            "--platform",
+            "System.Private.CoreLib",
+            "--framework",
+            $"runtime@{version!}",
+            "-S",
+            "Implementers",
+            "--count");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal("1", result.Output.Trim());
+    }
+
+    [Fact]
     public async Task PinnedPlatformFacadeCoordinateFollowsForwarder()
     {
         var (_, _, version, error) = PlatformResolver.ResolveAssembly(

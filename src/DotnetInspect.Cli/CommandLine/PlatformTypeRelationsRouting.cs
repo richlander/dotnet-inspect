@@ -326,17 +326,26 @@ internal static class PlatformTypeRelationsRouting
             if (search
                 is MetadataTypeDefinitionNameSearchResult.Found found)
             {
-                return WorkspaceExactTypeFocusQuery
-                    .ExecuteFromDefinitionNames(
-                        assembly,
-                        found.Names,
-                        request.Type,
-                        request.SelectionKind,
-                        cancellationToken);
+                if (!found.Names.IsEmpty
+                    || request.SelectionKind
+                        == ExactTypeSelectionKind.DefinitionIdentity)
+                {
+                    return WorkspaceExactTypeFocusQuery
+                        .ExecuteFromDefinitionNames(
+                            assembly,
+                            found.Names,
+                            request.Type,
+                            request.SelectionKind,
+                            cancellationToken);
+                }
             }
-            return new WorkspaceExactTypeFocusOutcome.Unavailable(
-                "The requested Library declaration surface is unavailable.",
-                []);
+            else
+            {
+                return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                    "The requested Library declaration surface is "
+                        + "unavailable.",
+                    []);
+            }
         }
 
         if (MetadataTypeDefinitionName.ParseSerialized(request.Type)
