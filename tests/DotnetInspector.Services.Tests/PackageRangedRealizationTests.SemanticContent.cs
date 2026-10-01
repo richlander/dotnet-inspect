@@ -304,6 +304,40 @@ public sealed partial class PackageRangedRealizationTests
                 acquired.FileList.Entries,
                 entry => entry.Path == Path);
 
+            Assert.True(
+                acquired.Settlement.Payload.Content.TryOpenEntry(
+                    Path,
+                    out Stream? selected));
+            using (selected)
+            {
+                Assert.Equal(
+                    ReadEntry(archiveBytes, Path),
+                    ReadAllBytes(selected));
+            }
+
+            PackageContentEntry selectedEntry =
+                Assert.Single(
+                    Assert.IsAssignableFrom<
+                            IPackageContentEntryManifest>(
+                            acquired.Settlement.Payload.Content)
+                        .EnumerateEntriesWithLengths());
+            Assert.True(
+                acquired.Settlement.Payload.Content.TryOpenEntry(
+                    Path,
+                    selectedEntry.Length,
+                    out Stream? bounded));
+            using (bounded)
+            {
+                Assert.Equal(
+                    ReadEntry(archiveBytes, Path),
+                    ReadAllBytes(bounded));
+            }
+            Assert.Throws<InvalidDataException>(
+                () => acquired.Settlement.Payload.Content.TryOpenEntry(
+                    Path,
+                    selectedEntry.Length - 1,
+                    out _));
+
             await using PackageHousePayloadRead read =
                 acquired.OpenRead();
             using var actual = new MemoryStream();
@@ -321,6 +355,25 @@ public sealed partial class PackageRangedRealizationTests
             Assert.Equal(
                 expectedBytes.ToArray(),
                 actual.ToArray());
+
+            static byte[] ReadEntry(
+                byte[] archiveBytes,
+                string path)
+            {
+                using var archive = new ZipArchive(
+                    new MemoryStream(archiveBytes));
+                ZipArchiveEntry? entry = archive.GetEntry(path);
+                Assert.NotNull(entry);
+                using Stream stream = entry.Open();
+                return ReadAllBytes(stream);
+            }
+
+            static byte[] ReadAllBytes(Stream stream)
+            {
+                using var bytes = new MemoryStream();
+                stream.CopyTo(bytes);
+                return bytes.ToArray();
+            }
         }
         finally
         {
