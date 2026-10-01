@@ -2934,15 +2934,17 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.locator(".compare-head .compare-status"))
       .toContainText("Comparison complete", { timeout: 60_000 });
     await expect(frame.locator(":scope > .compare-status")).toHaveCount(0);
+    await expect(frame.locator(":scope > .compare-target")).toHaveCount(0);
     const headerBox = await frame.locator(".compare-head").boundingBox();
-    const targetBox = await frame.locator(".compare-target").boundingBox();
+    const contextBox = await frame.locator(".compare-context").boundingBox();
     const resultBox = await frame.locator(".compare-panel").boundingBox();
     expect(headerBox).not.toBeNull();
-    expect(targetBox).not.toBeNull();
+    expect(contextBox).not.toBeNull();
     expect(resultBox).not.toBeNull();
-    expect(Math.abs(targetBox!.y - headerBox!.y - headerBox!.height))
-      .toBeLessThanOrEqual(1);
-    expect(Math.abs(resultBox!.y - targetBox!.y - targetBox!.height))
+    expect(contextBox!.y).toBeGreaterThanOrEqual(headerBox!.y);
+    expect(contextBox!.y + contextBox!.height)
+      .toBeLessThanOrEqual(headerBox!.y + headerBox!.height + 1);
+    expect(Math.abs(resultBox!.y - headerBox!.y - headerBox!.height))
       .toBeLessThanOrEqual(1);
     await expect(panel.locator(".library-api-diff-type")).toHaveCount(8);
     await expect(panel).toContainText("LibraryApiDiffFixture.RemovedType");
