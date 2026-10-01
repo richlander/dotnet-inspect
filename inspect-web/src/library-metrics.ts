@@ -148,7 +148,7 @@ function renderStructuralSalience(
     : namespaceOptions;
   const qualification = salience.disposition.toLowerCase() === "complete"
     ? ""
-    : `<div class="metadata-warning"><strong>Structural salience is qualified</strong><p>${escapeHtml(salience.disposition)} · ${formatNumber(salience.coverage.examined)} of ${formatNumber(salience.coverage.considered)} signature sites examined.</p>${salience.diagnostics.length ? `<ul>${salience.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul>` : ""}</div>`;
+    : `<div class="metadata-warning"><strong>Structural salience is qualified</strong><p>${escapeHtml(salience.disposition)} · ${formatNumber(salience.coverage.examined)} of ${formatNumber(salience.coverage.considered)} signature sites examined.</p>${salience.diagnostics.length ? `<ul>${salience.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul>` : ""}<button type="button" class="tiny-button" data-metrics-salience-retry>Retry</button></div>`;
   const orders = shard
     ? `<div class="metrics-salience-orders">
         ${renderSalienceOrder("Incoming peers", shard.seaLevelOrder, "signatureIncomingDegree", escapeHtml)}

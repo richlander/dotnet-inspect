@@ -69,6 +69,7 @@ export interface TypeLeverageCoordinatorDependencies<TRequest> {
   readonly operationAuthority: OperationAuthorityPage;
   key(request: TRequest): string;
   libraryKey(request: TRequest): string;
+  operationLane?(request: TRequest): string;
   queryDocument(request: TRequest): Promise<BrowserLibraryStructuralSalience>;
   isCurrent(request: TRequest): boolean;
   describeError(error: unknown): string;
@@ -80,6 +81,7 @@ export interface TypeLeverageCoordinator<TRequest> {
   request(request: TRequest): void;
   retry(request: TRequest): void;
   presentation(key: string): TypeLeveragePresentation | null;
+  pending(key: string): boolean;
 }
 
 function availableDocument(
@@ -303,7 +305,18 @@ export function createTypeLeverageCoordinator<TRequest>(
 
   const presentations = new Map<string, TypeLeveragePresentation>();
   const presentationLibraries = new Map<string, string>();
+  const pendingPresentations = new Map<
+    string,
+    { readonly libraryKey: string; readonly cacheGeneration: number }
+  >();
   const documents = new Map<string, BrowserLibraryStructuralSalience>();
+  const pendingDocuments = new Map<
+    string,
+    {
+      readonly cacheGeneration: number;
+      readonly promise: Promise<BrowserLibraryStructuralSalience>;
+    }
+  >();
   const cacheGenerations = new Map<string, number>();
   const inputs = new Map<OperationId, Input>();
   const cacheGeneration = (libraryKey: string) =>
@@ -315,6 +328,37 @@ export function createTypeLeverageCoordinator<TRequest>(
     if (input === undefined)
       throw new Error("Type leverage operation context is unavailable.");
     return input;
+  };
+  const clearPendingPresentation = (input: Input) => {
+    const pending = pendingPresentations.get(input.key);
+    if (pending?.libraryKey === input.libraryKey
+        && pending.cacheGeneration === input.cacheGeneration) {
+      pendingPresentations.delete(input.key);
+    }
+  };
+  const documentFor = (input: Input) => {
+    const cached = documents.get(input.libraryKey);
+    if (cached !== undefined) return Promise.resolve(cached);
+    const existing = pendingDocuments.get(input.libraryKey);
+    if (existing?.cacheGeneration === input.cacheGeneration)
+      return existing.promise;
+    const pending = {
+      cacheGeneration: input.cacheGeneration,
+      promise: dependencies.queryDocument(input.request).then(document => {
+        availableDocument(document);
+        if (ownsCacheGeneration(input))
+          documents.set(input.libraryKey, document);
+        if (pendingDocuments.get(input.libraryKey) === pending)
+          pendingDocuments.delete(input.libraryKey);
+        return document;
+      }, (error: unknown) => {
+        if (pendingDocuments.get(input.libraryKey) === pending)
+          pendingDocuments.delete(input.libraryKey);
+        throw error;
+      }),
+    };
+    pendingDocuments.set(input.libraryKey, pending);
+    return pending.promise;
   };
   const publish = (event: FeatureEvent): undefined => {
     switch (event.kind) {
@@ -350,13 +394,21 @@ export function createTypeLeverageCoordinator<TRequest>(
     }
     return undefined;
   };
-  const session: Session = dependencies.operationAuthority.createSession({
-    feature: { publish },
-    diagnostic: {
-      report: diagnostic =>
-        dependencies.reportOperationDiagnostic(diagnostic),
-    },
-  });
+  const sessions = new Map<string, Session>();
+  const sessionFor = (requestValue: TRequest) => {
+    const lane = dependencies.operationLane?.(requestValue) ?? "default";
+    let session = sessions.get(lane);
+    if (session !== undefined) return session;
+    session = dependencies.operationAuthority.createSession({
+      feature: { publish },
+      diagnostic: {
+        report: diagnostic =>
+          dependencies.reportOperationDiagnostic(diagnostic),
+      },
+    });
+    sessions.set(lane, session);
+    return session;
+  };
   const adapter: OperationProducerAdapter<
     Input,
     TypeLeveragePresentation,
@@ -366,6 +418,10 @@ export function createTypeLeverageCoordinator<TRequest>(
   > = {
     prepare: (identity, input, sink) => {
       inputs.set(identity.id, input);
+      pendingPresentations.set(input.key, {
+        libraryKey: input.libraryKey,
+        cacheGeneration: input.cacheGeneration,
+      });
       let quiesced = false;
       const quiesce = (): undefined => {
         if (quiesced) return undefined;
@@ -375,6 +431,7 @@ export function createTypeLeverageCoordinator<TRequest>(
         return undefined;
       };
       const finish = (value: TypeLeveragePresentation): undefined => {
+        clearPendingPresentation(input);
         if (ownsCacheGeneration(input)) {
           presentations.set(input.key, value);
           presentationLibraries.set(input.key, input.libraryKey);
@@ -387,6 +444,7 @@ export function createTypeLeverageCoordinator<TRequest>(
         return quiesce();
       };
       const fail = (error: unknown): undefined => {
+        clearPendingPresentation(input);
         if (dependencies.isCurrent(input.request)) {
           sink.reportUnexpectedTerminal(error, error);
         } else {
@@ -402,16 +460,9 @@ export function createTypeLeverageCoordinator<TRequest>(
         binding: {
           requestCancellation: () => undefined,
           activate: () => {
-            void (async () => {
-              let document = documents.get(input.libraryKey);
-              if (document === undefined) {
-                document = await dependencies.queryDocument(input.request);
-                availableDocument(document);
-                if (ownsCacheGeneration(input))
-                  documents.set(input.libraryKey, document);
-              }
-              return projectTypeLeverage(document);
-            })().then(finish, fail);
+            void documentFor(input)
+              .then(projectTypeLeverage)
+              .then(finish, fail);
             return undefined;
           },
           abandon: () => {
@@ -436,7 +487,7 @@ export function createTypeLeverageCoordinator<TRequest>(
       }
       return;
     }
-    const result = session.start({
+    const result = sessionFor(requestValue).start({
       request: requestValue,
       key,
       libraryKey: dependencies.libraryKey(requestValue),
@@ -468,11 +519,19 @@ export function createTypeLeverageCoordinator<TRequest>(
           presentationLibraries.delete(key);
         }
       }
+      for (const [key, pending] of pendingPresentations) {
+        if (pending.libraryKey === libraryKey)
+          pendingPresentations.delete(key);
+      }
       documents.delete(libraryKey);
+      pendingDocuments.delete(libraryKey);
       request(requestValue);
     },
     presentation(key) {
       return presentations.get(key) ?? null;
+    },
+    pending(key) {
+      return pendingPresentations.has(key);
     },
   };
 }

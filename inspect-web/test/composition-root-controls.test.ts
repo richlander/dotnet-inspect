@@ -95,6 +95,15 @@ test("Metrics lens requests and presents exhaustive structural salience", () => 
   const autoLoad = sourceText(
     functionDeclaration("maybeAutoLoadPackageLibraryMetrics"),
   );
+  const typeAutoLoad = sourceText(
+    functionDeclaration("maybeAutoLoadTypeLeverage"),
+  );
+  const typePresentation = sourceText(
+    functionDeclaration("currentTypeLeveragePresentation"),
+  );
+  const metricsPresentation = sourceText(
+    functionDeclaration("currentLibraryMetricsTypeLeveragePresentation"),
+  );
 
   assert.match(
     target,
@@ -106,15 +115,35 @@ test("Metrics lens requests and presents exhaustive structural salience", () => 
   );
   assert.match(
     renderer,
-    /salienceLoading: state\.libraryMetricsLeverageLoading[\s\S]*salience: currentLibraryMetricsTypeLeveragePresentation\(\)[\s\S]*selectedSalienceNamespace: state\.libraryMetricsLeverageNamespace/,
+    /salienceLoading: currentLibraryMetricsTypeLeveragePending\(\)[\s\S]*salience: currentLibraryMetricsTypeLeveragePresentation\(\)[\s\S]*selectedSalienceNamespace: state\.libraryMetricsLeverageNamespace/,
   );
   assert.match(
     autoLoad,
-    /libraryMetricsLeverageKey !== leverageKey[\s\S]*loadLibraryMetricsTypeLeverage\(\)/,
+    /libraryMetricsLeverageKey !== leverageKey[\s\S]*typeLeverage\.presentation\(leverageKey\) === null[\s\S]*!typeLeverage\.pending\(leverageKey\)[\s\S]*loadLibraryMetricsTypeLeverage\(\)/,
   );
   assert.match(
+    typeAutoLoad,
+    /scope\(\) !== "type"[\s\S]*scope\(\) !== "member"[\s\S]*typeLeverage\.presentation\(leverageKey\) !== null[\s\S]*typeLeverage\.pending\(leverageKey\)[\s\S]*loadTypeLeverage\(\)/,
+  );
+  for (const presentation of [typePresentation, metricsPresentation]) {
+    assert.match(presentation, /return typeLeverage\.presentation\(key\)/);
+    assert.doesNotMatch(presentation, /state\.\w*Presentation/);
+  }
+  assert.match(
     appSource,
-    /selectSalienceNamespace: exactNamespace => \{[\s\S]*state\.libraryMetricsLeverageNamespace = exactNamespace;[\s\S]*loadLibraryMetricsTypeLeverage\(\);[\s\S]*retrySalience: \(\) => loadLibraryMetricsTypeLeverage\(true\)/,
+    /maybeAutoLoadPackageLibraryMetrics\(\);[\s\S]*maybeAutoLoadTypeLeverage\(\)/,
+  );
+  const metricsBindings =
+    appSource.match(/bindLibraryMetricsInteractions\(document, \{[\s\S]*?\n  }\);/)?.[0]
+    ?? "";
+  assert.match(
+    metricsBindings,
+    /selectSalienceNamespace: exactNamespace => \{[\s\S]*state\.libraryMetricsLeverageNamespace = exactNamespace;[\s\S]*render\(\);[\s\S]*retrySalience: \(\) => loadLibraryMetricsTypeLeverage\(true\)/,
+  );
+  assert.doesNotMatch(
+    metricsBindings.match(/selectSalienceNamespace:[\s\S]*?(?=\n    retrySalience)/)?.[0]
+      ?? "",
+    /loadLibraryMetricsTypeLeverage/,
   );
 });
 

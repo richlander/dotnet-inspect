@@ -256,6 +256,8 @@ interface DiagnosticsFixture {
   libraryApiFailure?: boolean;
   libraryApiIncomplete?: boolean;
   deferTypeMemberPopulation?: boolean;
+  qualifiedStructuralSalience?: boolean;
+  slowStructuralSalience?: boolean;
 }
 
 interface PackageLoadingFixture {
@@ -1338,11 +1340,13 @@ async function installFacades(
       }`,
     analysis: `
       ${surfaceLookup}
+      const diagnosticsOptions = ${JSON.stringify(diagnostics)};
       let implementationProfileRequestCount = 0;
       let structuralSalienceRequestCount = 0;
       function structuralSalience(surface, selected) {
         document.documentElement.dataset.structuralSalienceRequestCount =
           String(++structuralSalienceRequestCount);
+        const qualified = diagnosticsOptions.qualifiedStructuralSalience;
         const exactNamespace = "Example";
         const selectedType = surface.types.find(
           item => item.assemblyId === selected.id
@@ -1362,11 +1366,11 @@ async function installFacades(
           methodologyVersion: "structural-salience.v2",
           evidenceMode: "signature",
           namespaceIndex: {
-            disposition: "complete",
+            disposition: qualified ? "partial" : "complete",
             coverage: {
               considered: 1,
-              examined: 1,
-              unavailable: 0,
+              examined: qualified ? 0 : 1,
+              unavailable: qualified ? 1 : 0,
               limited: 0
             },
             namespaces: [{
@@ -1377,21 +1381,21 @@ async function installFacades(
               externalIncomingSourceTypeCount: 1,
               topLeverage: true
             }],
-            diagnostics: []
+            diagnostics: qualified ? ["One signature was unavailable."] : []
           },
           typeLeverageShards: [{
             namespace: exactNamespace,
-            disposition: "complete",
+            disposition: qualified ? "partial" : "complete",
             coverage: {
               considered: 1,
-              examined: 1,
-              unavailable: 0,
+              examined: qualified ? 0 : 1,
+              unavailable: qualified ? 1 : 0,
               limited: 0
             },
             types,
             seaLevelOrder: types.map(item => item.typeDefinitionId),
             mountainPeakOrder: types.map(item => item.typeDefinitionId),
-            diagnostics: []
+            diagnostics: qualified ? ["One signature was unavailable."] : []
           }],
           failure: null,
           compileLibrary: surface.compileLibrary
@@ -1404,7 +1408,7 @@ async function installFacades(
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         const result = structuralSalience(surface, selected);
-        if (new URLSearchParams(location.search).has("slow-salience")) {
+        if (diagnosticsOptions.slowStructuralSalience) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
         return result;

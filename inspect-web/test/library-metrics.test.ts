@@ -173,6 +173,7 @@ test("renders owner-issued structural salience orders and qualification", () => 
   assert.match(html, /item-achievement-glyph mountain-peak/);
   assert.match(html, /Structural salience is qualified/);
   assert.match(html, /One signature was unavailable\./);
+  assert.match(html, /data-metrics-salience-retry>Retry/);
   assert.match(
     html,
     /data-metrics-salience-type-key="Example\.Core\.Engine"/,

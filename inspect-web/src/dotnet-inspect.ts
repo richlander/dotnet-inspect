@@ -766,7 +766,6 @@ import {
   createTypeLeverageCoordinator,
   typeLeverageMatchesFilter,
   type TypeLeverageFilter,
-  type TypeLeveragePresentation,
 } from "./type-leverage.ts";
 import type {
   BrowserMemberSource,
@@ -1282,15 +1281,11 @@ const initialState = {
   typeFiltersExpanded: false,
   typeLeverageEnabled: false,
   typeLeverageFilter: "" as TypeLeverageFilter,
-  typeLeverageLoading: false,
   typeLeverageError: "",
   typeLeverageKey: "",
-  typeLeveragePresentation: null as TypeLeveragePresentation | null,
   libraryMetricsLeverageNamespace: null as string | null,
-  libraryMetricsLeverageLoading: false,
   libraryMetricsLeverageError: "",
   libraryMetricsLeverageKey: "",
-  libraryMetricsLeveragePresentation: null as TypeLeveragePresentation | null,
   packages: [],
   package: null,
   uploadedLibrary: null,
@@ -3370,6 +3365,7 @@ const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
   operationAuthority,
   key: target => target.key,
   libraryKey: target => target.libraryKey,
+  operationLane: target => target.consumer,
   queryDocument: target => target.queryDocument(),
   isCurrent: target => target.consumer === "metrics"
     ? currentLibraryMetricsTypeLeverageKey() === target.key
@@ -3385,19 +3381,13 @@ const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
       state.libraryMetricsLeverageKey = published.key;
       switch (published.status) {
         case "loading":
-          state.libraryMetricsLeverageLoading = true;
           state.libraryMetricsLeverageError = "";
-          state.libraryMetricsLeveragePresentation = null;
           break;
         case "ready":
-          state.libraryMetricsLeverageLoading = false;
           state.libraryMetricsLeverageError = "";
-          state.libraryMetricsLeveragePresentation = published.presentation;
           break;
         case "failed":
-          state.libraryMetricsLeverageLoading = false;
           state.libraryMetricsLeverageError = published.message;
-          state.libraryMetricsLeveragePresentation = null;
           break;
       }
       render();
@@ -3406,19 +3396,13 @@ const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
     state.typeLeverageKey = published.key;
     switch (published.status) {
       case "loading":
-        state.typeLeverageLoading = true;
         state.typeLeverageError = "";
-        state.typeLeveragePresentation = null;
         break;
       case "ready":
-        state.typeLeverageLoading = false;
         state.typeLeverageError = "";
-        state.typeLeveragePresentation = published.presentation;
         break;
       case "failed":
-        state.typeLeverageLoading = false;
         state.typeLeverageError = published.message;
-        state.typeLeveragePresentation = null;
         break;
     }
     renderPreservingMemberFocus();
@@ -5198,7 +5182,7 @@ function currentTypeLeverageKey() {
 function currentTypeLeveragePresentation() {
   const key = currentTypeLeverageKey();
   if (key === null || state.typeLeverageKey !== key) return null;
-  return state.typeLeveragePresentation ?? typeLeverage.presentation(key);
+  return typeLeverage.presentation(key);
 }
 
 function currentLibraryMetricsTypeLeverageKey() {
@@ -5212,8 +5196,14 @@ function currentLibraryMetricsTypeLeverageKey() {
 function currentLibraryMetricsTypeLeveragePresentation() {
   const key = currentLibraryMetricsTypeLeverageKey();
   if (key === null || state.libraryMetricsLeverageKey !== key) return null;
-  return state.libraryMetricsLeveragePresentation
-    ?? typeLeverage.presentation(key);
+  return typeLeverage.presentation(key);
+}
+
+function currentLibraryMetricsTypeLeveragePending() {
+  const key = currentLibraryMetricsTypeLeverageKey();
+  return key !== null
+    && state.libraryMetricsLeverageKey === key
+    && typeLeverage.pending(key);
 }
 
 function loadTypeLeverage(retry = false) {
@@ -5221,9 +5211,7 @@ function loadTypeLeverage(retry = false) {
   try {
     target = typeLeverageTarget();
   } catch (error) {
-    state.typeLeverageLoading = false;
     state.typeLeverageError = errorMessage(error);
-    state.typeLeveragePresentation = null;
     renderPreservingMemberFocus();
     return;
   }
@@ -5241,9 +5229,7 @@ function loadLibraryMetricsTypeLeverage(retry = false) {
   try {
     target = libraryMetricsTypeLeverageTarget();
   } catch (error) {
-    state.libraryMetricsLeverageLoading = false;
     state.libraryMetricsLeverageError = errorMessage(error);
-    state.libraryMetricsLeveragePresentation = null;
     render();
     return;
   }
@@ -6279,19 +6265,18 @@ function typeLeverageControl() {
       <small>signature surface</small>
     </div>`;
   }
-  if (state.typeLeverageLoading) {
-    return `<div class="type-leverage-control" aria-live="polite">
-      <span class="loader"></span><small>Measuring structural salience…</small>
-    </div>`;
-  }
+  const presentation = currentTypeLeveragePresentation();
   if (state.typeLeverageError) {
     return `<div class="type-leverage-control metadata-warning" aria-live="polite">
       <small>${escapeHtml(state.typeLeverageError)}</small>
       <button type="button" class="tiny-button" data-type-leverage-activate>Retry</button>
     </div>`;
   }
-  const presentation = currentTypeLeveragePresentation();
-  if (!presentation) return "";
+  if (!presentation) {
+    return `<div class="type-leverage-control" aria-live="polite">
+      <span class="loader"></span><small>Measuring structural salience…</small>
+    </div>`;
+  }
   const namespaceCount = presentation.byNamespace.size;
   const namespaceStatus =
     `${namespaceCount} namespace${namespaceCount === 1 ? "" : "s"} analyzed`;
@@ -8789,6 +8774,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     maybeAutoLoadPackageOpportunities();
     maybeAutoLoadPackagePerformance();
     maybeAutoLoadPackageLibraryMetrics();
+    maybeAutoLoadTypeLeverage();
     maybeAutoLoadPackageMetadata();
   }
   if (scope() === "member"
@@ -10088,7 +10074,7 @@ function renderPackageLibraryMetrics() {
     loading: state.packageLibraryMetricsLoading,
     error: state.packageLibraryMetricsError,
     data: state.packageLibraryMetrics,
-    salienceLoading: state.libraryMetricsLeverageLoading,
+    salienceLoading: currentLibraryMetricsTypeLeveragePending(),
     salienceError: state.libraryMetricsLeverageError,
     salience: currentLibraryMetricsTypeLeveragePresentation(),
     selectedSalienceNamespace: state.libraryMetricsLeverageNamespace,
@@ -10148,9 +10134,23 @@ function maybeAutoLoadPackageLibraryMetrics() {
     observeAsync(loadPackageLibraryMetrics(), "Loading library metrics");
   const leverageKey = currentLibraryMetricsTypeLeverageKey();
   if (leverageKey !== null
-    && state.libraryMetricsLeverageKey !== leverageKey) {
+    && (state.libraryMetricsLeverageKey !== leverageKey
+      || (typeLeverage.presentation(leverageKey) === null
+        && !typeLeverage.pending(leverageKey)
+        && !state.libraryMetricsLeverageError))) {
     loadLibraryMetricsTypeLeverage();
   }
+}
+
+function maybeAutoLoadTypeLeverage() {
+  if (!state.typeLeverageEnabled || state.typeLeverageError) return;
+  if (scope() !== "type" && scope() !== "member") return;
+  const leverageKey = currentTypeLeverageKey();
+  if (leverageKey === null
+    || state.typeLeverageKey !== leverageKey
+    || typeLeverage.presentation(leverageKey) !== null
+    || typeLeverage.pending(leverageKey)) return;
+  loadTypeLeverage();
 }
 
 // The Library Metadata lens describes one image-level container: metadata format version,
@@ -12160,7 +12160,6 @@ function bindTypePanelEvents() {
         state.typeLeverageEnabled = false;
         state.typeLeverageFilter = "";
         state.typeLeverageKey = "";
-        state.typeLeveragePresentation = null;
         renderPreservingMemberFocus();
         return;
       }
@@ -13052,7 +13051,7 @@ function bindEvents() {
     selectSalienceNamespace: exactNamespace => {
       if (state.libraryMetricsLeverageNamespace === exactNamespace) return;
       state.libraryMetricsLeverageNamespace = exactNamespace;
-      loadLibraryMetricsTypeLeverage();
+      render();
     },
     retrySalience: () => loadLibraryMetricsTypeLeverage(true),
   });

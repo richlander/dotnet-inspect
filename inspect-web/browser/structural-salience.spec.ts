@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
+  chooseInspector,
   chooseSubject,
   core,
   installFacades,
@@ -9,11 +10,25 @@ import {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
-test("namespace projection and Clear filters preserve one salience request", async ({
+test("projections and cross-surface retry preserve one request generation", async ({
   page,
 }, testInfo) => {
-  await installFacades(page);
-  await page.goto(root.replace("#pkg", "&slow-salience=1#pkg"));
+  await installFacades(
+    page,
+    undefined,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    {
+      qualifiedStructuralSalience: true,
+      slowStructuralSalience: true,
+    },
+  );
+  await page.goto(root);
   await selectLibrary(page, core.id);
   await chooseSubject(page, "type", "Type");
   await page.locator("#type-filter-summary").click();
@@ -63,4 +78,19 @@ test("namespace projection and Clear filters preserve one salience request", asy
   await page.locator(".type-browser").screenshot({
     path: testInfo.outputPath("type-browser-salience.png"),
   });
+
+  await chooseSubject(page, "library", "Library");
+  await chooseInspector(page, "data-library-lens", "metrics", "Metrics");
+  const metrics = page.locator(".metrics-salience-section");
+  await expect(metrics).toContainText("Structural salience is qualified");
+  await metrics.locator("[data-metrics-salience-retry]").click();
+  await chooseSubject(page, "type", "Type");
+  await expect(page.getByRole(
+    "button",
+    { name: "Hide salience", exact: true },
+  )).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-structural-salience-request-count",
+    "2",
+  );
 });

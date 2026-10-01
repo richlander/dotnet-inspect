@@ -282,6 +282,50 @@ test("operation authority suppresses stale publication and retains caches", asyn
   assert.equal(published.at(-1)?.key, "A");
 });
 
+test("concurrent presentations share one pending exhaustive document", async () => {
+  interface Request {
+    readonly key: string;
+    readonly library: string;
+    readonly lane: string;
+  }
+  let release = (_value: BrowserLibraryStructuralSalience): void => {
+    throw new Error("The document request did not start.");
+  };
+  let documentQueries = 0;
+  let current = "A";
+  const coordinator = createTypeLeverageCoordinator<Request>({
+    operationAuthority: createOperationAuthorityPage(),
+    key: request => request.key,
+    libraryKey: request => request.library,
+    operationLane: request => request.lane,
+    queryDocument: () => {
+      documentQueries++;
+      return new Promise(resolve => {
+        release = resolve;
+      });
+    },
+    isCurrent: request => request.key === current,
+    describeError: error => String(error),
+    reportOperationDiagnostic: () => undefined,
+    publish: () => undefined,
+  });
+
+  coordinator.request({ key: "A", library: "library", lane: "type" });
+  current = "B";
+  coordinator.request({ key: "B", library: "library", lane: "metrics" });
+
+  assert.equal(documentQueries, 1);
+  assert.equal(coordinator.pending("A"), true);
+  assert.equal(coordinator.pending("B"), true);
+
+  release(document);
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(coordinator.pending("A"), false);
+  assert.equal(coordinator.pending("B"), false);
+  assert.notEqual(coordinator.presentation("B"), null);
+});
+
 test("retry invalidates the exhaustive document cache", async () => {
   interface Request {
     readonly key: string;
@@ -316,6 +360,11 @@ test("retry invalidates the exhaustive document cache", async () => {
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(documentQueries, 2);
   assert.equal(published.at(-1)?.status, "ready");
+
+  coordinator.request({ key: "B", library: "library" });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.notEqual(coordinator.presentation("B"), null);
+  assert.equal(documentQueries, 2);
 });
 
 test("pre-retry document completion cannot repopulate caches", async () => {
