@@ -702,9 +702,7 @@ public partial class CommandExecutionTests
             "member",
             "System.Text.Json.JsonSerializer.Serialize:6",
             "--platform",
-            "System.Text.Json",
-            "--tips",
-            "q");
+            "System.Text.Json");
         Match digest =
             Regex.Match(
                 ordinal.Output,
@@ -715,9 +713,7 @@ public partial class CommandExecutionTests
             "System.Text.Json.JsonSerializer.Serialize~"
                 + digest.Groups["digest"].Value,
             "--platform",
-            "System.Text.Json",
-            "--tips",
-            "q");
+            "System.Text.Json");
 
         Assert.Equal(0, ordinal.Exit);
         Assert.Equal(ordinal, fingerprint);
@@ -740,17 +736,13 @@ public partial class CommandExecutionTests
             typeName,
             nameof(MemberCallGraphFixture.RootCall),
             "--library",
-            TestAssemblyPath,
-            "--tips",
-            "q");
+            TestAssemblyPath);
         var exact = await RunAppAsync(
             "member",
             typeName,
             $"{nameof(MemberCallGraphFixture.RootCall)}:1",
             "--library",
-            TestAssemblyPath,
-            "--tips",
-            "q");
+            TestAssemblyPath);
 
         Assert.Equal(0, group.Exit);
         Assert.Equal(0, exact.Exit);
@@ -772,9 +764,7 @@ public partial class CommandExecutionTests
             $"{nameof(MemberCallGraphFixture.RootCall)}:1",
             "--library",
             TestAssemblyPath,
-            "--tree",
-            "--tips",
-            "q");
+            "--tree");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

@@ -83,8 +83,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             source,
             "-S",
             "Context: Member",
-            "--tips",
-            "q",
         ];
 
         var first = await RunCommandAsync(args);
