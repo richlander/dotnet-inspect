@@ -5,6 +5,7 @@ using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using Inspector.Findings;
 
 namespace DotnetInspect.Cli.Sections;
@@ -34,9 +35,6 @@ public static class LibrarySections
                 maxGenericSubstitutionNodes: 10_000_000,
                 maxStructuredNodes: 10_000_000,
                 maxRetainedText: 16_000_000);
-
-    private static readonly AnalysisLibraryBodyUseRequest
-        s_libraryMetricsBodyUseRequest = new();
 
     /// <summary>The reusable fixed-domain catalog for per-assembly library queries.</summary>
     public static InspectionQueryCatalog<InspectionQueryContext> QueryCatalog { get; } =
@@ -532,31 +530,52 @@ public static class LibrarySections
                     _ => throw new InvalidOperationException(
                         "Unknown Library Metrics signature-use outcome."),
                 };
-            var metadata = context.MetadataContext
-                ?? throw new InvalidOperationException(
-                    "Library Metrics requires the command's exact prefetched "
-                        + "metadata image.");
-            AnalysisLibraryBodyUseOutcome bodyOutcome =
-                AnalysisLibraryBodyUseService.ExecuteImage(
-                    context.AssemblyPath,
-                    metadata.GetPrefetchedImage(),
-                    s_libraryMetricsBodyUseRequest);
-            AnalysisLibraryBodyUseResult bodyUse =
-                bodyOutcome switch
-                {
-                    AnalysisLibraryBodyUseOutcome.Available available =>
-                        available.Result,
-                    AnalysisLibraryBodyUseOutcome.Rejected rejected =>
-                        throw new InvalidOperationException(
-                            "Library Metrics body-use acquisition was rejected "
-                                + $"({rejected.Kind}): {rejected.Detail}"),
-                    _ => throw new InvalidOperationException(
-                        "Unknown Library Metrics body-use outcome."),
-                };
+            LibraryStructuralNamespaceLeverageIndex namespaceIndex =
+                LibraryStructuralReport.CreateNamespaceLeverageIndex(
+                    signatureUse);
+            var typeLeverageShards =
+                new List<LibraryStructuralTypeLeverageShard>(
+                    namespaceIndex.Rows.Length);
+            foreach (LibraryStructuralNamespaceLeverageRow row
+                in namespaceIndex.Rows)
+            {
+                MetadataLibrarySignatureUseOutcome shardOutcome =
+                    context.Query(
+                        session => session.LibrarySignatureUses(
+                            new(
+                                s_libraryMetricsSignatureUsePolicy,
+                                row.Namespace)),
+                        error => throw new InvalidOperationException(
+                            "Library Metrics could not acquire its exact "
+                                + "namespace metadata session.",
+                            error));
+                MetadataLibrarySignatureUseResult shard =
+                    shardOutcome switch
+                    {
+                        MetadataLibrarySignatureUseOutcome.Available
+                            available => available.Result,
+                        MetadataLibrarySignatureUseOutcome.Rejected
+                            rejected =>
+                            throw new InvalidOperationException(
+                                "Library Metrics namespace signature-use "
+                                    + "acquisition was rejected "
+                                    + $"({rejected.Kind}): "
+                                    + rejected.Detail),
+                        _ => throw new InvalidOperationException(
+                            "Unknown Library Metrics namespace "
+                                + "signature-use outcome."),
+                    };
+                typeLeverageShards.Add(
+                    LibraryStructuralReport.CreateTypeLeverageShard(
+                        shard));
+            }
+            LibraryStructuralSalienceDocument structuralSalience =
+                LibraryStructuralReport.CreateStructuralSalience(
+                    namespaceIndex,
+                    typeLeverageShards);
             return LibraryMetricsQuery.Execute(
                 analysis,
-                signatureUse,
-                bodyUse);
+                structuralSalience);
         }
         catch (CostDeclarationException)
         {

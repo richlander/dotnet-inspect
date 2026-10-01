@@ -65,6 +65,59 @@ import {
   spotlightSource,
   commandBarSource,
 } from "./composition-root-test-fixture.ts";
+
+test("qualified Type leverage exposes a cache-bypassing retry", () => {
+  const control = sourceText(functionDeclaration("typeLeverageControl"));
+  assert.match(
+    control,
+    /qualified[\s\S]*data-type-leverage-retry>Retry/,
+  );
+  assert.match(
+    appSource,
+    /onTypeLeverageRetry:\s*\(\) => loadTypeLeverage\(true\)/,
+  );
+  assert.match(
+    typePanelSource,
+    /data-type-leverage-retry[\s\S]*onTypeLeverageRetry/,
+  );
+});
+
+test("Metrics lens requests and presents exact structural-salience shards", () => {
+  const target = sourceText(
+    functionDeclaration("libraryMetricsTypeLeverageTarget"),
+  );
+  const loader = sourceText(
+    functionDeclaration("loadLibraryMetricsTypeLeverage"),
+  );
+  const renderer = sourceText(
+    functionDeclaration("renderPackageLibraryMetrics"),
+  );
+  const autoLoad = sourceText(
+    functionDeclaration("maybeAutoLoadPackageLibraryMetrics"),
+  );
+
+  assert.match(
+    target,
+    /state\.atLibraryRoot[\s\S]*state\.libraryLens !== "metrics"[\s\S]*libraryMetricsLeverageNamespace[\s\S]*createTypeLeverageTarget\("metrics", requestedNamespaces, true\)/,
+  );
+  assert.match(
+    loader,
+    /libraryMetricsTypeLeverageTarget\(\)[\s\S]*typeLeverage\.retry\(target\)[\s\S]*typeLeverage\.request\(target\)/,
+  );
+  assert.match(
+    renderer,
+    /salienceLoading: state\.libraryMetricsLeverageLoading[\s\S]*salience: currentLibraryMetricsTypeLeveragePresentation\(\)[\s\S]*selectedSalienceNamespace: state\.libraryMetricsLeverageNamespace/,
+  );
+  assert.match(
+    autoLoad,
+    /libraryMetricsLeverageKey !== leverageKey[\s\S]*loadLibraryMetricsTypeLeverage\(\)/,
+  );
+  assert.match(
+    appSource,
+    /selectSalienceNamespace: exactNamespace => \{[\s\S]*state\.libraryMetricsLeverageNamespace = exactNamespace;[\s\S]*loadLibraryMetricsTypeLeverage\(\);[\s\S]*retrySalience: \(\) => loadLibraryMetricsTypeLeverage\(true\)/,
+  );
+});
+
 test("shared HTML escaping covers text and attribute delimiters", () => {
   const helper = sourceText(functionDeclaration("escapeHtml"));
   assert.deepEqual(
@@ -775,7 +828,7 @@ test("typed library controls own library and Platform picker bindings", () => {
     /onPlatformLensLibrarySelect: \(lens, name, pack\) =>\s*observeAsync\(\s*openPlatformLensLibrary\(lens, name, pack\),\s*"Opening a platform library"\)/);
   assert.match(
     appSource,
-    /else if \(lens === "metrics"\) await loadPackageLibraryMetrics\(\)/);
+    /else if \(lens === "metrics"\) \{\s*loadLibraryMetricsTypeLeverage\(\);\s*await loadPackageLibraryMetrics\(\);\s*}/);
   assert.doesNotMatch(
     workspaceBinding,
     /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);
@@ -1176,6 +1229,12 @@ test("typed type panel owns its rendered control bindings", () => {
     clearFilters,
     /state\.accessibilityFilter = defaultAccessibilityFilter\(state\.package\)/);
   assert.match(
+    clearFilters,
+    /state\.typeLeverageFilter = ""/);
+  assert.match(
+    clearFilters,
+    /if \(state\.typeLeverageEnabled\) loadTypeLeverage\(\);\s*else renderPreservingMemberFocus\(\)/);
+  assert.match(
     binding,
     /onTypeFilterChange: value => \{[\s\S]*?render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},/);
   assert.match(
@@ -1225,6 +1284,13 @@ test("typed type panel owns its rendered control bindings", () => {
     binding.match(
       new RegExp(`    ${name}: [\\s\\S]*?(?=\\n    on[A-Z])`))?.[0]
       ?? "";
+  const kindSelect = callbackSource("onKindSelect");
+  assert.match(
+    kindSelect,
+    /if \(state\.typeLeverageEnabled\) loadTypeLeverage\(\);\s*else renderPreservingMemberFocus\(\)/);
+  assert.match(
+    kindSelect,
+    /loadCurrentSelectionData\("Loading the selected Type"\)/);
   for (const [name, stateField] of [
     ["onMemberCompositionKindSelect", "memberKindFilter"],
     ["onMemberCompositionTraitSelect", "memberTraitFilter"],
@@ -1292,6 +1358,30 @@ test("typed type panel owns its rendered control bindings", () => {
       "#nav-to-types": 0,
       "#clear-filter": 0,
       "#namespace-jump": 0,
+    });
+
+    test("structural salience requests only indexed exact namespaces", () => {
+      assert.match(
+        appSource,
+        /target\.requestedNamespaces\.filter\(namespace =>\s*index\.namespaces\.some\(row => row\.namespace === namespace\)\)/);
+      assert.match(
+        appSource,
+        /const GLOBAL_NAMESPACE_FILTER = "__dotnet_inspect_global_namespace__"/);
+      assert.match(
+        appSource,
+        /state\.namespaceFilter === GLOBAL_NAMESPACE_FILTER\s*\? ""\s*: state\.namespaceFilter/);
+      assert.match(
+        appSource,
+        /const value = namespaceFilterValue\(ns\)/);
+      assert.match(
+        appSource,
+        /namespaceSelectionValue: namespaceFilterValue/);
+      assert.match(
+        appSource,
+        /function namespaceFilterValue\(exactNamespace: string\): string \{\s*return exactNamespace \|\| GLOBAL_NAMESPACE_FILTER;\s*}/);
+      assert.match(
+        appSource,
+        /typeLeverageMatchesFilter\(undefined, leverageFilter\)[\s\S]*\.filter\(row =>\s*exactNamespace === null \|\| row\.namespace === exactNamespace\)/);
     });
   assert.equal(selectorCount("#type-filter"), 1);
   assert.equal(selectorCount("#type-list"), 5);
