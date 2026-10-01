@@ -510,9 +510,10 @@ and reporting.
 
 After every completed round and before any next round or approval prompt, emit
 this complete visible report as a checkpoint, not a pause. Continue immediately
-when the next-round plan is clear and authorized; stop for operator input only
-for an unresolved design question or expired six-round grant. Fill every field
-as specified, omit only empty `Blocked`/`Waiting` lines, and never shorten it:
+when another round is clearly planned and authorized; pause review progression
+only for an unresolved design question or expired grant. Existing terminal
+decision prompts remain. Fill every field as specified, omit only empty
+`Blocked`/`Waiting` lines, and never shorten it:
 
 ```text
 Round <n> is complete for PR <number>.
@@ -546,9 +547,8 @@ anything outside them is a scope proposal unless the operator approves it.
 
 ### Stop after six rounds
 
-Review blocks hot-start: authorized rounds continue without asking, setting
-`HELP`, or waiting while the next-round plan is clear. Approval is required
-before rounds 7, 13, 19, and so on; each grant authorizes at most six rounds.
+Review blocks hot-start: clearly planned, authorized rounds continue without
+asking or `HELP`; approval before rounds 7, 13, 19, and so on grants at most six rounds.
 
 At each block boundary, reviewer dispatch waits for approval after fresh green
 current-head CI and positive mergeability; round 12 and later presume splitting

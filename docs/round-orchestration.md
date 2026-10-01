@@ -514,9 +514,11 @@ a blocker, and it clears only when every listed predicate clears.
 - `continue` means the next round is inside the current authorized six-round
   block. The report is a visible checkpoint, not a stopping point: immediately
   begin the next candidate cycle without asking, setting `HELP`, or waiting for
-  user input. Stop for operator direction only when the next step depends on an
-  unresolved design question or the six-round grant has expired. Operational
-  waits remain tool-evaluable waits, not requests for next-round direction.
+  user input. Pause before another review round only when the next step depends
+  on an unresolved design question or the six-round grant has expired. This
+  does not suppress the terminal or block-boundary decisions listed below.
+  Operational waits remain tool-evaluable waits, not requests for next-round
+  direction.
 - `wait` requires a non-empty `Blocked` or `Waiting` field. A retained
   `schedule` means the agent will check automatically; without one, the wait is
   passive and resumes only when a later user or workflow turn re-enters it.
