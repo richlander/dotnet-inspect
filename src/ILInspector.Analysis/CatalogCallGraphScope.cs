@@ -268,17 +268,6 @@ public sealed class CatalogCallGraphScope : IDisposable
             targetParticipant);
     }
 
-    /// <summary>
-    /// Compatibility overload for callers that have not yet migrated from
-    /// <see cref="LibraryBodyIndex"/>.
-    /// </summary>
-    public ImmutableArray<CatalogResolvedCallSite> ResolvedCalls(
-        LibraryBodyIndex source,
-        LibraryBodyIndex target) =>
-        ResolvedCalls(
-            source.CallGraphAnalysis,
-            target.CallGraphAnalysis);
-
     public CallTreeNode BuildCallerTree(
         LibraryCallGraphAnalysisResult root,
         int rootMethodToken,

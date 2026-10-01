@@ -10,23 +10,22 @@ source owner: the ordered physical MethodDef population, breadth selection,
 requested depth, declared expansion, serial reference execution, and exact
 source-work receipt.
 
-The current `MethodDefinitionExecution` is a useful reference precursor. It
-already visits MethodDefs in metadata order, applies the source gate, acquires
-body and module-lookup work on demand, preserves Producer Planning outcomes,
-and specializes eligible terminal kernels. It is not the target source:
-explicit MethodDef scopes still require callers outside this boundary, body
-depth is too coarse, generated-body and referenced-callee work are not
-source requests, and its receipt does not prove which physical methods were
-examined or acquired.
+The current source delegates producer work to
+`MethodDefinitionExecution`. It supports all-MethodDef, exact-MethodDef, and
+exact-TypeDef breadth in metadata order, applies the source gate, acquires body
+and module-lookup work on demand, preserves Producer Planning outcomes, and
+specializes eligible all-definition terminal kernels. Exact seeds are
+normalized without subject access. Their execution uses direct MethodDef
+access or direct TypeDef method ranges rather than a table scan.
 
-The first implementation slice routes the Assembly Analysis service through
-this owner-issued source for the all-MethodDef unsafe-evidence `Exists`
-request. The source owns resource-free planning, exact subject binding, serial
-reference execution, source-receipt translation, and detached publication
-while delegating producer work to the interim executor. The first-slice
-Release gates are named in [Required evidence](#required-evidence). Sparse
-breadth, generated-body expansion, body packets, exact source-failure
-classification, and collapsed request groups remain **unverified**.
+The implemented slices route the Assembly Analysis service through this
+owner-issued source for unsafe-evidence requests and publish compact exact
+MethodDef coverage for definitions examined, physical methods selected, and
+terminal bodies acquired. The source owns resource-free planning, exact
+subject binding, serial reference execution, source-receipt translation, and
+detached publication. Metadata-predicate breadth, generated-body expansion,
+body packets, exact source-failure classification, and collapsed request
+groups remain **unverified**.
 
 ## Demo and pathological case
 
@@ -449,7 +448,8 @@ Migration is incremental:
 2. Move unsafe-evidence presence from direct
    `MethodDefinitionExecution.Execute` to the source without changing its
    all-definitions `Exists` result. This slice is implemented.
-3. Add exact-method and exact-type breadth with exact coverage receipts.
+3. Add exact-method and exact-type breadth with exact coverage receipts. This
+   slice is implemented.
 4. Move one sparse production body producer and its real CLI consumer,
    preserving its focused result rather than filtering a legacy aggregate.
 5. Add authenticated generated-body expansion for that consumer.
@@ -474,15 +474,21 @@ The first implementation slice is gated in Release:
 - `MethodQuerySource_ProducerFailureDoesNotBecomeSuccessfulAbsence`
 - `MethodQuerySource_ReleasedExecutionRetainsNoSubjectAuthority`
 
-The following deeper-source gates remain **unverified**:
+The exact-breadth slice is gated in Release:
 
+- `MethodQuerySource_NormalizesExactBreadthWithoutReadingSubject`
+- `MethodQuerySource_EmptyExactSeedsRemainEmptyPopulations`
 - `MethodQuerySource_ExactMethodBreadthVisitsOnlySelectedMethods`
 - `MethodQuerySource_ExactTypeBreadthVisitsOnlyDeclaredMethods`
+- `MethodQuerySource_ReceiptSeparatesExaminedSelectedAndAcquiredWork`
+- `MethodQuerySource_ExactExistsPublishesVisitedSparsePrefix`
+
+The following deeper-source gates remain **unverified**:
+
 - `MethodQuerySource_GeneratedExpansionVisitsOnlyAuthenticatedBodies`
 - `MethodQuerySource_GeneratedExpansionAccountsBodyDependentDiscovery`
 - `MethodQuerySource_ReferencedExpansionIsBoundedDeduplicatedAndOrdered`
 - `MethodQuerySource_DeepestTerminalLayerIsAcquiredOncePerMethod`
-- `MethodQuerySource_ReceiptSeparatesExaminedSelectedAndAcquiredWork`
 - `MethodQuerySource_SourceFailureDoesNotBecomeSuccessfulAbsence`
 
 The sparse-breadth pathological gate uses the pinned System.Text.Json asset.
