@@ -39,7 +39,7 @@ section-substrate programs:
   land independently. The later `-E` adoption replaces that public syntax while
   reusing its stream-separation, laziness, and positional-ownership evidence.
 - [#8148](https://github.com/richlander/dotnet-inspect/issues/8148) owns the
-  current reusable-reference proposal. The later `-E references` adoption
+  current reusable-reference proposal. The later `-E .references` adoption
   preserves its owner-issued row references, order, cardinality, and reusable
   spelling while moving them from primary-output replacement to explicit
   companion output.
@@ -64,8 +64,8 @@ The target CLI has one compact discovery, query, and companion-output model:
 | `-D` | Discover the registered facets available for the command or resolved subject. |
 | `-Q <facet>` | Execute one or more registered facets by canonical ID or contextual dot notation. |
 | `-E` | Emit the complete default explanation for the executed request as a final `stderr` sidecar. |
-| `-E tips` | Emit only the bounded related-gesture projection from that explanation. |
-| `-E references` | Emit one owner-issued reusable reference per selected semantic row as the final `stderr` sidecar. |
+| `-E .tips` | Dereference only the bounded related-gesture projection from that explanation. |
+| `-E .references` | Dereference one owner-issued reusable reference per selected semantic row as the final `stderr` sidecar. |
 
 `--explain` remains the terminal form: it returns explanation Content on
 `stdout` instead of executing the selected facet. Top-level `explain` remains
@@ -103,7 +103,7 @@ dotnet-inspect member JsonSerializer Serialize \
   --package System.Text.Json \
   -Q .index \
   --where "<member predicate>" \
-  -E references \
+  -E .references \
   > members.tsv \
   2> members.refs
 ```
@@ -481,10 +481,28 @@ selected per invocation:
 
 - bare `-E` requests the complete default contextual explanation for the
   resolved request;
-- `-E tips` requests only the deterministic bounded executable-gesture
+- `-E .tips` dereferences only the deterministic bounded executable-gesture
   projection; and
-- `-E references` requests one owner-issued reusable reference for every
+- `-E .references` dereferences one owner-issued reusable reference for every
   selected semantic row, in selected order.
+
+The `-E` option establishes the current companion resource. An absent operand
+selects that resource's default complete explanation; a leading dot selects one
+exact named child in the companion-projection namespace. `.tips` and
+`.references` are owner-issued projection names, not search text,
+`ViewFacetId` values, Registry aliases, or persisted cross-host identity.
+
+The leading dot is also the option-value ownership marker. After `-E`, a dotted
+token belongs to `-E`; an unrelated undotted token remains available to
+ordinary command and positional parsing. An unknown dotted value is an invalid
+companion projection and fails before acquisition with the known `.tips` and
+`.references` values.
+
+The former undotted spellings `-E tips` and `-E references` are invalid and
+receive focused replacement diagnostics. They do not remain aliases and cannot
+silently rebind `tips` or `references` as positional subjects. Repeated `-E`,
+including repetitions that select the same projection, is invalid rather than
+order-dependent.
 
 Complete explanation means complete at the explanation owner's documented
 finite default extent. It does not mean recursive traversal, execution of Info
@@ -529,26 +547,26 @@ an agent-friendly sidecar. It does not inherit the primary output's
 `--format`. Structured explanation remains available through terminal
 `--explain --format json`.
 
-`-E references` uses one legible, shell-safe reusable reference per line. The
-framed reference block preserves selected-row order and cardinality. Each
-reference line is accepted unchanged by top-level `explain`. The block does not
-inherit the primary output's format and contains no diagnostics or prose beyond
-its framing marker.
+`-E .references` uses one legible, shell-safe reusable reference per line.
+The framed reference block preserves selected-row order and cardinality. Each
+reference line is accepted unchanged by top-level `explain`. The block does
+not inherit the primary output's format and contains no diagnostics or prose
+beyond its framing marker.
 
 Companion construction failure prevents primary output publication. A sink
 failure after one stream has committed remains a visible non-success under the
 owning output-sink contract; the process cannot roll back bytes already
 accepted by an external stream.
 
-`--explain -E` is rejected as duplicate full explanation. `--explain -E tips`
-is useful and remains admitted. `--explain -E references` is rejected because
-terminal explanation does not execute and select the ordinary semantic rows
-whose references it would project. The focused CLI grammar adoption defines
-how the exact `tips` and `references` tokens are consumed without stealing
-unrelated positional input.
+`--explain -E` is rejected as duplicate full explanation.
+`--explain -E .tips` is useful and remains admitted.
+`--explain -E .references` is rejected because terminal explanation does not
+execute and select the ordinary semantic rows whose references it would
+project. The focused CLI grammar adoption preserves dotted-token ownership
+without stealing unrelated positional input.
 
 The current `--references` primary-output projection retires when
-`-E references` reaches replacement parity. It does not remain as an alias.
+`-E .references` reaches replacement parity. It does not remain as an alias.
 
 ## Browser/Wasm
 
@@ -608,10 +626,11 @@ Each slice changes one focused owner and references this map.
    formats, query capabilities, costs, effects, and related operations through
    Resource Explanation without duplicating owner descriptors.
 7. **Adopt the `-E` companion family.** Replace the standalone tips projection
-   with full contextual explanation and `-E tips`; replace primary
-   `--references` with additive `-E references`. Preserve lazy absent-demand
-   behavior, selected-row reference order and cardinality, atomic companion
-   materialization, and the stdout-before-sidecar publication contract.
+   with full contextual explanation and `-E .tips`; replace primary
+   `--references` with additive `-E .references`. Preserve dotted-token
+   ownership, lazy absent-demand behavior, selected-row reference order and
+   cardinality, atomic companion materialization, and the
+   stdout-before-sidecar publication contract.
 8. **Cut over CLI selection.** Reclaim `-Q` for exact facet execution, add
    contextual `.<name>` recognition and the typed Registry handoff, migrate
    `-S` selections and query-help examples, retain `-D` for discovery, and
@@ -675,7 +694,7 @@ Focused adoptions must demonstrate:
     never chooses by registration order.
 16. **Query scope.** `--where` and ordering terms bind only to row sets declared
     by the exact selected facet; equal column labels do not transfer operators.
-17. **Reference correspondence.** `-E references` emits exactly one
+17. **Reference correspondence.** `-E .references` emits exactly one
     owner-issued reference per selected semantic row in selected order, and
     every value is accepted unchanged by top-level `explain`.
 18. **Incomplete references.** One unreferenceable selected row prevents both
@@ -689,6 +708,15 @@ Focused adoptions must demonstrate:
 21. **Absent companion demand.** An invocation without `-E` realizes no
     explanation-only registry, affordance, reference projection, ranking, or
     companion-rendering work.
+22. **Companion dereference ownership.** `-E .tips` and `-E .references`
+    consume their dotted operands, while an unrelated undotted positional
+    token remains owned by ordinary command parsing.
+23. **Undotted migration guard.** `-E tips` and `-E references` fail before
+    acquisition with their dotted replacements and cannot reinterpret the
+    former names as positional subjects.
+24. **Unknown companion child.** `-E .unknown` fails before acquisition rather
+    than searching explanation text, selecting the companion root, or reaching
+    positional parsing.
 
 ## Evidence plan
 
@@ -710,6 +738,8 @@ The composition requires, across those slices:
 - target-free discovery without acquisition;
 - query explanation without producer execution;
 - one-shot execution plus explanation without reacquisition;
+- exact dotted companion selection, unknown-child rejection, undotted
+  migration guards, and unrelated positional-token preservation;
 - selected-row reference order, cardinality, round-trip acceptance, and
   all-or-nothing materialization;
 - lazy absent-demand behavior;
@@ -730,6 +760,8 @@ This map does not:
 - make title lookup a portable alias contract;
 - make contextual dot notation a Registry identity, alias, wildcard, or
   Browser contract;
+- make `.tips` or `.references` a View Facet, search term, persisted identity,
+  or undotted compatibility alias;
 - make every structural document section independently executable;
 - infer category membership from ID prefixes;
 - define operation, row, hierarchy, graph, or document internals;
