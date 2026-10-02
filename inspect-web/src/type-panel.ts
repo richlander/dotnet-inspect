@@ -55,6 +55,7 @@ export interface TypeSummary {
 
 export interface MemberOverloadSummary {
   signature: string;
+  stableSelector?: string | null;
   graphOnly?: boolean;
   parameters?: readonly OverloadLabelParameter[];
   returnType?: string | null;
@@ -195,6 +196,7 @@ export interface MemberGroup {
   overloads: readonly MemberOverloadSummary[];
   completeCount?: number;
   completeCountStatus?: "available" | "pending" | "failed";
+  sourceOverloadCount?: number;
 }
 
 export function familyOutsideMarkerHtml(
@@ -333,6 +335,9 @@ export interface TypePanelBindingActions {
   onMemberFilterKeyDown: (event: KeyboardEvent, value: string) => boolean;
   onMemberGroupOpen: (memberKey: string) => void;
   onMemberKindFilterSelect: (kind: string | undefined) => void;
+  onMethodLeverageActivate: () => void;
+  onMethodLeverageFilterSelect: (filter: string | undefined) => void;
+  onMethodLeverageRetry: () => void;
   onMemberOverloadOpen: (index: number) => void;
   onMemberSelect: (memberKey: string | undefined) => void;
   onMemberTraitFilterSelect: (trait: string | undefined) => void;
@@ -416,6 +421,18 @@ export function bindTypePanel(
       select.addEventListener(
         "change",
         () => actions.onMemberKindFilterSelect(select.value)));
+  root.querySelector("[data-method-leverage-activate]")?.addEventListener(
+    "click",
+    actions.onMethodLeverageActivate);
+  root.querySelector("[data-method-leverage-retry]")?.addEventListener(
+    "click",
+    actions.onMethodLeverageRetry);
+  root.querySelectorAll<HTMLSelectElement>(
+    "[data-method-leverage-filter]",
+  ).forEach(select =>
+    select.addEventListener(
+      "change",
+      () => actions.onMethodLeverageFilterSelect(select.value)));
   root.querySelectorAll<HTMLSelectElement>("[data-member-access-filter]")
     .forEach(select =>
       select.addEventListener(
@@ -737,6 +754,12 @@ export interface MemberNavOptions {
   highlight: (value: string) => string;
   overloadHeat?: (group: MemberGroup, index: number) => MemberNavOverloadHeat | null;
   familyHeatCue?: (group: MemberGroup) => MemberNavHeatCue | null;
+  memberAchievements?: (
+    group: MemberGroup,
+    index: number | null,
+  ) => readonly ItemAchievement[];
+  overloadSourceIndex?: (group: MemberGroup, index: number) => number;
+  emptyMessage?: string;
 }
 
 export function renderMemberNav(options: MemberNavOptions): string {
@@ -747,13 +770,14 @@ export function renderMemberNav(options: MemberNavOptions): string {
     escapeHtml, typeDisplayName, shortKind, highlight,
     overloadHeat, familyHeatCue,
   } = options;
+  const memberAchievements = options.memberAchievements;
   const navigationSelection = selectedMemberKey
     ? (selectedOverloadIndex == null
       ? `member:${selectedMemberKey}`
       : `overload:${selectedMemberKey}:${selectedOverloadIndex}`)
     : "";
   return `
-    <aside id="content-navigation-pane" class="type-browser member-nav" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
+    <aside id="content-navigation-pane" class="type-browser member-nav${memberAchievements ? " has-item-achievement-rail" : ""}" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
       <div class="browser-head">
         <div>
           <span class="pane-label">MEMBERS</span>
@@ -771,7 +795,9 @@ export function renderMemberNav(options: MemberNavOptions): string {
         ${entries.map(entry => {
           if (entry.kind === "member") {
             const group = entry.group;
-            const isMulti = group.overloads.length > 1;
+            const overloadCount =
+              group.sourceOverloadCount ?? group.overloads.length;
+            const isMulti = overloadCount > 1;
             const graphOnly =
               group.overloads.some(overload => overload.graphOnly);
             const outsideMarker = familyOutsideMarkerHtml(
@@ -785,18 +811,32 @@ export function renderMemberNav(options: MemberNavOptions): string {
             // An overload family's name and count take their own color, so a
             // row that holds several members reads apart from a single member.
             const family = isMulti && !graphOnly;
-            return `<button class="type-row member-row${graphOnly ? " graph-member-row" : ""} ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
+            const achievements = memberAchievements?.(
+              group,
+              isMulti ? null : 0,
+            ) ?? [];
+            const achievementClasses =
+              itemAchievementClassNames(achievements);
+            return `<button class="type-row member-row${memberAchievements ? " has-item-achievement-rail" : ""}${graphOnly ? " graph-member-row" : ""}${achievementClasses ? ` ${achievementClasses}` : ""} ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
+              ${memberAchievements
+                ? renderItemAchievementRail(achievements, escapeHtml)
+                : ""}
               <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
               <span class="type-name${family ? " family-name" : ""}">${graphOnly || isMulti ? escapeHtml(group.name) : singleMemberLabelHtml(group, escapeHtml, highlight)}</span>
-              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${group.overloads.length}×</span>` : singleMemberDetailHtml(group, escapeHtml, shortKind)}${outsideMarker}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
+              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${overloadCount}×</span>` : singleMemberDetailHtml(group, escapeHtml, shortKind)}${outsideMarker}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
             </button>`;
           }
-          const selected = entry.group.key === selectedMemberKey && selectedOverloadIndex === entry.index;
           const overload = entry.group.overloads[entry.index];
           if (!overload) {
             throw new Error(
               `Member group '${entry.group.key}' has no overload ${entry.index}.`);
           }
+          const sourceIndex =
+            options.overloadSourceIndex?.(entry.group, entry.index)
+            ?? entry.index;
+          const selected =
+            entry.group.key === selectedMemberKey
+            && selectedOverloadIndex === sourceIndex;
           const heat = overloadHeat?.(entry.group, entry.index) ?? null;
           const heated = heat?.heatStrength != null;
           const heatStyle = heated
@@ -806,17 +846,20 @@ export function renderMemberNav(options: MemberNavOptions): string {
           const heatDescription = heat === null
             ? ""
             : ` aria-description="${escapeHtml(heat.description)}" title="${escapeHtml(heat.description)}"`;
-          const achievements: readonly ItemAchievement[] = heat?.hub
-            ? [{
+          const achievements: readonly ItemAchievement[] = [
+            ...(memberAchievements?.(entry.group, entry.index) ?? []),
+            ...(heat?.hub ? [{
                 kind: "implementation-hub",
                 description: "implementation hub",
-              }]
-            : [];
-          return `<button class="type-row overload-nav-row has-item-achievement-rail${heatClasses} ${selected ? " selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
+              } as const] : []),
+          ];
+          const achievementClasses =
+            itemAchievementClassNames(achievements);
+          return `<button class="type-row overload-nav-row has-item-achievement-rail${heatClasses}${achievementClasses ? ` ${achievementClasses}` : ""} ${selected ? " selected" : ""}" data-nav-overload="${sourceIndex}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
             ${renderItemAchievementRail(achievements, escapeHtml)}
             <code>${overloadNavLabelHtml(entry.group.name, overload, escapeHtml, highlight)}</code>
           </button>`;
-        }).join("") || '<div class="empty-list">No members match these filters.</div>'}
+        }).join("") || `<div class="empty-list">${escapeHtml(options.emptyMessage ?? "No members match these filters.")}</div>`}
       </div>
       <footer class="pane-footer"><span>↑↓ members</span>${selectedMemberKey ? "<span>←→ sections</span>" : ""}<span>esc types</span></footer>
     </aside>`;

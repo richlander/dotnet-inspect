@@ -232,6 +232,26 @@ test("implementation evidence remains subtle member-list heat", () => {
     /overloadHeat: memberNavOverloadHeat,[\s\S]*familyHeatCue: memberNavFamilyHeatCue/);
 });
 
+test("explicit Top Leverage activation runs before background heat", () => {
+  const render = sourceText(functionDeclaration("render"));
+  assert.match(
+    render,
+    /scheduleTypeHeat\(\);[\s\S]*scheduleTypeMethodLeverage\(\);/);
+  const scheduleLeverage =
+    sourceText(functionDeclaration("scheduleTypeMethodLeverage"));
+  assert.match(
+    scheduleLeverage,
+    /typeMethodLeverage\.request\(target\.request, target\.isCurrent\)/);
+  assert.doesNotMatch(scheduleLeverage, /currentTypeHeatState/);
+  assert.match(
+    appSource,
+    /const typeMethodLeverage = createTypeMethodLeverageCoordinator\(\{[\s\S]*?whenWorkerIdle:\s*\(\) => Promise\.resolve\(\)/);
+  const target = sourceText(
+    functionDeclaration("typeMethodLeverageTarget"));
+  assert.match(target, /state\.rootKind === "library"/);
+  assert.doesNotMatch(target, /navMode/);
+});
+
 test("platform call graphs carry the target pack into lazy acquisition", () => {
   assert.equal(
     platformPackFromProvenance(

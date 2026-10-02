@@ -275,6 +275,18 @@ import {
   type TypeHeatRequest,
   type TypeHeatState,
 } from "./implementation-heat.ts";
+import {
+  createTypeMethodLeverageCoordinator,
+  methodLeverageFor,
+  type PackageTypeMethodLeverageRequest,
+  type PlatformTypeMethodLeverageRequest,
+  type TypeMethodLeverageRequest,
+  type TypeMethodLeverageState,
+} from "./method-leverage.ts";
+import {
+  itemAchievementClassNames,
+  renderItemAchievementRail,
+} from "./item-achievements.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMetadataInspectionCoordinator,
@@ -897,8 +909,12 @@ let inspectPlatformLibraryStructuralSalience:
   EngineClient["analysis"]["queryPlatformLibraryStructuralSalience"];
 let inspectPackageTypeImplementationHeat:
   EngineClient["analysis"]["queryPackageTypeImplementationHeat"];
+let inspectPackageTypeMethodLeverage:
+  EngineClient["analysis"]["queryPackageTypeMethodLeverage"];
 let inspectPlatformTypeImplementationHeat:
   EngineClient["analysis"]["queryPlatformTypeImplementationHeat"];
+let inspectPlatformTypeMethodLeverage:
+  EngineClient["analysis"]["queryPlatformTypeMethodLeverage"];
 let inspectPlatformIntegrations:
   EngineClient["analysis"]["queryPlatformIntegrations"];
 let inspectPlatformOpportunities:
@@ -1082,8 +1098,12 @@ async function loadEngineModule() {
         inspectPackageLibraryStructuralSalience,
       queryPackageTypeImplementationHeat:
         inspectPackageTypeImplementationHeat,
+      queryPackageTypeMethodLeverage:
+        inspectPackageTypeMethodLeverage,
       queryPlatformTypeImplementationHeat:
         inspectPlatformTypeImplementationHeat,
+      queryPlatformTypeMethodLeverage:
+        inspectPlatformTypeMethodLeverage,
       queryPlatformLibraryMetrics: inspectPlatformLibraryMetrics,
       queryPlatformLibraryStructuralSalience:
         inspectPlatformLibraryStructuralSalience,
@@ -1127,6 +1147,7 @@ interface AppMemberGroup {
   overloads: AppMemberSurface[];
   completeCount: number;
   completeCountStatus: "available" | "pending" | "failed";
+  sourceOverloadCount?: number;
 }
 
 type MemberAccessibility =
@@ -1354,6 +1375,9 @@ const initialState = {
   typeMemberPopulationError: "",
   typeMemberPopulationKey: "",
   typeHeat: { status: "idle" } as TypeHeatState,
+  methodLeverageEnabled: false,
+  memberLeverageFilter: "" as "" | "top-leverage",
+  typeMethodLeverage: { status: "idle" } as TypeMethodLeverageState,
   memberSource: { status: "idle" as const },
   memberAnnotated: null,
   memberAnnotatedLoading: false,
@@ -1530,6 +1554,7 @@ interface StateOverrides {
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
   typeHeat: TypeHeatState;
+  typeMethodLeverage: TypeMethodLeverageState;
   memberSource: SourceResultState<BrowserMemberSource>;
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
@@ -1972,6 +1997,7 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     platformIndex: null,
     retryAction: null,
     queryNoticeRetryAction: null,
+    typeMethodLeverage: { status: "idle" as const },
     typeHeat: { status: "idle" as const },
   });
   const retainedState: AppState = {
@@ -3358,7 +3384,7 @@ async function deleteManagedRetainedWorkspace(
 const keybindings = createWorkbenchKeybindings();
 let keyboardHelpBindings = keybindings.bindingsFor();
 const operationAuthority = createOperationAuthorityPage();
-const typeHeatWorkspaceGenerations =
+const typeAnalysisWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
 const typeLeverageWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
@@ -6529,7 +6555,56 @@ function resetMemberFilters() {
 }
 
 function visibleMemberGroups(type: AppTypeSurface) {
-  return filterMemberGroups(selectedMemberGroups(type), memberFilterState());
+  const filtered =
+    filterMemberGroups(selectedMemberGroups(type), memberFilterState());
+  if (state.memberLeverageFilter !== "top-leverage") return filtered;
+  const leverage = currentTypeMethodLeverageState();
+  if (leverage.status !== "ready") return [];
+  return filtered.flatMap(group => {
+    const overloads = group.overloads.filter(overload =>
+      methodLeverageFor(leverage, overload.stableSelector ?? "") !== null);
+    return overloads.length === 0
+      ? []
+      : [{
+          ...group,
+          overloads,
+          sourceOverloadCount: group.overloads.length,
+        }];
+  });
+}
+
+function methodLeverageAchievements(
+  group: {
+    readonly overloads: readonly {
+      readonly stableSelector?: string | null;
+    }[];
+  },
+  index: number | null,
+) {
+  if (index === null) return [];
+  const stableSelector = group.overloads[index]?.stableSelector;
+  const cue = stableSelector
+    ? methodLeverageFor(currentTypeMethodLeverageState(), stableSelector)
+    : null;
+  return cue
+    ? [{ kind: "top-leverage" as const, description: cue.description }]
+    : [];
+}
+
+function methodLeverageEmptyMessage() {
+  if (state.memberLeverageFilter !== "top-leverage") {
+    return "No members match these filters.";
+  }
+  const leverage = currentTypeMethodLeverageState();
+  if (leverage.status === "ready") {
+    return leverage.presentation.winnerCount > 0
+      && leverage.presentation.anchoredWinnerCount === 0
+      ? "The true Top Leverage winner has no browsable member row."
+      : "No Top Leverage member matches the current filters.";
+  }
+  return leverage.status === "failed"
+    ? "Top Leverage is unavailable until retry."
+    : "Loading Top Leverage…";
 }
 
 function selectedMemberGroups(type: AppTypeSurface) {
@@ -6603,6 +6678,43 @@ function selectedMemberTraitCount(type: AppTypeSurface, trait: string) {
   }
 }
 
+function renderMethodLeverageControl() {
+  if (state.rootKind === "library") {
+    return `<div class="member-leverage-control" data-method-leverage-status="unavailable">
+      <small>Top Leverage is unavailable for uploaded Libraries.</small>
+    </div>`;
+  }
+  if (!state.methodLeverageEnabled) {
+    return `<div class="member-leverage-control" data-method-leverage-status="disabled">
+      <button type="button" class="tiny-button" data-method-leverage-activate>Show Top Leverage</button>
+      <small>Analyzes all method accessibilities.</small>
+    </div>`;
+  }
+  const leverage = currentTypeMethodLeverageState();
+  if (leverage.status === "failed") {
+    return `<div class="member-leverage-control" data-method-leverage-status="failed" role="alert">
+      <small>${escapeHtml(leverage.message)}</small>
+      <button type="button" class="tiny-button" data-method-leverage-retry>Retry</button>
+    </div>`;
+  }
+  if (leverage.status !== "ready") {
+    return `<div class="member-leverage-control" data-method-leverage-status="${leverage.status}" role="status">
+      <span class="loader" aria-hidden="true"></span>
+      <small>Finding the highest-leverage members…</small>
+    </div>`;
+  }
+  const presentation = leverage.presentation;
+  const hiddenCount =
+    presentation.winnerCount - presentation.anchoredWinnerCount;
+  return `<div class="member-leverage-control" data-method-leverage-status="ready">
+    <small>${presentation.anchoredWinnerCount} browsable Top Leverage ${presentation.anchoredWinnerCount === 1 ? "member" : "members"}${hiddenCount > 0 ? ` · ${hiddenCount} true ${hiddenCount === 1 ? "winner has" : "winners have"} no browsable row` : ""}</small>
+    <select class="scope-select" data-method-leverage-filter aria-label="Top Leverage member filter">
+      <option value=""${state.memberLeverageFilter === "" ? " selected" : ""}>all members</option>
+      <option value="top-leverage"${state.memberLeverageFilter === "top-leverage" ? " selected" : ""}>Top Leverage · ${presentation.anchoredWinnerCount}</option>
+    </select>
+  </div>`;
+}
+
 function renderMemberFilterControls(type: AppTypeSurface) {
   const kinds = memberKinds(type);
   const accessibilities = memberAccessibilities(type);
@@ -6631,8 +6743,10 @@ function renderMemberFilterControls(type: AppTypeSurface) {
       : state.memberAccessibilityFilter,
     state.memberSpelling === "metadata" ? "metadata spelling" : "",
     activeTrait ?? "",
+    state.memberLeverageFilter === "top-leverage" ? "Top Leverage" : "",
   ].filter(Boolean).join(" · ");
   return `
+    ${renderMethodLeverageControl()}
     <details class="filter-disclosure member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
       <summary id="member-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
       <div class="type-search member-search">
@@ -7379,11 +7493,11 @@ function memberSectionUsesWorkingSurface(section: MemberSection) {
     || section === "facts";
 }
 
-function typeHeatWorkspaceGeneration(pkg: AppPackage) {
-  const existing = typeHeatWorkspaceGenerations.get(pkg);
+function typeAnalysisWorkspaceGeneration(pkg: AppPackage) {
+  const existing = typeAnalysisWorkspaceGenerations.get(pkg);
   if (existing) return existing;
   const generation = crypto.randomUUID();
-  typeHeatWorkspaceGenerations.set(pkg, generation);
+  typeAnalysisWorkspaceGenerations.set(pkg, generation);
   return generation;
 }
 
@@ -7414,7 +7528,7 @@ function typeHeatTarget(): {
         const row = platformLibraryForRequest(pkg, type.assemblyId);
         return {
           kind: "platform",
-          workspaceGeneration: typeHeatWorkspaceGeneration(pkg),
+          workspaceGeneration: typeAnalysisWorkspaceGeneration(pkg),
           targetFramework: pkg.activeFramework,
           platformVersion: pkg.version,
           pack: row.pack,
@@ -7424,7 +7538,7 @@ function typeHeatTarget(): {
       })()
     : {
         kind: "package",
-        workspaceGeneration: typeHeatWorkspaceGeneration(pkg),
+        workspaceGeneration: typeAnalysisWorkspaceGeneration(pkg),
         packageId: pkg.id,
         version: pkg.version,
         targetFramework: pkg.activeFramework,
@@ -7496,6 +7610,96 @@ function scheduleTypeHeat() {
   }, 0));
 }
 
+function typeMethodLeverageTarget(): {
+  request: TypeMethodLeverageRequest;
+  isCurrent: () => boolean;
+} | null {
+  const pkg = state.package;
+  const type = selectedType();
+  if (!state.methodLeverageEnabled
+    || !pkg
+    || !type
+    || state.rootKind === "library") {
+    return null;
+  }
+  const request: TypeMethodLeverageRequest = pkg.isRuntimePack
+    ? (() => {
+        const row = platformLibraryForRequest(pkg, type.assemblyId);
+        return {
+          kind: "platform",
+          workspaceGeneration: typeAnalysisWorkspaceGeneration(pkg),
+          targetFramework: pkg.activeFramework,
+          platformVersion: pkg.version,
+          pack: row.pack,
+          assemblyFileName: platformAssemblyRequest(row),
+          typeDefinitionId: type.definitionId,
+        } satisfies PlatformTypeMethodLeverageRequest;
+      })()
+    : {
+        kind: "package",
+        workspaceGeneration: typeAnalysisWorkspaceGeneration(pkg),
+        packageId: pkg.id,
+        version: pkg.version,
+        targetFramework: pkg.activeFramework,
+        assemblyName: type.assemblyId,
+        typeDefinitionId: type.definitionId,
+      } satisfies PackageTypeMethodLeverageRequest;
+  return {
+    request,
+    isCurrent: () =>
+      state.package === pkg
+      && selectedType()?.id === type.id,
+  };
+}
+
+const typeMethodLeverage = createTypeMethodLeverageCoordinator({
+  state,
+  operationAuthority,
+  query: async request => request.kind === "platform"
+    ? inspectPlatformTypeMethodLeverage(
+        request.targetFramework,
+        request.platformVersion,
+        request.assemblyFileName,
+        request.pack,
+        request.typeDefinitionId,
+      )
+    : inspectPackageTypeMethodLeverage(
+        request.packageId,
+        request.version,
+        request.targetFramework,
+        request.assemblyName,
+        request.typeDefinitionId,
+      ),
+  whenWorkerIdle: () => Promise.resolve(),
+  describeError: errorMessage,
+  reportOperationDiagnostic: diagnostic => {
+    console.error(
+      "Type method leverage operation authority failure.",
+      diagnostic);
+    return undefined;
+  },
+  render: () => queueMicrotask(() => renderPreservingMemberFocus()),
+});
+
+function currentTypeMethodLeverageState(): TypeMethodLeverageState {
+  const current = state.typeMethodLeverage;
+  return current.status !== "idle" && current.isCurrent()
+    ? current
+    : { status: "idle" };
+}
+
+function scheduleTypeMethodLeverage() {
+  const target = typeMethodLeverageTarget();
+  if (!target || currentTypeMethodLeverageState().status !== "idle") return;
+  typeMethodLeverage.request(target.request, target.isCurrent);
+}
+
+function retryTypeMethodLeverage() {
+  const target = typeMethodLeverageTarget();
+  if (!target) return;
+  typeMethodLeverage.retry(target.request, target.isCurrent);
+}
+
 function navGroupHeatIdentity(group: { key: string }) {
   const type = selectedType();
   if (!type) return null;
@@ -7527,7 +7731,39 @@ function navGroupHeatIdentity(group: { key: string }) {
     : null;
 }
 
-function memberNavOverloadHeat(group: { key: string }, index: number) {
+function memberNavOverloadSourceIndex(
+  group: {
+    readonly key: string;
+    readonly overloads: readonly {
+      readonly stableSelector?: string | null;
+    }[];
+  },
+  index: number,
+) {
+  const overload = group.overloads[index];
+  const sourceGroup = selectedType()
+    ? selectedMemberGroups(selectedType()!)
+      .find(candidate => candidate.key === group.key)
+    : null;
+  if (!overload || !sourceGroup || sourceGroup === group) return index;
+  const sourceIndex = sourceGroup.overloads.findIndex(candidate =>
+    candidate.stableSelector === overload.stableSelector);
+  if (sourceIndex < 0) {
+    throw new Error(
+      `Filtered member '${group.key}' has no exact source overload.`);
+  }
+  return sourceIndex;
+}
+
+function memberNavOverloadHeat(
+  group: {
+    readonly key: string;
+    readonly overloads: readonly {
+      readonly stableSelector?: string | null;
+    }[];
+  },
+  index: number,
+) {
   const family = navGroupHeatIdentity(group);
   if (!family) return null;
   const heat = familyHeatFor(
@@ -7535,7 +7771,9 @@ function memberNavOverloadHeat(group: { key: string }, index: number) {
     family.name,
     family.accessibility,
     family.overloads);
-  const overload = heat?.overloads[index];
+  const overload = heat?.overloads[
+    memberNavOverloadSourceIndex(group, index)
+  ];
   return overload
     ? {
         heatStrength: overload.heatStrength,
@@ -7862,7 +8100,8 @@ function memberNavEntries(type: AppTypeSurface): MemberNavEntry[] {
   const entries: MemberNavEntry[] = [];
   for (const group of visibleMemberGroups(type)) {
     entries.push({ kind: "member", group });
-    if (group.key === state.selectedMemberKey && group.overloads.length > 1) {
+    if (group.key === state.selectedMemberKey
+      && (group.sourceOverloadCount ?? group.overloads.length) > 1) {
       group.overloads.forEach((_, index) => entries.push({ kind: "overload", group, index }));
     }
   }
@@ -8230,6 +8469,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     productNavigationBinding.afterRender();
     memberListRevealer.afterRender(document);
     scheduleTypeHeat();
+    scheduleTypeMethodLeverage();
     memberDiffExplorer.afterRender(
       document.querySelector<HTMLElement>("#compare-title")
         ?? document.querySelector<HTMLElement>("main h1"),
@@ -9210,6 +9450,11 @@ function renderMemberNavPane(type: AppTypeSurface) {
     highlight,
     overloadHeat: memberNavOverloadHeat,
     familyHeatCue: memberNavFamilyHeatCue,
+    ...(state.methodLeverageEnabled
+      ? { memberAchievements: methodLeverageAchievements }
+      : {}),
+    overloadSourceIndex: memberNavOverloadSourceIndex,
+    emptyMessage: methodLeverageEmptyMessage(),
   });
 }
 
@@ -11269,14 +11514,28 @@ function renderApiLens(item: AppTypeSurface) {
           state.memberAccessibilityFilter,
           escapeHtml,
           Boolean(state.memberTraitFilter));
+        const sourceOverloadCount =
+          group.sourceOverloadCount ?? group.overloads.length;
+        const achievements = state.methodLeverageEnabled
+          ? methodLeverageAchievements(
+              group,
+              sourceOverloadCount === 1 ? 0 : null)
+          : [];
+        const achievementClasses =
+          itemAchievementClassNames(achievements);
         return `
-        <button class="api-row" data-member="${escapeHtml(group.key)}">
+        <button class="api-row${state.methodLeverageEnabled ? " has-item-achievement-rail" : ""}${achievementClasses ? ` ${achievementClasses}` : ""}" data-member="${escapeHtml(group.key)}">
+          ${state.methodLeverageEnabled
+            ? renderItemAchievementRail(achievements, escapeHtml)
+            : ""}
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
           <code>${highlight(overload.signature)}</code>
-          <small>${group.overloads.length === 1 ? escapeHtml(group.kind) : `${group.overloads.length} overloads`}${outsideMarker}</small>
+          <small>${sourceOverloadCount === 1 ? escapeHtml(group.kind) : `${sourceOverloadCount} overloads`}${outsideMarker}</small>
         </button>`;
         }).join("") || `<div class="empty-list">${
-          typeMemberPopulationPhase(item) === "failed"
+          state.memberLeverageFilter === "top-leverage"
+            ? escapeHtml(methodLeverageEmptyMessage())
+            : typeMemberPopulationPhase(item) === "failed"
             ? "Member population unavailable."
             : typeMemberPopulationPhase(item) === "available"
               ? `No declared ${escapeHtml(state.memberAccessibilityFilter)} members match these filters.`
@@ -12346,6 +12605,30 @@ function bindTypePanelEvents() {
       normalizeMemberSelection();
       renderMemberFilterAndRestoreFocus();
     },
+    onMethodLeverageActivate: () => {
+      if (state.rootKind === "library") return;
+      state.methodLeverageEnabled = true;
+      state.memberLeverageFilter = "";
+      const target = typeMethodLeverageTarget();
+      if (target) {
+        typeMethodLeverage.request(target.request, target.isCurrent);
+        return;
+      }
+      renderPreservingMemberFocus();
+    },
+    onMethodLeverageFilterSelect: value => {
+      if (value !== "" && value !== "top-leverage") return;
+      if (value === "top-leverage"
+        && currentTypeMethodLeverageState().status !== "ready") {
+        return;
+      }
+      state.memberLeverageFilter = value;
+      state.selectedOverloadIndex = null;
+      resetMemberSectionState();
+      normalizeMemberSelection();
+      renderPreservingMemberFocus();
+    },
+    onMethodLeverageRetry: () => retryTypeMethodLeverage(),
     onMemberOverloadOpen: selector => {
       const member = selectedMember(selectedType());
       if (completeMemberGroupUsesLegacyOverloadRoute(member)) {

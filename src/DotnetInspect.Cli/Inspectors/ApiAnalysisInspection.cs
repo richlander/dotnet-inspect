@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -110,24 +111,7 @@ internal static class ApiAnalysisInspection
     }
 
     internal static bool SameType(Analysis.TypeRef typeRef, ApiType type)
-    {
-        if (typeRef.Kind != Analysis.TypeRefKind.Definition)
-            return false;
-
-        if (typeRef.Resolution?.Type is { } referenceName
-            && type.DefinitionName is { } definitionName)
-        {
-            return referenceName == definitionName;
-        }
-
-        if (!string.Equals(typeRef.Namespace, type.Namespace ?? "", StringComparison.Ordinal))
-            return false;
-
-        if (type.MetadataName != null)
-            return string.Equals(typeRef.Name, type.MetadataName, StringComparison.Ordinal);
-
-        return string.Equals(typeRef.Name.Replace('+', '.'), type.Name, StringComparison.Ordinal);
-    }
+        => AnalysisApiCorrespondence.IsSameType(typeRef, type);
 
     internal static IReadOnlyList<MemberExceptionRegion> ResolveExceptionRegions(
         string assemblyPath,

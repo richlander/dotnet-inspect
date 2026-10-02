@@ -495,6 +495,122 @@ public sealed class BrowserImplementationProfileWireProjectionTests
         Assert.NotEmpty(browser.Diagnostics);
     }
 
+    [Fact]
+    public async Task TypeMethodLeverageProjectionPreservesWinnersAndEnvelope()
+    {
+        byte[] content = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, content);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        string typeDefinitionId = Selection(
+            group,
+            participant,
+            "ImplementationProfileHiddenImplementationSample",
+            "Parse").TypeDefinitionId;
+
+        InspectionEnvelope<
+            AssemblyContextEntry<AssemblyTypeMethodLeverageInspection>>
+                inspection = TypeMethodLeverageInspectionOperation.Execute(
+                    group,
+                    participant,
+                    typeDefinitionId);
+        AssemblyTypeMethodLeverageInspection expected =
+            Assert.IsType<
+                AssemblyContextEntry<
+                    AssemblyTypeMethodLeverageInspection>.Available>(
+                        inspection.Content)
+                .Value;
+        BrowserTypeMethodLeverage browser =
+            BrowserImplementationProfileWireProjection
+                .ProjectTypeMethodLeverage(
+                    inspection,
+                    s_compileLibrary);
+
+        Assert.Equal(1, browser.SchemaVersion);
+        Assert.Equal("available", browser.Outcome);
+        Assert.Null(browser.Failure);
+        Assert.Equal(
+            Assert.IsType<InspectionShare.NonProjectable>(
+                inspection.Share).Path,
+            Assert.IsType<BrowserAnalysisInspectionShare>(
+                browser.Share).Path);
+        BrowserTypeMethodLeverageContent projected =
+            Assert.IsType<BrowserTypeMethodLeverageContent>(
+                browser.Content);
+        Assert.Equal(typeDefinitionId, projected.TypeDefinitionId);
+        Assert.Equal(expected.MethodCount, projected.MethodCount);
+        Assert.Equal(expected.WinnerCount, projected.WinnerCount);
+        Assert.Equal(
+            expected.WinningRank?.DirectCallerCount,
+            projected.WinningRank?.DirectCallerCount);
+        Assert.Equal(
+            expected.AnchoredWinners.Select(
+                winner => (
+                    winner.TypeDefinitionId,
+                    winner.StableSelector,
+                    Tokens: string.Join(",", winner.MethodTokens))),
+            projected.AnchoredWinners.Select(
+                winner => (
+                    winner.TypeDefinitionId,
+                    winner.StableSelector,
+                    Tokens: string.Join(",", winner.MethodTokens))));
+
+        string json = JsonSerializer.Serialize(
+            browser,
+            BrowserAnalysisJsonContext.Default.BrowserTypeMethodLeverage);
+        BrowserTypeMethodLeverage roundTrip =
+            JsonSerializer.Deserialize(
+                json,
+                BrowserAnalysisJsonContext.Default
+                    .BrowserTypeMethodLeverage)
+            ?? throw new InvalidOperationException(
+                "Type method-leverage wire round trip returned null.");
+        Assert.Equal(
+            JsonSerializer.Serialize(
+                browser.Content,
+                BrowserAnalysisJsonContext.Default
+                    .BrowserTypeMethodLeverage.Options),
+            JsonSerializer.Serialize(
+                roundTrip.Content,
+                BrowserAnalysisJsonContext.Default
+                    .BrowserTypeMethodLeverage.Options));
+    }
+
+    [Fact]
+    public async Task TypeMethodLeverageProjectionKeepsFailureVisible()
+    {
+        byte[] content = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, content);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        BrowserTypeMethodLeverage browser =
+            BrowserImplementationProfileWireProjection
+                .ProjectTypeMethodLeverage(
+                    TypeMethodLeverageInspectionOperation.Execute(
+                        group,
+                        participant,
+                        "Missing.Type"),
+                    s_compileLibrary);
+
+        Assert.Equal("failed", browser.Outcome);
+        Assert.Null(browser.Content);
+        Assert.Contains(
+            "was not found",
+            Assert.IsType<BrowserImplementationProfileFailure>(
+                browser.Failure).Detail,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            browser.Diagnostics,
+            diagnostic =>
+                diagnostic.Code
+                    == "method-leverage.participant-failed");
+    }
+
     static AssemblyContextGroup Group(
         InspectionWorkspace workspace,
         byte[] content,

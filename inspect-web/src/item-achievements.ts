@@ -3,6 +3,7 @@ export const MAX_ITEM_ACHIEVEMENTS = 2;
 type ItemAchievementKind =
   | "sea-level"
   | "mountain-peak"
+  | "top-leverage"
   | "implementation-hub";
 
 export interface ItemAchievement {

@@ -31,13 +31,25 @@ test("item achievement rail preserves zero to two ordered glyph slots", () => {
   );
 
   const member = renderItemAchievementRail([
+    { kind: "top-leverage", description: "Top Leverage" },
     { kind: "implementation-hub", description: "implementation hub" },
   ], escapeHtml);
+  assert.ok(
+    member.indexOf("top-leverage") < member.indexOf("implementation-hub"),
+    "Top Leverage must occupy the first member achievement slot",
+  );
+  assert.match(
+    member,
+    /item-achievement-glyph top-leverage/,
+  );
   assert.match(
     member,
     /item-achievement-glyph implementation-hub/,
   );
-  assert.match(member, /aria-label="implementation hub"/);
+  assert.match(
+    member,
+    /aria-label="Top Leverage; implementation hub"/,
+  );
 });
 
 test("item achievement rail rejects overflow and duplicate slots", () => {

@@ -345,6 +345,12 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     },
     onMemberGroupOpen: value => calls.push(`member-open:${value}`),
     onMemberKindFilterSelect: value => calls.push(`member-kind:${value}`),
+    onMethodLeverageActivate: () =>
+      calls.push("method-leverage-activate"),
+    onMethodLeverageFilterSelect: value =>
+      calls.push(`method-leverage-filter:${value}`),
+    onMethodLeverageRetry: () =>
+      calls.push("method-leverage-retry"),
     onMemberOverloadOpen: value => calls.push(`member-overload:${value}`),
     onMemberSelect: value => calls.push(`member:${value}`),
     onMemberTraitFilterSelect: value => calls.push(`member-trait:${value}`),
@@ -387,6 +393,15 @@ test("type panel bindings dispatch member filters without eager work", () => {
   root.addAll("[data-member-access-filter]", accessibility);
   root.addAll("[data-member-spelling]", spelling);
   root.addAll("[data-member-trait-filter]", trait);
+  const leverage = new FakeElement();
+  leverage.value = "top-leverage";
+  root.addAll("[data-method-leverage-filter]", leverage);
+  const leverageActivate = root.add(
+    "[data-method-leverage-activate]",
+    new FakeElement());
+  const leverageRetry = root.add(
+    "[data-method-leverage-retry]",
+    new FakeElement());
   const filter = root.add("#member-filter", new FakeElement());
   filter.value = "parse";
   const disclosure = root.add(
@@ -418,6 +433,9 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-spelling:metadata",
     "member-trait:static",
   ]);
+  leverageActivate.dispatch("click");
+  leverage.dispatch("change");
+  leverageRetry.dispatch("click");
   filter.dispatch("input");
   disclosure.open = true;
   disclosure.dispatch("toggle");
@@ -429,6 +447,9 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-access:protected",
     "member-spelling:metadata",
     "member-trait:static",
+    "method-leverage-activate",
+    "method-leverage-filter:top-leverage",
+    "method-leverage-retry",
     "member-filter:parse",
     "member-filter-disclosure:true",
     "member-filter-key:ArrowDown:parse",
@@ -2280,6 +2301,7 @@ test("member rows say what a member is rather than which kind it is", () => {
     kind: "method",
     overloads: [{
       signature: "public void WriteTo(System.Text.Json.Utf8JsonWriter writer)",
+      stableSelector: "WriteTo~1111111111",
       parameters: [{ type: "System.Text.Json.Utf8JsonWriter" }],
     }],
   };
@@ -2300,10 +2322,12 @@ test("member rows say what a member is rather than which kind it is", () => {
     overloads: [
       {
         signature: "public static System.Text.Json.JsonDocument Parse(string json, System.Text.Json.JsonDocumentOptions options = default)",
+        stableSelector: "Parse~2222222222",
         parameters: [{ type: "string" }, { type: "System.Text.Json.JsonDocumentOptions" }],
       },
       {
         signature: "public static System.Text.Json.JsonDocument Parse(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default)",
+        stableSelector: "Parse~3333333333",
         parameters: [{ type: "System.IO.Stream" }, { type: "System.Text.Json.JsonDocumentOptions" }],
       },
     ],
@@ -2333,6 +2357,11 @@ test("member rows say what a member is rather than which kind it is", () => {
         ? "33 instructions; hub called by 1 same-name method"
         : "8 instructions",
     }),
+    memberAchievements: (group, index) =>
+      (group.key === "method:WriteTo" && index === 0)
+      || (group.key === "method:Parse" && index === 1)
+        ? [{ kind: "top-leverage", description: "Top Leverage" }]
+        : [],
   });
 
   // A single method shows its compact parameter list; a property its type.
@@ -2345,13 +2374,20 @@ test("member rows say what a member is rather than which kind it is", () => {
   assert.doesNotMatch(html, /↳|overload-branch/);
   assert.equal(
     html.match(/class="item-achievement-rail"/g)?.length,
+    5,
+  );
+  assert.equal(
+    html.match(/item-achievement-glyph top-leverage/g)?.length,
     2,
   );
   assert.match(
     html,
     /item-achievement-glyph implementation-hub/,
   );
-  assert.match(html, /aria-label="implementation hub"/);
+  assert.match(
+    html,
+    /aria-label="Top Leverage; implementation hub"/,
+  );
   assert.match(html, /<span class="sig-keyword">string<\/span>/);
   assert.match(html, /aria-description="8 instructions"/);
   assert.match(
@@ -2359,4 +2395,52 @@ test("member rows say what a member is rather than which kind it is", () => {
     /aria-description="33 instructions; hub called by 1 same-name method"/,
   );
   assert.doesNotMatch(html, /overload-size|>8IL<|>33IL</);
+});
+
+test("filtered overload rows retain their exact source index", () => {
+  const group = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    sourceOverloadCount: 3,
+    overloads: [{
+      signature: "public void Parse(System.IO.Stream value)",
+      stableSelector: "Parse~3333333333",
+      parameters: [{ type: "System.IO.Stream" }],
+    }],
+  };
+  const html = renderMemberNav({
+    type: jsonDocument,
+    entries: [
+      { kind: "member", group },
+      { kind: "overload", group, index: 0 },
+    ],
+    memberCount: 3,
+    visibleMemberCount: 1,
+    filterControlsHtml: "",
+    selectedMemberKey: group.key,
+    selectedOverloadIndex: 2,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+    overloadSourceIndex: () => 2,
+    memberAchievements: (_group, index) => index === null
+      ? []
+      : [{
+          kind: "top-leverage",
+          description: "Top Leverage",
+        }],
+  });
+
+  assert.match(
+    html,
+    /data-nav-overload="2" role="option" aria-selected="true"/,
+  );
+  assert.equal(
+    html.match(/item-achievement-glyph top-leverage/g)?.length,
+    1,
+    "the family parent must not inherit its exact winner's achievement",
+  );
+  assert.match(html, /family-count">3×/);
 });
