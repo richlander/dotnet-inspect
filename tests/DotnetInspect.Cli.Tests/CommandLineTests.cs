@@ -83,6 +83,7 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("-E.tips")]
     [InlineData("-E=.tips")]
     [InlineData("-E:.tips")]
     public void InlineCompanionProjection_IsRejected(string option)
@@ -133,6 +134,7 @@ public class CommandLineTests
     [Theory]
     [InlineData("-T")]
     [InlineData("--tips")]
+    [InlineData("-E.tips")]
     [InlineData("-E=.tips")]
     public void RemovedCompanionSpellingAfterTerminator_RemainsPositional(
         string option)

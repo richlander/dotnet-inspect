@@ -564,8 +564,8 @@ The leading dot is the ownership marker. A dotted token after `-E` belongs to
 the option; an unrelated undotted token retains ordinary positional ownership.
 The former undotted spellings `-E tips` and `-E references` receive focused
 replacement diagnostics. Lowercase `-e`, repeated `-E`, unknown dotted
-children, and inline forms such as `-E=.tips` are invalid and fail before
-acquisition.
+children, and attached or inline forms such as `-E.tips` and `-E=.tips` are
+invalid and fail before acquisition.
 
 This implementation slice admits only `-E .tips`. Bare `-E` and
 `-E .references` remain reserved and fail visibly until contextual explanation
@@ -583,10 +583,11 @@ to `stderr` after successful ordinary or explanation output. Ordinary
 `stdout` completes and flushes first; the related-gesture block is the final
 successful host projection and is never suppressed by another output format.
 
-No long alias or inline value is accepted. `-T`, `--tips`, `-e`, `-T:q`,
-`-T:m`, `-T:d`, `-E=.tips`, and `-E:.tips` are invalid input rather than
-compatibility spellings. The separated dotted `.tips` token belongs to `-E`; a
-following undotted token retains the command's ordinary positional ownership
+No long alias, attached value, or inline value is accepted. `-T`, `--tips`,
+`-e`, `-T:q`, `-T:m`, `-T:d`, `-E.tips`, `-E=.tips`, and `-E:.tips` are
+invalid input rather than compatibility spellings. The separated dotted
+`.tips` token belongs to `-E`; a following undotted token retains the command's
+ordinary positional ownership
 and validation.
 
 A successful command with no applicable binding emits no related-gesture
@@ -753,7 +754,7 @@ The pathological neighboring cases are:
 | `-E .tips` resolves only after ordinary success and consumes only the exact command resource, resolved subject, and typed facts already retained by that invocation. | First-adopter CLI gate with counting acquisition and producer collaborators, misleading rendered output, and a result fact available only through the retained typed success context. |
 | A CLI binding joins only its exact owner-issued affordance identity and cannot manufacture a relationship from command text, labels, argument shape, or CLR type. | Registry-construction and collision tests with equal labels and accepted types, one missing affordance, and one unbound affordance. |
 | Applicable CLI gestures have deterministic ordering and a fixed maximum of three. | Permuted-registration test covering equal ordering preferences, stable binding-identity tie-breaking, more than three applicable bindings, and repeated equal projections. |
-| Invalid legacy, lowercase, undotted, inline, unknown, and repeated spellings are rejected without stealing positional input. | CLI parser matrix covering `-T`, `--tips`, `--tips q`, `-e`, `-T:q`, `-E tips`, `-E references`, `-E=.tips`, `-E:.tips`, an unknown dotted child, repeated `-E`, and commands where an unrelated undotted token following bare `-E` remains owned by ordinary positional grammar. |
+| Invalid legacy, lowercase, undotted, attached, inline, unknown, and repeated spellings are rejected without stealing positional input. | CLI parser matrix covering `-T`, `--tips`, `--tips q`, `-e`, `-T:q`, `-E tips`, `-E references`, `-E.tips`, `-E=.tips`, `-E:.tips`, an unknown dotted child, repeated `-E`, and commands where an unrelated undotted token following bare `-E` remains owned by ordinary positional grammar. |
 | Explicit `-E .tips` preserves stdout byte-for-byte, completes and flushes stdout before the first tip write, and writes only one bounded final gesture projection to stderr across every output format. | Production-host before/after test over the authentic Member scenario, structured and raw output representatives, and instrumented output writers recording stdout completion and flush before the first stderr tip write. |
 | Explicit binding, containment, materialization, or destination-write failure is visible and cannot become success-shaped empty output. | CLI failure matrix with the first, middle, and final candidate failing during lazy resolution, containment, or materialization before the destination write, asserting empty related-gesture stderr, plus the output sink's existing visible destination-write failure gate. |
 

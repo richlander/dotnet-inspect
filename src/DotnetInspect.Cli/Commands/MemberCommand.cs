@@ -1396,6 +1396,9 @@ public static class MemberCommand
             if (writeExitCode != 0)
                 return writeExitCode;
 
+            if (selectedSurfaceExitCode != 0)
+                return selectedSurfaceExitCode;
+
             if (effectiveOptions.CompanionOutput != CompanionOutput.None
                 && effectiveOptions.OverloadIndex == null)
             {
@@ -1435,7 +1438,7 @@ public static class MemberCommand
                     () => [.. tips]);
             }
 
-            return selectedSurfaceExitCode;
+            return 0;
         }
         catch (Exception ex)
         {

@@ -162,8 +162,8 @@ public static class ArgumentPreprocessor
                 return true;
             }
 
-            if (args[i].StartsWith("-E=", StringComparison.Ordinal)
-                || args[i].StartsWith("-E:", StringComparison.Ordinal))
+            if (args[i].Length > 2
+                && args[i].StartsWith("-E", StringComparison.Ordinal))
             {
                 error = $"'{args[i]}' is not valid. "
                     + "Pass a dotted companion projection as a separate token, "

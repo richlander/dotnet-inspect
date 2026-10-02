@@ -504,6 +504,7 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("-E.tips", "separate token")]
     [InlineData("-E=.tips", "separate token")]
     [InlineData("-E:.tips", "separate token")]
     [InlineData("-e", "Use uppercase '-E'")]

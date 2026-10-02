@@ -393,7 +393,8 @@ public static class TypeCommand
                         failure.Operation
                             != ApiSurface.ConstraintResolutionOperation);
 
-                if (!loaded.IsSummary
+                if (!inspectionIncomplete
+                    && !loaded.IsSummary
                     && options.CompanionOutput != CompanionOutput.None)
                 {
                     var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
@@ -711,6 +712,9 @@ public static class TypeCommand
                         ApiCommand.WarnEmptySelectedSections(apiType, effectiveOptions, memberPipeline);
                     }
 
+                    if (selectedSurfaceExitCode != 0)
+                        return selectedSurfaceExitCode;
+
                     if (effectiveOptions.CompanionOutput != CompanionOutput.None)
                     {
                         var sourceFlag = !string.IsNullOrEmpty(options.PlatformAssembly) ? $"--platform {options.PlatformAssembly}"
@@ -749,8 +753,6 @@ public static class TypeCommand
                             () => [.. tips]);
                     }
 
-                    if (selectedSurfaceExitCode != 0)
-                        return selectedSurfaceExitCode;
                 }
                 else if (TryWritePrefixBrowse(
                     api,
@@ -1069,7 +1071,9 @@ public static class TypeCommand
                     result.Failures.FirstOrDefault()?.Detail
                     ?? "Could not extract API from library.");
             }
-            else if (wrote && execution.Surface is not null)
+            else if (wrote
+                && result.IsComplete
+                && execution.Surface is not null)
             {
                 WriteExactLibraryTips(
                     options,
@@ -1097,12 +1101,15 @@ public static class TypeCommand
         if (writeExitCode != 0)
             return writeExitCode;
 
+        if (!result.IsComplete)
+            return 1;
+
         WriteExactLibraryTips(
             options,
             request,
             execution.Surface);
 
-        return result.IsComplete ? 0 : 1;
+        return 0;
     }
 
     static void WriteExactLibraryTips(

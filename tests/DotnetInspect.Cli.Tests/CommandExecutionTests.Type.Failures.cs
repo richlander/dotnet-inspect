@@ -84,6 +84,8 @@ public partial class CommandExecutionTests
                         "--library",
                         path,
                         .. typeOutputOptions[i],
+                        "-E",
+                        ".tips",
                     ]);
                 var selectedMember = await RunAppAsync(
                     [
@@ -92,6 +94,8 @@ public partial class CommandExecutionTests
                         "--library",
                         path,
                         .. memberOutputOptions[i],
+                        "-E",
+                        ".tips",
                     ]);
 
                 Assert.Equal(1, selectedType.Exit);
@@ -99,11 +103,19 @@ public partial class CommandExecutionTests
                     "rejected 1 metadata row",
                     selectedType.Error,
                     StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain(
+                    "Tips:",
+                    selectedType.Error,
+                    StringComparison.Ordinal);
                 Assert.Equal(1, selectedMember.Exit);
                 Assert.Contains(
                     "rejected 1 metadata row",
                     selectedMember.Error,
                     StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain(
+                    "Tips:",
+                    selectedMember.Error,
+                    StringComparison.Ordinal);
             }
         }
         finally
@@ -130,11 +142,17 @@ public partial class CommandExecutionTests
                 "--library",
                 path,
                 "-t",
-                "N.*");
+                "N.*",
+                "-E",
+                ".tips");
 
             Assert.True(
                 result.Exit == 1,
                 $"Exit={result.Exit}; output={result.Output}; error={result.Error}");
+            Assert.DoesNotContain(
+                "Tips:",
+                result.Error,
+                StringComparison.Ordinal);
             Assert.Contains(
                 "N.Good",
                 result.Output,

@@ -3682,7 +3682,7 @@ public class SourceForwarderResolutionTests
         return image.ToArray();
     }
 
-    static byte[] BuildTargetWithMalformedType(
+    internal static byte[] BuildTargetWithMalformedType(
         bool requestedTypeIsMalformed)
     {
         var metadata = new MetadataBuilder();

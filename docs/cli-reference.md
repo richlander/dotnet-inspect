@@ -563,9 +563,9 @@ Tips are off by default. Use short-only `-E .tips`, with `.tips` as a separate
 dotted token, for up to three contextual suggestions on `stderr`. Bare `-E`
 and `-E .references` are reserved and currently fail before acquisition.
 Legacy `-T` and `--tips`, lowercase `-e`, undotted `-E tips` /
-`-E references`, inline `-E=.tips` / `-E:.tips`, unknown dotted children, and
-repeated `-E` are invalid. An unrelated undotted token after `-E` remains
-positional. `E`
+`-E references`, attached or inline `-E.tips` / `-E=.tips` / `-E:.tips`,
+unknown dotted children, and repeated `-E` are invalid. An unrelated undotted
+token after `-E` remains positional. `E`
 suggests *explain* and can also remind users that the companion is written to
 the error stream; the latter is a mnemonic, not an error classification.
 
