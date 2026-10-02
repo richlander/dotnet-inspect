@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderCodeEvidenceViewer } from "../src/code-evidence-viewer.ts";
+import {
+  renderCodeEvidenceViewer,
+  renderCodeEvidenceViewerFrame,
+} from "../src/code-evidence-viewer.ts";
 
 const escapeHtml = (value: unknown) => String(value)
   .replaceAll("&", "&amp;")
@@ -72,6 +75,31 @@ test("code evidence viewer gives rail-free content the full workspace", () => {
     /class="code-evidence-viewer-workspace code-evidence-viewer-workspace-full"/,
   );
   assert.doesNotMatch(html, /code-evidence-viewer-rail/);
+});
+
+test("code evidence viewer frame leaves modal semantics with its host", () => {
+  const html = renderCodeEvidenceViewerFrame({
+    viewerId: "evidence-viewer",
+    labelledBy: "evidence-title",
+    header: '<h2 id="evidence-title">Evidence</h2>',
+    body: {
+      kind: "workspace",
+      content: {
+        html: "<pre>source</pre>",
+        label: "Source evidence",
+      },
+      rail: {
+        html: "<p>context</p>",
+        label: "Evidence context",
+      },
+    },
+    escapeHtml,
+  });
+
+  assert.match(html, /^<section id="evidence-viewer"/);
+  assert.match(html, /class="code-evidence-viewer"/);
+  assert.doesNotMatch(html, /code-evidence-viewer-backdrop/);
+  assert.doesNotMatch(html, /role="dialog"|aria-modal="true"/);
 });
 
 test("code evidence viewer keeps rejection visible inside its frame", () => {
