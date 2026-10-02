@@ -214,18 +214,23 @@ CLI envelope and Metrics Share support is tracked by
 2. Effective performance section discovery.
 3. Intersection with high-priority static Findings and exact IL coordinates.
 4. Explicit Resource Triage for pooled-resource ownership and exceptional
-   cleanup, retaining the producer's completion status.
+   cleanup, retaining reported status and diagnostics while marking current
+   ownership coverage unverified.
 5. Runtime confirmation with a representative benchmark or trace.
 
 **Boundary:** static evidence identifies candidates; it does not prove runtime
 frequency, elapsed cost, allocated bytes, or rewrite benefit. Priority and
-Confidence remain separate. An incomplete resource-lifecycle producer leaves
-pooled-resource ownership unverified; zero rows do not establish an absence of
-findings unless the producer completed.
+Confidence remain separate. Resource Triage does not currently expose a
+positive completion receipt and can emit rows while omitting typed
+incompleteness; [#7553](https://github.com/richlander/dotnet-inspect/issues/7553)
+owns preserving both through projection. The current workflow therefore always
+reports pooled-resource ownership coverage as unverified. A nonzero status or
+diagnostic can narrow the reason; zero rows do not establish an absence of
+findings.
 
 **Report:** bounded candidate list, why each candidate has leverage, exact
-static evidence, resource-analysis completion, and the runtime-confirmation
-plan or result.
+static evidence, available resource-analysis diagnostics, explicit unverified
+ownership coverage, and the runtime-confirmation plan or result.
 
 **Visual:** typed leverage-versus-evidence view or focused call/allocation
 path.

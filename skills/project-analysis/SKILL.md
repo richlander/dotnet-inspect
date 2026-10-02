@@ -273,12 +273,16 @@ dnx dotnet-inspect -y -- library \
   -S "Resource Triage" --jsonl
 ```
 
-Preserve the command status and inspection diagnostics. If resource-lifecycle
-analysis is incomplete, report pooled-resource ownership as `unverified` with
-the exact reason; do not interpret zero rows as no findings. For completed
-rows, retain Candidate, Finding, Acquire IL, Boundary IL, and Boundary.
-Treat `pool-churn-on-exception` as a profiling and hardening candidate, not
-proof of a permanent leak or memory corruption.
+Preserve the command status and inspection diagnostics. Resource Triage does
+not currently expose a positive completion receipt and can emit rows while
+some resource roots remain incomplete; [#7553](https://github.com/richlander/dotnet-inspect/issues/7553)
+owns preserving both through projection. Always report pooled-resource
+ownership coverage as `unverified`. If the command reports incompleteness,
+include the exact reason. If it returns rows, retain Candidate, Finding,
+Acquire IL, Boundary IL, and Boundary, but do not call the census exhaustive.
+Do not interpret zero rows as no findings. Treat `pool-churn-on-exception` as a
+profiling and hardening candidate, not proof of a permanent leak or memory
+corruption.
 
 ### 4d. Confirm before recommending a rewrite
 
