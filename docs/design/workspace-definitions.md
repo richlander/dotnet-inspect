@@ -3074,6 +3074,32 @@ replay.
 Selecting a subject already loaded in the active Workspace is ordinary
 Navigation and does not invoke restoration.
 
+The registration-only Ecosystem request is the neighboring non-portable input
+form. It carries one exact immutable `WorkspacePlan`, one
+`WorkspaceEcosystemRegistrationId` retained exactly once by that plan, and one
+exact Ecosystem `ViewFacetId`. The plan must have no contexts and must retain
+the product-default traversal target policy. Preparation rejects an absent
+registration or a non-Ecosystem facet before construction.
+
+The host constructs the fresh Workspace from that exact plan. Definitions
+reads the exact current registration revision, resolves the selected
+owner-issued `WorkspaceEcosystemRegistrationOccurrence`, creates
+`NavigationEcosystemEvaluation`, and submits that evaluation plus the exact
+Ecosystem subject and facet through canonical Navigation restoration. It never
+selects a sibling registration or reconstructs runtime identity from the
+portable registration ID. Missing, replaced, unknown, or inapplicable evidence
+fails visibly before publication and the ordinary Complete Restoration
+lifecycle closes the unpublished Workspace.
+
+This request is deliberately `NonProjectable`: it adds no definition member
+coordinate, packet subject tag, URL/share encoding, or packet/schema version.
+Its detached resolved state retains only the selected registration ID,
+Navigation initialization, and exact lens-resolution result; scanner-bearing
+declarations remain inside the in-process plan and live Workspace. #9130 is the
+counted first production consumer and reissues this request from exact catalog
+identity. Portable active-Ecosystem sharing, if needed, requires a separate
+Workspace Definitions design.
+
 Browser history may identify retained definitions only within one loaded page
 session. An entry stamped by an earlier page load is an ordinary location, not
 a reference to a retained definition in the current page session. After a
@@ -3244,7 +3270,8 @@ host's unpublished activation handle:
 CompleteRestorationResult<TActivation>
   Activated
     IntentToken          opaque exact owner-issued token
-    RequestBasis         PacketInput | DefinitionInput
+    RequestBasis         PacketInput | DefinitionInput |
+                         RegistrationOnlyEcosystemInput
     WorkspaceIdentity    exact fresh prepared Workspace
     Snapshot             complete prepared Workspace snapshot
     Projection           Projectable(CanonicalPacket) |
@@ -3260,9 +3287,10 @@ CompleteRestorationResult<TActivation>
   Superseded
 ```
 
-`RequestBasis` distinguishes retained packet input from an immutable
-definition request; it never invents packet bytes for a definition. Owner
-evidence follows deterministic plan order, not asynchronous completion order.
+`RequestBasis` distinguishes retained packet input, immutable definition
+input, and the non-projectable registration-only Ecosystem plan; it never
+invents packet bytes for either in-process form. Owner evidence follows
+deterministic plan order, not asynchronous completion order.
 `Activated` is the only arm carrying a new Workspace.
 `Failed` and `Superseded` produce no Workspace value and grant no host
 publication authority. Unsupported earlier-version input is a
@@ -4022,7 +4050,16 @@ Definition records and product demos (this slice):
   supersession, and cleanup. The focused
   `workspace-definitions-complete-restoration` TLA+ model checks exact
   request/plan/Workspace association, pre-construction rejection, evidence
-  order, current-intent activation, and one-shot cleanup; and
+  order, current-intent activation, and one-shot cleanup. The neighboring
+  registration-only Ecosystem arm accepts an exact context-free product-default
+  `WorkspacePlan`, selected registration ID, and Ecosystem facet; resolves the
+  exact fresh occurrence; activates it through canonical Navigation; and
+  returns a typed non-projectable result with no Package or Platform inventory.
+  `RegistrationOnlyEcosystem_PreparesExactNonProjectablePlan`,
+  `RegistrationOnlyAspire_RestoresExactEcosystem`, and
+  `RegistrationOnlyEcosystem_SelectsRequestedNeighbor` gate this boundary with
+  the shipped scanner-bearing Aspire declaration and a Microsoft.Extensions
+  neighbor; and
 - Definitions accepts schema-version-2-through-4 portable query records, binds them
   through owner-issued typed descriptors, preserves state-bound query and
   multi-Library scope through packet formats 2 through 4, and admits the exact
