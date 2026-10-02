@@ -76,9 +76,11 @@ It does not own:
 | **Decompiler** | The cross-version decompiled comparison issued by the decompiler diff owner | That owner issues it for the relation |
 
 A mode is offered only when it is available. The viewer shows one mode at a
-time, with a mode switch when more than one is available. **Text** is the
-default when available. Switching modes keeps each mode's state for the life
-of the open viewer.
+time, with an evidence picker in the shared right rail when more than one is
+available. **Text** is the default when available. With only **Text**
+available, the rail reports it as the active evidence without rendering a
+one-item picker. Switching modes keeps each mode's state for the life of the
+open viewer.
 
 A property, field, or event Member has no **Text** mode until an
 accessor-level authored-Source comparison exists. A declaration comparison is
@@ -115,14 +117,20 @@ placeholder, a disabled action, or an action derived from display text.
 ## Viewer composition
 
 The viewer is a full-bleed modal dialog under the shell's shared modal
-semantics. Its accessible name is the Member's display and the baseline, for
-example `Example.Widget.Run · 1.0.0 → 2.0.0`. Initial focus goes to the
-viewer heading.
+semantics and uses the
+[code evidence viewer](inspect-web-code-evidence-viewer.md) frame. Its
+accessible name is the Member's display and the baseline, for example
+`Example.Widget.Run · 1.0.0 → 2.0.0`. Initial focus goes to the viewer
+heading.
 
 The header shows the subject, the baseline, the relation classification and
-its change chips, the mode switch when more than one mode is available, and
-the close action. The body is the active mode's content at full width and
-height, with one vertical scroll owner and no page-level horizontal overflow.
+its change chips, and the close action. The center region is the active mode's
+content and receives all width left after the bounded right rail. The rail
+shows the active evidence, the mode picker when more than one mode is
+available, and concise endpoint context and source destinations. Successful
+text comparisons do not repeat endpoint cards or source text in the center.
+Content and rail scroll independently, and neither the modal nor the page
+becomes the horizontal scroll owner.
 
 **Text** mode is the full-bleed host of the
 [diff viewer interaction](inspect-web-diff-viewer-interaction.md): every line
@@ -196,11 +204,12 @@ This design does not claim:
 ## Adoption
 
 1. **Text-mode viewer.** Replace the three-pane viewer from #8491 with the
-   full-bleed **Text** mode over the diff viewer's full-bleed host; remove the
-   What changed and Declaration panes; narrow destination issuance to
-   relations with an available mode, recorded in the Library API Diff wire
-   owner's retained-result inventory and bounds; and consume the Compare
-   Experience's shared **Text** comparison.
+   full-bleed **Text** mode in the code-evidence shell; remove the What changed
+   and Declaration panes; place the mapped-text viewer in the center and the
+   active evidence plus endpoint context in the rail; narrow destination
+   issuance to relations with an available mode, recorded in the Library API
+   Diff wire owner's retained-result inventory and bounds; and consume the
+   Compare Experience's shared **Text** comparison.
 2. **Decompiler mode.** Add the mode switch and **Decompiler** mode when the
    decompiler diff owner issues it.
 
@@ -230,8 +239,9 @@ The #8491 relation-order renderer and its placeholder pane retire in stage 1.
 6. Close with Escape and with the close action and confirm the same Member
    row, scroll position, mode, and focus on Explore are restored.
 7. Open Explore at desktop and 390px widths and confirm one vertical scroll
-   owner, no page-level horizontal overflow, and that a resize changes layout
-   only.
+   owner per content and rail region, no page-level horizontal overflow, the
+   rail stacks after content at the shared narrow boundary, and that a resize
+   changes layout only.
 8. After the decompiler diff owner issues its mode, confirm the mode switch
    appears, **Text** remains the default, and switching keeps each mode's
    state while the viewer is open.

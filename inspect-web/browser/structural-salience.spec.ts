@@ -10,7 +10,7 @@ import {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
-test("projections and cross-surface retry preserve one request generation", async ({
+test("ordinary Type lists load cues and filters without a separate viewer", async ({
   page,
 }, testInfo) => {
   await installFacades(
@@ -33,19 +33,11 @@ test("projections and cross-surface retry preserve one request generation", asyn
   await chooseSubject(page, "type", "Type");
   await page.locator("#type-filter-summary").click();
 
-  await page.getByRole(
-    "button",
-    { name: "Show structural salience", exact: true },
-  ).click();
   await page.locator("#namespace-jump").selectOption("Example");
   await expect(page.locator("html")).toHaveAttribute(
     "data-structural-salience-request-count",
     "1",
   );
-  await expect(page.getByRole(
-    "button",
-    { name: "Hide salience", exact: true },
-  )).toBeVisible();
   expect(await page.getByRole("img", {
     name: /sea-level Type/,
   }).getAttribute("class")).toContain("item-achievement-rail");
@@ -63,10 +55,6 @@ test("projections and cross-surface retry preserve one request generation", asyn
   ).click();
   await page.locator("#clear-filter").click();
 
-  await expect(page.getByRole(
-    "button",
-    { name: "Hide salience", exact: true },
-  )).toBeVisible();
   await expect(page.locator(".item-achievement-glyph")).toHaveCount(1);
   await expect(page.locator(
     '[data-type-leverage-filter=""]',
@@ -79,18 +67,14 @@ test("projections and cross-surface retry preserve one request generation", asyn
     path: testInfo.outputPath("type-browser-salience.png"),
   });
 
-  await chooseSubject(page, "library", "Library");
-  await chooseInspector(page, "data-library-lens", "metrics", "Metrics");
-  const metrics = page.locator(".metrics-salience-section");
-  await expect(metrics).toContainText("Structural salience is qualified");
-  await metrics.locator("[data-metrics-salience-retry]").click();
-  await chooseSubject(page, "type", "Type");
-  await expect(page.getByRole(
-    "button",
-    { name: "Hide salience", exact: true },
-  )).toBeVisible();
+  await page.locator("[data-type-leverage-retry]").click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-structural-salience-request-count",
     "2",
   );
+  await chooseSubject(page, "library", "Library");
+  await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+  await page.locator('[data-analysis-mode="metrics"]').click();
+  await expect(page.locator(".library-metrics-surface"))
+    .not.toContainText("Structural Salience");
 });

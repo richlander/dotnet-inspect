@@ -341,7 +341,6 @@ export interface TypePanelBindingActions {
   onKindSelect: (kind: string) => void;
   onTypeAccessibilitySelect: (accessibility: string) => void;
   onTypeTraitSelect: (trait: string) => void;
-  onTypeLeverageActivate?: () => void;
   onTypeLeverageFilterSelect?: (filter: string) => void;
   onTypeLeverageRetry: () => void;
   onTypeNavBack: () => void;
@@ -398,9 +397,6 @@ export function bindTypePanel(
       select.addEventListener(
         "change",
         () => actions.onTypeTraitSelect(select.value)));
-  root.querySelector("[data-type-leverage-activate]")?.addEventListener(
-    "click",
-    () => actions.onTypeLeverageActivate?.());
   root.querySelector("[data-type-leverage-retry]")?.addEventListener(
     "click",
     actions.onTypeLeverageRetry);

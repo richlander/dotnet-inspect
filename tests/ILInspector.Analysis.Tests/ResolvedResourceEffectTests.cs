@@ -15,7 +15,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
     [Fact]
     public void ShippedArrayPoolModelBoundsDefinitionResolutionToCandidates()
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
             OwnershipFixturePath,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         ResolvedAssemblyReference assembly =
@@ -24,7 +24,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 AssemblyResolutionProvenance.Local(
                     "resource-effect candidate-selection test"));
         var participant =
-            new CatalogCallGraphParticipant(index, assembly);
+            new CatalogCallGraphParticipant(index.CallGraph, assembly);
         var policy = new AssemblyDependencyResolver(
             new AssemblyDependencyResolutionOptions(
                 OwnershipFixturePath));
@@ -42,7 +42,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
         Assert.InRange(
             candidateCount,
             1,
-            index.DirectCalls.Length - 1);
+            index.CallGraph.DirectCalls.Length - 1);
         Assert.DoesNotContain(
             Receipt(initial).Population.Results,
             result =>
@@ -3744,14 +3744,14 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     method.Name,
                     "Synthetic body failure")),
         ];
-        LibraryBodyIndex incompleteIndex = LibraryBodyIndex.FromEvidence(
+        LibraryBodyAnalysisExecution incompleteIndex = BodyAnalysisTestExecution.FromEvidence(
             original.CallGraph.Methods,
             unsafeEvidence: [],
             diagnostics: diagnostics,
             directCalls: original.CallGraph.DirectCalls,
             moduleIdentity: original.CallGraph.ModuleIdentity);
         var participant = new CatalogCallGraphParticipant(
-            incompleteIndex,
+            incompleteIndex.CallGraph,
             original.Assembly);
         return Assert.IsType<
             DirectCallDefinitionResolutionOutcome.Completed>(

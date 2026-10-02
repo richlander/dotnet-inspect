@@ -727,9 +727,9 @@ public class CallGraphProjectionTests
     [Fact]
     public void InstanceSelfRecursionFromBodyIndexCollapsesOntoFocus()
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        MethodIdentity method = index.DeclaredMethods.Single(candidate =>
+        MethodIdentity method = index.CallGraph.DeclaredMethods.Single(candidate =>
             candidate.DeclaringType.Name
                 == "InstanceRecursionApi"
             && candidate.Name
@@ -1103,8 +1103,8 @@ public class CallGraphProjectionTests
     {
         string path =
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
-        LibraryBodyIndex index = LibraryBodyIndex.Open(path);
-        MethodIdentity method = index.DeclaredMethods.Single(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(path);
+        MethodIdentity method = index.CallGraph.DeclaredMethods.Single(
             candidate =>
                 candidate.DeclaringType.Name
                     == "InstanceRecursionApi"
@@ -1119,11 +1119,11 @@ public class CallGraphProjectionTests
         using (var scope = new CatalogCallGraphScope(
             new AssemblyDependencyResolver(
                 new AssemblyDependencyResolutionOptions(path)),
-            [new CatalogCallGraphParticipant(index, assembly)]))
+            [new CatalogCallGraphParticipant(index.CallGraph, assembly)]))
         {
             callers = scope.Detach(
                 scope.BuildCallerTree(
-                    index.CallGraphAnalysis,
+                    index.CallGraph,
                     method.MetadataToken));
         }
 
@@ -1131,11 +1131,11 @@ public class CallGraphProjectionTests
         using (var scope = new CatalogCallGraphScope(
             new AssemblyDependencyResolver(
                 new AssemblyDependencyResolutionOptions(path)),
-            [new CatalogCallGraphParticipant(index, assembly)]))
+            [new CatalogCallGraphParticipant(index.CallGraph, assembly)]))
         {
             callees = scope.Detach(
                 scope.BuildCallTree(
-                    index.CallGraphAnalysis,
+                    index.CallGraph,
                     method.MetadataToken));
         }
 

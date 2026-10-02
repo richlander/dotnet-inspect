@@ -36,8 +36,8 @@ public partial class LibraryBodyIndexTests
                 IncludeAspNetCoreSharedFramework = false,
                 PreferImplementationAssemblies = true,
             });
-        var index = LibraryBodyIndex.Open(path, resolver);
-        var opportunities = index.OptimizationOpportunities
+        var index = BodyAnalysisTestExecution.Open(path, resolver);
+        var opportunities = index.Optimization.Opportunities
             .Where(opportunity =>
                 opportunity.Shape == "sync-call-in-async")
             .ToArray();
@@ -114,7 +114,7 @@ public partial class LibraryBodyIndexTests
                 .ParameterTypes[^1]
                 .ToQualifiedDisplayString());
         Assert.All(
-            index.OptimizationOpportunities
+            index.Optimization.Opportunities
                 .Where(opportunity => opportunity.Shape
                     != "sync-call-in-async"),
             opportunity => Assert.Null(
@@ -268,17 +268,17 @@ public partial class LibraryBodyIndexTests
                 IncludeAspNetCoreSharedFramework = false,
                 PreferImplementationAssemblies = true,
             });
-        var index = LibraryBodyIndex.Open(
+        var index = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities,
             resolver);
 
-        Assert.False(index.Features.HasFlag(
+        Assert.False(index.Receipt.Features.HasFlag(
             LibraryBodyAnalysisFeatures.Allocations));
-        Assert.False(index.Features.HasFlag(
+        Assert.False(index.Receipt.Features.HasFlag(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities));
         Assert.Contains(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity =>
                 opportunity.Shape == "sync-call-in-async"
                 && opportunity.Method.Name
@@ -286,7 +286,7 @@ public partial class LibraryBodyIndexTests
                         OptimizationOpportunityAsyncSiblingFixtures
                             .CallsSyncSiblingFromAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity =>
                 opportunity.Shape != "sync-call-in-async");
     }
@@ -409,11 +409,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_InheritedSiblingUsesNearestNameLevel()
     {
-        var index = LibraryBodyIndex.Open(
+        var index = BodyAnalysisTestExecution.Open(
             typeof(OptimizationOpportunityFixtures)
                 .Assembly.Location);
         OptimizationOpportunity[] opportunities =
-            index.OptimizationOpportunities
+            index.Optimization.Opportunities
                 .Where(opportunity => opportunity.Shape
                     == "sync-call-in-async")
                 .ToArray();
@@ -505,10 +505,10 @@ public partial class LibraryBodyIndexTests
         OptimizationOpportunities_InheritedSynchronousReceiverHidingFailsClosed()
     {
         OptimizationOpportunity[] opportunities =
-            LibraryBodyIndex.Open(
+            BodyAnalysisTestExecution.Open(
                     typeof(OptimizationOpportunityFixtures)
                         .Assembly.Location)
-                .OptimizationOpportunities
+                .Optimization.Opportunities
                 .Where(opportunity => opportunity.Shape
                     == "sync-call-in-async")
                 .ToArray();
@@ -677,7 +677,7 @@ public partial class LibraryBodyIndexTests
                 PreferImplementationAssemblies = true,
             });
 
-        var index = LibraryBodyIndex.OpenFromPrefetchedImage(
+        var index = BodyAnalysisTestExecution.OpenFromPrefetchedImage(
             missingPath,
             image,
             LibraryBodyAnalysisFeatures.MethodEvidence
@@ -686,7 +686,7 @@ public partial class LibraryBodyIndexTests
             resolver);
 
         Assert.Contains(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
@@ -1024,10 +1024,10 @@ public partial class LibraryBodyIndexTests
     {
         string path = typeof(ClassicAsyncSiblingFixture)
             .Assembly.Location;
-        var index = LibraryBodyIndex.Open(path);
+        var index = BodyAnalysisTestExecution.Open(path);
 
         var opportunity = Assert.Single(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
@@ -1062,7 +1062,7 @@ public partial class LibraryBodyIndexTests
         Assert.Equal(
             "MoveNext",
             Assert.Single(
-                index.Methods,
+                index.CallGraph.Methods,
                 method => method.MetadataToken
                     == evidenceMethodToken).Name);
         Assert.Equal(
@@ -1071,14 +1071,14 @@ public partial class LibraryBodyIndexTests
         Assert.Equal(
             PerformanceTriageProvenance.Exact,
             opportunity.Provenance);
-        var memberScoped = LibraryBodyIndex.Open(
+        var memberScoped = BodyAnalysisTestExecution.Open(
             path,
             bodyScope: new HashSet<int>
             {
                 opportunity.Method.MetadataToken,
             });
         Assert.Single(
-            memberScoped.OptimizationOpportunities,
+            memberScoped.Optimization.Opportunities,
             candidate => candidate.Shape
                     == "sync-call-in-async"
                 && candidate.Method.MetadataToken
@@ -1089,17 +1089,17 @@ public partial class LibraryBodyIndexTests
         Func<TypeRef, bool> sourceTypeScope =
             type => type.ToQualifiedDisplayString()
                 == sourceTypeName;
-        var typeScoped = LibraryBodyIndex.Open(
+        var typeScoped = BodyAnalysisTestExecution.Open(
             path,
             bodyTypeScope: sourceTypeScope);
         Assert.Single(
-            typeScoped.OptimizationOpportunities,
+            typeScoped.Optimization.Opportunities,
             candidate => candidate.Shape
                     == "sync-call-in-async"
                 && candidate.Method.MetadataToken
                     == opportunity.Method.MetadataToken);
         var memberAndTypeScoped =
-            LibraryBodyIndex.Open(
+            BodyAnalysisTestExecution.Open(
                 path,
                 bodyScope: new HashSet<int>
                 {
@@ -1108,13 +1108,13 @@ public partial class LibraryBodyIndexTests
                 bodyTypeScope: sourceTypeScope);
         Assert.Single(
             memberAndTypeScoped
-                .OptimizationOpportunities,
+                .Optimization.Opportunities,
             candidate => candidate.Shape
                     == "sync-call-in-async"
                 && candidate.Method.MetadataToken
                     == opportunity.Method.MetadataToken);
         var generatedTypeScoped =
-            LibraryBodyIndex.Open(
+            BodyAnalysisTestExecution.Open(
                 path,
                 bodyTypeScope:
                     type => type.Name.Contains(
@@ -1122,14 +1122,14 @@ public partial class LibraryBodyIndexTests
                         StringComparison.Ordinal));
         Assert.DoesNotContain(
             generatedTypeScoped
-                .OptimizationOpportunities,
+                .Optimization.Opportunities,
             candidate => candidate.Shape
                     == "sync-call-in-async"
                 && candidate.Method.MetadataToken
                     == opportunity.Method.MetadataToken);
 
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name
@@ -1140,7 +1140,7 @@ public partial class LibraryBodyIndexTests
                         ClassicGenericSelfSiblingFixture<int>
                             .ReadAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name
@@ -1151,7 +1151,7 @@ public partial class LibraryBodyIndexTests
                         ClassicGenericMethodSelfSiblingFixture
                             .ReadAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
@@ -1159,14 +1159,14 @@ public partial class LibraryBodyIndexTests
                         ClassicGenericInterfaceSelfSiblingFixture
                             .LoadAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name.EndsWith(
                     ".FetchAsync",
                     StringComparison.Ordinal));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
@@ -1174,7 +1174,7 @@ public partial class LibraryBodyIndexTests
                         ClassicGenericVirtualSelfSiblingFixture
                             .LookupAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
@@ -1182,7 +1182,7 @@ public partial class LibraryBodyIndexTests
                         ClassicAsyncSiblingFixture
                             .CallsRefWithOutSiblingAsync));
         Assert.Single(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
@@ -1191,7 +1191,7 @@ public partial class LibraryBodyIndexTests
                             .CallsCompatibleRefSiblingAsync));
 
         var collision = Assert.Single(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
@@ -1207,7 +1207,7 @@ public partial class LibraryBodyIndexTests
                 .Resolution?.Type.Segments[0]);
 
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name
@@ -1218,7 +1218,7 @@ public partial class LibraryBodyIndexTests
                         ClassicInterfaceCacheFixture
                             .AaaOtherAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name
@@ -1229,7 +1229,7 @@ public partial class LibraryBodyIndexTests
                         ClassicInterfaceCacheFixture
                             .ReadAsync));
         Assert.Contains(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
@@ -1237,7 +1237,7 @@ public partial class LibraryBodyIndexTests
                         ClassicSelfCacheFixture
                             .ZzzAnalyzeAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
@@ -1245,7 +1245,7 @@ public partial class LibraryBodyIndexTests
                         ClassicSelfCacheFixture
                             .AaaAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name
@@ -1256,7 +1256,7 @@ public partial class LibraryBodyIndexTests
                         ClassicProtectedSiblingDerivedFixture
                             .AnalyzeAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name
@@ -1267,7 +1267,7 @@ public partial class LibraryBodyIndexTests
                         ClassicPrivateProtectedSiblingDerivedFixture
                             .AnalyzeAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name
@@ -1278,7 +1278,7 @@ public partial class LibraryBodyIndexTests
                         ClassicCovariantInterfaceSelfSiblingFixture
                             .ReadAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name
@@ -1289,7 +1289,7 @@ public partial class LibraryBodyIndexTests
                         ClassicProtectedReceiverDerivedFixture
                             .AnalyzeAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name
@@ -1300,7 +1300,7 @@ public partial class LibraryBodyIndexTests
                         ClassicProtectedStaticSiblingDerivedFixture
                             .AnalyzeAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name
@@ -1310,7 +1310,7 @@ public partial class LibraryBodyIndexTests
                         IClassicContravariantDefaultSiblingFixture<
                             object>.ConsumeAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name
@@ -1320,7 +1320,7 @@ public partial class LibraryBodyIndexTests
                     ".ReadAsync",
                     StringComparison.Ordinal));
         Assert.Contains(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name
@@ -1334,7 +1334,7 @@ public partial class LibraryBodyIndexTests
                         ClassicNestedPrivateSiblingFixture.Consumer
                             .AnalyzeAsync));
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name
@@ -1351,10 +1351,10 @@ public partial class LibraryBodyIndexTests
         OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes()
     {
         OptimizationOpportunity[] opportunities =
-            LibraryBodyIndex.Open(
+            BodyAnalysisTestExecution.Open(
                     typeof(ClassicAsyncSiblingFixture)
                         .Assembly.Location)
-                .OptimizationOpportunities
+                .Optimization.Opportunities
                 .Where(opportunity => opportunity.Shape
                     == "sync-call-in-async")
                 .ToArray();
@@ -1470,10 +1470,10 @@ public partial class LibraryBodyIndexTests
                 PreferImplementationAssemblies = true,
             });
 
-        var index = LibraryBodyIndex.Open(path, resolver);
+        var index = BodyAnalysisTestExecution.Open(path, resolver);
 
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
@@ -1481,19 +1481,19 @@ public partial class LibraryBodyIndexTests
                 && opportunity.Method.DeclaringType.Name
                     == "FriendProtectedReceiver");
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
                     == "PublicAnalyzeAsync");
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
                     == "InternalAnalyzeAsync");
         Assert.Contains(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
@@ -1503,7 +1503,7 @@ public partial class LibraryBodyIndexTests
                 && opportunity.Evidence.Contains(
                     "FriendSiblingGrantor::ReadAsync",
                     StringComparison.Ordinal));
-        var diagnostic = Assert.Single(index.Diagnostics);
+        var diagnostic = Assert.Single(index.Receipt.Diagnostics);
         Assert.Contains(
             "MalformedAsyncSourceFixture::AnalyzeAsync",
             diagnostic.Method,
@@ -1609,7 +1609,7 @@ public partial class LibraryBodyIndexTests
     {
         byte[] image = BuildDuplicateLocalTypeAssembly(
             useMemberReference);
-        var index = LibraryBodyIndex.OpenFromPrefetchedImage(
+        var index = BodyAnalysisTestExecution.OpenFromPrefetchedImage(
             "DuplicateLocalTypes.dll",
             [.. image],
             LibraryBodyAnalysisFeatures.MethodEvidence
@@ -1617,7 +1617,7 @@ public partial class LibraryBodyIndexTests
                     .OptimizationOpportunities);
 
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                 == "sync-call-in-async");
     }
@@ -1704,7 +1704,7 @@ public partial class LibraryBodyIndexTests
             BuildDirectionProbeCaller(byRef);
 
         var index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "DirectionProbeCaller.dll",
                 [.. caller],
                 LibraryBodyAnalysisFeatures
@@ -1713,13 +1713,13 @@ public partial class LibraryBodyIndexTests
                         .OptimizationOpportunities,
                 new DirectionProbeResolver(dependency));
 
-        int count = index.OptimizationOpportunities.Count(
+        int count = index.Optimization.Opportunities.Count(
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
                     == "AnalyzeAsync");
         Assert.Equal(expected ? 1 : 0, count);
-        Assert.Empty(index.Diagnostics);
+        Assert.Empty(index.Receipt.Diagnostics);
     }
 
     [Fact]
@@ -1734,19 +1734,19 @@ public partial class LibraryBodyIndexTests
         byte[] caller =
             BuildDirectionProbeCaller(byRef: true);
         var index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "DirectionProbeCaller.dll",
                 [.. caller],
                 LibraryBodyAnalysisFeatures.Default,
                 new DirectionProbeResolver(dependency));
 
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
                     == "AnalyzeAsync");
-        Assert.Empty(index.Diagnostics);
+        Assert.Empty(index.Receipt.Diagnostics);
     }
 
     [Fact]
@@ -1761,19 +1761,19 @@ public partial class LibraryBodyIndexTests
         byte[] caller =
             BuildDirectionProbeCaller(byRef: false);
         var index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "DirectionProbeCaller.dll",
                 [.. caller],
                 LibraryBodyAnalysisFeatures.Default,
                 new DirectionProbeResolver(dependency));
 
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
                     == "AnalyzeAsync");
-        Assert.Empty(index.Diagnostics);
+        Assert.Empty(index.Receipt.Diagnostics);
     }
 
     [Theory]
@@ -1793,7 +1793,7 @@ public partial class LibraryBodyIndexTests
         byte[] caller =
             BuildDirectionProbeCaller(byRef: false);
         var index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "DirectionProbeCaller.dll",
                 [.. caller],
                 LibraryBodyAnalysisFeatures.Default,
@@ -1801,12 +1801,12 @@ public partial class LibraryBodyIndexTests
 
         Assert.Equal(
             expected,
-            index.OptimizationOpportunities.Count(
+            index.Optimization.Opportunities.Count(
                 opportunity => opportunity.Shape
                         == "sync-call-in-async"
                     && opportunity.Method.Name
                         == "AnalyzeAsync"));
-        Assert.Empty(index.Diagnostics);
+        Assert.Empty(index.Receipt.Diagnostics);
     }
 
     [Theory]
@@ -1829,7 +1829,7 @@ public partial class LibraryBodyIndexTests
                 byRef: false,
                 genericSignature: true);
         var index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "DirectionProbeCaller.dll",
                 [.. caller],
                 LibraryBodyAnalysisFeatures.Default,
@@ -1837,12 +1837,12 @@ public partial class LibraryBodyIndexTests
 
         Assert.Equal(
             expected,
-            index.OptimizationOpportunities.Count(
+            index.Optimization.Opportunities.Count(
                 opportunity => opportunity.Shape
                         == "sync-call-in-async"
                     && opportunity.Method.Name
                         == "AnalyzeAsync"));
-        Assert.Empty(index.Diagnostics);
+        Assert.Empty(index.Receipt.Diagnostics);
     }
 
     [Fact]
@@ -1858,19 +1858,19 @@ public partial class LibraryBodyIndexTests
                 byRef: false,
                 addStateMachineAttribute: true);
         var index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "DirectionProbeCaller.dll",
                 [.. caller],
                 LibraryBodyAnalysisFeatures.Default,
                 new DirectionProbeResolver(dependency));
 
         Assert.Single(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
                     == "AnalyzeAsync");
-        Assert.Empty(index.Diagnostics);
+        Assert.Empty(index.Receipt.Diagnostics);
     }
 
     [Fact]
@@ -1884,14 +1884,14 @@ public partial class LibraryBodyIndexTests
         var resolver =
             new MvidCollisionResolver(dependency);
         var collision =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "CollisionRoot.dll",
                 [.. BuildMvidCollisionRoot(
                     dependencyMvid)],
                 LibraryBodyAnalysisFeatures.Default,
                 resolver);
         var distinct =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "CollisionRoot.dll",
                 [.. BuildMvidCollisionRoot(
                     Guid.Parse(
@@ -1900,18 +1900,18 @@ public partial class LibraryBodyIndexTests
                 resolver);
 
         Assert.Contains(
-            collision.DirectCalls,
+            collision.CallGraph.DirectCalls,
             call => call.Caller.Name
                     == "ReadAsync"
                 && call.Callee.Name == "Read"
                 && call.Callee.DeclaringType.Name
                     == "IReader");
-        Assert.Empty(collision.Diagnostics);
+        Assert.Empty(collision.Receipt.Diagnostics);
         Assert.DoesNotContain(
-            distinct.OptimizationOpportunities,
+            distinct.Optimization.Opportunities,
             IsRecursiveReadAsyncOpportunity);
         Assert.DoesNotContain(
-            collision.OptimizationOpportunities,
+            collision.Optimization.Opportunities,
             IsRecursiveReadAsyncOpportunity);
 
         static bool IsRecursiveReadAsyncOpportunity(
