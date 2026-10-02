@@ -2328,8 +2328,10 @@ test("member rows say what a member is rather than which kind it is", () => {
     highlight,
     overloadHeat: (_group, index) => ({
       heatStrength: index === 1 ? 1 : null,
-      hub: false,
-      description: index === 1 ? "33 instructions" : "8 instructions",
+      hub: index === 1,
+      description: index === 1
+        ? "33 instructions; hub called by 1 same-name method"
+        : "8 instructions",
     }),
   });
 
@@ -2337,11 +2339,24 @@ test("member rows say what a member is rather than which kind it is", () => {
   assert.match(html, /<span class="sig-name">WriteTo<\/span><span class="sig-punct">\(<\/span><span class="sig-type">Utf8JsonWriter<\/span>/);
   assert.match(html, /RootElement<\/span>\s*<small><span class="sig-type">JsonElement<\/span><\/small>/);
   assert.doesNotMatch(html, /<small>method<\/small>|<small>property<\/small>/);
-  // Nested overloads have no branch glyph, color keyword types, and retain
-  // accessible heat descriptions without rendering raw metric labels.
+  // Nested overloads have no branch glyph, reserve the shared achievement
+  // rail, color keyword types, and retain accessible heat descriptions
+  // without rendering raw metric labels.
   assert.doesNotMatch(html, /↳|overload-branch/);
+  assert.equal(
+    html.match(/class="item-achievement-rail"/g)?.length,
+    2,
+  );
+  assert.match(
+    html,
+    /item-achievement-glyph implementation-hub/,
+  );
+  assert.match(html, /aria-label="implementation hub"/);
   assert.match(html, /<span class="sig-keyword">string<\/span>/);
   assert.match(html, /aria-description="8 instructions"/);
-  assert.match(html, /aria-description="33 instructions"/);
+  assert.match(
+    html,
+    /aria-description="33 instructions; hub called by 1 same-name method"/,
+  );
   assert.doesNotMatch(html, /overload-size|>8IL<|>33IL</);
 });

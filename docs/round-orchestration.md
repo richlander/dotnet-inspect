@@ -515,10 +515,16 @@ a blocker, and it clears only when every listed predicate clears.
   block. The report is a visible checkpoint, not a stopping point: immediately
   begin the next candidate cycle without asking, setting `HELP`, or waiting for
   user input. Pause before another review round only when the next step depends
-  on an unresolved design question or the six-round grant has expired. This
-  does not suppress the terminal or block-boundary decisions listed below.
+  on an unresolved design question, required performance evidence misses its
+  stated goal or regresses, or the six-round grant has expired. This does not
+  suppress the terminal or block-boundary decisions listed below.
   Operational waits remain tool-evaluable waits, not requests for next-round
   direction.
+- When valid performance evidence misses the stated goal or shows a regression,
+  use `Recommendation: stop (performance goal unmet)`, publish the numbers, and
+  request operator direction. Do not dispatch another review round or run a
+  second machine merely to confirm the bad result; multi-machine measurement
+  validates an apparently good result.
 - `wait` requires a non-empty `Blocked` or `Waiting` field. A retained
   `schedule` means the agent will check automatically; without one, the wait is
   passive and resumes only when a later user or workflow turn re-enters it.

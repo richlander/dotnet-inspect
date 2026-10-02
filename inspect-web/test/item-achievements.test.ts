@@ -29,6 +29,15 @@ test("item achievement rail preserves zero to two ordered glyph slots", () => {
     full,
     /aria-label="mountain peak Type; sea level Type"/,
   );
+
+  const member = renderItemAchievementRail([
+    { kind: "implementation-hub", description: "implementation hub" },
+  ], escapeHtml);
+  assert.match(
+    member,
+    /item-achievement-glyph implementation-hub/,
+  );
+  assert.match(member, /aria-label="implementation hub"/);
 });
 
 test("item achievement rail rejects overflow and duplicate slots", () => {
