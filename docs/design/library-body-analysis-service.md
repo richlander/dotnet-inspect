@@ -239,6 +239,32 @@ occurrence-only request does not select lifecycle work. The lifecycle producer
 composes occurrence evidence with same-execution control-flow and exception
 facts before those operation-local facts are discarded.
 
+### Direct-call target resolution
+
+`LibraryCallGraphAnalysisResult.ResolveTarget(DirectCall)` publishes the
+Analysis-issued target of one physical direct call from that result
+([#8700](https://github.com/richlander/dotnet-inspect/issues/8700)). Each call
+resolves to exactly one of:
+
+- **current module**, with the bound declared `MethodIdentity`;
+- **external**, with the exact decoded reference origin of the callee's
+  declaring type definition. Type forwarding is never followed;
+- **runtime-provided**, for a member of an array type; or
+- **unresolved**, with a typed reason: indirect (`calli`), unsupported
+  signature, malformed signature, invalid generic declaration, unmatched, or
+  ambiguous.
+
+A call through a generic instantiation of a current-module type is encoded as a
+member reference on a type specification, so its `CalleeDefinitionToken` is not
+a declared-method token. Resolution binds it by token and then by signature,
+using the same current-module test and signature comparison as the call graph's
+own traversal. Consumers must use this outcome and must not match
+`CalleeDefinitionToken` against `DeclaredMethods`. Resolution is a pure function
+of the published result and does not require `LibraryBodyIndex`.
+
+The first production consumer is the Library Metrics relationship projection.
+Library Dependency Structure is the second.
+
 During migration, `LibraryBodyIndex` may adapt the execution receipt and
 focused results for unmigrated consumers. Adapter-only lazy indexes may remain
 until their focused owner and consumer move. The adapter must not become the
