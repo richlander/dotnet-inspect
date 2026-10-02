@@ -2,7 +2,7 @@ import type {
   BrowserOpportunityItem,
   BrowserPackageOpportunities,
 } from "./facades/inspect-web-analysis.d.ts";
-import { renderIntegrationInspector } from "./integration-inspector.ts";
+import { renderAnalysisInspector } from "./analysis-inspector.ts";
 
 export type OpportunityItem = BrowserOpportunityItem;
 type PackageOpportunities = Pick<
@@ -188,5 +188,5 @@ export function renderPackageOpportunities(options: RenderPackageOpportunitiesOp
       content = `${warning}${note}${categories.length ? blocks : empty}`;
     }
   }
-  return renderIntegrationInspector(options, "opportunities", status, content);
+  return renderAnalysisInspector(options, "opportunities", status, content);
 }

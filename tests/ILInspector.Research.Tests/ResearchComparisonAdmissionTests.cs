@@ -1382,7 +1382,7 @@ public class ResearchComparisonAdmissionTests
 
     static BodySignalAnalysisInput BodySignalAnalysis()
         => BodySignalAnalysisTestInput.FromIndex(
-            LibraryBodyIndex.FromEvidence(
+            BodyAnalysisTestExecution.FromEvidence(
                 [],
                 [],
                 moduleIdentity: new(
@@ -1397,7 +1397,7 @@ public class ResearchComparisonAdmissionTests
         => new(PathlessAssembly(), new UnusedResolver(), CallGraph());
 
     static LibraryCallGraphAnalysisResult CallGraph()
-        => LibraryBodyIndex.FromEvidence(
+        => BodyAnalysisTestExecution.FromEvidence(
             [],
             [],
             moduleIdentity: new(
@@ -1407,7 +1407,7 @@ public class ResearchComparisonAdmissionTests
                     Culture: null,
                     PublicKeyToken: null),
                 new Guid("f88df8d2-0474-4f48-811a-bf5cb2af203e")))
-            .CallGraphAnalysis;
+            .CallGraph;
 
     static ResolvedAssemblyReference PathlessAssembly()
         => ResolvedAssemblyReference.Create(

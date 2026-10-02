@@ -27,9 +27,9 @@ public sealed class LocalThrowEvidenceTests
         string methodName, string typeName)
     {
         int token = Token(methodName);
-        LibraryBodyIndex index = Open([token]);
+        LibraryBodyAnalysisExecution index = Open([token]);
         var body = Assert.IsType<MethodLocalThrowEvidence.Inspected>(
-            Assert.Single(index.LocalThrows, result => result.MethodToken == token));
+            Assert.Single(index.CompatibilityIndex().LocalThrows, result => result.MethodToken == token));
         LocalThrowSite site = Assert.Single(body.Sites);
         var known = Assert.IsType<LocalThrowTypeEvidence.Known>(site.Type);
 
@@ -38,8 +38,8 @@ public sealed class LocalThrowEvidenceTests
         Assert.Equal(typeName, known.ExceptionType.Name);
         Assert.IsType<TypeReferenceOrigin.CurrentAssembly>(
             known.ExceptionType.Resolution?.Origin);
-        Assert.Equal(index.ModuleIdentity.ModuleVersionId, body.Method.ModuleVersionId);
-        Assert.Equal(index.ModuleIdentity.ModuleVersionId, known.Definition.ModuleVersionId);
+        Assert.Equal(index.Receipt.ModuleIdentity.ModuleVersionId, body.Method.ModuleVersionId);
+        Assert.Equal(index.Receipt.ModuleIdentity.ModuleVersionId, known.Definition.ModuleVersionId);
         Assert.Equal(
             typeName switch
             {
@@ -49,7 +49,7 @@ public sealed class LocalThrowEvidenceTests
             },
             known.Definition.Definition.Value);
         Assert.True(known.ConstructionOffset < site.ILOffset);
-        Assert.Contains(index.DirectCalls, call =>
+        Assert.Contains(index.CallGraph.DirectCalls, call =>
             call.EvidenceMethod.MetadataToken == token
             && call.ILOffset == known.ConstructionOffset
             && call.OperandToken == known.ConstructorToken
@@ -101,11 +101,11 @@ public sealed class LocalThrowEvidenceTests
                 IncludeAspNetCoreSharedFramework = false,
                 PreferImplementationAssemblies = true,
             });
-        LibraryBodyIndex index = prefetched
-            ? LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution index = prefetched
+            ? BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 FixturePath, [.. File.ReadAllBytes(FixturePath)],
                 LibraryBodyAnalysisFeatures.LocalThrows, resolver, new HashSet<int> { token })
-            : LibraryBodyIndex.Open(
+            : BodyAnalysisTestExecution.Open(
                 FixturePath, LibraryBodyAnalysisFeatures.LocalThrows,
                 resolver, new HashSet<int> { token });
         MethodLocalThrowEvidence body = Body(index, nameof(LocalThrowSamples.External));
@@ -119,7 +119,7 @@ public sealed class LocalThrowEvidenceTests
             known.Definition.ModuleVersionId);
         Assert.Equal(typeof(ArgumentNullException).MetadataToken,
             known.Definition.Definition.Value);
-        Assert.DoesNotContain(index.Diagnostics, diagnostic => diagnostic.MethodToken == token);
+        Assert.DoesNotContain(index.Receipt.Diagnostics, diagnostic => diagnostic.MethodToken == token);
     }
 
     [Fact]
@@ -139,16 +139,16 @@ public sealed class LocalThrowEvidenceTests
     {
         int token = Token(nameof(LocalThrowSamples.External));
         var scope = new HashSet<int> { token };
-        LibraryBodyIndex baseline = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution baseline = BodyAnalysisTestExecution.Open(
             FixturePath, LibraryBodyAnalysisFeatures.JsonWireContractFlow,
             bodyScope: scope);
-        LibraryBodyIndex combined = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution combined = BodyAnalysisTestExecution.Open(
             FixturePath,
             LibraryBodyAnalysisFeatures.JsonWireContractFlow | LibraryBodyAnalysisFeatures.LocalThrows,
             bodyScope: scope);
 
-        DirectCall original = Assert.Single(baseline.DirectCalls);
-        DirectCall enriched = Assert.Single(combined.DirectCalls);
+        DirectCall original = Assert.Single(baseline.CallGraph.DirectCalls);
+        DirectCall enriched = Assert.Single(combined.CallGraph.DirectCalls);
         Assert.NotEmpty(original.ResolvedArgumentValues);
         Assert.Equal(original.ResolvedArgumentValues, enriched.ResolvedArgumentValues);
         Assert.Equal(original.ArgumentSources, enriched.ArgumentSources);
@@ -160,19 +160,19 @@ public sealed class LocalThrowEvidenceTests
     public void OptInAndScopeDoNotManufactureEmptyEvidence()
     {
         int token = Token(nameof(LocalThrowSamples.Direct));
-        LibraryBodyIndex unrequested = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution unrequested = BodyAnalysisTestExecution.Open(
             FixturePath, LibraryBodyAnalysisFeatures.MethodEvidence,
             bodyScope: new HashSet<int> { token });
-        Assert.Throws<InvalidOperationException>(() => unrequested.LocalThrows);
+        Assert.Throws<InvalidOperationException>(() => unrequested.CompatibilityIndex().LocalThrows);
         Assert.Equal(LibraryBodyAnalysisFeatures.None,
             LibraryBodyAnalysisFeatures.Default & LibraryBodyAnalysisFeatures.LocalThrows);
 
-        LibraryBodyIndex requested = Open([token]);
+        LibraryBodyAnalysisExecution requested = Open([token]);
         Assert.Equal(
             LibraryBodyAnalysisFeatures.MethodEvidence | LibraryBodyAnalysisFeatures.LocalThrows,
-            requested.Features);
-        Assert.Empty(requested.ReturnFlows);
-        Assert.All(requested.DirectCalls, call => Assert.Empty(call.ResolvedArgumentValues));
+            requested.Receipt.Features);
+        Assert.Empty(requested.JsonWireContracts.ReturnFlows);
+        Assert.All(requested.CallGraph.DirectCalls, call => Assert.Empty(call.ResolvedArgumentValues));
         Assert.Equal(LocalThrowUnavailableReason.ScopeExcluded,
             Assert.IsType<MethodLocalThrowEvidence.Unavailable>(
                 Body(requested, nameof(LocalThrowSamples.Derived))).Reason);
@@ -180,7 +180,7 @@ public sealed class LocalThrowEvidenceTests
         MethodInfo? abstractMethod = typeof(AbstractThrowSample).GetMethod("NoBody");
         Assert.NotNull(abstractMethod);
         var absent = Assert.IsType<MethodLocalThrowEvidence.Unavailable>(
-            Assert.Single(requested.LocalThrows,
+            Assert.Single(requested.CompatibilityIndex().LocalThrows,
                 result => result.MethodToken == abstractMethod.MetadataToken));
         Assert.Equal(LocalThrowUnavailableReason.NoManagedBody, absent.Reason);
         Assert.False(absent.IsComplete);
@@ -190,12 +190,12 @@ public sealed class LocalThrowEvidenceTests
     public void DeferredThrowRemainsOnItsPhysicalBody()
     {
         string name = nameof(LocalThrowSamples.Deferred);
-        LibraryBodyIndex index = Open([Token(name)]);
+        LibraryBodyAnalysisExecution index = Open([Token(name)]);
         MethodLocalThrowEvidence kickoff = Body(index, name);
         Assert.True(kickoff.IsComplete);
         Assert.Empty(kickoff.Sites);
         var physical = Assert.Single(
-            index.LocalThrows.OfType<MethodLocalThrowEvidence.Inspected>(),
+            index.CompatibilityIndex().LocalThrows.OfType<MethodLocalThrowEvidence.Inspected>(),
             result => result.Sites.Any(site => site.Type is LocalThrowTypeEvidence.Known));
         Assert.NotEqual(kickoff.MethodToken, physical.MethodToken);
         Assert.Equal("MoveNext", physical.Method.Name);
@@ -212,22 +212,22 @@ public sealed class LocalThrowEvidenceTests
         Assert.NotNull(throwing);
         Assert.NotNull(helper);
         var scope = new HashSet<int> { throwing.MetadataToken, helper.MetadataToken };
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
             typeof(ArgumentNullException).Assembly.Location,
             LibraryBodyAnalysisFeatures.LocalThrows,
             bodyScope: scope);
 
         MethodLocalThrowEvidence positive = Assert.Single(
-            index.LocalThrows, result => result.MethodToken == throwing.MetadataToken);
+            index.CompatibilityIndex().LocalThrows, result => result.MethodToken == throwing.MetadataToken);
         MethodLocalThrowEvidence negative = Assert.Single(
-            index.LocalThrows, result => result.MethodToken == helper.MetadataToken);
+            index.CompatibilityIndex().LocalThrows, result => result.MethodToken == helper.MetadataToken);
         Assert.True(positive.IsComplete);
         Assert.Equal(nameof(ArgumentNullException),
             Assert.IsType<LocalThrowTypeEvidence.Known>(
                 Assert.Single(positive.Sites).Type).ExceptionType.Name);
         Assert.True(negative.IsComplete);
         Assert.Empty(negative.Sites);
-        Assert.DoesNotContain(index.Diagnostics, diagnostic => scope.Contains(diagnostic.MethodToken));
+        Assert.DoesNotContain(index.Receipt.Diagnostics, diagnostic => scope.Contains(diagnostic.MethodToken));
     }
 
     public static TheoryData<byte[], LocalThrowUnresolvedReason?> ValueCases => new()
@@ -281,10 +281,10 @@ public sealed class LocalThrowEvidenceTests
     [InlineData(true)]
     public void NonExceptionAndLookalikeExceptionDoNotQualify(bool lookalike)
     {
-        LibraryBodyIndex index = Probe(
+        LibraryBodyAnalysisExecution index = Probe(
             [0x73, 2, 0, 0, 6, 0x7A], lookalike: lookalike);
         MethodLocalThrowEvidence body = Assert.Single(
-            index.LocalThrows, result => result.MethodToken == 0x06000001);
+            index.CompatibilityIndex().LocalThrows, result => result.MethodToken == 0x06000001);
         Assert.False(body.IsComplete);
         Assert.Equal(LocalThrowUnresolvedReason.NonExceptionType,
             Assert.IsType<LocalThrowTypeEvidence.Unresolved>(
@@ -295,25 +295,25 @@ public sealed class LocalThrowEvidenceTests
     public void ReferenceStubAndMalformedBodyAreUnavailable()
     {
         var reference = Assert.IsType<MethodLocalThrowEvidence.Unavailable>(
-            Assert.Single(Probe([0x2A], reference: true).LocalThrows,
+            Assert.Single(Probe([0x2A], reference: true).CompatibilityIndex().LocalThrows,
                 result => result.MethodToken == 0x06000001));
         Assert.Equal(LocalThrowUnavailableReason.ReferenceAssembly, reference.Reason);
         Assert.False(reference.IsComplete);
 
-        LibraryBodyIndex malformed = Probe([0xFE]);
+        LibraryBodyAnalysisExecution malformed = Probe([0xFE]);
         var failed = Assert.IsType<MethodLocalThrowEvidence.Unavailable>(
-            Assert.Single(malformed.LocalThrows, result => result.MethodToken == 0x06000001));
+            Assert.Single(malformed.CompatibilityIndex().LocalThrows, result => result.MethodToken == 0x06000001));
         Assert.Equal(LocalThrowUnavailableReason.AnalysisFailed, failed.Reason);
         Assert.False(failed.IsComplete);
         Assert.False(string.IsNullOrEmpty(failed.Detail));
-        Assert.Contains(malformed.Diagnostics, diagnostic => diagnostic.MethodToken == failed.MethodToken);
+        Assert.Contains(malformed.Receipt.Diagnostics, diagnostic => diagnostic.MethodToken == failed.MethodToken);
     }
 
     [Fact]
     public void CyclicAncestryRemainsUnresolved()
     {
         MethodLocalThrowEvidence body = Assert.Single(
-            Probe([0x73, 2, 0, 0, 6, 0x7A], cyclic: true).LocalThrows,
+            Probe([0x73, 2, 0, 0, 6, 0x7A], cyclic: true).CompatibilityIndex().LocalThrows,
             result => result.MethodToken == 0x06000001);
         Assert.False(body.IsComplete);
         Assert.Equal(LocalThrowUnresolvedReason.UnresolvedType,
@@ -324,13 +324,13 @@ public sealed class LocalThrowEvidenceTests
     static int Token(string name)
         => typeof(LocalThrowSamples).GetMethod(name)!.MetadataToken;
 
-    static LibraryBodyIndex Open(int[] tokens)
-        => LibraryBodyIndex.Open(
+    static LibraryBodyAnalysisExecution Open(int[] tokens)
+        => BodyAnalysisTestExecution.Open(
             FixturePath, LibraryBodyAnalysisFeatures.LocalThrows,
             bodyScope: tokens.ToHashSet());
 
-    static MethodLocalThrowEvidence Body(LibraryBodyIndex index, string name)
-        => Assert.Single(index.LocalThrows, result => result.MethodToken == Token(name));
+    static MethodLocalThrowEvidence Body(LibraryBodyAnalysisExecution index, string name)
+        => Assert.Single(index.CompatibilityIndex().LocalThrows, result => result.MethodToken == Token(name));
 
     sealed class ValueResolver : IMethodCallResolver
     {
@@ -344,7 +344,7 @@ public sealed class LocalThrowEvidenceTests
         public TypeRef ResolveType(int token) => s_exception;
     }
 
-    static LibraryBodyIndex Probe(
+    static LibraryBodyAnalysisExecution Probe(
         byte[] il, bool reference = false, bool lookalike = false, bool cyclic = false)
     {
         var metadata = new MetadataBuilder();
@@ -405,7 +405,7 @@ public sealed class LocalThrowEvidenceTests
             new MetadataRootBuilder(metadata), stream, flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         pe.Serialize(image);
-        return LibraryBodyIndex.OpenFromPrefetchedImage(
+        return BodyAnalysisTestExecution.OpenFromPrefetchedImage(
             "LocalThrowProbe.dll", image.ToImmutableArray(),
             LibraryBodyAnalysisFeatures.LocalThrows,
             bodyScope: new HashSet<int> { 0x06000001 });

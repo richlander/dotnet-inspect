@@ -3,7 +3,6 @@ import {
   bindLibraryMetricsInteractions,
   renderLibraryMetricsSurface,
 } from "../src/library-metrics.ts";
-import { projectTypeLeverage } from "../src/type-leverage.ts";
 
 const types = [
   { key: "Example.A", display: "Example.A" },
@@ -67,95 +66,6 @@ const data: BrowserLibraryMetrics = {
     message: null,
   },
 };
-const salience = projectTypeLeverage({
-  schemaVersion: 1,
-  outcome: "available",
-  methodologyVersion: "structural-salience.v2",
-  evidenceMode: "signature",
-  namespaceIndex: {
-    disposition: "complete",
-    coverage: { considered: 5, examined: 5, unavailable: 0, limited: 0 },
-    namespaces: [{
-      namespace: "Example",
-      typeCount: 5,
-      externalIncomingSourceTypeCount: 7,
-      topLeverage: true,
-    }, {
-      namespace: "Example.Tools",
-      typeCount: 2,
-      externalIncomingSourceTypeCount: 2,
-      topLeverage: false,
-    }],
-    diagnostics: [],
-  },
-  typeLeverageShards: [{
-    namespace: "Example",
-    disposition: "complete",
-    coverage: { considered: 5, examined: 5, unavailable: 0, limited: 0 },
-    types: [{
-      typeDefinitionId: "Example.A",
-      typeDisplay: "Example.A",
-      designationEligible: true,
-      signatureIncomingDegree: 7,
-      signatureOutgoingDegree: 1,
-      role: "foundation",
-      pole: "SeaLevel",
-    }, {
-      typeDefinitionId: "Example.B",
-      typeDisplay: "Example.B",
-      designationEligible: true,
-      signatureIncomingDegree: 2,
-      signatureOutgoingDegree: 6,
-      role: "orchestrator",
-      pole: "MountainPeak",
-    }],
-    seaLevelOrder: ["Example.A", "Example.B"],
-    mountainPeakOrder: ["Example.B", "Example.A"],
-    diagnostics: [],
-  }, {
-    namespace: "Example.Tools",
-    disposition: "complete",
-    coverage: { considered: 2, examined: 2, unavailable: 0, limited: 0 },
-    types: [],
-    seaLevelOrder: [],
-    mountainPeakOrder: [],
-    diagnostics: [],
-  }],
-  failure: null,
-  compileLibrary: data.compileLibrary,
-});
-const zeroTopSalience = projectTypeLeverage({
-  schemaVersion: 1,
-  outcome: "available",
-  methodologyVersion: "structural-salience.v2",
-  evidenceMode: "signature",
-  namespaceIndex: {
-    disposition: "complete",
-    coverage: { considered: 4, examined: 4, unavailable: 0, limited: 0 },
-    namespaces: [{
-      namespace: "Only",
-      typeCount: 4,
-      externalIncomingSourceTypeCount: 0,
-      topLeverage: false,
-    }],
-    diagnostics: [],
-  },
-  typeLeverageShards: [{
-    namespace: "Only",
-    disposition: "complete",
-    coverage: { considered: 4, examined: 4, unavailable: 0, limited: 0 },
-    types: [],
-    seaLevelOrder: [],
-    mountainPeakOrder: [],
-    diagnostics: [],
-  }],
-  failure: null,
-  compileLibrary: data.compileLibrary,
-});
-const renderedSalience = new URLSearchParams(location.search).has("zero-top")
-  ? zeroTopSalience
-  : salience;
-
 const app = document.querySelector("#app");
 if (!(app instanceof HTMLElement))
   throw new Error("Library metrics harness root is missing.");
@@ -171,10 +81,6 @@ app.innerHTML = renderLibraryMetricsSurface({
   loading: false,
   error: "",
   data,
-  salienceLoading: false,
-  salienceError: "",
-  salience: renderedSalience,
-  selectedSalienceNamespace: null,
   escapeHtml: value => String(value).replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
@@ -183,15 +89,8 @@ app.innerHTML = renderLibraryMetricsSurface({
 const activation = document.createElement("output");
 activation.id = "metrics-activated-type";
 app.append(activation);
-const namespaceSelection = document.createElement("output");
-namespaceSelection.id = "metrics-selected-namespace";
-app.append(namespaceSelection);
 bindLibraryMetricsInteractions(app, {
   activateType: typeKey => {
     activation.value = typeKey;
   },
-  selectSalienceNamespace: exactNamespace => {
-    namespaceSelection.value = exactNamespace;
-  },
-  retrySalience: () => undefined,
 });
