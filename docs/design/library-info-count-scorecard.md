@@ -95,15 +95,38 @@ Geometric-mean ratios to NLinq ×3: Old 2.23× (1.16–6.89), LINQ ×3 1.24×,
 NLinq fused 0.95× (0.87–1.00). Allocation per answer is equal for NLinq ×3
 and NLinq fused on every asset; Old allocates 1.3× to 3.9× more.
 
-Two readings follow, pending the Linux measurement:
+Accepted linux-x64 NativeAOT on `dotnet-inspect-perf-3` (Ubuntu 24.04,
+4 vCPU) under one `perf-guard` lease, same tool source as head `9164a61e`,
+six rotated rounds, 2 s budget per cell, assets from the Linux runtime
+`11.0.0-rc.1.26425.128` (CoreLib SHA-256 `9573ebab…`); 15 answers compared,
+0 mismatches:
+
+| Asset | Old | LINQ ×3 | NLinq ×3 | NLinq fused |
+| --- | ---: | ---: | ---: | ---: |
+| System.Text.Json | 873.5 µs | 655.5 µs | 474.7 µs | 442.0 µs |
+| System.Private.CoreLib | 13,934.8 µs | 8,911.3 µs | 7,262.6 µs | 7,008.8 µs |
+| System.Linq | 2,495.8 µs | 680.7 µs | 619.8 µs | 622.7 µs |
+| System.Net.Http | 211.1 µs | 290.8 µs | 176.8 µs | 153.8 µs |
+| OptInNet11 fixture | 33.5 µs | 17.7 µs | 14.2 µs | 14.5 µs |
+
+Geometric-mean ratios to NLinq ×3: Old 2.09× (1.19–4.03), LINQ ×3 1.31×
+(1.10–1.64), NLinq fused 0.96× (0.87–1.02). Allocation per answer is equal
+for NLinq ×3 and NLinq fused on every asset; Old allocates 1.3× to 3.9× more.
+Both hosts agree on direction and magnitude.
+
+Two readings follow:
 
 - **Fusion is not the win.** Reading each TypeDef and MethodDef once instead
-  of up to twice saves 0 to 13 percent, 5 percent on the geometric mean. The
-  lanes' cost is their per-row predicate work, chiefly the Async lane's
+  of up to twice saves between nothing and 13 percent, 4 to 5 percent on the
+  geometric mean, and loses within noise on `System.Linq` and the fixture.
+  The lanes' cost is their per-row predicate work, chiefly the Async lane's
   attribute walk and the Extension lane's signature decode, not the traversal.
   Under the decision rule this is not "clearly ahead", so a request set over
-  these lanes cannot earn more than this ceiling.
+  these lanes cannot earn more than this ceiling; its value here is one shared
+  plan and settlement, not shared reads. Slice 3 is not warranted on this
+  evidence.
 - **Rows-then-count is the loss.** Old's gap to NLinq ×3 is the Extension
   Methods and Union Types rows being materialized with signatures and anchors
-  and then counted: 6.9× and 4.4 MB on `System.Linq`. Adopting those rows as
-  Count terminals (slice 2) captures that win without request sets.
+  and then counted: 4.0× and 4.4 MB on `System.Linq`, 1.9× and 12.8 MB on
+  CoreLib. Adopting those rows as Count terminals (slice 2) captures that win
+  without request sets.
