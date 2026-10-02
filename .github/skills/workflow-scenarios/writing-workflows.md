@@ -128,4 +128,5 @@ Not every scenario needs a prompt — only add them where there's a clear natura
 
 ## Reference
 
-- [Full format specification](../../docs/workflows/README.md) — complete format documentation with examples
+- [Full format specification](../../../docs/workflows/README.md) — complete
+  format documentation with examples
