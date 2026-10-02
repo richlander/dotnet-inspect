@@ -16,13 +16,14 @@ This map owns one composition claim:
 
 > Given one resolved inspection subject and one or more exact registered View
 > Facet identities, resolve the facets before acquisition, execute their
-> owner-issued bindings, retain the result owners' semantic shapes, and let the
-> CLI choose each admitted selection's natural presentation only when the user
-> did not select a format. Discovery, execution, and explanation consume the
-> same identities and descriptors; named companion projections preserve the
-> selected semantic request and rows. No host derives identity, query behavior,
-> result shape, reference, or presentation support from a display label or
-> rendered section.
+> owner-issued bindings, retain the result owners' host-observable semantic
+> Content kinds and presentation shapes, and let the CLI choose each admitted
+> selection's natural presentation only when the user did not select a format.
+> Discovery, execution, and explanation consume the same identities and
+> descriptors; named companion projections preserve the selected semantic
+> request and rows. No host derives identity, query behavior, Content kind,
+> result shape, reference, or presentation support from a display label,
+> implementation type name, or rendered section.
 
 The map sequences focused owner adoptions. It does not redefine View Facet
 identity, QuerySpace execution, result construction, output representability,
@@ -61,7 +62,7 @@ The target CLI has one compact discovery, query, and companion-output model:
 
 | Gesture | Role |
 | --- | --- |
-| `-D` | Discover the registered facets available for the command or resolved subject. |
+| `-D` | Discover the registered facets available for the command or resolved subject, including each facet's semantic Content kind and presentation shape. |
 | `-Q <facet>` | Execute one or more registered facets by canonical ID or contextual dot notation. |
 | `-E` | Emit the complete default explanation for the executed request as a final `stderr` sidecar. |
 | `-E .tips` | Dereference only the bounded related-gesture projection from that explanation. |
@@ -323,12 +324,33 @@ changes exact Registry resolution. Bare command behavior comes from the
 command owner's registered default facet, not from a valueless `-Q`. `-D`
 remains the compact inventory gesture.
 
-## Semantic shapes and natural presentation
+## Semantic Content kinds, shapes, and natural presentation
 
-Result owners classify the semantic result before host presentation. A focused
-shape-classification adoption adds Hierarchy to the owner-issued vocabulary
-rather than inferring it from a tree renderer. The first shape-native defaults
-are:
+Each result owner declares two independent facts before host presentation:
+
+- the host-observable semantic Content kind is `Result`, `Document`, or
+  `Outcome`, as defined by
+  [Host-observable Content Kinds](host-observable-content-kinds.md); and
+- the presentation shape is `Document`, `Table`, `Hierarchy`, or another
+  owner-issued shape.
+
+The semantic Content kind tells a consumer how to interpret the completed
+operation boundary. The presentation shape tells a host which renderings can
+faithfully represent available Content. Neither determines the other. An
+inspection `Document` may have a `Table` or `Hierarchy` presentation shape,
+while an `Outcome` may carry an available `Result` or `Document`. For an
+`Outcome`, the declared shape describes its available Content; a non-available
+case remains an owner-issued terminal case and is never rendered as a
+plausible empty instance of that shape.
+
+The declaration is explicit owner metadata. A host does not infer the semantic
+kind from a CLR suffix, collection type, schema arity, or runtime value, and
+does not infer presentation shape from a renderer or format. This composition
+introduces no universal base type or generic outcome algebra.
+
+A focused shape-classification adoption adds Hierarchy to the owner-issued
+vocabulary rather than inferring it from a tree renderer. The first
+shape-native defaults are:
 
 | Semantic shape | Natural CLI presentation |
 | --- | --- |
@@ -415,22 +437,33 @@ selection of that facet lower to the same typed request and result contract.
 ## Discovery
 
 `-D` projects the registered facet catalog rather than treating display section
-names as identity. Compact discovery includes at least:
+names as identity. Compact discovery includes the exact owner-issued semantic
+Content kind separately from presentation shape:
 
 ```text
-ID                           Title                       Shape       Default
-library.references           References                  Table       TSV
-library.types                Types                       Hierarchy   Tree
-library.info                 Library Info                Document    Markdown
+ID                           Title          Semantic Kind  Shape       Default
+library.references           References     Document       Table       TSV
+library.types                Types          Document       Hierarchy   Tree
+library.info                 Library Info   Document       Document    Markdown
 ```
 
-The exact issued IDs remain with the View Facet owner. The rows above state the
-target information shape.
+The exact issued IDs and exact kind and shape declarations remain with their
+respective owners. The rows above illustrate the target discovery columns;
+each adopting owner supplies its actual values. Repeated words are meaningful:
+`Document` in **Semantic Kind** means portable composed inspection Content,
+while `Document` in **Shape** means composed output presentation.
+
+Every executable facet must have one semantic Content kind and one presentation
+shape before adoption into this discovery surface. The discovery projection
+uses those declarations unchanged. It does not classify from type names or
+inspect runtime Content. Tombstones preserve their last issued declarations so
+known retired facets remain explainable without an execution binding.
 
 Target-free discovery is resource-free. Target-aware discovery consumes
 already-authorized applicability and availability facts and preserves
 Unavailable and Failed states. It does not execute a facet to learn whether it
-exists.
+exists. Discovery availability is Registry state, not an execution `Outcome`;
+the two remain separately typed and displayed.
 
 Structural field, column, and item discovery remains with Schema Query. The CLI
 may present those resources beneath the selected facet, but it must not merge
@@ -443,7 +476,7 @@ Facet explanation composes existing owner-issued facts around exact
 
 - ID, title, summary, subject kind, and stable purpose;
 - default or explicitly selected status;
-- Content and result-contract identity;
+- Content and result-contract identity, including semantic Content kind;
 - semantic shape and natural presentation;
 - supported alternate formats;
 - category or facet-set membership;
@@ -570,9 +603,10 @@ The current `--references` primary-output projection retires when
 
 ## Browser/Wasm
 
-Browser/Wasm consumes the same View Facet IDs, titles, summaries, applicability,
-query descriptors, result shapes, and supported presentations. It binds them
-to host-native controls rather than parsing CLI flags or commands.
+Browser/Wasm consumes the same View Facet IDs, titles, summaries,
+applicability, semantic Content kinds, query descriptors, result shapes, and
+supported presentations. It binds them to host-native controls rather than
+parsing CLI flags or commands.
 
 Shape-native defaults inform initial presentation but do not force terminal
 renderers into the Browser. A Table may become a grid, a Hierarchy a tree
@@ -590,7 +624,8 @@ does not render CLI command text or interpret `-E`.
 | Facet execution binding | Each facet and operation owner | Maps exact facet resolution to one owner-issued request and Content contract. |
 | Operation and row-query capability | [Query Operation Infrastructure](query-operation-infrastructure.md), [Query Space Composition](query-space-composition.md), and row-query owners | Supply query terms, operators, stages, orders, effects, bounds, completion, and typed execution. |
 | Structural sections and items | [Schema Query](schema-query.md) and [Section Model](section-model.md) | Retain document structure and migrate selectable sections/categories to facet bindings and facet sets. |
-| Semantic Content shape and composition | [Output Shapes](output-shapes.md), the focused Hierarchy-shape adoption, Host-observable Content Kinds, and each result owner | Supply Document, Table, Hierarchy, and other result contracts without deriving them from format. |
+| Host-observable semantic Content kind | [Host-observable Content Kinds](host-observable-content-kinds.md) and each result owner | Classify the completed Content contract as Result, Document, or Outcome without introducing a universal type hierarchy or deriving kind from implementation names. |
+| Presentation shape and composition | [Output Shapes](output-shapes.md), the focused Hierarchy-shape adoption, and each result owner | Supply Document, Table, Hierarchy, and other presentation-shape contracts without deriving them from format or semantic Content kind. |
 | Explicit format and destination grammar | [CLI Output Format and Destination](cli-output-format-and-destination.md) | Retains `--format`, `--output`, precedence, and unsupported-pair admission. |
 | Natural omitted-format policy | Output Shapes and Progressive Disclosure focused adoption | Maps admitted complete semantic shapes to Markdown, TSV, or Tree without changing Content. |
 | Primary subject defaults and Info separation | [Primary Subject Views](primary-subject-views.md) and each command owner | Supply exact default and Info facet identities and subject-specific Content. |
@@ -614,10 +649,13 @@ Each slice changes one focused owner and references this map.
    that will retire rather than receive facets.
 3. **Issue facet-set identity.** Replace display-name category identity with
    stable authored sets whose membership references exact View Facet IDs.
-4. **Issue and classify semantic shapes.** Establish the focused Hierarchy
-   result contract, then have each result owner declare Document, Table,
-   Hierarchy, or another existing shape. Define complete-selection composition
-   and homogeneous Table families without using rendered output.
+4. **Classify semantic Content kinds and presentation shapes.** Have each
+   result owner declare Result, Document, or Outcome for its completed Content
+   contract. Establish the focused Hierarchy shape contract, then have the
+   owner independently declare Document, Table, Hierarchy, or another existing
+   presentation shape. Project both declarations through `-D` and explanation.
+   Define complete-selection composition and homogeneous Table families without
+   using rendered output or changing the semantic Content kind.
 5. **Adopt shape-native CLI defaults.** Map Document to Markdown, Table to TSV,
    and Hierarchy to Tree when no explicit format or environment override wins.
    Preserve alternate Markdown, table, JSONL, and JSON representations where
@@ -690,33 +728,39 @@ Focused adoptions must demonstrate:
    where supported.
 14. **Unsupported format.** A multi-result Document rejects TSV before
    acquisition rather than dropping context or choosing one Table.
-15. **Ambiguous title.** Human-title lookup fails with exact ID candidates and
-    never chooses by registration order.
-16. **Query scope.** `--where` and ordering terms bind only to row sets declared
-    by the exact selected facet; equal column labels do not transfer operators.
-17. **Reference correspondence.** `-E .references` emits exactly one
-    owner-issued reference per selected semantic row in selected order, and
-    every value is accepted unchanged by top-level `explain`.
-18. **Incomplete references.** One unreferenceable selected row prevents both
-    primary and companion publication rather than producing a partial reference
-    file or ordinary-output fallback.
-19. **Companion failure.** Explicit `-E` does not publish primary output when
-    the selected companion cannot be constructed, and emits no plausible empty
-    sidecar.
-20. **Output ordering.** Successful primary output is flushed before the final
-    companion block is written to `stderr`.
-21. **Absent companion demand.** An invocation without `-E` realizes no
-    explanation-only registry, affordance, reference projection, ranking, or
-    companion-rendering work.
-22. **Companion dereference ownership.** `-E .tips` and `-E .references`
-    consume their dotted operands, while an unrelated undotted positional
-    token remains owned by ordinary command parsing.
-23. **Undotted migration guard.** `-E tips` and `-E references` fail before
-    acquisition with their dotted replacements and cannot reinterpret the
-    former names as positional subjects.
-24. **Unknown companion child.** `-E .unknown` fails before acquisition rather
-    than searching explanation text, selecting the companion root, or reaching
-    positional parsing.
+15. **Kind and shape independence.** An inspection Document with a Table shape
+   appears in `-D` as `Document` and `Table`; the host neither relabels the
+   Content kind nor defaults it to Markdown.
+16. **Outcome is not availability.** A facet whose Content kind is Outcome
+   retains that kind when target-aware discovery reports the facet Available;
+   Registry availability does not unwrap the future execution Content.
+17. **Ambiguous title.** Human-title lookup fails with exact ID candidates and
+   never chooses by registration order.
+18. **Query scope.** `--where` and ordering terms bind only to row sets declared
+   by the exact selected facet; equal column labels do not transfer operators.
+19. **Reference correspondence.** `-E .references` emits exactly one
+   owner-issued reference per selected semantic row in selected order, and
+   every value is accepted unchanged by top-level `explain`.
+20. **Incomplete references.** One unreferenceable selected row prevents both
+   primary and companion publication rather than producing a partial reference
+   file or ordinary-output fallback.
+21. **Companion failure.** Explicit `-E` does not publish primary output when
+   the selected companion cannot be constructed, and emits no plausible empty
+   sidecar.
+22. **Output ordering.** Successful primary output is flushed before the final
+   companion block is written to `stderr`.
+23. **Absent companion demand.** An invocation without `-E` realizes no
+   explanation-only registry, affordance, reference projection, ranking, or
+   companion-rendering work.
+24. **Companion dereference ownership.** `-E .tips` and `-E .references`
+   consume their dotted operands, while an unrelated undotted positional
+   token remains owned by ordinary command parsing.
+25. **Undotted migration guard.** `-E tips` and `-E references` fail before
+   acquisition with their dotted replacements and cannot reinterpret the
+   former names as positional subjects.
+26. **Unknown companion child.** `-E .unknown` fails before acquisition rather
+   than searching explanation text, selecting the companion root, or reaching
+   positional parsing.
 
 ## Evidence plan
 
@@ -732,6 +776,8 @@ The composition requires, across those slices:
 - canonical identity in discovery, explanation, persistence, references, and
   cross-host descriptors;
 - explicit and default facet equivalence;
+- owner-issued Result, Document, or Outcome classification in discovery,
+  explanation, and cross-host descriptors without runtime or naming inference;
 - semantic shape and complete-selection composition;
 - natural format and explicit-format equivalence over the same selected
   Content;
@@ -770,6 +816,10 @@ This map does not:
 - make every facet a QuerySpace operation before its focused adoption;
 - authorize acquisition, network, source, exhaustive, or expensive work from
   discovery or explanation;
+- infer semantic Content kind from a CLR suffix, collection type, output shape,
+  runtime value, or Registry availability;
+- define a universal Result, Document, or Outcome base type or generic outcome
+  algebra;
 - make a renderer define semantic shape;
 - require every shape to support every format;
 - turn Graph into Hierarchy or exact payload into Document;
