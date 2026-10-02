@@ -132,6 +132,18 @@ public static class TypeDeclaredMethodPopulationQuery
 
     public static QuerySpaceRequest CreateRequest(
         QuerySpaceTerminalRequirement terminal) =>
+        terminal switch
+        {
+            QuerySpaceTerminalRequirement.Count =>
+                Canonical.CountRequest,
+            QuerySpaceTerminalRequirement.Rows =>
+                Canonical.RowsRequest,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(terminal)),
+        };
+
+    private static QuerySpaceRequest CreateRequestCore(
+        QuerySpaceTerminalRequirement terminal) =>
         QuerySpaceRequest.Create(
             QuerySpace.Descriptor,
             PortableQueryIntent.Empty,
@@ -145,7 +157,19 @@ public static class TypeDeclaredMethodPopulationQuery
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
+        if (ReferenceEquals(request, Canonical.CountRequest))
+            return Canonical.CountPlan;
+        if (ReferenceEquals(request, Canonical.RowsRequest))
+            return Canonical.RowsPlan;
 
+        return ResolveRequestCore(request, cancellationToken);
+    }
+
+    private static TypeDeclaredMethodPopulationQueryResult
+        ResolveRequestCore(
+            QuerySpaceRequest request,
+            CancellationToken cancellationToken)
+    {
         if (!request.QuerySpace.Equals(
                 QuerySpaceIdentity,
                 StringComparison.Ordinal))
@@ -201,6 +225,31 @@ public static class TypeDeclaredMethodPopulationQuery
                 request.Terminal)
             : new TypeDeclaredMethodPopulationQueryResult.IntentRejected(
                 resolution.Failure);
+    }
+
+    private static class Canonical
+    {
+        internal static readonly QuerySpaceRequest CountRequest =
+            CreateRequestCore(QuerySpaceTerminalRequirement.Count);
+        internal static readonly QuerySpaceRequest RowsRequest =
+            CreateRequestCore(QuerySpaceTerminalRequirement.Rows);
+        internal static readonly
+            TypeDeclaredMethodPopulationQueryResult.Accepted CountPlan =
+                Accepted(ResolveRequestCore(
+                    CountRequest,
+                    CancellationToken.None));
+        internal static readonly
+            TypeDeclaredMethodPopulationQueryResult.Accepted RowsPlan =
+                Accepted(ResolveRequestCore(
+                    RowsRequest,
+                    CancellationToken.None));
+
+        private static TypeDeclaredMethodPopulationQueryResult.Accepted
+            Accepted(TypeDeclaredMethodPopulationQueryResult result) =>
+            result
+                as TypeDeclaredMethodPopulationQueryResult.Accepted
+            ?? throw new InvalidOperationException(
+                "Canonical declared-method plan was rejected.");
     }
 
     private readonly record struct OperationPredicate;

@@ -600,11 +600,41 @@ public sealed class AssemblyContextGroup : IDisposable
             callback);
     }
 
+    internal AssemblyImageAccessResult<TResult> UseSnapshot<
+        TState,
+        TResult>(
+        AssemblyContextParticipant participant,
+        CancellationToken cancellationToken,
+        TState state,
+        Func<AssemblyImageSnapshot, TState, TResult> callback)
+    {
+        ArgumentNullException.ThrowIfNull(participant);
+        return UseSnapshot(
+            participant.Assembly,
+            participant,
+            cancellationToken,
+            state,
+            callback);
+    }
+
     AssemblyImageAccessResult<TResult> UseSnapshot<TResult>(
         ResolvedAssemblyReference assembly,
         AssemblyContextParticipant? expectedParticipant,
         CancellationToken cancellationToken,
-        Func<AssemblyImageSnapshot, TResult> callback)
+        Func<AssemblyImageSnapshot, TResult> callback) =>
+        UseSnapshot(
+            assembly,
+            expectedParticipant,
+            cancellationToken,
+            callback,
+            static (snapshot, inspect) => inspect(snapshot));
+
+    AssemblyImageAccessResult<TResult> UseSnapshot<TState, TResult>(
+        ResolvedAssemblyReference assembly,
+        AssemblyContextParticipant? expectedParticipant,
+        CancellationToken cancellationToken,
+        TState state,
+        Func<AssemblyImageSnapshot, TState, TResult> callback)
     {
         BeginCallback();
         Exception? operationFailure = null;
@@ -623,7 +653,7 @@ public sealed class AssemblyContextGroup : IDisposable
                     failure);
             }
 
-            TResult value = callback(access.Snapshot!);
+            TResult value = callback(access.Snapshot!, state);
             return new AssemblyImageAccessResult<TResult>.Available(value);
         }
         catch (Exception ex)
@@ -738,6 +768,26 @@ public sealed class AssemblyContextGroup : IDisposable
         {
             EndCallback(operationFailure);
         }
+    }
+
+    internal AssemblyContextGroupResourceBorrow BorrowOwnedResource<
+        TResource>(
+        TResource resource)
+        where TResource : class, IDisposable
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        lock (_lifetimeGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_ownedResources.Contains(resource))
+            {
+                throw new ArgumentException(
+                    "The resource is not owned by this assembly context group.",
+                    nameof(resource));
+            }
+            _activeCallbacks++;
+        }
+        return new AssemblyContextGroupResourceBorrow(this);
     }
 
     internal void UnregisterOwnedResource(IDisposable resource)
@@ -944,6 +994,25 @@ public sealed class AssemblyContextGroup : IDisposable
             release,
             captureReleaseFailure,
             operationFailure);
+    }
+
+    internal sealed class AssemblyContextGroupResourceBorrow
+        : IDisposable
+    {
+        private AssemblyContextGroup? _owner;
+
+        internal AssemblyContextGroupResourceBorrow(
+            AssemblyContextGroup owner)
+        {
+            _owner = owner;
+        }
+
+        public void Dispose()
+        {
+            AssemblyContextGroup? owner =
+                Interlocked.Exchange(ref _owner, null);
+            owner?.EndCallback(operationFailure: null);
+        }
     }
 
     void CompleteCallbackRelease(

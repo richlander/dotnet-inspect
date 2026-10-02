@@ -19,6 +19,14 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
         QuerySpaceRequest rows =
             TypeDeclaredMethodPopulationQuery.CreateRequest(
                 QuerySpaceTerminalRequirement.Rows);
+        TypeDeclaredMethodPopulationQueryResult countPlan =
+            TypeDeclaredMethodPopulationQuery.ResolveRequest(
+                count,
+                TestContext.Current.CancellationToken);
+        TypeDeclaredMethodPopulationQueryResult rowsPlan =
+            TypeDeclaredMethodPopulationQuery.ResolveRequest(
+                rows,
+                TestContext.Current.CancellationToken);
 
         Assert.Equal(
             TypeDeclaredMethodPopulationQuery.CountResultContract,
@@ -26,16 +34,126 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
         Assert.Equal(
             TypeDeclaredMethodPopulationQuery.RowsResultContract,
             rows.ResultContract);
+        Assert.Same(
+            count,
+            TypeDeclaredMethodPopulationQuery.CreateRequest(
+                QuerySpaceTerminalRequirement.Count));
+        Assert.Same(
+            rows,
+            TypeDeclaredMethodPopulationQuery.CreateRequest(
+                QuerySpaceTerminalRequirement.Rows));
+        Assert.Same(
+            countPlan,
+            TypeDeclaredMethodPopulationQuery.ResolveRequest(
+                count,
+                TestContext.Current.CancellationToken));
+        Assert.Same(
+            rowsPlan,
+            TypeDeclaredMethodPopulationQuery.ResolveRequest(
+                rows,
+                TestContext.Current.CancellationToken));
         Assert.IsType<
             TypeDeclaredMethodPopulationQueryResult.Accepted>(
-                TypeDeclaredMethodPopulationQuery.ResolveRequest(
+                countPlan);
+        Assert.IsType<
+            TypeDeclaredMethodPopulationQueryResult.Accepted>(
+                rowsPlan);
+    }
+
+    [Fact]
+    public async Task PreparedInspectionExecutesCanonicalPlansRepeatedly()
+    {
+        await using var workspace = new InspectionWorkspace();
+        (
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant) =
+                CreateGroup(workspace);
+        using (group)
+        {
+            MetadataTypeDefinitionName type =
+                Name("System.Text.Json", "JsonSerializer");
+            using TypeDeclaredMethodPopulationPreparedInspection prepared =
+                TypeDeclaredMethodPopulationInspectionOperation.Prepare(
+                    group,
+                    participant,
+                    type,
+                    Binding(type),
+                    TestContext.Current.CancellationToken);
+
+            var count = Assert.IsType<
+                TypeDeclaredMethodPopulationOutcome.Counted>(
+                    TypeDeclaredMethodPopulationInspectionOperation
+                        .Execute(
+                            prepared,
+                            TypeDeclaredMethodPopulationQuery.CreateRequest(
+                                QuerySpaceTerminalRequirement.Count),
+                            cancellationToken:
+                                TestContext.Current.CancellationToken)
+                        .Content);
+            var rows = Assert.IsType<
+                TypeDeclaredMethodPopulationOutcome.Read>(
+                    TypeDeclaredMethodPopulationInspectionOperation
+                        .Execute(
+                            prepared,
+                            TypeDeclaredMethodPopulationQuery.CreateRequest(
+                                QuerySpaceTerminalRequirement.Rows),
+                            cancellationToken:
+                                TestContext.Current.CancellationToken)
+                        .Content);
+
+            Assert.Equal(count.Count, rows.Count);
+            Assert.Equal(count.Count, rows.Rows.Length);
+            Assert.Equal(count.Binding, rows.Binding);
+            Assert.Equal(1, count.Receipt.TypeDefinitionRowsRead);
+        }
+    }
+
+    [Fact]
+    public async Task PreparedFailureReusesSettledOutcome()
+    {
+        await using var workspace = new InspectionWorkspace();
+        (
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant) =
+                CreateGroup(workspace);
+        using (group)
+        {
+            MetadataTypeDefinitionName type =
+                Name("System.Text.Json", "JsonSerializer");
+            MetadataTypeDefinitionBinding valid = Binding(type);
+            using TypeDeclaredMethodPopulationPreparedInspection prepared =
+                TypeDeclaredMethodPopulationInspectionOperation.Prepare(
+                    group,
+                    participant,
+                    type,
+                    new(
+                        Guid.NewGuid(),
+                        valid.Definition),
+                    TestContext.Current.CancellationToken);
+            QuerySpaceRequest count =
+                TypeDeclaredMethodPopulationQuery.CreateRequest(
+                    QuerySpaceTerminalRequirement.Count);
+
+            TypeDeclaredMethodPopulationOutcome first =
+                TypeDeclaredMethodPopulationInspectionOperation.Execute(
+                    prepared,
                     count,
-                    TestContext.Current.CancellationToken));
-        Assert.IsType<
-            TypeDeclaredMethodPopulationQueryResult.Accepted>(
-                TypeDeclaredMethodPopulationQuery.ResolveRequest(
-                    rows,
-                    TestContext.Current.CancellationToken));
+                    cancellationToken:
+                        TestContext.Current.CancellationToken).Content;
+            TypeDeclaredMethodPopulationOutcome second =
+                TypeDeclaredMethodPopulationInspectionOperation.Execute(
+                    prepared,
+                    count,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken).Content;
+
+            Assert.Same(first, second);
+            Assert.Equal(
+                TypeDeclaredMethodPopulationRejection.BindingRejected,
+                Assert.IsType<
+                    TypeDeclaredMethodPopulationOutcome.Rejected>(first)
+                    .Reason);
+        }
     }
 
     [Fact]

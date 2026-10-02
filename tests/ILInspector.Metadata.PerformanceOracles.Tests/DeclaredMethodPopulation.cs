@@ -842,6 +842,21 @@ public static class DeclaredMethodPopulation
                 GC.KeepAlive(
                     asset.ExecutePreparedFailedEnvelope());
                 break;
+            case PreparedQuerySpaceScorecardCase
+                .ProductionPreparationLookup:
+                GC.KeepAlive(
+                    asset.ExecuteProductionPreparationLookup());
+                break;
+            case PreparedQuerySpaceScorecardCase.ProductionSourceCount:
+                GC.KeepAlive(asset.ExecuteProductionSourceCount());
+                break;
+            case PreparedQuerySpaceScorecardCase.ProductionSourceRows:
+                GC.KeepAlive(asset.ExecuteProductionSourceRows());
+                break;
+            case PreparedQuerySpaceScorecardCase
+                .ProductionOperationCount:
+                GC.KeepAlive(asset.ExecuteProductionOperationCount());
+                break;
             default:
                 throw new ArgumentOutOfRangeException(
                     nameof(measurementCase));
@@ -893,6 +908,16 @@ public static class DeclaredMethodPopulation
                 Measure(asset.ExecutePreparedRejectedEnvelope),
             PreparedQuerySpaceScorecardCase.FailedEnvelope =>
                 Measure(asset.ExecutePreparedFailedEnvelope),
+            PreparedQuerySpaceScorecardCase
+                .ProductionPreparationLookup =>
+                Measure(asset.ExecuteProductionPreparationLookup),
+            PreparedQuerySpaceScorecardCase.ProductionSourceCount =>
+                Measure(asset.ExecuteProductionSourceCount),
+            PreparedQuerySpaceScorecardCase.ProductionSourceRows =>
+                Measure(asset.ExecuteProductionSourceRows),
+            PreparedQuerySpaceScorecardCase
+                .ProductionOperationCount =>
+                Measure(asset.ExecuteProductionOperationCount),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
         };
@@ -1008,6 +1033,16 @@ public static class DeclaredMethodPopulation
                 "Settled rejection + handoff",
             PreparedQuerySpaceScorecardCase.FailedEnvelope =>
                 "Settled failure + handoff",
+            PreparedQuerySpaceScorecardCase
+                .ProductionPreparationLookup =>
+                "Production preparation lookup",
+            PreparedQuerySpaceScorecardCase.ProductionSourceCount =>
+                "Production prepared source",
+            PreparedQuerySpaceScorecardCase.ProductionSourceRows =>
+                "Production prepared source",
+            PreparedQuerySpaceScorecardCase
+                .ProductionOperationCount =>
+                "Production operation + handoff",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
         };
@@ -1036,6 +1071,17 @@ public static class DeclaredMethodPopulation
             PreparedQuerySpaceScorecardCase.FailedOutcome
                 or PreparedQuerySpaceScorecardCase.FailedEnvelope =>
                 "Failed",
+            PreparedQuerySpaceScorecardCase
+                .ProductionPreparationLookup =>
+                "Ready",
+            PreparedQuerySpaceScorecardCase.ProductionSourceCount
+                =>
+                "Count",
+            PreparedQuerySpaceScorecardCase.ProductionSourceRows =>
+                "Rows",
+            PreparedQuerySpaceScorecardCase
+                    .ProductionOperationCount =>
+                "Count",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
         };
@@ -1168,6 +1214,10 @@ public static class DeclaredMethodPopulation
         FailedOutcome,
         RejectedEnvelope,
         FailedEnvelope,
+        ProductionPreparationLookup,
+        ProductionSourceCount,
+        ProductionSourceRows,
+        ProductionOperationCount,
     }
 
     private readonly record struct Measurement(
@@ -1191,6 +1241,15 @@ public static class DeclaredMethodPopulation
         private readonly InspectionShare.NonProjectable _share;
         private readonly MetadataDeclaredMethodPopulationReceipt
             _rowsReceipt;
+        private readonly
+            AssemblyContextDeclaredMethodPopulationPreparation.Ready
+                _productionReady;
+        private readonly AssemblyContextDeclaredMethodPopulationExecution
+            _productionExecution;
+        private readonly TypeDeclaredMethodPopulationInspectionRequest
+            _productionCountRequest;
+        private readonly TypeDeclaredMethodPopulationPreparedInspection
+            _productionPreparedInspection;
         private readonly PreparedDeclaredMethodProducer _prepared;
         private readonly PreparedDeclaredMethodProducer _rejectedPrepared;
         private readonly PreparedDeclaredMethodProducer _failedPrepared;
@@ -1266,12 +1325,37 @@ public static class DeclaredMethodPopulation
                             TextPolicy.Field,
                             "Prepared metadata admission failed.")),
                     _share);
+            _productionReady =
+                AssemblyContextDeclaredMethodPopulationQuery
+                    .PrepareParticipant(
+                        group,
+                        participant,
+                        type)
+                    as AssemblyContextDeclaredMethodPopulationPreparation
+                        .Ready
+                ?? throw new InvalidOperationException(
+                    "Expected production declared-method preparation.");
+            _productionCountRequest =
+                new(
+                    group,
+                    participant,
+                    typeName,
+                    type,
+                    TypeDeclaredMethodPopulationQuery.CreateRequest(
+                        QuerySpaceTerminalRequirement.Count));
+            _productionPreparedInspection =
+                TypeDeclaredMethodPopulationInspectionOperation.Prepare(
+                    group,
+                    participant,
+                    typeName,
+                    type);
             _borrowedNLinqCount = BorrowedNLinqCount;
             _borrowedNLinqRows = BorrowedNLinqRows;
             _borrowedNLinqOutcomeCount =
                 BorrowedNLinqOutcomeCount;
             _borrowedNLinqOutcomeRows =
                 BorrowedNLinqOutcomeRows;
+            _productionExecution = _productionReady.OpenExecution();
         }
 
         internal static Asset Open(
@@ -1576,6 +1660,29 @@ public static class DeclaredMethodPopulation
             ExecutePreparedFailedEnvelope() =>
                 _failedPrepared.ExecuteEnvelope(s_countPlan);
 
+        internal AssemblyContextDeclaredMethodPopulationPreparation
+            ExecuteProductionPreparationLookup() =>
+                AssemblyContextDeclaredMethodPopulationQuery
+                    .PrepareParticipant(
+                        _group,
+                        _participant,
+                        _type);
+
+        internal MetadataDeclaredMethodPopulationResult
+            ExecuteProductionSourceCount() =>
+                _productionExecution.Count();
+
+        internal MetadataDeclaredMethodPopulationResult
+            ExecuteProductionSourceRows() =>
+                _productionExecution.Rows();
+
+        internal InspectionEnvelope<
+            TypeDeclaredMethodPopulationOutcome>
+            ExecuteProductionOperationCount() =>
+                TypeDeclaredMethodPopulationInspectionOperation.Execute(
+                    _productionPreparedInspection,
+                    _productionCountRequest.Query);
+
         internal object PrepareDeclaredMethodProducer() =>
             PrepareReadyProducer();
 
@@ -1779,20 +1886,34 @@ public static class DeclaredMethodPopulation
         {
             try
             {
-                _session.Dispose();
+                _productionExecution.Dispose();
             }
             finally
             {
                 try
                 {
-                    _group.Dispose();
+                    _productionPreparedInspection.Dispose();
                 }
                 finally
                 {
-                    _workspace.DisposeAsync()
-                        .AsTask()
-                        .GetAwaiter()
-                        .GetResult();
+                    try
+                    {
+                        _session.Dispose();
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            _group.Dispose();
+                        }
+                        finally
+                        {
+                            _workspace.DisposeAsync()
+                                .AsTask()
+                                .GetAwaiter()
+                                .GetResult();
+                        }
+                    }
                 }
             }
         }

@@ -24,17 +24,28 @@ public abstract class
             AssemblyContextSubject subject,
             PreparedDeclaredMethodPopulationStore owner,
             AssemblyInspectionSession session,
-            MetadataDeclaredMethodPopulationSource source)
+            MetadataDeclaredMethodPopulationSource source,
+            MetadataTypeDefinitionBinding binding)
             : base(subject)
         {
             _owner = owner;
             Session = session;
             Source = source;
+            Binding = binding;
         }
 
         internal AssemblyInspectionSession Session { get; }
 
         internal MetadataDeclaredMethodPopulationSource Source { get; }
+
+        public MetadataTypeDefinitionBinding Binding { get; }
+
+        /// <summary>
+        /// Borrows the prepared source for repeated terminal execution.
+        /// </summary>
+        public AssemblyContextDeclaredMethodPopulationExecution
+            OpenExecution() =>
+            _owner.OpenExecution(this);
 
         public MetadataDeclaredMethodPopulationResult Count() =>
             _owner.Count(this);
@@ -89,11 +100,58 @@ public abstract class
 }
 
 /// <summary>
+/// A ready declared-method source whose group borrow is established before
+/// terminal execution.
+/// </summary>
+public sealed class AssemblyContextDeclaredMethodPopulationExecution
+    : IDisposable
+{
+    private readonly MetadataDeclaredMethodPopulationSource _source;
+    private AssemblyContextGroup.AssemblyContextGroupResourceBorrow?
+        _borrow;
+
+    internal AssemblyContextDeclaredMethodPopulationExecution(
+        MetadataDeclaredMethodPopulationSource source,
+        AssemblyContextGroup.AssemblyContextGroupResourceBorrow borrow)
+    {
+        _source = source;
+        _borrow = borrow;
+    }
+
+    public MetadataDeclaredMethodPopulationResult Count()
+    {
+        ObjectDisposedException.ThrowIf(_borrow is null, this);
+        return _source.Count();
+    }
+
+    public MetadataDeclaredMethodPopulationResult Rows(
+        int maximumRows = int.MaxValue)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumRows);
+        ObjectDisposedException.ThrowIf(_borrow is null, this);
+        return _source.Rows(maximumRows);
+    }
+
+    public void Dispose()
+    {
+        AssemblyContextGroup.AssemblyContextGroupResourceBorrow? borrow =
+            Interlocked.Exchange(ref _borrow, null);
+        borrow?.Dispose();
+    }
+}
+
+/// <summary>
 /// Executes one authenticated TypeDef's declared-MethodDef population while
 /// the participant session is alive.
 /// </summary>
 public static class AssemblyContextDeclaredMethodPopulationQuery
 {
+    private static readonly Func<
+        AssemblyContextGroup,
+        PreparedDeclaredMethodPopulationStore> s_createStore =
+            static owner =>
+                new PreparedDeclaredMethodPopulationStore(owner);
+
     public static AssemblyContextDeclaredMethodPopulationPreparation
         PrepareParticipant(
             AssemblyContextGroup group,
@@ -111,8 +169,7 @@ public static class AssemblyContextDeclaredMethodPopulationQuery
                 PreparedDeclaredMethodPopulationStore,
                 AssemblyContextGroup>(
                 group,
-                static owner =>
-                    new PreparedDeclaredMethodPopulationStore(owner));
+                s_createStore);
         return store.Prepare(
             participant,
             type,
@@ -172,10 +229,20 @@ internal sealed class PreparedDeclaredMethodPopulationStore
         MetadataTypeDefinitionBinding type,
         CancellationToken cancellationToken)
     {
-        if (!_group.Participants.Any(candidate =>
-                ReferenceEquals(
+        bool belongsToGroup = false;
+        foreach (AssemblyContextParticipant candidate
+            in _group.Participants)
+        {
+            if (!ReferenceEquals(
                     candidate.Assembly.Registration,
-                    participant.Assembly.Registration)))
+                    participant.Assembly.Registration))
+            {
+                continue;
+            }
+            belongsToGroup = true;
+            break;
+        }
+        if (!belongsToGroup)
         {
             throw new ArgumentException(
                 "The requested participant is not a member of the "
@@ -229,11 +296,17 @@ internal sealed class PreparedDeclaredMethodPopulationStore
                     _group.UseSnapshot(
                         participant,
                         cancellationToken,
-                        snapshot => PrepareAndPublish(
-                            key,
-                            subject,
-                            snapshot,
-                            type));
+                        (
+                            Owner: this,
+                            Key: key,
+                            Subject: subject,
+                            Type: type),
+                        static (snapshot, state) =>
+                            state.Owner.PrepareAndPublish(
+                                state.Key,
+                                state.Subject,
+                                snapshot,
+                                state.Type));
             AssemblyContextDeclaredMethodPopulationPreparation prepared =
                 access switch
                 {
@@ -286,6 +359,16 @@ internal sealed class PreparedDeclaredMethodPopulationStore
                 state.Ready.Source.Rows(state.MaximumRows));
     }
 
+    internal AssemblyContextDeclaredMethodPopulationExecution OpenExecution(
+        AssemblyContextDeclaredMethodPopulationPreparation.Ready ready)
+    {
+        AssemblyContextGroup.AssemblyContextGroupResourceBorrow borrow =
+            _group.BorrowOwnedResource(this);
+        return new(
+            ready.Source,
+            borrow);
+    }
+
     private AssemblyContextDeclaredMethodPopulationPreparation
         PrepareAndPublish(
             PreparedDeclaredMethodPopulationKey key,
@@ -324,7 +407,8 @@ internal sealed class PreparedDeclaredMethodPopulationStore
                                 subject,
                                 this,
                                 session,
-                                ready.Source);
+                                ready.Source,
+                                type);
                     session = null;
                     return result;
                 case MetadataDeclaredMethodPopulationPreparation.Rejected

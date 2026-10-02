@@ -107,6 +107,38 @@ public sealed class AssemblyContextDeclaredMethodPopulationQueryTests
     }
 
     [Fact]
+    public async Task PreparedExecutionRetainsSourceUntilReleased()
+    {
+        string path = typeof(System.Text.Json.JsonSerializer)
+            .Assembly.Location;
+        MetadataTypeDefinitionBinding binding = Binding(path);
+        await using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group = Group(workspace, path);
+        var ready = Assert.IsType<
+            AssemblyContextDeclaredMethodPopulationPreparation.Ready>(
+                AssemblyContextDeclaredMethodPopulationQuery
+                    .PrepareParticipant(
+                        group,
+                        group.Participants[0],
+                        binding,
+                        TestContext.Current.CancellationToken));
+        using AssemblyContextDeclaredMethodPopulationExecution execution =
+            ready.OpenExecution();
+
+        group.Dispose();
+
+        MetadataDeclaredMethodPopulationResult count = execution.Count();
+        Assert.Equal(
+            MetadataDeclaredMethodPopulationResultKind.Counted,
+            count.Kind);
+
+        execution.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => execution.Count());
+        Assert.Throws<ObjectDisposedException>(() => ready.Count());
+    }
+
+    [Fact]
     public async Task ParticipantFailureIsSettledOnce()
     {
         string path = typeof(System.Text.Json.JsonSerializer)

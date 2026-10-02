@@ -101,9 +101,10 @@ only when every MethodDef-specific counter is zero.
 ## Production adoption and evidence
 
 The performance harness is the first production caller of the host-neutral
-operation. It resolves the exact Type once, then measures the QuerySpace-routed
-Sections path from the resulting authenticated binding. It also preserves a
-focused Metadata measurement for the physical Count/Rows comparison.
+operation. It resolves the exact Type and prepares one disposable Sections
+inspection before measurement, then measures canonical QuerySpace terminals
+against that ready operation. It also preserves a focused Metadata measurement
+for the physical Count/Rows comparison.
 
 The adoption gate uses pinned real types on one Linux NativeAOT performance
 host:
@@ -244,6 +245,8 @@ physical result:
 - Queries owns the prepared session and source under the exact participant and
   binding lifetime. It releases that derived resource before the participant's
   immutable snapshot.
+- Sections preparation establishes one disposable group borrow and settles the
+  subject, binding, source, and failure state before QuerySpace execution.
 - Sections retains ownership of
   `TypeDeclaredMethodPopulationOutcome`, maps the value result into that exact
   host-neutral content, and adds the envelope.
@@ -264,6 +267,9 @@ Queries performs exact-binding preparation with participant-local single-flight.
 It publishes a ready source into the group-owned store before the active
 snapshot callback ends, so concurrent group release either observes and
 disposes the prepared session or prevents its publication. Warm terminal
-execution borrows that owned store without reopening the snapshot. Group
-release closes the store and every prepared session before releasing any
-participant snapshot.
+preparation opens one execution lease over that owned store. Count and Rows
+then reuse the already-established borrow without reopening the snapshot or
+re-entering group lifetime synchronization. Disposing the prepared Sections
+inspection releases the borrow; group release waits for that lease, then closes
+the store and every prepared session before releasing any participant
+snapshot.
