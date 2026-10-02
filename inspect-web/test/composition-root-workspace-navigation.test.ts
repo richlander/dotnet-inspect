@@ -368,6 +368,7 @@ test("Type inventory filters preserve their focused control across rerenders", (
         ?.[0] ?? "";
     assert.match(callback, /renderPreservingMemberFocus\(\)/);
     assert.doesNotMatch(callback, /\brender\(\)/);
+    assert.doesNotMatch(callback, /loadTypeLeverage\(\)/);
   }
 });
 

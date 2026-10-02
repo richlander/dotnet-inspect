@@ -82,7 +82,7 @@ test("qualified Type leverage exposes a cache-bypassing retry", () => {
   );
 });
 
-test("Metrics lens requests and presents exact structural-salience shards", () => {
+test("Metrics lens requests and presents exhaustive structural salience", () => {
   const target = sourceText(
     functionDeclaration("libraryMetricsTypeLeverageTarget"),
   );
@@ -95,10 +95,19 @@ test("Metrics lens requests and presents exact structural-salience shards", () =
   const autoLoad = sourceText(
     functionDeclaration("maybeAutoLoadPackageLibraryMetrics"),
   );
+  const typeAutoLoad = sourceText(
+    functionDeclaration("maybeAutoLoadTypeLeverage"),
+  );
+  const typePresentation = sourceText(
+    functionDeclaration("currentTypeLeveragePresentation"),
+  );
+  const metricsPresentation = sourceText(
+    functionDeclaration("currentLibraryMetricsTypeLeveragePresentation"),
+  );
 
   assert.match(
     target,
-    /state\.atLibraryRoot[\s\S]*state\.libraryLens !== "metrics"[\s\S]*libraryMetricsLeverageNamespace[\s\S]*createTypeLeverageTarget\("metrics", requestedNamespaces, true\)/,
+    /state\.atLibraryRoot[\s\S]*state\.libraryLens !== "metrics"[\s\S]*createTypeLeverageTarget\("metrics", true\)/,
   );
   assert.match(
     loader,
@@ -106,15 +115,35 @@ test("Metrics lens requests and presents exact structural-salience shards", () =
   );
   assert.match(
     renderer,
-    /salienceLoading: state\.libraryMetricsLeverageLoading[\s\S]*salience: currentLibraryMetricsTypeLeveragePresentation\(\)[\s\S]*selectedSalienceNamespace: state\.libraryMetricsLeverageNamespace/,
+    /salienceLoading: currentLibraryMetricsTypeLeveragePending\(\)[\s\S]*salience: currentLibraryMetricsTypeLeveragePresentation\(\)[\s\S]*selectedSalienceNamespace: state\.libraryMetricsLeverageNamespace/,
   );
   assert.match(
     autoLoad,
-    /libraryMetricsLeverageKey !== leverageKey[\s\S]*loadLibraryMetricsTypeLeverage\(\)/,
+    /libraryMetricsLeverageKey !== leverageKey[\s\S]*typeLeverage\.presentation\(leverageKey\) === null[\s\S]*!typeLeverage\.pending\(leverageKey\)[\s\S]*loadLibraryMetricsTypeLeverage\(\)/,
   );
   assert.match(
+    typeAutoLoad,
+    /scope\(\) !== "type"[\s\S]*scope\(\) !== "member"[\s\S]*typeLeverage\.presentation\(leverageKey\) !== null[\s\S]*typeLeverage\.pending\(leverageKey\)[\s\S]*loadTypeLeverage\(\)/,
+  );
+  for (const presentation of [typePresentation, metricsPresentation]) {
+    assert.match(presentation, /return typeLeverage\.presentation\(key\)/);
+    assert.doesNotMatch(presentation, /state\.\w*Presentation/);
+  }
+  assert.match(
     appSource,
-    /selectSalienceNamespace: exactNamespace => \{[\s\S]*state\.libraryMetricsLeverageNamespace = exactNamespace;[\s\S]*loadLibraryMetricsTypeLeverage\(\);[\s\S]*retrySalience: \(\) => loadLibraryMetricsTypeLeverage\(true\)/,
+    /maybeAutoLoadPackageLibraryMetrics\(\);[\s\S]*maybeAutoLoadTypeLeverage\(\)/,
+  );
+  const metricsBindings =
+    appSource.match(/bindLibraryMetricsInteractions\(document, \{[\s\S]*?\n  }\);/)?.[0]
+    ?? "";
+  assert.match(
+    metricsBindings,
+    /selectSalienceNamespace: exactNamespace => \{[\s\S]*state\.libraryMetricsLeverageNamespace = exactNamespace;[\s\S]*render\(\);[\s\S]*retrySalience: \(\) => loadLibraryMetricsTypeLeverage\(true\)/,
+  );
+  assert.doesNotMatch(
+    metricsBindings.match(/selectSalienceNamespace:[\s\S]*?(?=\n    retrySalience)/)?.[0]
+      ?? "",
+    /loadLibraryMetricsTypeLeverage/,
   );
 });
 
@@ -734,6 +763,10 @@ test("typed package view owns package navigation bindings", () => {
   assert.match(
     namespaceJump,
     /state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*state\.kindFilter = ""/);
+  for (const projection of [kindJump, namespaceJump]) {
+    assert.doesNotMatch(projection, /loadTypeLeverage\(\)/);
+    assert.match(projection, /\brender\(\)/);
+  }
   for (const source of [kindJump, namespaceJump]) {
     assert.match(
       source,
@@ -1231,7 +1264,8 @@ test("typed type panel owns its rendered control bindings", () => {
     /state\.typeLeverageFilter = ""/);
   assert.match(
     clearFilters,
-    /if \(state\.typeLeverageEnabled\) loadTypeLeverage\(\);\s*else renderPreservingMemberFocus\(\)/);
+    /renderPreservingMemberFocus\(\)/);
+  assert.doesNotMatch(clearFilters, /loadTypeLeverage\(\)/);
   assert.match(
     binding,
     /onTypeFilterChange: value => \{[\s\S]*?render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},/);
@@ -1285,7 +1319,8 @@ test("typed type panel owns its rendered control bindings", () => {
   const kindSelect = callbackSource("onKindSelect");
   assert.match(
     kindSelect,
-    /if \(state\.typeLeverageEnabled\) loadTypeLeverage\(\);\s*else renderPreservingMemberFocus\(\)/);
+    /renderPreservingMemberFocus\(\)/);
+  assert.doesNotMatch(kindSelect, /loadTypeLeverage\(\)/);
   assert.match(
     kindSelect,
     /loadCurrentSelectionData\("Loading the selected Type"\)/);
@@ -1355,16 +1390,20 @@ test("typed type panel owns its rendered control bindings", () => {
       "#namespace-jump": 0,
     });
 
-    test("structural salience requests only indexed exact namespaces", () => {
+    test("structural salience requests one exhaustive Library document", () => {
+      const target = sourceText(
+        functionDeclaration("createTypeLeverageTarget"),
+      );
       assert.match(
-        appSource,
-        /target\.requestedNamespaces\.filter\(namespace =>\s*index\.namespaces\.some\(row => row\.namespace === namespace\)\)/);
+        target,
+        /key: JSON\.stringify\(\[salienceLibraryKey, consumer\]\)/);
+      assert.doesNotMatch(target, /requestedNamespaces|namespaceFilter/);
       assert.match(
         appSource,
         /const GLOBAL_NAMESPACE_FILTER = "__dotnet_inspect_global_namespace__"/);
       assert.match(
-        appSource,
-        /state\.namespaceFilter === GLOBAL_NAMESPACE_FILTER\s*\? ""\s*: state\.namespaceFilter/);
+        sourceText(functionDeclaration("selectedNamespaceFilter")),
+        /state\.namespaceFilter === GLOBAL_NAMESPACE_FILTER\) return ""/);
       assert.match(
         appSource,
         /const value = namespaceFilterValue\(ns\)/);

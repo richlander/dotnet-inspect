@@ -880,31 +880,31 @@ test("the type nav renders exclusive accessible pole cues", () => {
                 "8 external source Types; top-leverage namespace",
             }
           : null,
-      typeLeverageCue: item => {
+      itemAchievements: item => {
         if (item.id === jsonSerializer.id) {
-          return {
-            pole: "sea-level",
+          return [{
+            kind: "sea-level",
             description:
               "8 incoming Type peers; 6 outgoing Type peers; sea-level Type",
-          };
+          }];
         }
         if (item.id === jsonDocument.id) {
-          return {
-            pole: "mountain-peak",
+          return [{
+            kind: "mountain-peak",
             description:
               "4 incoming Type peers; 9 outgoing Type peers; mountain-peak Type",
-          };
+          }];
         }
-        return null;
+        return [];
       },
     });
 
     assert.match(html, /data-type-leverage-filter="sea-level"/);
     assert.match(html, /type-row selected sea-level/);
-    assert.match(html, /class="type-leverage-icon sea-level"/);
-    assert.match(html, /aria-hidden="true">▁<\/span>/);
-    assert.match(html, /class="type-leverage-icon mountain-peak"/);
-    assert.match(html, /aria-hidden="true">▲<\/span>/);
+    assert.match(html, /class="item-achievement-glyph sea-level"/);
+    assert.match(html, /class="item-achievement-glyph mountain-peak"/);
+    assert.match(html, /class="item-achievement-rail"/);
+    assert.doesNotMatch(html, /[▁▲]/);
     assert.match(
       html,
       /role="img" aria-label="8 incoming Type peers; 6 outgoing Type peers/,
