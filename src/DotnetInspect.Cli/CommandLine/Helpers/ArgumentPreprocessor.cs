@@ -134,27 +134,35 @@ public static class ArgumentPreprocessor
 
     internal static bool TryGetRemovedCommandError(
         string[] args,
+        ParseResult parseResult,
         out string? error)
     {
         int terminator = Array.IndexOf(args, "--");
         int end = terminator >= 0 ? terminator : args.Length;
-        string? invalidTipsOption = args.Take(end).FirstOrDefault(
-            static arg =>
-                arg.Equals("--tips", StringComparison.Ordinal)
-                || arg.StartsWith("--tips=", StringComparison.Ordinal)
-                || arg.StartsWith("--tips:", StringComparison.Ordinal)
-                || arg.Equals("-T", StringComparison.Ordinal)
-                || arg.StartsWith("-T=", StringComparison.Ordinal)
-                || arg.StartsWith("-T:", StringComparison.Ordinal));
-        if (invalidTipsOption is not null)
+        bool[] requiredOptionValues = new bool[end];
+        for (int i = 0; i < end; i++)
         {
-            error = $"'{invalidTipsOption}' is no longer valid. "
-                + "Use '-E .tips' to request up to three contextual tips.";
-            return true;
+            requiredOptionValues[i] =
+                IsClaimedByRequiredOption(parseResult, args, i);
         }
 
         for (var i = 0; i < end; i++)
         {
+            if (requiredOptionValues[i])
+                continue;
+
+            if (args[i].Equals("--tips", StringComparison.Ordinal)
+                || args[i].StartsWith("--tips=", StringComparison.Ordinal)
+                || args[i].StartsWith("--tips:", StringComparison.Ordinal)
+                || args[i].Equals("-T", StringComparison.Ordinal)
+                || args[i].StartsWith("-T=", StringComparison.Ordinal)
+                || args[i].StartsWith("-T:", StringComparison.Ordinal))
+            {
+                error = $"'{args[i]}' is no longer valid. "
+                    + "Use '-E .tips' to request up to three contextual tips.";
+                return true;
+            }
+
             if (args[i] == "-e")
             {
                 error = "'-e' is not valid. Use uppercase '-E', "
@@ -181,7 +189,9 @@ public static class ArgumentPreprocessor
             }
         }
 
-        if (args.Take(end).Count(static arg => arg == "-E") > 1)
+        if (Enumerable.Range(0, end).Count(index =>
+                !requiredOptionValues[index]
+                && args[index] == "-E") > 1)
         {
             error = "'-E' may be specified only once.";
             return true;

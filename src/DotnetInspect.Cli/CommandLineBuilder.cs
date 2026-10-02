@@ -70,9 +70,30 @@ public static class CommandLineBuilder
     public static bool TryGetRemovedCommandError(
         string[] args,
         out string? error) =>
-        ArgumentPreprocessor.TryGetRemovedCommandError(
+        TryGetRemovedCommandError(
             args,
+            CreateRootCommand(),
             out error);
+
+    internal static bool TryGetRemovedCommandError(
+        string[] args,
+        RootCommand rootCommand,
+        out string? error)
+    {
+        bool isImplicitPackageCandidate =
+            ArgumentPreprocessor.IsImplicitPackageCandidate(
+                args,
+                UsesImplicitVersionDirectionPresence(
+                    args,
+                    rootCommand));
+        string[] ownershipArgs = isImplicitPackageCandidate
+            ? [PackageCommand.Name, .. args]
+            : args;
+        return ArgumentPreprocessor.TryGetRemovedCommandError(
+            args,
+            rootCommand.Parse(ownershipArgs),
+            out error);
+    }
 
     internal static bool TryGetCommandlessPackageVersionError(
         string[] args,

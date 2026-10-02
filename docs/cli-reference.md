@@ -565,7 +565,9 @@ and `-E .references` are reserved and currently fail before acquisition.
 Legacy `-T` and `--tips`, lowercase `-e`, undotted `-E tips` /
 `-E references`, attached or inline `-E.tips` / `-E=.tips` / `-E:.tips`,
 unknown dotted children, and repeated `-E` are invalid. An unrelated undotted
-token after `-E` remains positional. `E`
+token after `-E` remains positional. Option-like filenames and other required
+option values retain that option's ownership; for example, `--out --tips`
+names an output path rather than invoking the retired option. `E`
 suggests *explain* and can also remind users that the companion is written to
 the error stream; the latter is a mnemonic, not an error classification.
 

@@ -83,6 +83,33 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("package", "Newtonsoft.Json", "--out", "--tips")]
+    [InlineData("package", "Newtonsoft.Json", "--output", "--tips=q")]
+    [InlineData("package", "Newtonsoft.Json", "-o", "-T")]
+    [InlineData("package", "Newtonsoft.Json", "--out", "-T:q")]
+    [InlineData("package", "Newtonsoft.Json", "--out", "-e")]
+    [InlineData("package", "Newtonsoft.Json", "--out", "-E.tips")]
+    [InlineData("package", "Newtonsoft.Json", "--nugetconfig", "--tips")]
+    [InlineData("Newtonsoft.Json", "--out", "--tips", null)]
+    public void RemovedCompanionSpellingAsRequiredValueIsPreserved(
+        string first,
+        string second,
+        string third,
+        string? fourth)
+    {
+        string[] args = fourth is null
+            ? [first, second, third]
+            : [first, second, third, fourth];
+
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            args,
+            out string? error);
+
+        Assert.False(rejected);
+        Assert.Null(error);
+    }
+
+    [Theory]
     [InlineData("-E.tips")]
     [InlineData("-E=.tips")]
     [InlineData("-E:.tips")]

@@ -588,7 +588,9 @@ No long alias, attached value, or inline value is accepted. `-T`, `--tips`,
 invalid input rather than compatibility spellings. The separated dotted
 `.tips` token belongs to `-E`; a following undotted token retains the command's
 ordinary positional ownership
-and validation.
+and validation. A token with one of those spellings that is owned as another
+option's required value remains that value; for example, `--out --tips` names a
+destination rather than invoking the retired option.
 
 A successful command with no applicable binding emits no related-gesture
 block. A host-binding resolution or rendering failure after explicit `-E .tips`
@@ -754,7 +756,7 @@ The pathological neighboring cases are:
 | `-E .tips` resolves only after ordinary success and consumes only the exact command resource, resolved subject, and typed facts already retained by that invocation. | First-adopter CLI gate with counting acquisition and producer collaborators, misleading rendered output, and a result fact available only through the retained typed success context. |
 | A CLI binding joins only its exact owner-issued affordance identity and cannot manufacture a relationship from command text, labels, argument shape, or CLR type. | Registry-construction and collision tests with equal labels and accepted types, one missing affordance, and one unbound affordance. |
 | Applicable CLI gestures have deterministic ordering and a fixed maximum of three. | Permuted-registration test covering equal ordering preferences, stable binding-identity tie-breaking, more than three applicable bindings, and repeated equal projections. |
-| Invalid legacy, lowercase, undotted, attached, inline, unknown, and repeated spellings are rejected without stealing positional input. | CLI parser matrix covering `-T`, `--tips`, `--tips q`, `-e`, `-T:q`, `-E tips`, `-E references`, `-E.tips`, `-E=.tips`, `-E:.tips`, an unknown dotted child, repeated `-E`, and commands where an unrelated undotted token following bare `-E` remains owned by ordinary positional grammar. |
+| Invalid legacy, lowercase, undotted, attached, inline, unknown, and repeated spellings are rejected without stealing positional or required-option-value input. | CLI parser matrix covering `-T`, `--tips`, `--tips q`, `-e`, `-T:q`, `-E tips`, `-E references`, `-E.tips`, `-E=.tips`, `-E:.tips`, an unknown dotted child, repeated `-E`, commands where an unrelated undotted token following bare `-E` remains owned by ordinary positional grammar, and option-like filenames such as `--out --tips` that remain owned by their required option. |
 | Explicit `-E .tips` preserves stdout byte-for-byte, completes and flushes stdout before the first tip write, and writes only one bounded final gesture projection to stderr across every output format. | Production-host before/after test over the authentic Member scenario, structured and raw output representatives, and instrumented output writers recording stdout completion and flush before the first stderr tip write. |
 | Explicit binding, containment, materialization, or destination-write failure is visible and cannot become success-shaped empty output. | CLI failure matrix with the first, middle, and final candidate failing during lazy resolution, containment, or materialization before the destination write, asserting empty related-gesture stderr, plus the output sink's existing visible destination-write failure gate. |
 

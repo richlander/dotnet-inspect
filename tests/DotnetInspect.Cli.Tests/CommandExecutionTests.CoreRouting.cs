@@ -525,6 +525,25 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task RemovedCompanionSpellingAsOutputPathReachesCommand()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "--offline",
+            "package",
+            "Definitely.Does.Not.Exist",
+            "--out",
+            "--tips");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Package 'Definitely.Does.Not.Exist'",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("is no longer valid", error);
+    }
+
+    [Fact]
     public async Task DependencyEvidenceCommand_AfterBareCompanionReportsReplacement()
     {
         var (exit, output, error) = await RunAppAsync(
