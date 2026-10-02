@@ -12,6 +12,30 @@ namespace DotnetInspect.Web.Tests;
 public sealed class BrowserMemberSourceTests
 {
     [Fact]
+    public void MemberSourceDiagnosticsPreserveLibraryRetirementFailure()
+    {
+        BrowserMemberSourceDiagnostic diagnostic =
+            Assert.Single(
+                SourceExports.ProjectMemberSourceDiagnostics(
+                    [
+                        new InspectionDiagnostic(
+                            "member-document.library-retirement",
+                            InspectionDiagnosticSeverity.Warning,
+                            "Library retirement failed.",
+                            "Example.Package"),
+                    ]));
+
+        Assert.Equal(
+            "member-document.library-retirement",
+            diagnostic.Code);
+        Assert.Equal("Warning", diagnostic.Severity);
+        Assert.Equal(
+            "Library retirement failed.",
+            diagnostic.Summary);
+        Assert.Equal("Example.Package", diagnostic.Correspondence);
+    }
+
+    [Fact]
     public void RealRepositoryMemberParts_RebaseAgainstExactMemberText()
     {
         string source = File.ReadAllText(Path.Combine(
@@ -199,6 +223,7 @@ public sealed class BrowserMemberSourceTests
             BrowserSource(
                 "public string Value => \"decompiled\";",
                 provider: "decompiled"),
+            [],
             []);
 
         Assert.Equal("decompiled", browser.Source.Provider);
@@ -369,7 +394,8 @@ public sealed class BrowserMemberSourceTests
         MemberTextParts parts) =>
         new(
             BrowserSource(member),
-            SourceExports.ProjectMemberParts(document, parts, member.Length));
+            SourceExports.ProjectMemberParts(document, parts, member.Length),
+            []);
 
     static string RepositoryRoot()
     {

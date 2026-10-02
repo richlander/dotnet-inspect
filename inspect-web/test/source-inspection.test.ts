@@ -13,6 +13,7 @@ import {
 } from "../src/source-inspection.ts";
 import type {
   BrowserMemberSource,
+  BrowserMemberSourceDiagnostic,
   BrowserSource,
   BrowserTypeCodeView,
   BrowserTypeSourceResult,
@@ -66,6 +67,7 @@ function memberSource(text: string): BrowserMemberSource {
         end: text.length,
       }],
     }],
+    diagnostics: [],
   };
 }
 
@@ -136,6 +138,7 @@ function inspectionDependencies(
     cancelEngineSourceRequest: () => {},
     cancelTypeSourceRequest: () => {},
     reportOperationDiagnostic: () => undefined,
+    reportMemberSourceDiagnostic: () => undefined,
     describeError: error =>
       error instanceof Error ? error.message : String(error),
     render: () => {},
@@ -326,7 +329,7 @@ test("member source publishes only for the current member selection", async () =
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
-    documentFingerprint: "",
+    documentBaselineOrdinal: 0,
     taste: "[\"expression-bodied-members\"]",
     isCurrent: () => current,
   });
@@ -339,6 +342,51 @@ test("member source publishes only for the current member selection", async () =
 
   assert.deepEqual(state.memberSource, { status: "idle" });
   assert.deepEqual(focusRenders, [null]);
+});
+
+test("member source reports inspection diagnostics for the current result", async () => {
+  const reported: BrowserMemberSourceDiagnostic[] = [];
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryMemberSource: async () => ({
+        ...memberSource("current"),
+        diagnostics: [{
+          code: "member-document.library-retirement",
+          severity: "Warning",
+          summary: "Library retirement failed.",
+          correspondence: "Example.Package",
+        }],
+      }),
+      reportMemberSourceDiagnostic: diagnostic => {
+        reported.push(diagnostic);
+        return undefined;
+      },
+    }));
+
+  await coordinator.loadMemberSource({
+    signature: "member-signature",
+    kind: "package",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+    documentBaselineOrdinal: 1,
+    taste: "[]",
+    isCurrent: () => true,
+  });
+
+  assert.equal(reported.length, 1);
+  assert.deepEqual(reported[0], {
+    code: "member-document.library-retirement",
+    severity: "Warning",
+    summary: "Library retirement failed.",
+    correspondence: "Example.Package",
+  });
 });
 
 test("current member source failures remain visible and restore focus", async () => {
@@ -366,7 +414,7 @@ test("current member source failures remain visible and restore focus", async ()
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
-    documentFingerprint: "",
+    documentBaselineOrdinal: 0,
     taste: "[]",
     isCurrent: () => true,
   });
@@ -401,7 +449,7 @@ test("empty member source failure remains settled", async () => {
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
-    documentFingerprint: "",
+    documentBaselineOrdinal: 0,
     taste: "[]",
     isCurrent: () => true,
   });
@@ -451,7 +499,7 @@ test("member source caches one authored catalog without another query", async ()
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
-    documentFingerprint: "",
+    documentBaselineOrdinal: 0,
     taste: "[]",
     isCurrent: () => true,
   };
@@ -681,7 +729,7 @@ test("legacy member source takeover cancels the authoritative type operation fir
     member: "Build",
     selectorKey: "method",
     metadataToken: 42,
-    documentFingerprint: "",
+    documentBaselineOrdinal: 0,
     taste: "[]",
     isCurrent: () => true,
   });

@@ -1927,6 +1927,7 @@ test("member source retains Markout WriteHeading indentation for exact text and 
         }],
       },
     ],
+    diagnostics: [],
   };
 
   const member = memberSourceText(source, "Member");
@@ -2031,6 +2032,7 @@ test("member source indentation preserves multiline literal characters", () => {
         end: body.length,
       }],
     }],
+    diagnostics: [],
   };
 
   assert.equal(memberSourceText(source, "Body"), `\t${body}`);
@@ -2062,6 +2064,7 @@ test("decompiled member source has no authored selector", () => {
       text: "public void M() { }",
     },
     parts: [],
+    diagnostics: [],
   };
   const html = renderSourcePageActions({
     source: memberSource.source,
@@ -2216,6 +2219,7 @@ function memberSourceFixture(): BrowserMemberSource {
         spans: [span("{\r\n    return;\r\n}", 6)],
       },
     ],
+    diagnostics: [],
   };
 }
 

@@ -1,11 +1,96 @@
+using System.Runtime.Versioning;
 using DotnetInspector.Libraries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web;
 
+[SupportedOSPlatform("browser")]
 internal static class BrowserMemberDocumentExecution
 {
+    internal static MemberDocument RequireAvailableDocument(
+        InspectionEnvelope<MemberDocumentInspectionOutcome> inspection)
+    {
+        ArgumentNullException.ThrowIfNull(inspection);
+
+        return inspection.Content switch
+        {
+            MemberDocumentInspectionOutcome.Available available =>
+                available.Document,
+            MemberDocumentInspectionOutcome.Rejected rejected =>
+                throw new InvalidOperationException(
+                    $"The Member document was rejected "
+                        + $"({rejected.Reason})."),
+            MemberDocumentInspectionOutcome.Incomplete incomplete =>
+                throw new InvalidOperationException(
+                    $"The Member document reached "
+                        + $"{incomplete.Bound} "
+                        + $"({incomplete.Measured} > "
+                        + $"{incomplete.Limit})."),
+            MemberDocumentInspectionOutcome.Failed failed =>
+                throw new InvalidOperationException(
+                    $"The Member document failed "
+                        + $"({failed.Reason})."),
+            _ => throw new InvalidOperationException(
+                "Unknown Member document outcome."),
+        };
+    }
+
+    internal static async Task<
+        InspectionEnvelope<MemberDocumentInspectionOutcome>>
+        ExecuteImplementationSourceAsync(
+            ValueTask<AssemblyContextLibraryAdapterResult>
+                surfaceMaterialization,
+            ValueTask<AssemblyContextLibraryAdapterResult>
+                implementationMaterialization,
+            MemberGroupSubject subject,
+            int surfaceBaselineOrdinal,
+            MemberSourceAttachmentRequest source,
+            MemberSourceAttachmentProvider sourceProvider,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            surfaceBaselineOrdinal);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(sourceProvider);
+
+        var surfacePlan = new MemberDocumentInspectionPlan(
+            subject,
+            new(baselineOrdinal: surfaceBaselineOrdinal),
+            BrowserExactMemberPolicy.Bounds);
+        InspectionEnvelope<MemberDocumentInspectionOutcome>
+            surfaceInspection =
+                await ExecuteAsync(
+                        surfaceMaterialization,
+                        surfacePlan,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+        string fingerprint =
+            RequireAvailableDocument(surfaceInspection)
+                .Subject
+                .Fingerprint
+                .ToString();
+        var sourcePlan = new MemberDocumentInspectionPlan(
+            subject,
+            new(fingerprintPrefix: fingerprint),
+            BrowserExactMemberPolicy.Bounds,
+            source: source);
+        InspectionEnvelope<MemberDocumentInspectionOutcome>
+            implementationInspection =
+                await ExecuteAsync(
+                        implementationMaterialization,
+                        sourcePlan,
+                        sourceProvider: sourceProvider,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+        return new(
+            implementationInspection.Content,
+            implementationInspection.Share,
+            surfaceInspection.Diagnostics.Concat(
+                implementationInspection.Diagnostics));
+    }
+
     internal static async Task<
         InspectionEnvelope<MemberDocumentInspectionOutcome>>
         ExecuteAsync(

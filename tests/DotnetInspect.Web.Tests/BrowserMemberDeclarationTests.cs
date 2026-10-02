@@ -781,7 +781,7 @@ public sealed class BrowserMemberDeclarationTests
                     Analysis.CallGraphMemberResolver
                         .CreateSelector(type, member).Key,
                     member.MetadataToken ?? 0,
-                    "",
+                    0,
                     "[]",
                     Assert.IsType<string>(resolution.ContextId));
             BrowserMemberSource source =
@@ -819,7 +819,7 @@ public sealed class BrowserMemberDeclarationTests
                     Analysis.CallGraphMemberResolver
                         .CreateSelector(type, member).Key,
                     member.MetadataToken ?? 0,
-                    metadataAnchor!.Fingerprint,
+                    1,
                     "[]",
                     Assert.IsType<string>(resolution.ContextId));
             BrowserMemberSource documentSource =

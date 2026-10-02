@@ -6,6 +6,7 @@ import {
 } from "./data.ts";
 import type {
   BrowserMemberSource,
+  BrowserMemberSourceDiagnostic,
   BrowserSource,
   BrowserTypeCodeView,
   BrowserTypeSourceResult,
@@ -33,7 +34,7 @@ interface MemberSourceSelection {
   member: string;
   selectorKey: string;
   metadataToken: number;
-  documentFingerprint: string;
+  documentBaselineOrdinal: number;
   taste: string;
 }
 
@@ -227,6 +228,9 @@ export interface SourceInspectionDependencies {
   ): void;
   readonly reportOperationDiagnostic: (
     diagnostic: OperationDiagnostic,
+  ) => undefined;
+  readonly reportMemberSourceDiagnostic: (
+    diagnostic: BrowserMemberSourceDiagnostic,
   ) => undefined;
   describeError(error: unknown): string;
   render(): void;
@@ -531,6 +535,8 @@ export function createSourceInspectionCoordinator(
           signature: request.signature,
           source: result,
         };
+        for (const diagnostic of result.diagnostics)
+          dependencies.reportMemberSourceDiagnostic(diagnostic);
         dependencies.renderPreservingMemberFocus(preservedFocus);
       } catch (error) {
         if (state.memberSource !== pending) return;

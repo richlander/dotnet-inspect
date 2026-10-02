@@ -1570,6 +1570,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
         end: 19,
       }],
     }],
+    diagnostics: [],
   } satisfies BrowserMemberSource;
   const state = fixture({
     source: {
@@ -1588,7 +1589,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "M",
     "selector",
     0x06000001,
-    "",
+    0,
     "[]",
   );
   const graphResult = state.client.source.queryTypeMemberSource(
@@ -1611,7 +1612,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "Clone",
     "Clone()",
     0x06000001,
-    "",
+    0,
     "[]",
     "platform-context",
   );

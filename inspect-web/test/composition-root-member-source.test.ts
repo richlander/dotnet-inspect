@@ -750,13 +750,17 @@ test("source requests carry exact type and member identities", () => {
     ?? "";
   assert.match(
     memberBridge,
-    /typeIdentity, memberName, selectorKey, metadataToken, documentFingerprint, styleOptionsJson/);
+    /typeIdentity, memberName, selectorKey, metadataToken, documentBaselineOrdinal, styleOptionsJson/);
   assert.match(
     platformMemberBridge,
-    /targetFramework, platformVersion, assemblyName, pack,[\s\S]*typeIdentity, memberName, selectorKey, metadataToken, documentFingerprint, styleOptionsJson, contextId/);
+    /targetFramework, platformVersion, assemblyName, pack,[\s\S]*typeIdentity, memberName, selectorKey, metadataToken, documentBaselineOrdinal, styleOptionsJson, contextId/);
   assert.match(
     memberLoader,
     /type\.definitionId \?\? type\.id,[\s\S]*?state\.selectedBodyTarget\?\.memberName[\s\S]*?state\.selectedBodyTarget\?\.selectorKey[\s\S]*?state\.selectedBodyTarget\?\.metadataToken[\s\S]*pkg\.isRuntimePack[\s\S]*kind: "platform"[\s\S]*platformAssemblyRequest\(row\)[\s\S]*pack: row\.pack,[\s\S]*contextId: platformDemoContextIdFor\(pkg\)[\s\S]*kind: "package"/);
+  assert.match(
+    memberLoader,
+    /documentBaselineOrdinal:[\s\S]*overload\.baselineOrdinal/);
+  assert.doesNotMatch(memberLoader, /overload\.anchorDigest/);
   assert.doesNotMatch(memberLoader, /signature:/);
 });
 

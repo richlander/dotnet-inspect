@@ -68,7 +68,7 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         string json = await SourceExports.QueryMemberSource(
             selection.PackageId, BeforeVersion, selection.Framework, selection.Assembly,
             selection.TypeIdentity, selection.MemberName, selection.SelectorKey,
-            selection.MetadataToken, "", "[]");
+            selection.MetadataToken, 0, "[]");
         using var document = JsonDocument.Parse(json);
         var source = document.RootElement.GetProperty("source");
         Assert.Equal("decompiled", source.GetProperty("provider").GetString());
@@ -86,7 +86,7 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         string json = await SourceExports.QueryMemberSource(
             selection.PackageId, BeforeVersion, selection.Framework, selection.Assembly,
             selection.TypeIdentity, selection.MemberName, selection.SelectorKey,
-            selection.MetadataToken, "", "[]");
+            selection.MetadataToken, 0, "[]");
         using var document = JsonDocument.Parse(json);
         var source = document.RootElement.GetProperty("source");
         Assert.Equal("decompiled", source.GetProperty("provider").GetString());

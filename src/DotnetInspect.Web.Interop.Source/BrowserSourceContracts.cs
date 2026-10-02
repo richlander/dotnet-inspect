@@ -50,9 +50,16 @@ public sealed record BrowserMemberSourcePart(
     BrowserMemberSourcePartKind Kind,
     BrowserMemberSourceSpan[] Spans);
 
+public sealed record BrowserMemberSourceDiagnostic(
+    string Code,
+    string Severity,
+    string Summary,
+    string? Correspondence);
+
 public sealed record BrowserMemberSource(
     BrowserSource Source,
-    BrowserMemberSourcePart[] Parts);
+    BrowserMemberSourcePart[] Parts,
+    BrowserMemberSourceDiagnostic[] Diagnostics);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserAnnotatedSourceMedium>))]
 public enum BrowserAnnotatedSourceMedium

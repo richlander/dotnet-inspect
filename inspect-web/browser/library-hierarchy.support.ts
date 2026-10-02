@@ -2165,7 +2165,7 @@ async function installFacades(
         member,
         selector,
         token,
-        documentFingerprint,
+        documentBaselineOrdinal,
         taste,
         contextId
       ) {
@@ -2179,7 +2179,7 @@ async function installFacades(
             member,
             selector,
             token,
-            documentFingerprint,
+            documentBaselineOrdinal,
             taste,
             contextId,
           ]);
@@ -2192,6 +2192,7 @@ async function installFacades(
             text: "public void Run() {}",
           },
           parts: [],
+          diagnostics: [],
         };
       }
       export async function queryTypeSource() {

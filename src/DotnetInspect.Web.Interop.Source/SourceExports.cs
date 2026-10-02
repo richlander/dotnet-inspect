@@ -51,7 +51,7 @@ public static partial class SourceExports
         string memberName,
         string selectorKey,
         int metadataToken,
-        string documentFingerprint,
+        int documentBaselineOrdinal,
         string styleOptionsJson)
     {
         BrowserMemberSource source = await QueryMemberSourceCore(
@@ -63,7 +63,7 @@ public static partial class SourceExports
             memberName,
             selectorKey,
             metadataToken,
-            documentFingerprint,
+            documentBaselineOrdinal,
             styleOptionsJson,
             includeParts: true);
         return JsonSerializer.Serialize(
@@ -81,7 +81,7 @@ public static partial class SourceExports
         string memberName,
         string selectorKey,
         int metadataToken,
-        string documentFingerprint,
+        int documentBaselineOrdinal,
         string styleOptionsJson,
         string? contextId = null)
     {
@@ -95,7 +95,7 @@ public static partial class SourceExports
                 memberName,
                 selectorKey,
                 metadataToken,
-                documentFingerprint,
+                documentBaselineOrdinal,
                 styleOptionsJson,
                 contextId);
         return JsonSerializer.Serialize(
@@ -112,11 +112,11 @@ public static partial class SourceExports
         string memberName,
         string selectorKey,
         int metadataToken,
-        string documentFingerprint,
+        int documentBaselineOrdinal,
         string styleOptionsJson,
         string? contextId)
     {
-        if (!string.IsNullOrWhiteSpace(documentFingerprint))
+        if (documentBaselineOrdinal > 0)
         {
             return await QueryPlatformMemberDocumentSourceCore(
                     targetFramework,
@@ -125,7 +125,7 @@ public static partial class SourceExports
                     pack,
                     typeIdentity,
                     memberName,
-                    documentFingerprint,
+                    documentBaselineOrdinal,
                     styleOptionsJson,
                     includeParts: true,
                     contextId)
@@ -164,7 +164,8 @@ public static partial class SourceExports
         BrowserMemberSource source = AdaptMember(
             inspection.Content,
             resolved.Participant,
-            includeParts: true);
+            includeParts: true,
+            diagnostics: inspection.Diagnostics);
         return source;
     }
 
@@ -643,7 +644,7 @@ public static partial class SourceExports
             memberName,
             selectorKey,
             metadataToken,
-            documentFingerprint: "",
+            documentBaselineOrdinal: 0,
             styleOptionsJson,
             includeParts: false);
         return JsonSerializer.Serialize(
@@ -660,11 +661,11 @@ public static partial class SourceExports
         string memberName,
         string selectorKey,
         int metadataToken,
-        string documentFingerprint,
+        int documentBaselineOrdinal,
         string styleOptionsJson,
         bool includeParts)
     {
-        if (!string.IsNullOrWhiteSpace(documentFingerprint))
+        if (documentBaselineOrdinal > 0)
         {
             return await QueryPackageMemberDocumentSourceCore(
                     packageId,
@@ -673,7 +674,7 @@ public static partial class SourceExports
                     assemblyName,
                     typeIdentity,
                     memberName,
-                    documentFingerprint,
+                    documentBaselineOrdinal,
                     styleOptionsJson,
                     includeParts)
                 .ConfigureAwait(false);
@@ -714,7 +715,11 @@ public static partial class SourceExports
                     BrowserSourceQueryContext.Create(),
                     operation.CancellationToken));
 
-        return AdaptMember(inspection.Content, participant, includeParts);
+        return AdaptMember(
+            inspection.Content,
+            participant,
+            includeParts,
+            inspection.Diagnostics);
     }
 
     static async Task<BrowserMemberSource>
@@ -725,7 +730,7 @@ public static partial class SourceExports
             string assemblyName,
             string typeIdentity,
             string memberName,
-            string fingerprintPrefix,
+            int baselineOrdinal,
             string styleOptionsJson,
             bool includeParts)
     {
@@ -752,22 +757,28 @@ public static partial class SourceExports
                 coordinate.CompileAsset(assemblyName));
         BrowserWorkspaceParticipant implementation =
             scope.ImplementationParticipant(surface);
-        var plan = new MemberDocumentInspectionPlan(
-            new MemberGroupSubject(
-                BrowserExactMemberPolicy.ParseTypeIdentity(
-                    typeIdentity),
-                memberName),
-            new(fingerprintPrefix: fingerprintPrefix),
-            BrowserExactMemberPolicy.Bounds,
-            source:
-                new(
-                    BrowserStyleOptions.Resolve(
-                        styleOptionsJson),
-                    includeParts,
-                    allowDecompiledFallback: true));
+        var subject = new MemberGroupSubject(
+            BrowserExactMemberPolicy.ParseTypeIdentity(typeIdentity),
+            memberName);
+        var source = new MemberSourceAttachmentRequest(
+            BrowserStyleOptions.Resolve(styleOptionsJson),
+            includeParts,
+            allowDecompiledFallback: true);
         InspectionEnvelope<MemberDocumentInspectionOutcome>
             inspection =
-                await BrowserMemberDocumentExecution.ExecuteAsync(
+                await BrowserMemberDocumentExecution
+                    .ExecuteImplementationSourceAsync(
+                        scope.UseSurfaceParticipant(
+                            surface,
+                            (group, member) =>
+                                AssemblyContextLibraryAdapter
+                                    .MaterializeAsync(
+                                        group,
+                                        member,
+                                        AssemblyContextLibraryRole.ApiOnly,
+                                        BrowserExactMemberPolicy
+                                            .MaterializationLimits,
+                                        operation.CancellationToken)),
                         scope.UseImplementationParticipant(
                             implementation,
                             (group, member) =>
@@ -780,7 +791,9 @@ public static partial class SourceExports
                                         BrowserExactMemberPolicy
                                             .MaterializationLimits,
                                         operation.CancellationToken)),
-                        plan,
+                        subject,
+                        baselineOrdinal,
+                        source,
                         sourceProvider:
                             async (request, token) =>
                                 (await scope
@@ -801,7 +814,7 @@ public static partial class SourceExports
                             operation.CancellationToken)
                     .ConfigureAwait(false);
         return AdaptAttachedMemberSource(
-            inspection.Content,
+            inspection,
             implementation,
             includeParts);
     }
@@ -814,7 +827,7 @@ public static partial class SourceExports
             string pack,
             string typeIdentity,
             string memberName,
-            string fingerprintPrefix,
+            int baselineOrdinal,
             string styleOptionsJson,
             bool includeParts,
             string? contextId)
@@ -843,7 +856,7 @@ public static partial class SourceExports
                 BrowserExactMemberPolicy.ParseTypeIdentity(
                     typeIdentity),
                 memberName),
-            new(fingerprintPrefix: fingerprintPrefix),
+            new(baselineOrdinal: baselineOrdinal),
             BrowserExactMemberPolicy.Bounds,
             source:
                 new(
@@ -886,28 +899,30 @@ public static partial class SourceExports
                             operation.CancellationToken)
                     .ConfigureAwait(false);
         return AdaptAttachedMemberSource(
-            inspection.Content,
+            inspection,
             resolution.Participant,
             includeParts);
     }
 
     static BrowserMemberSource AdaptAttachedMemberSource(
-        MemberDocumentInspectionOutcome outcome,
+        InspectionEnvelope<MemberDocumentInspectionOutcome> inspection,
         BrowserWorkspaceParticipant participant,
         bool includeParts) =>
         AdaptMember(
-            AttachedMemberSource(outcome),
+            AttachedMemberSource(inspection.Content),
             participant,
-            includeParts);
+            includeParts,
+            inspection.Diagnostics);
 
     static BrowserMemberSource AdaptAttachedMemberSource(
-        MemberDocumentInspectionOutcome outcome,
+        InspectionEnvelope<MemberDocumentInspectionOutcome> inspection,
         WorkspaceContextMember participant,
         bool includeParts) =>
         AdaptMember(
-            AttachedMemberSource(outcome),
+            AttachedMemberSource(inspection.Content),
             participant,
-            includeParts);
+            includeParts,
+            inspection.Diagnostics);
 
     static AssemblyMemberSourceEntry AttachedMemberSource(
         MemberDocumentInspectionOutcome outcome) =>
@@ -1051,32 +1066,38 @@ public static partial class SourceExports
     internal static BrowserMemberSource AdaptMember(
         AssemblyMemberSourceEntry result,
         BrowserWorkspaceParticipant participant,
-        bool includeParts) =>
+        bool includeParts,
+        IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         AdaptMember(
             result,
             DecompiledProvenance(participant),
-            includeParts);
+            includeParts,
+            diagnostics);
 
     internal static BrowserMemberSource AdaptMember(
         AssemblyMemberSourceEntry result,
         WorkspaceContextMember participant,
-        bool includeParts) =>
+        bool includeParts,
+        IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         AdaptMember(
             result,
             DecompiledProvenance(participant),
-            includeParts);
+            includeParts,
+            diagnostics);
 
     static BrowserMemberSource AdaptMember(
         AssemblyMemberSourceEntry result,
         InertString decompiledProvenance,
-        bool includeParts) =>
+        bool includeParts,
+        IEnumerable<InspectionDiagnostic>? diagnostics) =>
         result switch
         {
             AssemblyMemberSourceEntry.Available available =>
                 AdaptMember(
                     available.Source,
                     decompiledProvenance,
-                    includeParts),
+                    includeParts,
+                    diagnostics),
             AssemblyMemberSourceEntry.Rejected rejected =>
                 throw new InvalidOperationException(
                     $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"),
@@ -1196,25 +1217,30 @@ public static partial class SourceExports
     internal static BrowserMemberSource AdaptMember(
         AssemblyMemberSource source,
         BrowserWorkspaceParticipant participant,
-        bool includeParts) =>
+        bool includeParts,
+        IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         AdaptMember(
             source,
             DecompiledProvenance(participant),
-            includeParts);
+            includeParts,
+            diagnostics);
 
     internal static BrowserMemberSource AdaptMember(
         AssemblyMemberSource source,
         WorkspaceContextMember participant,
-        bool includeParts) =>
+        bool includeParts,
+        IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         AdaptMember(
             source,
             DecompiledProvenance(participant),
-            includeParts);
+            includeParts,
+            diagnostics);
 
     static BrowserMemberSource AdaptMember(
         AssemblyMemberSource source,
         InertString decompiledProvenance,
-        bool includeParts)
+        bool includeParts,
+        IEnumerable<InspectionDiagnostic>? diagnostics)
     {
         BrowserSource browserSource = Adapt(source, decompiledProvenance);
         BrowserMemberSourcePart[] parts = includeParts
@@ -1227,8 +1253,23 @@ public static partial class SourceExports
                     document.Parts,
                     browserSource.Text.Length)
                 : [];
-        return new BrowserMemberSource(browserSource, parts);
+        return new BrowserMemberSource(
+            browserSource,
+            parts,
+            ProjectMemberSourceDiagnostics(diagnostics));
     }
+
+    internal static BrowserMemberSourceDiagnostic[]
+        ProjectMemberSourceDiagnostics(
+            IEnumerable<InspectionDiagnostic>? diagnostics) =>
+        [
+            .. (diagnostics ?? []).Select(static diagnostic =>
+                new BrowserMemberSourceDiagnostic(
+                    diagnostic.Code,
+                    diagnostic.Severity.ToString(),
+                    diagnostic.Summary.ToString(),
+                    diagnostic.Correspondence?.ToString())),
+        ];
 
     internal static BrowserMemberSourcePart[] ProjectMemberParts(
         string documentText,

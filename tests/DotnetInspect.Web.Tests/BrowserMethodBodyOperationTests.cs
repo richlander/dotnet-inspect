@@ -109,6 +109,9 @@ public sealed class BrowserMethodBodyOperationTests
         await using Fixture fixture =
             await Fixture.Open(reference: true);
         BrowserMethodBodySelection selection = fixture.Launch;
+        Assert.NotEqual(
+            fixture.ProjectedFingerprint,
+            fixture.MetadataFingerprint);
 
         string json =
             await SourceExports.QueryMemberSource(
@@ -120,7 +123,7 @@ public sealed class BrowserMethodBodyOperationTests
                 selection.MemberName,
                 selection.SelectorKey,
                 selection.MetadataToken,
-                fixture.DocumentFingerprint,
+                fixture.DocumentBaselineOrdinal,
                 "[]");
 
         using JsonDocument document = JsonDocument.Parse(json);
@@ -402,14 +405,20 @@ public sealed class BrowserMethodBodyOperationTests
         string packageId,
         BrowserInspectionScope scope,
         BrowserMethodBodySelection launch,
-        string documentFingerprint,
+        int documentBaselineOrdinal,
+        string projectedFingerprint,
+        string metadataFingerprint,
         string implementationModuleVersionId) : IAsyncDisposable
     {
         internal string PackageId => packageId;
         internal BrowserInspectionScope Scope => scope;
         internal BrowserMethodBodySelection Launch => launch;
-        internal string DocumentFingerprint =>
-            documentFingerprint;
+        internal int DocumentBaselineOrdinal =>
+            documentBaselineOrdinal;
+        internal string ProjectedFingerprint =>
+            projectedFingerprint;
+        internal string MetadataFingerprint =>
+            metadataFingerprint;
         internal string ImplementationModuleVersionId =>
             implementationModuleVersionId;
 
@@ -484,8 +493,12 @@ public sealed class BrowserMethodBodyOperationTests
             ApiMember method = Assert.Single(type.Members,
                 member => member.Name == nameof(Left.Compute) && member.SignatureModel?.Parameters.Count == 1);
             CallGraphMemberBodySelector body = Assert.Single(CallGraphMemberResolver.CreateBodySelectors(type, method));
+            MemberAnchor projectedAnchor =
+                ApiMemberIdentity.GetMemberAnchor(type, method);
             return new(id, scope, new(type.DefinitionName!.ToEscapedFullName(),
                 body.MemberName, body.SelectorKey, body.BodyToken, "Launch"),
+                documentRow.BaselineOrdinal,
+                projectedAnchor.Fingerprint,
                 documentRow.Fingerprint,
                 implementationModuleVersionId);
         }
