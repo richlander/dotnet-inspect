@@ -413,7 +413,7 @@ public sealed class BodySignalTargetComparisonTests
     {
         (AssemblyReferenceIdentity identity, Guid mvid) = ReadIdentity(path);
         return BodySignalAnalysisTestInput.FromIndex(
-            LibraryBodyIndex.FromEvidence(
+            BodyAnalysisTestExecution.FromEvidence(
                 [],
                 [],
                 moduleIdentity: new(identity, mvid)));
