@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 
+using DotnetInspector.Fixtures;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using QuerySpace.Composition;
@@ -409,6 +410,89 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
             binding,
             path,
             "outside the method-list table");
+    }
+
+    [Fact]
+    public async Task MalformedMethodPtr_FailsRowsWithoutChangingCount()
+    {
+        byte[] malformed = MetadataMethodPtrFixture.BuildOutOfRange();
+        byte[] valid = MetadataMethodPtrFixture.Build(2, 1);
+
+        TypeDeclaredMethodPopulationOutcome malformedCount =
+            await ExecuteFixture(
+                malformed,
+                QuerySpaceTerminalRequirement.Count);
+        TypeDeclaredMethodPopulationOutcome malformedRows =
+            await ExecuteFixture(
+                malformed,
+                QuerySpaceTerminalRequirement.Rows);
+        TypeDeclaredMethodPopulationOutcome validRows =
+            await ExecuteFixture(
+                valid,
+                QuerySpaceTerminalRequirement.Rows);
+
+        Assert.Equal(
+            2,
+            Assert.IsType<
+                TypeDeclaredMethodPopulationOutcome.Counted>(
+                    malformedCount).Count);
+        Assert.NotEmpty(
+            Assert.IsType<
+                TypeDeclaredMethodPopulationOutcome.Failed>(
+                    malformedRows).Detail.ToString());
+        Assert.Equal(
+            [0x06000002, 0x06000001],
+            Assert.IsType<
+                TypeDeclaredMethodPopulationOutcome.Read>(
+                    validRows).Rows);
+    }
+
+    private static async Task<TypeDeclaredMethodPopulationOutcome>
+        ExecuteFixture(
+            byte[] image,
+            QuerySpaceTerminalRequirement terminal)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"declared-method-pointer-{Guid.NewGuid():N}.dll");
+        await File.WriteAllBytesAsync(
+            path,
+            image,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            MetadataTypeDefinitionName type = Name("N", "Fixture");
+            MetadataTypeDefinitionBinding binding;
+            using (AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(path))
+            {
+                var defined = Assert.IsType<
+                    TypeDeclarationResult.Defined>(
+                        session.ProbeDeclaration(type));
+                binding = new(
+                    session.ModuleVersionId(),
+                    defined.Definition);
+            }
+
+            await using var workspace = new InspectionWorkspace();
+            (
+                AssemblyContextGroup group,
+                AssemblyContextParticipant participant) =
+                    CreateGroup(workspace, path);
+            using (group)
+            {
+                return Execute(
+                    group,
+                    participant,
+                    type,
+                    terminal,
+                    binding: binding).Content;
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     private static async Task AssertSettledFailure(

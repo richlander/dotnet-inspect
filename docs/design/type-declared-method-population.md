@@ -89,9 +89,15 @@ Rows is the reference traversal:
 ```text
 bound TypeDef
   -> TypeDefinition.GetMethods()
-  -> enumerate MethodDef handles
+  -> enumerate and validate MethodDef handles
   -> project MethodDef tokens
 ```
+
+When the image contains a MethodPtr table, its range cardinality can remain
+valid while one pointer names no MethodDef row. Count still closes that range
+without traversal. Rows validates each visited handle against the MethodDef
+table and converts pointer decoding or range failures into the typed `Failed`
+result rather than returning an invalid token or escaping an exception.
 
 Both terminals return a product-owned work receipt. The receipt separately
 reports TypeDef rows read, MethodDef handles visited, MethodDef rows read,
@@ -241,7 +247,8 @@ physical result:
   invariant receipts. It remains usable only while its issuing
   `AssemblyInspectionSession` is alive.
 - Count and Rows execution return an allocation-free value result. Rows owns
-  only its exact detached token array; Count visits no handles.
+  only its exact detached token array and validates only the handles it visits;
+  Count visits no handles.
 - Queries owns one prepared session per participant and one source per exact
   TypeDef binding. It releases those derived resources before the
   participant's immutable snapshot.
@@ -275,4 +282,8 @@ then reuse the already-established borrow without reopening the snapshot or
 re-entering group lifetime synchronization. Disposing the prepared Sections
 inspection releases the borrow; group release waits for that lease, then closes
 the store and each participant session before releasing any participant
-snapshot.
+snapshot. Terminal streaming release removes that participant's prepared
+sources and closes its shared session before releasing and unaccounting its
+snapshot. If an explicit prepared execution remains live, new execution is
+rejected and the snapshot stays retained and accounted until the last execution
+ends or whole-group release completes.

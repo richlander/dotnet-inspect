@@ -117,6 +117,7 @@ public enum MetadataDeclaredMethodPopulationResultKind
     Counted = 1,
     Read,
     Incomplete,
+    Failed,
 }
 
 /// <summary>
@@ -130,13 +131,15 @@ public readonly struct MetadataDeclaredMethodPopulationResult
         int count,
         int maximumRows,
         ImmutableArray<int> rows,
-        MetadataDeclaredMethodPopulationReceipt receipt)
+        MetadataDeclaredMethodPopulationReceipt receipt,
+        string? detail)
     {
         Kind = kind;
         Count = count;
         MaximumRows = maximumRows;
         Rows = rows;
         Receipt = receipt;
+        Detail = detail;
     }
 
     public MetadataDeclaredMethodPopulationResultKind Kind { get; }
@@ -149,6 +152,8 @@ public readonly struct MetadataDeclaredMethodPopulationResult
 
     public MetadataDeclaredMethodPopulationReceipt Receipt { get; }
 
+    public string? Detail { get; }
+
     internal static MetadataDeclaredMethodPopulationResult Counted(
         int count,
         MetadataDeclaredMethodPopulationReceipt receipt) =>
@@ -157,7 +162,8 @@ public readonly struct MetadataDeclaredMethodPopulationResult
             count,
             maximumRows: int.MaxValue,
             rows: default,
-            receipt);
+            receipt,
+            detail: null);
 
     internal static MetadataDeclaredMethodPopulationResult Read(
         ImmutableArray<int> rows,
@@ -167,7 +173,8 @@ public readonly struct MetadataDeclaredMethodPopulationResult
             rows.Length,
             maximumRows: int.MaxValue,
             rows,
-            receipt);
+            receipt,
+            detail: null);
 
     internal static MetadataDeclaredMethodPopulationResult Incomplete(
         int count,
@@ -178,7 +185,18 @@ public readonly struct MetadataDeclaredMethodPopulationResult
             count,
             maximumRows,
             rows: default,
-            receipt);
+            receipt,
+            detail: null);
+
+    internal static MetadataDeclaredMethodPopulationResult Failed(
+        string detail) =>
+        new(
+            MetadataDeclaredMethodPopulationResultKind.Failed,
+            count: 0,
+            maximumRows: int.MaxValue,
+            rows: default,
+            receipt: null!,
+            detail);
 }
 
 public abstract record MetadataDeclaredMethodPopulationPreparation
@@ -207,14 +225,17 @@ public sealed class MetadataDeclaredMethodPopulationSource
 {
     private readonly AssemblyInspectionSession _session;
     private readonly MethodDefinitionHandleCollection _methods;
+    private readonly int _methodDefinitionRowCount;
     private readonly MetadataDeclaredMethodPopulationReceipt _rowsReceipt;
 
     internal MetadataDeclaredMethodPopulationSource(
         AssemblyInspectionSession session,
-        MethodDefinitionHandleCollection methods)
+        MethodDefinitionHandleCollection methods,
+        int methodDefinitionRowCount)
     {
         _session = session;
         _methods = methods;
+        _methodDefinitionRowCount = methodDefinitionRowCount;
         _rowsReceipt =
             MetadataDeclaredMethodPopulationInspection.RowsReceipt(
                 methods.Count);
@@ -238,6 +259,7 @@ public sealed class MetadataDeclaredMethodPopulationSource
                 MetadataDeclaredMethodPopulationInspection.Rows(
                     access.Operation._methods,
                     limit,
+                    access.Operation._methodDefinitionRowCount,
                     access.Operation._rowsReceipt));
     }
 }
@@ -285,6 +307,7 @@ internal static class MetadataDeclaredMethodPopulationInspection
                     : Rows(
                         methods,
                         request.MaximumRows,
+                        reader.GetTableRowCount(TableIndex.MethodDef),
                         RowsReceipt(methods.Count));
         return result.Kind switch
         {
@@ -302,6 +325,9 @@ internal static class MetadataDeclaredMethodPopulationInspection
                     result.Count,
                     result.MaximumRows,
                     result.Receipt),
+            MetadataDeclaredMethodPopulationResultKind.Failed =>
+                new MetadataDeclaredMethodPopulationOutcome.Failed(
+                    result.Detail!),
             _ => throw new InvalidOperationException(
                 "Unknown prepared declared-method result."),
         };
@@ -331,7 +357,8 @@ internal static class MetadataDeclaredMethodPopulationInspection
         return new MetadataDeclaredMethodPopulationPreparation.Ready(
             new MetadataDeclaredMethodPopulationSource(
                 session,
-                methods));
+                methods,
+                reader.GetTableRowCount(TableIndex.MethodDef)));
     }
 
     internal static MetadataDeclaredMethodPopulationResult Count(
@@ -343,6 +370,7 @@ internal static class MetadataDeclaredMethodPopulationInspection
     internal static MetadataDeclaredMethodPopulationResult Rows(
         MethodDefinitionHandleCollection methods,
         int maximumRows,
+        int methodDefinitionRowCount,
         MetadataDeclaredMethodPopulationReceipt rowsReceipt)
     {
         int count = methods.Count;
@@ -354,13 +382,31 @@ internal static class MetadataDeclaredMethodPopulationInspection
                 s_countReceipt);
         }
 
-        int[] tokens = GC.AllocateUninitializedArray<int>(count);
-        int index = 0;
-        foreach (MethodDefinitionHandle method in methods)
-            tokens[index++] = MetadataTokens.GetToken(method);
-        return MetadataDeclaredMethodPopulationResult.Read(
-            ImmutableCollectionsMarshal.AsImmutableArray(tokens),
-            rowsReceipt);
+        try
+        {
+            int[] tokens = GC.AllocateUninitializedArray<int>(count);
+            int index = 0;
+            foreach (MethodDefinitionHandle method in methods)
+            {
+                int row = MetadataTokens.GetRowNumber(method);
+                if (row <= 0
+                    || row > methodDefinitionRowCount)
+                {
+                    return MetadataDeclaredMethodPopulationResult.Failed(
+                        $"MethodPtr row resolved to MethodDef row {row}, "
+                        + $"outside 1..{methodDefinitionRowCount}.");
+                }
+                tokens[index++] = MetadataTokens.GetToken(method);
+            }
+            return MetadataDeclaredMethodPopulationResult.Read(
+                ImmutableCollectionsMarshal.AsImmutableArray(tokens),
+                rowsReceipt);
+        }
+        catch (Exception ex) when (IsArtifactFailure(ex))
+        {
+            return MetadataDeclaredMethodPopulationResult.Failed(
+                ex.Message);
+        }
     }
 
     internal static MetadataDeclaredMethodPopulationReceipt RowsReceipt(
@@ -373,6 +419,14 @@ internal static class MetadataDeclaredMethodPopulationInspection
             MethodSignaturesDecoded: 0,
             MethodAttributesDecoded: 0,
             ProjectedRows: count);
+
+    private static bool IsArtifactFailure(Exception exception) =>
+        exception is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or NotSupportedException
+            or OverflowException
+            or IndexOutOfRangeException;
 
     private static bool TryPrepare(
         PEReader peReader,

@@ -371,6 +371,12 @@ public static class TypeDeclaredMethodPopulationInspectionOperation
                         result.Count,
                         result.MaximumRows,
                         result.Receipt)),
+            MetadataDeclaredMethodPopulationResultKind.Failed =>
+                Envelope(
+                    new TypeDeclaredMethodPopulationOutcome.Failed(
+                        prepared.Subject,
+                        prepared.Type,
+                        Field(result.Detail!))),
             _ => throw new InvalidOperationException(
                 "Unknown prepared declared-method result."),
         };

@@ -23,18 +23,22 @@ public abstract class
         internal Ready(
             AssemblyContextSubject subject,
             PreparedDeclaredMethodPopulationStore owner,
+            AssemblyAcquisitionRegistration registration,
             AssemblyInspectionSession session,
             MetadataDeclaredMethodPopulationSource source,
             MetadataTypeDefinitionBinding binding)
             : base(subject)
         {
             _owner = owner;
+            Registration = registration;
             Session = session;
             Source = source;
             Binding = binding;
         }
 
         internal AssemblyInspectionSession Session { get; }
+
+        internal AssemblyAcquisitionRegistration Registration { get; }
 
         internal MetadataDeclaredMethodPopulationSource Source { get; }
 
@@ -107,13 +111,19 @@ public sealed class AssemblyContextDeclaredMethodPopulationExecution
     : IDisposable
 {
     private readonly MetadataDeclaredMethodPopulationSource _source;
+    private readonly PreparedDeclaredMethodPopulationStore _owner;
+    private readonly AssemblyAcquisitionRegistration _registration;
     private AssemblyContextGroup.AssemblyContextGroupResourceBorrow?
         _borrow;
 
     internal AssemblyContextDeclaredMethodPopulationExecution(
+        PreparedDeclaredMethodPopulationStore owner,
+        AssemblyAcquisitionRegistration registration,
         MetadataDeclaredMethodPopulationSource source,
         AssemblyContextGroup.AssemblyContextGroupResourceBorrow borrow)
     {
+        _owner = owner;
+        _registration = registration;
         _source = source;
         _borrow = borrow;
     }
@@ -136,7 +146,17 @@ public sealed class AssemblyContextDeclaredMethodPopulationExecution
     {
         AssemblyContextGroup.AssemblyContextGroupResourceBorrow? borrow =
             Interlocked.Exchange(ref _borrow, null);
-        borrow?.Dispose();
+        if (borrow is null)
+            return;
+
+        try
+        {
+            _owner.EndExecution(_registration);
+        }
+        finally
+        {
+            borrow.Dispose();
+        }
     }
 }
 
@@ -205,7 +225,8 @@ public static class AssemblyContextDeclaredMethodPopulationQuery
 }
 
 internal sealed class PreparedDeclaredMethodPopulationStore
-    : IDisposable
+    : IDisposable,
+        IAssemblyContextParticipantOwnedResource
 {
     private readonly object _gate = new();
     private readonly AssemblyContextGroup _group;
@@ -344,23 +365,21 @@ internal sealed class PreparedDeclaredMethodPopulationStore
     }
 
     internal MetadataDeclaredMethodPopulationResult Count(
-        AssemblyContextDeclaredMethodPopulationPreparation.Ready ready) =>
-        _group.UseOwnedResource(
-            this,
-            ready,
-            static (_, prepared) =>
-                prepared.Source.Count());
+        AssemblyContextDeclaredMethodPopulationPreparation.Ready ready)
+    {
+        using AssemblyContextDeclaredMethodPopulationExecution execution =
+            OpenExecution(ready);
+        return execution.Count();
+    }
 
     internal MetadataDeclaredMethodPopulationResult Rows(
         AssemblyContextDeclaredMethodPopulationPreparation.Ready ready,
         int maximumRows)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maximumRows);
-        return _group.UseOwnedResource(
-            this,
-            (Ready: ready, MaximumRows: maximumRows),
-            static (_, state) =>
-                state.Ready.Source.Rows(state.MaximumRows));
+        using AssemblyContextDeclaredMethodPopulationExecution execution =
+            OpenExecution(ready);
+        return execution.Rows(maximumRows);
     }
 
     internal AssemblyContextDeclaredMethodPopulationExecution OpenExecution(
@@ -368,9 +387,37 @@ internal sealed class PreparedDeclaredMethodPopulationStore
     {
         AssemblyContextGroup.AssemblyContextGroupResourceBorrow borrow =
             _group.BorrowOwnedResource(this);
-        return new(
-            ready.Source,
-            borrow);
+        try
+        {
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (!_sessionByRegistration.TryGetValue(
+                        ready.Registration,
+                        out PreparedParticipantSession? participant)
+                    || participant.ReleaseRequested
+                    || !ReferenceEquals(
+                        participant.Session,
+                        ready.Session))
+                {
+                    throw new ObjectDisposedException(
+                        nameof(AssemblyContextParticipant));
+                }
+
+                participant.ActiveExecutions++;
+            }
+
+            return new(
+                this,
+                ready.Registration,
+                ready.Source,
+                borrow);
+        }
+        catch
+        {
+            borrow.Dispose();
+            throw;
+        }
     }
 
     private AssemblyContextDeclaredMethodPopulationPreparation
@@ -386,7 +433,11 @@ internal sealed class PreparedDeclaredMethodPopulationStore
                 snapshot);
         AssemblyContextDeclaredMethodPopulationPreparation prepared =
             participantSession.Session is { } session
-                ? Prepare(subject, session, type)
+                ? Prepare(
+                    key.Registration,
+                    subject,
+                    session,
+                    type)
                 : new AssemblyContextDeclaredMethodPopulationPreparation
                     .Failed(
                         subject,
@@ -462,6 +513,7 @@ internal sealed class PreparedDeclaredMethodPopulationStore
     }
 
     private AssemblyContextDeclaredMethodPopulationPreparation Prepare(
+        AssemblyAcquisitionRegistration registration,
         AssemblyContextSubject subject,
         AssemblyInspectionSession session,
         MetadataTypeDefinitionBinding type)
@@ -479,6 +531,7 @@ internal sealed class PreparedDeclaredMethodPopulationStore
                             .Ready(
                                 subject,
                                 this,
+                                registration,
                                 session,
                                 ready.Source,
                                 type);
@@ -551,6 +604,96 @@ internal sealed class PreparedDeclaredMethodPopulationStore
         }
     }
 
+    bool IAssemblyContextParticipantOwnedResource
+        .TryReleaseParticipant(
+            AssemblyAcquisitionRegistration registration)
+    {
+        AssemblyInspectionSession? session = null;
+        lock (_gate)
+        {
+            if (_disposed)
+                return true;
+
+            RemoveParticipantPreparations(registration);
+            _sessionGates.Remove(registration);
+            if (!_sessionByRegistration.TryGetValue(
+                    registration,
+                    out PreparedParticipantSession? participant))
+            {
+                return true;
+            }
+
+            participant.ReleaseRequested = true;
+            if (participant.ActiveExecutions != 0)
+                return false;
+
+            _sessionByRegistration.Remove(registration);
+            session = participant.Session;
+        }
+
+        session?.Dispose();
+        return true;
+    }
+
+    internal void EndExecution(
+        AssemblyAcquisitionRegistration registration)
+    {
+        AssemblyInspectionSession? session = null;
+        bool completeParticipantRelease = false;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            PreparedParticipantSession participant =
+                _sessionByRegistration[registration];
+            participant.ActiveExecutions--;
+            if (participant.ActiveExecutions < 0)
+            {
+                throw new InvalidOperationException(
+                    "Prepared execution accounting became negative.");
+            }
+            if (participant.ActiveExecutions == 0
+                && participant.ReleaseRequested)
+            {
+                _sessionByRegistration.Remove(registration);
+                session = participant.Session;
+                completeParticipantRelease = true;
+            }
+        }
+
+        try
+        {
+            session?.Dispose();
+        }
+        finally
+        {
+            if (completeParticipantRelease)
+                _group.TryCompleteParticipantRelease(registration);
+        }
+    }
+
+    private void RemoveParticipantPreparations(
+        AssemblyAcquisitionRegistration registration)
+    {
+        PreparedDeclaredMethodPopulationKey[] preparationKeys =
+            [.. _preparations.Keys.Where(
+                key => ReferenceEquals(
+                    key.Registration,
+                    registration))];
+        foreach (PreparedDeclaredMethodPopulationKey key
+            in preparationKeys)
+        {
+            _preparations.Remove(key);
+        }
+
+        PreparedDeclaredMethodPopulationKey[] gateKeys =
+            [.. _preparationGates.Keys.Where(
+                key => ReferenceEquals(
+                    key.Registration,
+                    registration))];
+        foreach (PreparedDeclaredMethodPopulationKey key in gateKeys)
+            _preparationGates.Remove(key);
+    }
+
     public void Dispose()
     {
         AssemblyInspectionSession[] sessions;
@@ -585,9 +728,24 @@ internal sealed class PreparedDeclaredMethodPopulationStore
             throw new AggregateException(failures);
     }
 
-    private sealed record PreparedParticipantSession(
-        AssemblyInspectionSession? Session,
-        string? Failure);
+    private sealed class PreparedParticipantSession
+    {
+        internal PreparedParticipantSession(
+            AssemblyInspectionSession? Session,
+            string? Failure)
+        {
+            this.Session = Session;
+            this.Failure = Failure;
+        }
+
+        internal AssemblyInspectionSession? Session { get; }
+
+        internal string? Failure { get; }
+
+        internal int ActiveExecutions { get; set; }
+
+        internal bool ReleaseRequested { get; set; }
+    }
 
     private readonly struct PreparedDeclaredMethodPopulationKey
         : IEquatable<PreparedDeclaredMethodPopulationKey>

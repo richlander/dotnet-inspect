@@ -173,6 +173,149 @@ public sealed class AssemblyContextDeclaredMethodPopulationQueryTests
     }
 
     [Fact]
+    public async Task StreamingReleaseRetiresPreparedParticipant()
+    {
+        string path = typeof(System.Text.Json.JsonSerializer)
+            .Assembly.Location;
+        MetadataTypeDefinitionBinding binding = Binding(path);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, path);
+        AssemblyContextParticipant participant = group.Participants[0];
+        AssemblyContextDeclaredMethodPopulationPreparation.Ready? ready =
+            null;
+
+        AssemblyImageAccessResult<int> result =
+            await group.UseAndReleaseAssemblySessionAsync(
+                participant.Assembly,
+                (_, _) =>
+                {
+                    ready = Assert.IsType<
+                        AssemblyContextDeclaredMethodPopulationPreparation
+                            .Ready>(
+                            AssemblyContextDeclaredMethodPopulationQuery
+                                .PrepareParticipant(
+                                    group,
+                                    participant,
+                                    binding,
+                                    TestContext.Current.CancellationToken));
+                    Assert.Equal(
+                        MetadataDeclaredMethodPopulationResultKind.Counted,
+                        ready.Count().Kind);
+                    return Task.FromResult(1);
+                });
+
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(result);
+        Assert.NotNull(ready);
+        Assert.Equal(0, group.RetainedImageBytes);
+        Assert.Throws<ObjectDisposedException>(() => ready.Count());
+        Assert.Throws<ObjectDisposedException>(
+            () => AssemblyContextDeclaredMethodPopulationQuery
+                .PrepareParticipant(
+                    group,
+                    participant,
+                    binding,
+                    TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task StreamingReleaseWaitsForPreparedExecution()
+    {
+        string path = typeof(System.Text.Json.JsonSerializer)
+            .Assembly.Location;
+        MetadataTypeDefinitionBinding binding = Binding(path);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, path);
+        AssemblyContextParticipant participant = group.Participants[0];
+        AssemblyContextDeclaredMethodPopulationPreparation.Ready? ready =
+            null;
+        AssemblyContextDeclaredMethodPopulationExecution? execution =
+            null;
+
+        AssemblyImageAccessResult<int> result =
+            await group.UseAndReleaseAssemblySessionAsync(
+                participant.Assembly,
+                (_, _) =>
+                {
+                    ready = Assert.IsType<
+                        AssemblyContextDeclaredMethodPopulationPreparation
+                            .Ready>(
+                            AssemblyContextDeclaredMethodPopulationQuery
+                                .PrepareParticipant(
+                                    group,
+                                    participant,
+                                    binding,
+                                    TestContext.Current.CancellationToken));
+                    execution = ready.OpenExecution();
+                    return Task.FromResult(1);
+                });
+
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(result);
+        Assert.NotNull(ready);
+        Assert.NotNull(execution);
+        Assert.True(group.RetainedImageBytes > 0);
+        Assert.Equal(
+            MetadataDeclaredMethodPopulationResultKind.Counted,
+            execution.Count().Kind);
+        Assert.Throws<ObjectDisposedException>(() => ready.Count());
+
+        execution.Dispose();
+
+        Assert.Equal(0, group.RetainedImageBytes);
+        Assert.Throws<ObjectDisposedException>(() => execution.Count());
+    }
+
+    [Fact]
+    public async Task StreamingReleaseKeepsOtherParticipantPrepared()
+    {
+        string path = typeof(System.Text.Json.JsonSerializer)
+            .Assembly.Location;
+        MetadataTypeDefinitionBinding binding = Binding(path);
+        await using var workspace = new InspectionWorkspace();
+        var first = new AssemblyContextParticipant(
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "first prepared participant")),
+            NoResolverAssemblyBindingPolicy.Instance);
+        var second = new AssemblyContextParticipant(
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "second prepared participant")),
+            NoResolverAssemblyBindingPolicy.Instance);
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([first, second]);
+        var firstReady = Assert.IsType<
+            AssemblyContextDeclaredMethodPopulationPreparation.Ready>(
+                AssemblyContextDeclaredMethodPopulationQuery
+                    .PrepareParticipant(
+                        group,
+                        first,
+                        binding,
+                        TestContext.Current.CancellationToken));
+        var secondReady = Assert.IsType<
+            AssemblyContextDeclaredMethodPopulationPreparation.Ready>(
+                AssemblyContextDeclaredMethodPopulationQuery
+                    .PrepareParticipant(
+                        group,
+                        second,
+                        binding,
+                        TestContext.Current.CancellationToken));
+
+        AssemblyImageAccessResult<int> result =
+            await group.UseAndReleaseAssemblySessionAsync(
+                first.Assembly,
+                (_, _) => Task.FromResult(1));
+
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(result);
+        Assert.Throws<ObjectDisposedException>(() => firstReady.Count());
+        Assert.Equal(
+            MetadataDeclaredMethodPopulationResultKind.Counted,
+            secondReady.Count().Kind);
+        Assert.True(group.RetainedImageBytes > 0);
+    }
+
+    [Fact]
     public async Task ParticipantFailureIsSettledOnce()
     {
         string path = typeof(System.Text.Json.JsonSerializer)
