@@ -189,7 +189,7 @@ public partial class LibraryBodyIndexTests
             CallTreeNode catalogChild =
                 Assert.Single(
                     catalog.BuildCallTree(
-                        index,
+                        index.CallGraphAnalysis,
                         token,
                         maxDepth: 2,
                         maxNodes: 10).Children);
@@ -247,7 +247,7 @@ public partial class LibraryBodyIndexTests
                     maxNodes: 10);
             CallTreeNode catalogTree =
                 catalog.BuildCallTree(
-                    index,
+                    index.CallGraphAnalysis,
                     token,
                     maxDepth: 2,
                     maxNodes: 10);
@@ -294,7 +294,7 @@ public partial class LibraryBodyIndexTests
             Assert.NotEqual(
                 CallTreeStatus.Truncated,
                 catalog.BuildCallTree(
-                    index,
+                    index.CallGraphAnalysis,
                     token,
                     maxDepth: 2,
                     maxNodes: 2).Status);
@@ -368,6 +368,7 @@ public partial class LibraryBodyIndexTests
             "_distinctCallerEdgesByCallee",
             "_distinctCallersByCallee",
             "_declaredMethodMap",
+            "_declaredMethodsByToken",
             "_methodMap",
             "_rootPathGraph",
         ];
@@ -457,6 +458,12 @@ public partial class LibraryBodyIndexTests
                 ],
                 new(0, 1, 1, 1));
             _ = index.GetDirectCallsByEvidenceMethod();
+            Assert.IsType<DirectCallTarget.CurrentModule>(
+                index.CallGraphAnalysis.ResolveTarget(
+                    index.CallGraphAnalysis.DirectCalls.First(call =>
+                        index.CallGraphAnalysis.DeclaredMethods.Any(method =>
+                            method.MetadataToken
+                                == call.CalleeDefinitionToken))));
             _ = index.ImplementationProfiles();
             // The retained half of the contract is only gated on caches this workload actually
             // populates, and the call-tree builders alone reach just one of the seven. Touch the
@@ -656,14 +663,14 @@ public partial class LibraryBodyIndexTests
                     includePerf: true);
                 var opened = FlattenCallTree(
                     scopeOpened.BuildCallerTree(
-                        index,
+                        index.CallGraphAnalysis,
                         method.MetadataToken,
                         maxDepth,
                         maxNodes),
                     includePerf: true);
                 var prefilteredAway = FlattenCallTree(
                     scopePrefilteredAway.BuildCallerTree(
-                        index,
+                        index.CallGraphAnalysis,
                         method.MetadataToken,
                         maxDepth,
                         maxNodes),

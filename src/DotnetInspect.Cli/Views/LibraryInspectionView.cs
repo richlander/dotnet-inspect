@@ -1,3 +1,4 @@
+using DotnetInspect.Cli.Commands;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 using DotnetInspect.Cli.Inspectors;
@@ -19,18 +20,33 @@ namespace DotnetInspect.Cli.Views;
 public class LibraryInspectionView
 {
     private readonly LibraryInspection _data;
+    private readonly LibraryDocumentInspection? _documentInspection;
     private readonly bool _topFieldsOnly;
     private LibraryScalarFields? _scalars;
 
     // One projection feeds Library Info, the -v:q summary, and the Library
     // summary field, so they cannot disagree (docs/design/library-info-composition.md).
-    private LibraryScalarFields? Scalars => _scalars ??= LibraryScalarFields.From(_data);
+    private LibraryScalarFields? Scalars =>
+        _scalars ??= LibraryScalarFields.From(
+            _data,
+            _documentInspection);
     private readonly Dictionary<LibraryIntegrationDescriptor, List<(string Kind, string Name, string Shape)>> _integrationSignals = [];
 
-    public LibraryInspectionView(LibraryInspection data, bool topFieldsOnly = false)
+    public LibraryInspectionView(
+        LibraryInspection data,
+        bool topFieldsOnly = false)
+        : this(data, topFieldsOnly, null)
+    {
+    }
+
+    internal LibraryInspectionView(
+        LibraryInspection data,
+        bool topFieldsOnly,
+        LibraryDocumentInspection? documentInspection)
     {
         _data = data;
         _topFieldsOnly = topFieldsOnly;
+        _documentInspection = documentInspection;
     }
 
     [MarkoutIgnore]

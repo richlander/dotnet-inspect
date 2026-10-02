@@ -158,7 +158,7 @@ public partial class CommandExecutionTests
                 "--tips",
                 "q");
 
-            Assert.Equal(0, exit);
+            Assert.True(exit == 0, error);
             Assert.Empty(error);
             Assert.Contains("IdentifierConfusionReferenceClosure[", output);
             Assert.Contains("U+03BF→O", output);
@@ -1334,6 +1334,65 @@ public partial class CommandExecutionTests
             Assert.Contains("## Library Info (lib/net10.0/Latest.One.dll)", output);
             Assert.Contains("## Library Info (lib/net10.0/Latest.Two.dll)", output);
             Assert.DoesNotContain("## Library Info (lib/net8.0/Older.dll)", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_KeepsLibraryDocumentsPairedWithTheirLibraries()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var libDir = Path.Combine(packageRoot, "lib", "net10.0");
+        Directory.CreateDirectory(libDir);
+        const string firstFile = "First.dll";
+        const string secondFile = "Second.dll";
+        File.Copy(TestAssemblyPath, Path.Combine(libDir, firstFile));
+        File.Copy(
+            typeof(System.Reflection.Metadata.MetadataReader).Assembly.Location,
+            Path.Combine(libDir, secondFile));
+        string packagePath = Path.Combine(
+            tempDir,
+            "Test.LibraryDocumentPairing.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "-S",
+                "Library Info",
+                "--tsv",
+                "--tips",
+                "q");
+
+            Assert.True(exit == 0, error);
+            Dictionary<string, string> namesByLibrary = SplitOutputLines(output)
+                .Skip(1)
+                .Select(static line => line.Split('\t'))
+                .Where(static columns =>
+                    columns[4].Equals(
+                        "Name",
+                        StringComparison.Ordinal))
+                .ToDictionary(
+                    static columns => columns[2],
+                    static columns => columns[5],
+                    StringComparer.Ordinal);
+            Assert.Equal(
+                typeof(CommandExecutionTests).Assembly.GetName().Name,
+                namesByLibrary[$"lib/net10.0/{firstFile}"]);
+            Assert.Equal(
+                typeof(System.Reflection.Metadata.MetadataReader)
+                    .Assembly.GetName().Name,
+                namesByLibrary[$"lib/net10.0/{secondFile}"]);
             Assert.DoesNotContain("Tip:", error);
         }
         finally

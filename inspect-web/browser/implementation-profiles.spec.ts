@@ -174,6 +174,14 @@ test("Type heat paints the member list without an Implementation section", async
   );
   await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
   await expect(rows.nth(1)).not.toHaveClass(/\bheated\b/);
+  await expect(
+    rows.nth(1).locator(".item-achievement-glyph.implementation-hub"),
+  ).toHaveCount(1);
+  await expect(rows.nth(1).locator(".item-achievement-rail"))
+    .toHaveAttribute("aria-label", "implementation hub");
+  await expect(
+    rows.nth(0).locator(".item-achievement-glyph.implementation-hub"),
+  ).toHaveCount(0);
   await expect(rows.locator(".overload-size")).toHaveCount(0);
 
   // Public and private populations reuse one Type record.

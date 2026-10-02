@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Net;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using NuGetFetch;
@@ -182,6 +183,488 @@ public sealed partial class PackageRangedRealizationTests
                 PackageTransferRequestPurpose.DirectoryTail,
             ],
             receipt.Requests.Select(static request => request.Purpose));
+    }
+
+    [Fact]
+    public async Task TfmFileList_RidTargetPublishesOnlySelectedTargetFolders()
+    {
+        const string RuntimePath =
+            "runtimes/linux-x64/lib/net10.0/System.Text.Json.dll";
+        const string RuntimePdbPath =
+            "runtimes/linux-x64/lib/net10.0/System.Text.Json.pdb";
+        byte[] archive = CreateTfmSemanticArchive();
+        var server = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        var store = new InMemoryPackageStore();
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0", "linux-x64");
+        PackageHouseContentQuery query =
+            PackageHouseContentQuery.TfmFileList(target);
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                store,
+                query,
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+        PackageHouseFileList fileList =
+            Assert.IsType<PackageHouseFileList>(
+                acquired.Result.Evidence.FileList);
+        Assert.Equal(
+            [
+                AddressApiPath,
+                "ref/net10.0/System.Text.Json.xml",
+                RuntimePath,
+                RuntimePdbPath,
+            ],
+            fileList.Entries.Select(static entry => entry.Path));
+        PackageHouseContentNarrowingReceipt narrowing =
+            Assert.IsType<PackageHouseContentNarrowingReceipt>(
+                acquired.Result.Evidence.ContentNarrowing);
+        Assert.Same(narrowing, fileList.Narrowing);
+        Assert.Same(
+            acquired.Result.Evidence.Acquisition,
+            narrowing.Acquisition);
+        PackageCompileAssetSelectionReceipt selection =
+            Assert.IsType<PackageCompileAssetSelectionReceipt>(
+                narrowing.TargetSelection);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.Selected,
+            selection.Selection.Status);
+        Assert.Equal("net10.0", selection.RequestedTargetFramework);
+        Assert.Equal("linux-x64", selection.RequestedRuntimeIdentifier);
+        PackageContentEntry apiEntry = Assert.Single(
+            fileList.Entries,
+            static entry => entry.Path == AddressApiPath);
+        PackageHouseContentQuery exactFiles =
+            fileList.CreateFilesQuery([apiEntry]);
+        Assert.Same(
+            narrowing.Narrowing,
+            exactFiles.Narrowing);
+        Assert.Same(
+            fileList,
+            exactFiles.RetainedFileList);
+        var exactAcquired =
+            Assert.IsType<PackageHouseSettlement.Acquired>(
+                await environment.AcquireContentAsync(
+                    store,
+                    exactFiles,
+                    packageId: AddressPackageId,
+                    version: AddressPackageVersion,
+                    targetContext: target));
+        Assert.IsType<PackageHouseResult.Settled>(
+            exactAcquired.Result);
+        Assert.Equal(
+            [AddressApiPath],
+            exactAcquired.Payload.Content.EnumerateEntries());
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                new PackageHouseDemand.Exact(
+                    PackageSourceCoordinate.Create(
+                        "Other.Package",
+                        AddressPackageVersion)),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                targetContext: target,
+                contentQuery: exactFiles));
+        Assert.Throws<ArgumentException>(
+            () => fileList.CreateFilesQuery(
+                [new PackageContentEntry("README.md", 1)]));
+        Assert.Equal(
+            [
+                PackageTransferRequestPurpose.SizeProbe,
+                PackageTransferRequestPurpose.DirectoryTail,
+            ],
+            Transfer(acquired, PackagePayloadOrigin.Ranged)
+                .Requests
+                .Select(static request => request.Purpose));
+    }
+
+    [Fact]
+    public async Task TfmFiles_ExistingEntryOutsideTargetFailsWithoutBodyRead()
+    {
+        const string OutsideTarget =
+            "lib/net10.0/System.Text.Json.dll";
+        byte[] archive = CreateTfmSemanticArchive();
+        var server = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0", "linux-x64");
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                PackageHouseContentQuery.TfmFilesWithFileList(
+                    target,
+                    [OutsideTarget]),
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        PackageHouseResult.NoMatch noMatch =
+            Assert.IsType<PackageHouseResult.NoMatch>(acquired.Result);
+        Assert.Contains(
+            OutsideTarget,
+            noMatch.Reason.ToString(),
+            StringComparison.Ordinal);
+        Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+        Assert.DoesNotContain(
+            noMatch.Evidence.FileList!.Entries,
+            entry => entry.Path.Equals(
+                OutsideTarget,
+                StringComparison.Ordinal));
+        Assert.Equal(
+            [
+                PackageTransferRequestPurpose.SizeProbe,
+                PackageTransferRequestPurpose.DirectoryTail,
+            ],
+            Transfer(acquired, PackagePayloadOrigin.Ranged)
+                .Requests
+                .Select(static request => request.Purpose));
+    }
+
+    [Fact]
+    public async Task TfmFileList_UnmatchedTargetIsTypedNoMatch()
+    {
+        byte[] archive = CreateTfmSemanticArchive();
+        var server = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net40");
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                PackageHouseContentQuery.TfmFileList(target),
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        PackageHouseResult.NoMatch noMatch =
+            Assert.IsType<PackageHouseResult.NoMatch>(acquired.Result);
+        Assert.Empty(noMatch.Evidence.FileList!.Entries);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            noMatch.Evidence.ContentNarrowing!
+                .TargetSelection!
+                .Selection
+                .Status);
+        Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+    }
+
+    [Fact]
+    public async Task TfmFilesAndFileList_RangeCompleteAndCacheAgree()
+    {
+        byte[] archive = CreateTfmSemanticArchive();
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0", "linux-x64");
+        PackageHouseContentQuery query =
+            PackageHouseContentQuery.TfmFilesWithFileList(
+                target,
+                [AddressApiPath]);
+
+        var rangedServer = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment rangedEnvironment =
+            RangedEnvironment.Create(rangedServer);
+        var ranged = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await rangedEnvironment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                query,
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        var completeServer = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment completeEnvironment =
+            RangedEnvironment.Create(completeServer);
+        using var store = new TemporaryFileSystemPackageStore();
+        var complete = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await completeEnvironment.AcquireContentAsync(
+                store,
+                query,
+                sizeCut: archive.Length,
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+        var cached = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await completeEnvironment.AcquireContentAsync(
+                store,
+                query,
+                sizeCut: archive.Length,
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        AssertEquivalent(ranged);
+        AssertEquivalent(complete);
+        AssertEquivalent(cached);
+        Assert.Equal(1, completeServer.FullRequests);
+
+        static void AssertEquivalent(
+            PackageHouseSettlement.Acquired acquired)
+        {
+            Assert.IsType<PackageHouseResult.Settled>(
+                acquired.Result);
+            Assert.Equal(
+                [AddressApiPath],
+                acquired.Payload.Content.EnumerateEntries());
+            Assert.Equal(
+                [
+                    AddressApiPath,
+                    "ref/net10.0/System.Text.Json.xml",
+                    "runtimes/linux-x64/lib/net10.0/System.Text.Json.dll",
+                    "runtimes/linux-x64/lib/net10.0/System.Text.Json.pdb",
+                ],
+                acquired.Result.Evidence.FileList!.Entries.Select(
+                    static entry => entry.Path));
+            Assert.Equal(
+                PackageCompileAssetSelectionStatus.Selected,
+                acquired.Result.Evidence.ContentNarrowing!
+                    .TargetSelection!
+                    .Selection
+                    .Status);
+        }
+    }
+
+    [Fact]
+    public async Task
+        TfmFiles_FailedSourceNarrowingDoesNotCrossToSuccessfulSource()
+    {
+        const string Net9Path =
+            "lib/net9.0/System.Text.Json.dll";
+        const string Net10Path =
+            "lib/net10.0/System.Text.Json.dll";
+        byte[] padding = new byte[128 * 1024];
+        new Random(42).NextBytes(padding);
+        var failing = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            CreateFrameworkArchive(
+                (Net9Path, new byte[] { 9 }),
+                ("content/padding.bin", padding)))
+        {
+            Host = "failed-narrowing.example",
+            EntryRangeStatus = HttpStatusCode.InternalServerError,
+            SubsequentFullRequestStatus = HttpStatusCode.BadGateway,
+        };
+        var successful = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            CreateFrameworkArchive(
+                (Net9Path, new byte[] { 9 }),
+                (Net10Path, new byte[] { 10 })))
+        {
+            Host = "successful-narrowing.example",
+            OmitLength = true,
+        };
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(failing, successful);
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                PackageHouseContentQuery.TfmFiles(
+                    target,
+                    [Net9Path]),
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        PackageHouseResult.NoMatch noMatch =
+            Assert.IsType<PackageHouseResult.NoMatch>(acquired.Result);
+        Assert.Equal(
+            "net10.0",
+            noMatch.Evidence.ContentNarrowing!
+                .TargetSelection!
+                .Selection
+                .TargetFramework);
+        Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.True(failing.RangedRequests > 1);
+        Assert.Equal(1, successful.FullRequests);
+    }
+
+    [Fact]
+    public async Task
+        TfmFiles_ForeignCacheUsesRetainedArchiveDirectory()
+    {
+        const string DllPath =
+            "lib/net10.0/System.Text.Json.dll";
+        const string XmlPath =
+            "lib/net10.0/System.Text.Json.xml";
+        byte[] xml = "archive documentation"u8.ToArray();
+        byte[] archive = CreateFrameworkArchive(
+            (DllPath, new byte[] { 1 }),
+            (XmlPath, xml));
+        string root = Directory.CreateTempSubdirectory(
+            "inspect-tfm-cache-").FullName;
+        try
+        {
+            string nupkg = System.IO.Path.Combine(
+                root,
+                $"{AddressPackageId}.{AddressPackageVersion}.nupkg");
+            File.WriteAllBytes(nupkg, archive);
+            string library = System.IO.Path.Combine(
+                root,
+                "lib",
+                "net10.0");
+            Directory.CreateDirectory(library);
+            File.WriteAllBytes(
+                System.IO.Path.Combine(
+                    library,
+                    "System.Text.Json.dll"),
+                [1]);
+            File.WriteAllText(
+                System.IO.Path.Combine(
+                    root,
+                    $"{AddressPackageId}.nuspec"),
+                "<package />");
+
+            var server = new RangeFeed(
+                AddressPackageId,
+                AddressPackageVersion,
+                archive);
+            await using RangedEnvironment environment =
+                RangedEnvironment.Create(server);
+            ConfiguredPackageAuthority authority =
+                Assert.Single(
+                    environment.Authorization
+                        .AuthorizeSourcesFor(AddressPackageId)
+                        .Authorities);
+            var content = new FileSystemPackageContent(
+                root,
+                nupkg,
+                fromCache: true,
+                producerKey: PackageSourceClientFactory
+                    .GetProducerIdentity(authority.Source)
+                    .Key);
+            PackageHouseTargetContext target =
+                PackageHouseTargetContext.Exact("net10.0");
+
+            var acquired =
+                Assert.IsType<PackageHouseSettlement.Acquired>(
+                    await environment.AcquireContentAsync(
+                        new CachedContentStore(content),
+                        PackageHouseContentQuery
+                            .TfmFilesWithFileList(
+                                target,
+                                [XmlPath]),
+                        packageId: AddressPackageId,
+                        version: AddressPackageVersion,
+                        targetContext: target));
+
+            Assert.IsType<PackageHouseResult.Settled>(
+                acquired.Result);
+            Assert.Equal(
+                [DllPath, XmlPath],
+                acquired.Result.Evidence.FileList!.Entries.Select(
+                    static entry => entry.Path));
+            Assert.Equal([XmlPath], acquired.Payload.Content.EnumerateEntries());
+            Assert.True(
+                acquired.Payload.Content.TryOpenEntry(
+                    XmlPath,
+                    out Stream? selected));
+            using (selected)
+                Assert.Equal(xml, ReadAllBytes(selected));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        TfmFiles_RetainedEvidenceRevalidatesBeforeBodyAcquisition()
+    {
+        const string Net9Path =
+            "lib/net9.0/System.Text.Json.dll";
+        const string Net10Path =
+            "lib/net10.0/System.Text.Json.dll";
+        byte[] firstArchive =
+            CreateFrameworkArchive(
+                (Net9Path, new byte[] { 9 }));
+        var firstServer = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            firstArchive);
+        await using RangedEnvironment firstEnvironment =
+            RangedEnvironment.Create(firstServer);
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+        var first = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await firstEnvironment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                PackageHouseContentQuery.TfmFileList(target),
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+        PackageContentEntry retainedEntry = Assert.Single(
+            first.Result.Evidence.FileList!.Entries);
+        PackageHouseContentQuery retainedQuery =
+            first.Result.Evidence.FileList.CreateFilesQuery(
+                [retainedEntry]);
+
+        byte[] currentArchive =
+            CreateFrameworkArchive(
+                (Net9Path, new byte[] { 9 }),
+                (Net10Path, new byte[] { 10 }));
+        var currentServer = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            currentArchive);
+        await using RangedEnvironment currentEnvironment =
+            RangedEnvironment.Create(currentServer);
+
+        var current = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await currentEnvironment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                retainedQuery,
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        PackageHouseResult.NoMatch noMatch =
+            Assert.IsType<PackageHouseResult.NoMatch>(current.Result);
+        Assert.Equal(
+            "net10.0",
+            noMatch.Evidence.ContentNarrowing!
+                .TargetSelection!
+                .Selection
+                .TargetFramework);
+        Assert.Empty(current.Payload.Content.EnumerateEntries());
+        Assert.Equal(
+            [
+                PackageTransferRequestPurpose.SizeProbe,
+                PackageTransferRequestPurpose.DirectoryTail,
+            ],
+            Transfer(current, PackagePayloadOrigin.Ranged)
+                .Requests
+                .Select(static request => request.Purpose));
     }
 
     [Theory]
@@ -596,6 +1079,58 @@ public sealed partial class PackageRangedRealizationTests
             "House-planned",
             failure.Message,
             StringComparison.Ordinal);
+    }
+
+    private static byte[] CreateTfmSemanticArchive()
+    {
+        byte[] assembly = File.ReadAllBytes(
+            System.IO.Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "PackageHouse",
+                "System.Text.Json.dll"));
+        byte[] manifest = System.Text.Encoding.UTF8.GetBytes(
+            "<?xml version=\"1.0\"?><package><metadata>"
+            + $"<id>{AddressPackageId}</id>"
+            + $"<version>{AddressPackageVersion}</version>"
+            + "<authors>test</authors>"
+            + "<description>test</description>"
+            + "</metadata></package>");
+        return TestPackageArchive.CreateWithContent(
+            ($"{AddressPackageId}.nuspec", manifest),
+            (AddressApiPath, assembly),
+            ("ref/net10.0/System.Text.Json.xml", "docs"u8.ToArray()),
+            ("lib/net10.0/System.Text.Json.dll", [1]),
+            ("lib/net10.0/System.Text.Json.pdb", "lib-pdb"u8.ToArray()),
+            (
+                "runtimes/linux-x64/lib/net10.0/System.Text.Json.dll",
+                assembly),
+            (
+                "runtimes/linux-x64/lib/net10.0/System.Text.Json.pdb",
+                "runtime-pdb"u8.ToArray()),
+            (
+                "runtimes/win-x64/lib/net10.0/System.Text.Json.dll",
+                [2]),
+            ("ref/net9.0/System.Text.Json.dll", [3]),
+            ("lib/net9.0/System.Text.Json.dll", [4]),
+            ("README.md", "outside target"u8.ToArray()));
+    }
+
+    private static byte[] CreateFrameworkArchive(
+        params (string Path, byte[] Content)[] entries)
+    {
+        byte[] manifest = System.Text.Encoding.UTF8.GetBytes(
+            "<?xml version=\"1.0\"?><package><metadata>"
+            + $"<id>{AddressPackageId}</id>"
+            + $"<version>{AddressPackageVersion}</version>"
+            + "<authors>test</authors>"
+            + "<description>test</description>"
+            + "</metadata></package>");
+        return TestPackageArchive.CreateWithContent(
+            [
+                ($"{AddressPackageId}.nuspec", manifest),
+                .. entries,
+            ]);
     }
 
     private static byte[] CreateCaseAmbiguousArchive()

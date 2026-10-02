@@ -303,26 +303,33 @@ function sourceResult(
   };
 }
 
-test("Member Diff Explore renders all three evidence panes from typed evidence", () => {
+test("Member Diff Explore renders one full-width authored Source diff", () => {
   const value = context();
   const state: MemberDiffExplorerSourceState = {
     status: "ready",
     result: sourceResult(value),
   };
   const html = renderMemberDiffExplorer(value, state, String);
-
   assert.match(html, /Member Diff · Changed/);
   assert.match(html, /Run\(long\)/);
-  assert.match(html, /What changed/);
-  assert.match(html, /Parameter type changed from int to long\./);
-  assert.match(html, /Paired declaration evidence is not available yet/);
-  assert.match(html, /Authored Source changed/);
+  assert.match(html, /Run\(long\)/);
+  assert.match(html, /data-member-diff-mode="text"/);
   assert.match(html, /1 Before changed/);
   assert.match(html, /<mark>int<\/mark>/);
   assert.match(html, /<mark>long<\/mark>/);
   assert.match(html, /No newline at end/);
   assert.match(html, /Copy Before/);
   assert.match(html, /Side by side/);
+  assert.match(html, /code-evidence-viewer-content member-diff-explorer-content/);
+  assert.match(html, /code-evidence-viewer-rail member-diff-explorer-rail/);
+  assert.match(html, /data-member-diff-mode="text"[\s\S]*Authored Source[\s\S]*Changed/);
+  assert.doesNotMatch(
+    html,
+    /What changed|Declaration|Parameter type changed|Authored Source changed|Final line terminators|Mapped change evidence/,
+  );
+  const rail = html.indexOf("code-evidence-viewer-rail");
+  const endpoint = html.indexOf("member-diff-source-endpoint");
+  assert.ok(rail >= 0 && rail < endpoint);
 });
 
 test("unified Source rendering walks mapped changes in positional order", () => {
@@ -331,6 +338,7 @@ test("unified Source rendering walks mapped changes in positional order", () => 
   assert.match(html, /data-row-kind="removal" data-before-line="0"/);
   assert.match(html, /data-row-kind="addition" data-before-line="" data-after-line="0"/);
   assert.match(html, /data-row-kind="context" data-before-line="1" data-after-line="1"/);
+  assert.doesNotMatch(html, /Mapped change evidence|Before 0:1 → After 0:1|Warning/);
   assert.equal(
     (html.match(/data-relation-content="Changed" data-relation-placement="Stable"/g) ?? []).length,
     2,
@@ -338,6 +346,95 @@ test("unified Source rendering walks mapped changes in positional order", () => 
   assert.equal(
     (html.match(/data-relation-content="Unchanged" data-relation-placement="Stable"/g) ?? []).length,
     1,
+  );
+});
+
+test("a final-newline-only change identifies the affected side", () => {
+  const diff: BrowserSourceDiff = {
+    version: 1,
+    before: {
+      label: "Before",
+      lines: ["public void Run()"],
+      finalLineTerminator: "Present",
+    },
+    after: {
+      label: "After",
+      lines: ["public void Run()"],
+      finalLineTerminator: "Absent",
+    },
+    relations: [],
+    statistics: {
+      added: 0,
+      removed: 0,
+      changedBefore: 1,
+      changedAfter: 1,
+      movedBefore: 0,
+      movedAfter: 0,
+    },
+    changes: [{
+      before: { start: 0, count: 1 },
+      after: { start: 0, count: 1 },
+      innerMappings: [],
+      annotations: [],
+    }],
+  };
+
+  const html = renderMemberSourceDiff(diff, String);
+
+  assert.equal(
+    (html.match(/data-final-line-terminator="after"/g) ?? []).length,
+    2,
+  );
+  const removal = html.indexOf('data-row-kind="removal"');
+  const addition = html.indexOf('data-row-kind="addition"');
+  const marker = html.indexOf('data-final-line-terminator="after"');
+  assert.ok(removal >= 0 && removal < addition && addition < marker);
+  assert.ok(marker < html.indexOf("</div>", addition));
+});
+
+test("a shared final row with no terminator renders one marker", () => {
+  const diff: BrowserSourceDiff = {
+    version: 1,
+    before: {
+      label: "Before",
+      lines: ["public void Run()"],
+      finalLineTerminator: "Absent",
+    },
+    after: {
+      label: "After",
+      lines: ["public void Run()"],
+      finalLineTerminator: "Absent",
+    },
+    relations: [],
+    statistics: {
+      added: 0,
+      removed: 0,
+      changedBefore: 0,
+      changedAfter: 0,
+      movedBefore: 0,
+      movedAfter: 0,
+    },
+    changes: [],
+  };
+
+  const html = renderMemberSourceDiff(diff, String);
+
+  assert.equal(
+    (html.match(/data-final-line-terminator="both"/g) ?? []).length,
+    1,
+  );
+  assert.equal(
+    (html.match(/data-final-line-terminator="before"/g) ?? []).length,
+    1,
+  );
+  assert.equal(
+    (html.match(/data-final-line-terminator="after"/g) ?? []).length,
+    1,
+  );
+  assert.match(html, /data-row-kind="context"/);
+  assert.match(
+    html,
+    /data-final-line-terminator="both"[^>]*>No newline at end/,
   );
 });
 
@@ -852,7 +949,7 @@ interface FakeDialog {
   keydownHandlers: EventListener[];
   retryHandlers: EventListener[];
   retryButton: HTMLElement;
-  sourcePane: HTMLElement;
+  sourceContent: HTMLElement;
 }
 
 function dialogHarness() {
@@ -893,7 +990,7 @@ function dialogHarness() {
       };
       const closeButton = focusable(closeHandlers);
       const retryButton = focusable(retryHandlers);
-      const sourcePane = focusable();
+      const sourceContent = focusable();
       const heading = focusable();
       const dialog: FakeDialog = {
         open: false,
@@ -903,7 +1000,7 @@ function dialogHarness() {
         keydownHandlers,
         retryHandlers,
         retryButton,
-        sourcePane,
+        sourceContent,
       };
       Object.assign(dialog, {
         className: "",
@@ -920,8 +1017,8 @@ function dialogHarness() {
         querySelector: (selector: string) => {
           if (selector === "[data-member-diff-close]") return closeButton;
           if (selector === "#member-diff-explorer-title") return heading;
-          if (selector === '[data-member-diff-pane="source"]')
-            return sourcePane;
+          if (selector === '[data-member-diff-mode="text"]')
+            return sourceContent;
           if (selector === "[data-member-diff-source-retry]"
             && dialog.innerHTML.includes("data-member-diff-source-retry")) {
             return retryButton;
@@ -932,7 +1029,7 @@ function dialogHarness() {
         contains: (candidate: unknown) =>
           candidate === closeButton
           || candidate === retryButton
-          || candidate === sourcePane
+          || candidate === sourceContent
           || candidate === heading,
         focus: () => undefined,
         showModal: () => {
@@ -1028,7 +1125,7 @@ test("retry transition keeps focus inside the dialog", async () => {
   retry(fakeDom.event());
 
   assert.equal(queryCount, 2);
-  assert.equal(dom.activeElement(), dialog.sourcePane);
+  assert.equal(dom.activeElement(), dialog.sourceContent);
   controller.dispose();
 });
 
@@ -1201,6 +1298,6 @@ test("a settled non-failed Source result is retained for the same exact context"
   };
   controller.open(replacement, invoker);
   assert.equal(queries, 1);
-  assert.match(dom.dialogs[1]?.innerHTML ?? "", /Authored Source changed/);
+  assert.match(dom.dialogs[1]?.innerHTML ?? "", /member-diff-source-diff/);
   controller.dispose();
 });

@@ -5,9 +5,9 @@ import type {
 import {
   libraryApiDiffMemberStateLabel,
   renderLibraryApiDiffChangeChips,
-  renderLibraryApiDiffMemberChanges,
   type LibraryApiDiffMemberExploreContext,
 } from "./library-api-diff.ts";
+import { renderCodeEvidenceViewerFrame } from "./code-evidence-viewer.ts";
 import type {
   OperationAuthorityPage,
   OperationCancelReason,
@@ -210,31 +210,12 @@ function attributeText(
   return escapeHtml(value).replaceAll("\r", "&#13;");
 }
 
-function endpointProvenance(
-  endpoint: BrowserSourceComparisonEndpoint,
-  escapeHtml: (value: unknown) => string,
-): string {
-  const parts = [
-    endpoint.assetPath,
-    endpoint.repositoryUrl,
-    endpoint.revision,
-  ].filter((part): part is string => part !== null && part !== "");
-  const browseUrl = endpoint.browseUrl === null
-    ? null
-    : safeExternalHref(endpoint.browseUrl);
-  const browse = browseUrl === null
-    ? ""
-    : ` · <a href="${attributeText(browseUrl, escapeHtml)}" target="_blank" rel="noopener noreferrer">Open source</a>`;
-  return parts.length === 0 && browse === ""
-    ? ""
-    : `<p class="member-diff-source-provenance">${parts.map(escapeHtml).join(" · ")}${browse}</p>`;
-}
-
 function endpointStatus(
   endpoint: BrowserSourceComparisonEndpoint,
   destination: BrowserLibraryApiDiffMemberExploreEndpoint,
   label: string,
   escapeHtml: (value: unknown) => string,
+  includeText = false,
 ): string {
   if (destination.member === null) {
     return `<section class="member-diff-source-endpoint">
@@ -242,17 +223,18 @@ function endpointStatus(
       <p>Not present on this side.</p>
     </section>`;
   }
-  const text = endpoint.text === null
-    ? ""
-    : `<pre class="member-diff-source-text"><code>${escapeHtml(endpoint.text)}</code></pre>`;
   const detail = endpoint.detail === null
     ? ""
     : `<p>${escapeHtml(endpoint.detail)}</p>`;
+  const open = sourceOpenAction(endpoint, "Open source", escapeHtml);
+  const text = includeText && endpoint.text !== null
+    ? `<pre class="member-diff-source-text"><code>${escapeHtml(endpoint.text)}</code></pre>`
+    : "";
   return `<section class="member-diff-source-endpoint">
     <h3>${escapeHtml(label)}</h3>
     <p><strong>${escapeHtml(endpoint.state)}</strong> · ${escapeHtml(endpoint.version)}</p>
     ${detail}
-    ${endpointProvenance(endpoint, escapeHtml)}
+    ${open}
     ${text}
   </section>`;
 }
@@ -370,6 +352,18 @@ function compactComparisonNotices(
   )}`;
 }
 
+function sourceOpenAction(
+  endpoint: BrowserSourceComparisonEndpoint,
+  label: string,
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (endpoint.browseUrl === null) return "";
+  const href = safeExternalHref(endpoint.browseUrl);
+  return href === null
+    ? ""
+    : `<a href="${attributeText(href, escapeHtml)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+}
+
 function renderComparedSource(
   value: BrowserSourceComparison,
   context: LibraryApiDiffMemberExploreContext,
@@ -379,20 +373,14 @@ function renderComparedSource(
 ): string {
   const exact = value.isExact
     ? '<span class="member-diff-source-exact">Authored Source is identical</span>'
-    : compact
-      ? ""
-      : '<span class="member-diff-source-inexact">Authored Source changed</span>';
-  const endpointCards = `<div class="member-diff-source-endpoints">
-    ${endpointStatus(value.before, context.destination.target, "Before", escapeHtml)}
-    ${endpointStatus(value.after, context.destination.current, "After", escapeHtml)}
-  </div>`;
+    : "";
   const endpoints = compact
     ? compactComparisonNotices(value, context, escapeHtml)
-    : endpointCards;
+    : "";
   if (value.status === "Compared" && value.diff !== null) {
     return compact
       ? `${exact}${renderMemberSourceDiff(value.diff, escapeHtml, true)}`
-      : `${exact}${endpoints}${renderMemberSourceDiff(
+      : `${exact}${renderMemberSourceDiff(
           value.diff,
           escapeHtml,
           false,
@@ -418,19 +406,17 @@ function renderSourcePane(
   compact = false,
   mode: SourceDiffViewerMode = "unified",
 ): string {
-  const endpointContext = (stateText: string): string => {
-    return compact
-      ? compactDestinationNotices(context, escapeHtml)
-      : requestedEndpoints(context, stateText, escapeHtml);
-  };
+  const endpointContext = compact
+    ? compactDestinationNotices(context, escapeHtml)
+    : "";
   switch (state.status) {
     case "idle":
     case "loading":
-      return `${endpointContext("Loading authored Source…")}<p class="member-diff-source-loading" role="status">Loading authored Source…</p>`;
+      return `${endpointContext}<p class="member-diff-source-loading" role="status">Loading authored Source…</p>`;
     case "failed":
-      return `${endpointContext("Authored Source request failed.")}<p class="member-diff-source-failure">${escapeHtml(state.error)}</p>${retryButton()}`;
+      return `${endpointContext}<p class="member-diff-source-failure">${escapeHtml(state.error)}</p>${retryButton()}`;
     case "canceled":
-      return `${endpointContext("Authored Source request canceled.")}<p class="member-diff-source-canceled">${escapeHtml(state.reason)}</p>${retryButton()}`;
+      return `${endpointContext}<p class="member-diff-source-canceled">${escapeHtml(state.reason)}</p>${retryButton()}`;
     case "ready": {
       const result = state.result;
       if (result.kind === "Succeeded" && result.value !== null) {
@@ -444,25 +430,90 @@ function renderSourcePane(
       }
       if (result.kind === "TooComplex" && result.capacity !== null) {
         const failure = `<p class="member-diff-source-failure">Authored Source exceeds the ${escapeHtml(result.capacity.dimension)} capacity: ${result.capacity.actual.toLocaleString()} observed, ${result.capacity.limit.toLocaleString()} allowed.</p>${retryButton()}`;
-        const endpoints = endpointContext(
-          "Authored Source comparison exceeded capacity.",
-        );
-        return `${endpoints}${failure}`;
+        return `${endpointContext}${failure}`;
       }
       if (result.kind === "Canceled") {
         const canceled = `<p class="member-diff-source-canceled">${escapeHtml(result.reason ?? "Authored Source was canceled.")}</p>${retryButton()}`;
-        const endpoints = endpointContext("Authored Source request canceled.");
-        return `${endpoints}${canceled}`;
+        return `${endpointContext}${canceled}`;
       }
       const failure = `<p class="member-diff-source-failure">${escapeHtml(
         result.error ?? result.reason ?? "Authored Source failed.",
       )}</p>${retryButton()}`;
-      const endpoints = endpointContext("Authored Source request failed.");
-      return `${endpoints}${failure}`;
+      return `${endpointContext}${failure}`;
     }
   }
   const exhaustive: never = state;
   throw new Error(`Unhandled Member Diff Source state: ${String(exhaustive)}`);
+}
+
+function sourceEvidenceStatus(
+  source: MemberDiffExplorerSourceState,
+): string {
+  switch (source.status) {
+    case "idle":
+    case "loading":
+      return "Loading";
+    case "failed":
+      return "Failed";
+    case "canceled":
+      return "Canceled";
+    case "ready": {
+      const result = source.result;
+      if (result.kind === "TooComplex") return "Too complex";
+      if (result.kind !== "Succeeded" || result.value === null)
+        return result.kind;
+      if (result.value.status !== "Compared") return result.value.status;
+      return result.value.isExact ? "Identical" : "Changed";
+    }
+  }
+  const exhaustive: never = source;
+  throw new Error(`Unhandled Member Diff Source state: ${String(exhaustive)}`);
+}
+
+function renderMemberDiffRail(
+  context: LibraryApiDiffMemberExploreContext,
+  source: MemberDiffExplorerSourceState,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const comparison = source.status === "ready"
+      && source.result.kind === "Succeeded"
+    ? source.result.value
+    : null;
+  const state = sourceEvidenceStatus(source);
+  const endpoints = comparison === null
+    ? requestedEndpoints(context, `Authored Source ${state.toLowerCase()}.`, escapeHtml)
+    : `<div class="member-diff-source-endpoints">
+        ${endpointStatus(
+          comparison.before,
+          context.destination.target,
+          "Before",
+          escapeHtml,
+          comparison.status !== "Compared",
+        )}
+        ${endpointStatus(
+          comparison.after,
+          context.destination.current,
+          "After",
+          escapeHtml,
+          comparison.status !== "Compared",
+        )}
+      </div>`;
+  return `<div class="member-diff-evidence">
+    <section class="member-diff-evidence-section"
+      aria-labelledby="member-diff-evidence-title">
+      <h2 id="member-diff-evidence-title">Evidence</h2>
+      <div class="member-diff-evidence-choice" data-member-diff-mode="text"
+        aria-current="true">
+        <strong>Authored Source</strong>
+        <span>${escapeHtml(state)}</span>
+      </div>
+    </section>
+    <section class="member-diff-evidence-section"
+      aria-labelledby="member-diff-endpoints-title">
+      <h2 id="member-diff-endpoints-title">Endpoints</h2>
+      ${endpoints}
+    </section>
+  </div>`;
 }
 
 export function renderMemberDiffExplorer(
@@ -474,10 +525,12 @@ export function renderMemberDiffExplorer(
   const before = context.destination.target.member;
   const after = context.destination.current.member;
   const signature = after?.display ?? before?.display ?? "";
-  const declarationReason =
-    "Paired declaration evidence is not available yet. This stage requires a dedicated product-issued declaration comparison.";
-  return `<div class="member-diff-explorer-frame">
-    <header class="member-diff-explorer-header">
+  return renderCodeEvidenceViewerFrame({
+    viewerId: "member-diff-explorer-frame",
+    viewerClassName: "member-diff-explorer-frame",
+    labelledBy: "member-diff-explorer-title member-diff-explorer-baseline",
+    headerClassName: "member-diff-explorer-header",
+    header: `
       <div>
         <p class="member-diff-explorer-kicker">Member Diff · ${escapeHtml(
           libraryApiDiffMemberStateLabel(context.member),
@@ -486,24 +539,28 @@ export function renderMemberDiffExplorer(
         <p id="member-diff-explorer-baseline">${escapeHtml(context.destination.target.version)} → ${escapeHtml(context.destination.current.version)} · ${escapeHtml(context.destination.current.framework)}${signature === "" ? "" : ` · ${escapeHtml(signature)}`}</p>
         ${renderLibraryApiDiffChangeChips(context.member.changes, escapeHtml)}
       </div>
-      <button type="button" class="member-diff-explorer-close" data-member-diff-close aria-label="Close Member Diff Explore">Close</button>
-    </header>
-    <main class="member-diff-explorer-panes">
-      <section class="member-diff-explorer-pane" tabindex="0" data-member-diff-pane="changes" aria-labelledby="member-diff-what-changed">
-        <h2 id="member-diff-what-changed">What changed</h2>
-        ${renderLibraryApiDiffMemberChanges(context.type, context.member, escapeHtml)}
-      </section>
-      <section class="member-diff-explorer-pane" tabindex="0" data-member-diff-pane="declaration" aria-labelledby="member-diff-declaration">
-        <h2 id="member-diff-declaration">Declaration</h2>
-        ${requestedEndpoints(context, declarationReason, escapeHtml)}
-        <p class="member-diff-declaration-unavailable">${escapeHtml(declarationReason)}</p>
-      </section>
-      <section class="member-diff-explorer-pane member-diff-explorer-source" tabindex="0" data-member-diff-pane="source" aria-labelledby="member-diff-source">
-        <h2 id="member-diff-source">Authored Source</h2>
-        ${renderSourcePane(source, context, escapeHtml, false, mode)}
-      </section>
-    </main>
-  </div>`;
+      <button type="button" class="member-diff-explorer-close"
+        data-member-diff-close
+        aria-label="Close Member Diff Explore">Close</button>`,
+    body: {
+      kind: "workspace",
+      className: "member-diff-explorer-workspace",
+      content: {
+        html: `<div class="member-diff-explorer-source"
+          data-member-diff-mode="text" tabindex="0">
+          ${renderSourcePane(source, context, escapeHtml, false, mode)}
+        </div>`,
+        label: "Authored Source text diff",
+        className: "member-diff-explorer-content",
+      },
+      rail: {
+        html: renderMemberDiffRail(context, source, escapeHtml),
+        label: "Member Diff evidence",
+        className: "member-diff-explorer-rail",
+      },
+    },
+    escapeHtml,
+  });
 }
 
 function isRetainable(result: BrowserSourceComparisonResult): boolean {
@@ -551,9 +608,7 @@ export function createMemberDiffExplorer(
       "[data-member-diff-close]",
       "[data-member-diff-source-retry]",
       "[data-source-diff-viewer]",
-      '[data-member-diff-pane="changes"]',
-      '[data-member-diff-pane="declaration"]',
-      '[data-member-diff-pane="source"]',
+      '[data-member-diff-mode="text"]',
     ];
     const focusSelector = focusSelectors.find(selector =>
       dialog?.querySelector(selector) === dependencies.document.activeElement);
@@ -583,7 +638,7 @@ export function createMemberDiffExplorer(
     if (focusSelector !== undefined) {
       const focusTarget = dialog.querySelector<HTMLElement>(focusSelector)
         ?? dialog.querySelector<HTMLElement>(
-          '[data-member-diff-pane="source"]',
+          '[data-member-diff-mode="text"]',
         );
       focusTarget?.focus({ preventScroll: true });
     }

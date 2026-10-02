@@ -29,12 +29,17 @@ public sealed record GraphConsumerObservation(
     IReadOnlyList<string> ProjectedRelationships,
     IReadOnlyList<int> ProjectionSourceEdgeIds,
     IReadOnlyList<GraphProjectedEdgeContributor> ProjectionContributors,
+    IReadOnlyList<string> Components,
+    IReadOnlyList<int> ComponentLevels,
+    IReadOnlyList<int> CondensationSourceEdgeIds,
     GraphStructuralCompletion NeighborhoodCompletion,
     GraphStructuralCompletion FocusCompletion,
+    GraphStructuralCompletion ComponentCompletion,
     GraphExecutionWorkReceipt NeighborhoodReceipt,
     GraphExecutionWorkReceipt AdjacencyReceipt,
     GraphExecutionWorkReceipt DegreeReceipt,
     GraphGroupProjectionWorkReceipt ProjectionReceipt,
+    GraphComponentAnalysisWorkReceipt ComponentReceipt,
     Type SubjectType,
     Type RelationshipType);
 
@@ -173,6 +178,12 @@ public static class GraphDirectConsumer
             projectedEdge.Explanation
             ?? throw new InvalidOperationException(
                 "The requested projection explanation was not issued.");
+        GraphComponentAnalysisResult components =
+            GraphDocumentExecution.ComponentAnalysis(
+                projection,
+                new(
+                    document.Identity,
+                    [0, 1]));
 
         return new(
             [.. document.Nodes.Select(node => node.Subject.Name)],
@@ -195,12 +206,21 @@ public static class GraphDirectConsumer
             [.. projection.Edges.Select(edge => edge.Relationship.Kind)],
             projectedEdge.SourceEdgeIds,
             projectionExplanation.RetainedContributors,
+            [.. components.Components.Select(component =>
+                string.Join(
+                    ',',
+                    component.SourceGroupIds.Select(groupId =>
+                        document.Groups[groupId].Subject.Name)))],
+            [.. components.Components.Select(component => component.Level)],
+            components.CondensationEdges[0].SourceEdgeIds,
             neighborhood.Completion,
             focus.Completion,
+            components.Completion,
             neighborhood.Receipt,
             adjacency.Receipt,
             degree.Receipt,
             projection.Receipt,
+            components.Receipt,
             typeof(Service),
             typeof(DependsOn));
     }

@@ -10,7 +10,11 @@ import {
 } from "./source-inspection.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 import { isForwardedType, type TypeInventoryRow } from "./platform-forwarders.ts";
-import type { TypeLeveragePole } from "./type-leverage.ts";
+import {
+  itemAchievementClassNames,
+  renderItemAchievementRail,
+  type ItemAchievement,
+} from "./item-achievements.ts";
 
 export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
   "base · interfaces · derived — select a highlighted node to open";
@@ -568,7 +572,9 @@ export interface TypeNavOptions {
   typeDisplayName: (item: TypeInventoryRow) => string;
   typeLibraryLabel: (item: TypeInventoryRow) => string;
   kindIcon: (kind: string) => string;
-  typeLeverageCue?: (item: TypeInventoryRow) => TypeNavLeverageCue | null;
+  itemAchievements?: (
+    item: TypeInventoryRow,
+  ) => readonly ItemAchievement[];
   namespaceLeverageCue?: (
     exactNamespace: string,
   ) => TypeNavNamespaceLeverageCue | null;
@@ -576,11 +582,6 @@ export interface TypeNavOptions {
 
 export interface TypeNavNamespaceLeverageCue {
   topLeverage: boolean;
-  description: string;
-}
-
-export interface TypeNavLeverageCue {
-  pole: TypeLeveragePole;
   description: string;
 }
 
@@ -592,13 +593,13 @@ export function renderTypeNav(options: TypeNavOptions): string {
     library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
     typeDisplayName, typeLibraryLabel, kindIcon, statusHtml = "",
   } = options;
-  const typeLeverageCue = options.typeLeverageCue ?? (() => null);
+  const itemAchievements = options.itemAchievements;
   const namespaceLeverageCue =
     options.namespaceLeverageCue ?? (() => null);
   const namespaceSelectionValue =
     options.namespaceSelectionValue ?? (namespace => namespace);
   return `
-    <aside id="content-navigation-pane" class="type-browser" aria-label="Public types">
+    <aside id="content-navigation-pane" class="type-browser${itemAchievements ? " has-item-achievement-rail" : ""}" aria-label="Public types">
       <div class="browser-head">
         <div>
           <span class="pane-label">PUBLIC TYPES</span>
@@ -658,13 +659,14 @@ export function renderTypeNav(options: TypeNavOptions): string {
             ${types.map(item => {
               const selected = item.id === current?.id;
               const definingLibrary = typeLibraryLabel(item);
-              const leverage = typeLeverageCue(item);
-              const leverageClass = leverage ? ` ${leverage.pole}` : "";
-              const leverageHtml = leverage
-                ? `<span class="type-leverage-icon ${leverage.pole}" role="img" aria-label="${escapeHtml(leverage.description)}" title="${escapeHtml(leverage.description)}"><span aria-hidden="true">${leverage.pole === "sea-level" ? "▁" : "▲"}</span></span>`
+              const achievements = itemAchievements?.(item) ?? [];
+              const achievementClasses =
+                itemAchievementClassNames(achievements);
+              const achievementHtml = itemAchievements
+                ? renderItemAchievementRail(achievements, escapeHtml)
                 : "";
-              return `<button class="type-row ${selected ? "selected" : ""}${leverageClass}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
-                ${leverageHtml}
+              return `<button class="type-row ${selected ? "selected" : ""}${achievementClasses ? ` ${achievementClasses}` : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
+                ${achievementHtml}
                 <span class="kind-icon" aria-hidden="true">${isForwardedType(item) ? "↗" : kindIcon(item.kind)}</span>
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
                 ${isForwardedType(item)
@@ -804,7 +806,14 @@ export function renderMemberNav(options: MemberNavOptions): string {
           const heatDescription = heat === null
             ? ""
             : ` aria-description="${escapeHtml(heat.description)}" title="${escapeHtml(heat.description)}"`;
-          return `<button class="type-row overload-nav-row${heatClasses} ${selected ? " selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
+          const achievements: readonly ItemAchievement[] = heat?.hub
+            ? [{
+                kind: "implementation-hub",
+                description: "implementation hub",
+              }]
+            : [];
+          return `<button class="type-row overload-nav-row has-item-achievement-rail${heatClasses} ${selected ? " selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
+            ${renderItemAchievementRail(achievements, escapeHtml)}
             <code>${overloadNavLabelHtml(entry.group.name, overload, escapeHtml, highlight)}</code>
           </button>`;
         }).join("") || '<div class="empty-list">No members match these filters.</div>'}

@@ -223,7 +223,7 @@ function terminatorMarker(
     || line !== diff[side].lines.length - 1) {
     return "";
   }
-  return `<span class="source-diff-viewer-terminator${shared ? " source-diff-viewer-terminator-shared" : ""}" aria-label="No newline at end">No newline at end</span>`;
+  return `<span class="source-diff-viewer-terminator${shared ? " source-diff-viewer-terminator-shared" : ""}" data-final-line-terminator="${shared ? "both" : side}" aria-label="No newline at end">No newline at end</span>`;
 }
 
 function unifiedRow(
