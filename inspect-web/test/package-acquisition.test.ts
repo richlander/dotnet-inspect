@@ -30,6 +30,7 @@ import type {
 import type {
   BrowserUploadedLibraryResult,
 } from "../src/facades/inspect-web-library.d.ts";
+import { normalizeTypeAccessibilityFilter } from "../src/type-panel.ts";
 
 function assembly(
   id: string,
@@ -1286,6 +1287,73 @@ test("repeating a partial surface merge does not inflate resident evidence", () 
   assert.equal(
     resident.inspectionError,
     residentSurface.inspectionError);
+});
+
+test("runtime vocabulary growth expands a prior all-Accessibility selection", () => {
+  const initial = runtimeSurface(
+    "corelib",
+    "System.Private.CoreLib",
+    "System.Object");
+  const internalType = {
+    ...typeSurface("Hidden.InternalType", "System.Private.CoreLib"),
+    accessibility: "internal",
+    accessibilityId: "internal",
+    signature: "internal class Hidden.InternalType",
+  };
+  const residentSurface = {
+    ...initial,
+    types: [...initial.types, internalType],
+    accessibility: [
+      ...initial.accessibility,
+      {
+        id: "internal",
+        label: "Internal",
+        order: 2,
+        isDefault: false,
+        count: 1,
+      },
+    ],
+  };
+  const resident = createRuntimePackageModel(residentSurface);
+  const selectedAll = new Set(["public", "internal"]);
+  const next = runtimeSurface(
+    "json",
+    "System.Text.Json",
+    "Hidden.PrivateType");
+  const privateType = next.types[0];
+  assert.ok(privateType);
+  const incoming = {
+    ...next,
+    types: [{
+      ...privateType,
+      accessibility: "private",
+      accessibilityId: "private",
+      signature: "private class Hidden.PrivateType",
+    }],
+    accessibility: [{
+      id: "private",
+      label: "Private",
+      order: 3,
+      isDefault: false,
+      count: 1,
+    }],
+  };
+
+  mergeRuntimePackageSurface(resident, incoming);
+  const normalized = normalizeTypeAccessibilityFilter(
+    selectedAll,
+    resident.accessibility.map(descriptor => descriptor.id),
+  );
+
+  assert.deepEqual(
+    [...normalized],
+    ["public", "internal", "private"]);
+  assert.deepEqual(
+    [...normalizeTypeAccessibilityFilter(
+      new Set(["public"]),
+      resident.accessibility.map(descriptor => descriptor.id),
+    )],
+    ["public"]);
 });
 
 // Round 6 review split the two reviewers. GPT-5.6 Sol found that the resident-merge path

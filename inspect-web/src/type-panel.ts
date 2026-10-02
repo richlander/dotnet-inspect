@@ -19,6 +19,17 @@ import {
 export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
   "base · interfaces · derived — select a highlighted node to open";
 
+export function normalizeTypeAccessibilityFilter(
+  selected: ReadonlySet<string>,
+  bucketIds: readonly string[],
+) {
+  const admitted = bucketIds.filter(id => selected.has(id));
+  // The native selector represents one bucket or all buckets. A surviving
+  // multi-bucket set is therefore an earlier "all" selection whose vocabulary grew.
+  if (admitted.length <= 1) return new Set(admitted);
+  return new Set(bucketIds);
+}
+
 const EXACT_TYPE_NOT_FOUND = 1;
 const EXACT_TYPE_AMBIGUOUS = 2;
 

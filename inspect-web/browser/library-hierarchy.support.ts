@@ -683,9 +683,28 @@ async function installFacades(
             platformPack: pack,
           });
         }
+        const accessibility =
+          platformOptions.forwarderInternalType && assembly.name === "System.Xml"
+            ? [
+                {
+                  id: "public",
+                  label: "Public",
+                  order: 0,
+                  isDefault: true,
+                  count: 0,
+                },
+                {
+                  id: "internal",
+                  label: "Internal",
+                  order: 2,
+                  isDefault: false,
+                  count: 1,
+                },
+              ]
+            : surfaces[0].accessibility;
         return JSON.stringify({
           ...surfaces[0], package: "Microsoft.NETCore.App", version, frameworks: [tfm], activeFramework: tfm,
-          defaultAssemblyId: assembly.id, assemblies: [assembly], types,
+          defaultAssemblyId: assembly.id, assemblies: [assembly], types, accessibility,
           totalMembers: row.publicTypes,
         });
       }

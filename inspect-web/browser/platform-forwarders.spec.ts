@@ -17,22 +17,7 @@ async function openXml(
     forwarderPending?: boolean;
   } = {},
 ) {
-  const model = options.forwarderInternalType
-    ? {
-        ...surface,
-        accessibility: [
-          ...surface.accessibility,
-          {
-            id: "internal",
-            label: "Internal",
-            order: 2,
-            isDefault: false,
-            count: 1,
-          },
-        ],
-      }
-    : surface;
-  await installFacades(page, model, [], "ready", "ready", {
+  await installFacades(page, surface, [], "ready", "ready", {
     forwarders: true, ...options,
   });
   await openInstalledPlatform(page);
