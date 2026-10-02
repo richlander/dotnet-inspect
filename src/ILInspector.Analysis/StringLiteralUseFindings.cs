@@ -84,7 +84,8 @@ public static class StringLiteralUseFindings
             findings.Add(new Finding<StringLiteralUseOccurrence>(
                 subject,
                 Descriptor,
-                new FindingKey(occurrence.LiteralIdentityKey),
+                new FindingKey(
+                    occurrence.LiteralIdentity.CreateFindingKey()),
                 occurrence,
                 Ordinal: i,
                 Detail: occurrence.LiteralText.ToString()));
@@ -130,4 +131,20 @@ public static class StringLiteralUseFindings
         int nibble = value & 0xF;
         return (char)(nibble < 10 ? '0' + nibble : 'A' + nibble - 10);
     }
+}
+
+internal readonly struct StringLiteralUseIdentity
+{
+    private readonly string _literal;
+
+    internal StringLiteralUseIdentity(string literal)
+    {
+        _literal = literal
+            ?? throw new ArgumentNullException(nameof(literal));
+    }
+
+    internal bool IsInitialized => _literal is not null;
+
+    internal string CreateFindingKey()
+        => StringLiteralUseFindings.CreateIdentityKey(_literal);
 }

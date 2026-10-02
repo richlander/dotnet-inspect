@@ -216,8 +216,10 @@ cryptographic module identity.
 
 `LiteralText` is constructed from the exact decoded literal with
 `InertString(TextPolicy.Field, literal)`. `LiteralCharacterCount` records the
-unmodified UTF-16 length. The raw string is used only while matching and
-containment are performed and is not retained in the public result.
+unmodified UTF-16 length. The raw string is retained only behind Analysis'
+internal non-renderable `StringLiteralUseIdentity` currency, which exposes no
+text and can only produce the presentation-safe exact Finding key. The public
+result exposes only the contained `LiteralText`.
 
 The result graph contains no reader, handle, session, stream, byte buffer,
 lease, delegate, package coordinate, or package-selection state. It may outlive
@@ -266,6 +268,10 @@ artifact-authored control characters. MVID, MethodDef token, IL offset, and
 user-string token remain evidence and never establish cross-version
 correspondence.
 
+The safe key string is constructed only when the Finding projection is
+requested. Existing Package Query occurrence consumption retains the bounded
+internal identity currency but does not allocate or render Finding keys.
+
 Comparison uses the Finding matcher's exact threshold. Equal complete literals
 are `Present` even when physical coordinates differ after rebuilding. A
 changed literal is one `Removed` plus one `Added`; this owner defines no fuzzy
@@ -305,6 +311,8 @@ The live working set is finite as a function of the admitted bounds:
 - switch-target storage bounded by the admitted body bytes;
 - at most one newly decoded raw string within the remaining decoded-character
   budget;
+- retained internal literal identity text bounded by the charged decoded
+  character total;
 - retained occurrence records bounded by `MaximumOccurrences`; and
 - retained inert literal text bounded by six encoded characters per charged
   UTF-16 code unit under the current `TextPolicy.Field` spelling set.

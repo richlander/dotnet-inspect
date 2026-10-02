@@ -139,7 +139,7 @@ public sealed record StringLiteralUseOccurrence
         int userStringToken,
         int literalCharacterCount,
         InertString literalText,
-        string literalIdentityKey)
+        StringLiteralUseIdentity literalIdentity)
     {
         if ((userStringToken & unchecked((int)0xFF000000)) != 0x70000000
             || (userStringToken & 0x00FFFFFF) == 0)
@@ -149,13 +149,18 @@ public sealed record StringLiteralUseOccurrence
                 nameof(userStringToken));
         }
         ArgumentOutOfRangeException.ThrowIfNegative(literalCharacterCount);
+        if (!literalIdentity.IsInitialized)
+        {
+            throw new ArgumentException(
+                "The literal identity must be initialized.",
+                nameof(literalIdentity));
+        }
 
         Address = address;
         UserStringToken = userStringToken;
         LiteralCharacterCount = literalCharacterCount;
         LiteralText = literalText;
-        LiteralIdentityKey = literalIdentityKey
-            ?? throw new ArgumentNullException(nameof(literalIdentityKey));
+        LiteralIdentity = literalIdentity;
     }
 
     public StringLiteralInstructionAddress Address { get; }
@@ -166,7 +171,7 @@ public sealed record StringLiteralUseOccurrence
 
     public InertString LiteralText { get; }
 
-    internal string LiteralIdentityKey { get; }
+    internal StringLiteralUseIdentity LiteralIdentity { get; }
 }
 
 /// <summary>Completed charged work for one producer attempt.</summary>

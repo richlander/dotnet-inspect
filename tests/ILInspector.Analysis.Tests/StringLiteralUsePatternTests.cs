@@ -406,14 +406,15 @@ public sealed class StringLiteralUsePatternTests
 
         Assert.Equal(
             StringLiteralUseFindings.CreateIdentityKey(literal),
-            occurrence.LiteralIdentityKey);
+            occurrence.LiteralIdentity.CreateFindingKey());
         Assert.NotEqual(
             StringLiteralUseFindings.CreateIdentityKey(
                 "unpaired-\uFFFD-literal-marker"),
-            occurrence.LiteralIdentityKey);
-        Assert.StartsWith("utf16-v1:", occurrence.LiteralIdentityKey);
+            occurrence.LiteralIdentity.CreateFindingKey());
+        string identity = occurrence.LiteralIdentity.CreateFindingKey();
+        Assert.StartsWith("utf16-v1:", identity);
         Assert.All(
-            occurrence.LiteralIdentityKey["utf16-v1:".Length..],
+            identity["utf16-v1:".Length..],
             value => Assert.True(char.IsAsciiHexDigit(value)));
     }
 
@@ -525,7 +526,7 @@ public sealed class StringLiteralUsePatternTests
             0x70000001,
             literal.Length,
             new InertString(TextPolicy.Field, literal),
-            StringLiteralUseFindings.CreateIdentityKey(literal));
+            new StringLiteralUseIdentity(literal));
 
     static StringLiteralUsePatternReceipt Receipt(
         int occurrences = 0) =>
