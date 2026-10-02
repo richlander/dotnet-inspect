@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 
+using ILInspector.Metadata;
+
 namespace ILInspector.Analysis;
 
 /// <summary>
@@ -317,7 +319,8 @@ public sealed class LibraryBodyAnalysisExecution
         Leverage = new(
             Receipt,
             CallGraph,
-            generatedFrameworkTypes);
+            generatedFrameworkTypes,
+            analysis.Safety.LeverageMethods);
         Safety = new(
             Receipt,
             analysis.Safety.Evidence,
@@ -373,6 +376,101 @@ public sealed class LibraryBodyAnalysisExecution
             plan.ResourceEffects?.Receipt,
             analysis.ResourceLifecycle?.Methods ?? [],
             analysis.ResourceLifecycle?.Limitations ?? []);
+    }
+
+    internal static LibraryBodyAnalysisExecution FromEvidence(
+        ImmutableArray<MethodIdentity> methods,
+        ImmutableArray<UnsafeEvidence> unsafeEvidence,
+        IReadOnlyDictionary<
+            int,
+            ImmutableArray<AllocationOccurrence>>?
+            allocationOccurrences = null,
+        IReadOnlyDictionary<
+            int,
+            ImmutableArray<UnsafetyOccurrence>>?
+            unsafetyOccurrences = null,
+        ImmutableArray<AnalysisDiagnostic> diagnostics = default,
+        ImmutableArray<DirectCall> directCalls = default,
+        ImmutableArray<MethodResultSink> resultSinks = default,
+        ImmutableArray<FieldStoreFact> fieldStores = default,
+        ImmutableArray<FieldLoadFact> fieldLoads = default,
+        ImmutableArray<MethodReturnFlow> returnFlows = default,
+        LibraryBodyModuleIdentity? moduleIdentity = null,
+        LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence)
+    {
+        moduleIdentity ??= SyntheticEvidenceIdentity(methods);
+        ValidateSyntheticEvidenceIdentity(moduleIdentity, methods);
+        features |= allocationOccurrences is null
+            ? LibraryBodyAnalysisFeatures.None
+            : LibraryBodyAnalysisFeatures.Allocations;
+        var analysis = new LibraryBodyAnalysisResult(
+            Methods: new(
+                DeclaredMethods: methods,
+                Methods: methods,
+                FailedMethodBodies: [],
+                DirectCalls: directCalls.IsDefault ? [] : directCalls,
+                ResultSinks: resultSinks.IsDefault ? [] : resultSinks,
+                FieldStores: fieldStores.IsDefault ? [] : fieldStores,
+                FieldLoads: fieldLoads.IsDefault ? [] : fieldLoads,
+                ReturnFlows: returnFlows.IsDefault ? [] : returnFlows,
+                BodySignals: new Dictionary<int, BodySignals>(),
+                ImplementationMetrics: [],
+                ImplementationMetricDiagnostics: [],
+                ImplementationProfiles: [],
+                InAssemblyTypeIsException:
+                    new Dictionary<
+                        (string Namespace, string Name),
+                        bool>(),
+                NonHeapNewObjOperandTokens: new HashSet<int>(),
+                DeclaredSources: new Dictionary<int, MethodIdentity>(),
+                LocalThrows: []),
+            Safety: new(
+                Evidence: unsafeEvidence,
+                LeverageMethods: [],
+                Rules: new MemorySafetyRulesResult.Available(
+                    MemorySafetyRulesState.Legacy,
+                    []),
+                Modes: new UnsafeModeBreakdown(
+                    methods.Count(method =>
+                        method.CallerUnsafeMode
+                            == CallerUnsafeMode.None),
+                    methods.Count(method =>
+                        method.CallerUnsafeMode
+                            == CallerUnsafeMode.Implicit),
+                    methods.Count(method =>
+                        method.CallerUnsafeMode
+                            == CallerUnsafeMode.Explicit),
+                    methods.Count(method =>
+                        method.CallerUnsafeMode
+                            == CallerUnsafeMode.Unavailable)),
+                Occurrences: unsafetyOccurrences
+                    ?? new Dictionary<
+                        int,
+                        ImmutableArray<UnsafetyOccurrence>>()),
+            Allocations: new(
+                allocationOccurrences
+                    ?? new Dictionary<
+                        int,
+                        ImmutableArray<AllocationOccurrence>>()),
+            Optimizations: new(
+                Opportunities: [],
+                StringMaterializations: [],
+                SuppressedMethodTokens: new HashSet<int>(),
+                ScopeExcludedMethodTokens: new HashSet<int>(),
+                ExceptionTypeNames:
+                    new HashSet<string>(StringComparer.Ordinal)),
+            Diagnostics: diagnostics.IsDefault ? [] : diagnostics);
+
+        return new(
+            sourceName: "",
+            moduleIdentity,
+            moduleName: null,
+            analysis,
+            LibraryBodyAnalysisPlan.Create(
+                features,
+                methodScope: null,
+                typeScope: null));
     }
 
     /// <summary>
@@ -441,14 +539,12 @@ public sealed class LibraryBodyAnalysisExecution
         _compatibilityIndex ??= new(
             Receipt.SourceName,
             Receipt.ModuleIdentity,
-            _moduleName,
             _analysis,
             Receipt.Features,
             Receipt.HasFullMethodEvidenceScope,
             Optimization,
             CallGraph,
-            Leverage,
-            JsonWireContracts);
+            ImplementationProfiles);
 
     private static bool HasFullMethodEvidenceScope(
         LibraryBodyAnalysisPlan plan) =>
@@ -1103,6 +1199,47 @@ public sealed class LibraryBodyAnalysisExecution
                             body.DirectCallCount!.Count)),
             relationships,
             generatedFrameworkTypes.Types);
+    }
+
+    static void ValidateSyntheticEvidenceIdentity(
+        LibraryBodyModuleIdentity moduleIdentity,
+        ImmutableArray<MethodIdentity> methods)
+    {
+        foreach (MethodIdentity method in methods)
+        {
+            if (moduleIdentity.AssemblyIdentity is not { } assembly
+                || !StringComparer.OrdinalIgnoreCase.Equals(
+                    assembly.Name,
+                    method.AssemblyName)
+                || moduleIdentity.ModuleVersionId
+                    != method.ModuleVersionId)
+            {
+                throw new ArgumentException(
+                    "Synthetic method evidence does not match the supplied "
+                    + "module identity.",
+                    nameof(methods));
+            }
+        }
+    }
+
+    static LibraryBodyModuleIdentity SyntheticEvidenceIdentity(
+        ImmutableArray<MethodIdentity> methods)
+    {
+        if (methods.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "An empty synthetic index requires an explicit module identity.",
+                nameof(methods));
+        }
+
+        MethodIdentity first = methods[0];
+        return new LibraryBodyModuleIdentity(
+            new AssemblyReferenceIdentity(
+                first.AssemblyName,
+                Version: null,
+                Culture: null,
+                PublicKeyToken: null),
+            first.ModuleVersionId);
     }
 
     private static ImplementationProfilePopulationCoverageReceipt

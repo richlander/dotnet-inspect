@@ -149,6 +149,10 @@ public sealed class LibraryCallGraphAnalysisResult
         _directCallsByEvidenceMethod ??=
             DirectCallIncidence.ByEvidenceMethod(DirectCalls);
 
+    /// <summary>Finds direct calls whose target matches the supplied pattern.</summary>
+    public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern) =>
+        [.. DirectCalls.Where(call => pattern.Matches(call.Callee))];
+
     internal LibraryBodyLocalCallGraph RootPathGraph() =>
         _rootPathGraph ??=
             LibraryBodyRootPathAnalysis.BuildLocalGraph(this);

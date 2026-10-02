@@ -848,9 +848,35 @@ Declaration-only surface construction remains independent of body Analysis.
 The slice preserves the existing `JsonWireContractFlow` producer, authenticated
 wire shapes, diagnostics, failure behavior, and one-read immutable-image path.
 It changes evidence ownership rather than JavaScript export semantics or
-rendering. Synthetic compatibility-index fixtures may adapt to the focused
-result while they migrate; no production JavaScript export caller accepts or
-acquires `LibraryBodyIndex`.
+rendering. Synthetic fixtures construct one focused execution and select its wire-contract
+result directly; no production JavaScript export caller accepts or acquires
+`LibraryBodyIndex`.
+
+### Direct-call compatibility retirement for #8945
+
+Production ownership, call-graph, Query, CLI, Research, and JavaScript export
+consumers obtain direct-call evidence from `LibraryCallGraphAnalysisResult`,
+whole-library ranking from `LibraryLeverageAnalysisResult`, and wire-contract
+flow from `LibraryJsonWireContractAnalysisResult`. `LibraryBodyIndex` no longer
+publishes direct calls, call incidence, call search, leverage ranking, call
+trees, focused call results, or call-graph cache controls. Catalog graph
+participants and tree operations accept only focused call-graph results.
+
+Compatibility-index implementation profiles delegate to
+`LibraryImplementationProfileAnalysisResult`; they do not retain a second
+profile projection over index-owned direct calls. Synthetic tests construct
+`LibraryBodyAnalysisExecution` and retain the focused result they exercise.
+The temporary `ILInspector.Analysis.App` harness likewise uses focused leverage
+for its unsafe ranking; its remaining compatibility-index reads are unrelated
+memory-safety summaries.
+
+The Release solution build is the full absence gate for the deleted strongly
+typed surface. No source-scanning gate is added: the compiler proves that no
+consumer can bind the removed members, while ordinary design review preserves
+ownership for future code. This retirement changes no supported product
+terminal and makes no performance claim. `LocalThrows`, safety summaries,
+allocation and optimization compatibility, and complete implementation-profile
+compatibility remain separately owned migration work under #7553 and #8568.
 
 ### Production adoption for #8450
 

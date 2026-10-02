@@ -528,7 +528,7 @@ public sealed class QueryComparisonPopulationTests
             typeof(ImplementationComparisonBinding),
             typeof(ResolvedAssemblyReference),
             typeof(IAssemblyReferenceResolver),
-            typeof(LibraryBodyIndex),
+            typeof(LibraryBodyAnalysisExecution),
             typeof(LibraryCallGraphAnalysisResult),
             typeof(ResearchComparisonInputOccurrence),
             typeof(ResearchAdmittedPopulation),
@@ -901,7 +901,7 @@ public sealed class QueryComparisonPopulationTests
                 AssemblyResolutionProvenance.Local(
                     "query comparison population test")),
             MetadataSource.DefaultAssemblyReferenceResolver(path),
-            LibraryBodyIndex.Open(path).CallGraphAnalysis);
+            BodyAnalysisTestExecution.Open(path).CallGraph);
     }
 
     static readonly Lazy<BodySignalAnalysisInput> SharedBodySignalAnalysis = new(() =>

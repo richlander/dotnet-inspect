@@ -99,9 +99,14 @@ static int RunUnsafeReport(string[] args)
         return 1;
     }
 
-    var index = LibraryBodyIndex.Open(assemblyPath);
+    LibraryBodyAnalysisExecution execution =
+        LibraryBodyAnalysisService.ExecutePath(
+            assemblyPath,
+            LibraryBodyAnalysisRequest.Create(
+                LibraryBodyAnalysisFeatures.Default));
+    LibraryBodyIndex index = execution.CompatibilityIndex();
     var modes = index.UnsafeModes;
-    var top = index.TopUnsafeLeverage(count);
+    var top = execution.Leverage.TopUnsafe(count);
 
     Console.WriteLine($"Assembly: {assemblyPath}");
     Console.WriteLine(

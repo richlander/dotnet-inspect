@@ -10,19 +10,6 @@ namespace ILInspector.Analysis;
 /// </summary>
 public sealed class CatalogCallGraphParticipant
 {
-    /// <summary>
-    /// Adapts a compatibility index to its focused call-graph result.
-    /// </summary>
-    public CatalogCallGraphParticipant(
-        LibraryBodyIndex index,
-        ResolvedAssemblyReference assembly)
-        : this(
-            (index ?? throw new ArgumentNullException(nameof(index)))
-                .CallGraphAnalysis,
-            assembly)
-    {
-    }
-
     public CatalogCallGraphParticipant(
         LibraryCallGraphAnalysisResult callGraph,
         ResolvedAssemblyReference assembly)
@@ -282,21 +269,6 @@ public sealed class CatalogCallGraphScope : IDisposable
             maxNodes);
     }
 
-    /// <summary>
-    /// Compatibility overload for callers that have not yet migrated from
-    /// <see cref="LibraryBodyIndex"/>.
-    /// </summary>
-    public CallTreeNode BuildCallerTree(
-        LibraryBodyIndex root,
-        int rootMethodToken,
-        int maxDepth = 3,
-        int maxNodes = 25) =>
-        BuildCallerTree(
-            root.CallGraphAnalysis,
-            rootMethodToken,
-            maxDepth,
-            maxNodes);
-
     public CallTreeNode BuildCallTree(
         LibraryCallGraphAnalysisResult root,
         int rootMethodToken,
@@ -310,21 +282,6 @@ public sealed class CatalogCallGraphScope : IDisposable
             maxDepth,
             maxNodes);
     }
-
-    /// <summary>
-    /// Compatibility overload for callers that have not yet migrated from
-    /// <see cref="LibraryBodyIndex"/>.
-    /// </summary>
-    public CallTreeNode BuildCallTree(
-        LibraryBodyIndex root,
-        int rootMethodToken,
-        int maxDepth = 3,
-        int maxNodes = 25) =>
-        BuildCallTree(
-            root.CallGraphAnalysis,
-            rootMethodToken,
-            maxDepth,
-            maxNodes);
 
     /// <summary>
     /// Detaches one tree from this scope's catalog generation while preserving

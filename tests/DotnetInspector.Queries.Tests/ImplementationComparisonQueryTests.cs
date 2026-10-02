@@ -88,7 +88,7 @@ public sealed class ImplementationComparisonQueryTests
                     [
                         oldContent with
                         {
-                            MethodPopulation = LibraryBodyIndex.Open(newPath).CallGraphAnalysis,
+                            MethodPopulation = BodyAnalysisTestExecution.Open(newPath).CallGraph,
                         },
                     ],
                     [StreamBackedInput(newPath, "new.dll")])));
@@ -179,12 +179,12 @@ public sealed class ImplementationComparisonQueryTests
         static LibraryCallGraphAnalysisResult EmptyPopulation(
             LibraryCallGraphAnalysisResult source)
         {
-            MethodInfo factory = typeof(LibraryBodyIndex).GetMethod(
+            MethodInfo factory = typeof(LibraryBodyAnalysisExecution).GetMethod(
                 "FromEvidence",
                 BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException(
-                    "LibraryBodyIndex synthetic evidence factory is unavailable.");
-            var index = (LibraryBodyIndex)factory.Invoke(
+                    "LibraryBodyAnalysisExecution synthetic evidence factory is unavailable.");
+            var index = (LibraryBodyAnalysisExecution)factory.Invoke(
                 null,
                 [
                     ImmutableArray<MethodIdentity>.Empty,
@@ -200,7 +200,7 @@ public sealed class ImplementationComparisonQueryTests
                     source.ModuleIdentity,
                     Type.Missing,
                 ])!;
-            return index.CallGraphAnalysis;
+            return index.CallGraph;
         }
     }
 
@@ -2285,7 +2285,7 @@ public sealed class ImplementationComparisonQueryTests
         return new ImplementationAssemblyInput(
             contentReference,
             MetadataSource.DefaultAssemblyReferenceResolver(path),
-            LibraryBodyIndex.Open(path).CallGraphAnalysis);
+            BodyAnalysisTestExecution.Open(path).CallGraph);
     }
 
     static ImplementationAssemblyInput ProfiledStreamBackedInput(
