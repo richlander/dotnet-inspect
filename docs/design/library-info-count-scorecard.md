@@ -16,8 +16,8 @@ Does one shared metadata pass answering several Library Info Count questions
 beat N independent passes by enough to justify QuerySpace request sets? The
 planner scorecard framing is a decision rule, not a hope: if a hand-fused pass
 is not clearly ahead of N independent NLinq folds, request sets cannot win and
-the question closes. If it is, a Planner request set must sit near the fused
-pass and clearly ahead of N independent terminals to validate the design;
+the question closes. If it is, a QuerySpace request set must sit near the
+fused pass and clearly ahead of N independent terminals to validate the design;
 matching N means reconsider.
 
 ## Lanes
@@ -42,7 +42,7 @@ Boundaries, decided with the operator:
   anything.
 - The Extension Methods lane is the method half of the row. Extension
   properties from C# 14 extension blocks select through a private product path
-  over nested marker types; the Old column performs the production call and
+  over nested marker types; the QuerySpace column performs the production call and
   counts its method-kind observations so every column answers the same
   question. The production row counts both kinds, so it equals the lane only
   on assets that declare no extension properties: System.Text.Json,
@@ -57,12 +57,12 @@ Boundaries, decided with the operator:
 
 | Column | Role |
 | --- | --- |
-| Old | The three production calls as Library Info makes them today |
+| QuerySpace | The three production calls as Library Info makes them at the head: Async Methods through the `MethodClassificationQuery` Count terminal; Extension Methods and Union Types as rows built then counted. A candidate that changes a production path adds QuerySpace (Base) from the base binary; this slice changes none, so only QuerySpace appears |
 | LINQ ×3 | Three idiomatic streaming `System.Linq` pipelines |
 | NLinq ×3 | Three NLinq `CountFold`s over the fixture's population sources; the oracle |
 | NLinq fused | One fold over the TypeDef source answering every lane; each MethodDef row is read once; the ceiling |
-| Planner ×3 | Three independent QuerySpace Count terminals; slice 2, after Extension Methods and Union Types gain Count sources |
-| Planner request set | One request set over one physical traversal; slice 3, after #9137 |
+| QuerySpace ×3 | Three independent QuerySpace Count terminals, measured as QuerySpace at the slice 2 head with the rows-then-count path as QuerySpace (Base); after Extension Methods and Union Types gain Count sources |
+| QuerySpace request set | One request set over one physical traversal; slice 3, after #9137 |
 
 The harness is `tools/LibraryInfoCountScorecard` over the shared
 `DotnetInspector.PerformanceOracles` scorecard: rotated rounds, the median of
@@ -80,8 +80,9 @@ case for correctness, not for timing claims.
 
 ## Results
 
-Exact agreement first: 15 answers compared across Old, LINQ ×3, NLinq ×3, and
-NLinq fused on the five assets, 0 mismatches. The Old column equals the
+Exact agreement first: 15 answers compared across QuerySpace, LINQ ×3,
+NLinq ×3, and NLinq fused on the five assets, 0 mismatches. The QuerySpace
+column equals the
 production `library -S "Library Info"` rows on System.Text.Json, System.Linq,
 and System.Net.Http; on CoreLib the production Extension Methods row is 638
 because it also counts 50 extension properties outside the lane.
@@ -89,7 +90,7 @@ because it also counts 50 extension properties outside the lane.
 Local osx-arm64 NativeAOT at head `9fc4fce87` (six rotated rounds, 2 s budget
 per cell; a development signal, not the accepted Linux measurement):
 
-| Asset | Old | LINQ ×3 | NLinq ×3 | NLinq fused |
+| Asset | QuerySpace | LINQ ×3 | NLinq ×3 | NLinq fused |
 | --- | ---: | ---: | ---: | ---: |
 | System.Text.Json | 502.3 µs | 364.3 µs | 282.1 µs | 262.1 µs |
 | System.Private.CoreLib | 9,249.5 µs | 6,252.4 µs | 5,582.2 µs | 5,564.9 µs |
@@ -97,9 +98,10 @@ per cell; a development signal, not the accepted Linux measurement):
 | System.Net.Http | 143.6 µs | 186.8 µs | 123.8 µs | 107.6 µs |
 | OptInNet11 fixture | 19.9 µs | 10.5 µs | 8.5 µs | 8.4 µs |
 
-Geometric-mean ratios to NLinq ×3: Old 2.23× (1.16–6.89), LINQ ×3 1.24×,
-NLinq fused 0.95× (0.87–1.00). Allocation per answer is equal for NLinq ×3
-and NLinq fused on every asset; Old allocates 1.3× to 3.9× more.
+Geometric-mean ratios to NLinq ×3: QuerySpace 2.23× (1.16–6.89), LINQ ×3
+1.24×, NLinq fused 0.95× (0.87–1.00). Allocation per answer is byte-equal
+for NLinq ×3 and NLinq fused on three assets and within 0.3 percent on
+System.Text.Json and CoreLib; QuerySpace allocates 1.3× to 3.9× more.
 
 Accepted linux-x64 NativeAOT on `dotnet-inspect-perf-3` (Ubuntu 24.04,
 4 vCPU) under one `perf-guard` lease, same tool source as head `9164a61e`,
@@ -107,7 +109,7 @@ six rotated rounds, 2 s budget per cell, assets from the Linux runtime
 `11.0.0-rc.1.26425.128` (CoreLib SHA-256 `9573ebab…`); 15 answers compared,
 0 mismatches:
 
-| Asset | Old | LINQ ×3 | NLinq ×3 | NLinq fused |
+| Asset | QuerySpace | LINQ ×3 | NLinq ×3 | NLinq fused |
 | --- | ---: | ---: | ---: | ---: |
 | System.Text.Json | 873.5 µs | 655.5 µs | 474.7 µs | 442.0 µs |
 | System.Private.CoreLib | 13,934.8 µs | 8,911.3 µs | 7,262.6 µs | 7,008.8 µs |
@@ -115,9 +117,11 @@ six rotated rounds, 2 s budget per cell, assets from the Linux runtime
 | System.Net.Http | 211.1 µs | 290.8 µs | 176.8 µs | 153.8 µs |
 | OptInNet11 fixture | 33.5 µs | 17.7 µs | 14.2 µs | 14.5 µs |
 
-Geometric-mean ratios to NLinq ×3: Old 2.09× (1.19–4.03), LINQ ×3 1.31×
-(1.10–1.64), NLinq fused 0.96× (0.87–1.02). Allocation per answer is equal
-for NLinq ×3 and NLinq fused on every asset; Old allocates 1.3× to 3.9× more.
+Geometric-mean ratios to NLinq ×3: QuerySpace 2.09× (1.19–4.03), LINQ ×3
+1.31× (1.10–1.64), NLinq fused 0.96× (0.87–1.02). Allocation per answer is
+byte-equal for NLinq ×3 and NLinq fused on three assets and within 0.3
+percent on System.Text.Json and CoreLib; QuerySpace allocates 1.3× to 3.9×
+more.
 Both hosts agree on direction and magnitude.
 
 Two readings follow:
@@ -131,10 +135,10 @@ Two readings follow:
   these lanes cannot earn more than this ceiling; its value here is one shared
   plan and settlement, not shared reads. Slice 3 is not warranted on this
   evidence.
-- **Rows-then-count is the loss.** Old's gap to NLinq ×3 is the Extension
+- **Rows-then-count is the loss.** QuerySpace's gap to NLinq ×3 is the Extension
   Methods and Union Types rows being materialized with signatures and anchors
   and then counted: 4.0× and 4.4 MB on `System.Linq`, 1.9× and 12.8 MB on
-  CoreLib. The CoreLib Old cell also pays for the 50 extension properties the
+  CoreLib. The CoreLib QuerySpace cell also pays for the 50 extension properties the
   lane excludes, so its ratio slightly overstates the rows-then-count cost of
   the method half alone. Adopting those rows as Count terminals (slice 2)
   captures that win without request sets.

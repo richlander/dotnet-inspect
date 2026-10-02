@@ -3,8 +3,8 @@
   <!--
     The Library Info multi-question Count scorecard (#9153): does one shared
     metadata pass answering the Async Methods, Extension Methods, and Union
-    Types counts beat three independent passes? Old is the three production
-    calls as Library Info runs them; LINQ ×3 and NLinq ×3 are independent
+    Types counts beat three independent passes? QuerySpace is the three
+    production calls as Library Info runs them at the head; LINQ ×3 and NLinq ×3 are independent
     pipelines with identical analysis; NLinq fused is the one-pass ceiling.
     Publish NativeAOT to time:
       dotnet publish tools/LibraryInfoCountScorecard -c Release -r <rid> -p:PublishAot=true -p:IsPublishable=true -o <dir>

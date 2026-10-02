@@ -10,11 +10,12 @@ using ILInspector.Analysis.Classification;
 // Async Methods, Extension Methods, and Union Types counts together, so a
 // cell times a strategy for answering all three questions over one asset.
 //
-// Old is the three production calls as Library Info runs them today: the
-// Async Count terminal, and rows built then counted for Extension Methods
-// and Union Types. LINQ ×3, NLinq ×3 (the oracle), and NLinq fused apply the
-// identical gate and predicates through product-owned tests; only the read
-// machinery differs. No column decodes IL.
+// QuerySpace is the three production calls as Library Info runs them at this
+// head: the Async Count terminal, and rows built then counted for Extension
+// Methods and Union Types. A candidate that changes a production path adds a
+// "QuerySpace (Base)" column from the base binary. LINQ ×3, NLinq ×3 (the
+// oracle), and NLinq fused apply the identical gate and predicates through
+// product-owned tests; only the read machinery differs. No column decodes IL.
 if (!ScorecardCommandLine.TryParse(args, out ScorecardOptions? options, out string? error))
 {
     Console.Error.WriteLine(error);
@@ -26,7 +27,7 @@ ScorecardClosing[] closings = [ScorecardClosing.Count];
 ScorecardColumn<LibraryInfoAsset, LaneCount> oracle = LibraryInfoCounts.NLinqColumn();
 ScorecardColumn<LibraryInfoAsset, LaneCount>[] columns =
 [
-    new("Old", (closing, asset) => LibraryInfoCounts.Answer(closing, Old(asset))),
+    new("QuerySpace", (closing, asset) => LibraryInfoCounts.Answer(closing, ProductionCounts(asset))),
     LibraryInfoCounts.LinqColumn(),
     oracle,
     LibraryInfoCounts.FusedColumn(),
@@ -67,8 +68,12 @@ finally
         asset.Asset.Dispose();
 }
 
-/// <summary>The production calls as Library Info makes them, one per row.</summary>
-static LaneCounts Old(LibraryInfoAsset asset)
+/// <summary>
+/// The production calls as Library Info makes them, one per row: Async is a
+/// QuerySpace Count terminal; Extension Methods and Union Types build their
+/// rows and count them.
+/// </summary>
+static LaneCounts ProductionCounts(LibraryInfoAsset asset)
 {
     var question = new ClassificationQuestion(MethodClassificationAnalyzer.Async, ClassificationClosing.Count);
     int async = MethodClassificationQuery.Execute(asset.Session, [question]).AnswerTo(question) switch
