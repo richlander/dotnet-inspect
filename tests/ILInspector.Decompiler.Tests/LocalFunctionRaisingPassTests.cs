@@ -602,6 +602,43 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void RecursiveLocalFunctionWithAcyclicHelper_RaisesClosedDependencyComponent()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.RecursiveLocalFunctionWithHelper));
+
+        Assert.Contains("return Sum(value);", output);
+        Assert.Contains("static int Sum(int current)", output);
+        Assert.Contains("Normalize(current) + Sum(current - 1)", output);
+        Assert.Contains("static int Normalize(int current)", output);
+        Assert.DoesNotContain("__RecursiveLocalFunctionWithHelper_g__", output);
+    }
+
+    [Fact]
+    public void DependencyExposedByIteratorMemberPipeline_JoinsClosure()
+    {
+        string output = PrintRaised(
+            nameof(StaticLocalFunctionDependencyClosureSamples.DependencyExposedByIteratorMember),
+            function =>
+            {
+                Assert.Equal(3, function.Descendants.OfType<LocalFunctionStatement>().Count());
+                Assert.Single(function.Descendants.OfType<ForeachStatement>());
+                Assert.Single(function.Descendants.OfType<YieldBreak>());
+                Assert.Single(function.Descendants.OfType<YieldReturn>());
+                Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+            },
+            fixtureType: typeof(StaticLocalFunctionDependencyClosureSamples));
+
+        Assert.Contains("return Root(stop, source);", output);
+        Assert.Contains("static int Root(", output);
+        Assert.Contains("static IEnumerable<int> Iterator(", output);
+        Assert.Contains("yield return Leaf(item);", output);
+        Assert.Contains("static int Leaf(int value)", output);
+        Assert.DoesNotContain(
+            "__DependencyExposedByIteratorMember_g__",
+            output);
+    }
+
+    [Fact]
     public void MutuallyRecursiveStaticLocalFunctionsOnGenericOwner_RaiseAtomically()
     {
         string output = PrintRaised(
@@ -641,6 +678,38 @@ public class LocalFunctionRaisingPassTests
             candidate => candidate == type.FullName,
             method => method.Method
                 == nameof(CfgSampleClass.MutuallyRecursiveStaticLocalFunctions)));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status}: {result.Detail}");
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void RecursiveLocalFunctionWithAcyclicHelper_CompileBackExactly()
+    {
+        var type = typeof(CfgSampleClass);
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            type.Assembly.Location,
+            candidate => candidate == type.FullName,
+            method => method.Method
+                == nameof(CfgSampleClass.RecursiveLocalFunctionWithHelper)));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status}: {result.Detail}");
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void DependencyExposedByIteratorMemberPipeline_CompileBackExactly()
+    {
+        var type = typeof(StaticLocalFunctionDependencyClosureSamples);
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            type.Assembly.Location,
+            candidate => candidate == type.FullName,
+            method => method.Method
+                == nameof(StaticLocalFunctionDependencyClosureSamples.DependencyExposedByIteratorMember)));
 
         Assert.True(
             result.Status == FidelityCheck.CompileBackStatus.Exact,
@@ -848,7 +917,7 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
-    public void LocalFunctionBodyCallingDifferentLocalFunction_StaysLowered()
+    public void OneWayStaticLocalFunctionDependency_RaisesAtomically()
     {
         var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
         var first = new MethodRef(
@@ -883,14 +952,11 @@ public class LocalFunctionRaisingPassTests
 
         new LocalFunctionRaisingPass().Run(function, context);
 
-        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
-        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
-        // The call still targets `first` and is now stamped as declined; comparing the
-        // callee with the stamp cleared proves the stamp is the ONLY thing that changed.
-        var survivor = Assert.Single(
+        Assert.Equal(2, function.Descendants.OfType<LocalFunctionStatement>().Count());
+        Assert.Equal(2, function.Descendants.OfType<LocalFunctionInvocation>().Count());
+        Assert.DoesNotContain(
             function.Descendants.OfType<Call>(),
-            call => call.Callee with { LocalFunctionRaise = LocalFunctionRaiseState.None } == first);
-        Assert.Equal(LocalFunctionRaiseState.Declined, survivor.Callee.LocalFunctionRaise);
+            call => GeneratedCodeIdentity.IsLocalFunctionMethod(call.Callee));
         function.CheckInvariant();
     }
 
@@ -937,7 +1003,7 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
-    public void MutuallyRecursiveComponentWithExternalDependency_StaysLoweredAtomically()
+    public void MutuallyRecursiveComponentWithAcyclicDependency_RaisesAtomically()
     {
         var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
         var first = LocalFunctionMethod(owner, "<M>g__First|0_0");
@@ -959,9 +1025,36 @@ public class LocalFunctionRaisingPassTests
 
         new LocalFunctionRaisingPass().Run(function, context);
 
+        Assert.Equal(3, function.Descendants.OfType<LocalFunctionStatement>().Count());
+        Assert.Equal(4, function.Descendants.OfType<LocalFunctionInvocation>().Count());
+        Assert.DoesNotContain(
+            function.Descendants.OfType<Call>(),
+            call => GeneratedCodeIdentity.IsLocalFunctionMethod(call.Callee));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void StaticDependencyComponentWithUnavailableMember_StaysLoweredAtomically()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var first = LocalFunctionMethod(owner, "<M>g__First|0_0");
+        var unavailable = LocalFunctionMethod(owner, "<M>g__Unavailable|0_1");
+        var function = FunctionReturningCall(first, s_int);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method =>
+                method == first
+                    ? LocalFunctionBodyCalling(first, unavailable)
+                    : null);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
         Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
         Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
-        Assert.Single(function.Descendants.OfType<Call>());
+        var survivor = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee with { LocalFunctionRaise = LocalFunctionRaiseState.None } == first);
+        Assert.Equal(LocalFunctionRaiseState.Declined, survivor.Callee.LocalFunctionRaise);
         function.CheckInvariant();
     }
 

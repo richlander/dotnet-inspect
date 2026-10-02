@@ -88,22 +88,14 @@ every direct call: which method definition declared in the inspected module
 does this call bind to, if any? The raw definition token on a direct call
 does not answer it. A call through a generic instantiation, such as a method
 of `Box<T>` calling its own `B()`, is encoded as a member reference on a type
-specification, and that token stays unresolved. Analysis already resolves
-these calls internally, first by token and then by signature, but it does not
-publish the result for this use.
-
-Analysis owns that resolution and its typed failures (unmatched, ambiguous,
-unsupported signature, work limit). Publishing it as a public per-call fact
-keyed by the physical occurrence is adoption step 0, an Analysis-owned focused
-effort. The existing catalog-scoped `DirectCallDefinitionResolution` already
-has a comparable shape; whether step 0 reuses it is Analysis's decision.
-Target-side attribution also needs the declared-source association for methods
-that make no calls. Today that is public only through the transitional
-compatibility index, which this owner may not use (see [Modern
-infrastructure only](#modern-infrastructure-only)). Step 0 therefore also
-covers publishing that association on the focused result, and Analysis
-decides its shape. Nested lifted bodies are attributed exactly as the
-association issues them.
+specification, and that token stays unresolved. Analysis publishes that resolution through
+`LibraryCallGraphAnalysisResult.ResolveTarget`, first by token and then by
+signature. Its typed failures are indirect, unsupported signature, malformed
+signature, invalid generic declaration, unmatched, and ambiguous.
+`LibraryCallGraphAnalysisResult.ResolveDeclaredMethod` publishes the
+target-side declared-source association, including for methods that make no
+calls. These Analysis-owned prerequisites landed in #8701 and #8704.
+Nested lifted bodies are attributed exactly as that association issues them.
 Research consumes the result. It never re-implements signature
 matching, and it never treats a missing resolution as an external call.
 
@@ -112,6 +104,19 @@ matching, and it never treats a missing resolution as an external call.
 Every slice of this work builds only on the current architecture, and
 superseded infrastructure is prohibited:
 
+- **Inspector.Graph owns topology mechanics.** Research constructs one
+  portable `GraphDocument` whose canonical nodes are internal types and exact
+  external namespace targets, whose groups are internal namespaces and exact
+  external nodes, and whose relationships distinguish invocation from function
+  reference. `GraphDocumentExecution.GroupProjection` owns namespace
+  contraction and complete canonical contributors.
+  `GraphDocumentExecution.ComponentAnalysis` runs over the induced selection of
+  internal namespace groups and exclusively owns strong components,
+  condensation, contributor retention, and levels. Research retains those
+  source-bound results with its document, lowers them into this owner's rows,
+  and applies only domain meaning: internal/external selection, namespace cycle
+  vocabulary, completeness, qualification, and presentation order. It never
+  copies SCC or levelization logic.
 - **`LibraryBodyIndex` is prohibited.** That includes its
   `CompatibilityIndex()` adapter on `LibraryBodyAnalysisExecution` and any
   API that returns or wraps it. Research, the query, and both hosts consume
@@ -219,9 +224,9 @@ union. `calli` has no static target and is counted as unresolved.
   declared method.
 - **Unresolved:** each remaining call, with a typed reason. The reasons are:
   `calli` (no static target); a current-module declaring type for which
-  Analysis resolution reports unmatched, ambiguous, unsupported, or
-  work-limited; any other module-reference origin; and a reference decode
-  failure. "Current-module" is Analysis's own current-module test, which also
+  Analysis resolution reports unsupported signature, malformed signature,
+  invalid generic declaration, unmatched, or ambiguous; and a module-reference
+  origin. "Current-module" is Analysis's own current-module test, which also
   covers a self-referencing assembly reference and a same-module module
   reference. Such a reference is never classified as external.
   Reasons carry Analysis's typed resolution failure unchanged. Unresolved
@@ -289,8 +294,9 @@ never establishes identity or order.
 **Namespace cycles** are groups of two or more namespaces in the inspected
 library that depend on each other through call edges: each namespace in the
 group reaches every other one, directly or through other namespaces
-(formally, the strongly connected components of the internal namespace
-graph). For example, if `Foo.Validators` calls `Foo.Internal` and
+(formally, the multi-member components issued by Graph for the induced
+selection of internal namespace groups). For example, if `Foo.Validators`
+calls `Foo.Internal` and
 `Foo.Internal` calls back into `Foo.Validators`, both form one cycle.
 
 Only internal namespaces take part. A namespace in another assembly is an
@@ -299,10 +305,11 @@ local namespace, so a namespace declared across two assemblies is neither a
 cycle nor detected here. A cycle's members are ordered by namespace identity,
 and cycles are ordered by their first member.
 
-**Levels** follow Lakos levelization over the condensation of the internal
-namespace graph. A namespace with no internal outgoing edge is level 0. Every
-other namespace is one more than the highest level it depends on. All members
-of one cycle share one level. External edges do not affect levels.
+**Levels** are the Graph-issued Lakos levels over the condensation of that same
+internal-group selection. A namespace with no internal outgoing edge is level
+0. Every other namespace is one more than the highest level it depends on. All
+members of one cycle share one level. External edges do not affect levels.
+Research does not reconstruct the condensation or settle levels.
 
 ### Absence claims require completeness
 
@@ -470,10 +477,11 @@ executable over a compiled fixture library under `fixtures/research/`:
   generic type through an instantiation, produce internal edges rather than
   unresolved counts.
 - `LibraryDependencyStructure_KeysExternalNodesByExactReference`: calls into
-  types referenced through `System.Runtime` and `System.Runtime.Extensions`
-  yield distinct external nodes. A forwarded type stays with the referenced
-  facade, and a primitive declaring type maps to the intrinsic core library
-  node.
+  types referenced through `System.Runtime` and `System.Collections` yield
+  distinct external nodes. A type the runtime forwards to the core library
+  stays with the referenced facade (`System.Runtime`). The intrinsic
+  core-library node is **unverified**, because C# does not emit a member
+  reference whose parent has an intrinsic origin.
 - `LibraryDependencyStructure_ProjectsNestedAndGlobalNamespaces`: a nested
   type uses its outermost type's namespace, and the global namespace is an
   explicit node.
@@ -484,17 +492,38 @@ executable over a compiled fixture library under `fixtures/research/`:
   no edge to `Foo`'s namespace.
 - `LibraryDependencyStructure_DerivesCyclesAndLevels`: a three-namespace
   cycle plus an acyclic tail produce one cycle and the expected levels.
-- `LibraryDependencyStructure_QualifiesAbsenceUnderIncompleteEvidence`: an
-  otherwise acyclic graph with one Analysis-issued incomplete body issues
-  qualified absence, not unqualified acyclicity.
-- `LibraryDependencyStructure_CountsUnresolvedAndRejectsDuplicateOccurrence`:
-  `calli` is unresolved by reason, a multidimensional array accessor is
-  counted as runtime-provided and does not qualify absence, the four receipt
-  categories sum to the examined count, and a duplicated physical call-site
-  key fails visibly.
+- `LibraryDependencyStructure_GraphComponentsMatchIndependentOracle`: every
+  internal namespace group and no external group reaches Graph component
+  analysis; its cycles and levels agree with an independent Research test
+  oracle over the issued namespace edges; and every Graph condensation
+  contributor crosses the component boundary it claims.
+- `LibraryDependencyStructure_QualifiesAbsenceUnderIncompleteEvidence`: a
+  graph with an unresolved `calli` is `Qualified`, and a fixture with no
+  unresolved calls and no diagnosed bodies is `Complete`. The same rule
+  qualifies on Analysis-diagnosed bodies. That branch is **unverified** by a
+  fixture, because no current compiler output yields a diagnosed body except
+  the budget case tracked by #8636.
+- `LibraryDependencyStructure_PartitionsExaminedCallsExactly`: `calli` is
+  unresolved by reason, a multidimensional array accessor is runtime-provided,
+  the four receipt categories sum to the examined count, and the type-level
+  edges and intra-type counts reconcile with the receipt. Rejecting a
+  duplicated physical call-site key is enforced in code and is **unverified**
+  by a gate, because Analysis never publishes duplicates.
 - `LibraryDependencyStructure_BoundsExplanationWithExactRemainder`: an edge
   with seven contributing type edges retains five in the specified order and a
   remainder of two.
+- `LibraryDependencyStructure_ExternalKeysNeverCollideAcrossSeparators`:
+  length-prefixed external identity components keep distinct
+  `(assembly, namespace)` pairs distinct even when untrusted metadata contains
+  delimiter-like text.
+- `LibraryDependencyStructure_UsesLibraryMetricsTypeKeys`: every type node's
+  key is `LibraryStructuralReport.TypeKey`, and every type edge endpoint is a
+  node.
+
+Graph's
+`ComponentAnalysis_DeepChainAndGiantCycleRemainIterative` gate owns
+stack-safe pathological component derivation. Research does not duplicate that
+algorithm or its stress gate.
 
 Real-asset probes are reproducible design evidence, not CI gates:
 FluentValidation 12.1.1 (net8.0), `dotnet-inspect.dll` at a pinned commit,
@@ -504,9 +533,11 @@ cache.
 
 ## Adoption plan
 
-0. **Analysis prerequisite:** publish the same-module callee resolution
-   described under [Imported evidence](#analysis-prerequisite-same-module-callee-resolution),
-   with its typed failures, as an Analysis-owned focused effort under
+0. **Analysis prerequisite (complete):** #8701 and #8704 publish the
+   same-module callee resolution and declared-source association described
+   under
+   [Imported evidence](#analysis-prerequisite-same-module-callee-resolution),
+   owned by
    [Library body analysis service](library-body-analysis-service.md).
 1. **Research:** the document, typed outcome, and fixture gates.
 2. **Query:** a Research-backed query in `DotnetInspector.ResearchQueries`
@@ -518,10 +549,10 @@ cache.
    outside the default `-v:m` view. It uses Markout for tables and the Mermaid
    graph lowering, and `--envelope` carries the complete Content with Share
    and diagnostics.
-4. **Browser/Wasm:** the Library Metrics lens adds a levelized namespace view
-   with cycles marked and drill-down from edge to explaining type edges to
-   Type. It uses the same managed query and does no topology work in
-   TypeScript.
+4. **Browser/Wasm:** the Library Analysis inspector's Metrics tab adds a
+   levelized namespace view with cycles marked and drill-down from edge to
+   explaining type edges to Type. It uses the same managed query and does no
+   topology work in TypeScript.
 5. **Skill:** the `project-analysis` workflow catalog
    ([#8518](https://github.com/richlander/dotnet-inspect/pull/8518)) gains an
    architecture-narrative workflow that consumes this document and labels

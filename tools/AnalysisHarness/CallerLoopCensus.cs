@@ -78,12 +78,16 @@ public static class CallerLoopCensus
         {
             try
             {
-                var index = LibraryBodyIndex.Open(path);
+                LibraryBodyAnalysisExecution execution =
+                    LibraryBodyAnalysisService.ExecutePath(
+                        path,
+                        LibraryBodyAnalysisRequest.Create(
+                            LibraryBodyAnalysisFeatures.Default));
                 rows.AddRange(Analyze(
                     Path.GetFileName(path),
-                    index.Methods,
-                    index.DirectCalls,
-                    index.OptimizationOpportunities,
+                    execution.CallGraph.Methods,
+                    execution.CallGraph.DirectCalls,
+                    execution.Optimization.Opportunities,
                     maxDepth));
                 opened++;
             }

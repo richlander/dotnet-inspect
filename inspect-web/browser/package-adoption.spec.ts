@@ -2963,21 +2963,74 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
       .toContainText("First");
     expect(page.url()).toBe(memberLocation);
+    await expect(memberDiffExplorer.locator(".member-diff-explorer-content"))
+      .toHaveCount(1);
+    await expect(memberDiffExplorer.locator(".code-evidence-viewer-workspace"))
+      .toHaveCount(1);
+    await expect(memberDiffExplorer.locator(".member-diff-explorer-rail"))
+      .toHaveCount(1);
     await expect(memberDiffExplorer.locator(".member-diff-explorer-pane"))
-      .toHaveCount(3);
+      .toHaveCount(0);
     await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
       .toContainText("First");
-    await expect(memberDiffExplorer).toContainText(
+    await expect(memberDiffExplorer).not.toContainText(
       "No Member-level change is classified: the containing Type was added as a whole.",
     );
-    await expect(memberDiffExplorer.locator(".member-diff-declaration-unavailable"))
-      .toBeVisible();
+    await expect(memberDiffExplorer).not.toContainText("Declaration");
+    await expect(memberDiffExplorer).not.toContainText("What changed");
     await expect(memberDiffExplorer.locator(
       ".member-diff-source-endpoint",
     ).first()).toContainText("Not present on this side.");
     await expect(memberDiffExplorer.locator(".member-diff-source-unavailable"))
       .toBeVisible({ timeout: 120_000 });
+    const desktopGeometry = await memberDiffExplorer.evaluate(explorer => {
+      const content = explorer.querySelector(
+        ".code-evidence-viewer-content",
+      )?.getBoundingClientRect();
+      const rail = explorer.querySelector(
+        ".code-evidence-viewer-rail",
+      )?.getBoundingClientRect();
+      return {
+        content: content === undefined
+          ? null
+          : { x: content.x, width: content.width },
+        rail: rail === undefined
+          ? null
+          : { x: rail.x, width: rail.width },
+      };
+    });
+    expect(desktopGeometry.content).not.toBeNull();
+    expect(desktopGeometry.rail).not.toBeNull();
+    expect(desktopGeometry.content!.width)
+      .toBeGreaterThan(desktopGeometry.rail!.width);
+    expect(desktopGeometry.rail!.width).toBeLessThanOrEqual(360);
+    expect(desktopGeometry.rail!.x)
+      .toBeGreaterThanOrEqual(
+        desktopGeometry.content!.x + desktopGeometry.content!.width - 1,
+      );
     await page.setViewportSize({ width: 390, height: 844 });
+    const narrowGeometry = await memberDiffExplorer.evaluate(explorer => {
+      const content = explorer.querySelector(
+        ".code-evidence-viewer-content",
+      )?.getBoundingClientRect();
+      const rail = explorer.querySelector(
+        ".code-evidence-viewer-rail",
+      )?.getBoundingClientRect();
+      return {
+        content: content === undefined
+          ? null
+          : { y: content.y, height: content.height },
+        rail: rail === undefined
+          ? null
+          : { y: rail.y },
+      };
+    });
+    expect(narrowGeometry.content).not.toBeNull();
+    expect(narrowGeometry.rail).not.toBeNull();
+    expect(narrowGeometry.rail!.y)
+      .toBeGreaterThanOrEqual(
+        narrowGeometry.content!.y + narrowGeometry.content!.height - 1,
+      );
     const overflow = await page.evaluate(() => ({
       document: document.documentElement.scrollWidth - window.innerWidth,
       explorer: (document.querySelector(".member-diff-explorer")?.scrollWidth
@@ -3026,8 +3079,12 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(explore).toBeVisible();
     await explore.click();
     await expect(memberDiffExplorer).toBeVisible();
+    await expect(memberDiffExplorer.locator(".member-diff-explorer-content"))
+      .toHaveCount(1);
+    await expect(memberDiffExplorer).not.toContainText("What changed");
+    await expect(memberDiffExplorer).not.toContainText("Declaration");
     await expect(memberDiffExplorer.locator(
-      ".member-diff-explorer-source .member-diff-source-endpoint",
+      ".member-diff-explorer-rail .member-diff-source-endpoint",
     ))
       .toHaveCount(2);
     await expect(memberDiffExplorer).not.toContainText(
@@ -3095,12 +3152,15 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       '[data-compare-type-id="LibraryApiDiffFixture.AddedType"]',
     ).click();
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    const addedTypeReturnLocation = await settledLocationAfter(libraryLocation);
     await panel.locator(".library-api-diff-member button", { hasText: "First" })
       .click();
     await expect(frame).toHaveClass(/compare-surface-member/, { timeout: 60_000 });
+    await settledLocationAfter(addedTypeReturnLocation);
 
     // Back restores the Type inventory with Compare and Diff still active.
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(addedTypeReturnLocation);
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await expect(panel.locator(".library-api-diff-member")).toHaveCount(3);
     await expect(panel.locator('[data-compare-mode="diff"]'))

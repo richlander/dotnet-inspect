@@ -202,7 +202,7 @@ public partial class ResearchProducerSessionTests
         var withoutBodyIdentity = new ImplementationComparisonInputOccurrence(
             original.Assembly,
             original.Resolver,
-            LibraryBodyIndex.FromEvidence([], [], moduleIdentity: original.MethodPopulation.ModuleIdentity).CallGraphAnalysis);
+            BodyAnalysisTestExecution.FromEvidence([], [], moduleIdentity: original.MethodPopulation.ModuleIdentity).CallGraph);
         SessionFixture incomplete = SessionFixture.Create(
             withoutBodyIdentity,
             Occurrence(FixtureCatalog.ResearchTargetSample.AssemblyPath()));
@@ -352,16 +352,16 @@ public partial class ResearchProducerSessionTests
         Assert.Null(ilBody.MemberDiff);
 
         byte[] brokenImage = BrokenMethodImage();
-        LibraryBodyIndex brokenIndex = LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution brokenIndex = BodyAnalysisTestExecution.OpenFromPrefetchedImage(
             "BrokenMethod.dll", [.. brokenImage], LibraryBodyAnalysisFeatures.MethodEvidence);
         var brokenOccurrence = new ImplementationComparisonInputOccurrence(
             ResolvedAssemblyReference.Create(
-                brokenIndex.ModuleIdentity.AssemblyIdentity!,
+                brokenIndex.Receipt.ModuleIdentity.AssemblyIdentity!,
                 path: null,
                 () => new MemoryStream(brokenImage, writable: false),
                 AssemblyResolutionProvenance.Project("BrokenMethod", tfm: null, rid: null)),
             new NullResolver(),
-            brokenIndex.CallGraphAnalysis);
+            brokenIndex.CallGraph);
         SessionFixture nativeFailure = SessionFixture.Create(
             brokenOccurrence, Occurrence(FixtureCatalog.ResearchTargetSample.AssemblyPath()));
         ResearchTargetResolution broken = nativeFailure.Resolve(SampleType, "Method");

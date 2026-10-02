@@ -222,10 +222,10 @@ public class AnalysisFindingsTests
     [Fact]
     public void CompareCallSites_SeparatelyDecodedSelfComparison_IsExact()
     {
-        var oldIndex = LibraryBodyIndex.Open(FixtureCatalog.DiffPair.NewAssemblyPath());
-        var newIndex = LibraryBodyIndex.Open(FixtureCatalog.DiffPair.NewAssemblyPath());
-        var oldCallsByCaller = oldIndex.GetDirectCallsByCaller();
-        var newCallsByCaller = newIndex.GetDirectCallsByCaller();
+        var oldIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.DiffPair.NewAssemblyPath());
+        var newIndex = BodyAnalysisTestExecution.Open(FixtureCatalog.DiffPair.NewAssemblyPath());
+        var oldCallsByCaller = oldIndex.CallGraph.DirectCallsByCaller;
+        var newCallsByCaller = newIndex.CallGraph.DirectCallsByCaller;
         int methodToken = oldCallsByCaller.First(pair => pair.Value.Length > 0).Key;
 
         var complete = CompleteComparison(AnalysisFindings.CompareCallSites(
@@ -288,13 +288,13 @@ public class AnalysisFindingsTests
     [Trait("Speed", "Slow")]
     public void InspectCallSites_DecodesCallIndirectSignatureStructurally()
     {
-        var index = LibraryBodyIndex.Open(typeof(AnalysisFindingsTests).Assembly.Location);
-        var method = index.Methods.Single(method =>
+        var index = BodyAnalysisTestExecution.Open(typeof(AnalysisFindingsTests).Assembly.Location);
+        var method = index.CallGraph.Methods.Single(method =>
             method.DeclaringType.ToQualifiedDisplayString().EndsWith(
                 nameof(AnalysisFindingsTests),
                 StringComparison.Ordinal)
             && method.Name == nameof(InvokeFunctionPointer));
-        var call = Assert.Single(index.GetDirectCallsByCaller()[method.MetadataToken]);
+        var call = Assert.Single(index.CallGraph.DirectCallsByCaller[method.MetadataToken]);
 
         Assert.Equal(CallKind.CallIndirect, call.Kind);
         Assert.Equal(MemberKind.FunctionPointer, call.Callee.Kind);

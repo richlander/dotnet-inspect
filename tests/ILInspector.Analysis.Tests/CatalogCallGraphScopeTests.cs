@@ -17,24 +17,24 @@ public class CatalogCallGraphScopeTests
     {
         string path =
             typeof(CatalogCallGraphScopeTests).Assembly.Location;
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.None);
         ResolvedAssemblyReference assembly = Descriptor(index);
         var policy = new AssemblyDependencyResolver(
             new AssemblyDependencyResolutionOptions(path));
 
-        Assert.Empty(index.DeclaredMethods);
+        Assert.Empty(index.CallGraph.DeclaredMethods);
         using (var scope = new CatalogCallGraphScope(
             policy,
-            [new(index, assembly)]))
+            [new(index.CallGraph, assembly)]))
         {
             CallTreeNode root = scope.BuildCallerTree(
-                index,
+                index.CallGraph,
                 0x06000001);
 
             Assert.Equal(
-                index.ModuleIdentity.ModuleVersionId,
+                index.Receipt.ModuleIdentity.ModuleVersionId,
                 root.GraphEvidence?.Storage.ModuleVersionId);
         }
 
@@ -52,21 +52,21 @@ public class CatalogCallGraphScopeTests
         Assert.Throws<ArgumentException>(
             () => new CatalogCallGraphScope(
                 policy,
-                [new(index, wrongAssembly)]));
+                [new(index.CallGraph, wrongAssembly)]));
     }
 
     [Fact]
     [Trait("Speed", "Slow")]
     public void BothDirectionsAndProjectionReuseOneFrozenGraph()
     {
-        LibraryBodyIndex analysis = LibraryBodyIndex.Open(
-            typeof(LibraryBodyIndex).Assembly.Location);
-        LibraryBodyIndex tests = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution analysis = BodyAnalysisTestExecution.Open(
+            typeof(LibraryBodyAnalysisExecution).Assembly.Location);
+        LibraryBodyAnalysisExecution tests = BodyAnalysisTestExecution.Open(
             typeof(LibraryBodyIndexTests).Assembly.Location);
         ResolvedAssemblyReference analysisAssembly = Descriptor(analysis);
         ResolvedAssemblyReference testAssembly = Descriptor(tests);
         var inner = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(analysis.Path)
+            new AssemblyDependencyResolutionOptions(analysis.Receipt.SourceName)
             {
                 PreferImplementationAssemblies = true,
                 AllowPlatformAssemblyVersionRollForward = true,
@@ -77,15 +77,15 @@ public class CatalogCallGraphScopeTests
         using var scope = new CatalogCallGraphScope(
             policy,
             [
-                new(analysis, analysisAssembly),
-                new(tests, testAssembly),
+                new(analysis.CallGraph, analysisAssembly),
+                new(tests.CallGraph, testAssembly),
             ]);
-        MethodIdentity open = analysis.DeclaredMethods.First(method =>
+        MethodIdentity open = analysis.CallGraph.DeclaredMethods.First(method =>
             method.DeclaringType.Name == nameof(LibraryBodyIndex)
             && method.Name == nameof(LibraryBodyIndex.Open));
 
         CallTreeNode callers = scope.BuildCallerTree(
-            analysis,
+            analysis.CallGraph,
             open.MetadataToken,
             maxDepth: 2,
             maxNodes: 200);
@@ -97,7 +97,7 @@ public class CatalogCallGraphScopeTests
         int storageEdges = scope.StorageEdgeCount;
 
         CallTreeNode callees = scope.BuildCallTree(
-            analysis,
+            analysis.CallGraph,
             open.MetadataToken,
             maxDepth: 2,
             maxNodes: 200);
@@ -117,13 +117,13 @@ public class CatalogCallGraphScopeTests
     [Fact]
     public void DuplicatePhysicalParticipantsAreStoredOnce()
     {
-        LibraryBodyIndex first = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution first = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        LibraryBodyIndex duplicate = LibraryBodyIndex.Open(first.Path);
+        LibraryBodyAnalysisExecution duplicate = BodyAnalysisTestExecution.Open(first.Receipt.SourceName);
         ResolvedAssemblyReference firstAssembly = Descriptor(first);
         ResolvedAssemblyReference duplicateAssembly = Descriptor(duplicate);
         var inner = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(first.Path)
+            new AssemblyDependencyResolutionOptions(first.Receipt.SourceName)
             {
                 PreferImplementationAssemblies = true,
                 AllowPlatformAssemblyVersionRollForward = true,
@@ -131,28 +131,28 @@ public class CatalogCallGraphScopeTests
         var policy = new CountingGroupPolicy(
             [firstAssembly, duplicateAssembly],
             inner);
-        MethodIdentity root = first.DeclaredMethods.Single(method =>
+        MethodIdentity root = first.CallGraph.DeclaredMethods.Single(method =>
             method.DeclaringType.Name == "Entry"
             && method.Name == "RunTwice");
 
         using var single = new CatalogCallGraphScope(
             policy,
-            [new(first, firstAssembly)]);
+            [new(first.CallGraph, firstAssembly)]);
         using var repeated = new CatalogCallGraphScope(
             policy,
             [
-                new(first, firstAssembly),
-                new(first, firstAssembly),
-                new(duplicate, duplicateAssembly),
+                new(first.CallGraph, firstAssembly),
+                new(first.CallGraph, firstAssembly),
+                new(duplicate.CallGraph, duplicateAssembly),
             ]);
 
         Assert.Equal(single.StorageNodeCount, repeated.StorageNodeCount);
         Assert.Equal(single.StorageEdgeCount, repeated.StorageEdgeCount);
         CallTreeNode throughFirst = single.BuildCallTree(
-            first,
+            first.CallGraph,
             root.MetadataToken);
         CallTreeNode throughDuplicate = repeated.BuildCallTree(
-            duplicate,
+            duplicate.CallGraph,
             root.MetadataToken);
         Assert.Equal(root.Name, throughDuplicate.Member.Name);
         Assert.Equal(2, throughFirst.Perf?.Fanout);
@@ -164,20 +164,20 @@ public class CatalogCallGraphScopeTests
     [Fact]
     public void CalleeTreeCarriesResolvedDefinitionAssemblyIdentity()
     {
-        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution caller = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        LibraryBodyIndex target = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution target = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
         using CatalogCallGraphScope scope =
             CatalogCallGraphTestExtensions.CreateScope(
                 caller,
                 [target]);
-        MethodIdentity root = caller.DeclaredMethods.Single(method =>
+        MethodIdentity root = caller.CallGraph.DeclaredMethods.Single(method =>
             method.DeclaringType.Name == "Entry"
             && method.Name == "RunTwice");
 
         CallTreeNode tree = scope.BuildCallTree(
-            caller,
+            caller.CallGraph,
             root.MetadataToken);
         CallTreeNode callee = Assert.Single(tree.Children);
 
@@ -208,9 +208,9 @@ public class CatalogCallGraphScopeTests
     [Fact]
     public void ResolvedCallsConsumesFocusedResultsWithoutTraversalBounds()
     {
-        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution caller = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        LibraryBodyIndex target = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution target = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
         using CatalogCallGraphScope scope =
             CatalogCallGraphTestExtensions.CreateScope(
@@ -219,8 +219,8 @@ public class CatalogCallGraphScopeTests
 
         ImmutableArray<CatalogResolvedCallSite> calls =
             scope.ResolvedCalls(
-                caller.CallGraphAnalysis,
-                target.CallGraphAnalysis);
+                caller.CallGraph,
+                target.CallGraph);
 
         Assert.Contains(
             calls,
@@ -242,10 +242,10 @@ public class CatalogCallGraphScopeTests
             call =>
             {
                 Assert.Same(
-                    caller.CallGraphAnalysis,
+                    caller.CallGraph,
                     call.Source.CallGraph);
                 Assert.Same(
-                    target.CallGraphAnalysis,
+                    target.CallGraph,
                     call.Target.CallGraph);
                 Assert.Equal(
                     call.SourceMethod.MetadataToken,
@@ -253,19 +253,19 @@ public class CatalogCallGraphScopeTests
             });
         Assert.Empty(
             scope.ResolvedCalls(
-                target.CallGraphAnalysis,
-                caller.CallGraphAnalysis));
+                target.CallGraph,
+                caller.CallGraph));
     }
 
     [Fact]
     public void CensusPublishesWholePopulationInCanonicalOrder()
     {
-        LibraryBodyIndex indirect = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution indirect = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphIndirectCaller
                 .AssemblyPath());
-        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution caller = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        LibraryBodyIndex target = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution target = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
         using CatalogCallGraphScope forward =
             CatalogCallGraphTestExtensions.CreateScope(
@@ -359,7 +359,7 @@ public class CatalogCallGraphScopeTests
     [Fact]
     public void CensusRetainsPositiveCallsBesideBoundaryDiagnostics()
     {
-        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution caller = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
         using CatalogCallGraphScope scope =
             CatalogCallGraphTestExtensions.CreateScope(caller, []);
@@ -392,10 +392,10 @@ public class CatalogCallGraphScopeTests
             string shadowPath) = BuildSameIdentityCallFixture();
         try
         {
-            LibraryBodyIndex caller = LibraryBodyIndex.Open(callerPath);
-            LibraryBodyIndex selected =
-                LibraryBodyIndex.Open(selectedPath);
-            LibraryBodyIndex shadow = LibraryBodyIndex.Open(shadowPath);
+            LibraryBodyAnalysisExecution caller = BodyAnalysisTestExecution.Open(callerPath);
+            LibraryBodyAnalysisExecution selected =
+                BodyAnalysisTestExecution.Open(selectedPath);
+            LibraryBodyAnalysisExecution shadow = BodyAnalysisTestExecution.Open(shadowPath);
             ResolvedAssemblyReference callerAssembly =
                 Descriptor(caller);
             ResolvedAssemblyReference selectedAssembly =
@@ -408,9 +408,9 @@ public class CatalogCallGraphScopeTests
             using var scope = new CatalogCallGraphScope(
                 policy,
                 [
-                    new(caller, callerAssembly),
-                    new(selected, selectedAssembly),
-                    new(shadow, shadowAssembly),
+                    new(caller.CallGraph, callerAssembly),
+                    new(selected.CallGraph, selectedAssembly),
+                    new(shadow.CallGraph, shadowAssembly),
                 ]);
 
             CatalogCallCensus census = scope.Census();
@@ -421,7 +421,7 @@ public class CatalogCallGraphScopeTests
                     occurrence.SourceMethod.Name == "Run"
                     && occurrence.TargetMethod.Name == "Ping");
             Assert.Equal(
-                selected.ModuleIdentity.ModuleVersionId,
+                selected.Receipt.ModuleIdentity.ModuleVersionId,
                 call.TargetMethod.ModuleVersionId);
             Assert.DoesNotContain(
                 census.UnresolvedOccurrences,
@@ -444,10 +444,10 @@ public class CatalogCallGraphScopeTests
                     shadowDeclaresPing: false);
         try
         {
-            LibraryBodyIndex caller = LibraryBodyIndex.Open(callerPath);
-            LibraryBodyIndex selected =
-                LibraryBodyIndex.Open(selectedPath);
-            LibraryBodyIndex shadow = LibraryBodyIndex.Open(shadowPath);
+            LibraryBodyAnalysisExecution caller = BodyAnalysisTestExecution.Open(callerPath);
+            LibraryBodyAnalysisExecution selected =
+                BodyAnalysisTestExecution.Open(selectedPath);
+            LibraryBodyAnalysisExecution shadow = BodyAnalysisTestExecution.Open(shadowPath);
             ResolvedAssemblyReference callerAssembly =
                 Descriptor(caller);
             ResolvedAssemblyReference selectedAssembly =
@@ -467,9 +467,9 @@ public class CatalogCallGraphScopeTests
             using var scope = new CatalogCallGraphScope(
                 policy,
                 [
-                    new(caller, callerAssembly),
-                    new(selected, selectedAssembly),
-                    new(shadow, shadowAssembly),
+                    new(caller.CallGraph, callerAssembly),
+                    new(selected.CallGraph, selectedAssembly),
+                    new(shadow.CallGraph, shadowAssembly),
                 ]);
 
             CatalogCallCensus census = scope.Census();
@@ -679,11 +679,11 @@ public class CatalogCallGraphScopeTests
     [Fact]
     public void ExactVersionSkewedParticipantRetainsTypedConflictEvidence()
     {
-        LibraryBodyIndex targetV2 = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution targetV2 = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
-        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution caller = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        LibraryBodyIndex targetV1 = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution targetV1 = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
         using CatalogCallGraphScope scope =
             CatalogCallGraphTestExtensions.CreateScope(
@@ -693,13 +693,13 @@ public class CatalogCallGraphScopeTests
             CatalogCallGraphTestExtensions.CreateScope(
                 caller,
                 [targetV1, targetV2]);
-        MethodIdentity ping = targetV2.DeclaredMethods.Single(method =>
+        MethodIdentity ping = targetV2.CallGraph.DeclaredMethods.Single(method =>
             method.DeclaringType.Name == "Api"
             && method.Name == "Ping"
             && method.ParameterTypes.Length == 0);
 
         CallTreeNode tree = scope.BuildCallerTree(
-            targetV2,
+            targetV2.CallGraph,
             ping.MetadataToken);
         CatalogCallCensus census = scope.Census();
         CatalogCallCensus permutedCensus = permuted.Census();
@@ -757,26 +757,26 @@ public class CatalogCallGraphScopeTests
     [Fact]
     public void DetachedVersionSkewedDefinitionsRemainDistinct()
     {
-        LibraryBodyIndex targetV2 = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution targetV2 = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
-        LibraryBodyIndex targetV1 = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution targetV1 = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
         var scope = CatalogCallGraphTestExtensions.CreateScope(
             targetV2,
             [targetV1]);
-        MethodIdentity pingV2 = targetV2.DeclaredMethods.Single(method =>
+        MethodIdentity pingV2 = targetV2.CallGraph.DeclaredMethods.Single(method =>
             method.DeclaringType.Name == "Api"
             && method.Name == "Ping"
             && method.ParameterTypes.Length == 0);
-        MethodIdentity pingV1 = targetV1.DeclaredMethods.Single(method =>
+        MethodIdentity pingV1 = targetV1.CallGraph.DeclaredMethods.Single(method =>
             method.DeclaringType.Name == "Api"
             && method.Name == "Ping"
             && method.ParameterTypes.Length == 0);
 
         CallTreeNode root = scope.Detach(
-            scope.BuildCallTree(targetV2, pingV2.MetadataToken));
+            scope.BuildCallTree(targetV2.CallGraph, pingV2.MetadataToken));
         CallTreeNode versionSkewed = scope.Detach(
-            scope.BuildCallTree(targetV1, pingV1.MetadataToken));
+            scope.BuildCallTree(targetV1.CallGraph, pingV1.MetadataToken));
         scope.Dispose();
 
         Assert.NotNull(root.GraphEvidence);
@@ -806,26 +806,26 @@ public class CatalogCallGraphScopeTests
     [Fact]
     public void DetachedRepeatedExternalOccurrencesStayJoined()
     {
-        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution caller = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
         ResolvedAssemblyReference assembly = Descriptor(caller);
         using var scope = new CatalogCallGraphScope(
             new AssemblyDependencyResolver(
-                new AssemblyDependencyResolutionOptions(caller.Path)),
-            [new(caller, assembly)]);
-        MethodIdentity rootMethod = caller.DeclaredMethods.Single(method =>
+                new AssemblyDependencyResolutionOptions(caller.Receipt.SourceName)),
+            [new(caller.CallGraph, assembly)]);
+        MethodIdentity rootMethod = caller.CallGraph.DeclaredMethods.Single(method =>
             method.DeclaringType.Name == "Entry"
             && method.Name == "RunTwice");
         DirectCall[] calls =
         [
-            .. caller.DirectCalls.Where(call =>
+            .. caller.CallGraph.DirectCalls.Where(call =>
                 call.Caller.MetadataToken == rootMethod.MetadataToken),
         ];
         Assert.Equal(2, calls.Length);
         GraphNodeIdentity externalIdentity =
             GraphNodeIdentity.FromMember(calls[0].Callee);
         CallTreeNode root = scope.BuildCallTree(
-            caller,
+            caller.CallGraph,
             rootMethod.MetadataToken);
         Assert.Equal(
             2,
@@ -869,35 +869,35 @@ public class CatalogCallGraphScopeTests
     [Fact]
     public void DetachedArtifactIdentityIgnoresAcquisitionRegistration()
     {
-        LibraryBodyIndex first = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution first = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        LibraryBodyIndex second = LibraryBodyIndex.Open(first.Path);
+        LibraryBodyAnalysisExecution second = BodyAnalysisTestExecution.Open(first.Receipt.SourceName);
         ResolvedAssemblyReference firstAssembly = Descriptor(first);
         ResolvedAssemblyReference secondAssembly = Descriptor(second);
-        MethodIdentity firstPing = first.DeclaredMethods.Single(method =>
+        MethodIdentity firstPing = first.CallGraph.DeclaredMethods.Single(method =>
             method.DeclaringType.Name == "Api"
             && method.Name == "Ping"
             && method.ParameterTypes.Length == 0);
-        MethodIdentity secondPing = second.DeclaredMethods.Single(method =>
+        MethodIdentity secondPing = second.CallGraph.DeclaredMethods.Single(method =>
             method.DeclaringType.Name == "Api"
             && method.Name == "Ping"
             && method.ParameterTypes.Length == 0);
 
         using var firstScope = new CatalogCallGraphScope(
             new AssemblyDependencyResolver(
-                new AssemblyDependencyResolutionOptions(first.Path)),
-            [new(first, firstAssembly)]);
+                new AssemblyDependencyResolutionOptions(first.Receipt.SourceName)),
+            [new(first.CallGraph, firstAssembly)]);
         using var secondScope = new CatalogCallGraphScope(
             new AssemblyDependencyResolver(
-                new AssemblyDependencyResolutionOptions(second.Path)),
-            [new(second, secondAssembly)]);
+                new AssemblyDependencyResolutionOptions(second.Receipt.SourceName)),
+            [new(second.CallGraph, secondAssembly)]);
         CallTreeNode callerRoot = firstScope.Detach(
             firstScope.BuildCallerTree(
-                first,
+                first.CallGraph,
                 firstPing.MetadataToken));
         CallTreeNode calleeRoot = secondScope.Detach(
             secondScope.BuildCallTree(
-                second,
+                second.CallGraph,
                 secondPing.MetadataToken));
 
         CallGraphProjection projection = CallGraphProjection.Create(
@@ -911,9 +911,9 @@ public class CatalogCallGraphScopeTests
     [Fact]
     public void MethodGenericArityKeepsOverloadsAndTheirCallersSeparate()
     {
-        LibraryBodyIndex target = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution target = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution caller = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
         ResolvedAssemblyReference targetAssembly = Descriptor(target);
         ResolvedAssemblyReference callerAssembly = Descriptor(caller);
@@ -922,19 +922,19 @@ public class CatalogCallGraphScopeTests
                 (
                     targetAssembly,
                     (IAssemblyBindingPolicy)new AssemblyDependencyResolver(
-                        new AssemblyDependencyResolutionOptions(target.Path))),
+                        new AssemblyDependencyResolutionOptions(target.Receipt.SourceName))),
                 (
                     callerAssembly,
                     (IAssemblyBindingPolicy)new AssemblyDependencyResolver(
-                        new AssemblyDependencyResolutionOptions(caller.Path))),
+                        new AssemblyDependencyResolutionOptions(caller.Receipt.SourceName))),
             ]);
         using var scope = new CatalogCallGraphScope(
             policy,
             [
-                new(target, targetAssembly),
-                new(caller, callerAssembly),
+                new(target.CallGraph, targetAssembly),
+                new(caller.CallGraph, callerAssembly),
             ]);
-        MethodIdentity[] overloads = target.DeclaredMethods
+        MethodIdentity[] overloads = target.CallGraph.DeclaredMethods
             .Where(method =>
                 method.DeclaringType.Name == "ArityApi"
                 && method.Name == "Store")
@@ -946,10 +946,10 @@ public class CatalogCallGraphScopeTests
             overloads.Select(method => method.GenericArity));
 
         CallTreeNode nonGeneric = scope.BuildCallerTree(
-            target,
+            target.CallGraph,
             overloads[0].MetadataToken);
         CallTreeNode generic = scope.BuildCallerTree(
-            target,
+            target.CallGraph,
             overloads[1].MetadataToken);
 
         Assert.Equal(1, nonGeneric.Perf?.Fanin);
@@ -965,15 +965,15 @@ public class CatalogCallGraphScopeTests
     [Fact]
     public void FunctionPointerPayloadKeepsOverloadsAndTheirCallersSeparate()
     {
-        LibraryBodyIndex target = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution target = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution caller = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
         using CatalogCallGraphScope scope =
             CatalogCallGraphTestExtensions.CreateScope(
                 target,
                 [caller]);
-        MethodIdentity[] overloads = target.DeclaredMethods
+        MethodIdentity[] overloads = target.CallGraph.DeclaredMethods
             .Where(method =>
                 method.DeclaringType.Name == "FunctionPointerApi"
                 && method.Name == "Store")
@@ -990,10 +990,10 @@ public class CatalogCallGraphScopeTests
                 == SignatureCallingConvention.StdCall);
 
         CallTreeNode cdeclCallers = scope.BuildCallerTree(
-            target,
+            target.CallGraph,
             cdecl.MetadataToken);
         CallTreeNode stdcallCallers = scope.BuildCallerTree(
-            target,
+            target.CallGraph,
             stdcall.MetadataToken);
 
         Assert.Equal(
@@ -1183,24 +1183,24 @@ public class CatalogCallGraphScopeTests
     [Trait("Speed", "Slow")]
     public void UnavailableCorrespondenceRemainsVisibleWithoutFabricatedJoins()
     {
-        LibraryBodyIndex analysis = LibraryBodyIndex.Open(
-            typeof(LibraryBodyIndex).Assembly.Location);
-        LibraryBodyIndex tests = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution analysis = BodyAnalysisTestExecution.Open(
+            typeof(LibraryBodyAnalysisExecution).Assembly.Location);
+        LibraryBodyAnalysisExecution tests = BodyAnalysisTestExecution.Open(
             typeof(LibraryBodyIndexTests).Assembly.Location);
         ResolvedAssemblyReference analysisAssembly = Descriptor(analysis);
         ResolvedAssemblyReference testAssembly = Descriptor(tests);
         using var scope = new CatalogCallGraphScope(
             UnavailablePolicy.Instance,
             [
-                new(analysis, analysisAssembly),
-                new(tests, testAssembly),
+                new(analysis.CallGraph, analysisAssembly),
+                new(tests.CallGraph, testAssembly),
             ]);
-        MethodIdentity open = analysis.DeclaredMethods.First(method =>
+        MethodIdentity open = analysis.CallGraph.DeclaredMethods.First(method =>
             method.DeclaringType.Name == nameof(LibraryBodyIndex)
             && method.Name == nameof(LibraryBodyIndex.Open));
 
         CallTreeNode callers = scope.BuildCallerTree(
-            analysis,
+            analysis.CallGraph,
             open.MetadataToken,
             maxDepth: 2,
             maxNodes: 200);
@@ -1226,11 +1226,11 @@ public class CatalogCallGraphScopeTests
     [Trait("Speed", "Slow")]
     public void ReleaseGraphStartsANewGenerationWithoutReopeningIndexes()
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
-            typeof(LibraryBodyIndex).Assembly.Location);
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
+            typeof(LibraryBodyAnalysisExecution).Assembly.Location);
         ResolvedAssemblyReference assembly = Descriptor(index);
         var inner = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(index.Path)
+            new AssemblyDependencyResolutionOptions(index.Receipt.SourceName)
             {
                 PreferImplementationAssemblies = true,
                 AllowPlatformAssemblyVersionRollForward = true,
@@ -1238,16 +1238,16 @@ public class CatalogCallGraphScopeTests
         var policy = new CountingGroupPolicy([assembly], inner);
         using var scope = new CatalogCallGraphScope(
             policy,
-            [new(index, assembly)]);
-        int token = index.DeclaredMethods.First().MetadataToken;
+            [new(index.CallGraph, assembly)]);
+        int token = index.CallGraph.DeclaredMethods.First().MetadataToken;
 
-        _ = scope.BuildCallTree(index, token);
+        _ = scope.BuildCallTree(index.CallGraph, token);
         AssemblyCatalogGenerationId first =
             Assert.IsType<AssemblyCatalogGenerationId>(scope.Generation);
         scope.ReleaseGraph();
         Assert.Null(scope.Generation);
 
-        _ = scope.BuildCallerTree(index, token);
+        _ = scope.BuildCallerTree(index.CallGraph, token);
         AssemblyCatalogGenerationId second =
             Assert.IsType<AssemblyCatalogGenerationId>(scope.Generation);
         Assert.NotEqual(first, second);
@@ -1263,9 +1263,9 @@ public class CatalogCallGraphScopeTests
         }
     }
 
-    static ResolvedAssemblyReference Descriptor(LibraryBodyIndex index) =>
+    static ResolvedAssemblyReference Descriptor(LibraryBodyAnalysisExecution index) =>
         ResolvedAssemblyReference.CreateFromPath(
-            index.Path,
+            index.Receipt.SourceName,
             AssemblyResolutionProvenance.Local(
                 "catalog call-graph test"));
 
