@@ -331,8 +331,14 @@ public partial class LibraryBodyIndexTests
                 nestedLeaf.ToQualifiedDisplayString());
             Assert.Contains(generated, type => type.Equals(namespaceLeaf));
             Assert.DoesNotContain(generated, type => type.Equals(nestedLeaf));
-            Assert.True(index.IsGeneratedFrameworkType(namespaceLeaf));
-            Assert.False(index.IsGeneratedFrameworkType(nestedLeaf));
+            Assert.True(
+                GeneratedFrameworkTypeAnalysis.Contains(
+                    generated,
+                    namespaceLeaf));
+            Assert.False(
+                GeneratedFrameworkTypeAnalysis.Contains(
+                    generated,
+                    nestedLeaf));
         }
         finally
         {
@@ -407,8 +413,14 @@ public partial class LibraryBodyIndexTests
             lookalikeNested.ToQualifiedDisplayString());
 
         var set = new HashSet<TypeRef> { generated };
-        Assert.True(LibraryBodyIndex.IsGeneratedFrameworkType(set, generatedNested));
-        Assert.False(LibraryBodyIndex.IsGeneratedFrameworkType(set, lookalikeNested));
+        Assert.True(
+            GeneratedFrameworkTypeAnalysis.Contains(
+                set,
+                generatedNested));
+        Assert.False(
+            GeneratedFrameworkTypeAnalysis.Contains(
+                set,
+                lookalikeNested));
     }
 
     [Fact]
@@ -440,8 +452,14 @@ public partial class LibraryBodyIndexTests
             Assert.Equal(["GenStub+LiteralPlus"], literalPlus.Resolution!.Type.Segments);
 
             Assert.Contains(index.GeneratedFrameworkTypes, type => type.Equals(stub));
-            Assert.True(index.IsGeneratedFrameworkType(nested));
-            Assert.False(index.IsGeneratedFrameworkType(literalPlus));
+            Assert.True(
+                GeneratedFrameworkTypeAnalysis.Contains(
+                    index.GeneratedFrameworkTypes,
+                    nested));
+            Assert.False(
+                GeneratedFrameworkTypeAnalysis.Contains(
+                    index.GeneratedFrameworkTypes,
+                    literalPlus));
         }
         finally
         {

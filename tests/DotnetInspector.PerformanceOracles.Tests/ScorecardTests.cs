@@ -363,6 +363,71 @@ public sealed class ScorecardTests
     }
 
     [Fact]
+    public void ReportSeparatesPlannerAndCountBaselines()
+    {
+        ScorecardCell[] cells =
+        [
+            new(
+                0,
+                "a",
+                ScorecardClosing.Exists,
+                "NLinq",
+                [4]),
+            new(
+                0,
+                "a",
+                ScorecardClosing.Exists,
+                "Planner",
+                [2]),
+            new(
+                0,
+                "a",
+                ScorecardClosing.Count,
+                "NLinq",
+                [8]),
+            new(
+                0,
+                "a",
+                ScorecardClosing.Count,
+                "Planner",
+                [4]),
+            new(
+                0,
+                "a",
+                ScorecardClosing.Rows,
+                "NLinq",
+                [24]),
+            new(
+                0,
+                "a",
+                ScorecardClosing.Rows,
+                "Planner",
+                [12]),
+        ];
+
+        string report =
+            Scorecard.Report(cells, "Planner", Shape);
+
+        Assert.Contains(
+            "Implementation ratios to Planner",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Count | 1 | 2.00× (2.00–2.00) | 1.00× |",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Terminal ratios to Count",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Planner | 1 | 0.50× (0.50–0.50) | 1.00× | "
+                + "3.00× (3.00–3.00) |",
+            report,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Describe_DistinguishesEveryAnswerKind()
     {
         Assert.Equal("true", Scorecard.Describe(ScorecardAnswer<int>.OfExists(true), Text));

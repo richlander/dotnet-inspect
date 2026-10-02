@@ -4,7 +4,6 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
-using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
@@ -185,21 +184,6 @@ public class LibraryInspection
     public FindingInspection<AssemblySurfaceClassification>?
         SurfaceClassificationInspection
     { get; set; }
-
-    /// <summary>
-    /// The host-neutral Library document facts for a managed assembly
-    /// (<c>docs/design/library-info-composition.md</c>), or null for native and
-    /// manifestless images, which keep the legacy view path.
-    /// </summary>
-    [JsonIgnore]
-    public LibraryDocument? LibraryDocument { get; set; }
-
-    /// <summary>
-    /// Why the Library document could not be read for a managed assembly.
-    /// Library Info reports it instead of document-sourced rows.
-    /// </summary>
-    [JsonIgnore]
-    public string? LibraryDocumentFailure { get; set; }
 
     /// <summary>
     /// Publisher identity from NuGet package author signature (CN).

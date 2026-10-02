@@ -256,6 +256,8 @@ interface DiagnosticsFixture {
   libraryApiFailure?: boolean;
   libraryApiIncomplete?: boolean;
   deferTypeMemberPopulation?: boolean;
+  qualifiedStructuralSalience?: boolean;
+  slowStructuralSalience?: boolean;
 }
 
 interface PackageLoadingFixture {
@@ -1056,6 +1058,21 @@ async function installFacades(
           this: 0,
           extension: 0,
         };
+        const selectedMembers = members.filter(member =>
+          accessibility === "all"
+          || accessibilityBucket(member) === accessibility);
+        const kindCounts = new Map();
+        const selectorCounts = {
+          kinds: [],
+          traits: {
+            all: selectedMembers.length,
+            static: 0,
+            instance: 0,
+            virtual: 0,
+            interface: 0,
+            extensions: 0,
+          },
+        };
         const completeCounts = new Map();
         for (const member of members) {
           composition[accessibilityBucket(member)]++;
@@ -1065,6 +1082,22 @@ async function installFacades(
           const key = member.kind + ":" + member.name;
           completeCounts.set(key, (completeCounts.get(key) ?? 0) + 1);
         }
+        for (const member of selectedMembers) {
+          kindCounts.set(
+            member.kind,
+            (kindCounts.get(member.kind) ?? 0) + 1);
+          if (member.isExtension) selectorCounts.traits.extensions++;
+          else if (member.isStatic) selectorCounts.traits.static++;
+          else selectorCounts.traits.instance++;
+          if (member.isVirtual) selectorCounts.traits.virtual++;
+          if (member.isExplicitInterfaceImplementation) {
+            selectorCounts.traits.interface++;
+          }
+        }
+        selectorCounts.kinds = [...kindCounts].map(([value, count]) => ({
+          value,
+          count,
+        }));
         const groups = new Map();
         for (const member of members) {
           if (accessibility !== "all"
@@ -1102,6 +1135,7 @@ async function installFacades(
             spelling,
             accessibility,
             composition,
+            selectorCounts,
             groups: [...groups.values()],
           },
           diagnostics: [],
@@ -1161,6 +1195,113 @@ async function installFacades(
           typeIdentity,
           spelling,
           accessibility);
+      }
+      function memberDisplaySignature(member) {
+        let signature = member.signature;
+        const accessibilityPrefix = (member.accessibility || "public") + " ";
+        if (signature.startsWith(accessibilityPrefix)) {
+          signature = signature.slice(accessibilityPrefix.length);
+        }
+        const receiverPrefix = member.isExtension
+          ? "extension "
+          : member.isStatic ? "static " : "";
+        if (receiverPrefix && signature.startsWith(receiverPrefix)) {
+          signature = signature.slice(receiverPrefix.length);
+        }
+        return signature;
+      }
+      function memberDocument(
+        surface,
+        typeIdentity,
+        memberName,
+        baselineOrdinal,
+        fingerprintPrefix) {
+        const type = surface.types.find(item =>
+          item.definitionId === typeIdentity || item.queryId === typeIdentity);
+        const overloads = type?.api.filter(member =>
+          member.kind === "method"
+          && member.name === memberName
+          && member.metadataAccessor !== true
+          && !member.graphOnly) ?? [];
+        const member = Number.isInteger(baselineOrdinal)
+          ? overloads[baselineOrdinal - 1]
+          : null;
+        if (!type
+            || !member
+            || fingerprintPrefix
+              && !member.anchorDigest.startsWith(fingerprintPrefix)) {
+          return {
+            outcome: "Rejected",
+            detail: "The exact ordinary method declaration was not found.",
+            document: null,
+            diagnostics: [],
+          };
+        }
+        return {
+          outcome: "Available",
+          detail: null,
+          document: {
+            typeIdentity: type.queryId,
+            memberName,
+            metadataToken:
+              member.declarationMetadataToken ?? member.metadataToken ?? 0,
+            baselineOrdinal,
+            displaySignature: memberDisplaySignature(member),
+            canonicalSignature: member.canonicalSignature,
+            fingerprint: member.anchorDigest,
+            accessibility: member.accessibility,
+            receiver: member.isExtension
+              ? "Extension"
+              : member.isStatic ? "Static" : "This",
+            documentation: null,
+          },
+          diagnostics: [],
+        };
+      }
+      export async function queryMemberDocument(
+        id, version, framework, assembly, typeIdentity, memberName,
+        baselineOrdinal, fingerprintPrefix) {
+        document.documentElement.dataset.memberDocumentRequest =
+          JSON.stringify([
+            id, version, framework, assembly, typeIdentity, memberName,
+            baselineOrdinal, fingerprintPrefix,
+          ]);
+        return memberDocument(
+          surfaceFor(id, version, framework),
+          typeIdentity,
+          memberName,
+          baselineOrdinal,
+          fingerprintPrefix);
+      }
+      export async function queryPlatformMemberDocument(
+        framework, version, assembly, pack, typeIdentity, memberName,
+        baselineOrdinal, fingerprintPrefix) {
+        document.documentElement.dataset.platformMemberDocumentRequest =
+          JSON.stringify([
+            framework, version, assembly, pack, typeIdentity, memberName,
+            baselineOrdinal, fingerprintPrefix,
+          ]);
+        return memberDocument(
+          surfaceFor("Microsoft.NETCore.App", version, framework),
+          typeIdentity,
+          memberName,
+          baselineOrdinal,
+          fingerprintPrefix);
+      }
+      export async function queryUploadedLibraryMemberDocument(
+        declaredName, content, typeIdentity, memberName, baselineOrdinal,
+        fingerprintPrefix) {
+        document.documentElement.dataset.uploadedLibraryMemberDocumentRequest =
+          JSON.stringify([
+            declaredName, content.length, typeIdentity, memberName,
+            baselineOrdinal, fingerprintPrefix,
+          ]);
+        return memberDocument(
+          surfaces[0],
+          typeIdentity,
+          memberName,
+          baselineOrdinal,
+          fingerprintPrefix);
       }
       function memberGroupDocument(surface, typeIdentity, memberName) {
         const type = surface.types.find(item =>
@@ -1338,40 +1479,14 @@ async function installFacades(
       }`,
     analysis: `
       ${surfaceLookup}
+      const diagnosticsOptions = ${JSON.stringify(diagnostics)};
       let implementationProfileRequestCount = 0;
-      let structuralSalienceIndexRequestCount = 0;
-      let structuralSalienceShardRequestCount = 0;
-      function structuralSalienceIndex(surface, selected) {
-        document.documentElement.dataset.structuralSalienceIndexRequestCount =
-          String(++structuralSalienceIndexRequestCount);
-        return {
-          schemaVersion: 1,
-          outcome: "available",
-          methodologyVersion: "structural-salience.v2",
-          evidenceMode: "signature",
-          disposition: "complete",
-          coverage: {
-            considered: 1,
-            examined: 1,
-            unavailable: 0,
-            limited: 0
-          },
-          namespaces: [{
-            namespace: "Example",
-            typeCount: surface.types.filter(
-              item => item.assemblyId === selected.id
-                && item.namespace === "Example").length,
-            externalIncomingSourceTypeCount: 1,
-            topLeverage: true
-          }],
-          diagnostics: [],
-          failure: null,
-          compileLibrary: surface.compileLibrary
-        };
-      }
-      function structuralSalienceShard(surface, selected, exactNamespace) {
-        document.documentElement.dataset.structuralSalienceShardRequestCount =
-          String(++structuralSalienceShardRequestCount);
+      let structuralSalienceRequestCount = 0;
+      function structuralSalience(surface, selected) {
+        document.documentElement.dataset.structuralSalienceRequestCount =
+          String(++structuralSalienceRequestCount);
+        const qualified = diagnosticsOptions.qualifiedStructuralSalience;
+        const exactNamespace = "Example";
         const selectedType = surface.types.find(
           item => item.assemblyId === selected.id
             && item.namespace === exactNamespace);
@@ -1385,44 +1500,57 @@ async function installFacades(
           pole: "SeaLevel"
         }] : [];
         return {
-          schemaVersion: 2,
+          schemaVersion: 1,
           outcome: "available",
           methodologyVersion: "structural-salience.v2",
           evidenceMode: "signature",
-          namespace: exactNamespace,
-          disposition: "complete",
-          coverage: {
-            considered: 1,
-            examined: 1,
-            unavailable: 0,
-            limited: 0
+          namespaceIndex: {
+            disposition: qualified ? "partial" : "complete",
+            coverage: {
+              considered: 1,
+              examined: qualified ? 0 : 1,
+              unavailable: qualified ? 1 : 0,
+              limited: 0
+            },
+            namespaces: [{
+              namespace: exactNamespace,
+              typeCount: surface.types.filter(
+                item => item.assemblyId === selected.id
+                  && item.namespace === exactNamespace).length,
+              externalIncomingSourceTypeCount: 1,
+              topLeverage: true
+            }],
+            diagnostics: qualified ? ["One signature was unavailable."] : []
           },
-          types,
-          seaLevelOrder: types.map(item => item.typeDefinitionId),
-          mountainPeakOrder: types.map(item => item.typeDefinitionId),
-          diagnostics: [],
+          typeLeverageShards: [{
+            namespace: exactNamespace,
+            disposition: qualified ? "partial" : "complete",
+            coverage: {
+              considered: 1,
+              examined: qualified ? 0 : 1,
+              unavailable: qualified ? 1 : 0,
+              limited: 0
+            },
+            types,
+            seaLevelOrder: types.map(item => item.typeDefinitionId),
+            mountainPeakOrder: types.map(item => item.typeDefinitionId),
+            diagnostics: qualified ? ["One signature was unavailable."] : []
+          }],
           failure: null,
           compileLibrary: surface.compileLibrary
         };
       }
-      export async function queryPackageLibraryNamespaceLeverage(
+      export async function queryPackageLibraryStructuralSalience(
         id, version, framework, asset
       ) {
         const surface = surfaceFor(id, version, framework);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
-        return structuralSalienceIndex(surface, selected);
-      }
-      export async function queryPackageNamespaceTypeLeverage(
-        id, version, framework, asset, exactNamespace
-      ) {
-        const surface = surfaceFor(id, version, framework);
-        const selected = surface.assemblies.find(item => item.id === asset);
-        if (!selected) throw new Error("Unknown library: " + asset);
-        return structuralSalienceShard(
-          surface,
-          selected,
-          exactNamespace);
+        const result = structuralSalience(surface, selected);
+        if (diagnosticsOptions.slowStructuralSalience) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        return result;
       }
       function implementationProfiles(
         subjectName,

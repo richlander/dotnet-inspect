@@ -192,6 +192,16 @@ public static class MemberCommand
 
         try
         {
+            if (loadedSurface is null
+                && ApiCommand.TryWriteCallSiteCount(
+                    source,
+                    typeName,
+                    options,
+                    Console.Out) is { } directCallCountExitCode)
+            {
+                return directCallCountExitCode;
+            }
+
             var loaded = loadedSurface
                 ?? (options.RouterDeferredTypeOrMember
                     ? ApiServices.LoadTypeApi(source, options)

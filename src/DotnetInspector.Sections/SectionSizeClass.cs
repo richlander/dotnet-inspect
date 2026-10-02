@@ -1,4 +1,4 @@
-namespace DotnetInspect.Cli.Sections;
+namespace DotnetInspector.Sections;
 
 /// <summary>
 /// Declared <b>growth</b> class for a section — how its row count behaves across the entire

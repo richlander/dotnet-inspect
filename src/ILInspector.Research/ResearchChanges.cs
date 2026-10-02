@@ -264,6 +264,38 @@ public sealed record ResearchChange
     public ImmutableArray<CSharpDiffDisplayRow> CSharpDisplayRows { get; }
     public CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow { get; }
     public FindingComparison<AllocationOccurrence>? AllocationComparison { get; }
+
+    internal ResearchChange WithSubject(ResearchSubjectKey subject)
+        => new(
+            subject,
+            Mechanism,
+            Descriptor,
+            Kind,
+            OldValue,
+            NewValue,
+            Delta,
+            OldIlOffset,
+            NewIlOffset,
+            Detail,
+            Category,
+            Signal,
+            Shape,
+            Magnitude,
+            DirectionScore,
+            SubjectInBoth,
+            InLoop,
+            ApiChange,
+            IlRow,
+            IlFailureRow,
+            CSharpRow,
+            CSharpFailureRow,
+            IlDisplayRows,
+            IlDisplayFailureRow,
+            IlMemberDiff,
+            IlBodyDiff,
+            CSharpDisplayRows,
+            CSharpDisplayFailureRow,
+            AllocationComparison);
 }
 
 public sealed record ResearchSubjectChanges

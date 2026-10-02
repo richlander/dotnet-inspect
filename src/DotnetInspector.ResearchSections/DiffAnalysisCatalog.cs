@@ -97,9 +97,7 @@ public static class DiffAnalysisCatalog
                         [CSharpFindings.LineDescriptor]),
                 ],
                 RetainedResearchRoute,
-                context => ProduceRetained<CSharpCanonicalLine>(
-                    context,
-                    ResearchChangeMechanism.CSharp)),
+                ProduceRetained<CSharpCanonicalLine>),
             Register(
                 "il",
                 InspectionCost.Moderated,
@@ -108,9 +106,7 @@ public static class DiffAnalysisCatalog
                         [IlFindings.OperationDescriptor]),
                 ],
                 RetainedResearchRoute,
-                context => ProduceRetained<CanonicalIlOperation>(
-                    context,
-                    ResearchChangeMechanism.IlBody)),
+                ProduceRetained<CanonicalIlOperation>),
         ];
 
         Operation = new AnalysisOperationDefinition(
@@ -129,6 +125,22 @@ public static class DiffAnalysisCatalog
 
     /// <summary>The host-neutral capability module registering Diff's analyses.</summary>
     public static InspectionCapabilityModule ProductModule { get; }
+
+    /// <summary>
+    /// Whether the selected Compare set dispatches the retained implementation
+    /// producer route.
+    /// </summary>
+    public static bool RequiresImplementation(
+        AnalysisSetValidationResult.Accepted selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return selection.Analyses.Any(analysis =>
+            Registrations
+                .Single(registration =>
+                    ReferenceEquals(registration.Analysis, analysis))
+                .ProducerFor(selection.Operation, selection.Surface)?
+                .Participation.ProducerRoute == RetainedResearchRoute);
+    }
 
     static InspectionAnalysisRegistration RegisterBody(
         string identity,
@@ -230,26 +242,19 @@ public static class DiffAnalysisCatalog
     }
 
     static DiffAnalysisProduction ProduceRetained<T>(
-        DiffAnalysisProducerContext context,
-        ResearchChangeMechanism mechanism)
+        DiffAnalysisProducerContext context)
         where T : notnull
     {
         FindingDescriptor descriptor = context.Participation.Descriptors.Single();
         DiffAnalysisInput input = context.Input;
-        ResearchComparison research = ResearchDiff.Compare(
-            ResearchDiffInput.FromAssemblies(input.FromPaths),
-            ResearchDiffInput.FromAssemblies(input.ToPaths),
-            new ResearchDiffOptions(
-                mechanism,
-                TypeFilters: input.TypeFilters,
-                MemberTargetIdentities: input.MemberTargetIdentities)
-            {
-                RetainedComparisonDescriptorIds =
-                    ImmutableHashSet.Create(StringComparer.Ordinal, descriptor.Id),
-            });
+        ImplementationDiffResult implementation =
+            input.PrepareImplementation?.Invoke()
+            ?? throw new InvalidOperationException(
+                "The implementation comparison was not prepared.");
         return DiffAnalysisProduction.Compared(
             KeyedFindingComparison.Of(
                 new RetainedFindingComparisonSet(
-                    research.RetainedComparisons.Get<T>(descriptor))));
+                    implementation.Research.RetainedComparisons.Get<T>(
+                        descriptor))));
     }
 }

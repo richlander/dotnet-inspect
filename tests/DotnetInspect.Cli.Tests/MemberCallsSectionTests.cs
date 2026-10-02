@@ -22,6 +22,129 @@ public class MemberCallsSectionTests
         Assert.Contains("`0x0A", result.Output);
     }
 
+    [Theory]
+    [InlineData(nameof(MemberCallsFixture.CallsWriteLineTwice))]
+    [InlineData(nameof(MemberCallsFixture.CallsWriteLineAfterYield))]
+    [InlineData(nameof(MemberCallsFixture.LoadsFunctionPointer))]
+    public async Task CallsSection_CountMatchesCompletedCallRows(
+        string memberName)
+    {
+        string[] args =
+        [
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            memberName,
+            "-S",
+            SectionNames.Calls,
+            "--tips",
+            "q",
+        ];
+
+        var rows = await RunCliAsync([.. args, "--json"]);
+        var count = await RunCliAsync([.. args, "--count"]);
+
+        Assert.Equal(0, rows.ExitCode);
+        Assert.Empty(rows.Error);
+        Assert.Equal(0, count.ExitCode);
+        Assert.Empty(count.Error);
+        using var document = JsonDocument.Parse(rows.Output);
+        Assert.Equal(
+            document.RootElement
+                .GetProperty("calls")
+                .GetArrayLength()
+                .ToString(),
+            count.Output.Trim());
+    }
+
+    [Fact]
+    public async Task CallsSection_CountWithCallerScopePreservesImpliedCallers()
+    {
+        using var callerScope =
+            new TemporaryTestDirectory("dotnet-inspect-calls-count-");
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.CallsWriteLineTwice),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "--json",
+            "--bin",
+            callerScope.FullName,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        var counts = document.RootElement
+            .EnumerateArray()
+            .ToDictionary(
+                row => row.GetProperty("section").GetString()!,
+                row => row.GetProperty("count").GetInt32());
+        Assert.Equal(2, counts[SectionNames.Calls]);
+        Assert.Contains(SectionNames.Callers, counts.Keys);
+    }
+
+    [Fact]
+    public async Task CallsSection_CountWithDiscoveryCountsDiscoveredRows()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.CallsWriteLineTwice),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "-D",
+            SectionNames.Calls,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal("6", result.Output.Trim());
+    }
+
+    [Theory]
+    [InlineData("--columns", "No columns matched projection")]
+    [InlineData("--fields", "No fields matched projection")]
+    public async Task CallsSection_CountWithUnmatchedProjectionFails(
+        string projectionOption,
+        string expectedError)
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.CallsWriteLineTwice),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            projectionOption,
+            "NoSuchProjection",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(expectedError, result.Error);
+    }
+
     [Fact]
     public async Task CallsSection_SemanticTailSelectsTheSameCallSiteAcrossFormats()
     {
@@ -181,6 +304,32 @@ public class MemberCallsSectionTests
     }
 
     [Fact]
+    public async Task CallsSection_CountUnavailableWindowWithholdsOutput()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.CallsWriteLineTwice),
+            "-S",
+            SectionNames.Calls,
+            "--rows",
+            "3..3",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires call row 3, but only 2 call rows are available",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CallsSection_ExplicitLinesRejectJsonBeforeAcquisition()
     {
         string missingAssembly = Path.Combine(
@@ -306,6 +455,265 @@ public class MemberCallsSectionTests
         Assert.Contains("`System.Console.WriteLine(string)`", result.Output);
     }
 
+    [Theory]
+    [InlineData(1, "0")]
+    [InlineData(2, "1")]
+    public async Task CallsSection_CountUsesSelectedOverload(
+        int overloadIndex,
+        string expected)
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.Overloaded),
+            "--index",
+            overloadIndex.ToString(),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(expected, result.Output.Trim());
+    }
+
+    [Theory]
+    [InlineData(1, "1")]
+    [InlineData(2, "2")]
+    public async Task
+        CallsSection_CountWithAllPreservesDisplayedOverloadOrder(
+            int overloadIndex,
+            string expected)
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.ReverseOverloaded),
+            "--index",
+            overloadIndex.ToString(),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(expected, result.Output.Trim());
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task CallsSection_CountUsesSelectedPropertyAccessor(
+        int accessorIndex)
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.ValueWithCalls),
+            "--index",
+            accessorIndex.ToString(),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal("1", result.Output.Trim());
+    }
+
+    [Theory]
+    [InlineData(nameof(MemberCallsFixture.Pick))]
+    [InlineData(nameof(MemberCallsFixture.pick))]
+    public async Task
+        CallsSection_CountWithAllPreservesCaseInsensitiveAmbiguity(
+            string memberName)
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            memberName,
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+    }
+
+    [Fact]
+    public async Task
+        CallsSection_CountWithAllPreservesFieldMethodAmbiguity()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.PickField),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+    }
+
+    [Fact]
+    public async Task
+        CallsSection_CountWithAllPreservesFieldPropertySelection()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.ValueField),
+            "--index",
+            "1",
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "section 'Calls' produced no payload.",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData(1, 0, "1")]
+    [InlineData(2, 1, "")]
+    public async Task
+        CallsSection_CountWithAllUsesPresentAccessorOrder(
+            int accessorIndex,
+            int expectedExitCode,
+            string expectedOutput)
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.SetterOnly),
+            "--index",
+            accessorIndex.ToString(),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "--tips",
+            "q");
+
+        Assert.Equal(expectedExitCode, result.ExitCode);
+        Assert.Equal(expectedOutput, result.Output.Trim());
+    }
+
+    [Theory]
+    [InlineData("CallsWriteLineTwice~deadbeef")]
+    [InlineData("CallsWriteLineTwice<T>")]
+    public async Task CallsSection_CountPreservesQualifiedSelectorValidation(
+        string selector)
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            selector,
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--all",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+    }
+
+    [Fact]
+    public async Task CallsSection_CountPreservesTypeSurfaceAdmission()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(HiddenMemberCallsFixture).FullName!,
+            "--library",
+            typeof(HiddenMemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(HiddenMemberCallsFixture.Call),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CallsSection_CountBodilessMethodCompletesWithZero(
+        bool includeAll)
+    {
+        var arguments = new List<string>
+        {
+            "member",
+            typeof(IMemberCallsBodilessFixture).FullName!,
+            "--library",
+            typeof(IMemberCallsBodilessFixture).Assembly.Location,
+            "-m",
+            nameof(IMemberCallsBodilessFixture.Dispose),
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--tips",
+            "q"
+        };
+        if (includeAll)
+            arguments.Add("--all");
+
+        var result = await RunCliAsync([.. arguments]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal("0", result.Output.Trim());
+    }
+
     [Fact]
     public async Task CallsSection_TsvUsesPlainNormalizedValues()
     {
@@ -394,6 +802,58 @@ public static class MemberCallsFixture
         Console.WriteLine(value);
     }
 
+    public static void ReverseOverloaded(string value)
+    {
+        Console.WriteLine(value);
+        Console.WriteLine(value);
+    }
+
+    public static void ReverseOverloaded(int value)
+    {
+        Console.WriteLine(value);
+    }
+
+    public static int ValueWithCalls
+    {
+        get
+        {
+            Console.WriteLine("get");
+            return 0;
+        }
+        set => Console.WriteLine(value);
+    }
+
+    public static int SetterOnly
+    {
+        set => Console.WriteLine(value);
+    }
+
+    public static void Pick()
+    {
+    }
+
+    public static void pick(int value) =>
+        Console.WriteLine(value);
+
+    public static int PickField;
+
+    public static void pickField() =>
+        Console.WriteLine("method");
+
+    public static int ValueField;
+
+    public static int valueField
+    {
+        get
+        {
+            Console.WriteLine("property");
+            return 0;
+        }
+    }
+
+    public static Action LoadsFunctionPointer() =>
+        CallsWriteLineTwice;
+
     // Non-public member: only selectable under --all. Regression coverage for #1323,
     // where the body-load path counted overloads public-only and so reported "no IL body"
     // for a method that the Calls/IL index reads fine.
@@ -402,4 +862,15 @@ public static class MemberCallsFixture
         Console.WriteLine(value);
         return value + 1;
     }
+}
+
+internal static class HiddenMemberCallsFixture
+{
+    public static void Call() =>
+        Console.WriteLine("hidden type");
+}
+
+public interface IMemberCallsBodilessFixture
+{
+    void Dispose();
 }

@@ -17,6 +17,8 @@ internal enum ImplementationMetricKind
     UnsafePresence = 1 << 10,
     DirectReflectionCalls = 1 << 11,
     Async = 1 << 12,
+    DirectCallCount = 1 << 13,
+    CallSiteCount = 1 << 14,
     All = BodySize
         | InstructionShape
         | ControlFlow
@@ -29,7 +31,9 @@ internal enum ImplementationMetricKind
         | ThrowCount
         | UnsafePresence
         | DirectReflectionCalls
-        | Async,
+        | Async
+        | DirectCallCount
+        | CallSiteCount,
 }
 
 [Flags]
@@ -45,6 +49,7 @@ internal enum ImplementationMetricFactKind
     AllocationOccurrences = 1 << 6,
     BodySignals = 1 << 7,
     Safety = 1 << 8,
+    DirectCallDiscovery = 1 << 9,
     All = SourceAttribution
         | ManagedBody
         | LocalSignature
@@ -53,7 +58,8 @@ internal enum ImplementationMetricFactKind
         | AllocationSignals
         | AllocationOccurrences
         | BodySignals
-        | Safety,
+        | Safety
+        | DirectCallDiscovery,
 }
 
 [Flags]
@@ -71,6 +77,7 @@ internal enum ImplementationMetricWorkStage
     BodySignalCollection = 1 << 8,
     SafetyCollection = 1 << 9,
     SiblingRelationshipProjection = 1 << 10,
+    DirectCallDiscovery = 1 << 11,
 }
 
 internal enum ImplementationMetricRequestOrigin
@@ -80,9 +87,13 @@ internal enum ImplementationMetricRequestOrigin
     LegacyFeatureCompatibility,
 }
 
-internal sealed record ImplementationMetricWorkLimits
+/// <summary>
+/// Finite physical-body and IL work bounds for selective implementation
+/// metrics.
+/// </summary>
+public sealed record ImplementationMetricWorkLimits
 {
-    internal ImplementationMetricWorkLimits(
+    public ImplementationMetricWorkLimits(
         int maximumPhysicalBodies,
         long maximumEncodedIlBytes,
         int maximumAttributionProbeBodies,
@@ -125,13 +136,13 @@ internal sealed record ImplementationMetricWorkLimits
         IsLegacyUnbounded = isLegacyUnbounded;
     }
 
-    internal int MaximumPhysicalBodies { get; }
+    public int MaximumPhysicalBodies { get; }
 
-    internal long MaximumEncodedIlBytes { get; }
+    public long MaximumEncodedIlBytes { get; }
 
-    internal int MaximumAttributionProbeBodies { get; }
+    public int MaximumAttributionProbeBodies { get; }
 
-    internal long MaximumAttributionProbeIlBytes { get; }
+    public long MaximumAttributionProbeIlBytes { get; }
 
     internal bool IsLegacyUnbounded { get; }
 
@@ -182,6 +193,7 @@ internal sealed record ImplementationMetricAnalysisRequest(
         | ImplementationMetricKind.ExceptionRegions
         | ImplementationMetricKind.Locals
         | ImplementationMetricKind.DirectCalls
+        | ImplementationMetricKind.DirectCallCount
         | ImplementationMetricKind.SiblingOverloadRelationships
         | ImplementationMetricKind.AllocationCount
         | ImplementationMetricKind.ThrowCount
@@ -221,6 +233,18 @@ internal sealed record ImplementationMetricAnalysisPlan(
         RequestedMetrics.HasFlag(
             ImplementationMetricKind.DirectCalls);
 
+    internal bool IncludesDirectCallCountMetric =>
+        RequestedMetrics.HasFlag(
+            ImplementationMetricKind.DirectCallCount);
+
+    internal bool IncludesCallSiteCountMetric =>
+        RequestedMetrics.HasFlag(
+            ImplementationMetricKind.CallSiteCount);
+
+    internal bool RequiresDirectCallDiscovery =>
+        RequiredFacts.HasFlag(
+            ImplementationMetricFactKind.DirectCallDiscovery);
+
     internal bool RequiresDirectCallFacts =>
         RequiredFacts.HasFlag(
             ImplementationMetricFactKind.DirectCalls);
@@ -236,6 +260,10 @@ internal sealed record ImplementationMetricAnalysisPlan(
     internal bool RequiresLocalSignatureDecode =>
         RequiredFacts.HasFlag(
             ImplementationMetricFactKind.LocalSignature);
+
+    internal bool RequiresMethodBodyBlock =>
+        RequiresLocalSignatureDecode
+        || RequiresDirectCallDiscovery;
 
     internal ImplementationMetricKind MetricCausesFor(
         ImplementationMetricWorkStage stage)
@@ -253,6 +281,8 @@ internal sealed record ImplementationMetricAnalysisPlan(
                     MetricsRequiringLocalSignature,
                 ImplementationMetricWorkStage.CanonicalMethodContext =>
                     MetricsRequiringContext,
+                ImplementationMetricWorkStage.DirectCallDiscovery =>
+                    MetricsRequiringDiscovery,
                 ImplementationMetricWorkStage.DirectCallCollection =>
                     MetricsRequiringCalls,
                 ImplementationMetricWorkStage
@@ -339,6 +369,12 @@ internal sealed record ImplementationMetricAnalysisPlan(
         {
             facts |= ImplementationMetricFactKind.DirectCalls;
         }
+        if ((metrics & MetricsRequiringDiscovery)
+            != ImplementationMetricKind.None)
+        {
+            facts |=
+                ImplementationMetricFactKind.DirectCallDiscovery;
+        }
         if (metrics.HasFlag(
             ImplementationMetricKind.AllocationCount))
         {
@@ -395,6 +431,12 @@ internal sealed record ImplementationMetricAnalysisPlan(
                     .CanonicalMethodContext;
         }
         if (facts.HasFlag(
+            ImplementationMetricFactKind.DirectCallDiscovery))
+        {
+            stages |=
+                ImplementationMetricWorkStage.DirectCallDiscovery;
+        }
+        if (facts.HasFlag(
             ImplementationMetricFactKind.DirectCalls))
         {
             stages |=
@@ -445,6 +487,8 @@ internal sealed record ImplementationMetricAnalysisPlan(
         HeaderMetrics
         | ImplementationMetricKind.Locals
         | FocusedContextMetrics
+        | ImplementationMetricKind.DirectCallCount
+        | ImplementationMetricKind.CallSiteCount
         | ImplementationMetricKind.DirectCalls
         | ImplementationMetricKind
             .SiblingOverloadRelationships;
@@ -470,6 +514,11 @@ internal sealed record ImplementationMetricAnalysisPlan(
             .SiblingOverloadRelationships
         | ImplementationMetricKind.UnsafePresence
         | ImplementationMetricKind.DirectReflectionCalls;
+
+    const ImplementationMetricKind MetricsRequiringDiscovery =
+        ImplementationMetricKind.DirectCallCount
+        | ImplementationMetricKind.CallSiteCount
+        | ImplementationMetricKind.DirectCalls;
 
     const ImplementationMetricKind MetricsRequiringLocalSignature =
         MetricsRequiringContext

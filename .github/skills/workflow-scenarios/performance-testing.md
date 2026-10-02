@@ -141,6 +141,65 @@ latency to otherwise local queries. See
 [network observation](network-guard.md) for Debug request logging and offline
 enforcement.
 
+## Correlate static triage with an allocation trace
+
+Export nested JSON, whose deep rows carry the declaring method coordinate. The
+`runfaster` prototype is available only in the dotnet-inspect repository and is
+not included in the published packages. From a source checkout, pass it that
+document and a trace captured from the same assembly build:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
+  --where "Priority>=high" --json > triage.json
+dotnet run --project src/runfaster -- \
+  correlate --triage triage.json --trace workload.nettrace
+```
+
+Compact `Performance:* --jsonl` rows omit deep provenance and cannot support an
+exact trace join. `runfaster` keeps their operation `Token` separate from the
+source-facing `MethodToken`, uses `EvidenceMethod` as the physical body token
+when supplied, and reports missing runtime coordinates explicitly. Blank
+flattened cells are treated as absent; invalid non-empty or conflicting
+supplied evidence-method tokens fail visibly.
+Method-name samples can still establish method-level heat, but only a complete
+runtime coordinate can produce an exact `confirmed-hot` result.
+For a filtered export, the trace join stops at the first frame in the
+represented assembly; it does not walk past an unexported in-assembly callee
+and credit an outer caller. If `--library` and `--triage` name the same physical
+candidate, the shape-compatible triage row carries the runtime evidence.
+The raw library row is marked `superseded-by-triage`, not workload-cold.
+Exact `string-materialization` rows intentionally have no static allocated
+type. RunFaster accepts only an observed `System.String` at their same-build
+nearest-preceding IL coordinate and lists the result under
+`Runtime-confirmed string materialization`. Those rows remain outside the
+automatic optimization verdict because runtime volume alone cannot distinguish
+required output from removable intermediate text; inspect the result consumer
+before choosing a rewrite. Supplied allocation-type fields, method-only heat,
+and aggregate `SupportingCallSite` coordinates cannot confirm string
+materialization: none identifies an observed `System.String` allocation at the
+exact string-producing operation.
+For a repeated-scan aggregate with a supporting call site, `runfaster` promotes
+an allocation observation only when the same build has a raw library allocation
+at that coordinate and exactly one aggregate support in that build claims it.
+Each build resolves independently before cross-build ambiguity attribution.
+The raw site is the attribution anchor; sampled allocation types can differ
+because GC allocation ticks resolve to the nearest preceding IL allocation
+site. RunFaster resolves the nearest raw allocation first, then attaches support
+at that exact coordinate; a later non-allocation scan-call support therefore
+cannot hide the raw site. When an exact triage row and one aggregate support
+both project the same raw site, the aggregate carries the evidence and the
+exact row is superseded rather than splitting bytes. An exact row at another
+offset or from another build remains independent. Method-name and CPU samples
+can mark the aggregate method hot, but only an accepted allocation-coordinate
+join supersedes its raw allocation anchor. Otherwise the aggregate remains cold
+for the workload and the raw row keeps the evidence.
+Type-level ambiguity and its site cap count the shared coordinate once unless
+several library MVIDs make an older MVID-less triage row's module version
+ambiguous.
+Triage and library inputs from different builds retain distinct MVIDs and can
+therefore increase ambiguity or exceed the type-confirmation site cap.
+
 ## Reference
 
-- [Version query perf scenarios](../../docs/workflows/perf/perf-version-queries.md) — the primary perf workflow with latency targets
+- [Version query perf scenarios](../../../docs/workflows/perf/perf-version-queries.md) —
+  the primary perf workflow with latency targets

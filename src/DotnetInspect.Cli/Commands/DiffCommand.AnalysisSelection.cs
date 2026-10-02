@@ -421,16 +421,6 @@ public partial class DiffCommand
     {
         AnalysisSetValidationResult.Accepted selection = plan.Selection;
         AnalysisReportSurfaceKind surface = selection.Surface;
-        string[] bodyTargeted =
-        [
-            .. selection.Analyses
-                .Where(analysis => analysis.ParticipationFor(
-                        AnalysisOperationKind.Compare)
-                    ?.For(surface)?.ProducerRoute is { } route
-                    && (route == DiffAnalysisCatalog.RetainedResearchRoute
-                        || route == DiffAnalysisCatalog.BodySignalRoute))
-                .Select(analysis => analysis.Id.Value),
-        ];
 
         // Member targets resolve once, before any producer runs, whatever the
         // set: a target failure is a request failure, never an outcome.
@@ -443,11 +433,7 @@ public partial class DiffCommand
                     fromSurface,
                     toSurface,
                     options.MemberFilter,
-                    options.TypeFilter,
-                    requireBodyTargets: bodyTargeted.Length > 0,
-                    bodySectionName: bodyTargeted.Length > 0
-                        ? $"--analysis {bodyTargeted[0]}"
-                        : "--analysis");
+                    options.TypeFilter);
             }
             catch (InvalidOperationException ex)
                 when (ex is not DiffAnalysisTargetException)
@@ -465,6 +451,28 @@ public partial class DiffCommand
                 [.. targets.TypeNames.Order(StringComparer.Ordinal)],
             _ => [],
         };
+
+        ImplementationDiffResult? implementation = null;
+        if (DiffAnalysisCatalog.RequiresImplementation(selection))
+        {
+            try
+            {
+                implementation = RequireImplementationComparison(
+                    ImplementationComparisonQuery.Execute(
+                        CreateImplementationComparisonInput(
+                            fromPaths,
+                            toPaths,
+                            options,
+                            fromSurface,
+                            toSurface)),
+                    "--analysis");
+            }
+            catch (InvalidOperationException ex)
+                when (ex is not DiffAnalysisTargetException)
+            {
+                throw new DiffAnalysisTargetException(ex.Message);
+            }
+        }
 
         var input = new DiffAnalysisInput(
             fromSurface,
@@ -484,7 +492,10 @@ public partial class DiffCommand
                         toSurface,
                         descriptors)),
                 options,
-                "--analysis"));
+                "--analysis"),
+            implementation is null
+                ? null
+                : () => implementation);
         return new AnalysisSetRun(
             DiffAnalysisInspection.Execute(
                 new DiffAnalysisInspectionRequest(

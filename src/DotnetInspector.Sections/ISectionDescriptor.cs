@@ -1,4 +1,4 @@
-namespace DotnetInspect.Cli.Sections;
+namespace DotnetInspector.Sections;
 
 /// <summary>
 /// Metadata descriptor for a named section. Declares the section's name,
@@ -9,21 +9,21 @@ namespace DotnetInspect.Cli.Sections;
 /// <typeparam name="TModel">The model type this section inspects.</typeparam>
 public interface ISectionDescriptor<TModel>
 {
-    /// <summary>Section display name (must match the MarkoutSection Name).</summary>
+    /// <summary>Stable section identity and display name.</summary>
     static abstract string Name { get; }
 
     /// <summary>
     /// Whether this section requires expensive operations (network access or
     /// heavyweight computation like decompilation). Expensive sections are
-    /// only shown at <see cref="Verbosity.Detailed"/>. Note: "expensive" means
+    /// only shown at <see cref="SectionViewLevel.Detailed"/>. Note: "expensive" means
     /// "show late", not "touches network" — e.g. decompiler sections are expensive but local.
     /// </summary>
     static abstract bool IsExpensive { get; }
 
     /// <summary>
     /// When true, this section is never auto-selected by any verbosity (not even
-    /// <see cref="Verbosity.Detailed"/>); it renders only when explicitly requested via
-    /// <c>-S</c>/<c>-D</c>. Use for slow, opt-in work the default flow must never trigger.
+    /// <see cref="SectionViewLevel.Detailed"/>); it renders only when explicitly requested.
+    /// Use for slow, opt-in work an automatic view must never trigger.
     /// </summary>
     static virtual bool ExplicitOnly => false;
 

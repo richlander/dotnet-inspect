@@ -84,6 +84,14 @@ The public operation is named `PostMethodDeclaration`. "Post" means publishing
 the final detached receipt after all reads, validation, charging, and
 retention succeed. It does not mean constructing or retaining a live session.
 
+Within one live declaration session, the complete
+`MetadataMethodDeclarationRequest` is the cache key. Repeating that exact
+request returns the same detached `Posted` or `Rejected` result without
+repeating charged work. The session checks cancellation and liveness before
+consulting the cache, retains at most one result per requested TypeDef and
+MethodDef pair, clears the cache on disposal, and does not reuse results across
+independently opened declaration sessions.
+
 ## Declaration post
 
 The posted evidence carries:
@@ -282,6 +290,10 @@ Image admission remains charged once by `MetadataDeclarationSession`.
 `MethodImplementationRows` and `InterfaceImplementationRows` are not charged
 because this operation does not read those tables.
 
+The dimensions above apply to the first exact request in one live declaration
+session. A repeated request for the same TypeDef and MethodDef pair returns the
+session's detached result without another charge or evidence construction.
+
 Before reading an owner range, the operation charges and validates the physical
 ordering of CustomAttribute parents, GenericParam owners, and
 GenericParamConstraint owners. A falsely asserted sorted-table flag therefore
@@ -328,6 +340,8 @@ The Release gate must include:
 - malformed and over-deep signatures and TypeSpec constraint graphs;
 - below, at, and above every exercised operation limit;
 - cancellation before work and at the final publication boundary;
+- repeated successful and rejected exact requests, including cancellation
+  before a cached lookup and distinct MethodDef cache keys;
 - session, assembly, and operation disposal before access and after
   publication; and
 - consumption from a public no-friend assembly.

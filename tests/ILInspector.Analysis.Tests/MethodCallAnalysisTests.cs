@@ -1,5 +1,11 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Fixtures;
+using ILInspector.Analysis.ImplementationProfileFixtures;
 using ILInspector.Instructions;
 
 namespace ILInspector.Analysis.Tests;
@@ -14,6 +20,70 @@ public sealed class MethodCallAnalysisTests
 
     static readonly TypeRef s_void =
         TypeRef.CoreLib("System", "Void");
+
+    [Fact]
+    public void DirectInvocationCountMatchesRowsWithoutTargetResolution()
+    {
+        MethodInfo method = typeof(ImplementationProfileSample)
+            .GetMethod(
+                nameof(ImplementationProfileSample.CallHiddenTwice),
+                BindingFlags.Public | BindingFlags.Static)!;
+        using FileStream stream = File.OpenRead(
+            method.DeclaringType!.Assembly.Location);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinition definition = reader.GetMethodDefinition(
+            MetadataTokens.MethodDefinitionHandle(
+                method.MetadataToken & 0x00FFFFFF));
+        MethodBodyBlock body = peReader.GetMethodBody(
+            definition.RelativeVirtualAddress);
+
+        int count = MethodCallAnalysis.CountDirectInvocations(body);
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                method.DeclaringType.Assembly.Location,
+                LibraryBodyAnalysisRequest.CreateImplementationMetrics(
+                    ImplementationMetricKind.DirectCalls,
+                    new(
+                        maximumPhysicalBodies: 1,
+                        maximumEncodedIlBytes: 10_000,
+                        maximumAttributionProbeBodies: 10,
+                        maximumAttributionProbeIlBytes: 10_000),
+                    new HashSet<int> { method.MetadataToken }));
+        ImplementationMetricDirectCalls materialized =
+            Assert.IsType<ImplementationMetricDirectCalls>(
+                Assert.Single(execution.ImplementationMetrics.Bodies)
+                    .DirectCalls);
+
+        Assert.Equal(2, count);
+        Assert.Equal(materialized.InvocationCount, count);
+        Assert.Equal(1, materialized.DistinctTargetCount);
+    }
+
+    [Theory]
+    [InlineData(
+        FixtureIds.AnalysisMethodCorrespondenceRuntime,
+        "Widget",
+        "Invoke")]
+    [InlineData(
+        FixtureIds.AnalysisRender,
+        "RealRenderFixtures",
+        "LoadFunctionPointerInLoop")]
+    public void
+        DirectInvocationCountExcludesIndirectCallsAndFunctionLoads(
+            string fixtureId,
+            string typeName,
+            string methodName)
+    {
+        string path = FixtureCatalog.Get(fixtureId).AssemblyPath();
+
+        Assert.Equal(
+            0,
+            CountDirectInvocations(path, typeName, methodName));
+        Assert.True(
+            DiscoverCounts(path, typeName, methodName)
+                .CallSiteCount > 0);
+    }
 
     [Fact]
     public void ProjectsCallKindsAndCoordinatesInInstructionOrder()
@@ -794,6 +864,38 @@ public sealed class MethodCallAnalysisTests
             s_void,
             MetadataToken: 0x06000001,
             IsStatic: true);
+
+    static int CountDirectInvocations(
+        string path,
+        string typeName,
+        string methodName) =>
+        DiscoverCounts(path, typeName, methodName)
+            .InvocationCount;
+
+    static MethodCallAnalysis.DiscoveryCounts DiscoverCounts(
+        string path,
+        string typeName,
+        string methodName)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.TypeDefinitions
+            .Select(reader.GetTypeDefinition)
+            .Single(definition =>
+                reader.StringComparer.Equals(
+                    definition.Name,
+                    typeName));
+        MethodDefinition method = type.GetMethods()
+            .Select(reader.GetMethodDefinition)
+            .Single(definition =>
+                reader.StringComparer.Equals(
+                    definition.Name,
+                    methodName));
+        MethodBodyBlock body = peReader.GetMethodBody(
+            method.RelativeVirtualAddress);
+        return MethodCallAnalysis.DiscoverCounts(body);
+    }
 
     sealed class Resolver(
         bool unsafeMember = false,

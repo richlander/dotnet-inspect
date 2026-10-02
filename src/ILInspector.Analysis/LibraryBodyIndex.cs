@@ -83,7 +83,8 @@ public sealed class LibraryBodyIndex
         bool hasFullMethodEvidenceScope,
         LibraryOptimizationAnalysisResult? optimization = null,
         LibraryCallGraphAnalysisResult? callGraph = null,
-        LibraryLeverageAnalysisResult? leverage = null)
+        LibraryLeverageAnalysisResult? leverage = null,
+        LibraryJsonWireContractAnalysisResult? jsonWireContracts = null)
     {
         Path = path;
         ModuleIdentity = moduleIdentity;
@@ -112,6 +113,11 @@ public sealed class LibraryBodyIndex
                 receipt,
                 moduleName,
                 analysis);
+        _jsonWireContracts = jsonWireContracts
+            ?? new(
+                receipt,
+                _callGraph,
+                analysis);
         GeneratedFrameworkTypeSet? generatedFrameworkTypes = null;
         _leverage = leverage
             ?? new(
@@ -131,6 +137,15 @@ public sealed class LibraryBodyIndex
         UnsafeModes = analysis.Safety.Modes;
         _implementationProfiles =
             analysis.Methods.ImplementationProfiles;
+        _directInvocationCounts =
+            analysis.Methods.ImplementationMetrics
+                .Where(static body =>
+                    body.DirectCallCount is not null)
+                .ToDictionary(
+                    static body =>
+                        body.EvidenceMethod.MetadataToken,
+                    static body =>
+                        body.DirectCallCount!.Count);
         _allocationOccurrences = analysis.Allocations.Occurrences;
         _unsafetyOccurrences = analysis.Safety.Occurrences;
         Features = features;
@@ -223,12 +238,19 @@ public sealed class LibraryBodyIndex
     readonly LibraryOptimizationAnalysisResult _optimization;
     readonly LibraryCallGraphAnalysisResult _callGraph;
     readonly LibraryLeverageAnalysisResult _leverage;
+    readonly LibraryJsonWireContractAnalysisResult _jsonWireContracts;
 
     /// <summary>
     /// Focused call-graph result backing the compatibility members.
     /// </summary>
     public LibraryCallGraphAnalysisResult CallGraphAnalysis =>
         _callGraph;
+
+    /// <summary>
+    /// Focused JSON wire-contract result backing the compatibility members.
+    /// </summary>
+    public LibraryJsonWireContractAnalysisResult JsonWireContracts =>
+        _jsonWireContracts;
 
     /// <summary>
     /// Focused leverage result backing the compatibility member.
@@ -374,6 +396,8 @@ public sealed class LibraryBodyIndex
 
     readonly ImmutableArray<MethodBodyImplementationMetrics>
         _implementationProfiles;
+    readonly IReadOnlyDictionary<int, int>
+        _directInvocationCounts;
     ImmutableArray<MethodImplementationProfile>
         _projectedImplementationProfiles;
     ImmutableArray<OverloadCallRelationship>
@@ -417,7 +441,8 @@ public sealed class LibraryBodyIndex
                     DirectCalls,
                     Signals,
                     OverloadRelationships(),
-                    DeclaredMethodMap);
+                    DeclaredMethodMap,
+                    _directInvocationCounts);
         }
 
         return scope is null
@@ -526,23 +551,6 @@ public sealed class LibraryBodyIndex
     public IReadOnlySet<TypeRef> GeneratedFrameworkTypes
         => _optimization.GeneratedFrameworkTypes;
 
-    /// <summary>
-    /// True when <paramref name="type"/> is in
-    /// <see cref="GeneratedFrameworkTypes"/> or is a metadata nested type of one.
-    /// </summary>
-    public bool IsGeneratedFrameworkType(TypeRef type)
-        => IsGeneratedFrameworkType(GeneratedFrameworkTypes, type);
-
-    /// <summary>
-    /// True when <paramref name="type"/> is a classified generated-framework type
-    /// or a metadata nested type of one. Prefers decoder segment structure over
-    /// flattened <c>+</c> names; does not parse qualified display text.
-    /// </summary>
-    public static bool IsGeneratedFrameworkType(
-        IReadOnlySet<TypeRef> generatedFrameworkTypes,
-        TypeRef type)
-        => GeneratedFrameworkTypeAnalysis.Contains(generatedFrameworkTypes, type);
-
     public static LibraryBodyIndex Open(string path)
         => LibraryBodyAnalysisService.AnalyzePath(
             path,
@@ -560,7 +568,9 @@ public sealed class LibraryBodyIndex
         ImmutableArray<FieldStoreFact> fieldStores = default,
         ImmutableArray<FieldLoadFact> fieldLoads = default,
         ImmutableArray<MethodReturnFlow> returnFlows = default,
-        LibraryBodyModuleIdentity? moduleIdentity = null)
+        LibraryBodyModuleIdentity? moduleIdentity = null,
+        LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence)
     {
         moduleIdentity ??= SyntheticEvidenceIdentity(methods);
         ValidateSyntheticEvidenceIdentity(moduleIdentity, methods);
@@ -623,7 +633,7 @@ public sealed class LibraryBodyIndex
                     ExceptionTypeNames:
                         new HashSet<string>(StringComparer.Ordinal)),
                 Diagnostics: diagnostics.IsDefault ? [] : diagnostics),
-            features: LibraryBodyAnalysisFeatures.MethodEvidence
+            features: features
                 | (allocationOccurrences is null
                     ? LibraryBodyAnalysisFeatures.None
                     : LibraryBodyAnalysisFeatures.Allocations),

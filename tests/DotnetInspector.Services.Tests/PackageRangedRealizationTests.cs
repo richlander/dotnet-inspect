@@ -785,6 +785,33 @@ public sealed partial class PackageRangedRealizationTests
                     request.Operation.OperationTimeout));
         }
 
+        public Task<PackageHouseSettlement> AcquireContentAsync(
+            IPackageStore store,
+            PackageHouseContentQuery query,
+            long sizeCut = 0,
+            string packageId = PclStorage,
+            string version = PclStorageVersion)
+        {
+            var house = new PackageHouse(
+                Authorization,
+                PackagePayloadAcquisitionPlan.ForContentQueries(
+                    (_, _) => store,
+                    log: Log.Enqueue,
+                    rangedSizeCut: sizeCut));
+            var request = new PackageHouseRequest(
+                new PackageHouseDemand.Exact(
+                    PackageSourceCoordinate.Create(packageId, version)),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                contentQuery: query);
+            return house.ExecuteAsync(
+                request,
+                Root.IssueOperationLease(
+                    TestContext.Current.CancellationToken,
+                    request.Operation.RequestTimeout,
+                    request.Operation.OperationTimeout));
+        }
+
         public Task<PackageFileAcquisitionResult> AcquireFileAsync(
             IPackageStore store,
             string path,

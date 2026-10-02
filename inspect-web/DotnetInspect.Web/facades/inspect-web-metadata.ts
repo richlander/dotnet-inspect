@@ -462,6 +462,7 @@ export interface BrowserMemberSurface {
   readonly graphSelectorKey: string;
   readonly bodySelectors: ReadonlyArray<BrowserMemberBodySelector>;
   readonly baselineOrdinal: number | null;
+  readonly isExplicitInterfaceImplementation: boolean;
 }
 
 export interface BrowserMetadataCell {
@@ -642,11 +643,17 @@ export interface BrowserTypeMemberComposition {
   readonly extension: number;
 }
 
+export interface BrowserTypeMemberFacetCount {
+  readonly value: string;
+  readonly count: number;
+}
+
 export interface BrowserTypeMemberPopulation {
   readonly typeIdentity: string;
   readonly spelling: string;
   readonly accessibility: string;
   readonly composition: BrowserTypeMemberComposition;
+  readonly selectorCounts: BrowserTypeMemberSelectorCounts;
   readonly groups: ReadonlyArray<BrowserTypeMemberPopulationGroup>;
 }
 
@@ -663,6 +670,20 @@ export interface BrowserTypeMemberPopulationInspection {
   readonly detail: string | null;
   readonly population: BrowserTypeMemberPopulation | null;
   readonly diagnostics: ReadonlyArray<string>;
+}
+
+export interface BrowserTypeMemberSelectorCounts {
+  readonly kinds: ReadonlyArray<BrowserTypeMemberFacetCount>;
+  readonly traits: BrowserTypeMemberTraitCounts;
+}
+
+export interface BrowserTypeMemberTraitCounts {
+  readonly all: number;
+  readonly static: number;
+  readonly instance: number;
+  readonly virtual: number;
+  readonly interface: number;
+  readonly extensions: number;
 }
 
 export interface BrowserTypeMetadata {

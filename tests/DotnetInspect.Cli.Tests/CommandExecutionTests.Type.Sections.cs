@@ -171,6 +171,35 @@ public partial class CommandExecutionTests
             advertised.OrderBy(f => f, StringComparer.Ordinal));
     }
 
+    [Fact]
+    public async Task Type_TypeInfoDiscovery_DoesNotRunUnrequestedUnsafeProbe()
+    {
+        var (assemblyPath, fixtureDir) =
+            CreateIncompleteUnsafeDiscoveryAssembly();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                "DiscoveryFixtures.IncompleteUnsafeDiscovery",
+                "--library",
+                assemblyPath,
+                "-D",
+                SectionNames.TypeInfo,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.NotEmpty(output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+        }
+    }
+
     /// <summary>
     /// Type parameters are an identity fact, so an open generic must report them. The summary used
     /// to be computed only at quiet verbosity for the inline header, which left the section's

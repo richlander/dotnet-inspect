@@ -114,12 +114,17 @@ The concurrency claims are specified separately as executable TLA+ models under
 Those models check the design state machines; they do not prove that a future
 C# or TypeScript implementation conforms to them.
 
-The Workspace-rooted subject graph specified below is **target-only and
-unverified** under [#7301](https://github.com/richlander/dotnet-inspect/issues/7301).
-The current `StructuralSubjectIdentity`, snapshot, action, restoration, and
-CLI gates prove only the implemented Package-backed subset. They do not yet
-prove Ecosystem subjects, direct Workspace-to-Library routes, route-independent
-subject identity, or route reconciliation.
+The Workspace-rooted subject graph specified below remains **partially
+implemented** under
+[#7301](https://github.com/richlander/dotnet-inspect/issues/7301).
+The current `StructuralSubjectIdentity`, stateless snapshot, Registry, and CLI
+gates prove the Package-backed subset plus one exact registered-empty Ecosystem
+subject with effective Ecosystem Overview. They do not yet prove Ecosystem
+action-state restoration, Ecosystem-to-Package or
+Ecosystem-to-Library routes, direct Workspace-to-Library routes,
+route-independent Library identity, or route reconciliation.
+No dedicated composition gate verifies the acquisition-absence claim for the
+registered-empty Ecosystem slice; by operator choice, that claim is unverified.
 
 The first preparatory Ecosystem-intake slice is implemented by
 `EcosystemPopulationNavigationProjection` and its closed result shapes in
@@ -128,8 +133,10 @@ historical accepted Focus witness against one caller-supplied current Workspace
 registration revision and returns exact current contribution evidence only
 while that revision retains the same owner-issued occurrence and contribution
 relation. Workspace registration now issues that occurrence and relation
-prerequisite. This slice does not implement the Ecosystem structural subject,
-route composition, activation, or reconciliation.
+prerequisite. The registered-empty slice tracked by #9068 consumes the same
+occurrence currency for structural identity and exact CLI selection. Population
+route composition, action-state restoration, and reconciliation remain
+unimplemented.
 
 PR #5433 demonstrates the intended browser distinction: Workspace manages
 retained coordinates, Package is inspectable, and package tabs are absent.

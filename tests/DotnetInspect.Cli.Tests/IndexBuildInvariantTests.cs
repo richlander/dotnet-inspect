@@ -186,6 +186,28 @@ public class IndexBuildInvariantTests
     }
 
     [Fact]
+    public async Task TypeCommand_UnsafeMembersDiscovery_DoesNotBuildIndex()
+    {
+        MethodBodyInspectionSession.OpenCountForTests = 0;
+
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(SampleUnsafeClass).FullName,
+            AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
+            Discover = [SectionNames.UnsafeMembers],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            Tabular = true,
+            Tsv = true,
+            TabularExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(0, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public async Task LibraryCommand_MultipleAnalysisSections_BuildsIndexOnce()
     {

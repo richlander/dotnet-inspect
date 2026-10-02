@@ -14,8 +14,10 @@ user gesture
   -> rendering
 ```
 
-The command owns the gesture and budget. `SectionPipeline<TModel>` owns section
-and category planning. `InspectionQueryRegistry` authors typed query
+The host owns the gesture, capability authorization, and presentation budget.
+It lowers automatic disclosure to `SectionViewLevel`.
+`SectionPipeline<TModel>` owns section and category planning.
+`InspectionQueryRegistry` authors typed query
 declarations; its immutable `InspectionQueryCatalog` owns query cost,
 prerequisites, optional composition, planning, and execution.
 
@@ -163,7 +165,11 @@ planning allocate no memory after static initialization;
 `LibraryQueryCatalog_RepeatedAcquisitionAndPlanningAllocateNothing` gates that
 property.
 
-`SectionPipeline<TModel>` remains the mutable section-authoring API.
+`DotnetInspector.Sections` owns `SectionPipeline<TModel>` as the mutable
+section-authoring API and `SectionCatalog<TModel>` as its immutable compiled
+form. The CLI maps `Verbosity` to `SectionViewLevel` and projects neutral
+section and host query demand into `InspectionTrace`; neither CLI type enters
+the L2 contract.
 `Compile()` freezes it and returns an immutable `SectionCatalog<TModel>` that
 snapshots stable section and category enumeration. Compilation also preserves
 the frozen pipeline for candidate, effectiveness, and rendering APIs rather
@@ -231,7 +237,8 @@ without allowing later registrations to mutate that snapshot.
 
 ## Compiled inspection domain composition
 
-**Compiled Inspection Domain Composition** owns the L1/L2 binding between one
+**Compiled Inspection Domain Composition** in `DotnetInspector.Sections` owns
+the L1/L2 binding between one
 immutable typed-query domain and one or more immutable section lenses. It is a
 focused composition owner: Queries continues to own producer registration,
 dependency closure, cost, planning, and execution, while the Section Pipeline

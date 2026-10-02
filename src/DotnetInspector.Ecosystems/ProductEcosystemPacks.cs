@@ -56,6 +56,7 @@ internal static class ProductEcosystemPacks
             ])
         {
             NamespaceRoots = ["Microsoft.Extensions"],
+            DependsOn = EcosystemPackIds.Runtime,
         }, "ecosystem.microsoft-extensions",
         [
             new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
@@ -71,6 +72,7 @@ internal static class ProductEcosystemPacks
             PopulationLoader: ProductEcosystemPopulationLoaders.AspNetCore)
         {
             NamespaceRoots = ["Microsoft.AspNetCore"],
+            DependsOn = EcosystemPackIds.MicrosoftExtensions,
         }, "ecosystem.aspnetcore",
         [
             new WorkspaceEcosystemPopulationDeclaration.Platform(
@@ -91,6 +93,7 @@ internal static class ProductEcosystemPacks
             Scanner: EcosystemIntegrationScanner.AspireBinding)
         {
             NamespaceRoots = ["Aspire"],
+            DependsOn = EcosystemPackIds.AspNetCore,
             CorePackages =
             [
                 new("Aspire.Hosting"),
@@ -110,6 +113,7 @@ internal static class ProductEcosystemPacks
             PackageSet: null,
             [])
         {
+            DependsOn = EcosystemPackIds.MicrosoftExtensions,
             NamespaceRoots =
             [
                 "Microsoft.Extensions.AI",
@@ -139,6 +143,7 @@ internal static class ProductEcosystemPacks
             PackageSet: null,
             [])
         {
+            DependsOn = EcosystemPackIds.AspNetCore,
             NamespaceRoots =
             [
                 "Microsoft.AspNetCore.Components",
@@ -166,6 +171,7 @@ internal static class ProductEcosystemPacks
             PackageSet: null,
             [])
         {
+            DependsOn = EcosystemPackIds.MicrosoftExtensions,
             NamespaceRoots =
             [
                 "Microsoft.Maui",
@@ -192,23 +198,11 @@ internal static class ProductEcosystemPacks
 
     internal static WorkspacePlan PlatformWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
         Registry,
-        [
-            EcosystemPackIds.Runtime,
-            EcosystemPackIds.AspNetCore,
-            EcosystemPackIds.MicrosoftExtensions,
-        ]);
+        Registry.ExpandLineages([EcosystemPackIds.AspNetCore]));
 
     internal static WorkspacePlan AllKnownWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
         Registry,
-        [
-            EcosystemPackIds.Runtime,
-            EcosystemPackIds.AspNetCore,
-            EcosystemPackIds.MicrosoftExtensions,
-            EcosystemPackIds.Aspire,
-            EcosystemPackIds.AI,
-            EcosystemPackIds.Blazor,
-            EcosystemPackIds.Maui,
-        ],
+        Registry.ExpandLineages(Registry.Packs.Select(pack => pack.Id)),
         requireAllPacks: true);
 
     internal static EcosystemDependencyRecognitionProfile
