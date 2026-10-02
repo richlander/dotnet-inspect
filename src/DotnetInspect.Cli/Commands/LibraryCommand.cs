@@ -4552,6 +4552,7 @@ public partial class LibraryCommand
                     StringComparison.OrdinalIgnoreCase)))
             return false;
 
+        WarnIncompleteResourceTriage(inspections, options);
         CommandError.WriteLine($"This section ({emptySection}) produced no output.");
         return true;
     }
