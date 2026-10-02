@@ -239,6 +239,60 @@ occurrence-only request does not select lifecycle work. The lifecycle producer
 composes occurrence evidence with same-execution control-flow and exception
 facts before those operation-local facts are discarded.
 
+### Direct-call target resolution
+
+`LibraryCallGraphAnalysisResult.ResolveTarget(DirectCall)` publishes the
+Analysis-issued target of one physical direct call from that result
+([#8700](https://github.com/richlander/dotnet-inspect/issues/8700)). Each call
+resolves to exactly one of:
+
+- **current module**, with the bound declared `MethodIdentity`;
+- **external**, with the exact decoded reference origin of the callee's
+  declaring type definition. Type forwarding is never followed;
+- **runtime-provided**, for a member of an array type; or
+- **unresolved**, with a typed reason: indirect (`calli`), unsupported
+  signature, malformed signature, invalid generic declaration, unmatched, or
+  ambiguous.
+
+A call through a generic instantiation of a current-module type is encoded as a
+member reference on a type specification, so its `CalleeDefinitionToken` is not
+a declared-method token. Resolution binds it by token and then by signature,
+using the same current-module test and signature comparison as the call graph's
+own traversal. Consumers must use this outcome and must not match
+`CalleeDefinitionToken` against `DeclaredMethods`. Resolution is a pure function
+of the published result and does not require `LibraryBodyIndex`.
+
+The first production consumer is the Library Metrics relationship projection.
+Library Dependency Structure is the second.
+
+`LibraryCallGraphAnalysisResult.ResolveDeclaredMethod(MethodIdentity)`
+publishes Analysis's declared-source association for any method, including
+call targets and methods that make no calls. The compatibility index forwards
+to it.
+
+- **Where Analysis authenticates the ultimate owner** (lifted lambdas, local
+  functions, and async `MoveNext`), it returns that owner. This is the same
+  association `DirectCall.Caller` carries.
+- **Async `MoveNext` ignores scope:** one whose ultimate owner authenticates is
+  associated module-wide, even when it lies outside a scoped result's body
+  scope.
+- **One exception, in an unscoped result:** an async `MoveNext` whose lifted
+  source's owner cannot be resolved maps to that immediate lifted source,
+  unless the source's compiler-generated name is malformed. The calls made by
+  that `MoveNext` keep the physical `MoveNext` as `DirectCall.Caller`.
+- **Scoped results withhold that fallback:** they return `null` for it, and for
+  lambdas and local functions outside the scope.
+- **Never associated:** sync iterators, and state-machine or display-class
+  constructors.
+
+Its first production consumer is Library Dependency Structure, which uses it to
+attribute call targets. Gates:
+
+- `DirectCalls_RuntimeAsyncDecoyDoesNotPoisonValidSource`: the module-wide
+  async association.
+- `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`:
+  the unscoped fallback and the scoped `null`, on the focused result.
+
 During migration, `LibraryBodyIndex` may adapt the execution receipt and
 focused results for unmigrated consumers. Adapter-only lazy indexes may remain
 until their focused owner and consumer move. The adapter must not become the

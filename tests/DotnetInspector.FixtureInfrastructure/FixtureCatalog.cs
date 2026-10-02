@@ -130,6 +130,7 @@ public static class FixtureIds
     public const string AnalysisOwnershipFlow = "analysis.ownership-flow";
     public const string AnalysisCallOverloads = "analysis.call-overloads";
     public const string AnalysisCallGenericScope = "analysis.call-generic-scope";
+    public const string AnalysisCalleeResolution = "analysis.callee-resolution";
     public const string AnalysisCallFunctionPointerScope = "analysis.call-function-pointer-scope";
     public const string AnalysisTopLevelAsync = "analysis.top-level-async";
     public const string AnalysisTopLevelClassicAsync = "analysis.top-level-classic-async";
@@ -187,6 +188,8 @@ public static class FixtureIds
 
     public const string ResearchTargetSample = "research.target-sample";
     public const string ResearchNameFamilies = "research.name-families";
+    public const string ResearchDependencyStructure =
+        "research.dependency-structure";
     public const string ResearchTargetCorrespondenceV1 =
         "research.target-correspondence.v1";
     public const string ResearchTargetCorrespondenceV2 =
@@ -557,6 +560,14 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.CompilerLowering),
         "research", "name-family", "source-provenance");
 
+    public static readonly FixtureDefinition ResearchDependencyStructure =
+        Fixture(
+            FixtureIds.ResearchDependencyStructure,
+            "ILInspector.Research.DependencyStructureFixtures",
+            "ILInspector.Research.DependencyStructureFixtures.dll",
+            Boundaries(FixtureBoundary.CompilerLowering),
+            "research", "dependency-structure", "graph");
+
     public static readonly FixtureDefinition ResearchTargetCorrespondenceV1 =
         Fixture(
             FixtureIds.ResearchTargetCorrespondenceV1,
@@ -634,6 +645,13 @@ public static class FixtureCatalog
         FixtureIds.AnalysisCallGenericScope,
         "ILInspector.Analysis.CallGenericScopeFixtures",
         "ILInspector.Analysis.CallGenericScopeFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "analysis", "same-image-calls");
+
+    public static readonly FixtureDefinition AnalysisCalleeResolution = Fixture(
+        FixtureIds.AnalysisCalleeResolution,
+        "ILInspector.Analysis.CalleeResolutionFixtures",
+        "ILInspector.Analysis.CalleeResolutionFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "analysis", "same-image-calls");
 
@@ -1204,6 +1222,7 @@ public static class FixtureCatalog
         AnalysisOwnershipFlow,
         AnalysisCallOverloads,
         AnalysisCallGenericScope,
+        AnalysisCalleeResolution,
         AnalysisCallFunctionPointerScope,
         AnalysisTopLevelAsync,
         AnalysisTopLevelClassicAsync,
@@ -1272,6 +1291,7 @@ public static class FixtureCatalog
         MatchBindingFacade,
         MatchBindingImplementation,
         ResearchNameFamilies,
+        ResearchDependencyStructure,
         ResearchTargetSample,
         ResearchTargetCorrespondenceV1,
         ResearchTargetCorrespondenceV2,
@@ -1309,6 +1329,7 @@ public static class FixtureCatalog
             AnalysisOwnershipFlow,
             AnalysisCallOverloads,
             AnalysisCallGenericScope,
+            AnalysisCalleeResolution,
             AnalysisCallFunctionPointerScope,
             AnalysisStringLiterals,
             AnalysisAllocationLifetime,
@@ -1683,6 +1704,7 @@ public static class FixtureCatalog
             "ILInspector.Analysis.OwnershipFlowFixtures" => "fixtures/analysis/ILInspector.Analysis.OwnershipFlowFixtures",
             "ILInspector.Analysis.CallOverloadFixtures" => "fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures",
             "ILInspector.Analysis.CallGenericScopeFixtures" => "fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures",
+            "ILInspector.Analysis.CalleeResolutionFixtures" => "fixtures/analysis/ILInspector.Analysis.CalleeResolutionFixtures",
             "ILInspector.Analysis.CallFunctionPointerScopeFixtures" => "fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures",
             "ILInspector.Analysis.ProtobufFixtures" => "fixtures/analysis/ILInspector.Analysis.ProtobufFixtures",
             "ILInspector.Analysis.RenderFixtures" => "fixtures/analysis/ILInspector.Analysis.RenderFixtures",
@@ -1711,6 +1733,8 @@ public static class FixtureCatalog
             "ILInspector.Decompiler.Fixtures.VbFinalizer" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.VbFinalizer",
             "ILInspector.Research.NameFamilyFixtures" =>
                 "fixtures/research/ILInspector.Research.NameFamilyFixtures",
+            "ILInspector.Research.DependencyStructureFixtures" =>
+                "fixtures/research/ILInspector.Research.DependencyStructureFixtures",
             "ILInspector.Research.TargetFixtures" =>
                 "fixtures/research/ILInspector.Research.TargetFixtures",
             "ResearchTargetCorrespondenceFixtures.V1" => "fixtures/research/ResearchTargetCorrespondenceFixtures.V1",
