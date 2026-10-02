@@ -2093,6 +2093,14 @@ public partial class LibraryCommand
         if (options.IncludeSections is not { Count: > 0 })
             return 0;
 
+        if (options.IncludeSections.Contains(SectionNames.ArrayPoolEscapes)
+            && inspections.Any(inspection =>
+                inspection.ResourceTriageQueryResult
+                    is ResourceTriageResult.Incomplete))
+        {
+            return 1;
+        }
+
         return inspections.Any(inspection =>
         {
             var empty = pipeline.GetEmptySections(
@@ -4404,6 +4412,8 @@ public partial class LibraryCommand
     internal static void WarnEmptySections(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline, bool writeEmptyNote = true)
     {
+        WarnIncompleteResourceTriage(inspections, options);
+
         var emptyResults = inspections
             .Select(inspection => pipeline.GetEmptySections(
                 inspection, options.Verbosity, options.IncludeSections))
@@ -4446,6 +4456,37 @@ public partial class LibraryCommand
             var label = unexplained.Count == 1 ? "section has" : "sections have";
             CommandError.WriteNote(
                 $"{unexplained.Count} matched {label} no data: {string.Join(", ", unexplained)}.");
+        }
+    }
+
+    private static void WarnIncompleteResourceTriage(
+        IReadOnlyList<LibraryInspection> inspections,
+        LibraryOptions options)
+    {
+        if (options.IncludeSections?.Contains(
+                SectionNames.ArrayPoolEscapes) != true)
+        {
+            return;
+        }
+
+        foreach (LibraryInspection inspection in inspections)
+        {
+            if (inspection.ResourceTriageQueryResult
+                is not ResourceTriageResult.Incomplete incomplete)
+            {
+                continue;
+            }
+
+            ILInspector.Analysis.ResourceLifecycleLimitation first =
+                incomplete.Limitations[0];
+            string prefix = inspections.Count > 1
+                ? LibraryViewText.DocumentTitle(inspection) + ": "
+                : string.Empty;
+            CommandError.WriteWarning(
+                $"{prefix}{SectionNames.ArrayPoolEscapes} inspection incomplete "
+                + $"({ILInspector.Analysis.AnalysisFindings
+                    .ResourceLifecycleDescriptor.Id}): "
+                + $"{first.Kind}: {first.Detail}");
         }
     }
 

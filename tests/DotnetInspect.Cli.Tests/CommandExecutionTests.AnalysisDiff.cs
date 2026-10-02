@@ -159,8 +159,12 @@ public partial class CommandExecutionTests
         Assert.Equal(0, defaultResult.Exit);
         Assert.DoesNotContain(SectionNames.ArrayPoolEscapes, defaultResult.Output);
 
-        Assert.Equal(0, markdown.Exit);
-        Assert.Empty(markdown.Error);
+        Assert.Equal(1, markdown.Exit);
+        Assert.Contains(
+            "Warning: Array Pool Escapes inspection incomplete "
+            + "(analysis.resource-lifecycle):",
+            markdown.Error,
+            StringComparison.Ordinal);
         Assert.Contains("## Array Pool Escapes", markdown.Output);
         Assert.Contains("ReadBeforeReturn", markdown.Output);
         Assert.DoesNotContain(
@@ -170,16 +174,24 @@ public partial class CommandExecutionTests
         Assert.Contains("pool-churn-on-exception", markdown.Output);
         Assert.Contains("System.IO.Stream::Read", markdown.Output);
 
-        Assert.Equal(0, jsonl.Exit);
-        Assert.Empty(jsonl.Error);
+        Assert.Equal(1, jsonl.Exit);
+        Assert.Contains(
+            "Warning: Array Pool Escapes inspection incomplete "
+            + "(analysis.resource-lifecycle):",
+            jsonl.Error,
+            StringComparison.Ordinal);
         Assert.Contains("\"finding\":\"analysis.resource-lifecycle\"", jsonl.Output);
         Assert.Contains("\"provenance\":\"exact\"", jsonl.Output);
         Assert.Contains("\"actionability\":\"untrusted-input boundary\"", jsonl.Output);
         Assert.Contains("\"acquire_il\":\"IL_", jsonl.Output);
         Assert.Contains("\"boundary_il\":\"IL_", jsonl.Output);
 
-        Assert.Equal(0, tsv.Exit);
-        Assert.Empty(tsv.Error);
+        Assert.Equal(1, tsv.Exit);
+        Assert.Contains(
+            "Warning: Array Pool Escapes inspection incomplete "
+            + "(analysis.resource-lifecycle):",
+            tsv.Error,
+            StringComparison.Ordinal);
         Assert.StartsWith(
             "member\tcandidate\tfinding\tprovenance\tresource\tshape\timpact\tactionability\tboundary\tacquire_il\tboundary_il",
             tsv.Output);
