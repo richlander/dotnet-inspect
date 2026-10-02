@@ -6377,7 +6377,7 @@ function typeKindOptions() {
     label: kind.singularLabel,
     count: definitions.filter(type => type.kindFacetId === kind.id).length,
   }));
-  if (forwarders.length > 0) {
+  if (forwarders.length > 0 || state.kindFilter === "forwarded") {
     options.push({
       value: "forwarded",
       label: "forwarded",

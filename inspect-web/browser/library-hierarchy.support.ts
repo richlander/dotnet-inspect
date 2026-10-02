@@ -259,6 +259,7 @@ const historicalPlatformTarget: PlatformCatalogTarget = {
 };
 interface PlatformFixture {
   forwarders?: boolean;
+  forwarderInternalType?: boolean;
   forwarderFailure?: boolean;
   forwarderPending?: boolean;
   warmup?: "pending" | "fail-once";
@@ -663,6 +664,25 @@ async function installFacades(
             name: "XmlReader", displayName: "XmlReader", namespace: "System.Xml",
           } : {}),
         }] : [];
+        if (platformOptions.forwarderInternalType && assembly.name === "System.Xml") {
+          types.push({
+            ...surfaces[0].types[0],
+            id: assembly.id + ":Hidden.InternalType",
+            definitionId: "Hidden.InternalType",
+            queryId: "Hidden.InternalType",
+            metadataId: "Hidden.InternalType",
+            name: "InternalType",
+            displayName: "Hidden.InternalType",
+            namespace: "Hidden",
+            accessibility: "internal",
+            accessibilityId: "internal",
+            signature: "internal class Hidden.InternalType",
+            assembly: file,
+            assemblyName: assembly.name,
+            assemblyId: assembly.id,
+            platformPack: pack,
+          });
+        }
         return JSON.stringify({
           ...surfaces[0], package: "Microsoft.NETCore.App", version, frameworks: [tfm], activeFramework: tfm,
           defaultAssemblyId: assembly.id, assemblies: [assembly], types,

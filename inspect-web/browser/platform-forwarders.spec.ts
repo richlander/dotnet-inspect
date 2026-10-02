@@ -11,9 +11,28 @@ test.use({ viewport: { width: 1440, height: 900 } });
 
 async function openXml(
   page: Parameters<typeof installFacades>[0],
-  options: { forwarderFailure?: boolean; forwarderPending?: boolean } = {},
+  options: {
+    forwarderInternalType?: boolean;
+    forwarderFailure?: boolean;
+    forwarderPending?: boolean;
+  } = {},
 ) {
-  await installFacades(page, surface, [], "ready", "ready", {
+  const model = options.forwarderInternalType
+    ? {
+        ...surface,
+        accessibility: [
+          ...surface.accessibility,
+          {
+            id: "internal",
+            label: "Internal",
+            order: 2,
+            isDefault: false,
+            count: 1,
+          },
+        ],
+      }
+    : surface;
+  await installFacades(page, model, [], "ready", "ready", {
     forwarders: true, ...options,
   });
   await openInstalledPlatform(page);
@@ -122,6 +141,32 @@ test("namespace filtering includes forwarded-only namespaces and follows the sel
     .toBeVisible();
   await expect(namespace.locator('option[value="System.Xml"]'))
     .toHaveText("System.Xml · 1");
+});
+
+test("selected forwarded Kind remains visible when Accessibility excludes forwarders", async ({
+  page,
+}) => {
+  await openXml(page, { forwarderInternalType: true });
+  await page.locator("[data-type-filter-disclosure] > summary").click();
+  const kind = page.getByRole("combobox", { name: "Type kind" });
+  const accessibility =
+    page.getByRole("combobox", { name: "Type accessibility" });
+
+  await kind.selectOption("forwarded");
+  await expect(page.locator(
+    '[data-type="System.Xml:System.Xml.XmlReader"]',
+  )).toBeVisible();
+  await accessibility.selectOption("internal");
+
+  await expect(kind).toHaveValue("forwarded");
+  await expect(kind.locator('option[value="forwarded"]'))
+    .toHaveText("forwarded · 0");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
+
+  await kind.selectOption("");
+  await expect(page.locator(
+    '[data-type="System.Xml:Hidden.InternalType"]',
+  )).toBeVisible();
 });
 
 test("Library scope controls and keyboard selection retain a forwarded Type", async ({ page }) => {
