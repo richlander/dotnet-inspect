@@ -171,13 +171,16 @@ public sealed class FileSystemPackageStore : IPackageStore, IPreparedPackageStor
             archive.ExtractToDirectory(extractPath, cancellationToken);
 
             PackageCommitResult committed = commit(extractPath, nupkgPath);
+            var content = new FileSystemPackageContent(
+                committed.Package.ExtractPath,
+                committed.Package.NupkgPath,
+                fromCache: true,
+                committed.Package.ProducerKey,
+                requiresArchiveTreeMatch: true);
+            if (committed.PublishedStagedContent)
+                content.RememberArchiveEntries(archive);
             return new PreparedPackageCommit(
-                new FileSystemPackageContent(
-                    committed.Package.ExtractPath,
-                    committed.Package.NupkgPath,
-                    fromCache: true,
-                    committed.Package.ProducerKey,
-                    requiresArchiveTreeMatch: true),
+                content,
                 RequiresAdmission: !committed.PublishedStagedContent);
         }
         finally

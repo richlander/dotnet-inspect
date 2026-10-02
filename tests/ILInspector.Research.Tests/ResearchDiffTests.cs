@@ -40,7 +40,6 @@ public class ResearchDiffTests
             typeof(bool),
             typeof(ApiDiffScope),
             typeof(IReadOnlySet<string>),
-            typeof(IReadOnlySet<string>),
         ]));
     }
 
@@ -3139,30 +3138,6 @@ public class ResearchDiffTests
             string.Equals(member.Subject.MemberName, "op_Addition", StringComparison.Ordinal)
             && member.HasCSharpChanges
             && member.HasIlChanges);
-    }
-
-    [Fact]
-    public void ImplementationDiff_CompareAssemblies_FiltersUnderlyingResearchDiffByMemberTarget()
-    {
-        var full = ImplementationDiff.CompareAssemblies(
-            FixtureCatalog.DiffPair.OldAssemblyPath(),
-            FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ImplementationDiffOptions(TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
-        var targetId = Assert.Single(full.Members, member => member.Subject.MemberName == "ConstantValue").Subject.Id;
-
-        var scoped = ImplementationDiff.CompareAssemblies(
-            FixtureCatalog.DiffPair.OldAssemblyPath(),
-            FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ImplementationDiffOptions(
-                TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" },
-                MemberTargetIdentities: new HashSet<string>(StringComparer.Ordinal) { targetId }));
-
-        var researchMembers = scoped.Research.MembersWhere(member => member.ImplementationChanged);
-        Assert.All(researchMembers, member => Assert.Equal(targetId, member.Subject.Id));
-        var member = Assert.Single(scoped.Members);
-        Assert.Equal(targetId, member.Subject.Id);
-        Assert.True(member.HasCSharpChanges);
-        Assert.True(member.HasIlChanges);
     }
 
     [Fact]

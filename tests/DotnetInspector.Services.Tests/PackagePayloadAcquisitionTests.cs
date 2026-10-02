@@ -1959,6 +1959,26 @@ public sealed class PackagePayloadAcquisitionTests
                     second.Content,
                     new PackagePayloadLimits { MaxEntryCount = 2 },
                     TestContext.Current.CancellationToken));
+            Assert.True(
+                await PackageContentAdmission.IsAdmissibleAsync(
+                    second.Content,
+                    PackagePayloadLimits.Default,
+                    TestContext.Current.CancellationToken));
+            var archiveManifest =
+                Assert.IsAssignableFrom<IPackageArchiveEntryManifest>(
+                    second.Content);
+            Assert.True(
+                archiveManifest.TryGetArchiveEntries(
+                    out IReadOnlyList<PackageContentEntry>? entries));
+            Assert.Contains(
+                entries,
+                entry => entry.Path == "lib/net10.0/One.dll");
+            Assert.Contains(
+                entries,
+                entry => entry.Path == "lib/net10.0/Two.dll");
+            Assert.DoesNotContain(
+                entries,
+                entry => entry.Path == "lib/net10.0/Only.dll");
 
             async ValueTask<PreparedPackageCommit> Commit(
                 PackageArchivePayload archive) =>

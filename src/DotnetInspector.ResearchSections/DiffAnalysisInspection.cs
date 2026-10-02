@@ -325,7 +325,7 @@ public static class DiffAnalysisInspection
 
     private static AnalysisReportSurfaceKind SurfaceOf(
         DiffAnalysisInput input)
-        => input.MemberTargetIdentities switch
+        => input.ApiMemberTargetIdentities switch
         {
             not null => AnalysisReportSurfaceKind.Member,
             null when input.TypeNames.Length > 0 =>
@@ -479,11 +479,11 @@ public static class DiffAnalysisInspection
         bool IncludesMember(
             ApiMemberHandle? oldMember,
             ApiMemberHandle? newMember)
-            => input.MemberTargetIdentities is null
+            => input.ApiMemberTargetIdentities is null
                 || oldMember is not null
-                    && input.MemberTargetIdentities.Contains(oldMember.Identity)
+                    && input.ApiMemberTargetIdentities.Contains(oldMember.Identity)
                 || newMember is not null
-                    && input.MemberTargetIdentities.Contains(newMember.Identity);
+                    && input.ApiMemberTargetIdentities.Contains(newMember.Identity);
     }
 
     private static bool HasClassifiedTypeChange(
@@ -534,7 +534,7 @@ public static class DiffAnalysisInspection
         DiffAnalysisInput input)
     {
         IReadOnlySet<string> targetIdentities =
-            input.MemberTargetIdentities
+            input.ApiMemberTargetIdentities
             ?? throw new InvalidOperationException(
                 "Member targets were not resolved.");
         return change.Subject?.Kind == ApiChangeSubjectKind.Member
@@ -970,7 +970,7 @@ public static class DiffAnalysisInspection
         var newHandle = NewSide(pair)?.Payload;
         var typeName = newHandle?.TypeFullName ?? oldHandle?.TypeFullName;
         IReadOnlySet<string> targetIdentities =
-            input.MemberTargetIdentities
+            input.ApiMemberTargetIdentities
             ?? throw new InvalidOperationException(
                 "Member targets were not resolved.");
         return typeName is not null
@@ -1185,7 +1185,7 @@ public static class DiffAnalysisInspection
 
     private static AnalysisReportSurfaceKind SelectionSurface(
         this DiffAnalysisInput input)
-        => input.MemberTargetIdentities is not null
+        => input.ApiMemberTargetIdentities is not null
             ? AnalysisReportSurfaceKind.Member
             : input.TypeNames.Length > 0
                 ? AnalysisReportSurfaceKind.Type

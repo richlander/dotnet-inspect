@@ -39,7 +39,7 @@ public sealed class ImplementationDiffEnvelopeCommandTests
         using JsonDocument contentJson = JsonDocument.Parse(content.Output);
         using JsonDocument envelopeJson = JsonDocument.Parse(envelope.Output);
         JsonElement root = envelopeJson.RootElement;
-        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(2, root.GetProperty("schema_version").GetInt32());
         Assert.Equal(
             "implementation-diff",
             root.GetProperty("result_kind").GetString());
@@ -208,8 +208,14 @@ public sealed class ImplementationDiffEnvelopeCommandTests
         Assert.True(result.Exit == 0, result.Error);
         using JsonDocument json = JsonDocument.Parse(result.Output);
         JsonElement request = json.RootElement.GetProperty("request");
-        Assert.NotEmpty(
-            request.GetProperty("memberTargetIdentities").EnumerateArray());
+        JsonElement selection = Assert.Single(
+            request.GetProperty("memberSelections").EnumerateArray());
+        Assert.Equal(
+            "DiffFixtureSample.DiffSample",
+            selection.GetProperty("declaringType").GetString());
+        Assert.Equal(
+            "ConstantValue",
+            selection.GetProperty("selector").GetString());
         Assert.All(
             json.RootElement.GetProperty("members").EnumerateArray(),
             member => Assert.Equal(
@@ -326,24 +332,36 @@ public sealed class ImplementationDiffEnvelopeCommandTests
             Assert.Equal(
                 allIds.Order(StringComparer.Ordinal),
                 new[] { firstId, secondId }.Order(StringComparer.Ordinal));
-            string[] firstTargets =
-            [
-                .. firstJson.RootElement.GetProperty("request")
-                    .GetProperty("memberTargetIdentities")
-                    .EnumerateArray()
-                    .Select(identity => identity.GetString()!),
-            ];
-            string[] secondTargets =
-            [
-                .. secondJson.RootElement.GetProperty("request")
-                    .GetProperty("memberTargetIdentities")
-                    .EnumerateArray()
-                    .Select(identity => identity.GetString()!),
-            ];
-            Assert.Contains(firstId, firstTargets);
-            Assert.DoesNotContain(secondId, firstTargets);
-            Assert.Contains(secondId, secondTargets);
-            Assert.DoesNotContain(firstId, secondTargets);
+            JsonElement firstSelection = Assert.Single(
+                firstJson.RootElement.GetProperty("request")
+                    .GetProperty("memberSelections")
+                    .EnumerateArray());
+            JsonElement secondSelection = Assert.Single(
+                secondJson.RootElement.GetProperty("request")
+                    .GetProperty("memberSelections")
+                    .EnumerateArray());
+            Assert.Equal(
+                "Changed:1",
+                firstSelection.GetProperty("selector").GetString());
+            Assert.Equal(
+                "Changed:2",
+                secondSelection.GetProperty("selector").GetString());
+            Assert.Equal(
+                firstSelection.GetProperty("declaringType").GetString(),
+                secondSelection.GetProperty("declaringType").GetString());
+            Assert.All(
+                allIds,
+                id =>
+                {
+                    Assert.DoesNotContain(
+                        id,
+                        firstJson.RootElement.GetProperty("request").GetRawText(),
+                        StringComparison.Ordinal);
+                    Assert.DoesNotContain(
+                        id,
+                        secondJson.RootElement.GetProperty("request").GetRawText(),
+                        StringComparison.Ordinal);
+                });
         }
         finally
         {
