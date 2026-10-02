@@ -27,8 +27,20 @@ test("forwarded Type rows have no invented kind or member cardinality", () => {
     visible: [xmlReader],
     typeGroups: new Map([["System.Xml", [xmlReader]]]),
     typeFilter: "", namespaceFilter: "", kindFilter: "",
-    namespaceCount: 1, namespaceOptionsHtml: "", kindFilters: ["forwarded"],
-    accessibilityControlHtml: "", library: "System.Xml",
+    accessibilityFilter: "", traitFilter: "",
+    namespaceCount: 1, namespaceOptionsHtml: "",
+    kindOptions: [
+      { value: "", label: "all", count: 1 },
+      { value: "forwarded", label: "forwarded", count: 1 },
+    ],
+    accessibilityOptions: [{ value: "", label: "all", count: 1 }],
+    traitOptions: [
+      { value: "", label: "all", count: 1 },
+      { value: "api.type-trait.abstract", label: "abstract", count: 0 },
+      { value: "api.type-trait.static", label: "static", count: 0 },
+      { value: "api.type-trait.object", label: "object", count: 0 },
+    ],
+    library: "System.Xml",
     parentSubject: "library", filtersExpanded: false, filterSummary: "",
     escapeHtml, typeDisplayName: row => row.name,
     typeLibraryLabel: () => "", kindIcon: kind => kind,
@@ -50,7 +62,7 @@ test("forwarder filtering uses declaration text without a defining kind", () => 
   assert.deepEqual(filterForwardedTypes([xmlReader],
     { text: "", namespace: "System.Xml", kind: "forwarded" }), [xmlReader]);
   assert.deepEqual(filterForwardedTypes([xmlReader],
-    { text: "", namespace: "", kind: "class" }), []);
+    { text: "", namespace: "", kind: "api.type-kind.class" }), []);
 });
 
 test("Overview binds declaration identity and escapes destination and failures", () => {

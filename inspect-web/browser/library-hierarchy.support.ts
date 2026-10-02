@@ -166,6 +166,8 @@ function type(id: string, assembly: BrowserAssemblySurface): BrowserTypeSurface 
     displayName: id,
     namespace: "Example",
     kind: "class",
+    kindFacetId: "api.type-kind.class",
+    traitFacetIds: ["api.type-trait.object"],
     accessibility: "public",
     accessibilityId: "public",
     assembly: `${assembly.name}.dll`,
@@ -190,6 +192,36 @@ const surface: BrowserPackageSurface = {
   compileLibrary: { status: "Selected", targetFramework: "net10.0", message: null },
   assemblies: [core, other, empty],
   types: [type("Example.Widget", core), type("Example.Neighbor", other)],
+  typeKinds: [{
+    id: "api.type-kind.class",
+    singularLabel: "class",
+    pluralLabel: "classes",
+    weight: 100,
+    count: 2,
+    isDefault: true,
+  }],
+  typeTraits: [{
+    id: "api.type-trait.abstract",
+    singularLabel: "abstract",
+    pluralLabel: "abstract",
+    weight: 100,
+    count: 0,
+    isDefault: false,
+  }, {
+    id: "api.type-trait.static",
+    singularLabel: "static",
+    pluralLabel: "static",
+    weight: 200,
+    count: 0,
+    isDefault: false,
+  }, {
+    id: "api.type-trait.object",
+    singularLabel: "object",
+    pluralLabel: "objects",
+    weight: 300,
+    count: 2,
+    isDefault: false,
+  }],
   accessibility: [{ id: "public", label: "Public", order: 0, isDefault: true, count: 2 }],
   totalMembers: 2,
   documents: [],
@@ -874,10 +906,22 @@ async function installFacades(
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         const types = surface.types.filter(type => type.assemblyId === asset);
-        const typeKinds = [...new Set(types.map(type => type.kind))].map((kind, index) => ({
-          id: kind.toLowerCase(), singularLabel: kind, pluralLabel: kind + "s",
-          weight: index, count: types.filter(type => type.kind === kind).length,
+        const typeKinds = [...new Set(types.map(type => type.kindFacetId))].map((id, index) => ({
+          id,
+          singularLabel: types.find(type => type.kindFacetId === id)?.kind ?? id,
+          pluralLabel: (types.find(type => type.kindFacetId === id)?.kind ?? id) + "s",
+          weight: index,
+          count: types.filter(type => type.kindFacetId === id).length,
           isDefault: true,
+        }));
+        const typeTraits = [
+          ["api.type-trait.abstract", "abstract"],
+          ["api.type-trait.static", "static"],
+          ["api.type-trait.object", "object"],
+        ].map(([id, label], index) => ({
+          id, singularLabel: label, pluralLabel: label === "object" ? "objects" : label,
+          weight: index, count: types.filter(type => type.traitFacetIds.includes(id)).length,
+          isDefault: false,
         }));
         const namespaces = [...new Set(types.map(type => type.namespace))].map(name => ({
           name, count: types.filter(type => type.namespace === name).length,
@@ -904,6 +948,7 @@ async function installFacades(
               publicMethodCount: selected.publicMembers,
               publicPropertyCount: 0,
               typeKinds,
+              typeTraits,
               namespaces,
             },
             truncation: null,

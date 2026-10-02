@@ -312,6 +312,8 @@ export interface TypePanelBindingActions {
   onTypeSourceViewSelect: (view: TypeSourceView) => void;
   onExploreSource: () => void;
   onKindSelect: (kind: string) => void;
+  onTypeAccessibilitySelect: (accessibility: string) => void;
+  onTypeTraitSelect: (trait: string) => void;
   onTypeLeverageActivate?: () => void;
   onTypeLeverageFilterSelect?: (filter: string) => void;
   onTypeLeverageRetry: () => void;
@@ -354,10 +356,21 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onNamespaceSelect(button.dataset.namespace ?? "")));
-  root.querySelectorAll<HTMLElement>("[data-kind-filter]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onKindSelect(button.dataset.kindFilter ?? "")));
+  root.querySelectorAll<HTMLSelectElement>("[data-type-kind-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onKindSelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-type-access-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onTypeAccessibilitySelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-type-trait-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onTypeTraitSelect(select.value)));
   root.querySelector("[data-type-leverage-activate]")?.addEventListener(
     "click",
     () => actions.onTypeLeverageActivate?.());
@@ -554,11 +567,14 @@ export interface TypeNavOptions {
   typeFilter: string;
   namespaceFilter: string;
   kindFilter: string;
+  accessibilityFilter: string;
+  traitFilter: string;
   namespaceCount: number;
   namespaceOptionsHtml: string;
   namespaceSelectionValue?: (exactNamespace: string) => string;
-  kindFilters: readonly string[];
-  accessibilityControlHtml: string;
+  kindOptions: readonly TypeSelectorOption[];
+  accessibilityOptions: readonly TypeSelectorOption[];
+  traitOptions: readonly TypeSelectorOption[];
   leverageControlHtml?: string;
   library: string;
   parentSubject: "package" | "platform" | "library" | null;
@@ -574,6 +590,12 @@ export interface TypeNavOptions {
   ) => TypeNavNamespaceLeverageCue | null;
 }
 
+export interface TypeSelectorOption {
+  value: string;
+  label: string;
+  count: number;
+}
+
 export interface TypeNavNamespaceLeverageCue {
   topLeverage: boolean;
   description: string;
@@ -587,7 +609,8 @@ export interface TypeNavLeverageCue {
 export function renderTypeNav(options: TypeNavOptions): string {
   const {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
-    namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
+    accessibilityFilter, traitFilter, namespaceCount, namespaceOptionsHtml,
+    kindOptions, accessibilityOptions, traitOptions,
     leverageControlHtml = "",
     library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
     typeDisplayName, typeLibraryLabel, kindIcon, statusHtml = "",
@@ -621,18 +644,37 @@ export function renderTypeNav(options: TypeNavOptions): string {
           <input id="type-filter" aria-label="Filter types" value="${escapeHtml(typeFilter)}" placeholder="Filter types" autocomplete="off" spellcheck="false" />
           <kbd>⌘F</kbd>
         </label>
-        <div class="namespace-picker">
-          <select id="namespace-jump" class="scope-select" aria-label="Filter by namespace">
-            <option value="" ${!namespaceFilter ? "selected" : ""}>All namespaces · ${namespaceCount}</option>
-            ${namespaceOptionsHtml}
-          </select>
+        <div class="member-filter-selects type-filter-selects">
+          <label class="member-filter-select">
+            <span>Namespace</span>
+            <select id="namespace-jump" class="scope-select" aria-label="Filter by namespace">
+              <option value="" ${!namespaceFilter ? "selected" : ""}>all namespaces · ${namespaceCount}</option>
+              ${namespaceOptionsHtml}
+            </select>
+          </label>
+          <label class="member-filter-select">
+            <span>Accessibility</span>
+            <select class="scope-select" data-type-access-filter aria-label="Type accessibility">
+              ${accessibilityOptions.map(option =>
+                `<option value="${escapeHtml(option.value)}" ${accessibilityFilter === option.value ? "selected" : ""}>${escapeHtml(option.label)} · ${option.count}</option>`).join("")}
+            </select>
+          </label>
+          <label class="member-filter-select">
+            <span>Kind</span>
+            <select class="scope-select" data-type-kind-filter aria-label="Type kind">
+              ${kindOptions.map(option =>
+                `<option value="${escapeHtml(option.value)}" ${kindFilter === option.value ? "selected" : ""}>${escapeHtml(option.label)} · ${option.count}</option>`).join("")}
+            </select>
+          </label>
+          <label class="member-filter-select">
+            <span>Trait</span>
+            <select class="scope-select" data-type-trait-filter aria-label="Type trait">
+              ${traitOptions.map(option =>
+                `<option value="${escapeHtml(option.value)}" ${traitFilter === option.value ? "selected" : ""}>${escapeHtml(option.label)} · ${option.count}</option>`).join("")}
+            </select>
+          </label>
         </div>
         <div class="chip-stack">
-          <div class="namespace-chips kind-chips" aria-label="Type kind filters">
-            <button class="${!kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
-            ${kindFilters.map(kind => `<button class="${kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
-          </div>
-          ${accessibilityControlHtml}
           ${leverageControlHtml}
         </div>
       </details>

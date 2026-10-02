@@ -62,6 +62,8 @@ function typeSurface(
     displayName: id,
     namespace: id.split(".").slice(0, -1).join("."),
     kind: "class",
+    kindFacetId: "api.type-kind.class",
+    traitFacetIds: ["api.type-trait.object"],
     accessibility: "public",
     accessibilityId: "public",
     assembly: assemblyName,
@@ -186,6 +188,36 @@ function packageSurface(
     compileLibrary: { status: "Selected", targetFramework: "net10.0", message: null },
     assemblies: [primary],
     types: [typeSurface("Example.Widget")],
+    typeKinds: [{
+      id: "api.type-kind.class",
+      singularLabel: "class",
+      pluralLabel: "classes",
+      weight: 100,
+      count: 1,
+      isDefault: true,
+    }],
+    typeTraits: [{
+      id: "api.type-trait.abstract",
+      singularLabel: "abstract",
+      pluralLabel: "abstract",
+      weight: 100,
+      count: 0,
+      isDefault: false,
+    }, {
+      id: "api.type-trait.static",
+      singularLabel: "static",
+      pluralLabel: "static",
+      weight: 200,
+      count: 0,
+      isDefault: false,
+    }, {
+      id: "api.type-trait.object",
+      singularLabel: "object",
+      pluralLabel: "objects",
+      weight: 300,
+      count: 1,
+      isDefault: false,
+    }],
     accessibility: [{
       id: "public",
       label: "Public",
@@ -270,6 +302,36 @@ test("uploaded Library model stays detached from Package acquisition state", () 
     surface: {
       assemblies: [descriptor],
       types: [uploadedType],
+      typeKinds: [{
+        id: "api.type-kind.class",
+        singularLabel: "class",
+        pluralLabel: "classes",
+        weight: 100,
+        count: 1,
+        isDefault: true,
+      }],
+      typeTraits: [{
+        id: "api.type-trait.abstract",
+        singularLabel: "abstract",
+        pluralLabel: "abstract",
+        weight: 100,
+        count: 0,
+        isDefault: false,
+      }, {
+        id: "api.type-trait.static",
+        singularLabel: "static",
+        pluralLabel: "static",
+        weight: 200,
+        count: 0,
+        isDefault: false,
+      }, {
+        id: "api.type-trait.object",
+        singularLabel: "object",
+        pluralLabel: "objects",
+        weight: 300,
+        count: 1,
+        isDefault: false,
+      }],
       accessibility: [{
         id: "public",
         label: "Public",
@@ -1209,6 +1271,16 @@ test("repeating a partial surface merge does not inflate resident evidence", () 
   assert.deepEqual(
     resident.types.map(type => type.id),
     ["System.Object", "System.Text.Json.JsonDocument"]);
+  assert.deepEqual(
+    resident.typeKinds.map(facet => [facet.id, facet.count]),
+    [["api.type-kind.class", 2]]);
+  assert.deepEqual(
+    resident.typeTraits.map(facet => [facet.id, facet.count]),
+    [
+      ["api.type-trait.abstract", 0],
+      ["api.type-trait.static", 0],
+      ["api.type-trait.object", 2],
+    ]);
   assert.equal(resident.totalMembers, 4);
   assert.equal(resident.accessibility[0]?.count, 2);
   assert.equal(

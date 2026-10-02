@@ -318,6 +318,9 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push("explore-source");
     },
     onKindSelect: value => calls.push(`kind:${value}`),
+    onTypeAccessibilitySelect: value =>
+      calls.push(`type-access:${value}`),
+    onTypeTraitSelect: value => calls.push(`type-trait:${value}`),
     onTypeLeverageRetry: () => calls.push("type-leverage-retry"),
     onTypeNavBack: () => calls.push("type-nav-back"),
     onListKeyDown: event => {
@@ -358,6 +361,25 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onTypeSelect: value => calls.push(`type:${value}`),
   };
 }
+
+const typeSelectorOptions = {
+  accessibilityFilter: "public",
+  traitFilter: "",
+  kindOptions: [
+    { value: "", label: "all", count: 2 },
+    { value: "api.type-kind.class", label: "class", count: 2 },
+  ],
+  accessibilityOptions: [
+    { value: "", label: "all", count: 2 },
+    { value: "public", label: "public", count: 2 },
+  ],
+  traitOptions: [
+    { value: "", label: "all", count: 2 },
+    { value: "api.type-trait.abstract", label: "abstract", count: 0 },
+    { value: "api.type-trait.static", label: "static", count: 0 },
+    { value: "api.type-trait.object", label: "object", count: 2 },
+  ],
+};
 
 test("type panel binds the qualified Type leverage retry", () => {
   const root = new FakeRoot();
@@ -442,11 +464,17 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   const secondType = new FakeElement({ type: "System.Int32" });
   const namespace = new FakeElement({ namespace: "System" });
   const secondNamespace = new FakeElement({ namespace: "System.Collections" });
-  const kind = new FakeElement({ kindFilter: "class" });
-  const secondKind = new FakeElement({ kindFilter: "interface" });
+  const kind = new FakeElement();
+  kind.value = "api.type-kind.class";
+  const accessibility = new FakeElement();
+  accessibility.value = "public";
+  const trait = new FakeElement();
+  trait.value = "api.type-trait.object";
   root.addAll("[data-type]", type, secondType);
   root.addAll("[data-namespace]", namespace, secondNamespace);
-  root.addAll("[data-kind-filter]", kind, secondKind);
+  root.addAll("[data-type-kind-filter]", kind);
+  root.addAll("[data-type-access-filter]", accessibility);
+  root.addAll("[data-type-trait-filter]", trait);
   const clear = root.add("#clear-filter", new FakeElement());
   const disclosure = root.add(
     "[data-type-filter-disclosure]",
@@ -474,8 +502,9 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   namespace.dispatch("click");
   secondNamespace.dispatch("click");
   namespaceJump.dispatch("change");
-  kind.dispatch("click");
-  secondKind.dispatch("click");
+  kind.dispatch("change");
+  accessibility.dispatch("change");
+  trait.dispatch("change");
   disclosure.open = true;
   disclosure.dispatch("toggle");
   clear.dispatch("click");
@@ -490,8 +519,9 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
     "namespace:System",
     "namespace:System.Collections",
     "namespace:System.Text",
-    "kind:class",
-    "kind:interface",
+    "kind:api.type-kind.class",
+    "type-access:public",
+    "type-trait:api.type-trait.object",
     "type-filter-disclosure:true",
     "clear",
     "filter:json",
@@ -710,10 +740,9 @@ test("the type nav lists namespace groups with the current type selected", () =>
     typeFilter: "",
     namespaceFilter: "",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 1,
     namespaceOptionsHtml: '<option value="System.Text.Json">System.Text.Json · 2</option>',
-    kindFilters: ["class"],
-    accessibilityControlHtml: "",
     library: "System.Text.Json",
     parentSubject: "library",
     filtersExpanded: false,
@@ -742,7 +771,16 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.match(html, /id="type-filter"/);
   assert.match(html, /id="namespace-jump"/);
   assert.match(html, /id="content-navigation-pane"/);
-  assert.match(html, /data-kind-filter="class"/);
+  assert.match(html, /data-type-access-filter/);
+  assert.match(html, /data-type-kind-filter/);
+  assert.match(html, /data-type-trait-filter/);
+  assert.match(html, />abstract · 0<\/option>/);
+  assert.match(html, />static · 0<\/option>/);
+  assert.match(html, />object · 2<\/option>/);
+  assert.ok(
+    html.indexOf("Namespace") < html.indexOf("Accessibility")
+      && html.indexOf("Accessibility") < html.indexOf("Kind")
+      && html.indexOf("Kind") < html.indexOf("Trait"));
   assert.match(html, /id="type-list" data-nav-scope="types"/);
   assert.match(html, /data-type-nav-back title="Back to library" aria-label="System\.Text\.Json: Back to library"/);
   assert.match(html, />System\.Text\.Json<\/span>/);
@@ -769,12 +807,11 @@ test("the type nav preserves the host selection value for the global namespace",
     typeFilter: "",
     namespaceFilter: "__global__",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 1,
     namespaceOptionsHtml: '<option value="__global__">global namespace · 1</option>',
     namespaceSelectionValue: namespace =>
       namespace === "" ? "__global__" : namespace,
-    kindFilters: ["class"],
-    accessibilityControlHtml: "",
     library: "GlobalFixture",
     parentSubject: "library",
     filtersExpanded: false,
@@ -797,10 +834,9 @@ test("the type nav reports no matches for an empty filtered group", () => {
     typeFilter: "nothing-matches",
     namespaceFilter: "",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 0,
     namespaceOptionsHtml: "",
-    kindFilters: [],
-    accessibilityControlHtml: "",
     library: "System.Text.Json",
     parentSubject: "library",
     filtersExpanded: true,
@@ -823,10 +859,9 @@ test("the type nav renders exclusive accessible pole cues", () => {
       typeFilter: "",
       namespaceFilter: "",
       kindFilter: "",
+      ...typeSelectorOptions,
       namespaceCount: 1,
       namespaceOptionsHtml: "",
-      kindFilters: ["class"],
-      accessibilityControlHtml: "",
       leverageControlHtml:
         '<button data-type-leverage-filter="sea-level">sea level</button>',
       library: "System.Text.Json",
@@ -898,10 +933,9 @@ test("the type nav omits a parent action when the Library has no visible parent"
     typeFilter: "",
     namespaceFilter: "",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 1,
     namespaceOptionsHtml: "",
-    kindFilters: ["class"],
-    accessibilityControlHtml: "",
     library: "System.Text.Json",
     parentSubject: null,
     filtersExpanded: false,
@@ -923,10 +957,9 @@ test("the type nav handles a package with no projected types", () => {
     typeFilter: "",
     namespaceFilter: "",
     kindFilter: "",
+    ...typeSelectorOptions,
     namespaceCount: 0,
     namespaceOptionsHtml: "",
-    kindFilters: [],
-    accessibilityControlHtml: "",
     library: "System.Text.Json",
     parentSubject: "package",
     filtersExpanded: false,

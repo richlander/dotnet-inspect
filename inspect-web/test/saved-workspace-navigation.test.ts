@@ -220,9 +220,25 @@ function packageSurface(
     types: [{
       id: "Added.Widget", definitionId: "Added.Widget", queryId: "Added.Widget",
       metadataId: "Added.Widget", name: "Widget", displayName: "Added.Widget",
-      namespace: "Added", kind: "class", accessibility: "public", accessibilityId: "public",
+      namespace: "Added", kind: "class", kindFacetId: "api.type-kind.class",
+      traitFacetIds: ["api.type-trait.object"],
+      accessibility: "public", accessibilityId: "public",
       assembly: "Added.Core", assemblyId: "added-core", assemblyName: "Added.Core",
       members: 0, signature: "public class Widget", api: [], platformPack: null,
+    }],
+    typeKinds: [{
+      id: "api.type-kind.class", singularLabel: "class", pluralLabel: "classes",
+      weight: 100, count: 1, isDefault: true,
+    }],
+    typeTraits: [{
+      id: "api.type-trait.abstract", singularLabel: "abstract", pluralLabel: "abstract",
+      weight: 100, count: 0, isDefault: false,
+    }, {
+      id: "api.type-trait.static", singularLabel: "static", pluralLabel: "static",
+      weight: 200, count: 0, isDefault: false,
+    }, {
+      id: "api.type-trait.object", singularLabel: "object", pluralLabel: "objects",
+      weight: 300, count: 1, isDefault: false,
     }],
     accessibility: [{ id: "public", label: "Public", order: 0, isDefault: true, count: 1 }],
     totalMembers: 0, documents: [], icon: null, inspectionErrors: [], inspectionError: null,

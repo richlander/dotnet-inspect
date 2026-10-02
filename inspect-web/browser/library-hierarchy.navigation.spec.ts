@@ -21,6 +21,47 @@ import {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
+test("Type filters expose counted Namespace, Accessibility, Kind, and Trait selectors", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto(root);
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-filter-summary").click();
+
+  await expect(page.locator(".type-filter-selects .member-filter-select > span"))
+    .toHaveText(["Namespace", "Accessibility", "Kind", "Trait"]);
+  await expect(page.locator("#namespace-jump option"))
+    .toHaveText([
+      "all namespaces · 2",
+      "Example · 2",
+    ]);
+  await expect(page.locator("[data-type-access-filter] option"))
+    .toHaveText([
+      "all · 2",
+      "public · 2",
+    ]);
+  await expect(page.locator("[data-type-kind-filter] option"))
+    .toHaveText([
+      "all · 2",
+      "class · 2",
+    ]);
+  await expect(page.locator("[data-type-trait-filter] option"))
+    .toHaveText([
+      "all · 2",
+      "abstract · 0",
+      "static · 0",
+      "object · 2",
+    ]);
+
+  await page.locator("[data-type-trait-filter]")
+    .selectOption("api.type-trait.abstract");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
+  await page.locator("[data-type-trait-filter]")
+    .selectOption("api.type-trait.object");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(2);
+});
+
 test("exact Library inspectors auto-select the alphabetical fallback only on navigation", async ({ page }) => {
   await installFacades(page);
   await page.goto(root.replace("#pkg", "#library"));

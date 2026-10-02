@@ -31,6 +31,10 @@ public class ApiInventoryQueryTests
             result.KindFacets.Select(facet => facet.Weight).Order()));
         Assert.All(result.KindFacets, facet => Assert.True(facet.IsDefault));
         Assert.Equal(surface.Types, result.Types);
+        Assert.Equal(
+            ["abstract", "static", "object"],
+            result.TraitFacets.Select(facet => facet.SingularLabel));
+        Assert.Equal([0, 0, 5], result.TraitFacets.Select(facet => facet.Count));
 
         foreach (var facet in result.KindFacets)
         {
@@ -50,6 +54,89 @@ public class ApiInventoryQueryTests
             surface,
             new ApiTypeInventoryRequest([]));
         Assert.Equal(surface.Types, defaults.Types);
+    }
+
+    [Fact]
+    public void Types_TraitDescriptorsDriveUserApprovedPopulations()
+    {
+        var concreteClass = new ApiType
+        {
+            Name = "Concrete",
+            Kind = "class",
+        };
+        var sealedClass = new ApiType
+        {
+            Name = "Sealed",
+            Kind = "class",
+            IsSealed = true,
+        };
+        var abstractClass = new ApiType
+        {
+            Name = "Abstract",
+            Kind = "class",
+            IsAbstract = true,
+        };
+        var staticClass = new ApiType
+        {
+            Name = "Static",
+            Kind = "class",
+            IsAbstract = true,
+            IsSealed = true,
+            IsStatic = true,
+        };
+        var @interface = new ApiType
+        {
+            Name = "Interface",
+            Kind = "interface",
+            IsAbstract = true,
+        };
+        var @struct = new ApiType { Name = "Struct", Kind = "struct" };
+        var @enum = new ApiType { Name = "Enum", Kind = "enum" };
+        var @delegate = new ApiType { Name = "Delegate", Kind = "delegate" };
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                concreteClass,
+                sealedClass,
+                abstractClass,
+                staticClass,
+                @interface,
+                @struct,
+                @enum,
+                @delegate,
+            ],
+        };
+
+        ApiTypeInventoryResult result = ApiInventoryQuery.Types(surface);
+
+        Assert.Equal([1, 1, 5], result.TraitFacets.Select(facet => facet.Count));
+        Assert.Equal(
+            ["api.type-trait.abstract"],
+            ApiInventoryQuery.TypeTraitFacetIds(abstractClass));
+        Assert.Equal(
+            ["api.type-trait.static"],
+            ApiInventoryQuery.TypeTraitFacetIds(staticClass));
+        Assert.Empty(ApiInventoryQuery.TypeTraitFacetIds(@interface));
+
+        foreach (ApiFacetDescriptor facet in result.TraitFacets)
+        {
+            ApiTypeInventoryResult filtered = ApiInventoryQuery.Types(
+                surface,
+                new ApiTypeInventoryRequest(
+                    TraitFacetIds: [facet.Id]));
+            Assert.Equal(facet.Count, filtered.Types.Count);
+        }
+
+        ApiFacetDescriptor objects = Assert.Single(
+            result.TraitFacets,
+            facet => facet.SingularLabel == "object");
+        ApiTypeInventoryResult objectTypes = ApiInventoryQuery.Types(
+            surface,
+            new ApiTypeInventoryRequest(TraitFacetIds: [objects.Id]));
+        Assert.Equal(
+            [concreteClass, sealedClass, @struct, @enum, @delegate],
+            objectTypes.Types);
     }
 
     [Fact]

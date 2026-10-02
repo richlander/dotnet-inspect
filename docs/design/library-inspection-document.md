@@ -374,9 +374,9 @@ The initial path is:
 LibraryDocument / Types
 ```
 
-Type kind, accessibility, and namespace are initial facets. Other facets may
-be adopted only after their query semantics, cost, and producer evidence are
-owned.
+Type kind, accessibility, namespace, and Type trait are initial facets. Other
+facets may be adopted only after their query semantics, cost, and producer
+evidence are owned.
 
 A declaration-kind facet distinguishes local definitions from forwarders and
 supports definitions-only, forwarders-only, or combined membership. Type kind
@@ -412,6 +412,14 @@ declared namespace without target resolution. The facet does not infer which
 Library owns a namespace; Router, Spotlight, and `find` resolve source
 candidates before invoking one exact Library operation.
 
+The initial Type-trait vocabulary is `abstract`, `static`, and `object`.
+`abstract` selects abstract classes but not interfaces or static classes.
+`static` selects declarations carrying the product's static-Type fact.
+`object` selects instantiable declarations: concrete classes, structs, enums,
+and delegates. Interfaces and forwarders have none of these traits. Trait
+values are alternatives within one selection; an absent trait selector means
+all declarations.
+
 A facet selects a population before terminal execution. A homogeneous
 `Accessibility = Private` population does not require every rendered row to
 repeat `Private`. Multiple selected facet values remain a request-level set or
@@ -436,7 +444,8 @@ LibraryTypePopulationResult
 
 Count and Rows execute the same membership predicate. They cannot disagree
 about declaration kind, public-surface or accessibility selection, Type kind,
-hidden/compiler-generated admission, Library snapshot, or completion.
+Type trait, hidden/compiler-generated admission, Library snapshot, or
+completion.
 
 Count is exact or visibly non-successful. It never reports retained Rows,
 current page length, a prefix, or zero after failure.

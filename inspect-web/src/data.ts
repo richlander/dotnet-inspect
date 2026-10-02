@@ -159,7 +159,8 @@ export function accessibilityFilterIncludingType(
   type: { accessibilityId?: string } | null | undefined,
 ): Set<string> {
   const next = new Set(filter ?? []);
-  if (type?.accessibilityId) next.add(type.accessibilityId);
+  if (type?.accessibilityId && !next.has(type.accessibilityId))
+    return new Set([type.accessibilityId]);
   return next;
 }
 
