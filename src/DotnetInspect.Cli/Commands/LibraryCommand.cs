@@ -2093,7 +2093,8 @@ public partial class LibraryCommand
         if (options.IncludeSections is not { Count: > 0 })
             return 0;
 
-        if (options.IncludeSections.Contains(SectionNames.ArrayPoolEscapes)
+        if (options.ExactIncludeSections?.Contains(
+                SectionNames.ArrayPoolEscapes) == true
             && inspections.Any(inspection =>
                 inspection.ResourceTriageQueryResult
                     is ResourceTriageResult.Incomplete))
@@ -4463,7 +4464,7 @@ public partial class LibraryCommand
         IReadOnlyList<LibraryInspection> inspections,
         LibraryOptions options)
     {
-        if (options.IncludeSections?.Contains(
+        if (options.ExactIncludeSections?.Contains(
                 SectionNames.ArrayPoolEscapes) != true)
         {
             return;

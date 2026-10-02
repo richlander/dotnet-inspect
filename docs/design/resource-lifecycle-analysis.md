@@ -206,9 +206,10 @@ remain visible on the focused Analysis result while sound positive
 exceptional-cleanup outcomes can still be projected.
 The focused Finding projection and Resource Triage query preserve those
 limitations beside any projected Findings rather than reporting the census as
-complete. When the Resource Triage section is selected, the CLI still emits
-the sound rows in every format, reports the incompleteness on stderr, and
-returns a nonzero status.
+complete. When the Resource Triage section is selected explicitly, the CLI
+still emits the sound rows in every format, reports the incompleteness on
+stderr, and returns a nonzero status. Broader category selection does not let
+one incomplete constituent replace the category's established status contract.
 Finding projection requires a full-method-evidence receipt; a scoped lifecycle
 result cannot stand in for the whole-library Resource Triage census.
 
