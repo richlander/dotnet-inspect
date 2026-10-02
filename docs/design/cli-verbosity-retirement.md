@@ -35,7 +35,7 @@ The target experience has independent, explicit dimensions:
 | --- | --- |
 | Subject | Command and subject coordinate |
 | Default Content | One registered default facet or command-owned primary operation |
-| Different or broader Content | `-Q <facet>`, an authored facet set, or an explicit command/query operation |
+| Different or broader Content | `-Q .<name>`, a canonical facet ID or authored facet set, or an explicit command/query operation |
 | Semantic extent | `--where`, order, Top, `-n`, `--rows`, and Count |
 | Cell or field projection | `--columns` and `--fields` |
 | Presentation | Shape-native default or `--format <name>` |
@@ -52,27 +52,32 @@ For an exact Library:
 dotnet-inspect library System.Text.Json
 
 # Subject facts: Document -> Markdown.
-dotnet-inspect library System.Text.Json -Q library.info
+dotnet-inspect library System.Text.Json -Q .info
 
 # One inventory: Table -> TSV.
-dotnet-inspect library System.Text.Json -Q library.references
+dotnet-inspect library System.Text.Json -Q .references
 
 # A broader authored set: composed result -> owner-declared shape.
 dotnet-inspect library System.Text.Json -Q @audit
 
 # Presentation changes, Content does not.
 dotnet-inspect library System.Text.Json \
-  -Q library.references \
+  -Q .references \
   --format markdown
 
 # Explanation accompanies the unchanged primary result.
 dotnet-inspect library System.Text.Json \
-  -Q library.references \
+  -Q .references \
   -E
 ```
 
-The facet IDs above are target names, not claims that every ID is currently
-issued. The View Facet owner remains responsible for issuance and compatibility.
+PR #9102 owns the contextual dot notation used above. In a Library context,
+`.info` and `.references` lower to the canonical `library.info` and
+`library.references` IDs before exact Registry resolution. The shorthand is
+not a Registry identity or alias. Full canonical IDs remain the durable values
+for discovery, explanation Content, persistence, references, and cross-host
+handoffs. The View Facet owner remains responsible for issuance and
+compatibility.
 
 ## Why verbosity has become the wrong abstraction
 
@@ -169,6 +174,8 @@ A non-subject route may adopt `-Q <facet>` only after a focused owner defines
 how the route resolves exactly one existing Registry-supported structural
 subject. The selected facet then applies to that subject under the ordinary
 Registry contract; the operation name is not disguised as a subject kind.
+Until that handoff exists, `.info`, `.references`, and every other relative
+facet selector fail before acquisition on the non-subject route.
 
 During retirement, each independently selectable section on a non-subject
 route must either:
@@ -183,9 +190,10 @@ the no-level boundary but does not issue their identities.
 
 ### Explicit facets and sets
 
-For a facet-producing route, `-Q <facet>` selects different Content. An
-authored facet set selects an explicit composition. Neither is a verbosity
-level.
+For a facet-producing route, `-Q .<name>` or `-Q <canonical-id>` selects
+different Content. Dot notation lowers to the exact ID before Registry
+resolution. An authored facet set selects an explicit composition. None is a
+verbosity level.
 
 The target model does not define `@normal`, `@detailed`, `@wide`, `@all`, or
 another set whose purpose is to preserve the old ladder. Useful domain sets
@@ -210,11 +218,11 @@ projections of one implicit view. Facts about a subject are an explicit Info
 facet:
 
 ```console
-dotnet-inspect package System.Text.Json -Q package.info
-dotnet-inspect library System.Text.Json -Q library.info
+dotnet-inspect package System.Text.Json -Q .info
+dotnet-inspect library System.Text.Json -Q .info
 dotnet-inspect type JsonSerializer \
   --package System.Text.Json \
-  -Q type.info
+  -Q .info
 ```
 
 The exact IDs remain with the facet owner. Each Info facet has one stable
@@ -375,7 +383,7 @@ There is intentionally no one-to-one replacement flag:
 | Current request | Target expression |
 | --- | --- |
 | Bare command / `-v:m` | Bare command, exact default facet, or command-owned primary operation |
-| `-v:q` | Explicit Info facet or command-owned identity projection, optionally narrowed with `--fields` or a structured format |
+| `-v:q` | `-Q .info` on a structural subject or a command-owned identity projection, optionally narrowed with `--fields` or a structured format |
 | `-v:n` | Exact facets, a coherent authored facet set, or explicit command/Query Operations; no generic equivalent |
 | `-v:d` | Exact facets or operations plus explicit capability authorization; no generic equivalent |
 | `-v:*` as Markdown request | `--format markdown` |
@@ -460,7 +468,7 @@ Browser APIs. The public CLI cutover remains atomic.
 | Concern | Owner | Retirement role |
 | --- | --- | --- |
 | Generic CLI verbosity removal and replacement handoffs | This document | Owns the no-level invariant, replacement matrix, and retirement sequence |
-| Default and selectable facet identity | [View Facet Registry](view-facet-registry.md) and the focused default-binding adoption proposed by [PR #9102](https://github.com/richlander/dotnet-inspect/pull/9102) | Supply exact stable Content identity rather than positional automatic selection |
+| Default and selectable facet identity | [View Facet Registry](view-facet-registry.md) and the focused default-binding and dot-notation adoption proposed by [PR #9102](https://github.com/richlander/dotnet-inspect/pull/9102) | Supply exact stable Content identity and Registry-owned typed relative resolution rather than positional automatic selection or host ID construction |
 | Facet sets | Section/facet-set owner proposed by PR #9102 | Supplies explicit authored compositions without normal/detailed semantics |
 | Query extent and terminals | QuerySpace and focused row-selection owners | Supply predicates, order, Top, windows, and Count |
 | Non-subject operation identity | Command and Query Operation owners | Supply one primary operation and exact explicit operations without minting View Facets |
@@ -471,7 +479,7 @@ Browser APIs. The public CLI cutover remains atomic.
 | Failure visibility | Content, envelope, diagnostics, and command owners | Preserve partial and failed outcomes independently of a failures section |
 | Shared section planning | [Section Pipeline](section-pipeline.md) | Replaces `SectionViewLevel` automatic plans with exact default and explicit plans |
 | Discovery and explanation | Schema Query, Resource Explanation, and Contextual Resource Explanation | Replace root `-v` metadata and explain current explicit requests |
-| CLI grammar and diagnostics | CLI host | Removes `-v`, adopts progress spelling, updates help and obsolete-input behavior |
+| CLI grammar and diagnostics | CLI host | Removes `-v`, consumes contextual dot-notation lowering, adopts progress spelling, and updates help and obsolete-input behavior |
 | Browser interaction | Inspect Web owners | Consume shared default-request contracts without a portable level |
 | Breaking-change mechanics | [CLI Change Classification](cli-change-classification.md) | Classifies removal, disclosure, and any focused invalid-input guard |
 
@@ -509,7 +517,8 @@ Implementation proceeds through focused, independently reviewable slices:
 1. **Lock this composition.** Record the no-level invariant, replacement roles,
    hierarchy boundary, owner map, and migration.
 2. **Lock canonical facet composition.** Land PR #9102 or its successor with
-   exact facet identity, shape-native defaults, and explanation handoffs.
+   exact facet identity, contextual dot-notation lowering, shape-native
+   defaults, and explanation handoffs.
 3. **Issue default bindings.** Give every admitted facet-producing route one
    exact default facet. Gate bare/default equivalence.
 4. **Issue explicit facet sets.** Migrate useful categories; record automatic
@@ -590,6 +599,12 @@ Focused adoptions must demonstrate:
 18. **Browser parity.** CLI and Browser consume the same default facet or
     primary operation and Content while host-local tree expansion does not
     become portable intent.
+19. **Relative facet equivalence.** `-Q .info` and the corresponding canonical
+    ID produce the same exact facet request, query demand, Content, and
+    capability requirements for each structural subject kind.
+20. **Relative operation rejection.** A non-subject Diff, Find, Graph, or
+    census route rejects `.info` and every other relative facet spelling before
+    acquisition rather than synthesizing an operation-kind facet.
 
 ## Evidence plan
 
@@ -600,6 +615,8 @@ Across the migration, evidence includes:
   primary operation for every non-subject inspection route;
 - bare/default-facet request and Content equivalence;
 - bare/primary-operation request and Content equivalence;
+- contextual dot-notation and canonical-ID request equivalence;
+- non-subject relative-facet rejection before acquisition;
 - exact query-demand equivalence before and after internal L2 preparation;
 - no extra producer, acquisition, or capability demand from format selection;
 - selected-facet isolation from Info and unrelated peers;
@@ -631,6 +648,8 @@ This design does not:
 
 - choose every route's default facet, primary operation, or final ID;
 - define facet-set identity or membership;
+- make contextual dot notation a Registry identity, alias, wildcard, or
+  Browser contract;
 - make every current automatic section survive as a facet;
 - replace verbosity with `wide`, `more`, `detail`, `all`, or another scale;
 - remove cost, size, applicability, effectiveness, capability, or query-demand
