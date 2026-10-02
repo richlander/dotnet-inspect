@@ -18,12 +18,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// <summary>
     /// Gates 11 and 13, real asset Newtonsoft.Json 13.0.4 (2.5 MB, root
     /// README.md): the cold file projection is the size probe, the directory
-    /// tail, and one span for the root folder, and writes the README's exact
+    /// tail, and one exact entry span, and writes the README's exact
     /// bytes; warm file, raw, separator, and JSONL projections are answered by
     /// the entry cache with no package request.
     /// </summary>
     [Fact]
-    public async Task PackageCommand_ReadmeContent_RealNewtonsoftArchive_ReadsTheRootFolderByRange()
+    public async Task PackageCommand_ReadmeContent_RealNewtonsoftArchive_ReadsOnlyTheExactEntryByRange()
     {
         byte[] package = await ReadNewtonsoftAsync();
         var feed = new RangeHonoringFeedHandler(
@@ -43,18 +43,21 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Empty(cold.Output);
         Assert.Equal(ReadEntry(package, "README.md"), File.ReadAllBytes(outputPath));
         // The one complete response is the size probe, abandoned before its
-        // body; then the directory tail and one span for the root folder.
+        // body; then the directory tail and one exact entry span.
         Assert.Equal(1, feed.FullPackageResponses);
         Assert.True(2 == feed.RangedResponses, string.Join("; ", feed.Ranges));
-        // The root folder's entries are the archive's first 10.8 KB and its
-        // signature, which lies inside the tail.
+        ZipEntryExtent readme = Assert.Single(
+            ZipEntryExtent.Read(package),
+            static entry => entry.Name == "README.md");
         string span = feed.Ranges.Skip(1).Single();
-        Assert.Equal(0, long.Parse(span.Split('-')[0]));
-        Assert.True(long.Parse(span.Split('-')[1]) < 64 * 1024, span);
+        Assert.Equal(readme.Start, long.Parse(span.Split('-')[0]));
+        Assert.True(
+            long.Parse(span.Split('-')[1]) >= readme.End,
+            span);
         Assert.True(
             feed.PackageBytesServed < 200_000,
             $"served {feed.PackageBytesServed} of {package.Length} package bytes");
-        Assert.Contains("6 of 24 entries", cold.Error, StringComparison.Ordinal);
+        Assert.Contains("1 of 24 entries", cold.Error, StringComparison.Ordinal);
         Assert.Contains(
             "Ranged, 3 package requests",
             cold.Error,
@@ -157,11 +160,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// Gate 12, a boundary fixture modeled on the Skill layout of the real
     /// CrestApps.AgentSkills.Mcp.OrchardCore 1.2.0 package (a Skill folder
     /// with a <c>references/</c> subfolder beside other Skills), padded above
-    /// the size cut because that package is under it: the export reads the
-    /// root folder and the exact Skill's direct folder only.
+    /// the size cut because that package is under it: the export reads only
+    /// the exact Skill entry.
     /// </summary>
     [Fact]
-    public async Task PackageCommand_SkillExport_ReadsTheRootAndExactSkillFolderOnly()
+    public async Task PackageCommand_SkillExport_ReadsOnlyTheExactEntry()
     {
         string id = $"Documents.Skill.{Guid.NewGuid():N}";
         const string Skill = """
@@ -193,9 +196,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Equal(Skill.Trim(), result.Output.Trim());
-        // The nuspec and README (root), and the exact Skill's direct folder;
-        // neither its reference subfolder, the other Skill, nor the filler.
-        Assert.Contains("3 of 6 entries", result.Error, StringComparison.Ordinal);
+        Assert.Contains("1 of 6 entries", result.Error, StringComparison.Ordinal);
         Assert.Equal(1, feed.FullPackageResponses);
         Assert.True(
             feed.PackageBytesServed < 128 * 1024,

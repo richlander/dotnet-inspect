@@ -47,6 +47,66 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void SemanticFilesQueryRetainsOnePackageWideExactDemand()
+    {
+        var files = new PackageHouseContentTerminal.Files(
+            ["README.md", "readme.md", "lib/net10.0/Contoso.Json.dll"]);
+        var query = new PackageHouseContentQuery(
+            new PackageHouseContentNarrowing.PackageWide(),
+            [files]);
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(Coordinate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            contentQuery: query);
+
+        Assert.Same(query, request.ContentQuery);
+        Assert.IsType<PackageHouseContentNarrowing.PackageWide>(
+            query.Narrowing);
+        Assert.Same(files, Assert.Single(query.Terminals));
+        Assert.Equal(
+            ["README.md", "lib/net10.0/Contoso.Json.dll"],
+            files.Entries);
+        Assert.Null(request.FileDemand);
+
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentTerminal.Files([]));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentTerminal.Files(["../README.md"]));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentQuery(
+                new PackageHouseContentNarrowing.PackageWide(),
+                []));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentQuery(
+                new PackageHouseContentNarrowing.PackageWide(),
+                [
+                    new PackageHouseContentTerminal.Files(["README.md"]),
+                    new PackageHouseContentTerminal.Files(["PACKAGE.md"]),
+                ]));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Settle),
+                contentQuery: query));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                fileDemand: PackageFileDemand.Create(["README.md"]),
+                contentQuery: query));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                targetContext: PackageHouseTargetContext.Exact("net10.0"),
+                contentQuery: query));
+    }
+
+    [Fact]
     public void FrameworkReferenceDemandRequiresCompileRealization()
     {
         var demand = new PackageHouseDemand.Exact(Coordinate);

@@ -3289,6 +3289,30 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void JsonWireContracts_PreservesExecutionIdentityWithoutIndex()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.JsonWireContractFlow));
+
+        LibraryJsonWireContractAnalysisResult result =
+            execution.JsonWireContracts;
+
+        Assert.True(result.WasRequested);
+        Assert.Same(execution.Receipt, result.Receipt);
+        Assert.Equal(
+            execution.CallGraph.DirectCalls,
+            result.DirectCalls);
+        Assert.False(execution.HasMaterializedCompatibilityIndex);
+
+        LibraryBodyIndex index = execution.CompatibilityIndex();
+
+        Assert.Same(result, index.JsonWireContracts);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void CompatibilityIndex_PreservesFocusedOptimizationResults()
     {

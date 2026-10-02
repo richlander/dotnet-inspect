@@ -96,6 +96,19 @@ central-directory snapshot. The archive reader owns its construction and ZIP
 validation. PackageHouse retains its exact identity and composes its evidence;
 it does not independently parse ZIP structures.
 
+Portable archive admission completes before PackageHouse narrows the snapshot
+or resolves a terminal. Complete, ranged, and cached-directory paths apply the
+same entry-path, portable-destination collision, directory-shape, entry-count,
+expanded-byte, and unique-directory rules. An archive rejected by those rules
+does not become a missing or ambiguous Files result merely because one
+requested path could be compared first.
+
+Missing and ambiguous Files outcomes apply within an admitted owner-issued
+snapshot. The terminal retains those typed outcomes for any owner-issued
+inventory that can preserve distinct entry identities which compare equal
+under exact-reference matching; portable ZIP admission currently rejects
+case-colliding destinations before that resolution boundary.
+
 The snapshot is the singular basis for:
 
 - the package-wide entry inventory;

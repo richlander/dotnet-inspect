@@ -378,11 +378,9 @@ public partial class PackageCommand
                 + $"{transfer.BytesReceived} bytes received.");
         }
 
-        // The directory lists every entry, so a ranged read answers this
-        // check as the complete archive does; a possible tool wrapper takes
-        // the complete package-content path, which follows the redirect.
         if (MayRequireLegacyToolWrapperHandling(
-                file.Settlement.Payload.Content))
+                file.FileList.Entries.Select(
+                    static entry => entry.Path)))
         {
             context.Logger.Log(
                 $"{target.PackageName}@{pinnedVersion} may be a .NET tool wrapper; "
@@ -394,12 +392,22 @@ public partial class PackageCommand
             && HasUnstructuredOutputPath(options)
             && ProjectionDestinationWriter.IsFile(destination))
         {
-            await using PackageHousePayloadRead input =
-                file.OpenRead();
-            await ProjectionDestinationWriter.WriteExactBytesAsync(
-                    destination,
-                    input)
-                .ConfigureAwait(false);
+            try
+            {
+                await using PackageHousePayloadRead input =
+                    file.OpenRead();
+                await ProjectionDestinationWriter.WriteExactBytesAsync(
+                        destination,
+                        input)
+                    .ConfigureAwait(false);
+            }
+            catch (InvalidDataException exception)
+            {
+                CommandError.Write(
+                    "Could not read the selected package document.",
+                    exception.Message);
+                return 1;
+            }
             return 0;
         }
 
@@ -466,10 +474,11 @@ public partial class PackageCommand
     }
 
     private static bool MayRequireLegacyToolWrapperHandling(
-        IPackageContent content)
+        IEnumerable<string> entries)
     {
+        ArgumentNullException.ThrowIfNull(entries);
         bool hasToolSettings = false;
-        foreach (string entry in content.EnumerateEntries())
+        foreach (string entry in entries)
         {
             if (entry.EndsWith(
                     ".dll",
@@ -1176,7 +1185,7 @@ public partial class PackageCommand
         }
 
         if (MayRequireLegacyToolWrapperHandling(
-                settlement.Payload.Content))
+                settlement.Payload.Content.EnumerateEntries()))
         {
             context.Logger.Log(
                 $"{target.PackageName}@{settlement.Payload.Coordinate.Version} "
