@@ -297,9 +297,11 @@ public class SkillCommandTests
         Assert.Contains("## 2. Dependency neighborhood", output);
         Assert.Contains("## 3. Architecture and implementation map", output);
         Assert.Contains("## 4. Performance leverage", output);
-        Assert.Contains("## 5. Upgrade impact", output);
-        Assert.Contains("## 6. Ecosystem integration", output);
+        Assert.Contains("## 5. Unsafe and ownership review", output);
+        Assert.Contains("## 6. Upgrade impact", output);
+        Assert.Contains("## 7. Ecosystem integration", output);
         Assert.Contains("skill signals", output);
+        Assert.Contains("skill correctness", output);
         Assert.Contains("skill relationships", output);
         Assert.Contains("skill performance", output);
         Assert.Contains("skill compatibility", output);
@@ -316,6 +318,23 @@ public class SkillCommandTests
         Assert.Contains("#7916", output);
         Assert.Contains("#8406", output);
         Assert.Contains("#8517", output);
+    }
+
+    [Fact]
+    public async Task CorrectnessSkill_ComposesUnsafeAndOwnershipEvidence()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("correctness")));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(".NET unsafe-code best-practices guide", output);
+        Assert.Contains("-S \"Unsafe Members\" --jsonl", output);
+        Assert.Contains("-S \"Resource Triage\" --jsonl", output);
+        Assert.Contains("jq -s", output);
+        Assert.Contains("--slurpfile ownership", output);
+        Assert.Contains("### Route the 26 guidance questions", output);
+        Assert.Contains("| 20 | `ArrayPool<T>` and pooling |", output);
+        Assert.Contains("current ownership coverage is always unverified", output);
     }
 
     [Fact]

@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-project-analysis
-version: 0.2.0
-description: Run evidence-backed workflows for supply chain, dependency neighborhoods, architecture, performance leverage, upgrade impact, and ecosystem integration.
+version: 0.3.0
+description: Run evidence-backed workflows for supply chain, dependency neighborhoods, architecture, performance, unsafe and ownership review, upgrades, and ecosystem integration.
 ---
 
 # dotnet-inspect: project analysis workflows
@@ -14,6 +14,7 @@ This skill selects and composes **workflows**. It does not replace the focused
 skills that own command semantics:
 
 - `skill signals` — provenance, safety, compatibility, and supply-chain facts;
+- `skill correctness` — exceptions, unsafe operations, and ownership evidence;
 - `skill relationships` — dependencies, calls, implementors, and integrations;
 - `skill performance` — leverage and static performance triage;
 - `skill compatibility` — version comparison and history;
@@ -36,11 +37,12 @@ dnx dotnet-inspect -y -- <command>
 | What does this project/package bring in, and where are the boundaries? | Dependency neighborhood |
 | Where is the implementation and how is it organized? | Architecture and implementation map |
 | Which code deserves performance investigation first? | Performance leverage |
+| Where are unsafe and ownership risks, and what remains unverified? | Unsafe and ownership review |
 | What changes if I upgrade? | Upgrade impact |
 | Which frameworks or package families does this connect? | Ecosystem integration |
 
 Run more than one only when the first workflow exposes a concrete join. Do not
-produce six shallow sections merely because six workflows exist.
+produce seven shallow sections merely because seven workflows exist.
 
 ## 1. Supply-chain dossier
 
@@ -295,13 +297,64 @@ provided the exported rows retain typed axes and exact coordinates.
 **Stop when:** a bounded candidate list has an explicit runtime-confirmation
 plan. Do not turn every allocation instruction into an optimization task.
 
-## 5. Upgrade impact
+## 5. Unsafe and ownership review
+
+**Use when:** reviewing unsafe code, interop, pooling, pinning, or resource
+lifetime against the .NET unsafe-code best-practices guidance.
+
+Load `skill correctness`; load `skill performance` for Resource Triage
+semantics. The correctness skill points to the authoritative guidance and owns
+the reusable low-level query bundle for its 26 numbered topics.
+
+### 5a. Acquire typed evidence once
+
+Follow the correctness skill to write separate JSONL files for:
+
+- `Unsafe Members`;
+- `P/Invoke Methods`;
+- `Custom Attributes` and references; and
+- `Resource Triage`, including its process status and diagnostics.
+
+Do not request one new aggregate report. Unsafe operations, interop, and
+ownership are distinct row families whose overlap is composed by the agent.
+
+### 5b. Slice and join for the selected questions
+
+Use `jq -s` to group exact unsafe operations and `jq --slurpfile` to compose
+unsafe, ownership, and interop rows without flattening their identities. Start
+with the questions applicable to the subject rather than emitting 26 empty
+headings. Preserve the exact expression used for each derived candidate set.
+
+### 5c. Drill consequential Members
+
+Resolve an exact Type and Member selector, then inspect `Unsafe Operations`,
+`Exception Regions`, `Call Graph`, and IL as separate outputs. Add source or
+decompilation only when lexical scope, guards, compiler diagnostics, or
+repository practice cannot be recovered from compiled evidence.
+
+### 5d. Report evidence and unknowns
+
+For each applicable guidance question, separate owner-issued facts, the
+reproducible `jq` slice or join, agent interpretation, and what remains
+`unverified`. Resource Triage candidates are useful ownership evidence, but
+current pooled-resource coverage is always unverified because positive rows and
+typed incompleteness are not projected together.
+
+**Visual:** grouped evidence table from guidance topic to Member/IL coordinates,
+with ownership paths shown separately when Resource Triage emits them. Do not
+create one undifferentiated "unsafe score."
+
+**Stop when:** applicable topics have bounded candidate sets and explicit next
+probes or unverified boundaries. Do not claim all 26 topics are clean from an
+empty unsafe census.
+
+## 6. Upgrade impact
 
 **Use when:** evaluating a package update, migration, or regression.
 
 Load `skill compatibility`.
 
-### 5a. Establish endpoint identity
+### 6a. Establish endpoint identity
 
 Pin both versions and the intended TFM. Start with the complete API Changes
 view, then use classified subsets for distinct questions:
@@ -319,7 +372,7 @@ assessed subsets; neither can establish that no other API changed. Keep API,
 analysis, and implementation observations separate rather than combining them
 into one generic "changed" count.
 
-### 5b. Trace a consequential change
+### 6b. Trace a consequential change
 
 Use exact Type/Member correspondence or history when the pairwise diff raises a
 specific question:
@@ -340,14 +393,14 @@ separate API, implementation, and Finding transitions.
 dependency shifts are explained. Add performance or dependency workflows only
 for a concrete changed boundary.
 
-## 6. Ecosystem integration
+## 7. Ecosystem integration
 
 **Use when:** the subject is an adapter, extension package, hosting component,
 or framework bridge with little local implementation.
 
 Load `skill relationships`.
 
-### 6a. Identify integrations
+### 7a. Identify integrations
 
 ```bash
 dnx dotnet-inspect -y -- library \
@@ -364,7 +417,7 @@ dnx dotnet-inspect -y -- library -Q Integrations
 Report canonical integration and ecosystem identities, the exact APIs
 supporting each observation, and unavailable or ambiguous bindings.
 
-### 6b. Compare an explicit package set
+### 7b. Compare an explicit package set
 
 ```bash
 dnx dotnet-inspect -y -- graph integrations \

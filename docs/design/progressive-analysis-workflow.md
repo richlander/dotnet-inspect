@@ -8,11 +8,11 @@ production consumer is the shipped `project-analysis` skill.
 
 This is a focused composition pattern. It defines how a named customer
 workflow selects and joins existing owner-issued inspections. It does not
-replace the command and evidence guidance in the `signals`, `relationships`,
-`performance`, `compatibility`, `sourcelink`, `decompiler`, or `query` skills.
-It does not redefine package acquisition, Research reports, Findings,
-dependency traversal, SourceLink, API comparison, Inspection Envelope,
-Workspace, Share, or Browser contracts.
+replace the command and evidence guidance in the `signals`, `correctness`,
+`relationships`, `performance`, `compatibility`, `sourcelink`, `decompiler`,
+or `query` skills. It does not redefine package acquisition, Research reports,
+Findings, dependency traversal, SourceLink, API comparison, Inspection
+Envelope, Workspace, Share, or Browser contracts.
 
 ## Owner and exact claim
 
@@ -238,6 +238,45 @@ path.
 **Stop:** when a small candidate set has an explicit confirmation plan; do not
 turn every allocation instruction into an optimization task.
 
+### Unsafe and ownership review
+
+**Question:** Which compiled unsafe, interop, and ownership boundaries warrant
+review against the .NET unsafe-code guidance, and what remains unverified?
+
+**First result:** separate machine-readable censuses for unsafe evidence,
+P/Invoke methods, metadata signals, and pooled-resource candidates, including
+their available diagnostics.
+
+**Stages:**
+
+1. Load the focused correctness guidance and its authoritative external policy.
+2. Acquire each low-level row family once as JSON or JSONL.
+3. Use agent-selected `jq` slices and slurps for the applicable guidance
+   questions.
+4. Resolve exact Type/Member subjects and drill consequential candidates with
+   unsafe operations, exception regions, call graphs, and IL.
+5. Add source, build diagnostics, repository tests, or runtime evidence only
+   for questions compiled inspection cannot answer.
+
+**Boundary:** this workflow composes evidence; it does not define a universal
+unsafe-code analyzer, Finding, score, or report schema. Unsafe and ownership
+overlap because lifetime failures can arise without pointer operations. Their
+owner-issued rows remain separate until the agent performs a reproducible
+question-specific join. Empty rows establish no broader safety claim.
+Resource Triage coverage remains unverified under its current completion
+boundary. Compiler warnings and repository fuzzing are not ordinary assembly
+evidence.
+
+**Report:** applicable guidance questions, exact row and IL evidence, the
+reproducible `jq` expression used to derive each candidate set, agent
+interpretation, completion, and unverified questions with their next probe.
+
+**Visual:** grouped evidence table from guidance topic to exact Member/IL
+coordinates, with ownership paths kept distinct from pointer and interop rows.
+
+**Stop:** when applicable topics have bounded candidate sets and explicit next
+probes or unverified boundaries; do not emit 26 shallow clean claims.
+
 ### Upgrade impact
 
 **Question:** What user-relevant API, implementation, dependency, or Finding
@@ -307,8 +346,12 @@ One workflow starts another only from concrete evidence:
 | Supply-chain dossier | Transitive coverage matters | Dependency neighborhood |
 | Dependency neighborhood | One external boundary dominates | Architecture map or performance leverage |
 | Architecture map | High-leverage or allocation-bearing outlier | Performance leverage |
+| Architecture map | Unsafe-heavy or pooled-resource region | Unsafe and ownership review |
+| Performance leverage | Resource Triage or unsafe candidate matters beyond runtime cost | Unsafe and ownership review |
+| Unsafe and ownership review | Candidate runtime cost matters | Performance leverage |
 | Upgrade impact | Dependency edge changed | Dependency neighborhood |
 | Upgrade impact | Performance Finding changed | Performance leverage |
+| Upgrade impact | Unsafe or ownership evidence changed | Unsafe and ownership review |
 | Ecosystem integration | Missing endpoint ownership matters | Dependency neighborhood |
 
 The report names the handoff question, expected evidence, and cost. It does not
@@ -380,8 +423,10 @@ acquisition of `MarkdownTable.Formatting@0.3.4`.
 CLI gates verify that the skill:
 
 - is registered, embedded, and listed from frontmatter;
-- names the six workflows and their customer questions;
+- names the seven workflows and their customer questions;
 - delegates command semantics to existing focused skills;
 - preserves dependency-completion and static/runtime boundaries;
+- composes unsafe, ownership, and interop row families through reproducible
+  agent queries rather than a new aggregate analyzer;
 - describes typed visuals and exact Share limitations; and
 - identifies #7916, #8406, and #8517 rather than simulating missing evidence.
