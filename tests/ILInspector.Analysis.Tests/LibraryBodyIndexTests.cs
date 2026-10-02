@@ -2495,9 +2495,9 @@ public class OpaqueUnsafeTests
         // The in-test fixture assembly is not opted into the updated memory-safety
         // rules, so its only requires-unsafe methods carry a pointer signature —
         // none should be reported as opaque.
-        var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
 
-        var opaque = index.OpaqueUnsafeMethods();
+        var opaque = index.CompatibilityIndex().OpaqueUnsafeMethods();
 
         Assert.DoesNotContain(opaque, o => o.Method.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead));
         Assert.All(opaque, o => Assert.False(
@@ -2592,22 +2592,22 @@ public class HollowUnsafeTests
     {
         // UnsafePointerRead dereferences its pointer parameter, so it carries a
         // realized (IL-offset-anchored) body op and must not be reported hollow.
-        var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
 
-        var hollow = index.HollowUnsafeMethods();
+        var hollow = index.CompatibilityIndex().HollowUnsafeMethods();
 
         Assert.DoesNotContain(hollow, h => h.Method.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead));
         Assert.All(hollow, h => Assert.False(
-            HollowUnsafe.HasRealizedUnsafeOp(h.Method, index.UnsafeEvidence)));
+            HollowUnsafe.HasRealizedUnsafeOp(h.Method, index.Safety.Evidence)));
     }
 }
 
 public class CallTreeTests
 {
-    static readonly LibraryBodyIndex Index = LibraryBodyIndex.Open(typeof(CallTreeFixtures).Assembly.Location);
+    static readonly LibraryBodyAnalysisExecution Index = BodyAnalysisTestExecution.Open(typeof(CallTreeFixtures).Assembly.Location);
 
     static int Token(string methodName)
-        => Index.Methods
+        => Index.CallGraph.Methods
             .First(method => method.DeclaringType.Name == nameof(CallTreeFixtures) && method.Name == methodName)
             .MetadataToken;
 
@@ -2730,7 +2730,7 @@ public class CallTreeTests
 
     static MethodSignals SignalsForMethod(string methodName)
     {
-        int token = Index.Methods.First(method => method.Name == methodName).MetadataToken;
+        int token = Index.CallGraph.Methods.First(method => method.Name == methodName).MetadataToken;
         return Index.BuildCallTree(token, maxDepth: 1, maxNodes: 100).Perf!.SignalsOrNone;
     }
 

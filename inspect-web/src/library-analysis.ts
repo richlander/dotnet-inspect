@@ -1,4 +1,5 @@
 import type { BrowserPackagePerformance } from "./facades/inspect-web-analysis.d.ts";
+import { renderAnalysisInspector } from "./analysis-inspector.ts";
 
 type LibraryAnalysisResult = Pick<
   BrowserPackagePerformance,
@@ -29,8 +30,7 @@ function shortTypeName(fullName: string): string {
 
 export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): string {
   const {
-    libraryName, assemblyIdentity, assetPath, coordinate,
-    requireLibrary, pickerHtml, fresh, loading, error, data, escapeHtml,
+    libraryName, requireLibrary, fresh, loading, error, data, escapeHtml,
   } = options;
   let status: string;
   let content: string;
@@ -84,17 +84,5 @@ export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): s
       content = `${warning}${note}${members.length ? `<div class="perf-list">${rows}</div>` : empty}`;
     }
   }
-  const identity = assetPath ? `${assetPath} \u00b7 ${assemblyIdentity}` : assemblyIdentity;
-  return `<section class="library-analysis-surface${pickerHtml ? " library-analysis-with-controls" : ""}" aria-labelledby="library-analysis-title">
-    <header class="api-surface-head">
-      <h1 id="library-analysis-title">Analysis</h1>
-      <p title="${escapeHtml(status)}">${escapeHtml(status)}</p>
-    </header>
-    ${pickerHtml ? `<section class="library-analysis-controls" aria-label="Analysis library">${pickerHtml}</section>` : ""}
-    <div class="library-analysis-scroll">${content}</div>
-    <footer class="metadata-surface-footer">
-      <span title="${escapeHtml(identity)}">${escapeHtml(identity)}</span>
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-    </footer>
-  </section>`;
+  return renderAnalysisInspector(options, "performance", status, content);
 }

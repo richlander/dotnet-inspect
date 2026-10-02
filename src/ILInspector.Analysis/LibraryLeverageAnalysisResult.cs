@@ -9,15 +9,18 @@ public sealed class LibraryLeverageAnalysisResult
 {
     private readonly LibraryCallGraphAnalysisResult _callGraph;
     private readonly GeneratedFrameworkTypeSet _generatedFrameworkTypes;
+    private readonly ImmutableArray<MethodIdentity> _unsafeMethods;
 
     internal LibraryLeverageAnalysisResult(
         LibraryBodyAnalysisReceipt receipt,
         LibraryCallGraphAnalysisResult callGraph,
-        GeneratedFrameworkTypeSet generatedFrameworkTypes)
+        GeneratedFrameworkTypeSet generatedFrameworkTypes,
+        ImmutableArray<MethodIdentity> unsafeMethods)
     {
         Receipt = receipt;
         _callGraph = callGraph;
         _generatedFrameworkTypes = generatedFrameworkTypes;
+        _unsafeMethods = unsafeMethods;
     }
 
     /// <summary>
@@ -56,6 +59,26 @@ public sealed class LibraryLeverageAnalysisResult
             count,
             scope,
             maxDepth: 64,
+            _callGraph.DeclaredMethodMap);
+    }
+
+    /// <summary>
+    /// Ranks methods that impose an unsafe obligation by distinct direct
+    /// callers.
+    /// </summary>
+    public ImmutableArray<UnsafeMethodLeverage> TopUnsafe(int count = 6)
+    {
+        if (!WasRequested)
+        {
+            throw new InvalidOperationException(
+                "Leverage analysis was not requested for this Analysis "
+                + "execution.");
+        }
+
+        return UnsafeLeverage.Top(
+            _callGraph.PhysicalDirectCalls,
+            _unsafeMethods,
+            count,
             _callGraph.DeclaredMethodMap);
     }
 }
