@@ -790,7 +790,8 @@ public sealed partial class PackageRangedRealizationTests
             PackageHouseContentQuery query,
             long sizeCut = 0,
             string packageId = PclStorage,
-            string version = PclStorageVersion)
+            string version = PclStorageVersion,
+            PackageHouseTargetContext? targetContext = null)
         {
             var house = new PackageHouse(
                 Authorization,
@@ -803,6 +804,7 @@ public sealed partial class PackageRangedRealizationTests
                     PackageSourceCoordinate.Create(packageId, version)),
                 PackageHouseOperation.Create(
                     PackageHouseOperationProfile.Acquire),
+                targetContext: targetContext,
                 contentQuery: query);
             return house.ExecuteAsync(
                 request,

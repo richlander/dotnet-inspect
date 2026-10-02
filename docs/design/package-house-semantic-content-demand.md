@@ -52,6 +52,12 @@ applicable for the target context. PackageHouse preserves that owner-issued
 decision and does not infer applicability from folder existence or rendered
 paths. A `runtimes` choice requires the target's RID.
 
+TFM-wide narrowing is the complete direct contents of the folders containing
+the owner-selected compile surface and its corresponding implementation
+assets. A RID-specific implementation selected by the asset owner replaces the
+non-RID implementation folder in that target view. PackageHouse does not
+approximate this scope with a TFM path-prefix filter.
+
 The first applicable family wins as the primary root. A later family
 contributes no candidates or inventory merely because it appears later in the
 preference chain.
@@ -82,6 +88,13 @@ narrowing; neither repeats or independently interprets it.
 One implementation slice adds a narrowing form or terminal only with a
 production caller. Until one lands, its place in this vocabulary is an
 adoption commitment, not a supported API.
+
+Package-wide and TFM-wide Files and File List are implemented. Their results
+retain the exact acquired generation and, for TFM-wide narrowing, the existing
+compile/implementation asset-selection receipt. A File List can issue a later
+Files query only from entries in that exact narrowed inventory; the query
+retains the owner-issued narrowing evidence rather than reconstructing a path
+from display text.
 
 The content query does not contain an access mode, range selector, cache
 backend, source URL, or fallback preference. Network permission, source
