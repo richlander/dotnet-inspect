@@ -762,13 +762,13 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     writable: false),
                 AssemblyResolutionProvenance.Local(
                     "cross-assembly interface caller"))!;
-        LibraryBodyIndex index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 CallerAssemblyName + ".dll",
                 ImmutableArray.CreateRange(callerImage),
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         var participant =
-            new CatalogCallGraphParticipant(index, callerAssembly);
+            new CatalogCallGraphParticipant(index.CallGraph, callerAssembly);
         return new(
             targetImage,
             targetAssembly,
@@ -1024,14 +1024,14 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 () => new MemoryStream(image, writable: false),
                 AssemblyResolutionProvenance.Local(
                     "resource-effect interface repair test"))!;
-        LibraryBodyIndex index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 AssemblyName + ".dll",
                 ImmutableArray.CreateRange(image),
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         return new SyntheticParticipant(
             image,
-            new CatalogCallGraphParticipant(index, assembly),
+            new CatalogCallGraphParticipant(index.CallGraph, assembly),
             new ExactPolicy([assembly, CoreLibraryAssembly]));
     }
 }

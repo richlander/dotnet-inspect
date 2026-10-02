@@ -49,10 +49,10 @@ public class MethodBodyInspectionSessionTests
                     path)),
     ];
 
-    static int CalledToken(Analysis.LibraryBodyIndex index)
+    static int CalledToken(Analysis.LibraryBodyAnalysisExecution index)
     {
-        var methodTokens = index.Methods.Select(m => m.MetadataToken).ToHashSet();
-        return index.DirectCalls
+        var methodTokens = index.CallGraph.Methods.Select(m => m.MetadataToken).ToHashSet();
+        return index.CallGraph.DirectCalls
             .Select(call => call.CalleeDefinitionToken)
             .First(token => methodTokens.Contains(token));
     }
@@ -74,8 +74,8 @@ public class MethodBodyInspectionSessionTests
     [Trait("Speed", "Slow")]
     public void Open_HonorsBodyScope()
     {
-        var fullIndex = Analysis.LibraryBodyIndex.Open(ProductPath);
-        var token = fullIndex.GetDirectCallsByCaller().First(entry => entry.Value.Length > 0).Key;
+        var fullIndex = BodyAnalysisTestExecution.Open(ProductPath);
+        var token = fullIndex.CallGraph.DirectCallsByCaller.First(entry => entry.Value.Length > 0).Key;
 
         var scopedIndex = MethodBodyInspectionSession.Open(
             ProductPath,
@@ -99,11 +99,11 @@ public class MethodBodyInspectionSessionTests
     [Trait("Speed", "Slow")]
     public void CallerEdges_MatchSameAssemblyCalls_AndAttributeSource()
     {
-        var index = Analysis.LibraryBodyIndex.Open(ProductPath);
+        var index = BodyAnalysisTestExecution.Open(ProductPath);
         var targetToken = CalledToken(index);
-        var identity = index.Methods.First(method => method.MetadataToken == targetToken);
+        var identity = index.CallGraph.Methods.First(method => method.MetadataToken == targetToken);
         var pattern = Analysis.MemberPattern.Method(identity);
-        var expected = index.DirectCalls
+        var expected = index.CallGraph.DirectCalls
             .Where(call => call.CalleeDefinitionToken == targetToken || pattern.Matches(call.Callee))
             .ToList();
 
@@ -224,7 +224,7 @@ public class MethodBodyInspectionSessionTests
     [Trait("Speed", "Slow")]
     public void CallerTree_SessionScopes_MatchesNeutralIndexComposition()
     {
-        var index = Analysis.LibraryBodyIndex.Open(ProductPath);
+        var index = BodyAnalysisTestExecution.Open(ProductPath);
         var token = CalledToken(index);
 
         MethodBodyInspectionSession target =

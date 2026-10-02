@@ -318,7 +318,6 @@ export interface TypePanelBindingActions {
   onTypeSourceViewSelect: (view: TypeSourceView) => void;
   onExploreSource: () => void;
   onKindSelect: (kind: string) => void;
-  onTypeLeverageActivate?: () => void;
   onTypeLeverageFilterSelect?: (filter: string) => void;
   onTypeLeverageRetry: () => void;
   onTypeNavBack: () => void;
@@ -367,9 +366,6 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onKindSelect(button.dataset.kindFilter ?? "")));
-  root.querySelector("[data-type-leverage-activate]")?.addEventListener(
-    "click",
-    () => actions.onTypeLeverageActivate?.());
   root.querySelector("[data-type-leverage-retry]")?.addEventListener(
     "click",
     actions.onTypeLeverageRetry);
