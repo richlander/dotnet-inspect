@@ -1050,7 +1050,10 @@ app.innerHTML = `
   })}`;
 const annotatedSourceBackdrop =
   document.querySelector<HTMLElement>("#annotated-source-backdrop");
-if (annotatedSourceBackdrop) annotatedSourceBackdrop.style.display = "none";
+if (annotatedSourceBackdrop) {
+  annotatedSourceBackdrop.hidden = true;
+  annotatedSourceBackdrop.style.display = "none";
+}
 const productNavigationActions: ProductNavigationActions = {
   currentDestination: () => workspaceMode ? "workspace" : null,
   onAction: action => {
@@ -1145,7 +1148,10 @@ document.querySelector("#explore-source")?.addEventListener("click", () => {
   const backdrop =
     document.querySelector<HTMLElement>("#annotated-source-backdrop");
   if (workbench) workbench.inert = true;
-  if (backdrop) backdrop.style.removeProperty("display");
+  if (backdrop) {
+    backdrop.hidden = false;
+    backdrop.style.removeProperty("display");
+  }
   document.querySelector<HTMLElement>("#annotated-modal-title")?.focus();
 });
 document.querySelector("#annotated-modal-close")?.addEventListener("click", () => {
@@ -1153,7 +1159,10 @@ document.querySelector("#annotated-modal-close")?.addEventListener("click", () =
   const backdrop =
     document.querySelector<HTMLElement>("#annotated-source-backdrop");
   if (workbench) workbench.inert = false;
-  if (backdrop) backdrop.style.display = "none";
+  if (backdrop) {
+    backdrop.hidden = true;
+    backdrop.style.display = "none";
+  }
   document.querySelector<HTMLElement>("#explore-source")
     ?.focus({ preventScroll: true });
 });

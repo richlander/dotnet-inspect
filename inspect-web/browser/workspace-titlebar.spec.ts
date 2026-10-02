@@ -2246,7 +2246,7 @@ test("the target row advertises the typed Package, Library, Type, and Member pat
     "Target framework net10.0. Change target framework for System.Text.Json");
   await expect(page.locator(".targetbar .subject-path")).toBeVisible();
   await expect(page.locator(".titlebar .scope-switch")).toBeVisible();
-  await expect(page.locator(".titlebar .lens")).toHaveCount(5);
+  await expect(page.locator(".titlebar .lens")).toHaveCount(4);
   await expect(page.locator(".subject-path-segment.current")).toHaveCSS(
     "color",
     "rgb(185, 170, 238)");
