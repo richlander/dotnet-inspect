@@ -312,11 +312,14 @@ Follow the correctness skill to write separate JSONL files for:
 
 - `Unsafe Members`;
 - `P/Invoke Methods`;
-- `Custom Attributes` and references; and
+- assembly/module `Custom Attributes` and references; and
 - `Resource Triage`, including its process status and diagnostics.
 
 Do not request one new aggregate report. Unsafe operations, interop, and
 ownership are distinct row families whose overlap is composed by the agent.
+Library attributes are a filtered assembly/module view; they do not discover
+Type-, field-, or method-level attributes or establish `SkipLocalsInit`
+coverage. Retain that whole-library boundary.
 
 ### 5b. Slice and join for the selected questions
 
@@ -328,9 +331,10 @@ headings. Preserve the exact expression used for each derived candidate set.
 ### 5c. Drill consequential Members
 
 Resolve an exact Type and Member selector, then inspect `Unsafe Operations`,
-`Exception Regions`, `Call Graph`, and IL as separate outputs. Add source or
-decompilation only when lexical scope, guards, compiler diagnostics, or
-repository practice cannot be recovered from compiled evidence.
+`Custom Attributes`, `Exception Regions`, `Call Graph`, and IL as separate
+outputs. Add source or decompilation only when lexical scope, guards, field
+attributes, compiler diagnostics, or repository practice cannot be recovered
+from compiled evidence.
 
 ### 5d. Report evidence and unknowns
 

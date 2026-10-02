@@ -330,10 +330,15 @@ public class SkillCommandTests
         Assert.Contains(".NET unsafe-code best-practices guide", output);
         Assert.Contains("-S \"Unsafe Members\" --jsonl", output);
         Assert.Contains("-S \"Resource Triage\" --jsonl", output);
+        Assert.Contains(
+            "Library `Custom Attributes` covers a filtered set of assembly- and module-level",
+            output);
+        Assert.Contains("-S \"Custom Attributes\" --jsonl", output);
         Assert.Contains("jq -s", output);
         Assert.Contains("--slurpfile ownership", output);
         Assert.Contains("### Route the 26 guidance questions", output);
         Assert.Contains("| 20 | `ArrayPool<T>` and pooling |", output);
+        Assert.Contains("whole-library discovery is unverified", output);
         Assert.Contains("current ownership coverage is always unverified", output);
     }
 

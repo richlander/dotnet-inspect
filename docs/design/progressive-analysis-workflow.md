@@ -254,7 +254,8 @@ their available diagnostics.
 3. Use agent-selected `jq` slices and slurps for the applicable guidance
    questions.
 4. Resolve exact Type/Member subjects and drill consequential candidates with
-   unsafe operations, exception regions, call graphs, and IL.
+   unsafe operations, custom attributes, exception regions, call graphs, and
+   IL.
 5. Add source, build diagnostics, repository tests, or runtime evidence only
    for questions compiled inspection cannot answer.
 
@@ -264,8 +265,10 @@ overlap because lifetime failures can arise without pointer operations. Their
 owner-issued rows remain separate until the agent performs a reproducible
 question-specific join. Empty rows establish no broader safety claim.
 Resource Triage coverage remains unverified under its current completion
-boundary. Compiler warnings and repository fuzzing are not ordinary assembly
-evidence.
+boundary. Library Custom Attributes are a filtered assembly/module view, so
+whole-library discovery of field/method attributes and `SkipLocalsInit`
+coverage remains unverified.
+Compiler warnings and repository fuzzing are not ordinary assembly evidence.
 
 **Report:** applicable guidance questions, exact row and IL evidence, the
 reproducible `jq` expression used to derive each candidate set, agent

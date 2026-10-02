@@ -118,6 +118,12 @@ capture signals.json \
     -S Signals --json
 ```
 
+Library `Custom Attributes` covers a filtered set of assembly- and module-level
+attributes. It does not discover attributes on Types, fields, or methods, and
+does not establish `SkipLocalsInit` coverage. Preserve that scope: use
+exact-subject attributes only after another row or source evidence selects the
+Type or Member, and report whole-library attribute discovery as `unverified`.
+
 Ownership and unsafe code overlap. A pooled buffer can have no pointer opcode
 yet still fail through use-after-return, missing cleanup, or ownership transfer.
 Acquire Resource Triage beside unsafe evidence through the same wrapper:
@@ -201,6 +207,9 @@ capture candidate-unsafe.jsonl \
 capture candidate-exceptions.jsonl \
   dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
     -S "Exception Regions" --jsonl
+capture candidate-attributes.jsonl \
+  dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
+    -S "Custom Attributes" --jsonl
 capture candidate-calls.jsonl \
   dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
     -S "Call Graph" --fields "Unsafe,Throw,Catch,Finally,Loop" --jsonl
@@ -235,11 +244,11 @@ prove safety.
 | 12 | Binary struct serialization | Slice `MemoryMarshal`/`Unsafe` reads, writes, copies, and exact Type layouts; open generics remain incomplete. |
 | 13 | Null managed pointers | Slice `Unsafe.NullRef` and pointer-to-byref conversions; drill uses and discarded dereferences. |
 | 14 | `stackalloc` | Slice `localloc`; drill loop membership, length construction, span conversion, and bounds. |
-| 15 | Fixed-size buffers | Custom attributes and unsafe declarations identify fixed buffers; compare available inline-array evidence. |
+| 15 | Fixed-size buffers | Unsafe declarations can select candidates, but library attributes cannot discover field-level `FixedBufferAttribute`; whole-library discovery is unverified, so use source or exact-Type decompilation for known candidates. |
 | 16 | Pointer plus length APIs | Pointer signatures and P/Invoke rows identify candidates; inspect explicit lengths and termination assumptions. |
 | 17 | String mutation | Pointer stores plus string-origin evidence; source or decompilation usually establishes the target. |
 | 18 | Raw IL generation | References and calls identify Reflection.Emit or Cecil use; generated-IL validity requires separate evidence. |
-| 19 | Uninitialized locals | `SkipLocalsInit` attributes and `Unsafe.SkipInit` calls; drill reads, writes, and pooled-buffer initialization. |
+| 19 | Uninitialized locals | Slice `Unsafe.SkipInit` calls. Library attributes cannot establish `SkipLocalsInit`; that whole-library census is unverified, so use source or inspect exact-Member attributes and IL local initialization, then drill reads, writes, and pooled-buffer initialization. |
 | 20 | `ArrayPool<T>` and pooling | Join Resource Triage, unsafe calls, exceptions, and returns; current ownership coverage is always unverified. |
 | 21 | `bool`/integer conversion | Slice `Unsafe.As`, `BitCast`, and unaligned reads involving Boolean and integral Types. |
 | 22 | Interop | P/Invoke rows, signatures, attributes, unsafe operations, and ownership/lifetime evidence. |
