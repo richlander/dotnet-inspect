@@ -303,6 +303,8 @@ public class SkillCommandTests
         Assert.Contains("skill relationships", output);
         Assert.Contains("skill performance", output);
         Assert.Contains("skill compatibility", output);
+        Assert.Contains("-S \"Resource Triage\"", output);
+        Assert.Contains("pooled-resource ownership as `unverified`", output);
         Assert.Contains("-S Changes", output);
         Assert.Contains("`unclassified`", output);
         Assert.Contains("-D --details", output);

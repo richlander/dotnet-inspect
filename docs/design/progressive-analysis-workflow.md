@@ -213,14 +213,19 @@ CLI envelope and Metrics Share support is tracked by
 1. Top Leverage over the selected Library.
 2. Effective performance section discovery.
 3. Intersection with high-priority static Findings and exact IL coordinates.
-4. Runtime confirmation with a representative benchmark or trace.
+4. Explicit Resource Triage for pooled-resource ownership and exceptional
+   cleanup, retaining the producer's completion status.
+5. Runtime confirmation with a representative benchmark or trace.
 
 **Boundary:** static evidence identifies candidates; it does not prove runtime
 frequency, elapsed cost, allocated bytes, or rewrite benefit. Priority and
-Confidence remain separate.
+Confidence remain separate. An incomplete resource-lifecycle producer leaves
+pooled-resource ownership unverified; zero rows do not establish an absence of
+findings unless the producer completed.
 
 **Report:** bounded candidate list, why each candidate has leverage, exact
-static evidence, and the runtime-confirmation plan or result.
+static evidence, resource-analysis completion, and the runtime-confirmation
+plan or result.
 
 **Visual:** typed leverage-versus-evidence view or focused call/allocation
 path.

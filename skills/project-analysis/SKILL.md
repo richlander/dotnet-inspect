@@ -262,7 +262,25 @@ Keep Priority separate from Confidence. Preserve exact Method token, evidence
 method, IL offset, operation, and Finding identity for a profiler or benchmark
 join.
 
-### 4c. Confirm before recommending a rewrite
+### 4c. Check pooled-resource ownership
+
+Run the focused resource analysis separately because `Performance:*` does not
+select `Resource Triage`:
+
+```bash
+dnx dotnet-inspect -y -- library \
+  --package Foo@1.2.3 --namesake-library \
+  -S "Resource Triage" --jsonl
+```
+
+Preserve the command status and inspection diagnostics. If resource-lifecycle
+analysis is incomplete, report pooled-resource ownership as `unverified` with
+the exact reason; do not interpret zero rows as no findings. For completed
+rows, retain Candidate, Finding, Acquire IL, Boundary IL, and Boundary.
+Treat `pool-churn-on-exception` as a profiling and hardening candidate, not
+proof of a permanent leak or memory corruption.
+
+### 4d. Confirm before recommending a rewrite
 
 Use BenchmarkDotNet or a representative trace against the same build. Report
 static candidates separately from runtime-confirmed findings.
