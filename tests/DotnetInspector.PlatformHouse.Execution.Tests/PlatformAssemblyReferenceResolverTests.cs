@@ -239,7 +239,9 @@ public sealed class PlatformAssemblyReferenceResolverTests
                     .CompletePlatform(
                         request,
                         package,
-                        platform));
+                        new ExternalAssemblyReferencePlatformResult(
+                            input.Request,
+                            platform)));
 
         Assert.Same(platform, completed.Platform);
         Assert.Equal(targetIdentity, completed.Binding.Candidate.Identity);
@@ -287,7 +289,9 @@ public sealed class PlatformAssemblyReferenceResolverTests
                     .CompletePlatform(
                         request,
                         package,
-                        platform));
+                        new ExternalAssemblyReferencePlatformResult(
+                            input.Request,
+                            platform)));
 
         Assert.Equal(
             AssemblyBindingMissDisposition.NameOwnedNoMatch,
@@ -340,7 +344,9 @@ public sealed class PlatformAssemblyReferenceResolverTests
                     .CompletePlatform(
                         request,
                         package,
-                        platform));
+                        new ExternalAssemblyReferencePlatformResult(
+                            platformRequest,
+                            platform)));
 
         Assert.Equal(
             AssemblyBindingMissDisposition.NoNameOwner,
@@ -403,9 +409,10 @@ public sealed class PlatformAssemblyReferenceResolverTests
                                 cancellationToken,
                                 continuedCancellationToken);
                             return ValueTask.FromResult<
-                                PlatformHouseOutcome<
-                                    AssemblyBindingDecision>>(
-                                        platform);
+                                ExternalAssemblyReferencePlatformResult>(
+                                    new(
+                                        input.Request,
+                                        platform));
                         },
                         cancellationToken));
 
@@ -460,6 +467,60 @@ public sealed class PlatformAssemblyReferenceResolverTests
 
         Assert.Equal(0, platformCalls);
         Assert.Null(incomplete.Platform);
+    }
+
+    [Fact]
+    public async Task
+        ExternalSupplierCompositionRejectsForeignPlatformRequest()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity firstIdentity =
+            Descriptor(image).Identity;
+        var first = Input(
+            firstIdentity,
+            image,
+            static () => true,
+            static () => { },
+            cancellationToken,
+            bindingDemand: true);
+        var firstOutcome = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    first.Request,
+                    first.Item,
+                    first.Consumed));
+        var firstResult =
+            new ExternalAssemblyReferencePlatformResult(
+                first.Request,
+                firstOutcome);
+        PlatformHouseRequest secondRequest = Request(
+            firstIdentity with { Name = "Different.Assembly" },
+            PlatformSourceCapabilityIdentity.Create("second-source"),
+            AssemblyBindingOrigin.Global(),
+            cancellationToken,
+            image.LongLength);
+        AssemblyBindingRequest secondBinding =
+            BindingRequest(secondRequest);
+        PackageAssemblyReferenceSupplierOutcome.Missing secondPackage =
+            await CompletePackageMissAsync(
+                secondBinding,
+                cancellationToken);
+
+        Assert.Throws<ArgumentException>(
+            "platform",
+            () => ExternalAssemblyReferenceSupplierAssociation
+                .CompletePlatform(
+                    secondBinding,
+                    secondPackage,
+                    firstResult));
+        Assert.Throws<ArgumentException>(
+            "outcome",
+            () => new ExternalAssemblyReferencePlatformResult(
+                secondRequest,
+                firstOutcome));
     }
 
     [Fact]

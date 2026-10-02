@@ -6,6 +6,44 @@ using ILInspector.Metadata;
 namespace DotnetInspector.PlatformQueries;
 
 /// <summary>
+/// One Platform assembly-reference result bound to the exact owner-issued
+/// request that produced its receipt.
+/// </summary>
+public sealed class ExternalAssemblyReferencePlatformResult
+{
+    public ExternalAssemblyReferencePlatformResult(
+        PlatformHouseRequest request,
+        PlatformHouseOutcome<AssemblyBindingDecision> outcome)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(outcome);
+        if (request.Operation
+            is not PlatformHouseOperation.ResolveAssemblyReference operation)
+        {
+            throw new ArgumentException(
+                "The Platform result requires an assembly-reference binding request.",
+                nameof(request));
+        }
+        if (!ReferenceEquals(outcome.Receipt.Request, request.Snapshot))
+        {
+            throw new ArgumentException(
+                "The Platform outcome receipt must retain the exact request snapshot.",
+                nameof(outcome));
+        }
+
+        Request = operation.Request;
+        PlatformRequest = request;
+        Outcome = outcome;
+    }
+
+    public AssemblyBindingRequest Request { get; }
+
+    public PlatformHouseRequest PlatformRequest { get; }
+
+    public PlatformHouseOutcome<AssemblyBindingDecision> Outcome { get; }
+}
+
+/// <summary>
 /// Closed Package-then-Platform supplier result for one external AssemblyRef.
 /// </summary>
 public abstract record ExternalAssemblyReferenceSupplierOutcome
@@ -193,7 +231,7 @@ public static class ExternalAssemblyReferenceSupplierAssociation
                 AssemblyBindingRequest,
                 CancellationToken,
                 ValueTask<
-                    PlatformHouseOutcome<AssemblyBindingDecision>>>
+                    ExternalAssemblyReferencePlatformResult>>
                 resolvePlatform,
             CancellationToken cancellationToken = default)
     {
@@ -248,7 +286,7 @@ public static class ExternalAssemblyReferenceSupplierAssociation
 
         var missing =
             (PackageAssemblyReferenceSupplierOutcome.Missing)package;
-        PlatformHouseOutcome<AssemblyBindingDecision> platform =
+        ExternalAssemblyReferencePlatformResult platform =
             await resolvePlatform(
                     request,
                     cancellationToken)
@@ -261,7 +299,7 @@ public static class ExternalAssemblyReferenceSupplierAssociation
         CompletePlatform(
             AssemblyBindingRequest request,
             PackageAssemblyReferenceSupplierOutcome.Missing package,
-            PlatformHouseOutcome<AssemblyBindingDecision> platform)
+            ExternalAssemblyReferencePlatformResult platform)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(package);
@@ -272,8 +310,16 @@ public static class ExternalAssemblyReferenceSupplierAssociation
                 "The Package stage must retain the unchanged Metadata binding request.",
                 nameof(package));
         }
+        if (!ReferenceEquals(platform.Request, request))
+        {
+            throw new ArgumentException(
+                "The Platform stage must retain the unchanged Metadata binding request.",
+                nameof(platform));
+        }
 
-        return platform switch
+        PlatformHouseOutcome<AssemblyBindingDecision> outcome =
+            platform.Outcome;
+        return outcome switch
         {
             PlatformHouseOutcome<AssemblyBindingDecision>.Completed
             {
@@ -300,7 +346,7 @@ public static class ExternalAssemblyReferenceSupplierAssociation
                 new ExternalAssemblyReferenceSupplierOutcome.Unavailable(
                     request,
                     package,
-                    platform),
+                    outcome),
             PlatformHouseOutcome<AssemblyBindingDecision>.Completed
             {
                 Value: AssemblyBindingDecision.Ambiguous,
@@ -308,39 +354,39 @@ public static class ExternalAssemblyReferenceSupplierAssociation
                 new ExternalAssemblyReferenceSupplierOutcome.Ambiguous(
                     request,
                     package,
-                    platform),
+                    outcome),
             PlatformHouseOutcome<AssemblyBindingDecision>.Completed =>
                 new ExternalAssemblyReferenceSupplierOutcome.Failed(
                     request,
                     package,
-                    platform,
+                    outcome,
                     "Platform binding returned a rejected or unsupported completed decision."),
             PlatformHouseOutcome<AssemblyBindingDecision>.Unavailable =>
                 new ExternalAssemblyReferenceSupplierOutcome.Unavailable(
                     request,
                     package,
-                    platform),
+                    outcome),
             PlatformHouseOutcome<AssemblyBindingDecision>.Ambiguous =>
                 new ExternalAssemblyReferenceSupplierOutcome.Ambiguous(
                     request,
                     package,
-                    platform),
+                    outcome),
             PlatformHouseOutcome<AssemblyBindingDecision>.Incomplete =>
                 new ExternalAssemblyReferenceSupplierOutcome.Incomplete(
                     request,
                     package,
-                    platform),
+                    outcome),
             PlatformHouseOutcome<AssemblyBindingDecision>.Failed =>
                 new ExternalAssemblyReferenceSupplierOutcome.Failed(
                     request,
                     package,
-                    platform,
+                    outcome,
                     "Platform binding failed."),
             PlatformHouseOutcome<AssemblyBindingDecision>.Rejected =>
                 new ExternalAssemblyReferenceSupplierOutcome.Failed(
                     request,
                     package,
-                    platform,
+                    outcome,
                     "Platform binding rejected its request or owner evidence."),
             _ => throw new InvalidOperationException(
                 "Unknown Platform assembly-reference outcome."),
