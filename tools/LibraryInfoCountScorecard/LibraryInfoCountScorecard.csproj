@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The Library Info multi-question Count scorecard (#9153): does one shared
+    metadata pass answering the Async Methods, Extension Methods, and Union
+    Types counts beat three independent passes? Old is the three production
+    calls as Library Info runs them; LINQ ×3 and NLinq ×3 are independent
+    pipelines with identical analysis; NLinq fused is the one-pass ceiling.
+    Publish NativeAOT to time:
+      dotnet publish tools/LibraryInfoCountScorecard -c Release -r <rid> -p:PublishAot=true -p:IsPublishable=true -o <dir>
+    See docs/evidence-and-validation.md#performance-oracles-for-queryspace-enablement.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>library-info-count-scorecard</AssemblyName>
+    <RootNamespace>LibraryInfoCountScorecard</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Speed</OptimizationPreference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\tests\DotnetInspector.PerformanceOracles\DotnetInspector.PerformanceOracles.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
+  </ItemGroup>
+
+</Project>
