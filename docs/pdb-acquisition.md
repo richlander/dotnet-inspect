@@ -8,6 +8,414 @@ PDBs contain debug information that maps compiled code back to source. Metadata
 owns PE/PDB opening and extracts raw portable-PDB facts. The SourceLink layer
 recognizes and interprets the SourceLink custom-debug-information document.
 
+## Host-neutral Portable PDB settlement
+
+### Status, owner, and claim
+
+Status: **target design** for
+[#9002](https://github.com/richlander/dotnet-inspect/issues/9002).
+
+The PDB acquisition owner defines one host-neutral Portable PDB settlement
+operation:
+
+> Given one exact owner-issued managed assembly reference, its selected
+> assembly content, and explicit host capabilities and policy, return matching
+> validated Portable PDB content or a typed non-success together with complete
+> candidate, provider, store, and work receipts.
+
+The settlement owns candidate ordering, verified-store reuse, package-local
+candidate consumption, external-provider attempts, matching-PDB admission,
+provider-scoped negative observations, fallback, and the final result. A cache
+is an optional capability and optimization; every successful operation returns
+repeatable content plus typed identity and provenance rather than requiring a
+later component to rediscover cache state.
+
+This is one focused owner. It consumes but does not redefine:
+
+- the assembly owner's exact reference, selected content, generation, and
+  provenance;
+- PackageHouse logical Library-inventory rows and exact Files delivery;
+- Metadata Portable PDB format and PE/PDB identity validation;
+- host authorization, network, store, limit, deadline, cancellation, and
+  offline capabilities;
+- SourceHouse source demand, authored/decompiled ordering, and source
+  settlement; or
+- PDB Source Provenance classification over an already bound PE/PDB pair.
+
+The settlement returns PDB evidence. It does not fetch SourceLink documents,
+interpret repository mappings, choose authored versus decompiled source,
+decompile code, classify source provenance, or render host output.
+
+### First production scenario
+
+The first adopter is the desktop CLI's existing focused member Source
+Locations operation:
+
+```bash
+dotnet-inspect member JsonSerializer \
+  --platform System.Text.Json \
+  Serialize:1 \
+  -S "Source Locations" \
+  --json
+```
+
+This command requires matching Portable PDB sequence-point evidence but does
+not fetch source text unless the user separately requests source parts or
+printing. It therefore demonstrates settlement without conflating PDB
+acquisition with SourceLink document acquisition. The selected
+`System.Text.Json` platform assembly supplies typed platform provenance, so the
+initial external-provider policy may select MSDL without inferring publisher
+ownership from an assembly or package name.
+
+The neighboring package scenario is:
+
+```bash
+dotnet-inspect member JsonConvert \
+  --package Newtonsoft.Json \
+  SerializeObject:1 \
+  -S "Source Locations" \
+  --json
+```
+
+It exercises exact package provenance, an optional PackageHouse-issued
+package-local candidate, NuGet.org producer authorization, and external
+symbol-package or symbol-server fallback. Package-local consumption begins
+only after `GetLibraryAndInventoryForTarget` is implemented and its exact
+Library row is supplied; settlement never inventories a package implicitly.
+
+Browser/Wasm adopts the same host-neutral operation in the next host slice
+with explicit in-memory or browser-owned stores and fetch capabilities. The
+CLI-first slice must not place provider policy, identity validation, cache
+keys, or fallback logic in the command.
+
+### Request and exact binding
+
+One request binds:
+
+```text
+PortablePdbSettlementRequest
+  AssemblyReferenceIdentity
+  AssemblyContentGeneration
+  SelectedAssemblyContent
+  PortablePdbIdentity
+  AssemblyProvenance
+  OptionalPackageLibraryInventoryRow
+  ProviderPolicy
+  Capabilities
+  LimitsAndDeadline
+```
+
+This is a conceptual contract shape, not a frozen CLR type.
+
+The owner-issued assembly reference and selected content are authoritative.
+The settlement does not reconstruct identity from a display path, assembly
+simple name, package ID, or PDB filename. The Portable PDB request identity
+comes from the selected assembly's Portable CodeView record and includes the
+complete Portable PDB content identity: GUID plus stamp. The PDB filename is
+untrusted inert routing evidence, not identity.
+
+The request retains the association between assembly reference, selected
+content generation, and Portable PDB identity. A result for another assembly,
+generation, or CodeView identity cannot satisfy the request even when its
+filename, MVID, package path, or display name matches.
+
+An assembly with no applicable Portable CodeView identity has no standalone
+Portable PDB request. Applicable embedded Portable PDB content may still settle
+through the Metadata-owned embedded binding. Windows PDB identity is a typed
+unsupported outcome, not authority to search for or accept a Portable PDB.
+
+### Candidate classes and order
+
+The settlement evaluates only policy-authorized candidate classes in this
+order:
+
+1. applicable embedded Portable PDB content issued from the selected assembly;
+2. verified positive-store content for the exact Portable PDB identity;
+3. an optional PackageHouse-issued package-local candidate;
+4. external providers selected by typed platform, package-source, publisher,
+   and assembly provenance.
+
+A later candidate may succeed after an earlier candidate is absent, rejected,
+or failed. The final result retains every attempted, skipped, negative-hit,
+rejected, and failed candidate in order. Cancellation and deadline expiry stop
+new work after owned cleanup and remain distinct from unavailability.
+
+Embedded content is first because its PE containment establishes the strongest
+available correspondence without network or external package work. Positive
+store reuse precedes acquisition because the store contains content previously
+validated for the exact identity. Package-local evidence precedes remote
+symbol providers when the caller supplies an applicable owner-issued Library
+row and policy enables that candidate.
+
+The operation does not probe an adjacent filesystem PDB merely because the
+selected assembly has a local path. A caller that wants local companion
+content supplies it as an explicit candidate capability with its provenance;
+ambient same-directory discovery is not part of the host-neutral contract.
+
+### Package-local candidate
+
+PackageHouse owns whether a logical target Library has an applicable
+implementation assembly and adjacent PDB entry. The settlement consumes one
+owner-issued inventory row from the same selected target:
+
+- **Listed** supplies exact implementation-assembly and PDB entry references.
+- **Absent** proves package-local absence only for that row's applicable
+  implementation location and PackageHouse generation.
+- **Not applicable** means the logical Library has no implementation
+  correspondence from which a package-local PDB candidate can be issued.
+
+The row is evidence, not content. When policy selects a Listed candidate, the
+settlement asks PackageHouse for exact Files using those references. A selected
+reference Library requires both the implementation assembly and PDB so
+Metadata can validate their correspondence. A selected implementation Library
+requires only the PDB when the request's selected assembly content is already
+the row's exact implementation content.
+
+PackageHouse content that is missing, ambiguous, incomplete, rejected,
+bounded, or failed remains a typed candidate outcome. It does not become
+package-local absence. Raw File List paths cannot substitute for the logical
+Library row, establish implementation correspondence, or prove PDB absence.
+
+Without a supplied Library row, the settlement makes no package-local presence
+or absence claim. It may continue to policy-authorized external providers; it
+does not silently issue a PackageHouse inventory query merely because symbols
+were requested.
+
+### Provider policy
+
+Provider ordering consumes typed evidence:
+
+- typed platform provenance may select platform symbol policy;
+- exact package producer and source authorization may select `.snupkg` and
+  NuGet symbol policy;
+- owner-issued publisher evidence may select publisher-specific policy; and
+- explicitly configured symbol providers retain their own identities and
+  coordinates.
+
+Package ID, assembly name, company metadata, filename, namespace, or display
+text cannot establish publisher identity. In particular, `Microsoft.`,
+`System.`, and `Azure.` name prefixes are not authority for Microsoft-specific
+provider ordering.
+
+The initial CLI policy is:
+
+1. for a platform assembly, embedded and verified-store candidates followed by
+   MSDL;
+2. for a NuGet.org-produced package, embedded, verified store, applicable
+   package-local evidence, `.snupkg`, the NuGet symbol server, then any
+   explicitly configured fallback provider;
+3. for another package producer, only package-local and external providers
+   explicitly authorized for that producer; and
+4. in offline or cache-only mode, embedded and verified-store content plus
+   already supplied package content, with no remote request.
+
+Microsoft-owned-package specialization remains unavailable until an
+owner-issued publisher identity exists. The current package-ID-prefix
+heuristic is compatibility behavior to retire, not a source of normative
+policy.
+
+### Positive verified-PDB store
+
+The host may supply a positive store for content already admitted against an
+exact Portable PDB identity. The store:
+
+- supports filesystem and pathless hosts;
+- returns a fresh readable stream or detached immutable content;
+- never makes a local path part of the semantic result;
+- distinguishes missing content from read, validation, publication, and
+  read-back failure; and
+- retains or can reproduce the content's supplying provenance for the
+  settlement receipt.
+
+Downloaded or package-local bytes are parsed and identity-validated before
+publication. Settlement succeeds only after the store can reproduce the
+published content, unless the host explicitly supplies a detached
+operation-owned result store whose successful publication itself transfers
+repeatable ownership. A publication or read-back failure is visible and may
+permit a later provider; it is never reported as symbol absence.
+
+The store key is derived from the complete Portable PDB identity, not the
+remote provider's protocol lookup key. Provider-specific coordinates and
+provenance remain receipt evidence rather than weakening content identity.
+
+### Provider-scoped negative observations
+
+The host may supply a separate negative-observation store. One observation is
+keyed by:
+
+```text
+PortablePdbIdentity
+ProviderIdentity
+ProviderCoordinates
+```
+
+It records the authoritative absence evidence, observation time, and expiry.
+A hit suppresses only the same provider route and records that no request was
+made. It cannot suppress a newly configured provider, changed coordinates, a
+PackageHouse generation, or a different PDB identity.
+
+Only definitive provider absence may be retained. For the initial HTTP
+providers this means an exact HTTP 404 from that route. Authentication or
+authorization denial, throttling, timeout, cancellation, transport failure,
+offline or cache-only policy, operation bounds, malformed or mismatched
+content, unsupported Windows PDB content, and positive-store failure are not
+absence.
+
+An aggregate "no symbols anywhere" observation is invalid. Expiry is host
+policy carried by the observation capability; settlement reports the applied
+expiry but does not silently extend it. The existing process-global persistent
+miss cache, including cached HTTP 403 behavior, is compatibility substrate to
+retire from adopted routes.
+
+### Result and receipts
+
+The result is one of:
+
+- **Acquired** — matching repeatable Portable PDB content, exact binding
+  receipt, supplying candidate/provider provenance, positive-store
+  publication/reuse evidence, and complete ordered work receipts;
+- **Unavailable** — every authorized candidate established absence or was not
+  applicable, with no failure that prevents that conclusion;
+- **Incomplete** — a configured bound or deadline prevented completion;
+- **Canceled** — caller cancellation stopped settlement after owned cleanup;
+  or
+- **Failed** — validation, provider, store, authorization, or operational
+  failure prevented an authoritative unavailable result.
+
+An Acquired result retains:
+
+- the exact assembly reference and content generation;
+- the complete Portable PDB identity;
+- embedded, store, package-local, symbol-package, or symbol-server provenance;
+- package generation and exact entry references when PackageHouse supplied the
+  candidate;
+- provider identity and coordinates when an external provider supplied it;
+- whether network work occurred;
+- positive-store reuse/publication evidence; and
+- the ordered candidate and provider attempts.
+
+Each candidate receipt identifies its class, applicability, policy decision,
+attempt outcome, work performed, and typed detail. External-provider receipts
+retain credential-redacted inert coordinates, request count, status when
+available, bytes read, and elapsed duration. Negative hits retain the original
+absence evidence and record zero requests. Receipts describe the operation;
+they do not expose an acquisition plan or host capability.
+
+Unavailable requires that no retained failure can explain the lack of content.
+A rejected same-identity response, store failure, authorization failure, or
+malformed package-local candidate therefore cannot be flattened into
+Unavailable merely because later providers were absent.
+
+### Limits, containment, and platform contract
+
+The operation is SRM-only, NativeAOT-friendly, and free of inspected-assembly
+loading. Untrusted PE debug metadata, package bytes, PDB bytes, symbol-package
+bytes, provider responses, and URLs cross their existing typed admission
+boundaries before use.
+
+Limits cover provider attempts, downloaded and expanded symbol-package bytes,
+Portable PDB bytes, retained receipt count, and deadline. A limit that prevents
+candidate classification settles Incomplete. Validation and positive-store
+publication happen before Acquired is visible.
+
+The same request/result contract supports desktop, Browser/Wasm, and other
+pathless hosts. Desktop may use filesystem-backed stores; Browser/Wasm uses
+host-owned pathless capabilities. No result or policy branch requires a local
+path, ambient NuGet configuration, process-global cache, blocking wait, or
+multi-threading.
+
+### Analogous implementation evidence
+
+Microsoft.SymbolStore and `dotnet-symbol` use configured cache and symbol
+server providers addressed by symbol keys:
+
+- <https://github.com/dotnet/diagnostics/blob/main/src/Tools/dotnet-symbol/README.md>
+- <https://github.com/dotnet/symstore>
+
+The transferable ideas are an ordered provider chain, explicit server/cache
+configuration, and identity-keyed lookup. Their debugger-oriented file output,
+ambient symbol-path configuration, and support for native modules and Windows
+PDBs do not transfer to this Portable-PDB-only, host-neutral product boundary.
+
+The .NET symbol guidance establishes Portable PDB as the cross-platform managed
+symbol format and System.Reflection.Metadata as its reader:
+
+- <https://learn.microsoft.com/dotnet/core/diagnostics/symbols>
+- <https://github.com/dotnet/runtime/blob/main/docs/design/specs/PortablePdb-Metadata.md>
+
+This design is stricter at the product boundary: bytes become evidence only
+after exact PE/PDB identity validation, and provider absence remains distinct
+from rejection or operational failure.
+
+NuGet symbol packages and public symbol servers demonstrate that package and
+assembly provenance select different acquisition coordinates. They do not
+provide the logical Library correspondence or package-local PDB-absence
+evidence owned by PackageHouse, and no standard NuGet V3 resource discovers
+symbol packages for an arbitrary custom producer.
+
+### Production adoption and retirement
+
+The counted adoption has six focused slices:
+
+1. Lock this request, result, candidate, policy, positive-store,
+   negative-observation, and receipt contract.
+2. Adapt `PdbAcquisitionService` and `SymbolPackageDownloader` behind the
+   settlement and migrate CLI member Source Locations for platform
+   `System.Text.Json`. Preserve SourceHouse's supplied-PDB input while deleting
+   duplicate CLI provider orchestration for that route.
+3. After PackageHouse implements
+   `GetLibraryAndInventoryForTarget`, compose one supplied Library row with
+   exact Files acquisition and adopt the package CLI Source Locations scenario.
+4. Adopt the same host-neutral settlement in Browser/Wasm member/type source
+   with explicit pathless stores and fetch capabilities.
+5. Let SourceHouse consume the settlement capability, then retire duplicated
+   `AssemblyContextSourceQuery` and `PdbSourceHouse` candidate orchestration
+   route by route.
+6. Adopt the settlement in non-source consumers, including PDB Source
+   Provenance, decompilation, analysis, and diagnostics, then remove the
+   compatibility acquisition APIs and process-global symbol miss cache.
+
+Each adoption changes one consumer owner at a time. The design slice defines
+the shared settlement only; it does not simultaneously change PackageHouse,
+SourceHouse, Metadata, Query, CLI, or Browser internals. The first-adopter
+implementation may pair the settlement with the one bounded CLI adoption
+allowed by the design-scope rules.
+
+Each implementation adoption publishes exact-base/head NativeAOT evidence for
+the production command it changes. The CLI-first slice measures the
+`System.Text.Json` Source Locations command with an empty operation-owned store
+and with a verified warm store, keeping base and head on one accepted
+performance host. Network-inclusive cold acquisition is reported as
+observational unless a controlled provider makes the compared work
+deterministic; it cannot substitute for the warm-store comparison.
+
+### Contract evidence
+
+Implementation must gate at least:
+
+- platform `System.Text.Json` Source Locations acquiring a matching Portable
+  PDB through the CLI-first settlement path;
+- warm verified-store reuse with no network request;
+- Browser/Wasm-equivalent pathless store behavior before that host adopts;
+- rejection of matching GUID with a different Portable PDB stamp;
+- package Listed, Absent, and Not applicable evidence without implicit
+  inventory work;
+- a selected reference Library acquiring only its exact implementation DLL and
+  PDB;
+- exact HTTP 404 negative reuse for one unchanged provider route;
+- changed provider coordinates and newly authorized providers bypassing the
+  old negative observation;
+- HTTP 403, timeout, cancellation, malformed content, identity mismatch,
+  limits, and store failures remaining non-absence;
+- a later provider succeeding after an earlier rejection or failure; and
+- every Acquired result reopening repeatable matching content after the
+  acquisition operation has completed.
+
+The platform CLI scenario and a real NuGet package with published Portable PDB
+evidence are the production fixtures. Synthetic PDB identity and provider
+responses remain appropriate for exact mismatch, failure, limit, and negative
+observation boundaries.
+
 ## PDB source document acquisition
 
 After a Portable PDB maps a member or type to a checksummed source document,
