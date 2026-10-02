@@ -1,6 +1,10 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 using ILInspector.Metadata;
+using NLinq;
 
 namespace DotnetInspector.PerformanceOracles;
 
@@ -11,11 +15,13 @@ public sealed record DeclaredMethodScorecardCheck(
     MetadataDeclaredMethodPopulationReceipt RowsReceipt);
 
 public sealed record DeclaredMethodScorecardCell(
+    string Implementation,
     string Terminal,
     double Microseconds,
     long AllocatedBytes);
 
 public sealed record DeclaredMethodScorecardResult(
+    string TypeName,
     DeclaredMethodScorecardCheck Check,
     IReadOnlyList<DeclaredMethodScorecardCell> Cells);
 
@@ -23,57 +29,60 @@ public static class DeclaredMethodPopulation
 {
     private const int OperationsPerSample = 256;
 
-    public static DeclaredMethodScorecardCheck Check(string path)
+    public static DeclaredMethodScorecardCheck Check(
+        string path,
+        MetadataTypeDefinitionName type)
     {
-        using var asset = Asset.Open(path);
+        using var asset = Asset.Open(path, type);
         return Check(asset);
     }
 
-    public static DeclaredMethodScorecardResult Measure(string path)
+    public static DeclaredMethodScorecardResult Measure(
+        string path,
+        MetadataTypeDefinitionName type)
     {
-        using var asset = Asset.Open(path);
+        using var asset = Asset.Open(path, type);
         DeclaredMethodScorecardCheck check = Check(asset);
         var cells = new List<DeclaredMethodScorecardCell>();
-        var terminals = new[]
-        {
-            MetadataDeclaredMethodPopulationTerminal.Count,
-            MetadataDeclaredMethodPopulationTerminal.Rows,
-        };
-        foreach (MetadataDeclaredMethodPopulationTerminal terminal
-            in terminals)
+        DeclaredMethodScorecardCase[] cases =
+            Enum.GetValues<DeclaredMethodScorecardCase>();
+        foreach (DeclaredMethodScorecardCase measurementCase
+            in cases)
         {
             for (int warmup = 0; warmup < 10; warmup++)
-                GC.KeepAlive(asset.Execute(terminal));
+                Warmup(asset, measurementCase);
         }
 
-        var times = terminals.ToDictionary(
-            static terminal => terminal,
+        var times = cases.ToDictionary(
+            static measurementCase => measurementCase,
             static _ => new List<double>());
-        var allocations = terminals.ToDictionary(
-            static terminal => terminal,
+        var allocations = cases.ToDictionary(
+            static measurementCase => measurementCase,
             static _ => new List<long>());
         for (int round = 0; round < 8; round++)
         {
-            for (int offset = 0; offset < terminals.Length; offset++)
+            for (int offset = 0; offset < cases.Length; offset++)
             {
-                MetadataDeclaredMethodPopulationTerminal terminal =
-                    terminals[(round + offset) % terminals.Length];
+                DeclaredMethodScorecardCase measurementCase =
+                    cases[(round + offset) % cases.Length];
                 Measurement measurement =
-                    Measure(() => asset.Execute(terminal));
-                times[terminal].Add(measurement.Microseconds);
-                allocations[terminal].Add(measurement.AllocatedBytes);
+                    Measure(asset, measurementCase);
+                times[measurementCase].Add(measurement.Microseconds);
+                allocations[measurementCase].Add(
+                    measurement.AllocatedBytes);
             }
         }
-        foreach (MetadataDeclaredMethodPopulationTerminal terminal
-            in terminals)
+        foreach (DeclaredMethodScorecardCase measurementCase
+            in cases)
         {
             cells.Add(
                 new(
-                    terminal.ToString(),
-                    Median(times[terminal]),
-                    Median(allocations[terminal])));
+                    Implementation(measurementCase),
+                    Terminal(measurementCase),
+                    Median(times[measurementCase]),
+                    Median(allocations[measurementCase])));
         }
-        return new(check, cells);
+        return new(DisplayName(type), check, cells);
     }
 
     public static string Report(DeclaredMethodScorecardResult result)
@@ -81,24 +90,36 @@ public static class DeclaredMethodPopulation
         using var writer = new StringWriter(
             System.Globalization.CultureInfo.InvariantCulture);
         writer.WriteLine(
-            $"# answer: {result.Check.Count} declared MethodDefs, "
+            $"# Metadata and NLinq kernels — {result.TypeName}");
+        writer.WriteLine(
+            $"# answer: {result.Check.Count:N0} declared MethodDefs, "
                 + result.Check.AnswerHash);
         writer.WriteLine(
-            "| Terminal | Median | Allocated | Time vs Count | "
-                + "Allocation vs Count |");
-        writer.WriteLine("| --- | ---: | ---: | ---: | ---: |");
-        DeclaredMethodScorecardCell count =
-            result.Cells.Single(cell => cell.Terminal == "Count");
-        DeclaredMethodScorecardCell rows =
-            result.Cells.Single(cell => cell.Terminal == "Rows");
+            "| Implementation | Terminal | Median | Allocated | "
+                + "Time vs implementation Count | "
+                + "Allocation vs implementation Count | "
+                + "Time vs Metadata | Allocation vs Metadata |");
         writer.WriteLine(
-            $"| Count | {count.Microseconds:F3} us | "
-                + $"{count.AllocatedBytes:N0} B | 1.00x | 1.00x |");
-        writer.WriteLine(
-            $"| Rows | {rows.Microseconds:F3} us | "
-                + $"{rows.AllocatedBytes:N0} B | "
-                + $"{rows.Microseconds / count.Microseconds:F2}x | "
-                + $"{Ratio(rows.AllocatedBytes, count.AllocatedBytes):F2}x |");
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |");
+        foreach (DeclaredMethodScorecardCell cell in result.Cells)
+        {
+            DeclaredMethodScorecardCell implementationCount =
+                result.Cells.Single(candidate =>
+                    candidate.Implementation == cell.Implementation
+                    && candidate.Terminal == "Count");
+            DeclaredMethodScorecardCell metadata =
+                result.Cells.Single(candidate =>
+                    candidate.Implementation == "Metadata"
+                    && candidate.Terminal == cell.Terminal);
+            writer.WriteLine(
+                $"| {cell.Implementation} | {cell.Terminal} | "
+                    + $"{cell.Microseconds:F3} us | "
+                    + $"{cell.AllocatedBytes:N0} B | "
+                    + $"{cell.Microseconds / implementationCount.Microseconds:F2}x | "
+                    + $"{FormatRatio(cell.AllocatedBytes, implementationCount.AllocatedBytes)} | "
+                    + $"{cell.Microseconds / metadata.Microseconds:F2}x | "
+                    + $"{FormatRatio(cell.AllocatedBytes, metadata.AllocatedBytes)} |");
+        }
         writer.WriteLine();
         writer.WriteLine(
             "| Terminal | Method handles | Method rows | Names | "
@@ -126,12 +147,15 @@ public static class DeclaredMethodPopulation
 
     private static DeclaredMethodScorecardCheck Check(Asset asset)
     {
-        var count = AssertCounted(
-            asset.Execute(
-                MetadataDeclaredMethodPopulationTerminal.Count));
         var rows = AssertRead(
-            asset.Execute(
+            asset.ExecuteMetadata(
                 MetadataDeclaredMethodPopulationTerminal.Rows));
+        var count = AssertCounted(
+            asset.ExecuteMetadata(
+                MetadataDeclaredMethodPopulationTerminal.Count));
+        int nlinqCount = asset.ExecuteNLinqCount();
+        ImmutableArray<int> nlinqRows =
+            asset.ExecuteNLinqRows();
         if (count.Count != rows.Count
             || count.Count != rows.Rows.Length)
         {
@@ -148,22 +172,16 @@ public static class DeclaredMethodPopulation
             throw new InvalidOperationException(
                 "Declared MethodDef Count performed per-method work.");
         }
-
-        ulong hash = 14695981039346656037;
-        foreach (int token in rows.Rows)
+        if (nlinqCount != count.Count
+            || !nlinqRows.AsSpan().SequenceEqual(rows.Rows.AsSpan()))
         {
-            unchecked
-            {
-                for (int shift = 0; shift < 32; shift += 8)
-                {
-                    hash ^= (byte)(token >> shift);
-                    hash *= 1099511628211;
-                }
-            }
+            throw new InvalidOperationException(
+                "NLinq declared MethodDef Count and Rows disagree.");
         }
+
         return new(
             count.Count,
-            hash.ToString("x16"),
+            Hash(rows.Rows),
             count.Receipt,
             rows.Receipt);
     }
@@ -182,7 +200,56 @@ public static class DeclaredMethodPopulation
             ?? throw new InvalidOperationException(
                 $"Expected Read, got {outcome}.");
 
-    private static Measurement Measure(Func<object> execute)
+    private static void Warmup(
+        Asset asset,
+        DeclaredMethodScorecardCase measurementCase)
+    {
+        switch (measurementCase)
+        {
+            case DeclaredMethodScorecardCase.MetadataCount:
+                GC.KeepAlive(
+                    asset.ExecuteMetadata(
+                        MetadataDeclaredMethodPopulationTerminal.Count));
+                break;
+            case DeclaredMethodScorecardCase.MetadataRows:
+                GC.KeepAlive(
+                    asset.ExecuteMetadata(
+                        MetadataDeclaredMethodPopulationTerminal.Rows));
+                break;
+            case DeclaredMethodScorecardCase.NLinqCount:
+                GC.KeepAlive(asset.ExecuteNLinqCount());
+                break;
+            case DeclaredMethodScorecardCase.NLinqRows:
+                GC.KeepAlive(asset.ExecuteNLinqRows());
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(measurementCase));
+        }
+    }
+
+    private static Measurement Measure(
+        Asset asset,
+        DeclaredMethodScorecardCase measurementCase) =>
+        measurementCase switch
+        {
+            DeclaredMethodScorecardCase.MetadataCount =>
+                Measure(
+                    () => asset.ExecuteMetadata(
+                        MetadataDeclaredMethodPopulationTerminal.Count)),
+            DeclaredMethodScorecardCase.MetadataRows =>
+                Measure(
+                    () => asset.ExecuteMetadata(
+                        MetadataDeclaredMethodPopulationTerminal.Rows)),
+            DeclaredMethodScorecardCase.NLinqCount =>
+                Measure(asset.ExecuteNLinqCount),
+            DeclaredMethodScorecardCase.NLinqRows =>
+                Measure(asset.ExecuteNLinqRows),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(measurementCase)),
+        };
+
+    private static Measurement Measure<T>(Func<T> execute)
     {
         var times = new double[31];
         var allocations = new long[31];
@@ -191,7 +258,7 @@ public static class DeclaredMethodPopulation
             long before =
                 GC.GetAllocatedBytesForCurrentThread();
             long started = Stopwatch.GetTimestamp();
-            object? result = null;
+            T? result = default;
             for (int operation = 0;
                 operation < OperationsPerSample;
                 operation++)
@@ -232,6 +299,75 @@ public static class DeclaredMethodPopulation
             ? value == 0 ? 1 : double.PositiveInfinity
             : (double)value / baseline;
 
+    private static string FormatRatio(
+        long value,
+        long baseline) =>
+        baseline == 0 && value != 0
+            ? "unbounded"
+            : string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"{Ratio(value, baseline):F2}x");
+
+    private static string Hash(
+        ImmutableArray<int> rows)
+    {
+        ulong hash = 14695981039346656037;
+        foreach (int token in rows)
+        {
+            unchecked
+            {
+                for (int shift = 0; shift < 32; shift += 8)
+                {
+                    hash ^= (byte)(token >> shift);
+                    hash *= 1099511628211;
+                }
+            }
+        }
+        return hash.ToString("x16");
+    }
+
+    private static string DisplayName(
+        MetadataTypeDefinitionName type) =>
+        string.IsNullOrEmpty(type.Namespace)
+            ? string.Join('+', type.Segments)
+            : $"{type.Namespace}.{string.Join('+', type.Segments)}";
+
+    private static string Implementation(
+        DeclaredMethodScorecardCase measurementCase) =>
+        measurementCase switch
+        {
+            DeclaredMethodScorecardCase.MetadataCount
+                or DeclaredMethodScorecardCase.MetadataRows =>
+                "Metadata",
+            DeclaredMethodScorecardCase.NLinqCount
+                or DeclaredMethodScorecardCase.NLinqRows =>
+                "NLinq",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(measurementCase)),
+        };
+
+    private static string Terminal(
+        DeclaredMethodScorecardCase measurementCase) =>
+        measurementCase switch
+        {
+            DeclaredMethodScorecardCase.MetadataCount
+                or DeclaredMethodScorecardCase.NLinqCount =>
+                "Count",
+            DeclaredMethodScorecardCase.MetadataRows
+                or DeclaredMethodScorecardCase.NLinqRows =>
+                "Rows",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(measurementCase)),
+        };
+
+    private enum DeclaredMethodScorecardCase
+    {
+        MetadataCount,
+        MetadataRows,
+        NLinqCount,
+        NLinqRows,
+    }
+
     private readonly record struct Measurement(
         double Microseconds,
         long AllocatedBytes);
@@ -240,40 +376,39 @@ public static class DeclaredMethodPopulation
     {
         private readonly AssemblyInspectionSession _session;
         private readonly MetadataTypeDefinitionBinding _type;
+        private readonly MetadataReader _reader;
 
         private Asset(
             AssemblyInspectionSession session,
-            MetadataTypeDefinitionBinding type)
+            MetadataTypeDefinitionBinding type,
+            MetadataReader reader)
         {
             _session = session;
             _type = type;
+            _reader = reader;
         }
 
-        internal static Asset Open(string path)
+        internal static Asset Open(
+            string path,
+            MetadataTypeDefinitionName type)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(path);
+            ArgumentNullException.ThrowIfNull(type);
             AssemblyInspectionSession session =
                 AssemblyInspectionSession.Open(path);
             try
             {
-                MetadataTypeDefinitionName type =
-                    MetadataTypeDefinitionName.Create(
-                        "System.Text.Json",
-                        ["JsonSerializer"])
-                    is MetadataTypeDefinitionNameResult.Valid valid
-                        ? valid.Name
-                        : throw new InvalidOperationException(
-                            "The scorecard Type name was invalid.");
                 TypeDeclarationResult.Defined defined =
                     session.ProbeDeclaration(type)
                         as TypeDeclarationResult.Defined
                     ?? throw new InvalidOperationException(
-                        "System.Text.Json.JsonSerializer was not defined.");
+                        $"{DisplayName(type)} was not defined.");
                 return new(
                     session,
                     new(
                         session.ModuleVersionId(),
-                        defined.Definition));
+                        defined.Definition),
+                    session.GetAdmittedMetadataReader());
             }
             catch
             {
@@ -282,11 +417,115 @@ public static class DeclaredMethodPopulation
             }
         }
 
-        internal MetadataDeclaredMethodPopulationOutcome Execute(
+        internal MetadataDeclaredMethodPopulationOutcome ExecuteMetadata(
             MetadataDeclaredMethodPopulationTerminal terminal) =>
             _session.DeclaredMethods(
                 new(_type, terminal));
 
+        internal int ExecuteNLinqCount()
+        {
+            MethodHandles methods = Source();
+            return methods.Count<
+                MethodHandles,
+                MethodDefinitionHandle>();
+        }
+
+        internal ImmutableArray<int> ExecuteNLinqRows()
+        {
+            MethodHandles methods = Source();
+            var rows =
+                ImmutableArray.CreateBuilder<int>(
+                    methods.Count<
+                        MethodHandles,
+                        MethodDefinitionHandle>());
+            return methods.Fold<
+                    MethodHandles,
+                    MethodDefinitionHandle,
+                    ImmutableArray<int>.Builder,
+                    AddToken>(
+                    rows,
+                    new AddToken())
+                .MoveToImmutable();
+        }
+
+        private MethodHandles Source()
+        {
+            Guid moduleVersionId =
+                _reader.GetGuid(
+                    _reader.GetModuleDefinition().Mvid);
+            if (moduleVersionId != _type.ModuleVersionId)
+            {
+                throw new InvalidOperationException(
+                    "The NLinq source binding belongs to another module.");
+            }
+
+            EntityHandle entity =
+                MetadataTokens.EntityHandle(
+                    _type.Definition.Value);
+            int rowNumber =
+                MetadataTokens.GetRowNumber(entity);
+            if (entity.Kind != HandleKind.TypeDefinition
+                || rowNumber <= 0
+                || rowNumber
+                    > _reader.GetTableRowCount(
+                        TableIndex.TypeDef))
+            {
+                throw new InvalidOperationException(
+                    "The NLinq source binding is outside the TypeDef table.");
+            }
+
+            return new(
+                _reader.GetTypeDefinition(
+                        (TypeDefinitionHandle)entity)
+                    .GetMethods());
+        }
+
         public void Dispose() => _session.Dispose();
+    }
+
+    private struct MethodHandles
+        : NLinq.IEnumerator<
+            MethodHandles,
+            MethodDefinitionHandle>
+    {
+        private MethodDefinitionHandleCollection.Enumerator
+            _enumerator;
+        private int _remaining;
+
+        internal MethodHandles(
+            MethodDefinitionHandleCollection methods)
+        {
+            _enumerator = methods.GetEnumerator();
+            _remaining = methods.Count;
+        }
+
+        public static int Count(
+            scoped ref MethodHandles source) =>
+            source._remaining;
+
+        public MethodDefinitionHandle TryGetNext(
+            out bool hasMore)
+        {
+            hasMore = _enumerator.MoveNext();
+            if (!hasMore)
+                return default;
+            _remaining--;
+            return _enumerator.Current;
+        }
+    }
+
+    private readonly struct AddToken
+        : IFunc<
+            ImmutableArray<int>.Builder,
+            MethodDefinitionHandle,
+            ImmutableArray<int>.Builder>
+    {
+        public ImmutableArray<int>.Builder Invoke(
+            ImmutableArray<int>.Builder rows,
+            MethodDefinitionHandle method)
+        {
+            rows.Add(MetadataTokens.GetToken(method));
+            return rows;
+        }
     }
 }

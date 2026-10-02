@@ -13,6 +13,7 @@ internal sealed record DeclaredMethodOperationScorecardCell(
     long AllocatedBytes);
 
 internal sealed record DeclaredMethodOperationScorecardResult(
+    string TypeName,
     int Count,
     IReadOnlyList<DeclaredMethodOperationScorecardCell> Cells);
 
@@ -22,13 +23,13 @@ internal static class DeclaredMethodOperationCheck
 
     internal static async Task<int> CheckAsync(
         string path,
+        MetadataTypeDefinitionName type,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(type);
         cancellationToken.ThrowIfCancellationRequested();
 
-        MetadataTypeDefinitionName type =
-            TypeName();
         MetadataTypeDefinitionBinding binding =
             Binding(path, type);
         ResolvedAssemblyReference assembly =
@@ -82,12 +83,13 @@ internal static class DeclaredMethodOperationCheck
     internal static async Task<DeclaredMethodOperationScorecardResult>
         MeasureAsync(
             string path,
+            MetadataTypeDefinitionName type,
             CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(type);
         cancellationToken.ThrowIfCancellationRequested();
 
-        MetadataTypeDefinitionName type = TypeName();
         MetadataTypeDefinitionBinding binding =
             Binding(path, type);
         ResolvedAssemblyReference assembly =
@@ -170,6 +172,7 @@ internal static class DeclaredMethodOperationCheck
         }
 
         return new(
+            DisplayName(type),
             count.Count,
             [
                 Cell(
@@ -193,7 +196,10 @@ internal static class DeclaredMethodOperationCheck
             result.Cells.Single(cell => cell.Terminal == "Count");
         DeclaredMethodOperationScorecardCell rows =
             result.Cells.Single(cell => cell.Terminal == "Rows");
-        writer.WriteLine("# QuerySpace operation");
+        writer.WriteLine(
+            $"# QuerySpace operation — {result.TypeName}");
+        writer.WriteLine(
+            $"# answer: {result.Count:N0} declared MethodDefs");
         writer.WriteLine(
             "| Terminal | Median | Allocated | Time vs Count | "
                 + "Allocation vs Count |");
@@ -246,15 +252,6 @@ internal static class DeclaredMethodOperationCheck
             ?? throw new InvalidOperationException(
                 $"Expected QuerySpace Read, got {outcome}.");
 
-    private static MetadataTypeDefinitionName TypeName() =>
-        MetadataTypeDefinitionName.Create(
-            "System.Text.Json",
-            ["JsonSerializer"])
-        is MetadataTypeDefinitionNameResult.Valid valid
-            ? valid.Name
-            : throw new InvalidOperationException(
-                "The scorecard Type name was invalid.");
-
     private static MetadataTypeDefinitionBinding Binding(
         string path,
         MetadataTypeDefinitionName type)
@@ -270,10 +267,16 @@ internal static class DeclaredMethodOperationCheck
                     unavailable =>
                     unavailable.Definition,
                 _ => throw new InvalidOperationException(
-                    "System.Text.Json.JsonSerializer was not defined."),
+                    $"{DisplayName(type)} was not defined."),
             };
         return new(session.ModuleVersionId(), definition);
     }
+
+    private static string DisplayName(
+        MetadataTypeDefinitionName type) =>
+        string.IsNullOrEmpty(type.Namespace)
+            ? string.Join('+', type.Segments)
+            : $"{type.Namespace}.{string.Join('+', type.Segments)}";
 
     private static void Validate(
         TypeDeclaredMethodPopulationOutcome.Counted count,

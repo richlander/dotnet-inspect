@@ -105,8 +105,23 @@ operation. It resolves the exact Type once, then measures the QuerySpace-routed
 Sections path from the resulting authenticated binding. It also preserves a
 focused Metadata measurement for the physical Count/Rows comparison.
 
-The adoption gate is one pinned real assembly on one Linux NativeAOT
-performance host. Count must show a material latency and allocation collapse
-relative to complete Rows, and the Sections operation must preserve the same
-answer and structural receipt. If it does not, the candidate is evidence
-against this physical pattern rather than a feature to preserve.
+The adoption gate uses pinned real types on one Linux NativeAOT performance
+host:
+
+- `System.Text.Json.JsonSerializer` provides a moderate population; and
+- `System.Runtime.Intrinsics.Arm.AdvSimd` in System.Private.CoreLib provides
+  the large-population stress case.
+
+The smaller population shows fixed operation cost; the larger population tests
+whether complete Rows scales while Count remains source-native. A source-native
+NLinq control repeats the same module and TypeDef binding validation, then
+overrides Count from the metadata range cardinality rather than enumerating
+handles.
+
+Count must show a material latency and allocation collapse relative to complete
+Rows at the physical kernel. The Sections operation must preserve the same
+answer and structural receipt, and the larger population must disclose whether
+fixed operation cost still hides that collapse. The NLinq control determines
+whether the same source representation can preserve the kernel with less
+machinery. If these conditions do not hold, the candidate is evidence against
+this physical pattern rather than a feature to preserve.
