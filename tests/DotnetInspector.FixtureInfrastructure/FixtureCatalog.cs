@@ -188,6 +188,8 @@ public static class FixtureIds
 
     public const string ResearchTargetSample = "research.target-sample";
     public const string ResearchNameFamilies = "research.name-families";
+    public const string ResearchDependencyStructure =
+        "research.dependency-structure";
     public const string ResearchTargetCorrespondenceV1 =
         "research.target-correspondence.v1";
     public const string ResearchTargetCorrespondenceV2 =
@@ -557,6 +559,14 @@ public static class FixtureCatalog
         "ILInspector.Research.NameFamilyFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "research", "name-family", "source-provenance");
+
+    public static readonly FixtureDefinition ResearchDependencyStructure =
+        Fixture(
+            FixtureIds.ResearchDependencyStructure,
+            "ILInspector.Research.DependencyStructureFixtures",
+            "ILInspector.Research.DependencyStructureFixtures.dll",
+            Boundaries(FixtureBoundary.CompilerLowering),
+            "research", "dependency-structure", "graph");
 
     public static readonly FixtureDefinition ResearchTargetCorrespondenceV1 =
         Fixture(
@@ -1281,6 +1291,7 @@ public static class FixtureCatalog
         MatchBindingFacade,
         MatchBindingImplementation,
         ResearchNameFamilies,
+        ResearchDependencyStructure,
         ResearchTargetSample,
         ResearchTargetCorrespondenceV1,
         ResearchTargetCorrespondenceV2,
@@ -1722,6 +1733,8 @@ public static class FixtureCatalog
             "ILInspector.Decompiler.Fixtures.VbFinalizer" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.VbFinalizer",
             "ILInspector.Research.NameFamilyFixtures" =>
                 "fixtures/research/ILInspector.Research.NameFamilyFixtures",
+            "ILInspector.Research.DependencyStructureFixtures" =>
+                "fixtures/research/ILInspector.Research.DependencyStructureFixtures",
             "ILInspector.Research.TargetFixtures" =>
                 "fixtures/research/ILInspector.Research.TargetFixtures",
             "ResearchTargetCorrespondenceFixtures.V1" => "fixtures/research/ResearchTargetCorrespondenceFixtures.V1",
