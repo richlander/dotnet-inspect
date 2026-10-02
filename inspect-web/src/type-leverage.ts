@@ -15,7 +15,7 @@ import type {
 } from "./operation-authority.ts";
 
 export type TypeLeverageFilter = "" | "sea-level" | "mountain-peak";
-export type TypeLeveragePole = Exclude<TypeLeverageFilter, "">;
+type TypeLeveragePole = Exclude<TypeLeverageFilter, "">;
 
 export interface TypeLeverageCue {
   readonly pole: TypeLeveragePole;
@@ -28,7 +28,7 @@ interface NamespaceLeverageCue {
   readonly description: string;
 }
 
-export interface TypeLeverageShardPresentation {
+interface TypeLeverageShardPresentation {
   readonly namespace: string;
   readonly seaLevelOrder: readonly BrowserLibraryTypeLeverageRow[];
   readonly mountainPeakOrder: readonly BrowserLibraryTypeLeverageRow[];
@@ -127,7 +127,7 @@ function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-export function typeLeveragePole(
+function typeLeveragePole(
   value: BrowserLibraryTypeLeverageRow["pole"],
 ): TypeLeveragePole | null {
   switch (value) {
