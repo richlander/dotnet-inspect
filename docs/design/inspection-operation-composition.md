@@ -267,8 +267,9 @@ those are separate follow-ups in
 ## Adoption sequence
 
 1. Lock this composition map and the Type Relationships execution pilot.
-2. Extract the compiled section/query planning substrate from the CLI project
-   into L2 without changing its owner contract.
+2. Keep the extracted compiled section/query planning substrate in L2; hosts
+   lower their gestures to its `SectionViewLevel` and retain authorization,
+   diagnostics, and presentation.
 3. Replace remaining command-local row projection with typed L2 plans one
    command mode at a time.
 4. Route package realization through PackageHouse-to-Workspace orchestration
@@ -291,5 +292,5 @@ This document does not:
 - make every content purpose or Share projection accept identical policy;
 - require Web to expose every CLI row-control widget;
 - define PackageHouse-to-Workspace orchestration;
-- finish the section-pipeline extraction from the CLI project; or
+- move every command-specific section declaration out of its current owner; or
 - authorize one PR to modernize every command in #6639.

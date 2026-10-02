@@ -1,6 +1,6 @@
 using DotnetInspector.Queries;
 
-namespace DotnetInspect.Cli.Sections;
+namespace DotnetInspector.Sections;
 
 /// <summary>
 /// Declared latency/output budget for a section. Governs which curated verbosity views may
@@ -27,7 +27,7 @@ public enum SectionCost
     Unbounded,
 }
 
-internal static class InspectionCostMapping
+public static class InspectionCostMapping
 {
     public static SectionCost ToSectionCost(
         this InspectionCost cost,

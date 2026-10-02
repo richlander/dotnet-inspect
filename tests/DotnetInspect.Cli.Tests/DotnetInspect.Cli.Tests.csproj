@@ -97,6 +97,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Using Include="DotnetInspector.Sections" />
     <Using Include="DotnetInspector.Networking" />
     <Using Include="QuerySpace.Rows" />
     <Using Include="Xunit" />
