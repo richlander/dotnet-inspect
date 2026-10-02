@@ -30,6 +30,7 @@ public static class NavigationTransitions
             {
                 Scope = facts.Scope,
                 Package = facts.Package,
+                Ecosystem = facts.Ecosystem,
                 ActiveSubject = initialization?.Subject,
                 RetainedContext = initialization?.Context,
             }, registry, facts.Availability);
@@ -52,12 +53,15 @@ public static class NavigationTransitions
         ArgumentNullException.ThrowIfNull(initialization);
         ArgumentNullException.ThrowIfNull(facts.Scope);
         ArgumentNullException.ThrowIfNull(facts.Availability);
-        if (facts.Package is not null
-            && facts.NonReadyPackage is not null)
+        int preparedSubjectCount =
+            (facts.Package is null ? 0 : 1)
+            + (facts.NonReadyPackage is null ? 0 : 1)
+            + (facts.Ecosystem is null ? 0 : 1);
+        if (preparedSubjectCount > 1)
         {
             throw new ArgumentException(
-                "Navigation restoration facts cannot be both prepared and "
-                    + "non-ready.",
+                "Navigation restoration facts can prepare at most one "
+                    + "Package, non-ready Package, or Ecosystem subject.",
                 nameof(facts));
         }
         if (facts.Scope.Revision.Workspace != workspace)
@@ -101,6 +105,34 @@ public static class NavigationTransitions
         }
         StructuralSubjectIdentity.WorkspaceSubject workspaceSubject =
             StructuralSubjectIdentity.ForWorkspace(workspace);
+        if (facts.Ecosystem is { } ecosystem
+            && !ReferenceEquals(
+                ecosystem.Occurrence.WorkspaceIdentity,
+                workspace))
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.InvalidContext,
+                "Prepared Ecosystem facts must belong to the exact "
+                    + "Workspace.");
+        }
+        StructuralSubjectIdentity.EcosystemSubject? ecosystemSubject =
+            facts.Ecosystem is null
+                ? null
+                : StructuralSubjectIdentity.ForEcosystem(
+                    workspaceSubject,
+                    facts.Ecosystem.Occurrence,
+                    facts.Ecosystem.Id);
+        if (facts.Ecosystem is not null
+            && initialization.Context is not null)
+        {
+            return new NavigationRestorationPreparationResult.Rejected(
+                workspace,
+                initialization,
+                NavigationRestorationRejectionKind.InvalidContext,
+                "An Ecosystem restoration cannot retain Package context.");
+        }
         if (initialization.Subject is null
             && initialization.Context?.Library is not null)
         {
@@ -113,14 +145,15 @@ public static class NavigationTransitions
         }
         if (initialization.Subject is { } subjectWithoutContext
             && subjectWithoutContext != workspaceSubject
+            && subjectWithoutContext != ecosystemSubject
             && initialization.Context is null)
         {
             return new NavigationRestorationPreparationResult.Rejected(
                 workspace,
                 initialization,
                 NavigationRestorationRejectionKind.InvalidContext,
-                "A non-Workspace restoration subject requires its exact "
-                    + "retained occurrence context.");
+                "A restoration subject without Package context must be the "
+                    + "exact Workspace or prepared Ecosystem.");
         }
         if (initialization.Subject is { } retainedSubject
             && retainedSubject != workspaceSubject
@@ -239,6 +272,7 @@ public static class NavigationTransitions
                 {
                     Scope = facts.Scope,
                     Package = facts.Package,
+                    Ecosystem = facts.Ecosystem,
                     ActiveSubject = initialization.Subject,
                     RetainedContext = initialization.Context,
                 });
