@@ -420,6 +420,17 @@ and delegates. Interfaces and forwarders have none of these traits. Trait
 values are alternatives within one selection; an absent trait selector means
 all declarations.
 
+Interactive Type selector Counts use the Member selector's axis-specific
+scope. Accessibility Counts cover every bucket in the active Library
+population regardless of the selected bucket. Namespace, Type-kind, and
+Type-trait Counts use the selected accessibility population but do not narrow
+one another: each option is the Count of that accessibility plus the option's
+own facet value, and `all` is the Count of the selected accessibility
+population. Forwarders participate only when that accessibility selection
+admits the public surface. Each option Count and the Rows selected by that
+option therefore use the same membership predicate without making selector
+Counts recursively depend on every other active option.
+
 A facet selects a population before terminal execution. A homogeneous
 `Accessibility = Private` population does not require every rendered row to
 repeat `Private`. Multiple selected facet values remain a request-level set or

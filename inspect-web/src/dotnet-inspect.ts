@@ -6323,6 +6323,17 @@ function typeSelectorDefinitions() {
   return { definitions, forwarders };
 }
 
+function accessibilityScopedTypeSelectorDefinitions() {
+  const { definitions, forwarders } = typeSelectorDefinitions();
+  const accessibility = selectedTypeAccessibility();
+  return {
+    definitions: accessibility
+      ? definitions.filter(type => type.accessibilityId === accessibility)
+      : definitions,
+    forwarders: typeAccessibilityIncludesForwarders() ? forwarders : [],
+  };
+}
+
 function typeAccessibilityOptions() {
   const { definitions, forwarders } = typeSelectorDefinitions();
   const options = accessibilityBuckets().map(bucket => ({
@@ -6342,7 +6353,8 @@ function typeAccessibilityOptions() {
 }
 
 function typeKindOptions() {
-  const { definitions, forwarders } = typeSelectorDefinitions();
+  const { definitions, forwarders } =
+    accessibilityScopedTypeSelectorDefinitions();
   const options = (state.package?.typeKinds ?? []).map(kind => ({
     value: kind.id,
     label: kind.singularLabel,
@@ -6366,7 +6378,8 @@ function typeKindOptions() {
 }
 
 function typeTraitOptions() {
-  const { definitions, forwarders } = typeSelectorDefinitions();
+  const { definitions, forwarders } =
+    accessibilityScopedTypeSelectorDefinitions();
   return [
     {
       value: "",
@@ -6382,10 +6395,11 @@ function typeTraitOptions() {
   ];
 }
 
-// Options for the namespace picker dropdown: every namespace in the active
-// Library population, sorted, with its declaration count.
+// Options for the namespace picker dropdown: every namespace in the selected
+// accessibility population, sorted, with its declaration count.
 function namespaceOptions() {
-  const { definitions, forwarders } = typeSelectorDefinitions();
+  const { definitions, forwarders } =
+    accessibilityScopedTypeSelectorDefinitions();
   const counts = new Map<string, number>();
   for (const item of definitions) {
     counts.set(item.namespace, (counts.get(item.namespace) || 0) + 1);
@@ -9156,7 +9170,8 @@ function renderTypeNavPane(
   visible: readonly TypeInventoryRow[],
 ) {
   const definingLibraries = aggregateTypeLibraryLabels();
-  const { definitions, forwarders } = typeSelectorDefinitions();
+  const { definitions, forwarders } =
+    accessibilityScopedTypeSelectorDefinitions();
   const leveragePresentation = currentTypeLeveragePresentation();
   return renderTypeNav({
     current: selectedForwarder() ?? current ?? null,
@@ -15900,7 +15915,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   // aligned, while preserving the package-backed aggregate Library scope.
   const selected = pkg.types.find(item => item.id === state.selectedTypeId);
   if (selected) {
-    reconcileAccessibilityFilter(selected);
+    selectTypeAccessibility(selected.accessibilityId);
     if (!state.atPackageRoot
       && !state.atLibraryRoot
       && (state.rootKind === "platform" || state.libraryScope !== null)) {
