@@ -122,12 +122,15 @@ public static partial class SourceExports
             metadataToken,
             styleOptionsJson,
             factRows: true);
-        return SerializeFindingCensus(source);
+        return JsonSerializer.Serialize(
+            CreateFindingCensus(source),
+            BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
     }
 
-    static string SerializeFindingCensus(MemberSourceProjection source)
+    static BrowserMemberFindingCensus CreateFindingCensus(
+        MemberSourceProjection source)
     {
-        BrowserMemberFindingCensus census = BrowserMemberFindingCensus.Create(
+        return BrowserMemberFindingCensus.Create(
             source.Projection.FactCensusReceipt,
             source.Projection.Facts,
             source.Document,
@@ -152,9 +155,6 @@ public static partial class SourceExports
             source.AllocationExceptionPathsUnavailableReason,
             source.LocalThrowPaths,
             source.LocalThrowPathsUnavailableReason);
-        return JsonSerializer.Serialize(
-            census,
-            BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
     }
 
     /// <summary>
@@ -190,7 +190,9 @@ public static partial class SourceExports
             styleOptionsJson,
             factRows: true,
             contextId: contextId);
-        return SerializeFindingCensus(source);
+        return JsonSerializer.Serialize(
+            CreateFindingCensus(source),
+            BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
     }
 
     static async Task<MemberSourceProjection> ProjectMemberAsync(
