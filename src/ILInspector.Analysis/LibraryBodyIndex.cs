@@ -83,7 +83,8 @@ public sealed class LibraryBodyIndex
         bool hasFullMethodEvidenceScope,
         LibraryOptimizationAnalysisResult? optimization = null,
         LibraryCallGraphAnalysisResult? callGraph = null,
-        LibraryLeverageAnalysisResult? leverage = null)
+        LibraryLeverageAnalysisResult? leverage = null,
+        LibraryJsonWireContractAnalysisResult? jsonWireContracts = null)
     {
         Path = path;
         ModuleIdentity = moduleIdentity;
@@ -111,6 +112,11 @@ public sealed class LibraryBodyIndex
             ?? new(
                 receipt,
                 moduleName,
+                analysis);
+        _jsonWireContracts = jsonWireContracts
+            ?? new(
+                receipt,
+                _callGraph,
                 analysis);
         GeneratedFrameworkTypeSet? generatedFrameworkTypes = null;
         _leverage = leverage
@@ -232,12 +238,19 @@ public sealed class LibraryBodyIndex
     readonly LibraryOptimizationAnalysisResult _optimization;
     readonly LibraryCallGraphAnalysisResult _callGraph;
     readonly LibraryLeverageAnalysisResult _leverage;
+    readonly LibraryJsonWireContractAnalysisResult _jsonWireContracts;
 
     /// <summary>
     /// Focused call-graph result backing the compatibility members.
     /// </summary>
     public LibraryCallGraphAnalysisResult CallGraphAnalysis =>
         _callGraph;
+
+    /// <summary>
+    /// Focused JSON wire-contract result backing the compatibility members.
+    /// </summary>
+    public LibraryJsonWireContractAnalysisResult JsonWireContracts =>
+        _jsonWireContracts;
 
     /// <summary>
     /// Focused leverage result backing the compatibility member.
@@ -572,7 +585,9 @@ public sealed class LibraryBodyIndex
         ImmutableArray<FieldStoreFact> fieldStores = default,
         ImmutableArray<FieldLoadFact> fieldLoads = default,
         ImmutableArray<MethodReturnFlow> returnFlows = default,
-        LibraryBodyModuleIdentity? moduleIdentity = null)
+        LibraryBodyModuleIdentity? moduleIdentity = null,
+        LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence)
     {
         moduleIdentity ??= SyntheticEvidenceIdentity(methods);
         ValidateSyntheticEvidenceIdentity(moduleIdentity, methods);
@@ -635,7 +650,7 @@ public sealed class LibraryBodyIndex
                     ExceptionTypeNames:
                         new HashSet<string>(StringComparer.Ordinal)),
                 Diagnostics: diagnostics.IsDefault ? [] : diagnostics),
-            features: LibraryBodyAnalysisFeatures.MethodEvidence
+            features: features
                 | (allocationOccurrences is null
                     ? LibraryBodyAnalysisFeatures.None
                     : LibraryBodyAnalysisFeatures.Allocations),
