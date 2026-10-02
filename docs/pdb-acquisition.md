@@ -18,8 +18,8 @@ Status: **target design** for
 The PDB acquisition owner defines one host-neutral Portable PDB settlement
 operation:
 
-> Given one exact owner-issued managed assembly reference, its selected
-> assembly content, and explicit host capabilities and policy, return matching
+> Given one exact owner-issued symbol-bearing managed assembly reference, its
+> selected content, and explicit host capabilities and policy, return matching
 > validated Portable PDB content or a typed non-success together with complete
 > candidate, provider, store, and work receipts.
 
@@ -80,8 +80,10 @@ dotnet-inspect member JsonConvert \
 It exercises exact package provenance, an optional PackageHouse-issued
 package-local candidate, NuGet.org producer authorization, and external
 symbol-package or symbol-server fallback. Package-local consumption begins
-only after `GetLibraryAndInventoryForTarget` is implemented and its exact
-Library row is supplied; settlement never inventories a package implicitly.
+only after `GetLibraryAndInventoryForTarget` is implemented, its exact Library
+row is supplied, and any distinct implementation assembly has become the
+symbol-bearing settlement binding; settlement never inventories a package
+implicitly.
 
 Browser/Wasm adopts the same host-neutral operation in the next host slice
 with explicit in-memory or browser-owned stores and fetch capabilities. The
@@ -94,12 +96,13 @@ One request binds:
 
 ```text
 PortablePdbSettlementRequest
-  AssemblyReferenceIdentity
+  SymbolBearingAssemblyReferenceIdentity
   AssemblyContentGeneration
   SelectedAssemblyContent
   PortablePdbIdentity
   AssemblyProvenance
-  OptionalPackageLibraryInventoryRow
+  OptionalLogicalLibrarySubject
+  OptionalPackagePdbEntryReference
   ProviderPolicy
   Capabilities
   LimitsAndDeadline
@@ -107,17 +110,27 @@ PortablePdbSettlementRequest
 
 This is a conceptual contract shape, not a frozen CLR type.
 
-The owner-issued assembly reference and selected content are authoritative.
+The owner-issued symbol-bearing assembly reference and selected content are
+authoritative.
 The settlement does not reconstruct identity from a display path, assembly
 simple name, package ID, or PDB filename. The Portable PDB request identity
-comes from the selected assembly's Portable CodeView record and includes the
+comes from the symbol-bearing assembly's Portable CodeView record and includes
+the
 complete Portable PDB content identity: GUID plus stamp. The PDB filename is
 untrusted inert routing evidence, not identity.
 
-The request retains the association between assembly reference, selected
-content generation, and Portable PDB identity. A result for another assembly,
-generation, or CodeView identity cannot satisfy the request even when its
-filename, MVID, package path, or display name matches.
+The request retains the association between symbol-bearing assembly reference,
+selected content generation, and Portable PDB identity. A result for another
+assembly, generation, or CodeView identity cannot satisfy the request even when
+its filename, MVID, package path, or display name matches.
+
+A logical compile or reference Library may be retained as subject evidence, but
+it is not the PDB binding when owner-issued correspondence names a different
+implementation assembly. Package composition must realize that exact
+implementation assembly first and construct settlement from its reference,
+content generation, and CodeView identity. The result retains the logical
+Library and correspondence receipt separately; it never attributes
+implementation sequence points to the reference image.
 
 An assembly with no applicable Portable CodeView identity has no standalone
 Portable PDB request. Applicable embedded Portable PDB content may still settle
@@ -129,9 +142,11 @@ unsupported outcome, not authority to search for or accept a Portable PDB.
 The settlement evaluates only policy-authorized candidate classes in this
 order:
 
-1. applicable embedded Portable PDB content issued from the selected assembly;
+1. applicable embedded Portable PDB content issued from the symbol-bearing
+   assembly;
 2. verified positive-store content for the exact Portable PDB identity;
-3. an optional PackageHouse-issued package-local candidate;
+3. optional PackageHouse-issued package-local PDB content for the already bound
+   symbol-bearing assembly;
 4. external providers selected by typed platform, package-source, publisher,
    and assembly provenance.
 
@@ -148,15 +163,15 @@ symbol providers when the caller supplies an applicable owner-issued Library
 row and policy enables that candidate.
 
 The operation does not probe an adjacent filesystem PDB merely because the
-selected assembly has a local path. A caller that wants local companion
+symbol-bearing assembly has a local path. A caller that wants local companion
 content supplies it as an explicit candidate capability with its provenance;
 ambient same-directory discovery is not part of the host-neutral contract.
 
 ### Package-local candidate
 
 PackageHouse owns whether a logical target Library has an applicable
-implementation assembly and adjacent PDB entry. The settlement consumes one
-owner-issued inventory row from the same selected target:
+implementation assembly and adjacent PDB entry. Package composition consumes
+one owner-issued inventory row from the same selected target:
 
 - **Listed** supplies exact implementation-assembly and PDB entry references.
 - **Absent** proves package-local absence only for that row's applicable
@@ -164,22 +179,30 @@ owner-issued inventory row from the same selected target:
 - **Not applicable** means the logical Library has no implementation
   correspondence from which a package-local PDB candidate can be issued.
 
-The row is evidence, not content. When policy selects a Listed candidate, the
-settlement asks PackageHouse for exact Files using those references. A selected
-reference Library requires both the implementation assembly and PDB so
-Metadata can validate their correspondence. A selected implementation Library
-requires only the PDB when the request's selected assembly content is already
-the row's exact implementation content.
+The row is evidence, not content. For a selected reference Library, package
+composition first asks PackageHouse for the exact implementation assembly,
+then constructs the immutable settlement request from that implementation
+binding. The request may carry the row's exact PDB entry reference so
+settlement can ask PackageHouse for that one File when policy selects the
+package-local candidate.
+
+For a selected implementation Library, the existing selected content may
+already establish the symbol-bearing binding. Its settlement request may carry
+only the exact PDB entry reference. In both cases Metadata validates the PDB
+against the request's exact implementation assembly. Acquiring implementation
+content and PDB content together before the implementation binding exists is
+not a valid settlement shortcut.
 
 PackageHouse content that is missing, ambiguous, incomplete, rejected,
 bounded, or failed remains a typed candidate outcome. It does not become
 package-local absence. Raw File List paths cannot substitute for the logical
 Library row, establish implementation correspondence, or prove PDB absence.
 
-Without a supplied Library row, the settlement makes no package-local presence
-or absence claim. It may continue to policy-authorized external providers; it
-does not silently issue a PackageHouse inventory query merely because symbols
-were requested.
+Without a supplied Library row and its preserved correspondence receipt,
+package composition makes no package-local presence or absence claim. The
+settlement may continue to policy-authorized external providers for its exact
+symbol-bearing assembly; it does not silently issue a PackageHouse inventory
+query merely because symbols were requested.
 
 ### Provider policy
 
@@ -286,6 +309,8 @@ An Acquired result retains:
 
 - the exact assembly reference and content generation;
 - the complete Portable PDB identity;
+- the separate logical Library subject and implementation-correspondence
+  receipt when package composition supplied them;
 - embedded, store, package-local, symbol-package, or symbol-server provenance;
 - package generation and exact entry references when PackageHouse supplied the
   candidate;
@@ -364,8 +389,9 @@ The counted adoption has six focused slices:
    `System.Text.Json`. Preserve SourceHouse's supplied-PDB input while deleting
    duplicate CLI provider orchestration for that route.
 3. After PackageHouse implements
-   `GetLibraryAndInventoryForTarget`, compose one supplied Library row with
-   exact Files acquisition and adopt the package CLI Source Locations scenario.
+   `GetLibraryAndInventoryForTarget`, use one supplied Library row to realize
+   the exact implementation assembly binding, then compose its exact PDB File
+   acquisition and adopt the package CLI Source Locations scenario.
 4. Adopt the same host-neutral settlement in Browser/Wasm member/type source
    with explicit pathless stores and fetch capabilities.
 5. Let SourceHouse consume the settlement capability, then retire duplicated
@@ -400,8 +426,10 @@ Implementation must gate at least:
 - rejection of matching GUID with a different Portable PDB stamp;
 - package Listed, Absent, and Not applicable evidence without implicit
   inventory work;
-- a selected reference Library acquiring only its exact implementation DLL and
-  PDB;
+- a selected reference Library realizing its exact implementation assembly
+  before constructing settlement, then acquiring only its exact PDB;
+- the settled result retaining logical-reference and implementation bindings
+  separately;
 - exact HTTP 404 negative reuse for one unchanged provider route;
 - changed provider coordinates and newly authorized providers bypassing the
   old negative observation;
