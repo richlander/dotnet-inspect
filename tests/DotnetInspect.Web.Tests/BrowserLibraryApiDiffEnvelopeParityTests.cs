@@ -193,10 +193,11 @@ public sealed class BrowserLibraryApiDiffEnvelopeParityTests
                                     DiffAnalysisDocumentViews.Changes,
                                     new HashSet<string>(),
                                     [],
-                                    MemberTargetIdentities: null,
+                                    ApiMemberTargetIdentities: null,
                                     BeforePaths: [],
                                     AfterPaths: [],
                                     PrepareBodySignals: null,
+                                    PrepareImplementation: null,
                                     HostUnavailability: []))));
         }
 

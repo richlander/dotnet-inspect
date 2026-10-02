@@ -382,7 +382,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
   const spelling = new FakeElement();
   spelling.value = "metadata";
   const trait = new FakeElement();
-  trait.value = "isStatic";
+  trait.value = "static";
   root.addAll("[data-member-kind-filter]", kind);
   root.addAll("[data-member-access-filter]", accessibility);
   root.addAll("[data-member-spelling]", spelling);
@@ -416,7 +416,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-kind:method",
     "member-access:protected",
     "member-spelling:metadata",
-    "member-trait:isStatic",
+    "member-trait:static",
   ]);
   filter.dispatch("input");
   disclosure.open = true;
@@ -428,7 +428,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-kind:method",
     "member-access:protected",
     "member-spelling:metadata",
-    "member-trait:isStatic",
+    "member-trait:static",
     "member-filter:parse",
     "member-filter-disclosure:true",
     "member-filter-key:ArrowDown:parse",
@@ -582,7 +582,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
   const defaultJumpKind = new FakeElement();
   const jumpAccess = new FakeElement({ memberJumpAccess: "protected" });
   const defaultJumpAccess = new FakeElement();
-  const jumpTrait = new FakeElement({ memberJumpTrait: "isStatic" });
+  const jumpTrait = new FakeElement({ memberJumpTrait: "static" });
   const defaultJumpTrait = new FakeElement();
   const member = new FakeElement({ member: "M:Parse" });
   const defaultMember = new FakeElement();
@@ -633,7 +633,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
     "member-jump-kind:all",
     "member-jump-access:protected",
     "member-jump-access:all",
-    "member-jump-trait:isStatic",
+    "member-jump-trait:static",
     "member-jump-trait:",
     "member-open:M:Parse",
     "member-open:",
@@ -845,31 +845,31 @@ test("the type nav renders exclusive accessible pole cues", () => {
                 "8 external source Types; top-leverage namespace",
             }
           : null,
-      typeLeverageCue: item => {
+      itemAchievements: item => {
         if (item.id === jsonSerializer.id) {
-          return {
-            pole: "sea-level",
+          return [{
+            kind: "sea-level",
             description:
               "8 incoming Type peers; 6 outgoing Type peers; sea-level Type",
-          };
+          }];
         }
         if (item.id === jsonDocument.id) {
-          return {
-            pole: "mountain-peak",
+          return [{
+            kind: "mountain-peak",
             description:
               "4 incoming Type peers; 9 outgoing Type peers; mountain-peak Type",
-          };
+          }];
         }
-        return null;
+        return [];
       },
     });
 
     assert.match(html, /data-type-leverage-filter="sea-level"/);
     assert.match(html, /type-row selected sea-level/);
-    assert.match(html, /class="type-leverage-icon sea-level"/);
-    assert.match(html, /aria-hidden="true">▁<\/span>/);
-    assert.match(html, /class="type-leverage-icon mountain-peak"/);
-    assert.match(html, /aria-hidden="true">▲<\/span>/);
+    assert.match(html, /class="item-achievement-glyph sea-level"/);
+    assert.match(html, /class="item-achievement-glyph mountain-peak"/);
+    assert.match(html, /class="item-achievement-rail"/);
+    assert.doesNotMatch(html, /[▁▲]/);
     assert.match(
       html,
       /role="img" aria-label="8 incoming Type peers; 6 outgoing Type peers/,
@@ -1099,6 +1099,36 @@ test("member families show product-issued out-of-view counts", () => {
   assert.match(
     html,
     /aria-label="2 more overloads are outside the public view\."/);
+});
+
+test("Trait-filtered families hide accessibility-only out-of-view counts", () => {
+  const group = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    completeCount: 7,
+    overloads: [
+      { signature: "static JsonDocument Parse(string json)" },
+    ],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 7,
+    visibleMemberCount: 1,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    selectedAccessibility: "public",
+    overloadFilterActive: true,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.doesNotMatch(html, /family-outside-count/);
 });
 
 test("member families disclose unavailable out-of-view counts", () => {
@@ -2298,8 +2328,10 @@ test("member rows say what a member is rather than which kind it is", () => {
     highlight,
     overloadHeat: (_group, index) => ({
       heatStrength: index === 1 ? 1 : null,
-      hub: false,
-      description: index === 1 ? "33 instructions" : "8 instructions",
+      hub: index === 1,
+      description: index === 1
+        ? "33 instructions; hub called by 1 same-name method"
+        : "8 instructions",
     }),
   });
 
@@ -2307,11 +2339,24 @@ test("member rows say what a member is rather than which kind it is", () => {
   assert.match(html, /<span class="sig-name">WriteTo<\/span><span class="sig-punct">\(<\/span><span class="sig-type">Utf8JsonWriter<\/span>/);
   assert.match(html, /RootElement<\/span>\s*<small><span class="sig-type">JsonElement<\/span><\/small>/);
   assert.doesNotMatch(html, /<small>method<\/small>|<small>property<\/small>/);
-  // Nested overloads have no branch glyph, color keyword types, and retain
-  // accessible heat descriptions without rendering raw metric labels.
+  // Nested overloads have no branch glyph, reserve the shared achievement
+  // rail, color keyword types, and retain accessible heat descriptions
+  // without rendering raw metric labels.
   assert.doesNotMatch(html, /↳|overload-branch/);
+  assert.equal(
+    html.match(/class="item-achievement-rail"/g)?.length,
+    2,
+  );
+  assert.match(
+    html,
+    /item-achievement-glyph implementation-hub/,
+  );
+  assert.match(html, /aria-label="implementation hub"/);
   assert.match(html, /<span class="sig-keyword">string<\/span>/);
   assert.match(html, /aria-description="8 instructions"/);
-  assert.match(html, /aria-description="33 instructions"/);
+  assert.match(
+    html,
+    /aria-description="33 instructions; hub called by 1 same-name method"/,
+  );
   assert.doesNotMatch(html, /overload-size|>8IL<|>33IL</);
 });

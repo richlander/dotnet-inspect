@@ -159,6 +159,7 @@ public sealed class ApiSurfaceEmitSetTests
         ApiMember property = Assert.Single(
             type.Members,
             member => member.Kind == "property" && member.Name == propertyName);
+        Assert.False(property.IsExplicitInterfaceImplementation);
         Assert.NotNull(property.SignatureModel);
         Assert.All(
             property.SignatureModel.Accessors,

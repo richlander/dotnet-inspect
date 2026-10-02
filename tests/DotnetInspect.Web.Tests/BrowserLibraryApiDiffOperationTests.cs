@@ -1610,7 +1610,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                         [],
                         new HashSet<string>(),
                         [],
-                        memberTargetIdentities: null,
+                        apiMemberTargetIdentities: null,
                         prepareBodySignals: null),
                     DiffAnalysisDocumentViews.Changes,
                     content));

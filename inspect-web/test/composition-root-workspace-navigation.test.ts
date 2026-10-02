@@ -366,6 +366,7 @@ test("Type inventory filters preserve their focused control across rerenders", (
         ?.[0] ?? "";
     assert.match(callback, /renderPreservingMemberFocus\(\)/);
     assert.doesNotMatch(callback, /\brender\(\)/);
+    assert.doesNotMatch(callback, /loadTypeLeverage\(\)/);
   }
   assert.match(
     appSource,
@@ -1937,10 +1938,14 @@ test("Metadata composition excludes graph-projected implementation members", () 
     ?? "";
   assert.match(
     composition,
-    /const groups = selectedMemberGroups\(type\);[\s\S]*groups\.flatMap\(group => group\.overloads\)/);
+    /selectedMemberKindCount\(type, kind\)/);
+  assert.match(
+    composition,
+    /selectedMemberTraitCount\(type, value\)/);
   assert.match(composition, /memberKinds\(type\)/);
   assert.match(composition, /memberAccessibilities\(type\)/);
   assert.match(composition, /availableMemberTraits\(type\)/);
+  assert.doesNotMatch(composition, /partitionGraphMembers|graphMembers/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {

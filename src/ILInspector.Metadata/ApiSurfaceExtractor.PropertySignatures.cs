@@ -83,13 +83,13 @@ public static partial class ApiSurfaceExtractor
         // interface is public, so the accessor is part of the public view.
         bool hasPublicGetter = hasGetter
             && (getterAccess == MethodAttributes.Public
-                || IsExplicitAccessorBody(
+                || IsExplicitInterfaceImplementationBody(
                     accessors.Getter,
                     getterAccess,
                     explicitImplementationBodies));
         bool hasPublicSetter = hasSetter
             && (setterAccess == MethodAttributes.Public
-                || IsExplicitAccessorBody(
+                || IsExplicitInterfaceImplementationBody(
                     accessors.Setter,
                     setterAccess,
                     explicitImplementationBodies));
@@ -564,9 +564,10 @@ public static partial class ApiSurfaceExtractor
                             method.Attributes);
                 }
                 accessor.IsExplicitInterfaceImplementation =
-                    explicitImplementationBodies.Contains(handle)
-                    && (method.Attributes & MethodAttributes.MemberAccessMask)
-                        == MethodAttributes.Private;
+                    IsExplicitInterfaceImplementationBody(
+                        handle,
+                        method.Attributes & MethodAttributes.MemberAccessMask,
+                        explicitImplementationBodies);
                 accessor.IsReadOnly = AttributeReader.HasAttribute(
                     reader,
                     method.GetCustomAttributes(),
@@ -576,12 +577,23 @@ public static partial class ApiSurfaceExtractor
         }
     }
 
-    static bool IsExplicitAccessorBody(
-        MethodDefinitionHandle accessor,
+    static bool IsExplicitInterfaceImplementationBody(
+        MethodDefinitionHandle method,
         MethodAttributes access,
         IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies)
         => access == MethodAttributes.Private
-            && explicitImplementationBodies.Contains(accessor);
+            && explicitImplementationBodies.Contains(method);
+
+    static bool IsExplicitInterfaceImplementationBody(
+        MetadataReader reader,
+        MethodDefinitionHandle method,
+        IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies)
+        => !method.IsNil
+            && IsExplicitInterfaceImplementationBody(
+                method,
+                reader.GetMethodDefinition(method).Attributes
+                    & MethodAttributes.MemberAccessMask,
+                explicitImplementationBodies);
 
     static bool AccessorDeclarationModifiersMatchProperty(
         IReadOnlyList<ApiAccessor> accessors,

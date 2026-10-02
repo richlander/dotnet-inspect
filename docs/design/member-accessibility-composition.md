@@ -41,6 +41,14 @@ not admit hidden declarations. Kind, accessibility, spelling, and trait are
 single-choice filters, so the narrow Member pane renders them as labeled
 dropdowns rather than horizontally clipped chip strips.
 
+Every filtering option carries an exact declaration Count. Accessibility
+Counts describe all buckets; Kind and Trait Counts describe the currently
+selected accessibility population. Trait offers `all`, `static`, `instance`,
+`virtual`, `interface`, and `extensions`; `interface` is the narrow explicit
+interface-implementation fact, not inferred implicit correspondence. The
+control order is Kind, Accessibility, Trait, then Spelling. Spelling is last
+because it changes the declaration unit rather than filtering declarations.
+
 The list shows 8 rows for those 16 members. Each overload family's row, such as
 `Parse 5×` or `Deserialize 5×`, colors its name differently. That text color
 tells the reader that the row holds overloads, and where the difference
@@ -50,7 +58,7 @@ which tints a row's background and colors the parent row's status text.
 The reader selects `private`. The Browser requests that Type's Rows under
 `accessibility = private` and shows the 27 private members as 26 rows,
 including a `Parse` family row with the two private overloads that the public view never
-listed. The chips keep their counts, because the composition covers every
+listed. The selectors keep their counts, because the composition covers every
 bucket whatever bucket is selected. The selection stays for the session, so
 the next Type opens on `private` with its own truthful count, even when that
 count is 0.
@@ -58,10 +66,10 @@ count is 0.
 The same `Filters` disclosure, collapsed by default, offers:
 
 ```text
-Kind            all kinds
+Kind            all kinds · 16
 Accessibility   public · 16
+Trait           all · 16
 Spelling        C#
-Trait           all traits
 ```
 
 C# spelling serves consumers: one row per declaration, as the code that uses
@@ -71,7 +79,7 @@ is, such as .NET team engineers: one row per metadata record. On
 a `public` property (8 public, 1 internal, 3 private). Metadata spelling lists
 the private `IEnumerator.Current` property record and its private
 `IEnumerator.get_Current` method separately (6 public, 1 internal, 7 private).
-The chips follow the selected spelling, and the spelling choice stays for the
+The counts follow the selected spelling, and the spelling choice stays for the
 session like the accessibility choice.
 
 The CLI asks the same questions of the same population and reports the same
@@ -89,8 +97,9 @@ $ dotnet-inspect type JsonDocument --package System.Text.Json@10.0.0 \
 27
 ```
 
-Both hosts read their numbers from the Composition Count. Neither host counts
-rows it has loaded.
+Both hosts read accessibility numbers from the Composition Count. Inspect Web
+reads Kind and Trait facet Counts from the Metadata-owned exact population.
+Neither host counts rows in UI code.
 
 ## Typed handoffs
 

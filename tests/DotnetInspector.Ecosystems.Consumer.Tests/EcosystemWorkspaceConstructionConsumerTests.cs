@@ -11,9 +11,9 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
     {
         WorkspacePlan plan = Create(platformOnly);
         EcosystemPackId[] expected = platformOnly
-            ? [EcosystemPackIds.Runtime, EcosystemPackIds.AspNetCore, EcosystemPackIds.MicrosoftExtensions]
-            : [EcosystemPackIds.Runtime, EcosystemPackIds.AspNetCore,
-                EcosystemPackIds.MicrosoftExtensions, EcosystemPackIds.Aspire,
+            ? [EcosystemPackIds.Runtime, EcosystemPackIds.MicrosoftExtensions, EcosystemPackIds.AspNetCore]
+            : [EcosystemPackIds.Runtime, EcosystemPackIds.MicrosoftExtensions,
+                EcosystemPackIds.AspNetCore, EcosystemPackIds.Aspire,
                 EcosystemPackIds.AI,
                 EcosystemPackIds.Blazor, EcosystemPackIds.Maui];
 

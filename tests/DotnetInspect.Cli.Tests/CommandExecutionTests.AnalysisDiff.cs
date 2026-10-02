@@ -1554,6 +1554,149 @@ public partial class CommandExecutionTests
             < transitions.Output.IndexOf("| analysis.call-site |", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("Serialize:6", "TValue", 3)]
+    [InlineData("Serialize:8", "object", 6)]
+    public async Task Diff_Implementation_SystemTextJsonMemberKeepsIlEvidence(
+        string selector,
+        string parameter,
+        int expectedIlRows)
+    {
+        string root = Path.Combine(AppContext.BaseDirectory, "RealAssets", "DiffAnalysis");
+        string range =
+            $"{Path.Combine(root, "9.0.0", "System.Text.Json.dll")}.."
+            + Path.Combine(root, "10.0.0", "System.Text.Json.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", range,
+            "--type", "System.Text.Json.JsonSerializer",
+            "--member", selector,
+            "-S", "Implementation Diff",
+            "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        JsonElement[] rows =
+        [
+            .. output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => JsonDocument.Parse(line).RootElement.Clone())
+                .Where(root => root.TryGetProperty("member", out _)),
+        ];
+        string member = Assert.Single(
+            rows.Select(row => row.GetProperty("member").GetString())
+                .Distinct())!;
+        Assert.Contains(parameter, member, StringComparison.Ordinal);
+        Assert.Equal(
+            expectedIlRows,
+            rows.Count(row =>
+                row.GetProperty("mechanism").GetString() == "IL"));
+        Assert.Contains(
+            rows,
+            row => row.GetProperty("mechanism").GetString() == "C#");
+    }
+
+    [Theory]
+    [InlineData("Complexity Context", "analysis.complexity.normal-flow")]
+    [InlineData(
+        "Structural Context",
+        "research.complexity.structural-cohort")]
+    public async Task Diff_Context_SystemTextJsonGenericMemberUsesTypedTarget(
+        string section,
+        string expectedKind)
+    {
+        string root = Path.Combine(AppContext.BaseDirectory, "RealAssets", "DiffAnalysis");
+        string range =
+            $"{Path.Combine(root, "9.0.0", "System.Text.Json.dll")}.."
+            + Path.Combine(root, "10.0.0", "System.Text.Json.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", range,
+            "--type", "System.Text.Json.JsonSerializer",
+            "--member", "Serialize:6",
+            "-S", section,
+            "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        JsonElement row = Assert.Single(
+            output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => JsonDocument.Parse(line).RootElement.Clone()),
+            root => root.TryGetProperty("member", out _));
+        Assert.Contains(
+            "Serialize(System.IO.Stream, TValue,",
+            row.GetProperty("member").GetString(),
+            StringComparison.Ordinal);
+        Assert.Equal(
+            expectedKind,
+            row.GetProperty("kind").GetString());
+    }
+
+    [Theory]
+    [InlineData("csharp", "csharp.line")]
+    [InlineData("il", "il.op")]
+    public async Task Diff_Analysis_SystemTextJsonGenericMemberKeepsRetainedFindings(
+        string analysis,
+        string expectedFinding)
+    {
+        string root = Path.Combine(AppContext.BaseDirectory, "RealAssets", "DiffAnalysis");
+        string range =
+            $"{Path.Combine(root, "9.0.0", "System.Text.Json.dll")}.."
+            + Path.Combine(root, "10.0.0", "System.Text.Json.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", range,
+            "--type", "System.Text.Json.JsonSerializer",
+            "--member", "Serialize:6",
+            "--analysis", analysis,
+            "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        JsonElement[] rows =
+        [
+            .. output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => JsonDocument.Parse(line).RootElement.Clone())
+                .Where(root => root.TryGetProperty("finding", out _)),
+        ];
+        Assert.NotEmpty(rows);
+        Assert.All(
+            rows,
+            row => Assert.Equal(
+                expectedFinding,
+                row.GetProperty("finding").GetString()));
+        Assert.Single(
+            rows.Select(row => row.GetProperty("target").GetString()!
+                    .Split(" :: ", StringSplitOptions.None)[0])
+                .Distinct());
+        Assert.All(
+            rows,
+            row => Assert.Contains(
+                "Serialize(System.IO.Stream, TValue,",
+                row.GetProperty("target").GetString(),
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Diff_Implementation_UnresolvedTarget_FailsVisibly()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "--library",
+            $"{FixtureCatalog.DiffPair.OldAssemblyPath()}.."
+                + FixtureCatalog.DiffPair.NewAssemblyPath(),
+            "--type", "DiffFixtureSample.DiffSample",
+            "--member", "DefinitelyMissing",
+            "-S", "Implementation Diff",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "did not resolve to an Analysis method",
+            error,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Diff_Transitions_TypeSurfaceShowsApiTypeThenApiMember()
     {

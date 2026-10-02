@@ -1,8 +1,7 @@
 using System.Collections.Immutable;
-using DotnetInspect.Cli.Options;
 using DotnetInspector.Queries;
 
-namespace DotnetInspect.Cli.Sections;
+namespace DotnetInspector.Sections;
 
 /// <summary>
 /// Non-generic descriptor for storage in collections.
@@ -45,8 +44,8 @@ public static class SectionAnnotations
 
 /// <summary>
 /// Pipeline that computes the effective set of sections to render
-/// based on registered descriptors, verbosity, and <c>-S</c> filters.
-/// Verbosity is mapped to section selection via two axes:
+/// based on registered descriptors, an automatic view, and explicit filters.
+/// The view is mapped to section selection via two axes:
 /// <list type="bullet">
 ///   <item><b>Position</b>: index 0 is the primary section (index 0–1 if the first entry is named "Summary").</item>
 ///   <item><b>IsExpensive</b>: sections requiring network or heavy computation are only shown at Detailed.</item>
@@ -324,7 +323,7 @@ public sealed class SectionPipeline<TModel>
         if (unknown.Length > 0)
             throw new InvalidOperationException(
                 $"Category {name} lists unregistered section(s): {string.Join(", ", unknown)}. " +
-                "Category membership must name a registered section; use the SectionNames constant " +
+                "Category membership must name a registered section; use the same constant " +
                 "the descriptor returns so renames move both together.");
 
         _categories.Add(new SectionCategory(name, role, [.. sections]));
@@ -416,7 +415,9 @@ public sealed class SectionPipeline<TModel>
 
     /// <summary>Sections in the curated default preset, in registration order.</summary>
     public string[] InfoSectionNames => _entries
-        .Where(e => e.Info && IsSelectable(e) && IsCuratedAutoRendered(e, Verbosity.Minimal))
+        .Where(e => e.Info
+            && IsSelectable(e)
+            && IsCuratedAutoRendered(e, SectionViewLevel.Minimal))
         .Select(e => e.Name)
         .ToArray();
 
@@ -459,7 +460,12 @@ public sealed class SectionPipeline<TModel>
         ? [.. _entries
             .Select((entry, index) => (entry, index))
             .Where(e => IsSelectable(e.entry)
-                && IsRequested(e.entry, e.index, Verbosity.Normal, include: null, fixedOverview: true))
+                && IsRequested(
+                    e.entry,
+                    e.index,
+                    SectionViewLevel.Normal,
+                    include: null,
+                    fixedOverview: true))
             .Select(e => e.entry.Name)]
         : FixedOverviewSectionNames;
 
@@ -559,14 +565,16 @@ public sealed class SectionPipeline<TModel>
     /// Returns the names of sections that would produce output for the given model,
     /// filtered by verbosity and <c>-S</c>.
     /// </summary>
-    public List<string> GetEffectiveSections(TModel model, Verbosity verbosity,
+    public List<string> GetEffectiveSections(
+        TModel model,
+        SectionViewLevel view,
         HashSet<string>? include = null, bool fixedOverview = false, bool explicitInclude = false)
     {
         List<string> result = [];
         for (int i = 0; i < _entries.Count; i++)
         {
             var entry = _entries[i];
-            if (!IsRequested(entry, i, verbosity, include, fixedOverview, explicitInclude))
+            if (!IsRequested(entry, i, view, include, fixedOverview, explicitInclude))
                 continue;
             if (entry.CanRender(model))
                 result.Add(entry.Name);
@@ -578,14 +586,15 @@ public sealed class SectionPipeline<TModel>
     /// Returns the structural candidate set before producer-backed effectiveness is known.
     /// Commands use this to plan typed query prerequisites before production.
     /// </summary>
-    public HashSet<string> GetCandidateSections(Verbosity verbosity,
+    public HashSet<string> GetCandidateSections(
+        SectionViewLevel view,
         HashSet<string>? include = null, bool fixedOverview = false)
     {
         HashSet<string> result = new(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < _entries.Count; i++)
         {
             var entry = _entries[i];
-            if (IsRequested(entry, i, verbosity, include, fixedOverview))
+            if (IsRequested(entry, i, view, include, fixedOverview))
                 result.Add(entry.Name);
         }
         return result;
@@ -691,7 +700,7 @@ public sealed class SectionPipeline<TModel>
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var primary = GetEffectiveSections(model, Verbosity.Minimal)
+        var primary = GetEffectiveSections(model, SectionViewLevel.Minimal)
             .Where(name => !string.Equals(name, "Summary", StringComparison.OrdinalIgnoreCase))
             .Where(name => all.Contains(name, StringComparer.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -709,7 +718,9 @@ public sealed class SectionPipeline<TModel>
     /// filtered out by <see cref="SectionEntry{TModel}.CanRender"/> (no data).
     /// Empty when no explicit include was set or all requested sections have data.
     /// </summary>
-    public (List<string> Empty, int RequestedCount) GetEmptySections(TModel model, Verbosity verbosity,
+    public (List<string> Empty, int RequestedCount) GetEmptySections(
+        TModel model,
+        SectionViewLevel view,
         HashSet<string>? include = null)
     {
         if (include is not { Count: > 0 })
@@ -720,7 +731,7 @@ public sealed class SectionPipeline<TModel>
         for (int i = 0; i < _entries.Count; i++)
         {
             var entry = _entries[i];
-            if (!IsRequested(entry, i, verbosity, include))
+            if (!IsRequested(entry, i, view, include))
                 continue;
             requested++;
             if (!entry.CanRender(model))
@@ -730,27 +741,23 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
-    /// Lists sections that have content at <see cref="Verbosity.Detailed"/>.
-    /// Used by bare <c>-S</c> with input to discover which sections have data.
+    /// Computes the effective section-name filter for a presentation sink.
+    /// Returns <c>null</c> when all registered sections should be rendered.
     /// </summary>
-    public void ListEffectiveSections(TModel model)
-    {
-        foreach (var name in GetEffectiveSections(model, Verbosity.Detailed))
-            Console.WriteLine(name);
-    }
-
-    /// <summary>
-    /// Computes the <see cref="HashSet{String}"/> to pass as
-    /// <c>MarkoutWriterOptions.IncludeSections</c>. Returns <c>null</c> when
-    /// all sections should be rendered (no filtering needed).
-    /// </summary>
-    public HashSet<string>? ComputeIncludeSections(TModel model, Verbosity verbosity,
+    public HashSet<string>? ComputeIncludeSections(
+        TModel model,
+        SectionViewLevel view,
         HashSet<string>? include = null, bool allSelector = false, bool fixedOverview = false,
         bool explicitInclude = false)
     {
         var effective = allSelector
             ? GetAllSelectorSections(model)
-            : GetEffectiveSections(model, verbosity, include, fixedOverview, explicitInclude);
+            : GetEffectiveSections(
+                model,
+                view,
+                include,
+                fixedOverview,
+                explicitInclude);
 
         if (allSelector)
             return [.. effective];
@@ -763,17 +770,17 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
-    /// Returns the minimum verbosity needed to show all sections in the
+    /// Returns the minimum automatic view needed to show all sections in the
     /// <paramref name="include"/> set. Used to auto-promote verbosity when
-    /// <c>-S</c> targets specific sections.
+    /// a host targets specific sections.
     /// </summary>
-    public Verbosity GetRequiredVerbosity(HashSet<string>? include)
+    public SectionViewLevel GetRequiredViewLevel(HashSet<string>? include)
     {
         if (include == null || include.Count == 0)
-            return Verbosity.Quiet;
+            return SectionViewLevel.Quiet;
 
         int primaryThreshold = GetPrimaryThreshold();
-        var maxVerbosity = Verbosity.Quiet;
+        var maximumView = SectionViewLevel.Quiet;
 
         for (int i = 0; i < _entries.Count; i++)
         {
@@ -781,20 +788,20 @@ public sealed class SectionPipeline<TModel>
             if (!include.Contains(entry.Name))
                 continue;
 
-            Verbosity required;
+            SectionViewLevel required;
             if (_curatedCatalog)
-                required = CuratedRequiredVerbosity(entry);
+                required = CuratedRequiredViewLevel(entry);
             else if (entry.IsExpensive)
-                required = Verbosity.Detailed;
+                required = SectionViewLevel.Detailed;
             else if (i > primaryThreshold)
-                required = Verbosity.Normal;
+                required = SectionViewLevel.Normal;
             else
-                required = Verbosity.Quiet;
+                required = SectionViewLevel.Quiet;
 
-            if (required > maxVerbosity)
-                maxVerbosity = required;
+            if (required > maximumView)
+                maximumView = required;
         }
-        return maxVerbosity;
+        return maximumView;
     }
 
     /// <summary>
@@ -813,13 +820,14 @@ public sealed class SectionPipeline<TModel>
     /// <see cref="IsRequested"/>. The promoted verbosity therefore never causes it (or anything
     /// else) to auto-render.
     /// </remarks>
-    private static Verbosity CuratedRequiredVerbosity(SectionEntry<TModel> entry)
+    private static SectionViewLevel CuratedRequiredViewLevel(
+        SectionEntry<TModel> entry)
     {
         if (entry.SizeClass == SectionSizeClass.Verbose || entry.Cost != SectionCost.NetworkFree)
-            return Verbosity.Detailed;
+            return SectionViewLevel.Detailed;
         if (entry.Info)
-            return Verbosity.Minimal;
-        return Verbosity.Normal;
+            return SectionViewLevel.Minimal;
+        return SectionViewLevel.Normal;
     }
 
     /// <summary>
@@ -831,39 +839,22 @@ public sealed class SectionPipeline<TModel>
     /// discovery into execution of the selected section.
     /// </param>
     public HashSet<InspectionQueryDefinition> GetRequiredQueries(
-        Verbosity verbosity,
+        SectionViewLevel view,
         HashSet<string>? include = null,
         bool fixedOverview = false,
-        InspectionTrace? trace = null,
-        IReadOnlyList<HostQueryDemand>? commandDemand = null,
+        IReadOnlyList<HostQueryDemand>? hostDemand = null,
         bool excludeUnbounded = false)
     {
-        HashSet<InspectionQueryDefinition> queries = [];
-        CollectRequiredQueries(
-            verbosity,
+        SectionQueryPlan plan = PlanQueries(
+            view,
             include,
             fixedOverview,
-            excludeUnbounded,
-            queries,
-            orderedQueries: null,
-            demands: null,
-            trace);
-
-        if (commandDemand is not null)
-        {
-            foreach (HostQueryDemand demand in commandDemand)
-            {
-                queries.Add(demand.Query);
-                trace?.RecordCommandQueryDemand(demand.Reason, demand.Query);
-            }
-        }
-
-        trace?.RecordRequestedQueries(queries);
-        return queries;
+            excludeUnbounded);
+        return plan.Activate(hostDemand);
     }
 
-    internal SectionQueryPlan CreateQueryPlan(
-        Verbosity verbosity,
+    public SectionQueryPlan PlanQueries(
+        SectionViewLevel view,
         HashSet<string>? include,
         bool fixedOverview,
         bool excludeUnbounded)
@@ -875,27 +866,25 @@ public sealed class SectionPipeline<TModel>
             ImmutableArray.CreateBuilder<SectionQueryDemand>();
 
         CollectRequiredQueries(
-            verbosity,
+            view,
             include,
             fixedOverview,
             excludeUnbounded,
             queries,
             orderedQueries,
-            demands,
-            trace: null);
+            demands);
 
         return new SectionQueryPlan(orderedQueries.ToImmutable(), demands.ToImmutable());
     }
 
     private void CollectRequiredQueries(
-        Verbosity verbosity,
+        SectionViewLevel view,
         HashSet<string>? include,
         bool fixedOverview,
         bool excludeUnbounded,
         HashSet<InspectionQueryDefinition> queries,
         ImmutableArray<InspectionQueryDefinition>.Builder? orderedQueries,
-        ImmutableArray<SectionQueryDemand>.Builder? demands,
-        InspectionTrace? trace)
+        ImmutableArray<SectionQueryDemand>.Builder? demands)
     {
         for (int i = 0; i < _entries.Count; i++)
         {
@@ -904,7 +893,7 @@ public sealed class SectionPipeline<TModel>
                 continue;
             if (excludeUnbounded && entry.Cost == SectionCost.Unbounded)
                 continue;
-            if (IsRequested(entry, i, verbosity, include, fixedOverview))
+            if (IsRequested(entry, i, view, include, fixedOverview))
             {
                 foreach (InspectionQueryDefinition query in entry.Queries)
                 {
@@ -912,7 +901,6 @@ public sealed class SectionPipeline<TModel>
                         orderedQueries?.Add(query);
 
                     demands?.Add(new SectionQueryDemand(entry.Name, query));
-                    trace?.RecordQueryDemand(entry.Name, query);
                 }
             }
         }
@@ -954,7 +942,10 @@ public sealed class SectionPipeline<TModel>
         }
     }
 
-    private bool IsRequested(SectionEntry<TModel> entry, int index, Verbosity verbosity,
+    private bool IsRequested(
+        SectionEntry<TModel> entry,
+        int index,
+        SectionViewLevel view,
         HashSet<string>? include, bool fixedOverview = false, bool explicitInclude = false)
     {
         // Explicit include overrides verbosity (and is the only way to select ExplicitOnly sections)
@@ -977,14 +968,16 @@ public sealed class SectionPipeline<TModel>
         // Curated catalog: base categories define the automatic candidate scope, then the
         // verbosity ladder filters that scope by declared size class + cost.
         if (_curatedCatalog)
-            return IsInAutomaticScope(entry) && IsCuratedAutoRendered(entry, verbosity);
+            return IsInAutomaticScope(entry)
+                && IsCuratedAutoRendered(entry, view);
 
         // Legacy pipelines: verbosity-based selection using position and IsExpensive
-        return verbosity switch
+        return view switch
         {
-            Verbosity.Quiet => index == 0 && entry.Name == "Summary", // Include headless summary at quiet
-            Verbosity.Minimal => index <= GetPrimaryThreshold(),
-            Verbosity.Normal => !entry.IsExpensive,
+            SectionViewLevel.Quiet =>
+                index == 0 && entry.Name == "Summary",
+            SectionViewLevel.Minimal => index <= GetPrimaryThreshold(),
+            SectionViewLevel.Normal => !entry.IsExpensive,
             _ => true, // Detailed: all non-ExplicitOnly sections
         };
     }
@@ -1005,12 +998,16 @@ public sealed class SectionPipeline<TModel>
     /// Unbounded-cost sections never auto-render at any verbosity; they are reached by exact name
     /// or an explicit category door.
     /// </summary>
-    private static bool IsCuratedAutoRendered(SectionEntry<TModel> entry, Verbosity verbosity)
-        => verbosity switch
+    private static bool IsCuratedAutoRendered(
+        SectionEntry<TModel> entry,
+        SectionViewLevel view)
+        => view switch
         {
-            Verbosity.Quiet => IsHeadlessSummary(entry),
-            Verbosity.Minimal => entry.Info && entry.Cost != SectionCost.Unbounded,
-            Verbosity.Normal => entry.SizeClass <= SectionSizeClass.Informative
+            SectionViewLevel.Quiet => IsHeadlessSummary(entry),
+            SectionViewLevel.Minimal =>
+                entry.Info && entry.Cost != SectionCost.Unbounded,
+            SectionViewLevel.Normal =>
+                entry.SizeClass <= SectionSizeClass.Informative
                 && entry.Cost == SectionCost.NetworkFree,
             _ => entry.Cost != SectionCost.Unbounded, // Detailed: all sizes, bounded cost
         };
@@ -1018,7 +1015,7 @@ public sealed class SectionPipeline<TModel>
     // A "Summary" entry is the headless context preamble unless its
     // descriptor declares an explicit-only view (Diff's analysis-set Summary).
     private static bool IsHeadlessSummary(SectionEntry<TModel> entry)
-        => string.Equals(entry.Name, SectionNames.Summary, StringComparison.OrdinalIgnoreCase)
+        => string.Equals(entry.Name, "Summary", StringComparison.OrdinalIgnoreCase)
             && !entry.ExplicitOnly;
 
     private bool HasBaseCategoryScope
@@ -1044,36 +1041,24 @@ public sealed class SectionPipeline<TModel>
         => !IsHeadlessSummary(entry);
 
     /// <summary>
-    /// Returns the names of requested sections (selection only — independent of <c>CanRender</c>)
-    /// that declare any of the given <paramref name="capabilities"/> AND are authorized to use them.
-    /// Authorization rule (keys off the user's verbosity, never an internally force-bumped value):
-    /// <list type="bullet">
-    ///   <item><b>MayDownloadPdb</b>/<b>MayAuditSources</b>: section is in the explicit include set OR <paramref name="userVerbosity"/> &gt;= Detailed.</item>
-    ///   <item><b>MayFetchSources</b>: section is in the explicit include set (never by verbosity).</item>
-    /// </list>
-    /// Selection (not <c>CanRender</c>) is used deliberately so the work that *produces* a section's
-    /// data can run before that data exists.
+    /// Returns requested sections that declare any of the given
+    /// <paramref name="capabilities"/>. This is selection only, independent
+    /// of <c>CanRender</c>; hosts retain authorization policy.
     /// </summary>
-    public HashSet<string> GetAuthorizedSections(SectionCapabilities capabilities,
-        Verbosity userVerbosity, HashSet<string>? include)
+    public HashSet<string> GetRequestedSections(
+        SectionCapabilities capabilities,
+        SectionViewLevel view,
+        HashSet<string>? include)
     {
         HashSet<string> result = new(StringComparer.OrdinalIgnoreCase);
-        bool explicitInclude = include is { Count: > 0 };
         for (int i = 0; i < _entries.Count; i++)
         {
             var entry = _entries[i];
             if ((entry.Capabilities & capabilities) == 0)
                 continue;
-            if (!IsRequested(entry, i, userVerbosity, include))
+            if (!IsRequested(entry, i, view, include))
                 continue;
-
-            bool inInclude = explicitInclude && include!.Contains(entry.Name);
-            // MayFetchSources requires explicit include; lighter network work is also allowed at -v:d.
-            bool wantsFetch = (capabilities & SectionCapabilities.MayFetchSources) != 0;
-            bool authorized = inInclude
-                || (!wantsFetch && userVerbosity >= Verbosity.Detailed);
-            if (authorized)
-                result.Add(entry.Name);
+            result.Add(entry.Name);
         }
         return result;
     }
