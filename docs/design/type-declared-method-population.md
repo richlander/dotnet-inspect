@@ -259,3 +259,11 @@ not display type name. A settled rejection or failure is retained under that
 same key so repeated execution cannot reacquire, readmit, or reauthenticate the
 same request. `maximumRows` remains an execution bound: a ready source can
 return visible incompleteness before allocating or traversing Rows.
+
+Queries performs exact-binding preparation with participant-local single-flight.
+It publishes a ready source into the group-owned store before the active
+snapshot callback ends, so concurrent group release either observes and
+disposes the prepared session or prevents its publication. Warm terminal
+execution borrows that owned store without reopening the snapshot. Group
+release closes the store and every prepared session before releasing any
+participant snapshot.

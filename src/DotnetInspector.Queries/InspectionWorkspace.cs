@@ -221,6 +221,7 @@ public sealed class AssemblyContextGroup : IDisposable
             new(ReferenceEqualityComparer.Instance);
     readonly HashSet<IDisposable> _ownedResources =
         new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<Type, IDisposable> _ownedResourceByType = [];
     readonly Action<AssemblyContextGroup> _onDisposed;
     readonly TaskCompletionSource<AssemblyContextGroupReleaseResult>
         _releaseCompletion =
@@ -671,6 +672,74 @@ public sealed class AssemblyContextGroup : IDisposable
         }
     }
 
+    internal TResource GetOrCreateOwnedResource<
+        TResource,
+        TState>(
+        TState state,
+        Func<TState, TResource> create)
+        where TResource : class, IDisposable
+    {
+        ArgumentNullException.ThrowIfNull(create);
+        lock (_lifetimeGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_ownedResourceByType.TryGetValue(
+                    typeof(TResource),
+                    out IDisposable? existing))
+            {
+                return (TResource)existing;
+            }
+
+            TResource resource = create(state);
+            if (!_ownedResources.Add(resource))
+            {
+                resource.Dispose();
+                throw new InvalidOperationException(
+                    "A newly created group resource was already owned.");
+            }
+            _ownedResourceByType.Add(typeof(TResource), resource);
+            return resource;
+        }
+    }
+
+    internal TResult UseOwnedResource<
+        TResource,
+        TState,
+        TResult>(
+        TResource resource,
+        TState state,
+        Func<TResource, TState, TResult> callback)
+        where TResource : class, IDisposable
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        ArgumentNullException.ThrowIfNull(callback);
+        BeginCallback();
+        Exception? operationFailure = null;
+        try
+        {
+            lock (_lifetimeGate)
+            {
+                if (!_ownedResources.Contains(resource))
+                {
+                    throw new ArgumentException(
+                        "The resource is not owned by this assembly "
+                            + "context group.",
+                        nameof(resource));
+                }
+            }
+            return callback(resource, state);
+        }
+        catch (Exception ex)
+        {
+            operationFailure = ex;
+            throw;
+        }
+        finally
+        {
+            EndCallback(operationFailure);
+        }
+    }
+
     internal void UnregisterOwnedResource(IDisposable resource)
     {
         lock (_lifetimeGate)
@@ -972,6 +1041,7 @@ public sealed class AssemblyContextGroup : IDisposable
         {
             resources = [.. _ownedResources];
             _ownedResources.Clear();
+            _ownedResourceByType.Clear();
         }
 
         List<Exception>? failures = null;
