@@ -116,12 +116,15 @@ The smaller population shows fixed operation cost; the larger population tests
 whether complete Rows scales while Count remains source-native. A source-native
 NLinq control repeats the same module and TypeDef binding validation, then
 overrides Count from the metadata range cardinality rather than enumerating
-handles.
+handles. It reports both the raw NLinq result and an equal-output-shape control
+that constructs the same Metadata outcome and structural receipt.
 
 Count must show a material latency and allocation collapse relative to complete
 Rows at the physical kernel. The Sections operation must preserve the same
 answer and structural receipt, and the larger population must disclose whether
 fixed operation cost still hides that collapse. The NLinq control determines
 whether the same source representation can preserve the kernel with less
-machinery. If these conditions do not hold, the candidate is evidence against
-this physical pattern rather than a feature to preserve.
+machinery. The raw result is the source-mechanics ceiling; only the
+equal-output-shape control supports a contract-level comparison with the
+Metadata kernel. If these conditions do not hold, the candidate is evidence
+against this physical pattern rather than a feature to preserve.

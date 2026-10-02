@@ -28,6 +28,15 @@ public sealed record DeclaredMethodScorecardResult(
 public static class DeclaredMethodPopulation
 {
     private const int OperationsPerSample = 256;
+    private static readonly MetadataDeclaredMethodPopulationReceipt
+        s_countReceipt = new(
+            TypeDefinitionRowsRead: 1,
+            MethodDefinitionHandlesVisited: 0,
+            MethodDefinitionRowsRead: 0,
+            MethodNamesDecoded: 0,
+            MethodSignaturesDecoded: 0,
+            MethodAttributesDecoded: 0,
+            ProjectedRows: 0);
 
     public static DeclaredMethodScorecardCheck Check(
         string path,
@@ -156,6 +165,10 @@ public static class DeclaredMethodPopulation
         int nlinqCount = asset.ExecuteNLinqCount();
         ImmutableArray<int> nlinqRows =
             asset.ExecuteNLinqRows();
+        var nlinqOutcomeCount = AssertCounted(
+            asset.ExecuteNLinqOutcomeCount());
+        var nlinqOutcomeRows = AssertRead(
+            asset.ExecuteNLinqOutcomeRows());
         if (count.Count != rows.Count
             || count.Count != rows.Rows.Length)
         {
@@ -177,6 +190,16 @@ public static class DeclaredMethodPopulation
         {
             throw new InvalidOperationException(
                 "NLinq declared MethodDef Count and Rows disagree.");
+        }
+        if (nlinqOutcomeCount.Count != count.Count
+            || nlinqOutcomeRows.Count != rows.Count
+            || !nlinqOutcomeRows.Rows.AsSpan()
+                .SequenceEqual(rows.Rows.AsSpan())
+            || nlinqOutcomeCount.Receipt != count.Receipt
+            || nlinqOutcomeRows.Receipt != rows.Receipt)
+        {
+            throw new InvalidOperationException(
+                "Output-shaped NLinq declared MethodDef results disagree.");
         }
 
         return new(
@@ -222,6 +245,12 @@ public static class DeclaredMethodPopulation
             case DeclaredMethodScorecardCase.NLinqRows:
                 GC.KeepAlive(asset.ExecuteNLinqRows());
                 break;
+            case DeclaredMethodScorecardCase.NLinqOutcomeCount:
+                GC.KeepAlive(asset.ExecuteNLinqOutcomeCount());
+                break;
+            case DeclaredMethodScorecardCase.NLinqOutcomeRows:
+                GC.KeepAlive(asset.ExecuteNLinqOutcomeRows());
+                break;
             default:
                 throw new ArgumentOutOfRangeException(
                     nameof(measurementCase));
@@ -245,6 +274,10 @@ public static class DeclaredMethodPopulation
                 Measure(asset.ExecuteNLinqCount),
             DeclaredMethodScorecardCase.NLinqRows =>
                 Measure(asset.ExecuteNLinqRows),
+            DeclaredMethodScorecardCase.NLinqOutcomeCount =>
+                Measure(asset.ExecuteNLinqOutcomeCount),
+            DeclaredMethodScorecardCase.NLinqOutcomeRows =>
+                Measure(asset.ExecuteNLinqOutcomeRows),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
         };
@@ -341,7 +374,10 @@ public static class DeclaredMethodPopulation
                 "Metadata",
             DeclaredMethodScorecardCase.NLinqCount
                 or DeclaredMethodScorecardCase.NLinqRows =>
-                "NLinq",
+                "NLinq raw",
+            DeclaredMethodScorecardCase.NLinqOutcomeCount
+                or DeclaredMethodScorecardCase.NLinqOutcomeRows =>
+                "NLinq outcome",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
         };
@@ -351,10 +387,12 @@ public static class DeclaredMethodPopulation
         measurementCase switch
         {
             DeclaredMethodScorecardCase.MetadataCount
-                or DeclaredMethodScorecardCase.NLinqCount =>
+                or DeclaredMethodScorecardCase.NLinqCount
+                or DeclaredMethodScorecardCase.NLinqOutcomeCount =>
                 "Count",
             DeclaredMethodScorecardCase.MetadataRows
-                or DeclaredMethodScorecardCase.NLinqRows =>
+                or DeclaredMethodScorecardCase.NLinqRows
+                or DeclaredMethodScorecardCase.NLinqOutcomeRows =>
                 "Rows",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
@@ -366,6 +404,8 @@ public static class DeclaredMethodPopulation
         MetadataRows,
         NLinqCount,
         NLinqRows,
+        NLinqOutcomeCount,
+        NLinqOutcomeRows,
     }
 
     private readonly record struct Measurement(
@@ -446,6 +486,50 @@ public static class DeclaredMethodPopulation
                     rows,
                     new AddToken())
                 .MoveToImmutable();
+        }
+
+        internal MetadataDeclaredMethodPopulationOutcome
+            ExecuteNLinqOutcomeCount()
+        {
+            MethodHandles methods = Source();
+            int count = methods.Count<
+                MethodHandles,
+                MethodDefinitionHandle>();
+            return new MetadataDeclaredMethodPopulationOutcome.Counted(
+                count,
+                s_countReceipt);
+        }
+
+        internal MetadataDeclaredMethodPopulationOutcome
+            ExecuteNLinqOutcomeRows()
+        {
+            MethodHandles methods = Source();
+            var rows =
+                ImmutableArray.CreateBuilder<int>(
+                    methods.Count<
+                        MethodHandles,
+                        MethodDefinitionHandle>());
+            ImmutableArray<int> projectedRows =
+                methods.Fold<
+                        MethodHandles,
+                        MethodDefinitionHandle,
+                        ImmutableArray<int>.Builder,
+                        AddToken>(
+                        rows,
+                        new AddToken())
+                    .MoveToImmutable();
+            return new MetadataDeclaredMethodPopulationOutcome.Read(
+                projectedRows.Length,
+                projectedRows,
+                new(
+                    TypeDefinitionRowsRead: 1,
+                    MethodDefinitionHandlesVisited:
+                        projectedRows.Length,
+                    MethodDefinitionRowsRead: 0,
+                    MethodNamesDecoded: 0,
+                    MethodSignaturesDecoded: 0,
+                    MethodAttributesDecoded: 0,
+                    ProjectedRows: projectedRows.Length));
         }
 
         private MethodHandles Source()
