@@ -119,6 +119,7 @@
     <Project Path="fixtures/queries/DotnetInspector.SourceDiff.V1/DotnetInspector.SourceDiff.V1.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.SourceDiff.V2/DotnetInspector.SourceDiff.V2.csproj" />
     <Project Path="fixtures/research/ILInspector.Research.NameFamilyFixtures/ILInspector.Research.NameFamilyFixtures.csproj" />
+    <Project Path="fixtures/research/ILInspector.Research.DependencyStructureFixtures/ILInspector.Research.DependencyStructureFixtures.csproj" />
     <Project Path="fixtures/research/ILInspector.Research.TargetFixtures/ILInspector.Research.TargetFixtures.csproj" />
     <Project Path="fixtures/research/ResearchTargetCorrespondenceFixtures.V1/ResearchTargetCorrespondenceFixtures.V1.csproj" />
     <Project Path="fixtures/research/ResearchTargetCorrespondenceFixtures.V2/ResearchTargetCorrespondenceFixtures.V2.csproj" />
