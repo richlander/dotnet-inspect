@@ -1991,7 +1991,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             target,
             "-m",
-            "explicit:ToResult",
+            "ToResult",
             "--framework",
             "aspnetcore",
             "--all",
@@ -2592,8 +2592,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("Parse", output);
-        Assert.Contains("Return Type", output);
-        Assert.Contains("int", output);
+        Assert.Contains("public static int Parse(string s)", output);
         Assert.Empty(error);
     }
 
