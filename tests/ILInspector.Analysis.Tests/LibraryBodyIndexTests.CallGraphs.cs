@@ -189,7 +189,7 @@ public partial class LibraryBodyIndexTests
             CallTreeNode catalogChild =
                 Assert.Single(
                     catalog.BuildCallTree(
-                        index,
+                        index.CallGraphAnalysis,
                         token,
                         maxDepth: 2,
                         maxNodes: 10).Children);
@@ -247,7 +247,7 @@ public partial class LibraryBodyIndexTests
                     maxNodes: 10);
             CallTreeNode catalogTree =
                 catalog.BuildCallTree(
-                    index,
+                    index.CallGraphAnalysis,
                     token,
                     maxDepth: 2,
                     maxNodes: 10);
@@ -294,7 +294,7 @@ public partial class LibraryBodyIndexTests
             Assert.NotEqual(
                 CallTreeStatus.Truncated,
                 catalog.BuildCallTree(
-                    index,
+                    index.CallGraphAnalysis,
                     token,
                     maxDepth: 2,
                     maxNodes: 2).Status);
@@ -663,14 +663,14 @@ public partial class LibraryBodyIndexTests
                     includePerf: true);
                 var opened = FlattenCallTree(
                     scopeOpened.BuildCallerTree(
-                        index,
+                        index.CallGraphAnalysis,
                         method.MetadataToken,
                         maxDepth,
                         maxNodes),
                     includePerf: true);
                 var prefilteredAway = FlattenCallTree(
                     scopePrefilteredAway.BuildCallerTree(
-                        index,
+                        index.CallGraphAnalysis,
                         method.MetadataToken,
                         maxDepth,
                         maxNodes),

@@ -1123,7 +1123,7 @@ public class CallGraphProjectionTests
         {
             callers = scope.Detach(
                 scope.BuildCallerTree(
-                    index,
+                    index.CallGraphAnalysis,
                     method.MetadataToken));
         }
 
@@ -1135,7 +1135,7 @@ public class CallGraphProjectionTests
         {
             callees = scope.Detach(
                 scope.BuildCallTree(
-                    index,
+                    index.CallGraphAnalysis,
                     method.MetadataToken));
         }
 
