@@ -552,6 +552,46 @@ test("Package totals become unknown when any owner-issued child Count is unknown
   assert.equal(model.totalMembers, null);
 });
 
+test("Package totals distinguish incomplete children from complete emptiness", () => {
+  const surface = packageSurface();
+  const availableChildren = packageChildren(surface);
+  const incompleteChildren = {
+    ...availableChildren,
+    content: {
+      ...availableChildren.content,
+      status: "Unavailable",
+      libraries: [],
+      detail: "Package children are unavailable.",
+      isComplete: false,
+    },
+  } satisfies BrowserPackageChildrenInspection;
+
+  const incomplete = createNuGetPackageModel(
+    surface,
+    incompleteChildren);
+  assert.deepEqual(packageLibrariesForModel(incomplete), []);
+  assert.equal(incomplete.totalTypes, null);
+  assert.equal(incomplete.totalMembers, null);
+
+  const emptySurface = packageSurface({
+    defaultAssemblyId: "",
+    compileLibrary: {
+      status: "NoCompileAssets",
+      targetFramework: "net10.0",
+      message: "No compile Libraries.",
+    },
+    assemblies: [],
+    types: [],
+    totalMembers: 0,
+  });
+  const completeEmpty = createNuGetPackageModel(
+    emptySurface,
+    packageChildren(emptySurface));
+  assert.deepEqual(packageLibrariesForModel(completeEmpty), []);
+  assert.equal(completeEmpty.totalTypes, 0);
+  assert.equal(completeEmpty.totalMembers, 0);
+});
+
 test("Workspace occurrence activation preserves matching inspection envelopes", () => {
   const measurements = packageInfo();
   const versionSettlement = {

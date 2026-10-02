@@ -295,17 +295,20 @@ public static partial class PackageExports
                     projection.Settings.Detail));
         }
 
-        if (settings.IsRidSpecificPointerPackage)
+        if (settings is
+            {
+                IsRidSpecificPointerPackage: true,
+                RuntimeIdentifierPackages: { Count: > 0 } ridPackages,
+            })
         {
             return PackageChildrenEnvelope(
                 PackageChildrenDocument.FromRuntimeIdentifierPackages(
                     subject,
-                    settings.RuntimeIdentifierPackages?.Select(
+                    ridPackages.Select(
                         static package =>
                             new PackageRuntimeIdentifierChild(
                                 package.RuntimeIdentifier,
-                                package.PackageId))
-                        ?? []));
+                                package.PackageId))));
         }
 
         return projection.Measurement switch

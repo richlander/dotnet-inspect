@@ -11081,11 +11081,13 @@ function renderLibraryCompositionOverview(
         : library.types + forwarders.length
       : aggregateKnownPackageLibraryCount(
         libraries,
+        pkg.packageChildren?.content.isComplete ?? true,
         candidate => candidate.types),
     totalMembers: library
       ? library.members
       : aggregateKnownPackageLibraryCount(
         libraries,
+        pkg.packageChildren?.content.isComplete ?? true,
         candidate => candidate.members),
     contentHtml: `${platformForwarderInventoryStatus()}${contentHtml}`,
     escapeHtml,

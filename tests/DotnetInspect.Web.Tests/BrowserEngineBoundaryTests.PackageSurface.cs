@@ -1681,8 +1681,11 @@ public sealed partial class BrowserEngineBoundaryTests
             BrowserCompileLibraryStatus.NoCompileAssets);
     }
 
-    [Fact]
-    public async Task QueryPackage_ToolPayloadPublishesExactManagedLibraries()
+    [Theory]
+    [InlineData("1")]
+    [InlineData("2")]
+    public async Task QueryPackage_ToolPayloadPublishesExactManagedLibraries(
+        string settingsVersion)
     {
         const string packageId = "Tool.Payload";
         const string asset =
@@ -1703,8 +1706,8 @@ public sealed partial class BrowserEngineBoundaryTests
                 """)),
             ("tools/net11.0/any/DotnetToolSettings.xml",
                 Encoding.UTF8.GetBytes(
-                    """
-                    <DotNetCliTool Version="1">
+                    $"""
+                    <DotNetCliTool Version="{settingsVersion}">
                       <Commands>
                         <Command Name="tool-payload" EntryPoint="DotnetInspect.Web.Interop.Package.dll" Runner="dotnet" />
                       </Commands>
@@ -1771,7 +1774,7 @@ public sealed partial class BrowserEngineBoundaryTests
             ("tools/net11.0/linux-x64/DotnetToolSettings.xml",
                 Encoding.UTF8.GetBytes(
                     """
-                    <DotNetCliTool Version="1">
+                    <DotNetCliTool Version="2">
                       <Commands>
                         <Command Name="native-tool" EntryPoint="native-tool" Runner="direct" />
                       </Commands>

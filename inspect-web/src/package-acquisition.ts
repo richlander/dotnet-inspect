@@ -192,8 +192,10 @@ export interface AppPackageLibrary {
 
 export function aggregateKnownPackageLibraryCount(
   libraries: readonly AppPackageLibrary[],
+  isComplete: boolean,
   selector: (library: AppPackageLibrary) => number | null,
 ): number | null {
+  if (!isComplete) return null;
   let total = 0;
   for (const library of libraries) {
     const value = selector(library);
@@ -617,9 +619,11 @@ export function createNuGetPackageModel(
     ...model,
     totalTypes: aggregateKnownPackageLibraryCount(
       libraries,
+      packageChildren.content.isComplete,
       library => library.types),
     totalMembers: aggregateKnownPackageLibraryCount(
       libraries,
+      packageChildren.content.isComplete,
       library => library.members),
   };
 }
