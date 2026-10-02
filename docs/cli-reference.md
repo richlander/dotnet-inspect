@@ -965,10 +965,24 @@ than reopening a same-named reference assembly. Platform implementation-pack
 observations decline exact internal reopening because public Platform syntax
 resolves the reference view.
 
-Repeat `--ecosystem ecosystem.ID` to register exactly those ecosystem packs in
-caller order. Without it, Find registers every shipped ecosystem. Registration
-is inert: it does not execute package-prefix discovery or add package content
-to the search.
+`--ecosystem` selects a named Ecosystem and its ancestors, searching each
+layer's named platform and core-package populations nearest first. Canonical
+IDs (`ecosystem.aspire`) and short names (`aspire`) are case-insensitive;
+repeat the option to select multiple lineages. An explicit Ecosystem cannot
+be combined with another Find source selector yet. `--tfm` still applies to
+core packages. Each result includes an `Ecosystem` column (or `ecosystem`
+JSON field) naming the layer that produced it; ordinary Find output is
+unchanged. A finite `-n` stops at a layer boundary and reports unsearched
+ancestors on stderr:
+
+```console
+dotnet-inspect find '.Add*' --ecosystem aspire -n 20
+```
+
+This searches Aspire's core packages first and, when they fill the window,
+does not realize ASP.NET Core or Runtime. Only named populations are searched:
+registered package prefixes do not trigger package-prefix discovery. If the
+entire selection has no named populations, Find fails with a prefix hint.
 
 ### Package Query over selected implementation libraries
 

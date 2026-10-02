@@ -76,6 +76,21 @@ public static class FindOptionsParser
         {
             return new Invalid();
         }
+        if (ecosystems is not null
+            && (parseResult.GetResult(args.PackageOption) is { Implicit: false }
+                || parseResult.GetResult(args.AssemblyOption) is { Implicit: false }
+                || parseResult.GetResult(args.PlatformOption) is { Implicit: false }
+                || parseResult.GetResult(args.PlatformLibraryOption) is { Implicit: false }
+                || parseResult.GetResult(args.ExtensionsOption) is { Implicit: false }
+                || parseResult.GetResult(args.AspNetCoreOption) is { Implicit: false }
+                || parseResult.GetResult(args.ProjectOption) is { Implicit: false }
+                || parseResult.GetResult(args.BinOption) is { Implicit: false }
+                || parseResult.GetResult(args.PackagePrefixOption) is { Implicit: false }))
+        {
+            CommandError.Write(
+                "--ecosystem cannot be combined with another Find source selector.");
+            return new Invalid();
+        }
         bool packagePrefixSpecified =
             parseResult.GetResult(args.PackagePrefixOption)
                 is { Implicit: false };
@@ -188,13 +203,21 @@ public static class FindOptionsParser
         var seen = new HashSet<EcosystemPackId>();
         foreach (string value in parseResult.GetValue(option) ?? [])
         {
-            if (!EcosystemPackId.TryCreate(value, out EcosystemPackId? id))
+            if (!EcosystemCommand.TryResolveFocus(
+                    value, EcosystemPackCatalog.Discover(), out var pack))
             {
-                CommandError.Write(
-                    $"Invalid ecosystem '{value}'. Use a canonical ID such as ecosystem.aspire.");
                 ecosystems = null;
                 return false;
             }
+            if (pack is null)
+            {
+                CommandError.Write(
+                    $"Unknown ecosystem '{value}'. Use a short name such as aspire "
+                    + "or a canonical ID such as ecosystem.aspire.");
+                ecosystems = null;
+                return false;
+            }
+            EcosystemPackId id = pack.Id;
             if (!seen.Add(id))
             {
                 CommandError.Write(

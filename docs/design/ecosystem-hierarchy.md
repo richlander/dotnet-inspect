@@ -244,17 +244,19 @@ $ dotnet-inspect ecosystem
    callers: CLI `graph calls` with the `SelfAndRegisteredEcosystems`
    baseline, Inspect Web's `BrowserProductWorkspacePlans`, and the
    `ecosystem` command. The selected-set factory's only production caller is
-   `find --ecosystem`, so it keeps exact selection until slice 2; Find never
-   searches a lineage in arbitrary order.
-2. **Layered Find.** Coordinate with the active Find owner. Add layered Find
-   order, layer-boundary `-n`, `RowLimitReached`, and `--where ecosystem=`
-   to Ecosystem Find Search, then switch the selected-set factory, and with
-   it `find --ecosystem`, to lineage
-   plans. Extend the [Ecosystem Find Search
-   model](models/ecosystem-find-search/README.md) with ordered layer starts
-   and early completion, plus a broken configuration in which a later layer
-   starts before an earlier one settles. The demo is
-   `find '.Add*' --ecosystem aspire -n 20`.
+   `find --ecosystem`; it expands lineages in slice 2a.
+2. **Layered Find, in two slices.**
+   - **2a, selector.** Coordinate with the active Find owner. Switch the
+     selected-set factory to lineage plans and make `--ecosystem` select named
+     populations in layered order, with layer-boundary `-n`, result-limit
+     completion, and the per-row Ecosystem column. The demo is
+     `find '.Add*' --ecosystem aspire -n 20`. This satisfies the public
+     selected-set `[aspire, ai]` acceptance row, layered-order
+     `--ecosystem ai,blazor` row, and the bounded Aspire row.
+   - **2b, surface predicate.** Add `--where ecosystem=` and extend the
+     [Ecosystem Find Search model](models/ecosystem-find-search/README.md)
+     with ordered layer starts and early completion, including a broken
+     configuration in which a later layer starts before an earlier one settles.
 3. **Call-graph root-ecosystem selection.** Covered by a separate call-graph
    design that consumes `Lineage`, as described in
    [Call-graph consumption](#call-graph-consumption).
@@ -266,12 +268,12 @@ $ dotnet-inspect ecosystem
 | Unknown, self, or cyclic `DependsOn` | Registry construction fails | Ecosystems tests, PR-fast |
 | Ancestor without a Workspace projection | Registry construction fails | Ecosystems tests, PR-fast |
 | Platform-curated plan | runtime, microsoft-extensions, aspnetcore | Ecosystems tests, PR-fast |
-| `[aspire, ai]` and `[ai, aspire]` selections | Orders shown above; slice 1 checks lineage expansion, and the public selected-set factory adopts it in slice 2 | Ecosystems tests, PR-fast |
+| `[aspire, ai]` and `[ai, aspire]` selections | Orders shown above; slice 1 checks lineage expansion, and the public selected-set factory adopts it in slice 2a | Ecosystems tests, PR-fast |
 | Duplicate selection | Rejected | Ecosystems tests, PR-fast |
 | `find '.Add*' --ecosystem aspire -n 20` | Aspire rows first; when Aspire fills the window, no platform population is realized and the unsearched layers are named | CLI tests, PR-fast |
-| `find '.Add*' --ecosystem aspire --where ecosystem=aspire` | Only the Aspire layer is searched | CLI tests, PR-fast |
-| `--ecosystem ai,blazor` | Layered Find order as shown above | Ecosystem Find Search tests, PR-fast |
-| A later layer starts before an earlier layer settles under a finite window | TLC rejects the broken configuration | `eng/tla-expected-exit-codes.txt` |
+| `find '.Add*' --ecosystem aspire --where ecosystem=aspire` | Only the Aspire layer is searched (slice 2b) | CLI tests, PR-fast |
+| `--ecosystem ai,blazor` | Layered Find order as shown above (slice 2a) | Ecosystems tests, PR-fast |
+| A later layer starts before an earlier layer settles under a finite window | TLC rejects the broken configuration (slice 2b) | `eng/tla-expected-exit-codes.txt` |
 | Each authored edge | The child's evidence package reports the parent ecosystem in `Ecosystem Dependencies` | `EveryDependsOnEdgeIsGroundedInARealChildPackage` (slow, network), owned by Deep Inspect |
 
 ## Non-claims
