@@ -117,6 +117,26 @@ public static class AssemblyContextTypeMethodLeverageQuery
                 resolver);
         try
         {
+            LibraryBodyAnalysisReceipt receipt =
+                analysis.Leverage.Receipt;
+            if (!receipt.HasFullMethodEvidenceScope)
+            {
+                throw new InspectionQueryException(
+                    "Type method-leverage analysis is incomplete because "
+                        + "whole-assembly method evidence was not produced.");
+            }
+            ImmutableArray<AnalysisDiagnostic> diagnostics =
+                receipt.Diagnostics;
+            if (!diagnostics.IsEmpty)
+            {
+                AnalysisDiagnostic first = diagnostics[0];
+                string prefix = diagnostics.Length == 1
+                    ? "Type method-leverage analysis is incomplete"
+                    : $"Type method-leverage analysis is incomplete with "
+                        + $"{diagnostics.Length} diagnostics; first";
+                throw new InspectionQueryException(
+                    $"{prefix}: {first.Method}: {first.Message}");
+            }
             ImmutableArray<MethodLeverage> ranked =
                 analysis.Leverage.Top(
                     int.MaxValue,
@@ -127,10 +147,6 @@ public static class AssemblyContextTypeMethodLeverageQuery
                 Winners(ranked);
             TypeMethodLeverageRank? winningRank =
                 winners.IsEmpty ? null : Rank(winners[0]);
-            ImmutableHashSet<int> methodTokens =
-            [
-                .. ranked.Select(method => method.Method.MetadataToken),
-            ];
             var result = new AssemblyTypeMethodLeverageInspection(
                 selected.TypeDefinitionId,
                 ranked.Length,
@@ -140,13 +156,7 @@ public static class AssemblyContextTypeMethodLeverageQuery
                     selected.TypeDefinitionId,
                     winners,
                     selected.MembersByBodyToken),
-                [
-                    .. analysis.Leverage.Receipt.Diagnostics.Where(
-                        diagnostic =>
-                            methodTokens.Contains(diagnostic.MethodToken)
-                            || diagnostic.SourceMethodToken is { } source
-                                && methodTokens.Contains(source)),
-                ],
+                diagnostics,
                 selected.InspectionFailures);
             resolver.ValidateForPublication();
             return result;

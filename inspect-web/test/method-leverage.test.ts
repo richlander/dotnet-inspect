@@ -7,6 +7,7 @@ import type {
 import {
   createTypeMethodLeverageCoordinator,
   methodLeverageFor,
+  methodLeverageEmptyStateMessage,
   projectTypeMethodLeverage,
   typeMethodLeverageCacheKey,
   type PackageTypeMethodLeverageRequest,
@@ -95,6 +96,7 @@ test("method leverage projects exact anchors without visible fallback", () => {
   assert.equal(presentation.methodCount, 8);
   assert.equal(presentation.winnerCount, 2);
   assert.equal(presentation.anchoredWinnerCount, 1);
+  assert.equal(presentation.anchoredMethodCount, 1);
   assert.match(
     presentation.byStableSelector.get(
       "HiddenWinner~1234567890",
@@ -104,6 +106,52 @@ test("method leverage projects exact anchors without visible fallback", () => {
   assert.equal(
     presentation.byStableSelector.has("PublicRunnerUp~0987654321"),
     false,
+  );
+});
+
+test("method leverage counts tied accessors by winning method token", () => {
+  const presentation = projectTypeMethodLeverage(
+    available([{
+      typeDefinitionId: request.typeDefinitionId,
+      stableSelector: "Value~1234567890",
+      methodTokens: [0x06000003, 0x06000004],
+    }]),
+    request,
+  );
+
+  assert.equal(presentation.anchoredWinnerCount, 1);
+  assert.equal(presentation.anchoredMethodCount, 2);
+  assert.equal(
+    methodLeverageEmptyStateMessage({
+      status: "ready",
+      request,
+      isCurrent: () => true,
+      presentation,
+    }),
+    "No Top Leverage member matches the current filters.",
+  );
+});
+
+test("method leverage explains a valid zero-winner result", () => {
+  const result = available([]);
+  if (!result.content) throw new Error("Expected available content.");
+  const presentation = projectTypeMethodLeverage({
+    ...result,
+    content: {
+      ...result.content,
+      winnerCount: 0,
+      winningRank: null,
+    },
+  }, request);
+
+  assert.equal(
+    methodLeverageEmptyStateMessage({
+      status: "ready",
+      request,
+      isCurrent: () => true,
+      presentation,
+    }),
+    "This Type has no inbound-call Top Leverage designation.",
   );
 });
 

@@ -48,6 +48,7 @@ export interface TypeMethodLeveragePresentation {
   readonly methodCount: number;
   readonly winnerCount: number;
   readonly anchoredWinnerCount: number;
+  readonly anchoredMethodCount: number;
   readonly winningRank: BrowserTypeMethodLeverageRank | null;
 }
 
@@ -223,8 +224,27 @@ export function projectTypeMethodLeverage(
     methodCount: result.content.methodCount,
     winnerCount: result.content.winnerCount,
     anchoredWinnerCount: result.content.anchoredWinners.length,
+    anchoredMethodCount: result.content.anchoredWinners.reduce(
+      (count, winner) => count + winner.methodTokens.length,
+      0),
     winningRank: rank,
   };
+}
+
+export function methodLeverageEmptyStateMessage(
+  state: TypeMethodLeverageState,
+): string {
+  if (state.status === "ready") {
+    if (state.presentation.winnerCount === 0) {
+      return "This Type has no inbound-call Top Leverage designation.";
+    }
+    return state.presentation.anchoredMethodCount === 0
+      ? "The true Top Leverage winner has no browsable member row."
+      : "No Top Leverage member matches the current filters.";
+  }
+  return state.status === "failed"
+    ? "Top Leverage is unavailable until retry."
+    : "Loading Top Leverage…";
 }
 
 function projectState(

@@ -136,6 +136,9 @@ no glyph and no visible runner-up substitution.
 
 If API extraction or token attribution is incomplete, the outcome is not
 available. The query must not publish a partial anchored set as authoritative.
+Likewise, any failed method-body evidence in the whole-assembly Analysis
+execution makes inbound-call ranking incomplete: a failed method outside the
+selected Type may be an otherwise invisible caller of one of its methods.
 
 ## Acquisition
 
@@ -196,6 +199,7 @@ An available result carries:
 - method-population count;
 - winner count;
 - anchored-winner count;
+- count of winning MethodDef tokens covered by those anchors;
 - the winning semantic rank when one qualifies;
 - anchored winner entries with stable selector, winning MethodDef tokens, and
   owner-issued rank evidence; and
@@ -258,7 +262,9 @@ designation.
 The filter and capability activation participate in navigation history. A
 shared view requesting the Top Leverage filter is itself an explicit request
 for the capability and may start the analysis after the normal workspace
-construction succeeds.
+construction succeeds. The canonical workspace packet continues to own the
+portable workspace and API selection; the Browser URL carries this
+host-capability request alongside that packet as `member-leverage=top`.
 
 ### Pending and failure states
 
@@ -299,6 +305,7 @@ The implementation must gate:
 - exact method, constructor, accessor, and overload attribution;
 - an unanchored compiler-created winner with no fallback;
 - typed incomplete and failure outcomes;
+- external failed-body evidence preventing an authoritative available result;
 - package and platform route parity plus explicit uploaded-Library
   unavailability;
 - generation-safe single-flight caching and retry;

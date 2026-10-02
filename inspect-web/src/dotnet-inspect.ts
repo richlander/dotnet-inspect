@@ -277,6 +277,7 @@ import {
 } from "./implementation-heat.ts";
 import {
   createTypeMethodLeverageCoordinator,
+  methodLeverageEmptyStateMessage,
   methodLeverageFor,
   type PackageTypeMethodLeverageRequest,
   type PlatformTypeMethodLeverageRequest,
@@ -3799,6 +3800,8 @@ function captureView(): WorkspaceView | null {
     memberAccessibilityFilter: state.memberAccessibilityFilter,
     memberTraitFilter: state.memberTraitFilter,
     memberTextFilter: state.memberTextFilter,
+    methodLeverageEnabled: state.methodLeverageEnabled,
+    memberLeverageFilter: state.memberLeverageFilter,
     selectedOverloadIndex: state.selectedOverloadIndex,
     memberDocumentFingerprint: state.memberDocumentFingerprint,
     bodyTarget: state.selectedBodyTarget,
@@ -3901,6 +3904,11 @@ function applyView(view: WorkspaceView) {
     state.selectedTypeId = "";
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
+    state.methodLeverageEnabled = view.methodLeverageEnabled === true;
+    state.memberLeverageFilter = view.methodLeverageEnabled
+      && view.memberLeverageFilter === "top-leverage"
+        ? "top-leverage"
+        : "";
     state.libraryScope = null;
     state.loading = false;
     state.error = "";
@@ -3941,6 +3949,11 @@ function applyView(view: WorkspaceView) {
     retainPackageModel(pkg);
   invalidateMemberDestinationWork(state);
   activatePackage(pkg);
+  state.methodLeverageEnabled = view.methodLeverageEnabled === true;
+  state.memberLeverageFilter = view.methodLeverageEnabled
+    && view.memberLeverageFilter === "top-leverage"
+      ? "top-leverage"
+      : "";
   state.rootKind = view.rootKind ?? (pkg.source.kind === "platform" ? "platform" : "package");
   if (view.platform) state.platformSelection = { ...view.platform };
   state.libraryScope = restoreLibraryScope(
@@ -4555,6 +4568,7 @@ function deepLinkFromLocation(loc: ParsedLocation): DeepLink {
     memberKindFilter: loc.memberKindFilter,
     memberAccessibilityFilter: loc.memberAccessibilityFilter,
     memberTraitFilter: loc.memberTraitFilter,
+    memberLeverageFilter: loc.memberLeverageFilter,
     graphTarget: loc.graphTarget
   };
 }
@@ -6556,8 +6570,8 @@ function resetMemberFilters() {
 }
 
 function visibleMemberGroups(type: AppTypeSurface) {
-  const filtered =
-    filterMemberGroups(selectedMemberGroups(type), memberFilterState());
+  const sourceGroups = selectedMemberGroups(type);
+  const filtered = filterMemberGroups(sourceGroups, memberFilterState());
   if (state.memberLeverageFilter !== "top-leverage") return filtered;
   const leverage = currentTypeMethodLeverageState();
   if (leverage.status !== "ready") return [];
@@ -6569,7 +6583,9 @@ function visibleMemberGroups(type: AppTypeSurface) {
       : [{
           ...group,
           overloads,
-          sourceOverloadCount: group.overloads.length,
+          sourceOverloadCount: sourceGroups.find(source =>
+            source.key === group.key)?.overloads.length
+              ?? group.overloads.length,
         }];
   });
 }
@@ -6597,15 +6613,7 @@ function methodLeverageEmptyMessage() {
     return "No members match these filters.";
   }
   const leverage = currentTypeMethodLeverageState();
-  if (leverage.status === "ready") {
-    return leverage.presentation.winnerCount > 0
-      && leverage.presentation.anchoredWinnerCount === 0
-      ? "The true Top Leverage winner has no browsable member row."
-      : "No Top Leverage member matches the current filters.";
-  }
-  return leverage.status === "failed"
-    ? "Top Leverage is unavailable until retry."
-    : "Loading Top Leverage…";
+  return methodLeverageEmptyStateMessage(leverage);
 }
 
 function selectedMemberGroups(type: AppTypeSurface) {
@@ -6706,7 +6714,7 @@ function renderMethodLeverageControl() {
   }
   const presentation = leverage.presentation;
   const hiddenCount =
-    presentation.winnerCount - presentation.anchoredWinnerCount;
+    presentation.winnerCount - presentation.anchoredMethodCount;
   return `<div class="member-leverage-control" data-method-leverage-status="ready">
     <small>${presentation.anchoredWinnerCount} browsable Top Leverage ${presentation.anchoredWinnerCount === 1 ? "member" : "members"}${hiddenCount > 0 ? ` · ${hiddenCount} true ${hiddenCount === 1 ? "winner has" : "winners have"} no browsable row` : ""}</small>
     <select class="scope-select" data-method-leverage-filter aria-label="Top Leverage member filter">
@@ -12596,6 +12604,7 @@ function bindTypePanelEvents() {
       if (state.rootKind === "library") return;
       state.methodLeverageEnabled = true;
       state.memberLeverageFilter = "";
+      navigationHistory.record();
       const target = typeMethodLeverageTarget();
       if (target) {
         typeMethodLeverage.request(target.request, target.isCurrent);
@@ -12613,6 +12622,7 @@ function bindTypePanelEvents() {
       state.selectedOverloadIndex = null;
       resetMemberSectionState();
       normalizeMemberSelection();
+      navigationHistory.record();
       renderPreservingMemberFocus();
     },
     onMethodLeverageRetry: () => retryTypeMethodLeverage(),
@@ -15772,6 +15782,9 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     contexts,
     activeTabId: activeTab.id,
     selectedContextId,
+    memberLeverageFilter: state.memberLeverageFilter === "top-leverage"
+      ? "top-leverage"
+      : "",
     view: {
       lens: workspaceSubjectOpen || platformRoot
         ? null
@@ -16121,6 +16134,11 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   const restoreType = deep?.type
     && (pkg.types.some(item => item.id === deep.type) || forwarder !== undefined);
   resetMemberFilters();
+  state.methodLeverageEnabled =
+    deep?.memberLeverageFilter === "top-leverage";
+  state.memberLeverageFilter = state.methodLeverageEnabled
+    ? "top-leverage"
+    : "";
   state.selectedTypeId = restoreType
     ? deep?.type ?? ""
     : defaultVisibleTypeId(pkg) || currentPlatformForwarderView()?.forwarders[0]?.id || "";

@@ -1104,7 +1104,7 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     ?? "";
   assert.match(
     filters,
-    /filterMemberGroups\(selectedMemberGroups\(type\), memberFilterState\(\)\)/);
+    /const sourceGroups = selectedMemberGroups\(type\);[\s\S]*filterMemberGroups\(sourceGroups, memberFilterState\(\)\)/);
   assert.match(
     appSource,
     /function selectedMember\([\s\S]*memberGroupForCurrentFilters\(type, state\.selectedMemberKey\)/);

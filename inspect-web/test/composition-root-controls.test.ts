@@ -252,6 +252,34 @@ test("explicit Top Leverage activation runs before background heat", () => {
   assert.doesNotMatch(target, /navMode/);
 });
 
+test("Top Leverage preserves source families and restorable intent", () => {
+  const visible = sourceText(functionDeclaration("visibleMemberGroups"));
+  assert.match(
+    visible,
+    /const sourceGroups = selectedMemberGroups\(type\)[\s\S]*sourceOverloadCount: sourceGroups\.find\(source =>\s*source\.key === group\.key\)\?\.overloads\.length/);
+
+  const capture = sourceText(functionDeclaration("captureView"));
+  assert.match(
+    capture,
+    /methodLeverageEnabled: state\.methodLeverageEnabled,[\s\S]*memberLeverageFilter: state\.memberLeverageFilter/);
+  const apply = sourceText(functionDeclaration("applyView"));
+  assert.match(
+    apply,
+    /state\.methodLeverageEnabled = view\.methodLeverageEnabled === true;[\s\S]*state\.memberLeverageFilter = view\.methodLeverageEnabled/);
+  const deepLink = sourceText(functionDeclaration("applyDeepLink"));
+  assert.match(
+    deepLink,
+    /state\.methodLeverageEnabled =\s*deep\?\.memberLeverageFilter === "top-leverage";[\s\S]*state\.memberLeverageFilter = state\.methodLeverageEnabled/);
+  const share = sourceText(
+    functionDeclaration("captureWorkspaceUrlState"));
+  assert.match(
+    share,
+    /memberLeverageFilter: state\.memberLeverageFilter === "top-leverage"\s*\? "top-leverage"\s*: ""/);
+  assert.match(
+    appSource,
+    /onMethodLeverageActivate:[\s\S]*state\.methodLeverageEnabled = true;[\s\S]*navigationHistory\.record\(\);[\s\S]*onMethodLeverageFilterSelect:[\s\S]*state\.memberLeverageFilter = value;[\s\S]*navigationHistory\.record\(\);/);
+});
+
 test("platform call graphs carry the target pack into lazy acquisition", () => {
   assert.equal(
     platformPackFromProvenance(
