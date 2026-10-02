@@ -112,8 +112,19 @@ test("split rows share one endpoint boundary under long source lines",
         const afterEdges = [...table.querySelectorAll(
           ".source-diff-viewer-split-row > :nth-child(2)",
         )].map(cell => cell.getBoundingClientRect().left);
+        const changedRow = table.querySelector(
+          ".source-diff-viewer-row-change",
+        );
+        const beforeText = changedRow?.querySelector(
+          ":scope > :first-child code",
+        )?.getBoundingClientRect();
+        const afterCell = changedRow?.querySelector(
+          ":scope > :nth-child(2)",
+        )?.getBoundingClientRect();
         return {
           afterEdges,
+          beforeTextRight: beforeText?.right ?? Number.POSITIVE_INFINITY,
+          afterCellLeft: afterCell?.left ?? Number.NEGATIVE_INFINITY,
           clientWidth: table.clientWidth,
           scrollWidth: table.scrollWidth,
           documentOverflow:
@@ -123,6 +134,9 @@ test("split rows share one endpoint boundary under long source lines",
     expect(Math.max(...geometry.afterEdges) - Math.min(
       ...geometry.afterEdges,
     )).toBeLessThan(1);
+    expect(geometry.beforeTextRight).toBeLessThanOrEqual(
+      geometry.afterCellLeft,
+    );
     expect(geometry.scrollWidth).toBeGreaterThan(geometry.clientWidth);
     expect(geometry.documentOverflow).toBeLessThanOrEqual(0);
   });

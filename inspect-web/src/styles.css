@@ -2228,7 +2228,7 @@ kbd {
 .source-diff-viewer-relations { user-select: none; }
 .source-diff-viewer-terminator { align-self: center; margin-right: 8px; padding: 0 4px; color: var(--yellow); font: 9px var(--mono); white-space: nowrap; user-select: none; }
 .source-diff-viewer-terminator-shared { grid-column: 5; justify-self: end; }
-.source-diff-viewer-split { display: none; grid-template-columns: repeat(2, minmax(340px, max-content)); }
+.source-diff-viewer-split { display: none; grid-template-columns: repeat(2, minmax(max-content, 1fr)); }
 .source-diff-viewer[data-mode="side-by-side"] .source-diff-viewer-unified { display: none; }
 .source-diff-viewer[data-mode="side-by-side"] .source-diff-viewer-split { display: grid; }
 .source-diff-viewer-split-row { display: grid; min-width: 0; grid-column: 1 / -1; grid-template-columns: subgrid; border-bottom: 1px solid var(--line); }
