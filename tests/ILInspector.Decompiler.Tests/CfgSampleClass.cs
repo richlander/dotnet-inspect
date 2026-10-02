@@ -2845,6 +2845,17 @@ public class CfgSampleClass
             => current != 0 && IsEven(current - 1);
     }
 
+    public static int RecursiveLocalFunctionWithHelper(int value)
+    {
+        return Sum(value);
+
+        static int Sum(int current)
+            => current <= 0 ? 0 : Normalize(current) + Sum(current - 1);
+
+        static int Normalize(int current)
+            => current > 10 ? 10 : current;
+    }
+
     // Adversarial negative: the captured variable `n` is reassigned AFTER the only
     // call. The compiler hoists `n` into the display class, so env.n gets an
     // initial-capture store and a post-call store. Substituting the post-call value
@@ -5465,6 +5476,17 @@ public class CfgSampleClass
     // the state scaffolding and the disposal, then recover the foreach).
     public static System.Collections.Generic.IEnumerable<int> YieldEach(System.Collections.Generic.IEnumerable<int> source)
     {
+        foreach (var x in source)
+            yield return x;
+    }
+
+    public static System.Collections.Generic.IEnumerable<int> YieldEachUnless(
+        bool stop,
+        System.Collections.Generic.IEnumerable<int> source)
+    {
+        if (stop)
+            yield break;
+
         foreach (var x in source)
             yield return x;
     }
