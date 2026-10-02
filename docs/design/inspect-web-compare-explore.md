@@ -19,9 +19,9 @@ Its normative claim is:
 > same Compare state.
 
 The inline Member Diff owned by the Compare Experience is the detailed-result
-boundary: it shows what changed, the endpoints, and the authored Source diff.
-Explore adds width and the evidence a text diff cannot show. It does not
-repeat the inline sections.
+boundary: it shows the classified changes and the compact authored Source diff.
+Explore adds width. A later Decompiler mode can add evidence that a text diff
+cannot show. Explore does not repeat the inline sections.
 
 The precedents are Annotated Source's **Explore**, an embedded reader whose
 Explore opens a full-bleed modal viewer over the same product document, and
