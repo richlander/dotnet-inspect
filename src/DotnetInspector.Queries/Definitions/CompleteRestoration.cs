@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 
 namespace DotnetInspector.Queries.Definitions;
@@ -69,6 +70,27 @@ public abstract record CompleteRestorationRequestBasis
 
         public IReadOnlyList<InspectionDefinitionRecord> Records { get; }
     }
+
+    public sealed record RegistrationOnlyEcosystemInput :
+        CompleteRestorationRequestBasis
+    {
+        public RegistrationOnlyEcosystemInput(
+            WorkspacePlan plan,
+            WorkspaceEcosystemRegistrationId ecosystem,
+            ViewFacetId facet)
+        {
+            Plan = plan ?? throw new ArgumentNullException(nameof(plan));
+            Ecosystem = ecosystem
+                ?? throw new ArgumentNullException(nameof(ecosystem));
+            Facet = facet ?? throw new ArgumentNullException(nameof(facet));
+        }
+
+        public WorkspacePlan Plan { get; }
+
+        public WorkspaceEcosystemRegistrationId Ecosystem { get; }
+
+        public ViewFacetId Facet { get; }
+    }
 }
 
 /// <summary>
@@ -111,6 +133,17 @@ public abstract record CompleteRestorationRecipe
         public CommittedScenarioDefinitionSet Definitions { get; } =
             Definitions
             ?? throw new ArgumentNullException(nameof(Definitions));
+    }
+
+    public sealed record RegistrationOnlyEcosystem(
+        WorkspaceEcosystemRegistrationId Ecosystem,
+        ViewFacetId Facet) : CompleteRestorationRecipe
+    {
+        public WorkspaceEcosystemRegistrationId Ecosystem { get; } =
+            Ecosystem ?? throw new ArgumentNullException(nameof(Ecosystem));
+
+        public ViewFacetId Facet { get; } =
+            Facet ?? throw new ArgumentNullException(nameof(Facet));
     }
 }
 
@@ -197,6 +230,15 @@ public abstract record CompleteRestorationFailure
         }
     }
 
+    public sealed record InvalidRegistrationOnlyRequest :
+        CompleteRestorationFailure
+    {
+        internal InvalidRegistrationOnlyRequest(string message)
+            : base(message)
+        {
+        }
+    }
+
     public sealed record UnsupportedVersion : CompleteRestorationFailure
     {
         internal UnsupportedVersion(int version, string message)
@@ -269,6 +311,32 @@ public abstract record CompleteRestorationFailure
         }
 
         public ArtifactRootFailure Failure { get; }
+    }
+
+    public sealed record RegistrationReadFailed : CompleteRestorationFailure
+    {
+        internal RegistrationReadFailed(ArtifactRootFailure failure)
+            : base($"Workspace registrations could not be read: {failure}.")
+        {
+            Failure = failure;
+        }
+
+        public ArtifactRootFailure Failure { get; }
+    }
+
+    public sealed record EcosystemResolutionFailed :
+        CompleteRestorationFailure
+    {
+        internal EcosystemResolutionFailed(
+            WorkspaceEcosystemRegistrationId ecosystem,
+            string message)
+            : base(message)
+        {
+            Ecosystem = ecosystem
+                ?? throw new ArgumentNullException(nameof(ecosystem));
+        }
+
+        public WorkspaceEcosystemRegistrationId Ecosystem { get; }
     }
 
     public sealed record ScopeMutationFailed : CompleteRestorationFailure
@@ -581,6 +649,81 @@ public static class CompleteRestorationPreparation
             cancellationToken);
     }
 
+    public static CompleteRestorationPreparationResult
+        FromRegistrationOnlyEcosystem(
+            CompleteRestorationRequestBasis.RegistrationOnlyEcosystemInput
+                request,
+            ICompleteRestorationIntentAuthority authority,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(authority);
+        if (NonCurrent(authority, request) is { } unavailable)
+            return unavailable;
+        if (cancellationToken.IsCancellationRequested)
+            return Cancelled(authority.Identity, request);
+
+        if (!request.Plan.Contexts.IsEmpty)
+        {
+            return InvalidRegistrationOnlyRequest(
+                authority.Identity,
+                request,
+                "Registration-only Ecosystem restoration does not accept "
+                    + "Workspace contexts.");
+        }
+        if (!ReferenceEquals(
+                request.Plan.TraversalTargetPolicy,
+                TraversalTargetFrameworkPolicy.ProductDefault))
+        {
+            return InvalidRegistrationOnlyRequest(
+                authority.Identity,
+                request,
+                "Registration-only Ecosystem restoration requires the "
+                    + "product-default traversal target policy.");
+        }
+        if (!ViewFacetId.TryGetKind(
+                request.Facet.Value,
+                out StructuralSubjectKind facetKind)
+            || facetKind != StructuralSubjectKind.Ecosystem)
+        {
+            return InvalidRegistrationOnlyRequest(
+                authority.Identity,
+                request,
+                $"Facet '{request.Facet}' is not an Ecosystem facet.");
+        }
+
+        WorkspaceRegistration.Ecosystem[] selected =
+        [
+            .. request.Plan.Registrations
+                .OfType<WorkspaceRegistration.Ecosystem>()
+                .Where(registration =>
+                    registration.Declaration.Id == request.Ecosystem),
+        ];
+        if (selected.Length != 1)
+        {
+            return InvalidRegistrationOnlyRequest(
+                authority.Identity,
+                request,
+                selected.Length == 0
+                    ? $"Workspace plan does not contain Ecosystem "
+                        + $"registration '{request.Ecosystem}'."
+                    : $"Workspace plan contains multiple Ecosystem "
+                        + $"registrations '{request.Ecosystem}'.");
+        }
+
+        return new CompleteRestorationPreparationResult.Ready(
+            new CompleteRestorationPlan(
+                authority.Identity,
+                request,
+                request.Plan,
+                new CompleteRestorationRecipe.RegistrationOnlyEcosystem(
+                    request.Ecosystem,
+                    request.Facet),
+                [],
+                ImmutableDictionary<string, PackageNavigationSource>.Empty,
+                ImmutableDictionary<string, GroupNavigationSource>.Empty));
+    }
+
     public static CompleteRestorationPreparationResult FromDefinition(
         CompleteRestorationRequestBasis.DefinitionInput request,
         ICompleteRestorationIntentAuthority authority,
@@ -775,6 +918,17 @@ public static class CompleteRestorationPreparation
             new CompleteRestorationFailure.InvalidDefinitionSet(
                 "Workspace-free scenarios do not enter complete Workspace "
                     + "restoration."));
+
+    private static CompleteRestorationPreparationResult
+        InvalidRegistrationOnlyRequest(
+            CompleteRestorationIntentIdentity intent,
+            CompleteRestorationRequestBasis request,
+            string message) =>
+        new CompleteRestorationPreparationResult.Failed(
+            intent,
+            request,
+            new CompleteRestorationFailure.InvalidRegistrationOnlyRequest(
+                message));
 
     private static CompleteRestorationPreparationResult? NonCurrent(
         ICompleteRestorationIntentAuthority authority,
