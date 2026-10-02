@@ -330,7 +330,7 @@ const libraryStrip: readonly (
 )[] = [
   ["overview", "Overview"],
   ["references", "References"],
-  ["integrations", "Integrations"],
+  ["compare", "Compare"],
   ["analysis", "Analysis"],
   ["metadata", "Metadata"],
 ];

@@ -549,10 +549,10 @@ cache.
    outside the default `-v:m` view. It uses Markout for tables and the Mermaid
    graph lowering, and `--envelope` carries the complete Content with Share
    and diagnostics.
-4. **Browser/Wasm:** the Library Metrics lens adds a levelized namespace view
-   with cycles marked and drill-down from edge to explaining type edges to
-   Type. It uses the same managed query and does no topology work in
-   TypeScript.
+4. **Browser/Wasm:** the Library Analysis inspector's Metrics tab adds a
+   levelized namespace view with cycles marked and drill-down from edge to
+   explaining type edges to Type. It uses the same managed query and does no
+   topology work in TypeScript.
 5. **Skill:** the `project-analysis` workflow catalog
    ([#8518](https://github.com/richlander/dotnet-inspect/pull/8518)) gains an
    architecture-narrative workflow that consumes this document and labels

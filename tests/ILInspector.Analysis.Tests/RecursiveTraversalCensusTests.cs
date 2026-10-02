@@ -13,14 +13,14 @@ public class RecursiveTraversalCensusTests
     {
         string assemblyPath = FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
         var report = RecursiveTraversalCensus.Measure([assemblyPath]);
-        var index = LibraryBodyIndex.Open(assemblyPath);
+        var index = BodyAnalysisTestExecution.Open(assemblyPath);
 
-        Assert.Contains(index.DirectCalls, static call =>
+        Assert.Contains(index.CallGraph.DirectCalls, static call =>
             call.Caller.Name == "TraverseVirtually"
             && call.Callee.Name == "TraverseVirtually"
             && call.Kind == CallKind.CallVirtual
             && call.InLoop);
-        Assert.Contains(index.DirectCalls, static call =>
+        Assert.Contains(index.CallGraph.DirectCalls, static call =>
             call.Caller.DeclaringType.Name == "GenericTraversalFixture`1"
             && call.Caller.Name == "TraverseRecursively"
             && call.Callee.Name == "TraverseRecursively"

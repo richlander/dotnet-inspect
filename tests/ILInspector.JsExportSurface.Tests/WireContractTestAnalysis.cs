@@ -29,7 +29,7 @@ internal static class WireContractTestAnalysis
         ImmutableArray<FieldLoadFact> fieldLoads = default,
         ImmutableArray<MethodReturnFlow> returnFlows = default,
         LibraryBodyModuleIdentity? moduleIdentity = null) =>
-        LibraryBodyIndex.FromEvidence(
+        LibraryBodyAnalysisExecution.FromEvidence(
             methods,
             unsafeEvidence,
             allocationOccurrences,

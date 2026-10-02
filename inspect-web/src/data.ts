@@ -39,11 +39,9 @@ export const packageLenses = [
 
 export const libraryLenses = [
   ["overview", "Overview"],
-  ["compare", "Compare"],
   ["references", "References"],
-  ["integrations", "Integrations"],
+  ["compare", "Compare"],
   ["analysis", "Analysis"],
-  ["metrics", "Metrics"],
   ["metadata", "Metadata"]
 ] as const;
 

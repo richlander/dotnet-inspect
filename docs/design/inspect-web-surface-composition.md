@@ -1043,179 +1043,59 @@ geometry, long names and identities, many/zero rows, pending and failed results,
 and Library navigation. Subject-strip behavior and other Library lenses are
 separate work.
 
-### Library Integrations
-
-Library has one **Integrations** inspector with **Integrations** and
-**Opportunities** tabs inside its working surface, following Compare's
-one-inspector/two-modes composition. Integrations shows detected ecosystem
-support; Opportunities shows suggestions for support the Library could adopt.
-Opportunities is not a second persistent inspector or an active standalone
-view facet. Its already-issued canonical facet ID remains known through the
-Registry's existing `Retired` tombstone contract.
-
-The selected tab defaults to Integrations and is session-local presentation
-state in the retained browser Workspace. Changing tabs preserves the selected
-Library. Ordinary Library, Type, and inspector navigation, Back/Forward, and
-returning from a row action retain the current tab. Sharing a Workspace carries
-the Integrations inspector, not its transient tab selection; a fresh session
-opens Integrations. The Browser's removed standalone inspector token follows
-ordinary unknown-lens handling. This does not remove or rename the published
-canonical `library.opportunities` identity or its existing legacy-definition
-mapping; canonical resolution preserves its explicit retired outcome.
-
-Only the selected tab requests its existing scan. Previously obtained results
-remain subject to their existing Library/coordinate freshness checks. Each tab
-retains its own counts, loading, failure, partial, and empty states; changing tabs
-does not combine evidence or infer one scan's outcome from the other.
-
-The tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
-select, and asynchronous result rendering preserves tab focus. The selected tab
-labels the results panel. Both full labels remain available at narrow widths.
-
-The shared frame uses a quiet count/state header, an optional platform Library
-selector, one full-area results scroller, and bottom assembly context.
-The title and count/state share the existing 40px header with right-aligned
-mode tabs, following Compare's shared header. There is no separate tab row.
-Count/state text may elide, with its complete text retained, before either tab
-label loses space. The existing narrow-screen Types control still occupies
-the title's place.
-It replaces the generic Library hero, repeated summary heading/noninteractive
-category chips, and inset signal cards.
-
-The motivating real asset is `Microsoft.Extensions.AI@10.0.0`: examining its
-Dependency Injection and OpenTelemetry entry points, or whether any suggestions
-apply, belongs to the same ecosystem inspection task, not separate navigation
-destinations. [#6651](https://github.com/richlander/dotnet-inspect/issues/6651)
-has one Browser adoption step: compose the existing typed scan renderers under
-the tabs and retire standalone Opportunities navigation. The shared View Facet
-catalog describes the same consolidated inspector; no scanner, acquisition, CLI
-section, or result contract changes.
-
-```text
-Integrations  count/state                 [Integrations]  Opportunities
-optional platform Library selector
-category headings and full-width signal rows
-Library asset and assembly identity              TFM · package@version
-```
-
-Existing category order, type-first signal sorting, name/qualifier splitting,
-shape/kind badges, and category/total counts remain. The platform selector stays
-above scrolling results and keeps its existing acquisition and selection
-behavior. The footer retains the Library asset path, full assembly identity,
-and package/version/framework context.
-
-Loading and query failure retain the same frame. Incomplete results retain their
-available categories and diagnostics, visibly marked as partial. An incomplete
-scan with no returned signals does not claim established absence; only a
-complete empty result says no integrations were detected.
-
-At narrow widths the existing Types/details control shares the quiet header.
-Category names, signal names/qualifiers, and kind text wrap within the pane.
-Many rows scroll locally while header, selector, and bottom context stay put.
-
-The original full-area Integrations frame was adopted under
-[#6202](https://github.com/richlander/dotnet-inspect/issues/6202).
-Browser HTML lowering consumes the existing typed
-`BrowserPackageIntegrations` result. References and Metadata supply the local
-layout conventions; this is not a new inspection or rendering architecture.
-
-Focused renderer and production-composition browser gates cover wide/narrow,
-long/many results, state distinctions, Library switching, and platform controls.
-Scan classification, catalog ownership, other lenses, and subject-strip
-interaction remain separate work. `inspect-web/test/integration-inspector.test.ts`
-and the Integration tab scenarios in
-`inspect-web/browser/library-hierarchy.analysis.spec.ts` gate the consolidated
-frame, single-row header geometry and full tab labels down to 320px, manual
-activation, same-Library mode changes, navigation retention, and an inactive
-scan settling without replacing the selected mode or keyboard focus.
-
-#### Opportunities tab
-
-Opportunities uses the same Integrations frame, an optional platform Library
-selector, one full-area results scroller, and bottom assembly context.
-It replaces the generic Library hero, repeated summary/noninteractive category
-chips, and inset opportunity cards while retaining every live row action.
-
-```text
-Integrations                            area/suggestion count or state
-Integrations  [Opportunities]
-optional platform Library selector
-compact interaction guidance
-category headings and full-width opportunity rows
-Library asset and assembly identity              TFM · package@version
-```
-
-Existing category and opportunity order, type navigation, suggested-package
-loading, "look for" search actions, and exact/unknown/legacy source identity
-remain. The platform selector stays above scrolling results and keeps its
-existing acquisition and selection behavior. The footer retains the Library
-asset path, full assembly identity, and package/version/framework context.
-
-Loading and query failure retain the same frame. Incomplete results retain their
-available categories and diagnostics, visibly marked as partial. An incomplete
-scan with no returned suggestions does not claim established absence; only a
-complete empty result says no integration opportunities were found.
-
-At narrow widths the existing Types/details control shares the quiet header.
-Category names, API identities, integration-kind text, package names, and search
-hints wrap within the pane. Many rows scroll locally while header, selector, and
-bottom context stay put.
-
-The original full-area Opportunities frame was adopted under
-[#6273](https://github.com/richlander/dotnet-inspect/issues/6273); its content is
-now the Opportunities tab. Browser HTML lowering consumes the existing typed
-`BrowserPackageOpportunities` result. Integrations and References supply the
-local layout conventions; this is not a new analysis or rendering architecture.
-
-Focused renderer and production-composition browser gates cover wide/narrow,
-long/many results, live actions, state distinctions, Library switching, and
-platform controls. Opportunity classification, catalog ownership, other lenses,
-and subject-strip interaction remain separate work.
-
 ### Library Analysis
 
-Library Analysis uses a quiet count/state header, an optional platform Library
-selector, one full-area results scroller, and bottom assembly context. It
-replaces the generic Library hero, repeated triage summary, and inset member
-cards while retaining every live member action.
+The Library inspector order is **Overview**, **References**, **Compare**,
+**Analysis**, and **Metadata**. Analysis contains direct **Performance**,
+**Integrations**, **Opportunities**, and **Metrics** tabs, following Compare's
+single-inspector mode composition. Integrations and Metrics are not separate
+persistent inspectors.
+
+Performance is the default. The selected tab is session-local Browser
+presentation state and preserves the selected Library. Only the selected tab
+starts its existing query; cached results retain their existing
+Library/coordinate freshness checks. Each mode keeps its own loading, failure,
+partial, empty, and available outcomes. No mode combines evidence or infers an
+outcome from another.
+
+Tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
+select, and rerenders preserve focused-tab identity. The selected tab labels the
+shared results panel. Full labels remain available at narrow widths, where the
+tabs occupy a second header row rather than clipping or introducing page-level
+horizontal scrolling.
+
+The shared frame uses a quiet count/state header, an optional platform Library
+selector, one full-area results scroller, and bottom assembly context. At wide
+widths the title, status, and tabs share one header row. At narrow widths the
+existing Types control occupies the title's place and the tabs use the second
+header row.
 
 ```text
-Analysis                         public member/opportunity count or state
+Analysis  count/state   [Performance]  Integrations  Opportunities  Metrics
 optional platform Library selector
-compact triage guidance
-ranked full-width public member rows
+mode-owned content
 Library asset and assembly identity              TFM · package@version
 ```
 
-Existing product triage order, opportunity and loop counts, shape and
-confidence labels, and stable-selector member navigation remain. The platform
-selector stays above scrolling results and keeps its existing acquisition and
-selection behavior. The footer retains the Library asset path, full assembly
-identity, and package/version/framework context.
+Performance retains product triage order, opportunity and loop counts, shape
+and confidence labels, and stable-selector Member navigation. Integrations
+retains category order, type-first signal sorting, badges, and counts.
+Opportunities retains Type navigation, suggested-package loading, "look for"
+search actions, and source identity. Metrics retains the Research-issued
+Complexity Explorer and Relationship Crossing views. Structural salience does
+not render in Metrics; its Browser presentation belongs to the ordinary Type
+inventory defined by
+[Library structural report](library-structural-report.md#browserwasm).
 
-Loading and query failure retain the same frame. Results with an inspection
-error retain their available rows and diagnostic, visibly marked as partial. A
-partial analysis with no returned public members does not claim established
-absence; only a successful complete result says no public allocation hot spots
-were found.
+The platform selector stays above scrolling results and keeps its existing
+acquisition behavior. The footer retains asset path, full assembly identity,
+and package/version/framework context. Browser HTML lowering consumes the
+existing typed mode results; no producer, query, acquisition, CLI section, or
+result contract changes.
 
-At narrow widths the existing Types/details control shares the quiet header.
-Member names, shape labels, loop counts, and confidence labels wrap within the
-pane. Many rows scroll locally while header, selector, and bottom context stay
-put.
-
-The explicitly approved browser-only presentation scope has
-[one adoption step](https://github.com/richlander/dotnet-inspect/issues/6346):
-wire production Library Analysis to this frame and retire only that consumer's
-old composition. Browser HTML lowering consumes the existing typed
-`BrowserPackagePerformance` result. Opportunities and Integrations supply the
-local layout conventions; this is not a new analysis or rendering architecture.
-
-Focused renderer and production-composition browser gates cover wide/narrow,
-long/many results, live member navigation, state distinctions, Library
-switching, and platform controls. Performance classification, package
-acquisition, member details, other lenses, and subject-strip interaction remain
-separate work.
+Focused renderer and production-composition browser gates cover all four direct
+tabs, lazy loading, focus retention across asynchronous completion, wide/narrow
+layout, Library switching, row actions, and platform controls.
 
 ### Package Metadata
 

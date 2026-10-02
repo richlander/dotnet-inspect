@@ -272,7 +272,7 @@ public enum CallGraphNodeMatch
 /// <summary>
 /// A format-neutral projection of the typed call-graph facts that
 /// <c>ILInspector.Analysis</c> produces (<see cref="CallTreeNode"/> caller and callee roots
-/// built by <c>LibraryBodyIndex.BuildCallerTree</c> / <c>BuildCallTree</c>) into a single
+/// built by <see cref="LibraryCallGraphAnalysisResult"/>) into a single
 /// deterministic directed graph. A single-focus projection is centered on one
 /// selected overload:
 /// <code>
