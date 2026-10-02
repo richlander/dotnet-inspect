@@ -214,6 +214,34 @@ test("member source request identity includes decompiler taste", () => {
     memberRequestKey(request, ["prefer-explicit-types"]));
 });
 
+test("automatic decompiled settlement does not replace the requested source view", () => {
+  const cacheClear =
+    appSource.match(/function clearMemberContentCache\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  const sourceSelection =
+    appSource.match(/onMemberSourceViewSelect: view => \{[\s\S]*?\n    },/)?.[0]
+    ?? "";
+  const sourceLoad =
+    appSource.match(/async function loadSelectedMemberSource\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+
+  assert.match(
+    appSource,
+    /memberSourceRequestedView: "source" as const,[\s\S]*memberSourceView: "source" as const/);
+  assert.match(
+    cacheClear,
+    /state\.memberSourceView = state\.memberSourceRequestedView;/);
+  assert.match(
+    sourceSelection,
+    /state\.memberSourceRequestedView = view;\s*state\.memberSourceView = view;/);
+  assert.match(
+    sourceLoad,
+    /state\.memberSourceView = "decompiler-source";/);
+  assert.doesNotMatch(
+    sourceLoad,
+    /memberSourceRequestedView = "decompiler-source"/);
+});
+
 test("member request identity distinguishes colliding type queries", () => {
   const memberSignature =
     appSource.match(/function memberRequestSignature\([\s\S]*?\n}/)?.[0]

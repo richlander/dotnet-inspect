@@ -1253,6 +1253,9 @@ any other available product-issued parts. Declaration is preferred and omits
 attached XML documentation; Member retains the complete authored member.
 Explicit Decompiled runs the decompiler even when authored source exists and
 has no authored part selector.
+An automatic Authored-to-Decompiled fallback changes the settled control for
+that member without replacing the user's requested origin for the next member;
+an explicit control choice updates both.
 
 Member Source **Explore** lazily acquires the annotated document and opens the
 full-bleed modal governed by the shared transient-surface contract. Exact

@@ -1355,6 +1355,7 @@ const initialState = {
   typeMemberPopulationKey: "",
   typeHeat: { status: "idle" } as TypeHeatState,
   memberSource: { status: "idle" as const },
+  memberSourceRequestedView: "source" as const,
   memberSourceView: "source" as const,
   memberAnnotated: null,
   memberAnnotatedLoading: false,
@@ -1532,6 +1533,7 @@ interface StateOverrides {
   selectedOverloadIndex: number | null;
   typeHeat: TypeHeatState;
   memberSource: SourceResultState<BrowserMemberSource>;
+  memberSourceRequestedView: MemberSourceView;
   memberSourceView: MemberSourceView;
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
@@ -7523,6 +7525,7 @@ function clearMemberContentCache() {
   invalidateMemberDestinationWork(state);
   clearMemberDocumentCache();
   state.memberSource = { status: "idle" };
+  state.memberSourceView = state.memberSourceRequestedView;
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
   state.memberCallGraphKey = "";
@@ -12038,7 +12041,9 @@ function bindTypePanelEvents() {
       }
     },
     onMemberSourceViewSelect: view => {
-      if (state.memberSourceView === view) return;
+      if (state.memberSourceView === view
+        && state.memberSourceRequestedView === view) return;
+      state.memberSourceRequestedView = view;
       state.memberSourceView = view;
       state.memberSource = { status: "idle" };
       observeAsync(loadSelectedMemberSource(), "Loading member source view");
