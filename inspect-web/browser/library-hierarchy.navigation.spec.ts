@@ -946,6 +946,21 @@ test("Member filters use dropdowns and request all accessibility buckets", async
     ...run,
     isStatic: true,
   };
+  const instanceMember = {
+    ...run,
+    signature: "public void Run(int value)",
+    metadataToken: 0x06000002,
+    declarationMetadataToken: 0x06000002,
+    stableSelector: "Run:2",
+    anchorDigest: "widget-run-two",
+    canonicalSignature: "M:Example.Widget.Run(System.Int32)",
+    graphSelectorKey: "Run:2",
+    bodySelectors: [{
+      token: 0x06000002,
+      memberName: "Run",
+      selectorKey: "Run:2",
+    }],
+  };
   const privateMember = {
     ...run,
     name: "Value",
@@ -965,13 +980,13 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   };
   const model = {
     ...surface,
-    totalMembers: surface.totalMembers + 1,
+    totalMembers: surface.totalMembers + 2,
     types: surface.types.map(item =>
       item.id === "asset:core:Example.Widget"
         ? {
             ...item,
-            members: item.members + 1,
-            api: [publicMember, privateMember],
+            members: item.members + 2,
+            api: [publicMember, instanceMember, privateMember],
           }
         : item),
   };
@@ -988,18 +1003,35 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   const trait = page.locator("[data-member-trait-filter]");
   await expect(kind).toBeVisible();
   await expect(page.locator("[data-member-spelling]")).toBeVisible();
+  await expect(page.locator(".member-filter-select > span"))
+    .toHaveText(["Kind", "Accessibility", "Trait", "Spelling"]);
+  await expect(kind.locator('option[value="all"]')).toHaveText("all kinds · 2");
+  await expect(kind.locator('option[value="method"]')).toHaveText("method · 2");
+  await expect(trait.locator("option"))
+    .toHaveText([
+      "all · 2",
+      "static · 1",
+      "instance · 1",
+      "virtual · 0",
+      "interface · 0",
+      "extensions · 0",
+    ]);
   const accessibility = page.locator("[data-member-access-filter]");
   await expect(accessibility.locator('option[value="all"]'))
-    .toHaveText("all · 2");
+    .toHaveText("all · 3");
 
   await kind.selectOption("method");
-  await trait.selectOption("isStatic");
+  await trait.selectOption("static");
   await accessibility.selectOption("private");
 
   await expect(kind).toHaveValue("method");
-  await expect(kind.locator('option[value="method"]')).toHaveCount(1);
-  await expect(trait).toHaveValue("isStatic");
-  await expect(trait.locator('option[value="isStatic"]')).toHaveCount(1);
+  await expect(kind.locator('option[value="method"]'))
+    .toHaveText("method · 0");
+  await expect(trait).toHaveValue("static");
+  await expect(trait.locator('option[value="static"]'))
+    .toHaveText("static · 0");
+  await expect(trait.locator('option[value="instance"]'))
+    .toHaveText("instance · 1");
   await expect(page.locator("#inspector-panel [data-member]")).toHaveCount(0);
 
   await kind.selectOption("all");
@@ -1017,6 +1049,30 @@ test("Member filters use dropdowns and request all accessibility buckets", async
     "data-type-member-population-request",
     /"Example.Widget","csharp","all"\]$/,
   );
+
+  await accessibility.selectOption("public");
+  await expect(accessibility).toHaveValue("public");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"Example.Widget","csharp","public"\]$/,
+  );
+  await trait.selectOption("instance");
+  await expect(trait).toHaveValue("instance");
+  await expect(trait.locator('option[value="instance"]'))
+    .toHaveAttribute("selected", "");
+  await expect(page.locator(".api-surface > .api-surface-head p"))
+    .toContainText("1 of 2 members");
+  const filteredRun = page.locator("#inspector-panel [data-member]");
+  await expect(filteredRun).toHaveCount(1);
+  await expect(filteredRun.locator("code"))
+    .toHaveText("public void Run(int value)");
+  await expect(filteredRun.locator("small")).not.toContainText("+");
+
+  await filteredRun.click();
+  await expect(page.locator(".member-surface-head"))
+    .toContainText("Exact declaration 2");
+  await expect(page.locator(".signature-code"))
+    .toContainText("public void Run(int value)");
 });
 
 for (const width of [900, 390]) {

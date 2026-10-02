@@ -314,7 +314,7 @@ public partial class PackageCommand
         if (LibraryMetadataService.WritesDefaultModelDump(libraryOptions))
             commandQueryDemand.Add(LibraryCommand.ModelDumpCountsDemand);
         HashSet<InspectionQueryDefinition> queries =
-            sectionPlan.Activate(commandDemand: commandQueryDemand);
+            sectionPlan.Activate(hostDemand: commandQueryDemand);
         bool readLibraryDocument =
             LibraryMetadataService.WantsLibraryDocument(sectionPlan, libraryOptions);
         var context = new CommandContext(options.Verbose);

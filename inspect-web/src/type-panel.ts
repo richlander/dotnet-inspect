@@ -197,8 +197,10 @@ export function familyOutsideMarkerHtml(
   group: MemberGroup,
   selectedAccessibility: string,
   escapeHtml: EscapeHtml,
+  overloadFilterActive = false,
 ): string {
   if (group.overloads.some(overload => overload.graphOnly)) return "";
+  if (overloadFilterActive) return "";
   const completeCountStatus = group.completeCountStatus
     ?? (group.completeCount == null ? "pending" : "available");
   if (completeCountStatus === "failed") {
@@ -726,6 +728,7 @@ export interface MemberNavOptions {
   selectedMemberKey: string;
   selectedOverloadIndex: number | null;
   selectedAccessibility?: string;
+  overloadFilterActive?: boolean;
   escapeHtml: EscapeHtml;
   typeDisplayName: (item: TypeSummary) => string;
   shortKind: (kind: string) => string;
@@ -738,7 +741,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
   const {
     type, entries, memberCount, visibleMemberCount, filterControlsHtml,
     selectedMemberKey, selectedOverloadIndex,
-    selectedAccessibility = "public",
+    selectedAccessibility = "public", overloadFilterActive = false,
     escapeHtml, typeDisplayName, shortKind, highlight,
     overloadHeat, familyHeatCue,
   } = options;
@@ -772,7 +775,8 @@ export function renderMemberNav(options: MemberNavOptions): string {
             const outsideMarker = familyOutsideMarkerHtml(
               group,
               selectedAccessibility,
-              escapeHtml);
+              escapeHtml,
+              overloadFilterActive);
             const active = group.key === selectedMemberKey;
             const selected = active && (isMulti ? selectedOverloadIndex == null : true);
             const cue = active && isMulti ? familyHeatCue?.(group) ?? null : null;

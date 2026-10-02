@@ -35,11 +35,28 @@ public sealed record MetadataTypeMemberPopulationGroup(
     int CompleteCount,
     ImmutableArray<ApiMember> Members);
 
+public sealed record MetadataTypeMemberFacetCount(
+    string Value,
+    int Count);
+
+public sealed record MetadataTypeMemberTraitCounts(
+    int All,
+    int Static,
+    int Instance,
+    int Virtual,
+    int Interface,
+    int Extensions);
+
+public sealed record MetadataTypeMemberSelectorCounts(
+    ImmutableArray<MetadataTypeMemberFacetCount> Kinds,
+    MetadataTypeMemberTraitCounts Traits);
+
 public sealed record MetadataTypeMemberPopulation(
     MetadataTypeDefinitionName Type,
     MetadataMemberSpelling Spelling,
     MetadataMethodAccessibilityFilter Accessibility,
     MetadataTypeMemberComposition Composition,
+    MetadataTypeMemberSelectorCounts SelectorCounts,
     ImmutableArray<MetadataTypeMemberPopulationGroup> Groups,
     ApiType Subject);
 
@@ -127,6 +144,7 @@ public static class MetadataTypeMemberPopulationInspection
 
         MetadataMethodAccessibilityFilter selectedAccessibility =
             request.Accessibility;
+        var selectedMembers = new List<ApiMember>();
         var groups =
             ImmutableArray.CreateBuilder<
                 MetadataTypeMemberPopulationGroup>();
@@ -144,6 +162,7 @@ public static class MetadataTypeMemberPopulationInspection
             ];
             if (selected.IsEmpty)
                 continue;
+            selectedMembers.AddRange(selected);
             ApiMember first = selected[0];
             groups.Add(new(
                 group.Key,
@@ -180,12 +199,50 @@ public static class MetadataTypeMemberPopulationInspection
                     + $"their Composition Count ({compositionCount}).");
         }
 
+        var kindCounts = new Dictionary<string, int>(
+            StringComparer.Ordinal);
+        int staticCount = 0;
+        int instanceCount = 0;
+        int virtualCount = 0;
+        int interfaceCount = 0;
+        int extensionCount = 0;
+        foreach (ApiMember member in selectedMembers)
+        {
+            kindCounts[member.Kind] =
+                checked(kindCounts.GetValueOrDefault(member.Kind) + 1);
+            if (member.IsExtension)
+                extensionCount = checked(extensionCount + 1);
+            else if (member.IsStatic)
+                staticCount = checked(staticCount + 1);
+            else
+                instanceCount = checked(instanceCount + 1);
+            if (member.IsVirtual)
+                virtualCount = checked(virtualCount + 1);
+            if (member.IsExplicitInterfaceImplementation)
+                interfaceCount = checked(interfaceCount + 1);
+        }
+        var selectorCounts = new MetadataTypeMemberSelectorCounts(
+            [
+                .. kindCounts.Select(pair =>
+                    new MetadataTypeMemberFacetCount(
+                        pair.Key,
+                        pair.Value)),
+            ],
+            new(
+                selectedCount,
+                staticCount,
+                instanceCount,
+                virtualCount,
+                interfaceCount,
+                extensionCount));
+
         return new MetadataTypeMemberPopulationOutcome.Available(
             new(
                 request.Type,
                 request.Spelling,
                 request.Accessibility,
                 counted.Composition,
+                selectorCounts,
                 groups.DrainToImmutable(),
                 type));
     }

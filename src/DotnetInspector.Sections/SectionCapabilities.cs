@@ -1,4 +1,4 @@
-namespace DotnetInspect.Cli.Sections;
+namespace DotnetInspector.Sections;
 
 /// <summary>
 /// Optional work a section may perform to enrich itself. These are independent of a section's

@@ -1127,25 +1127,9 @@ public partial class DiffCommand
                     BodySignalComparisonQuery.Definition,
                 ]
                 : [ImplementationComparisonQuery.Definition];
-        ImmutableArray<InspectionQueryDefinition> queries =
-            [
-                .. plan.RequestedQueries.Where(
-                    query => !removedQueries.Contains(query)),
-            ];
-        ImmutableArray<SectionQueryDemand> demands =
-            [
-                .. plan.SectionDemand.Where(
-                    demand => !removedQueries.Contains(
-                        demand.Query)),
-            ];
-        var sectionPlan = new SectionQueryPlan(
-            queries,
-            demands);
-        return new(
-            sectionPlan,
-            plan.HostDemand,
-            queries,
-            catalog.QueryCatalog.Plan(queries));
+        return plan.WithoutQueries(
+            catalog.QueryCatalog,
+            removedQueries.ToHashSet());
     }
 
     private static async Task<bool> WriteSelectedDocumentAsync(

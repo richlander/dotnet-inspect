@@ -382,7 +382,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
   const spelling = new FakeElement();
   spelling.value = "metadata";
   const trait = new FakeElement();
-  trait.value = "isStatic";
+  trait.value = "static";
   root.addAll("[data-member-kind-filter]", kind);
   root.addAll("[data-member-access-filter]", accessibility);
   root.addAll("[data-member-spelling]", spelling);
@@ -416,7 +416,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-kind:method",
     "member-access:protected",
     "member-spelling:metadata",
-    "member-trait:isStatic",
+    "member-trait:static",
   ]);
   filter.dispatch("input");
   disclosure.open = true;
@@ -428,7 +428,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-kind:method",
     "member-access:protected",
     "member-spelling:metadata",
-    "member-trait:isStatic",
+    "member-trait:static",
     "member-filter:parse",
     "member-filter-disclosure:true",
     "member-filter-key:ArrowDown:parse",
@@ -582,7 +582,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
   const defaultJumpKind = new FakeElement();
   const jumpAccess = new FakeElement({ memberJumpAccess: "protected" });
   const defaultJumpAccess = new FakeElement();
-  const jumpTrait = new FakeElement({ memberJumpTrait: "isStatic" });
+  const jumpTrait = new FakeElement({ memberJumpTrait: "static" });
   const defaultJumpTrait = new FakeElement();
   const member = new FakeElement({ member: "M:Parse" });
   const defaultMember = new FakeElement();
@@ -633,7 +633,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
     "member-jump-kind:all",
     "member-jump-access:protected",
     "member-jump-access:all",
-    "member-jump-trait:isStatic",
+    "member-jump-trait:static",
     "member-jump-trait:",
     "member-open:M:Parse",
     "member-open:",
@@ -1099,6 +1099,36 @@ test("member families show product-issued out-of-view counts", () => {
   assert.match(
     html,
     /aria-label="2 more overloads are outside the public view\."/);
+});
+
+test("Trait-filtered families hide accessibility-only out-of-view counts", () => {
+  const group = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    completeCount: 7,
+    overloads: [
+      { signature: "static JsonDocument Parse(string json)" },
+    ],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 7,
+    visibleMemberCount: 1,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    selectedAccessibility: "public",
+    overloadFilterActive: true,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.doesNotMatch(html, /family-outside-count/);
 });
 
 test("member families disclose unavailable out-of-view counts", () => {

@@ -306,6 +306,12 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Equal(
             packageMembers.Composition.Public,
             packageMembers.Groups.Sum(group => group.Members.Length));
+        Assert.Equal(
+            packageMembers.SelectorCounts.Traits.All,
+            packageMembers.Groups.Sum(group => group.Members.Length));
+        Assert.Equal(
+            packageMembers.SelectorCounts.Traits.All,
+            packageMembers.SelectorCounts.Kinds.Sum(count => count.Count));
         BrowserTypeMemberPopulationInspection metadataPopulation =
             TypeMemberPopulation(
                 await MetadataExports.QueryTypeMemberPopulation(
