@@ -303,13 +303,16 @@ exit_code: 1
 
 ## Running and evaluating workflows
 
-See the [validating workflows skill](../../skills/workflow-scenarios/validating-workflows.md) for evaluation rules, preconditions, parallelization strategies, and the eval pattern.
+See the
+[validating workflows reference](../../.github/skills/workflow-scenarios/validating-workflows.md)
+for evaluation rules, preconditions, parallelization strategies, and the eval
+pattern.
 
 ## Related skills
 
 | Skill | What it covers |
 | --- | --- |
-| [Validating workflows](../../skills/workflow-scenarios/validating-workflows.md) | How to run workflows solo or with agent teams, evaluation rules, the eval pattern |
-| [Writing workflows](../../skills/workflow-scenarios/writing-workflows.md) | How to author good workflow documents — conventions and best practices |
-| [Performance testing](../../skills/workflow-scenarios/performance-testing.md) | Using perf workflows as a pre-ship gate, profiling regressions |
-| [Network observation](../../skills/workflow-scenarios/network-guard.md) | Debug request-start logging and offline enforcement |
+| [Validating workflows](../../.github/skills/workflow-scenarios/validating-workflows.md) | How to run workflows solo or with agent teams, evaluation rules, the eval pattern |
+| [Writing workflows](../../.github/skills/workflow-scenarios/writing-workflows.md) | How to author good workflow documents — conventions and best practices |
+| [Performance testing](../../.github/skills/workflow-scenarios/performance-testing.md) | Using perf workflows as a pre-ship gate, profiling regressions |
+| [Network observation](../../.github/skills/workflow-scenarios/network-guard.md) | Debug request-start logging and offline enforcement |
