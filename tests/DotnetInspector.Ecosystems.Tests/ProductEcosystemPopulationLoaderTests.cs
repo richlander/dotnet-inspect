@@ -407,7 +407,10 @@ public sealed class ProductEcosystemPopulationLoaderTests
                     workspace.GetRegistrationSnapshot()).Revision;
             WorkspaceEcosystemRegistrationDeclaration registration =
                 Assert.IsType<WorkspaceRegistration.Ecosystem>(
-                    Assert.Single(revision.Registrations)).Declaration;
+                    Assert.Single(revision.Registrations, entry =>
+                        entry is WorkspaceRegistration.Ecosystem ecosystem
+                        && ecosystem.Declaration.Id.Value == id.Value))
+                    .Declaration;
             EcosystemPopulationLoaderSelection selection =
                 EcosystemPackCatalog.SelectPopulationLoader(
                     revision,
