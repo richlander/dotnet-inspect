@@ -1044,7 +1044,9 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   const trait = page.locator("[data-member-trait-filter]");
   await expect(kind).toBeVisible();
   await expect(page.locator("[data-member-spelling]")).toBeVisible();
-  await expect(page.locator(".member-filter-select > span"))
+  await expect(page.locator(
+    "[data-member-filter-disclosure] .member-filter-select > span",
+  ))
     .toHaveText(["Kind", "Accessibility", "Trait", "Spelling"]);
   await expect(kind.locator('option[value="all"]')).toHaveText("all kinds · 2");
   await expect(kind.locator('option[value="method"]')).toHaveText("method · 2");

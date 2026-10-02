@@ -427,6 +427,8 @@ async function installFacades(
           assemblyId: uploadAssemblyId,
           assemblyName: uploadAssembly.name,
         })),
+        typeKinds: model.typeKinds,
+        typeTraits: model.typeTraits,
         accessibility: model.accessibility,
         totalMembers: model.totalMembers,
         inspectionErrors: [],
