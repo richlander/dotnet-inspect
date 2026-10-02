@@ -166,7 +166,7 @@ depends on its author's choices, and it costs one loop per question where
 NLinq costs one source per population. A hand-written loop appears only as
 the QuerySpace (Base) column of a path that already exists.
 
-**Same contract, independent read.** LINQ, NLinq, and Planner answer the same
+**Same contract, independent read.** LINQ, NLinq, and QuerySpace answer the same
 question over the same scope, predicates, projection, and closing. For an
 Analysis producer, fairness has two independent requirements:
 
@@ -182,9 +182,9 @@ checks. They may differ in iteration, fusion, query execution, decoder
 specialization, and source-native facts. A comparator is unfair when it omits
 work required by either fidelity or safety; change that comparator rather than
 crediting its time. Conversely, when LINQ or NLinq satisfies both requirements
-and beats Planner, the result is evidence that Planner should be capable of
-meeting or beating it. Do not erase that evidence by adding Planner's
-unconsumed work to the oracle or by requiring Planner to perform richer
+and beats QuerySpace, the result is evidence that QuerySpace should be capable
+of meeting or beating it. Do not erase that evidence by adding QuerySpace's
+unconsumed work to the oracle or by requiring QuerySpace to perform richer
 semantic validation than its contract needs.
 
 Share product-owned facts and mechanisms when their inputs and invariants
@@ -193,10 +193,10 @@ same Roslyn fidelity corpus and ECMA safety fixtures against every column.
 Agreement on benign assets alone is insufficient.
 
 Make each comparison inspectable and reusable. The report links the exact
-LINQ, NLinq, and Planner query implementations, population source, pinned
+LINQ, NLinq, and QuerySpace query implementations, population source, pinned
 NLinq provenance, and invocation. Do not publish ratios without the code that
 produced each column. When an oracle wins, identify the concrete implementation
-choice Planner can adopt.
+choice QuerySpace can adopt.
 
 Commit those implementations, sources, provenance, and invocations with the
 enablement so later work can rerun and extend the same comparison. These
@@ -278,7 +278,8 @@ than an inspected artifact:
   The shipping column is `Selector`, not `Planner`, because it settles an
   already materialized population rather than executing a QuerySpace plan.
 
-**The scorecard** scores Old, LINQ, NLinq, and Planner for Exists, Count,
+**The scorecard** scores QuerySpace (Base), LINQ, NLinq, and QuerySpace for
+Exists, Count,
 Head(N), Tail(N), Rows, and Rows(n..m), over one open query on pinned real
 assets:
 
