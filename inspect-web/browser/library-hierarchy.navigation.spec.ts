@@ -96,8 +96,10 @@ test("Type filters expose counted Namespace, Accessibility, Kind, and Trait sele
       "object · 1",
     ]);
 
+  await page.locator("#namespace-jump").selectOption("Example");
   await page.locator("[data-type-access-filter]")
     .selectOption("internal");
+  await expect(page.locator("#namespace-jump")).toHaveValue("");
   await expect(page.locator("#namespace-jump option"))
     .toHaveText([
       "all namespaces · 1",
@@ -166,6 +168,60 @@ test("non-public Type deep links select the exact accessibility bucket", async (
   )).toBeVisible();
   await expect(page.locator(
     `#type-list [data-type="${publicType.id}"]`,
+  )).toHaveCount(0);
+});
+
+test("internal-only Library navigation selects one exact accessibility bucket", async ({
+  page,
+}) => {
+  const publicType = surface.types[0]!;
+  const internal = {
+    ...surface.types[1]!,
+    namespace: "Hidden",
+    accessibility: "internal",
+    accessibilityId: "internal",
+    signature: "internal class Hidden.Neighbor",
+  };
+  const privateType = {
+    ...surface.types[1]!,
+    id: `${surface.types[1]!.id}:private`,
+    definitionId: "Hidden.PrivateNeighbor",
+    queryId: "Hidden.PrivateNeighbor",
+    metadataId: "Hidden.PrivateNeighbor",
+    name: "PrivateNeighbor",
+    displayName: "Hidden.PrivateNeighbor",
+    namespace: "Hidden",
+    accessibility: "private",
+    accessibilityId: "private",
+    signature: "private class Hidden.PrivateNeighbor",
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [publicType, internal, privateType],
+    accessibility: [
+      { id: "public", label: "Public", order: 0, isDefault: true, count: 1 },
+      { id: "internal", label: "Internal", order: 2, isDefault: false, count: 1 },
+      { id: "private", label: "Private", order: 5, isDefault: false, count: 1 },
+    ],
+  });
+  await page.goto(root);
+  await selectLibrary(page, other.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-filter-summary").click();
+
+  await expect(page.locator("[data-type-access-filter]"))
+    .toHaveValue("internal");
+  await expect(page.locator("#namespace-jump option"))
+    .toHaveText([
+      "all namespaces · 1",
+      "Hidden · 1",
+    ]);
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator(
+    `#type-list [data-type="${internal.id}"]`,
+  )).toBeVisible();
+  await expect(page.locator(
+    `#type-list [data-type="${privateType.id}"]`,
   )).toHaveCount(0);
 });
 
