@@ -538,12 +538,12 @@ public class LibraryBodyRootPathAnalysisTests
         ImmutableArray<MethodIdentity> methods,
         ImmutableArray<DirectCall> calls,
         ImmutableArray<AnalysisDiagnostic> diagnostics = default) =>
-        LibraryBodyIndex.FromEvidence(
+        BodyAnalysisTestExecution.FromEvidence(
             methods,
             [],
             diagnostics: diagnostics,
             directCalls: calls)
-        .CallGraphAnalysis;
+        .CallGraph;
 
     static MethodIdentity Method(
         Guid moduleVersionId,

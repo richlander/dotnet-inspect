@@ -10,19 +10,6 @@ namespace ILInspector.Analysis;
 /// </summary>
 public sealed class CatalogCallGraphParticipant
 {
-    /// <summary>
-    /// Adapts a compatibility index to its focused call-graph result.
-    /// </summary>
-    public CatalogCallGraphParticipant(
-        LibraryBodyIndex index,
-        ResolvedAssemblyReference assembly)
-        : this(
-            (index ?? throw new ArgumentNullException(nameof(index)))
-                .CallGraphAnalysis,
-            assembly)
-    {
-    }
-
     public CatalogCallGraphParticipant(
         LibraryCallGraphAnalysisResult callGraph,
         ResolvedAssemblyReference assembly)

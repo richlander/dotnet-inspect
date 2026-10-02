@@ -27,13 +27,13 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_TracksFieldAccessAndClearsStaleConstants()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var fieldAccessMethod = Assert.Single(index.OptimizationOpportunities.Where(opportunity =>
+        var fieldAccessMethod = Assert.Single(index.Optimization.Opportunities.Where(opportunity =>
             opportunity.Method.Name == nameof(OptimizationOpportunityFixtures.MakesArrayAfterFieldAccess)));
         Assert.Equal("small-array", fieldAccessMethod.Shape);
 
-        Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, opportunity =>
             opportunity.Method.Name == nameof(OptimizationOpportunityFixtures.MakesArrayAfterCallAndArgument)
             && opportunity.Shape == "small-array");
     }
@@ -41,18 +41,18 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_PromotesProvablyLocalArrayToStackalloc()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var local = Assert.Single(ArrayShapes(index, nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal)));
+        var local = Assert.Single(ArrayShapes(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal)));
         Assert.Equal("stackalloc-candidate", local);
     }
 
     [Fact]
     public void OptimizationOpportunities_DirectStackProofDoesNotRequireReachingDefinitions()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var local = Assert.Single(ArrayShapes(index, nameof(OptimizationOpportunityFixtures.LocalArrayInTryCatch)));
+        var local = Assert.Single(ArrayShapes(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.LocalArrayInTryCatch)));
         Assert.Equal("stackalloc-candidate", local);
     }
 
@@ -62,9 +62,9 @@ public partial class LibraryBodyIndexTests
         var (path, directory) = BuildSlotReuseArrayFixture();
         try
         {
-            var index = LibraryBodyIndex.Open(path);
+            var index = BodyAnalysisTestExecution.Open(path);
 
-            var shapes = ArrayShapes(index, "LocalThenEscapingSlotReuse").ToArray();
+            var shapes = ArrayShapes(index.CompatibilityIndex(), "LocalThenEscapingSlotReuse").ToArray();
 
             Assert.Equal(2, shapes.Length);
             Assert.Contains("stackalloc-candidate", shapes);
@@ -86,9 +86,9 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.LocalStringArrayStaysLocal))]
     public void OptimizationOpportunities_KeepsEscapingOrIneligibleArrayAsSmallArray(string methodName)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var shape = Assert.Single(ArrayShapes(index, methodName));
+        var shape = Assert.Single(ArrayShapes(index.CompatibilityIndex(), methodName));
         Assert.Equal("small-array", shape);
     }
 
@@ -97,9 +97,9 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsConditionalHugeOrSmallArray))]
     public void OptimizationOpportunities_DoesNotTreatConditionalLengthArraysAsSmallArrays(string methodName)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        Assert.Empty(ArrayShapes(index, methodName));
+        Assert.Empty(ArrayShapes(index.CompatibilityIndex(), methodName));
     }
 
     [Theory]
@@ -108,9 +108,9 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.ReadsSpanToArrayLengthLocally))]
     public void OptimizationOpportunities_FlagsNonEscapingSpanToArrayCopy(string methodName)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var opportunity = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == methodName && o.Shape == "span-to-array-copy"));
         // The IL offset must point at the real ToArray call (oracle-verifiable), not be inferred.
         Assert.NotNull(opportunity.ILOffset);
@@ -123,9 +123,9 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.SpanToArrayPassedToArrayApi))]
     public void OptimizationOpportunities_DoesNotFlagEscapingSpanToArrayCopy(string methodName)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name == methodName && o.Shape == "span-to-array-copy");
     }
 
@@ -135,11 +135,11 @@ public partial class LibraryBodyIndexTests
         var (path, directory) = BuildSpanToArrayLocalFixture();
         try
         {
-            var index = LibraryBodyIndex.Open(path);
+            var index = BodyAnalysisTestExecution.Open(path);
 
-            Assert.Contains(index.OptimizationOpportunities, o =>
+            Assert.Contains(index.Optimization.Opportunities, o =>
                 o.Method.Name == "LocalRead" && o.Shape == "span-to-array-copy");
-            Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            Assert.DoesNotContain(index.Optimization.Opportunities, o =>
                 o.Method.Name == "LocalReturn" && o.Shape == "span-to-array-copy");
         }
         finally
@@ -166,9 +166,9 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat), AllocationKind.Box, AllocationEscape.Unknown)]
     public void AllocationOccurrences_ClassifyIntraproceduralEscape(string methodName, AllocationKind kind, AllocationEscape expected)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var occurrence = SingleAllocationOccurrence(index, methodName, kind);
+        var occurrence = SingleAllocationOccurrence(index.CompatibilityIndex(), methodName, kind);
 
         Assert.Equal(expected, occurrence.Escape);
     }
@@ -195,9 +195,9 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayPassedToCall), AllocationKind.Array, AllocationEscapeKind.None)]
     public void AllocationOccurrences_RefineEscapeKind(string methodName, AllocationKind kind, AllocationEscapeKind expected)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var occurrence = SingleAllocationOccurrence(index, methodName, kind);
+        var occurrence = SingleAllocationOccurrence(index.CompatibilityIndex(), methodName, kind);
 
         Assert.Equal(expected, occurrence.EscapeKind);
         // Kind is only meaningful on an Escapes verdict; otherwise it must be None.
@@ -208,10 +208,10 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void AllocationOccurrences_MultipleDistinctSinks_FailHonestNoneOnEscapesVerdict()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         var occurrence = SingleAllocationOccurrence(
-            index,
+            index.CompatibilityIndex(),
             nameof(OptimizationOpportunityFixtures.StoresToStaticThenReturns),
             AllocationKind.Object);
 
@@ -226,15 +226,15 @@ public partial class LibraryBodyIndexTests
     [InlineData("YieldsPlainObjectAsync")]
     public void AllocationOccurrences_IteratorYieldedValue_IsNotLabeledCapture(string iteratorMethod)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // The yielded value is stored into the (sync or async) iterator state machine's
         // <>2__current field. That is not a hoisted capture, so the verdict stays Escapes
         // but the refined kind is fail-honest None rather than Capture.
-        var occurrence = index.Methods
+        var occurrence = index.CallGraph.Methods
             .Where(m => m.DeclaringType.Name.Contains("<" + iteratorMethod + ">", StringComparison.Ordinal)
                 && m.Name == "MoveNext")
-            .SelectMany(m => index.GetAllocationOccurrences().TryGetValue(m.MetadataToken, out var occ) ? occ : [])
+            .SelectMany(m => index.Allocations.Occurrences.TryGetValue(m.MetadataToken, out var occ) ? occ : [])
             .Single(o => o.CountsAsHeapAllocation
                 && o.Kind == AllocationKind.Object
                 && o.AllocatedType?.Name == "PlainObject");
@@ -249,14 +249,14 @@ public partial class LibraryBodyIndexTests
         var (path, directory) = BuildLongAddressLoadArrayFixture();
         try
         {
-            var index = LibraryBodyIndex.Open(path);
+            var index = BodyAnalysisTestExecution.Open(path);
 
             Assert.Equal(
                 AllocationEscape.Escapes,
-                SingleAllocationOccurrence(index, "LongAddressLoadArrayFixture", "ArrayReturnedAfterLongLdloca", AllocationKind.Array).Escape);
+                SingleAllocationOccurrence(index.CompatibilityIndex(), "LongAddressLoadArrayFixture", "ArrayReturnedAfterLongLdloca", AllocationKind.Array).Escape);
             Assert.Equal(
                 AllocationEscape.Escapes,
-                SingleAllocationOccurrence(index, "LongAddressLoadArrayFixture", "ArrayReturnedAfterLongLdarga", AllocationKind.Array).Escape);
+                SingleAllocationOccurrence(index.CompatibilityIndex(), "LongAddressLoadArrayFixture", "ArrayReturnedAfterLongLdarga", AllocationKind.Array).Escape);
         }
         finally
         {
@@ -274,10 +274,10 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.CatchAllocatesBeforeOnlyReturn), AllocationKind.Object, "ILInspector.Analysis.Tests.PlainObject", AllocationPathContext.ErrorPath, AllocationPathConfidence.Unknown, AllocationPostDominance.Unknown, AllocationMultiplicity.Conditional)]
     public void AllocationOccurrences_IncludeRuntimeTypePathContextConfidenceAndPostDominance(string methodName, AllocationKind kind, string expectedRuntimeType, AllocationPathContext expectedPath, AllocationPathConfidence expectedConfidence, AllocationPostDominance expectedPostDominance, AllocationMultiplicity expectedMultiplicity)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var occurrence = index.GetAllocationOccurrences()
-            .Where(pair => index.Methods.Any(method => method.MetadataToken == pair.Key && method.Name == methodName))
+        var occurrence = index.Allocations.Occurrences
+            .Where(pair => index.CallGraph.Methods.Any(method => method.MetadataToken == pair.Key && method.Name == methodName))
             .SelectMany(pair => pair.Value)
             .First(occurrence => occurrence.Kind == kind
                 && occurrence.PathContext == expectedPath
@@ -293,10 +293,10 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void AllocationOccurrences_EarlyReturnInsideLoop_IsNotLoopMultiplicity()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var occurrence = index.GetAllocationOccurrences()
-            .Where(pair => index.Methods.Any(method => method.MetadataToken == pair.Key
+        var occurrence = index.Allocations.Occurrences
+            .Where(pair => index.CallGraph.Methods.Any(method => method.MetadataToken == pair.Key
                 && method.Name == nameof(OptimizationOpportunityFixtures.ReturnsObjectFromLoop)))
             .SelectMany(pair => pair.Value)
             .Single(occ => occ.CountsAsHeapAllocation
@@ -319,9 +319,9 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsPlainObject), null)]
     public void AllocationOccurrences_ReportChurnedBackingType(string methodName, string? expectedChurnedType)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var occurrence = SingleAllocationOccurrence(index, methodName, AllocationKind.Object);
+        var occurrence = SingleAllocationOccurrence(index.CompatibilityIndex(), methodName, AllocationKind.Object);
 
         Assert.Equal(expectedChurnedType, occurrence.ChurnedType);
     }
@@ -337,9 +337,9 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsUIntPtrArray3), 48)]
     public void AllocationOccurrences_EstimatesExactSizeForConstantSzArrays(string methodName, int expectedSizeBytes)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var occurrence = SingleAllocationOccurrence(index, methodName, AllocationKind.Array);
+        var occurrence = SingleAllocationOccurrence(index.CompatibilityIndex(), methodName, AllocationKind.Array);
 
         Assert.Equal(expectedSizeBytes, occurrence.EstimatedSizeBytes);
         Assert.Equal(AllocationSizeTier.Exact, occurrence.SizeTier);
@@ -350,11 +350,11 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsConditionalHugeOrSmallArray))]
     public void AllocationFacts_LeaveConditionalLengthArraysUnknown(string methodName)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var occurrence = SingleAllocationOccurrence(index, methodName, AllocationKind.Array);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var occurrence = SingleAllocationOccurrence(index.CompatibilityIndex(), methodName, AllocationKind.Array);
 
         var fact = Assert.Single(SemanticFactProjection.AllocationFacts(
-            index.GetAllocationOccurrences(),
+            index.Allocations.Occurrences,
             occurrence.Method.MetadataToken,
             occurrence.ILOffset));
 
@@ -371,9 +371,9 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsPlainObject), AllocationKind.Object)]
     public void AllocationOccurrences_LeavesLayoutDependentOrNonConstantSizesUnknown(string methodName, AllocationKind kind)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var occurrence = SingleAllocationOccurrence(index, methodName, kind);
+        var occurrence = SingleAllocationOccurrence(index.CompatibilityIndex(), methodName, kind);
 
         Assert.Null(occurrence.EstimatedSizeBytes);
         Assert.Equal(AllocationSizeTier.Unknown, occurrence.SizeTier);
@@ -385,10 +385,10 @@ public partial class LibraryBodyIndexTests
         var (path, directory) = BuildPathContextFixture();
         try
         {
-            var index = LibraryBodyIndex.Open(path);
+            var index = BodyAnalysisTestExecution.Open(path);
 
             Assert.Contains(
-                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                index.Allocations.Occurrences.Values.SelectMany(occurrences => occurrences),
                 occurrence => occurrence.Method.Name == "BranchAllocation"
                     && occurrence.Kind == AllocationKind.Object
                     && occurrence.PathContext == AllocationPathContext.Branch
@@ -396,11 +396,11 @@ public partial class LibraryBodyIndexTests
                     && occurrence.PostDominance == AllocationPostDominance.ReturnPostDominates
                     && occurrence.Multiplicity == AllocationMultiplicity.Conditional);
             Assert.Contains(
-                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                index.Allocations.Occurrences.Values.SelectMany(occurrences => occurrences),
                 occurrence => occurrence.Method.Name == "SwitchAllocation"
                     && occurrence.Kind == AllocationKind.Object
                     && occurrence.PathContext == AllocationPathContext.SwitchArm);
-            var switchAllocations = index.GetAllocationOccurrences().Values
+            var switchAllocations = index.Allocations.Occurrences.Values
                 .SelectMany(occurrences => occurrences)
                 .Where(occurrence => occurrence.Method.Name == "SwitchAllocation" && occurrence.Kind == AllocationKind.Object)
                 .ToArray();
@@ -410,21 +410,21 @@ public partial class LibraryBodyIndexTests
             Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationPostDominance.ReturnPostDominates, occurrence.PostDominance));
             Assert.All(switchAllocations, occurrence => Assert.Equal(AllocationMultiplicity.Conditional, occurrence.Multiplicity));
             Assert.Contains(
-                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                index.Allocations.Occurrences.Values.SelectMany(occurrences => occurrences),
                 occurrence => occurrence.Method.Name == "AfterIfJoinAllocation"
                     && occurrence.Kind == AllocationKind.Object
                     && occurrence.PathContext == AllocationPathContext.StraightLine
                     && occurrence.PathConfidence == AllocationPathConfidence.DominatesReturn
                     && occurrence.PostDominance == AllocationPostDominance.ReturnPostDominates);
             Assert.Contains(
-                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                index.Allocations.Occurrences.Values.SelectMany(occurrences => occurrences),
                 occurrence => occurrence.Method.Name == "ReturnOrInfiniteLoopAllocation"
                     && occurrence.Kind == AllocationKind.Object
                     && occurrence.PathContext == AllocationPathContext.StraightLine
                     && occurrence.PathConfidence == AllocationPathConfidence.DominatesReturn
                     && occurrence.PostDominance == AllocationPostDominance.Unknown);
             Assert.Contains(
-                index.GetAllocationOccurrences().Values.SelectMany(occurrences => occurrences),
+                index.Allocations.Occurrences.Values.SelectMany(occurrences => occurrences),
                 occurrence => occurrence.Method.Name == "InternalReturnLoopAllocation"
                     && occurrence.Kind == AllocationKind.Object
                     && occurrence.PathContext == AllocationPathContext.StraightLine
@@ -440,10 +440,10 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void AllocationOccurrences_NestedGenericRuntimeTypeKeepsNestedName()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         var occurrence = SingleAllocationOccurrence(
-            index,
+            index.CompatibilityIndex(),
             nameof(OptimizationOpportunityFixtures.ReturnsNestedGenericObject),
             AllocationKind.Object);
 
@@ -460,9 +460,9 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.ContainsKey), "scan-method-in-loop-call", null, "loop body", null, null)]
     public void OptimizationOpportunities_IncludeAllocationPathConfidenceAndPostDominanceMetadata(string methodName, string shape, string? expectedAllocation, string expectedPath, string? expectedConfidence, string? expectedPostDominance)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(opportunity =>
+        var opportunity = Assert.Single(index.Optimization.Opportunities.Where(opportunity =>
             opportunity.Method.Name == methodName
             && opportunity.Shape == shape));
 
@@ -475,12 +475,12 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_RetainAllocationFindingProvenance()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(opportunity =>
+        var opportunity = Assert.Single(index.Optimization.Opportunities.Where(opportunity =>
             opportunity.Method.Name == nameof(OptimizationOpportunityFixtures.BoxesGuidValue)
             && opportunity.Shape == "box-value-type"));
-        var occurrence = Assert.Single(index.GetAllocationOccurrences()[opportunity.Method.MetadataToken]
+        var occurrence = Assert.Single(index.Allocations.Occurrences[opportunity.Method.MetadataToken]
             .Where(occurrence => occurrence.ILOffset == opportunity.ILOffset));
 
         Assert.Equal(AnalysisFindings.AllocationDescriptor.Id, opportunity.SourceFinding);
@@ -494,12 +494,12 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_RetainCallSiteFindingProvenance()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(opportunity =>
+        var opportunity = Assert.Single(index.Optimization.Opportunities.Where(opportunity =>
             opportunity.Method.Name == nameof(OptimizationOpportunityFixtures.AppendsStringInLoop)
             && opportunity.Shape == "string-build-in-loop"));
-        var call = Assert.Single(index.GetDirectCallsByCaller()[opportunity.Method.MetadataToken]
+        var call = Assert.Single(index.CallGraph.DirectCallsByCaller[opportunity.Method.MetadataToken]
             .Where(call => call.ILOffset == opportunity.ILOffset));
 
         Assert.Equal(AnalysisFindings.CallSiteDescriptor.Id, opportunity.SourceFinding);
@@ -515,9 +515,9 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.ContainsKey), "scan-method-in-loop-call")]
     public void OptimizationOpportunities_MarkAggregateProvenance(string methodName, string shape)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(opportunity =>
+        var opportunity = Assert.Single(index.Optimization.Opportunities.Where(opportunity =>
             opportunity.Method.Name == methodName
             && opportunity.Shape == shape));
 
@@ -533,10 +533,10 @@ public partial class LibraryBodyIndexTests
     public void OptimizationOpportunities_CandidateIdsAreStableAndUnique()
     {
         string path = typeof(OptimizationOpportunityFixtures).Assembly.Location;
-        var first = LibraryBodyIndex.Open(path).OptimizationOpportunities
+        var first = BodyAnalysisTestExecution.Open(path).Optimization.Opportunities
             .Select(opportunity => opportunity.CandidateId)
             .ToArray();
-        var second = LibraryBodyIndex.Open(path).OptimizationOpportunities
+        var second = BodyAnalysisTestExecution.Open(path).Optimization.Opportunities
             .Select(opportunity => opportunity.CandidateId)
             .ToArray();
 
@@ -548,11 +548,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_DoesNotFlagListToArrayAsCopy()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // List<T>.ToArray() is intentionally not promoted (too common to flag without
         // escape/usage analysis), so no span-to-array-copy row is emitted for it.
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.ListToArrayNotFlagged)
             && o.Shape == "span-to-array-copy");
     }
@@ -560,9 +560,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_FlagsLinqMembershipScanInsideLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var op = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.LinqScanInLoop)
             && o.Shape == "linq-scan-in-loop"));
         Assert.True(op.InLoop);
@@ -573,9 +573,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_DoesNotFlagLinqScanOutsideLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.LinqScanOutsideLoop)
             && o.Shape == "linq-scan-in-loop");
     }
@@ -583,11 +583,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_DoesNotFlagLazyWhereInLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // Enumerable.Where is lazy: calling it in a loop does not enumerate, so it is
         // not a repeated scan and must not be flagged.
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.LazyWhereInLoopNotFlagged)
             && o.Shape == "linq-scan-in-loop");
     }
@@ -595,9 +595,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_FlagsScanMethodInvokedInCallerLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var op = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.ContainsKey)
             && o.Shape == "scan-method-in-loop-call"));
         Assert.True(op.InLoop);
@@ -608,9 +608,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_DoesNotFlagScanMethodInvokedOnlyOutsideLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.ContainsKeyNeverLooped)
             && o.Shape == "scan-method-in-loop-call");
     }
@@ -618,12 +618,12 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_FlagsLazyReturningScanMethodInvokedInCallerLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A helper that returns a deferred Where query, enumerated once per caller-loop
         // iteration, is the cross-method shape of a repeated scan (e.g. Aspire's
         // GetChildSpans().Any()). Flagged at low confidence against the helper.
-        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var op = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.FilterLazy)
             && o.Shape == "scan-method-in-loop-call"));
         Assert.Equal("low", op.Confidence);
@@ -633,9 +633,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_FlagsScanMethodInvokedPerRecursiveTraversalNode()
     {
-        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+        var index = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
 
-        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var op = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == "GetTraversalChildren"
             && o.Shape == "scan-method-in-recursive-traversal"));
         Assert.True(op.InLoop);
@@ -643,7 +643,7 @@ public partial class LibraryBodyIndexTests
         Assert.Contains("TraverseWithSequenceScan", op.Evidence, StringComparison.Ordinal);
         Assert.Contains("recursive traversal node", op.Evidence, StringComparison.Ordinal);
 
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name == "GetChildrenOutsideTraversal"
             && o.Shape == "scan-method-in-recursive-traversal");
     }
@@ -651,11 +651,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_FunctionLoadIsNotARecursiveInvocation()
     {
-        var index = LibraryBodyIndex.Open(
+        var index = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
 
         Assert.Contains(
-            index.DirectCalls,
+            index.CallGraph.DirectCalls,
             call =>
                 call.Caller.Name
                     == "LoadScanFunctionDuringTraversal"
@@ -663,7 +663,7 @@ public partial class LibraryBodyIndexTests
                     == "GetChildrenOutsideTraversal"
                 && call.Kind == CallKind.LoadFunction);
         Assert.DoesNotContain(
-            index.OptimizationOpportunities,
+            index.Optimization.Opportunities,
             opportunity =>
                 opportunity.Method.Name
                     == "GetChildrenOutsideTraversal"
@@ -674,11 +674,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_FlagsImmediateLazyQueryTerminalInvokedInCallerLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A parameterless terminal is a real scan when it directly consumes a lazy Where
         // iterator. This is the Aspire OtlpSpan.GetParentSpan shape from the acceptance case.
-        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var op = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.FilterThenFirstOrDefault)
             && o.Shape == "scan-method-in-loop-call"));
         Assert.Equal("low", op.Confidence);
@@ -687,12 +687,12 @@ public partial class LibraryBodyIndexTests
         var support = Assert.IsType<OptimizationSupportingCallSite>(
             op.SupportingCallSite);
         var whereCall = Assert.Single(
-            index.GetDirectCallsByCaller()[
+            index.CallGraph.DirectCallsByCaller[
                     op.Method.MetadataToken]
                 .Where(call =>
                     call.Callee.Name == "Where"));
         var supportCall = Assert.Single(
-            index.GetDirectCallsByCaller()[
+            index.CallGraph.DirectCallsByCaller[
                     op.Method.MetadataToken]
                 .Where(call =>
                     call.Kind == CallKind.NewObject
@@ -737,12 +737,12 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_DoNotChooseAmbiguousScanSupport()
     {
-        var index = LibraryBodyIndex.Open(
+        var index = BodyAnalysisTestExecution.Open(
             typeof(OptimizationOpportunityFixtures)
                 .Assembly.Location);
 
         var op = Assert.Single(
-            index.OptimizationOpportunities.Where(o =>
+            index.Optimization.Opportunities.Where(o =>
                 o.Method.Name
                     == nameof(
                         OptimizationOpportunityFixtures
@@ -759,11 +759,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_DoesNotJoinUnrelatedLazyQueryAndTerminal()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // Where is stored and the terminal consumes a different source. The intervening
         // store/load breaks the immediate stack-chain gate, even when this helper is loop-called.
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.UnrelatedLazyAndTerminal)
             && o.Shape == "scan-method-in-loop-call");
     }
@@ -771,11 +771,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_DoesNotFlagProjectedFirstAsLinearScan()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // Select(...).First() only projects the first element; unlike Where(...).First(),
         // it does not search through the sequence.
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.ProjectThenFirst)
             && o.Shape == "scan-method-in-loop-call");
     }
@@ -783,11 +783,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_DoesNotFlagParameterlessTerminalsInLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // First()/Any()/Count() with no predicate are O(1) (positional read or the
         // ICollection.Count fast path), so neither shape may flag them in a loop.
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.ParameterlessTerminalsInLoopNotFlagged)
             && (o.Shape == "linq-scan-in-loop" || o.Shape == "scan-method-in-loop-call"));
     }
@@ -873,27 +873,27 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_CapturingLambdaIsCapturingDelegate_SingleRow()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var shape = Assert.Single(DelegateShapes(index, nameof(OptimizationOpportunityFixtures.CapturingLambda)));
+        var shape = Assert.Single(DelegateShapes(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.CapturingLambda)));
         Assert.Equal("capturing-delegate", shape);
     }
 
     [Fact]
     public void OptimizationOpportunities_DelegateConfidence_IsLoopGated()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A one-shot capturing delegate (not in a loop) is low-value -> low confidence,
         // especially since .NET 10+ partially stack-allocates non-escaping closures.
-        var oneShot = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var oneShot = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingLambda)
             && o.Shape == "capturing-delegate"));
         Assert.False(oneShot.InLoop);
         Assert.Equal("low", oneShot.Confidence);
 
         // A capturing delegate allocated inside a loop is a repeated allocation -> high.
-        var inLoop = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var inLoop = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingDelegateInLoop)
             && o.Shape == "capturing-delegate"));
         Assert.True(inLoop.InLoop);
@@ -903,9 +903,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_AsyncStateMachine_IsAmortized()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var row = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var row = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.AsyncStream)
             && o.Shape == "async-state-machine"));
         Assert.False(row.InLoop);
@@ -917,9 +917,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_PlainAsyncTask_IsNotClassStateMachineAllocationInRelease()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.PlainAsyncTask)
             && o.Shape == "async-state-machine");
     }
@@ -927,23 +927,23 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_MaterializeInLoop_RequiresLoopInvariantSource()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var row = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var row = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.MaterializesInvariantSourceInLoop)
             && o.Shape == "materialize-in-loop"));
         Assert.True(row.InLoop);
         Assert.Equal("high", row.Confidence);
 
-        var shortArg = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var shortArg = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.MaterializesShortFormSourceArgumentInLoop)
             && o.Shape == "materialize-in-loop"));
         Assert.True(shortArg.InLoop);
 
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.MaterializesPerIterationSourceInLoop)
             && o.Shape == "materialize-in-loop");
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.MaterializesSourceMutatedByRefInLoop)
             && o.Shape == "materialize-in-loop");
     }
@@ -969,15 +969,15 @@ public partial class LibraryBodyIndexTests
         // The REAL framework RenderTreeBuilder (trusted public-key-token, from
         // Microsoft.AspNetCore.App) marks a method as Razor render plumbing, so its capturing
         // delegate is suppressed (intrinsic component-model cost, not actionable).
-        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisRender.AssemblyPath());
+        var index = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisRender.AssemblyPath());
 
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name == "RenderWithDelegateLoop");
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name.Contains(
                 "RenderGenericEqualityFragment",
                 StringComparison.Ordinal));
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name.Contains(
                 "RenderGenericEqualityLocal",
                 StringComparison.Ordinal));
@@ -986,12 +986,12 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_LookalikeRenderTreeBuilder_IsNotSuppressed()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // RenderLikeMethod takes an UNTRUSTED RenderTreeBuilder lookalike (no framework
         // public-key-token). The render-method suppression is trust-gated (#1708), so this is
         // not mistaken for render plumbing and its in-loop capturing delegate is reported.
-        Assert.Contains(index.OptimizationOpportunities, o =>
+        Assert.Contains(index.Optimization.Opportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.RenderLikeMethod)
             && o.Shape == "capturing-delegate");
     }
@@ -999,9 +999,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_DelegateConsumedByLazyLinq_FixDescribesMovedAllocation()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var op = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingLambdaConsumedByWhere)
             && o.Shape == "capturing-delegate"));
         // The surfaced Fix text (not just the dropped Caveat) must convey that the closure
@@ -1013,9 +1013,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_DelegateNotConsumedByLinq_KeepsDefaultFix()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var op = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingLambdaConsumedByNonLinq)
             && o.Shape == "capturing-delegate"));
         Assert.DoesNotContain("iterator", op.SafeFixDirection, StringComparison.OrdinalIgnoreCase);
@@ -1029,13 +1029,13 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_DelegateConsumedByMembershipTerminal_NotGivenLazyIteratorFix()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A predicate consumed by an EAGER membership terminal (Any) allocates no iterator,
         // so it must NOT receive the lazy/iterator "moved allocation" wording. The repeated
         // scan itself is covered separately by the linq-scan-in-loop shape. The row keeps the
         // default escape-awareness caveat, not the iterator caveat.
-        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var op = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.LinqScanInLoop)
             && o.Shape == "capturing-delegate"));
         Assert.DoesNotContain("iterator", op.SafeFixDirection, StringComparison.OrdinalIgnoreCase);
@@ -1047,13 +1047,13 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_DelegateShapes_CarryEscapeAwarenessCaveat()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // Calibration (#1714): on .NET 10+ the JIT stack-allocates non-escaping
         // closures/delegates, so the high-confidence delegate shapes must carry an
         // escape-awareness caveat (mirroring box-value-type), not assert an
         // unconditional allocation.
-        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var op = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingLambda)
             && o.Shape == "capturing-delegate"));
         Assert.NotNull(op.Caveat);
@@ -1066,27 +1066,27 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.StaticMethodGroup))]
     public void OptimizationOpportunities_NonCapturingDelegate_NotReported(string methodName)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // Non-capturing lambdas and static method groups are cached by the compiler, so they
         // are not a high-value allocation signal and no delegate row is emitted for them.
-        Assert.Empty(DelegateShapes(index, methodName));
+        Assert.Empty(DelegateShapes(index.CompatibilityIndex(), methodName));
     }
 
     [Fact]
     public void OptimizationOpportunities_CachedInstanceMethodGroup_NotReported()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A cached stable-receiver method group still uses ldftn/newobj on cache miss, but the
         // surrounding ldsfld/dup/brtrue/stsfld pattern means it is not a per-call allocation.
-        Assert.Empty(DelegateShapes(index, nameof(OptimizationOpportunityFixtures.CachedInstanceMethodGroup)));
+        Assert.Empty(DelegateShapes(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.CachedInstanceMethodGroup)));
     }
 
     [Fact]
     public void OptimizationOpportunities_StackGuardFallbackDelegate_IsCold()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         foreach (var methodName in new[]
         {
@@ -1094,7 +1094,7 @@ public partial class LibraryBodyIndexTests
             nameof(OptimizationOpportunityFixtures.StackGuardFallbackStoredInvertedCondition),
         })
         {
-            var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            var op = Assert.Single(index.Optimization.Opportunities.Where(o =>
                 o.Method.Name == methodName
                 && o.Shape == "instance-method-group-delegate"));
             Assert.Equal("low", op.Confidence);
@@ -1107,9 +1107,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_ConstructorDelegate_IsAmortizedSetup()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var op = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.DeclaringType.Name.EndsWith("+AmortizedConstructorFixture", StringComparison.Ordinal)
             && o.Method.Name == ".ctor"
             && o.Shape == "capturing-delegate"));
@@ -1124,9 +1124,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_ConstructorCalledInLoop_RemainsHigh()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var op = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.DeclaringType.Name.EndsWith("+HotConstructorFixture", StringComparison.Ordinal)
             && o.Method.Name == ".ctor"
             && o.Shape == "capturing-delegate"));
@@ -1139,9 +1139,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_OrdinaryLoopDelegate_RemainsHigh()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var op = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.CapturingDelegateInLoop)
             && o.Shape == "capturing-delegate"));
 
@@ -1155,40 +1155,40 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.VirtualInstanceMethodGroup))]
     public void OptimizationOpportunities_InstanceMethodGroup_IsInstanceMethodGroupDelegate(string methodName)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // An instance method group binds a runtime receiver and is never compiler-cached, so
         // it allocates a delegate per call -> a single instance-method-group-delegate row.
-        var shape = Assert.Single(DelegateShapes(index, methodName));
+        var shape = Assert.Single(DelegateShapes(index.CompatibilityIndex(), methodName));
         Assert.Equal("instance-method-group-delegate", shape);
     }
 
     [Fact]
     public void OptimizationOpportunities_ConcurrentDictionaryInstanceFactory_IsCacheLookupDelegate()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var op = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.ConcurrentDictionaryInstanceFactory)
             && o.Shape == "cache-lookup-factory-delegate"));
         Assert.Equal("high", op.Confidence);
         Assert.Contains("cache hits", op.SafeFixDirection, StringComparison.Ordinal);
 
-        Assert.Contains(index.OptimizationOpportunities, o =>
+        Assert.Contains(index.Optimization.Opportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.ConcurrentDictionaryStableGetterFactory)
             && o.Shape == "cache-lookup-factory-delegate");
 
-        var lookalike = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var lookalike = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.UserGetOrAddInstanceFactory)
             && o.Shape == "instance-method-group-delegate"));
         Assert.DoesNotContain("ConcurrentDictionary", lookalike.Evidence, StringComparison.Ordinal);
 
-        var freshReceiver = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var freshReceiver = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.ConcurrentDictionaryFreshReceiverFactory)
             && o.Shape == "instance-method-group-delegate"));
         Assert.DoesNotContain("cache hits", freshReceiver.SafeFixDirection, StringComparison.Ordinal);
 
-        var virtualReceiver = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var virtualReceiver = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.ConcurrentDictionaryVirtualGetterFactory)
             && o.Shape == "instance-method-group-delegate"));
         Assert.DoesNotContain("cache hits", virtualReceiver.SafeFixDirection, StringComparison.Ordinal);
@@ -1262,18 +1262,18 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_UserDisplayClassName_IsInstanceMethodGroupDelegate()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var shape = Assert.Single(DelegateShapes(index, nameof(OptimizationOpportunityFixtures.UserTypeNameContainsDisplayClass)));
+        var shape = Assert.Single(DelegateShapes(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.UserTypeNameContainsDisplayClass)));
         Assert.Equal("instance-method-group-delegate", shape);
     }
 
     [Fact]
     public void OptimizationOpportunities_GenericCachedLambda_NotReported()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures.GenericOptimizationOpportunityFixtures<>).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures.GenericOptimizationOpportunityFixtures<>).Assembly.Location);
 
-        Assert.Empty(index.OptimizationOpportunities
+        Assert.Empty(index.Optimization.Opportunities
             .Where(o => o.Method.DeclaringType.Name.EndsWith("+GenericOptimizationOpportunityFixtures`1", StringComparison.Ordinal)
                 && o.Method.Name == nameof(OptimizationOpportunityFixtures.GenericOptimizationOpportunityFixtures<int>.NonCapturingLambda)
                 && o.Shape is "delegate-allocation" or "capturing-delegate" or "instance-method-group-delegate"));
@@ -1282,16 +1282,16 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_CarryContainingMethodRootReach()
     {
-        var index = LibraryBodyIndex.Open(typeof(OpportunityLeverageFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OpportunityLeverageFixtures).Assembly.Location);
 
         // Root1/Root2 both reach Allocator, so its small-array opportunity should carry the
         // method's Root Reach of 2 (the leverage join), matching the Top Leverage ranking.
         var expected = Assert.Single(
-            index.TopLeverage(int.MaxValue, m => m.DeclaringType.Name == nameof(OpportunityLeverageFixtures))
+            index.Leverage.Top(int.MaxValue, m => m.DeclaringType.Name == nameof(OpportunityLeverageFixtures))
                 .Where(e => e.Method.Name == nameof(OpportunityLeverageFixtures.Allocator)));
         Assert.Equal(2, expected.RootReach);
 
-        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(o =>
+        var opportunity = Assert.Single(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OpportunityLeverageFixtures.Allocator) && o.Shape == "small-array"));
         Assert.Equal(2, opportunity.RootReach);
     }
@@ -1299,11 +1299,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_SuppressesGeneratedActionableRecordMembers()
     {
-        var index = LibraryBodyIndex.Open(typeof(OpportunityRecordFixture).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OpportunityRecordFixture).Assembly.Location);
 
         // Record synthesized members (e.g. get_EqualityContract) are [CompilerGenerated],
         // so actionable opportunities are excluded. Exact diagnostic censuses remain visible.
-        Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, opportunity =>
             opportunity.Shape
                 != AnalysisFindings.StringMaterializationShape
             && opportunity.Method.DeclaringType.Name
@@ -1313,11 +1313,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_ForeachInterfaceInLoop_IsEnumeratorAllocation()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // foreach over an interface-typed sequence inside a loop allocates a reference-type
         // enumerator each outer iteration.
-        var row = Assert.Single(EnumeratorRows(index, nameof(OptimizationOpportunityFixtures.ForeachInterfaceInLoop)));
+        var row = Assert.Single(EnumeratorRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.ForeachInterfaceInLoop)));
         Assert.Equal("medium", row.Confidence);
         Assert.True(row.InLoop);
     }
@@ -1325,41 +1325,41 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_ForeachInterfaceOnce_IsNotEnumeratorAllocation()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A one-shot foreach (not in a loop) allocates one enumerator -> not flagged (the
         // non-loop tier was measured to be essentially all noise).
-        Assert.Empty(EnumeratorRows(index, nameof(OptimizationOpportunityFixtures.ForeachInterfaceOnce)));
+        Assert.Empty(EnumeratorRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.ForeachInterfaceOnce)));
     }
 
     [Fact]
     public void OptimizationOpportunities_ForeachConcreteListInLoop_IsNotEnumeratorAllocation()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // foreach over a concrete List<T> uses a struct enumerator (returns by value): no heap
         // allocation, so it must not be flagged even inside a loop.
-        Assert.Empty(EnumeratorRows(index, nameof(OptimizationOpportunityFixtures.ForeachConcreteListInLoop)));
+        Assert.Empty(EnumeratorRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.ForeachConcreteListInLoop)));
     }
 
     [Fact]
     public void OptimizationOpportunities_ForeachLookalikeEnumeratorInLoop_IsNotEnumeratorAllocation()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // foreach binding to a GetEnumerator that returns an untrusted IEnumerator lookalike (a
         // user type reusing the framework namespace + name) must not be flagged: the enumerator
         // identity is trust-gated (#1708), so only the real framework IEnumerator counts.
-        Assert.Empty(EnumeratorRows(index, nameof(OptimizationOpportunityFixtures.ForeachLookalikeEnumeratorInLoop)));
+        Assert.Empty(EnumeratorRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.ForeachLookalikeEnumeratorInLoop)));
     }
 
     [Fact]
     public void OptimizationOpportunities_StringAppendInLoop_IsHighStringBuild()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // `s += x` inside a loop is the O(n^2) growing-accumulator anti-pattern.
-        var row = Assert.Single(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.AppendsStringInLoop)));
+        var row = Assert.Single(StringBuildRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.AppendsStringInLoop)));
         Assert.Equal("high", row.Confidence);
         Assert.True(row.InLoop);
         Assert.Contains("StringBuilder", row.SafeFixDirection);
@@ -1368,95 +1368,95 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_StringAppendOfPropertyInLoop_IsHighStringBuild()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // An intervening sub-expression call (indexer / property get) between the accumulator
         // load and the Concat must not hide the self-accumulation.
-        Assert.Single(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.AppendsStringPropertyInLoop)));
+        Assert.Single(StringBuildRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.AppendsStringPropertyInLoop)));
     }
 
     [Fact]
     public void OptimizationOpportunities_StringAppendToParameterInLoop_IsHighStringBuild()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // Accumulation into a parameter slot is the same shape as into a local.
-        Assert.Single(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.AppendsToParameterInLoop)));
+        Assert.Single(StringBuildRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.AppendsToParameterInLoop)));
     }
 
     [Fact]
     public void OptimizationOpportunities_ConcatIntoListInLoop_IsNotStringBuild()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A per-iteration string added to a list is not accumulation -> no StringBuilder fix.
-        Assert.Empty(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.ConcatsIntoListInLoop)));
+        Assert.Empty(StringBuildRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.ConcatsIntoListInLoop)));
     }
 
     [Fact]
     public void OptimizationOpportunities_ReturnConcatInLoop_IsNotStringBuild()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A one-time concat on a return path inside a loop is not a repeated copy.
-        Assert.Empty(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.ReturnsConcatInLoop)));
+        Assert.Empty(StringBuildRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.ReturnsConcatInLoop)));
     }
 
     [Fact]
     public void OptimizationOpportunities_StringAppendOutsideLoop_IsNotStringBuild()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // `s += x` outside any loop allocates once -> not the StringBuilder anti-pattern.
-        Assert.Empty(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.AppendsStringOnce)));
+        Assert.Empty(StringBuildRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.AppendsStringOnce)));
     }
 
     [Fact]
     public void OptimizationOpportunities_PrependStringInLoop_IsHighStringBuild()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // The accumulator as the LAST concat argument (`s = x + sep + s`) is still O(n^2).
-        Assert.Single(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.PrependsStringInLoop)));
+        Assert.Single(StringBuildRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.PrependsStringInLoop)));
     }
 
     [Fact]
     public void OptimizationOpportunities_ReassignUnrelatedSlotInLoop_IsNotStringBuild()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // `Foo(s); s = a + b;` — `s` is loaded only for the unrelated call, not as a concat
         // argument. The stack-aware check must not misread this as accumulation.
-        Assert.Empty(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.ReassignsUnrelatedSlotInLoop)));
+        Assert.Empty(StringBuildRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.ReassignsUnrelatedSlotInLoop)));
     }
 
     [Fact]
     public void OptimizationOpportunities_DerivedAccumulatorInLoop_IsNotStringBuild()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // The accumulator flows through `s.Trim()` before the concat -> conservatively not
         // matched (the bare-load bit does not survive the intermediate call).
-        Assert.Empty(StringBuildRows(index, nameof(OptimizationOpportunityFixtures.DerivedAccumulatorInLoop)));
+        Assert.Empty(StringBuildRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.DerivedAccumulatorInLoop)));
     }
 
     [Fact]
     public void OptimizationOpportunities_AllocationDenseNonLoopMethod_IsNotHotspot()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A dense but NON-loop method is usually intrinsic one-shot construction, not
         // reducible repeated waste -> no hotspot row (avoids flooding allocation-heavy code).
-        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyObjects)));
+        Assert.Empty(HotspotRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.AllocatesManyObjects)));
     }
 
     [Fact]
     public void OptimizationOpportunities_AllocationDenseLoop_IsMediumHotspot()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // Dense allocation inside a loop, matching no specific shape -> a medium hotspot.
-        var row = Assert.Single(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop)));
+        var row = Assert.Single(HotspotRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop)));
         Assert.Equal("medium", row.Confidence);
         Assert.True(row.InLoop);
         Assert.Contains("in a loop", row.Evidence);
@@ -1465,24 +1465,24 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_AllocationDenseLoopWithSpecificShape_IsDeduped()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // The method is dense-in-loop but already has a specific (capturing-delegate) row, so
         // the vague aggregate hotspot row is deduped away.
-        Assert.NotEmpty(index.OptimizationOpportunities.Where(o =>
+        Assert.NotEmpty(index.Optimization.Opportunities.Where(o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.AllocatesDenselyInLoopWithDelegate)
             && o.Shape == "capturing-delegate"));
-        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesDenselyInLoopWithDelegate)));
+        Assert.Empty(HotspotRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.AllocatesDenselyInLoopWithDelegate)));
     }
 
     [Fact]
     public void OptimizationOpportunities_ValueTypeConstructionInLoop_IsNotHotspot()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A loop densely constructing VALUE types (Nullable + an in-assembly struct) clears the
         // >= 16 newobj count but allocates nothing on the heap -> must not be a hotspot.
-        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ConstructsManyValueTypesInLoop)));
+        Assert.Empty(HotspotRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.ConstructsManyValueTypesInLoop)));
     }
 
     // #1804 / rung 7 cross-assembly shape honesty: the allocation signal must classify a
@@ -1491,27 +1491,27 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape()
     {
-        var index = LibraryBodyIndex.Open(typeof(CrossAsmShapeConsumer).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(CrossAsmShapeConsumer).Assembly.Location);
 
         // Case 1 (in-assembly struct): resolvable from this assembly's metadata -> not heap.
-        Assert.Equal(0, AllocationsOf(index, nameof(CrossAsmShapeConsumer.ConstructsInAssemblyStructInLoop)));
+        Assert.Equal(0, AllocationsOf(index.CompatibilityIndex(), nameof(CrossAsmShapeConsumer.ConstructsInAssemblyStructInLoop)));
 
         // Case 2 (cross-assembly GENERIC struct): the consumer's own TypeSpec signature blob
         // encodes VALUETYPE, so the `newobj` is resolved as non-heap even though the defining
         // assembly is not loaded.
-        Assert.Equal(0, AllocationsOf(index, nameof(CrossAsmShapeConsumer.ConstructsCrossGenericStructInLoop)));
+        Assert.Equal(0, AllocationsOf(index.CompatibilityIndex(), nameof(CrossAsmShapeConsumer.ConstructsCrossGenericStructInLoop)));
 
         // A cross-assembly REFERENCE type's `newobj` is a real heap allocation (recall kept).
-        Assert.True(AllocationsOf(index, nameof(CrossAsmShapeConsumer.ConstructsCrossRefTypeInLoop)) >= 1);
+        Assert.True(AllocationsOf(index.CompatibilityIndex(), nameof(CrossAsmShapeConsumer.ConstructsCrossRefTypeInLoop)) >= 1);
 
         // A cross-assembly enum cast/use allocates nothing.
-        Assert.Equal(0, AllocationsOf(index, nameof(CrossAsmShapeConsumer.UsesCrossEnum)));
+        Assert.Equal(0, AllocationsOf(index.CompatibilityIndex(), nameof(CrossAsmShapeConsumer.UsesCrossEnum)));
     }
 
     [Fact]
     public void Allocations_CrossAssemblyNonGenericStructNewobj_IsOwnedFalsePositive()
     {
-        var index = LibraryBodyIndex.Open(typeof(CrossAsmShapeConsumer).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(CrossAsmShapeConsumer).Assembly.Location);
 
         // #1804 / rung 7 owned boundary. A cross-assembly NON-generic user struct is a bare
         // TypeRef whose value-type-ness cannot be proven without loading the referenced
@@ -1519,42 +1519,42 @@ public partial class LibraryBodyIndexTests
         // as a heap allocation -- a deliberately-owned false positive, pinned here so the
         // boundary is explicit rather than silent. If referenced-assembly shape resolution is
         // ever added, this assertion flips to 0.
-        Assert.True(AllocationsOf(index, nameof(CrossAsmShapeConsumer.ConstructsCrossNonGenericStructInLoop)) >= 1);
+        Assert.True(AllocationsOf(index.CompatibilityIndex(), nameof(CrossAsmShapeConsumer.ConstructsCrossNonGenericStructInLoop)) >= 1);
     }
 
     [Fact]
     public void OptimizationOpportunities_LowAllocationMethod_IsNotHotspot()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A method below the allocation threshold does not produce a hotspot row (avoids noise).
-        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)));
+        Assert.Empty(HotspotRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)));
     }
 
     [Fact]
     public void OptimizationOpportunities_ManyExceptionArms_IsNotHotspot()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // Exception construction only allocates on throw paths, so a method that is mostly
         // `throw new ...` arms is not steady-state allocation pay-dirt and must not be a hotspot.
-        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ManyThrowArms)));
+        Assert.Empty(HotspotRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.ManyThrowArms)));
     }
 
     [Fact]
     public void OptimizationOpportunities_PseudoExceptionAllocationsInLoop_AreAllocationHotspot()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
 
         // Pseudo-exceptions (non-Exception types named like exceptions) are real steady-state
         // allocations and must not be excluded as exception construction.
-        var method = Assert.Single(index.Methods.Where(m =>
+        var method = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(OptimizationOpportunityFixtures.AllocatesManyPseudoExceptionsInLoop)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.True(s.Allocations >= 16, $"expected >= 16 allocations, got {s.Allocations}");
 
-        var row = Assert.Single(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyPseudoExceptionsInLoop)));
+        var row = Assert.Single(HotspotRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.AllocatesManyPseudoExceptionsInLoop)));
         Assert.Equal("medium", row.Confidence);
         Assert.True(row.InLoop);
     }
@@ -1562,36 +1562,36 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_PlainObjectAllocationsNonLoop_AreNotHotspot()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
 
         // Plain custom objects are counted as allocations (not excluded), but a non-loop
         // dense method is no longer flagged as a hotspot.
-        var method = Assert.Single(index.Methods.Where(m =>
+        var method = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(OptimizationOpportunityFixtures.AllocatesManyPlainObjects)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.True(s.Allocations >= 8, $"expected >= 8 allocations, got {s.Allocations}");
 
-        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesManyPlainObjects)));
+        Assert.Empty(HotspotRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.AllocatesManyPlainObjects)));
     }
 
     [Fact]
     public void OptimizationOpportunities_CustomExceptionThrowArms_AreNotHotspot()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ManyCustomThrowArms)));
-        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ManyDerivedCustomThrowArms)));
-        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.ManyCrossAssemblyCustomThrowArms)));
+        Assert.Empty(HotspotRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.ManyCustomThrowArms)));
+        Assert.Empty(HotspotRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.ManyDerivedCustomThrowArms)));
+        Assert.Empty(HotspotRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.ManyCrossAssemblyCustomThrowArms)));
     }
 
     [Fact]
     public void OptimizationOpportunities_BoxIntoObjectApi_IsBoxValueType()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // Passing an int to an object-typed API boxes it -> a real heap allocation.
-        var row = Assert.Single(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)));
+        var row = Assert.Single(BoxRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)));
         Assert.Equal("medium", row.Confidence);
         Assert.False(row.InLoop);
     }
@@ -1599,11 +1599,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_BoxFeedingThrow_IsNotBoxValueType()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A value boxed into an exception message that is thrown is an error-path allocation,
         // not steady-state pay-dirt, so it is suppressed (not just demoted off the loop bit).
-        Assert.Empty(BoxRows(index, nameof(OptimizationOpportunityFixtures.ThrowsWithBoxedValue)));
+        Assert.Empty(BoxRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.ThrowsWithBoxedValue)));
     }
 
     [Theory]
@@ -1615,9 +1615,9 @@ public partial class LibraryBodyIndexTests
         // only via IsWellKnownValueType's curated set, since the SRM-direct product cannot
         // resolve the external type definition. Recall the curated external value types so
         // dropping one is not silent.
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var row = Assert.Single(BoxRows(index, methodName));
+        var row = Assert.Single(BoxRows(index.CompatibilityIndex(), methodName));
         Assert.Equal("medium", row.Confidence);
         Assert.False(row.InLoop);
     }
@@ -1625,10 +1625,10 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_BoxInLoop_IsHighConfidence()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // Boxing inside a loop is repeated cost -> promoted to high confidence.
-        var row = Assert.Single(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesInLoop)));
+        var row = Assert.Single(BoxRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.BoxesInLoop)));
         Assert.Equal("high", row.Confidence);
         Assert.True(row.InLoop);
     }
@@ -1636,12 +1636,12 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void MethodSignals_Allocations_CountBoxing()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
 
         // A method that boxes a value type but performs no newobj/newarr must still report a
         // heap allocation in its signals (box allocates, like newobj/newarr).
-        var method = Assert.Single(index.Methods.Where(m =>
+        var method = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.True(s.Allocations >= 1, $"expected boxing to count as an allocation, got {s.Allocations}");
@@ -1650,11 +1650,11 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void MethodSignals_Allocations_AreDerivedFromAllocationOccurrences()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
-        var occurrences = index.GetAllocationOccurrences();
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
+        var occurrences = index.Allocations.Occurrences;
 
-        var method = Assert.Single(index.Methods.Where(m =>
+        var method = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(OptimizationOpportunityFixtures.BoxesIntoStringFormat)));
         var methodOccurrences = Assert.Contains(method.MetadataToken, occurrences);
         Assert.True(signals.TryGetValue(method.MetadataToken, out var signal));
@@ -1670,9 +1670,9 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.UserSubstringLookalike))]
     public void MethodSignals_UserCopyNameLookalikes_DoNotCountCopies(string methodName)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
-        var method = Assert.Single(index.Methods.Where(m => m.Name == methodName));
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
+        var method = Assert.Single(index.CallGraph.Methods.Where(m => m.Name == methodName));
 
         int copies = signals.TryGetValue(method.MetadataToken, out var s) ? s.Copies : 0;
         Assert.Equal(0, copies);
@@ -1693,9 +1693,9 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(OptimizationOpportunityFixtures.RangeSubArrayCopy))]
     public void MethodSignals_FrameworkCopyApis_CountCopies(string methodName)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
-        var method = Assert.Single(index.Methods.Where(m => m.Name == methodName));
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
+        var method = Assert.Single(index.CallGraph.Methods.Where(m => m.Name == methodName));
 
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s), $"expected copy signal for {methodName}");
         Assert.True(s.Copies >= 1, $"expected at least one copy for {methodName}, got {s.Copies}");
@@ -1711,9 +1711,9 @@ public partial class LibraryBodyIndexTests
     [InlineData(nameof(ReflectionRecallFixtures.CallsTypeMemberSet), 4)]
     public void MethodSignals_ReflectionApis_CountReflection(string methodName, int expected)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
-        var method = Assert.Single(index.Methods.Where(m => m.Name == methodName));
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
+        var method = Assert.Single(index.CallGraph.Methods.Where(m => m.Name == methodName));
 
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s), $"expected reflection signal for {methodName}");
         Assert.True(s.Reflection >= expected, $"expected >= {expected} reflection for {methodName}, got {s.Reflection}");
@@ -1722,21 +1722,21 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void MethodSignals_ReflectionDoesNotDependOnAllocationFeature()
     {
-        string path = typeof(LibraryBodyIndex).Assembly.Location;
-        var compact = LibraryBodyIndex.Open(
+        string path = typeof(LibraryBodyAnalysisExecution).Assembly.Location;
+        var compact = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence);
-        var classified = LibraryBodyIndex.Open(
+        var classified = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.Allocations);
         IReadOnlyDictionary<int, MethodSignals> compactSignals =
-            compact.GetMethodSignals();
+            compact.CallGraph.MethodSignals;
         IReadOnlyDictionary<int, MethodSignals> classifiedSignals =
-            classified.GetMethodSignals();
+            classified.CallGraph.MethodSignals;
 
         Assert.All(
-            classified.Methods,
+            classified.CallGraph.Methods,
             method => Assert.Equal(
                 classifiedSignals
                     .GetValueOrDefault(method.MetadataToken)
@@ -1756,21 +1756,21 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void Rung3_SignalRecall_DetectsEverySeededSignalFamily()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
 
         MethodSignals Signal(string method)
         {
-            var m = Assert.Single(index.Methods.Where(x => x.Name == method));
+            var m = Assert.Single(index.CallGraph.Methods.Where(x => x.Name == method));
             Assert.True(signals.TryGetValue(m.MetadataToken, out var s), $"no signals computed for {method}");
             return s!;
         }
 
         bool HasOpportunity(string method, string shape)
-            => index.OptimizationOpportunities.Any(o => o.Method.Name == method && o.Shape == shape);
+            => index.Optimization.Opportunities.Any(o => o.Method.Name == method && o.Shape == shape);
 
         bool HasUnsafe(string method)
-            => index.UnsafeEvidence.Any(e => e.Member.Name == method);
+            => index.Safety.Evidence.Any(e => e.Member.Name == method);
 
         // --- MethodSignals families ---
         Assert.True(Signal(nameof(CallTreeFixtures.AllocatesAndCopies)).Allocations >= 2, "object allocation (newobj)");
@@ -1799,7 +1799,7 @@ public partial class LibraryBodyIndexTests
         Assert.True(HasOpportunity(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), "box-value-type"), "box: external well-known value type (Guid)");
 
         // A dense in-loop allocation hotspot (matching no specific shape) is recalled at medium.
-        Assert.Contains(index.OptimizationOpportunities, o =>
+        Assert.Contains(index.Optimization.Opportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop)
             && o.Shape == "allocation-hotspot" && o.InLoop && o.Confidence == "medium");
     }
@@ -1807,10 +1807,10 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void MethodSignals_AllocInLoop_TrueForLoopAllocation()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
 
-        var method = Assert.Single(index.Methods.Where(m =>
+        var method = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.True(s.AllocInLoop);
@@ -1819,10 +1819,10 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void MethodSignals_AllocInLoop_FalseForOneTimeAllocation()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
 
-        var method = Assert.Single(index.Methods.Where(m =>
+        var method = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(OptimizationOpportunityFixtures.AllocatesManyObjects)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.False(s.AllocInLoop);
@@ -1831,44 +1831,44 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void MethodSignals_AllocInLoop_TrueBelowHotspotThreshold_WithoutOpportunity()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
 
         // The key fidelity case: a single allocation in a loop is hot, but below the
         // hotspot threshold and matching no shape, so it surfaces no opportunity. The
         // loop bit must still be set (it is not gated on the opportunity machinery).
-        var method = Assert.Single(index.Methods.Where(m =>
+        var method = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.True(s.AllocInLoop);
-        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop)));
+        Assert.Empty(HotspotRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.AllocatesOnceInLoop)));
     }
 
     [Fact]
     public void MethodSignals_AllocInLoop_TrueForInAssemblyPseudoExceptionLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
 
         // #1607: a same-assembly type whose name ends with Exception is not an
         // exception unless the metadata base chain proves it derives from System.Exception.
-        var method = Assert.Single(index.Methods.Where(m =>
+        var method = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(OptimizationOpportunityFixtures.AllocatesPseudoExceptionOnceInLoop)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.True(s.AllocInLoop);
         Assert.DoesNotContain(nameof(PseudoException), s.ExceptionTypes);
-        Assert.Empty(HotspotRows(index, nameof(OptimizationOpportunityFixtures.AllocatesPseudoExceptionOnceInLoop)));
+        Assert.Empty(HotspotRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.AllocatesPseudoExceptionOnceInLoop)));
     }
 
     [Fact]
     public void MethodSignals_AllocInLoop_FalseForExceptionConstructionInLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
 
         // Exception construction inside a loop only allocates on the throw path, so the
         // hot-allocation bit must exclude it.
-        var method = Assert.Single(index.Methods.Where(m =>
+        var method = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(OptimizationOpportunityFixtures.ThrowsInLoop)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.False(s.AllocInLoop);
@@ -1877,10 +1877,10 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void MethodSignals_AllocInLoop_FalseForInitializedExceptionConstructionInLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
 
-        var method = Assert.Single(index.Methods.Where(m =>
+        var method = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(OptimizationOpportunityFixtures.ThrowsInitializedExceptionInLoop)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.False(s.AllocInLoop);
@@ -1889,10 +1889,10 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void MethodSignals_AllocInLoop_FalseForConditionalExceptionConstructionInLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
 
-        var method = Assert.Single(index.Methods.Where(m =>
+        var method = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(OptimizationOpportunityFixtures.ThrowsConditionalExceptionInLoop)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.False(s.AllocInLoop);
@@ -1901,12 +1901,12 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void MethodSignals_AllocInLoop_TrueForRetainedExceptionInLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
-        var signals = index.GetMethodSignals();
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var signals = index.CallGraph.MethodSignals;
 
         // A real exception retained (stored) per iteration is a steady-state hot
         // allocation, distinct from throw-path construction, so the loop bit is set (#1610).
-        var method = Assert.Single(index.Methods.Where(m =>
+        var method = Assert.Single(index.CallGraph.Methods.Where(m =>
             m.Name == nameof(OptimizationOpportunityFixtures.RetainsExceptionsInLoop)));
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.True(s.AllocInLoop);
@@ -1915,30 +1915,30 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_BoxOnThrowPathInLoop_IsSuppressed()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A box that feeds an exception message only allocates on the throw path, so it is not
         // steady-state pay-dirt even inside a loop -> suppressed entirely (the throw-probe now
         // gates emission, not just the loop bit).
-        Assert.Empty(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesIntoThrowMessage)));
+        Assert.Empty(BoxRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.BoxesIntoThrowMessage)));
     }
 
     [Fact]
     public void OptimizationOpportunities_GenericParameterBox_NotReported()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // `box !!T` is compiler-mandated and JIT-specialized; not a user-actionable allocation.
-        Assert.Empty(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesGenericParameter)));
+        Assert.Empty(BoxRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.BoxesGenericParameter)));
     }
 
     [Fact]
     public void OptimizationOpportunities_GenericObjectEqualsBox_IsReported()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         var row = Assert.Single(GenericObjectBoxRows(
-            index,
+            index.CompatibilityIndex(),
             nameof(OptimizationOpportunityFixtures.GenericObjectEquals)));
         Assert.Equal("medium", row.Confidence);
         Assert.Contains("value-type instantiations", row.Caveat);
@@ -1960,49 +1960,49 @@ public partial class LibraryBodyIndexTests
     public void OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported(
         string methodName)
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        Assert.Empty(GenericObjectBoxRows(index, methodName));
+        Assert.Empty(GenericObjectBoxRows(index.CompatibilityIndex(), methodName));
     }
 
     [Fact]
     public void OptimizationOpportunities_NullableBox_NotReported()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // `box Nullable<T>` pushes null (no allocation) when the value is absent, so it is
         // conservatively not reported.
-        Assert.Empty(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesNullable)));
+        Assert.Empty(BoxRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.BoxesNullable)));
     }
 
     [Fact]
     public void OptimizationOpportunities_InAssemblyStructBox_IsBoxValueType()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A non-generic in-assembly struct is positively identified as a value type via its
         // System.ValueType base, so boxing it into an object-typed API is reported.
-        Assert.Single(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesInAssemblyStruct)));
+        Assert.Single(BoxRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.BoxesInAssemblyStruct)));
     }
 
     [Fact]
     public void OptimizationOpportunities_GenericStructBox_IsBoxValueType()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // A constructed generic struct boxes via a TypeSpec; value-type-ness is read from the
         // signature blob, so it is reported (not missed for lacking a well-known name).
-        Assert.Single(BoxRows(index, nameof(OptimizationOpportunityFixtures.BoxesGenericStruct)));
+        Assert.Single(BoxRows(index.CompatibilityIndex(), nameof(OptimizationOpportunityFixtures.BoxesGenericStruct)));
     }
 
     [Fact]
     public void OptimizationOpportunities_BitConverterGetBytes_IsTemporaryByteArrayCopy()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         // BitConverter.GetBytes allocates a transient byte[] that is usually replaceable by
         // BinaryPrimitives.Write* / a stackalloc span.
-        Assert.Contains(index.OptimizationOpportunities, o =>
+        Assert.Contains(index.Optimization.Opportunities, o =>
             o.Method.Name == nameof(OptimizationOpportunityFixtures.FirstValueByte)
             && o.Shape == "temporary-byte-array-copy");
     }
@@ -2010,20 +2010,20 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void FrameworkApiPredicates_AcceptRealFrameworkApis()
     {
-        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
-        var signals = index.GetMethodSignals();
-        var reflects = Assert.Single(index.Methods.Where(method =>
+        var signals = index.CallGraph.MethodSignals;
+        var reflects = Assert.Single(index.CallGraph.Methods.Where(method =>
             method.Name == nameof(CallTreeFixtures.Reflects)));
         Assert.True(signals.TryGetValue(reflects.MetadataToken, out var reflectSignals));
         Assert.Equal(2, reflectSignals.Reflection);
 
-        Assert.Contains(index.UnsafeEvidence, evidence =>
+        Assert.Contains(index.Safety.Evidence, evidence =>
             evidence.Member.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs)
             && evidence.Reason == "Unsafe call"
             && evidence.Detail.Contains("System.Runtime.CompilerServices.Unsafe.As<int, uint>", StringComparison.Ordinal));
 
-        Assert.Contains(index.OptimizationOpportunities, opportunity =>
+        Assert.Contains(index.Optimization.Opportunities, opportunity =>
             opportunity.Method.Name == nameof(OptimizationOpportunityFixtures.FirstValueByte)
             && opportunity.Shape == "temporary-byte-array-copy");
     }
@@ -2031,19 +2031,19 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void FrameworkApiPredicates_IgnoreUserDefinedLookalikes()
     {
-        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisLookalike.AssemblyPath());
-        var signals = index.GetMethodSignals();
+        var index = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisLookalike.AssemblyPath());
+        var signals = index.CallGraph.MethodSignals;
 
-        var fakeReflection = Assert.Single(index.Methods.Where(method =>
+        var fakeReflection = Assert.Single(index.CallGraph.Methods.Where(method =>
             method.Name == "CallsFakeReflection"));
         signals.TryGetValue(fakeReflection.MetadataToken, out var fakeReflectionSignals);
         Assert.Equal(0, fakeReflectionSignals?.Reflection ?? 0);
 
-        Assert.DoesNotContain(index.UnsafeEvidence, evidence =>
+        Assert.DoesNotContain(index.Safety.Evidence, evidence =>
             evidence.Member.Name == "CallsFakeUnsafe"
             && evidence.Reason == "Unsafe call");
 
-        Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, opportunity =>
             opportunity.Method.Name == "CallsFakeBitConverter"
             && opportunity.Shape == "temporary-byte-array-copy");
     }
@@ -2056,9 +2056,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void MethodSignals_CopyApis_RejectSimpleNameSpoofWithoutFrameworkKey()
     {
-        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisSpoofSystemLinq.AssemblyPath());
-        var signals = index.GetMethodSignals();
-        var method = Assert.Single(index.Methods.Where(m => m.Name == "CallsFakeEnumerableToArray"));
+        var index = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisSpoofSystemLinq.AssemblyPath());
+        var signals = index.CallGraph.MethodSignals;
+        var method = Assert.Single(index.CallGraph.Methods.Where(m => m.Name == "CallsFakeEnumerableToArray"));
 
         int copies = signals.TryGetValue(method.MetadataToken, out var s) ? s.Copies : 0;
         Assert.Equal(0, copies);
@@ -2071,9 +2071,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_SpanToArray_RejectSimpleNameSpoofWithoutFrameworkKey()
     {
-        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisSpoofSystemRuntime.AssemblyPath());
+        var index = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisSpoofSystemRuntime.AssemblyPath());
 
-        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+        Assert.DoesNotContain(index.Optimization.Opportunities, o =>
             o.Method.Name == "CallsFakeSpanToArray" && o.Shape == "span-to-array-copy");
     }
     // netstandard facade (assembly canonicalizes to corelib), reproducing the
@@ -2083,9 +2083,9 @@ public partial class LibraryBodyIndexTests
     [InlineData("EnumerableToListCopy")]
     public void MethodSignals_CopyApis_RecognizeLegacyFacadeAssemblies(string methodName)
     {
-        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisFacade.AssemblyPath());
-        var signals = index.GetMethodSignals();
-        var method = Assert.Single(index.Methods.Where(m => m.Name == methodName));
+        var index = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisFacade.AssemblyPath());
+        var signals = index.CallGraph.MethodSignals;
+        var method = Assert.Single(index.CallGraph.Methods.Where(m => m.Name == methodName));
 
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s), $"no signals for {methodName}");
         Assert.True(s.Copies >= 1, $"expected copy on facade assembly for {methodName}, got {s.Copies}");
@@ -2094,9 +2094,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void MethodSignals_Reflection_RecognizesLegacyFacadeExpressions()
     {
-        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisFacade.AssemblyPath());
-        var signals = index.GetMethodSignals();
-        var method = Assert.Single(index.Methods.Where(m => m.Name == "BuildsExpression"));
+        var index = BodyAnalysisTestExecution.Open(FixtureCatalog.AnalysisFacade.AssemblyPath());
+        var signals = index.CallGraph.MethodSignals;
+        var method = Assert.Single(index.CallGraph.Methods.Where(m => m.Name == "BuildsExpression"));
 
         Assert.True(signals.TryGetValue(method.MetadataToken, out var s));
         Assert.True(s.Reflection >= 1, $"expected reflection on facade assembly, got {s.Reflection}");
