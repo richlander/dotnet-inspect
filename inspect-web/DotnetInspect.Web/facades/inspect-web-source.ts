@@ -358,6 +358,12 @@ export interface BrowserMemberSourcePart {
   readonly spans: ReadonlyArray<BrowserMemberSourceSpan>;
 }
 
+export interface BrowserMemberSourceResult {
+  readonly value: BrowserMemberSource | null;
+  readonly error: string | null;
+  readonly diagnostics: ReadonlyArray<BrowserMemberSourceDiagnostic>;
+}
+
 export interface BrowserMemberSourceSpan {
   readonly start: number;
   readonly length: number;
@@ -1170,10 +1176,10 @@ export async function queryMemberFindingCensus(packageId: string, version: strin
   return $parsed as BrowserMemberFindingCensus;
 }
 
-export async function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, documentBaselineOrdinal: number, styleOptionsJson: string): Promise<BrowserMemberSource> {
+export async function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, documentBaselineOrdinal: number, styleOptionsJson: string): Promise<BrowserMemberSourceResult> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberSource.705744207"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, documentBaselineOrdinal, styleOptionsJson);
   const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserMemberSource;
+  return $parsed as BrowserMemberSourceResult;
 }
 
 export async function queryMemberSourceComparison(operationId: string, requestJson: BrowserSourceComparisonRequest): Promise<JsonText<BrowserSourceComparisonResult>> {
@@ -1193,10 +1199,10 @@ export async function queryMethodBodyComparisonTargets(operationId: string, pack
   return $parsed as BrowserMethodBodyTargetsResult;
 }
 
-export async function queryPlatformMemberSource(targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, documentBaselineOrdinal: number, styleOptionsJson: string, contextId: string | null): Promise<BrowserMemberSource> {
+export async function queryPlatformMemberSource(targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, documentBaselineOrdinal: number, styleOptionsJson: string, contextId: string | null): Promise<BrowserMemberSourceResult> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryPlatformMemberSource.279098206"](targetFramework, platformVersion, assemblyName, pack, typeIdentity, memberName, selectorKey, metadataToken, documentBaselineOrdinal, styleOptionsJson, contextId);
   const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserMemberSource;
+  return $parsed as BrowserMemberSourceResult;
 }
 
 export async function queryPlatformTypeSource(operationId: string, targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, styleOptionsJson: string, view: string, contextId: string | null): Promise<BrowserTypeSourceResult> {

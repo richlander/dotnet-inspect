@@ -14,6 +14,7 @@ import {
 import type {
   BrowserMemberSource,
   BrowserMemberSourceDiagnostic,
+  BrowserMemberSourceResult,
   BrowserSource,
   BrowserTypeCodeView,
   BrowserTypeSourceResult,
@@ -67,6 +68,14 @@ function memberSource(text: string): BrowserMemberSource {
         end: text.length,
       }],
     }],
+    diagnostics: [],
+  };
+}
+
+function memberSourceResult(text: string): BrowserMemberSourceResult {
+  return {
+    value: memberSource(text),
+    error: null,
     diagnostics: [],
   };
 }
@@ -131,7 +140,7 @@ function inspectionDependencies(
         createId: () => `source-operation-${nextOperationId++}`,
       },
     }),
-    queryMemberSource: async () => memberSource("member"),
+    queryMemberSource: async () => memberSourceResult("member"),
     queryTypeSource: async () => typeSource("type"),
     queryGraphSource: async () => source("graph"),
     memberSourceHasConcreteOverload: () => true,
@@ -301,7 +310,7 @@ test("canonical commit clears a settled graph source without rendering", () => {
 });
 
 test("member source publishes only for the current member selection", async () => {
-  const query = deferred<BrowserMemberSource>();
+  const query = deferred<BrowserMemberSourceResult>();
   const focusRenders: Array<string | null> = [];
   let current = true;
   const state = inspectionState();
@@ -337,7 +346,7 @@ test("member source publishes only for the current member selection", async () =
     state.memberSource,
     { status: "loading", signature: "member-signature" });
   current = false;
-  query.resolve(memberSource("stale"));
+  query.resolve(memberSourceResult("stale"));
   await load;
 
   assert.deepEqual(state.memberSource, { status: "idle" });
@@ -350,7 +359,7 @@ test("member source reports inspection diagnostics for the current result", asyn
   const coordinator = createSourceInspectionCoordinator(
     inspectionDependencies(state, {
       queryMemberSource: async () => ({
-        ...memberSource("current"),
+        ...memberSourceResult("current"),
         diagnostics: [{
           code: "member-document.library-retirement",
           severity: "Warning",
@@ -387,6 +396,53 @@ test("member source reports inspection diagnostics for the current result", asyn
     summary: "Library retirement failed.",
     correspondence: "Example.Package",
   });
+  assert.equal(state.memberSource.status, "ready");
+});
+
+test("failed member source reports envelope diagnostics without publishing source", async () => {
+  const reported: BrowserMemberSourceDiagnostic[] = [];
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryMemberSource: async () => ({
+        value: null,
+        error: "The Member document source was rejected (TypeNotFound).",
+        diagnostics: [{
+          code: "member-document.library-retirement",
+          severity: "Warning",
+          summary: "Library retirement failed.",
+          correspondence: "Example.Package",
+        }],
+      }),
+      reportMemberSourceDiagnostic: diagnostic => {
+        reported.push(diagnostic);
+        return undefined;
+      },
+    }));
+
+  await coordinator.loadMemberSource({
+    signature: "member-failed",
+    kind: "package",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+    documentBaselineOrdinal: 1,
+    taste: "[]",
+    isCurrent: () => true,
+  });
+
+  assert.equal(state.memberSource.status, "failed");
+  if (state.memberSource.status === "failed")
+    assert.match(state.memberSource.error, /TypeNotFound/);
+  assert.equal(reported.length, 1);
+  assert.equal(
+    reported[0]?.code,
+    "member-document.library-retirement");
 });
 
 test("current member source failures remain visible and restore focus", async () => {
@@ -485,7 +541,7 @@ test("member source caches one authored catalog without another query", async ()
     inspectionDependencies(state, {
       queryMemberSource: async () => {
         queries++;
-        return authored;
+        return { value: authored, error: null, diagnostics: [] };
       },
     }));
   const request = {

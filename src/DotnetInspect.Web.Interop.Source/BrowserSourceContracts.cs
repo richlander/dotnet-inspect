@@ -61,6 +61,27 @@ public sealed record BrowserMemberSource(
     BrowserMemberSourcePart[] Parts,
     BrowserMemberSourceDiagnostic[] Diagnostics);
 
+public sealed record BrowserMemberSourceResult
+{
+    public BrowserMemberSourceResult(
+        BrowserMemberSource? value,
+        string? error,
+        BrowserMemberSourceDiagnostic[] diagnostics)
+    {
+        if ((value is null) == (error is null))
+            throw new ArgumentException(
+                "A Member source result must carry either a source or a failure.");
+        ArgumentNullException.ThrowIfNull(diagnostics);
+        Value = value;
+        Error = error;
+        Diagnostics = diagnostics;
+    }
+
+    public BrowserMemberSource? Value { get; }
+    public string? Error { get; }
+    public BrowserMemberSourceDiagnostic[] Diagnostics { get; }
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserAnnotatedSourceMedium>))]
 public enum BrowserAnnotatedSourceMedium
 {
@@ -1361,6 +1382,7 @@ public sealed record BrowserAnnotatedSource
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserSource))]
 [JsonSerializable(typeof(BrowserMemberSource))]
+[JsonSerializable(typeof(BrowserMemberSourceResult))]
 [JsonSerializable(typeof(BrowserTypeSourceResult))]
 [JsonSerializable(typeof(BrowserTypeSourceEvidenceResult))]
 [JsonSerializable(typeof(BrowserTypeExplorerResult))]

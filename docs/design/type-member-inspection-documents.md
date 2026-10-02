@@ -904,6 +904,13 @@ hosts do not reconstruct it from display signatures, names, or digests.
 Composition validates that the SourceHouse result corresponds to the same
 request and Library assembly identity.
 
+The CLI resolves its API-projected `Name~digest` through the selected API
+Member and passes its Metadata-issued MethodDef token to the document
+selector. The exact detail displays that selected Member's API digest so
+copying it round-trips through the CLI selector; it is not a Metadata
+fingerprint. An explicit `--row` for an exact Member source part still selects
+the single Source Locations row and rejects any other row number.
+
 When a Browser package view is backed by a reference assembly, the host sends
 the Metadata-issued baseline ordinal from that surface population. Web Core
 resolves the corresponding Metadata fingerprint on the surface Library, then
@@ -919,6 +926,9 @@ available Member document into a success-shaped empty attachment.
 The completed inspection envelope remains intact across host adaptation:
 cleanup and other owner-issued diagnostics are projected into the Browser
 source contract and reported through the host diagnostic channel.
+If surface selection or attached source fails, the Browser returns an explicit
+failed source result with the completed envelope diagnostics; it does not
+materialize the implementation after failed surface selection.
 
 Type-level or Member-group source aggregation requires its own focused owner;
 this design does not infer one source document from several declarations or

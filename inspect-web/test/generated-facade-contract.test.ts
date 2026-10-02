@@ -56,7 +56,7 @@ test("source facade separates member parts from flat source", () => {
     + "assemblyName: string, typeIdentity: string, memberName: string, "
     + "selectorKey: string, metadataToken: number, documentBaselineOrdinal: number, "
     + "styleOptionsJson: string): "
-    + "Promise<BrowserMemberSource>;",
+    + "Promise<BrowserMemberSourceResult>;",
   ));
   assert.ok(sourceDeclarations.includes(
     "queryTypeMemberSource(packageId: string, version: string, "

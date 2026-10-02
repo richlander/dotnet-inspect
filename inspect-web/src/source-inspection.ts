@@ -7,6 +7,7 @@ import {
 import type {
   BrowserMemberSource,
   BrowserMemberSourceDiagnostic,
+  BrowserMemberSourceResult,
   BrowserSource,
   BrowserTypeCodeView,
   BrowserTypeSourceResult,
@@ -211,7 +212,7 @@ export interface SourceInspectionState
 export interface SourceInspectionDependencies {
   state: SourceInspectionState;
   operationAuthority: OperationAuthorityPage;
-  queryMemberSource(request: MemberSourceQuery): Promise<BrowserMemberSource>;
+  queryMemberSource(request: MemberSourceQuery): Promise<BrowserMemberSourceResult>;
   queryTypeSource(
     operationId: OperationId,
     request: TypeSourceQuery,
@@ -530,13 +531,24 @@ export function createSourceInspectionCoordinator(
           state.memberSource = { status: "idle" };
           return;
         }
+        for (const diagnostic of result.diagnostics)
+          dependencies.reportMemberSourceDiagnostic(diagnostic);
+        if (result.value === null) {
+          if (result.error === null)
+            throw new Error("Member source result has no source or failure.");
+          state.memberSource = {
+            status: "failed",
+            signature: request.signature,
+            error: result.error,
+          };
+          dependencies.renderPreservingMemberFocus(preservedFocus);
+          return;
+        }
         state.memberSource = {
           status: "ready",
           signature: request.signature,
-          source: result,
+          source: result.value,
         };
-        for (const diagnostic of result.diagnostics)
-          dependencies.reportMemberSourceDiagnostic(diagnostic);
         dependencies.renderPreservingMemberFocus(preservedFocus);
       } catch (error) {
         if (state.memberSource !== pending) return;

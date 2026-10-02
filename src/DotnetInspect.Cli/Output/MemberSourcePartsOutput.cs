@@ -153,6 +153,16 @@ internal static class MemberSourcePartsOutput
         MemberOptions options,
         TextWriter output)
     {
+        if (options.PrintRow is { } row)
+        {
+            int selected = row.Resolve([1]);
+            if (selected != 1)
+            {
+                CommandError.Write($"row {selected} is not in Source Locations.");
+                return 1;
+            }
+        }
+
         if (outcome is not AssemblyMemberSourceEntry.Available
             {
                 Source:

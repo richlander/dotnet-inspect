@@ -70,7 +70,8 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
             selection.TypeIdentity, selection.MemberName, selection.SelectorKey,
             selection.MetadataToken, 0, "[]");
         using var document = JsonDocument.Parse(json);
-        var source = document.RootElement.GetProperty("source");
+        var source = document.RootElement.GetProperty("value")
+            .GetProperty("source");
         Assert.Equal("decompiled", source.GetProperty("provider").GetString());
         Assert.Contains(expected, source.GetProperty("text").GetString());
     }
@@ -88,7 +89,8 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
             selection.TypeIdentity, selection.MemberName, selection.SelectorKey,
             selection.MetadataToken, 0, "[]");
         using var document = JsonDocument.Parse(json);
-        var source = document.RootElement.GetProperty("source");
+        var source = document.RootElement.GetProperty("value")
+            .GetProperty("source");
         Assert.Equal("decompiled", source.GetProperty("provider").GetString());
         string text = source.GetProperty("text").GetString()!;
         Assert.Contains("field + 1", text);

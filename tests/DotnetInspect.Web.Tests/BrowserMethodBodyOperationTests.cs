@@ -128,7 +128,8 @@ public sealed class BrowserMethodBodyOperationTests
 
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement source =
-            document.RootElement.GetProperty("source");
+            document.RootElement.GetProperty("value")
+                .GetProperty("source");
         Assert.Equal(
             "decompiled",
             source.GetProperty("provider").GetString());

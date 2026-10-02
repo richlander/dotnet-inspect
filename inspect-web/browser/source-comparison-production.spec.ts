@@ -370,10 +370,13 @@ test.describe("published authored Source comparison transport", () => {
         const selected = await memberRequest(targetPage, name, version, typeName);
         return targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
-          return source.queryMemberSource(
+          const result = await source.queryMemberSource(
             request.packageId, request.beforeVersion, request.framework,
             request.assembly, request.typeIdentity, request.memberName,
             request.selectorKey, request.metadataToken, 0, "[]");
+          if (result.value === null)
+            throw new Error(result.error ?? "Member source inspection failed.");
+          return result.value;
         }, selected);
       }
 

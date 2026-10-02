@@ -47,6 +47,150 @@ public sealed class BrowserMemberDeclarationTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExtensionEnum";
 
     [Fact]
+    public async Task FailedSurfaceSelectionDoesNotMaterializeImplementation()
+    {
+        const string packageId = "Browser.Member.Surface.Rejection";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                Version,
+                PackagePair(image),
+                fromCache: false));
+        await using BrowserScopeLease<BrowserInspectionScope> lease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                Version,
+                Framework,
+                TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = lease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserWorkspaceParticipant surface = scope.SurfaceParticipant(
+            coordinate,
+            coordinate.CompileAsset(AssemblyFileName));
+        bool implementationStarted = false;
+
+        InspectionEnvelope<MemberDocumentInspectionOutcome> inspection =
+            await BrowserMemberDocumentExecution
+                .ExecuteImplementationSourceAsync(
+                    scope.UseSurfaceParticipant(
+                        surface,
+                        (group, participant) =>
+                            AssemblyContextLibraryAdapter.MaterializeAsync(
+                                group,
+                                participant,
+                                AssemblyContextLibraryRole.ApiOnly,
+                                BrowserExactMemberPolicy
+                                    .MaterializationLimits,
+                                TestContext.Current.CancellationToken)),
+                    () =>
+                    {
+                        implementationStarted = true;
+                        throw new InvalidOperationException(
+                            "Implementation materialization must not start.");
+                    },
+                    new(
+                        BrowserExactMemberPolicy.ParseTypeIdentity(
+                            SpellingType),
+                        "PointerFreeUnsafeMethod"),
+                    surfaceBaselineOrdinal: 999,
+                    new MemberSourceAttachmentRequest(),
+                    (_, _) => throw new InvalidOperationException(
+                        "Source must not run after rejected surface selection."),
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<MemberDocumentInspectionOutcome.Rejected>(
+            inspection.Content);
+        Assert.False(implementationStarted);
+    }
+
+    [Fact]
+    public async Task UnavailableAttachedSourcePreservesInspectionDiagnostics()
+    {
+        const string packageId = "Browser.Member.Unavailable.Source";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                Version,
+                PackagePair(image),
+                fromCache: false));
+        await using BrowserScopeLease<BrowserInspectionScope> lease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                Version,
+                Framework,
+                TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = lease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserWorkspaceParticipant surface = scope.SurfaceParticipant(
+            coordinate,
+            coordinate.CompileAsset(AssemblyFileName));
+        BrowserWorkspaceParticipant implementation =
+            scope.ImplementationParticipant(surface);
+        var plan = new MemberDocumentInspectionPlan(
+            new(
+                BrowserExactMemberPolicy.ParseTypeIdentity(
+                    SpellingType),
+                "PointerFreeUnsafeMethod"),
+            new(baselineOrdinal: 1),
+            BrowserExactMemberPolicy.Bounds,
+            source: new(
+                includeAuthoredParts: true,
+                allowDecompiledFallback: false));
+        InspectionEnvelope<MemberDocumentInspectionOutcome> inspection =
+            await BrowserMemberDocumentExecution.ExecuteAsync(
+                scope.UseImplementationParticipant(
+                    implementation,
+                    (group, participant) =>
+                        AssemblyContextLibraryAdapter.MaterializeAsync(
+                            group,
+                            participant,
+                            AssemblyContextLibraryRole.Implementation,
+                            BrowserExactMemberPolicy.MaterializationLimits,
+                            TestContext.Current.CancellationToken)),
+                plan,
+                sourceProvider: async (request, token) =>
+                    (await scope.UseImplementationParticipant(
+                        implementation,
+                        (group, participant) =>
+                            MemberSourceInspection.ExecuteAsync(
+                                group,
+                                participant,
+                                request,
+                                BrowserSourceQueryContext.Create(),
+                                token))).Content,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        var available =
+            Assert.IsType<MemberDocumentInspectionOutcome.Available>(
+                inspection.Content);
+        Assert.IsType<AssemblyMemberSourceEntry.Unavailable>(
+            available.Document.Source?.Outcome);
+        inspection = new(
+            inspection.Content,
+            inspection.Share,
+            inspection.Diagnostics.Append(
+                new InspectionDiagnostic(
+                    "member-document.library-retirement",
+                    InspectionDiagnosticSeverity.Warning,
+                    "Library retirement failed.")));
+
+        BrowserMemberSourceResult result =
+            SourceExports.AdaptAttachedMemberSource(
+                inspection,
+                implementation,
+                includeParts: true);
+        Assert.Null(result.Value);
+        Assert.NotNull(result.Error);
+        Assert.Equal(
+            "member-document.library-retirement",
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public async Task SelectedDeclarationsUseTypedMemorySafetyFactsWithoutChangingInventory()
     {
         byte[] image = File.ReadAllBytes(
@@ -787,9 +931,10 @@ public sealed class BrowserMemberDeclarationTests
             BrowserMemberSource source =
                 JsonSerializer.Deserialize(
                     json,
-                    BrowserSourceJsonContext.Default.BrowserMemberSource)
+                    BrowserSourceJsonContext.Default.BrowserMemberSourceResult)
+                    ?.Value
                 ?? throw new InvalidOperationException(
-                    "The platform member Source export returned null.");
+                    "The platform member Source export returned no source.");
 
             Assert.Equal("decompiled", source.Source.Provider);
             Assert.Contains(
@@ -825,9 +970,10 @@ public sealed class BrowserMemberDeclarationTests
             BrowserMemberSource documentSource =
                 JsonSerializer.Deserialize(
                     documentJson,
-                    BrowserSourceJsonContext.Default.BrowserMemberSource)
+                    BrowserSourceJsonContext.Default.BrowserMemberSourceResult)
+                    ?.Value
                 ?? throw new InvalidOperationException(
-                    "The platform Member document Source export returned null.");
+                    "The platform Member document Source export returned no source.");
 
             Assert.Equal(
                 "decompiled",

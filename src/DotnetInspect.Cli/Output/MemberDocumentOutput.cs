@@ -134,10 +134,35 @@ internal static class MemberDocumentOutput
             ?? throw new InvalidOperationException(
                 "The native Member route requires one unambiguous ordinary "
                     + "method name.");
-        MemberDocumentSelector selector =
-            options.OverloadIndex is { } ordinal
-                ? new(baselineOrdinal: ordinal)
-                : new(fingerprintPrefix: options.MemberDigest);
+        MemberDocumentSelector selector;
+        if (options.OverloadIndex is { } ordinal)
+        {
+            selector = new(baselineOrdinal: ordinal);
+        }
+        else
+        {
+            var resolution = MemberTargetResolver.Resolve(
+                type,
+                new MemberTargetSelector(
+                    memberName,
+                    memberName,
+                    DigestPrefix: options.MemberDigest));
+            if (resolution.Diagnostic is { } diagnostic)
+            {
+                CommandError.Write(
+                    diagnostic.Message,
+                    [.. diagnostic.CandidateDetails()]);
+                return 1;
+            }
+            if (resolution.Target?.ApiMember.Member.MetadataToken
+                is not { } token)
+            {
+                CommandError.Write(
+                    "The selected Member has no exact Metadata token.");
+                return 1;
+            }
+            selector = new(metadataToken: token);
+        }
         var plan = new MemberDocumentInspectionPlan(
             new MemberGroupSubject(definition, memberName),
             selector,
@@ -241,6 +266,18 @@ internal static class MemberDocumentOutput
                 Console.Out);
         }
 
+        ApiMember? projectedMember = type.Members.SingleOrDefault(
+            member => member.MetadataToken
+                == document.Subject.MetadataToken);
+        if (projectedMember is null)
+        {
+            CommandError.Write(
+                "The exact Member has no corresponding API selector.");
+            return 1;
+        }
+        string digest =
+            ApiMemberIdentity.GetMemberAnchor(type, projectedMember)
+                .Fingerprint;
         string signature =
             $"{document.Accessibility} "
                 + ReceiverPrefix(document.Receiver)
@@ -261,7 +298,7 @@ internal static class MemberDocumentOutput
                     MarkoutInline.Code(
                         CSharpIdentifier.ContainRenderedText(signature)),
                     MarkoutInline.Code(
-                        document.Subject.Fingerprint.ToString()),
+                        digest),
                     MarkoutInline.Code(
                         document.CanonicalSignature.ToString()),
                 ],

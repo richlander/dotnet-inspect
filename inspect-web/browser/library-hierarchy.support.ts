@@ -2183,7 +2183,7 @@ async function installFacades(
             taste,
             contextId,
           ]);
-        return {
+        const value = {
           source: {
             provider: "decompiled",
             provenance: "fixture platform implementation",
@@ -2194,6 +2194,7 @@ async function installFacades(
           parts: [],
           diagnostics: [],
         };
+        return { value, error: null, diagnostics: [] };
       }
       export async function queryTypeSource() {
         return {

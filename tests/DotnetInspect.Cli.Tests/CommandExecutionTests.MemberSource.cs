@@ -250,6 +250,85 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceParts_ApiDigestResolvesMetadataExactMember()
+    {
+        var (assemblyPath, _, fixtureDir) = CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new PEReader(stream);
+            ApiType type = Assert.Single(
+                ApiSurfaceExtractor.Extract(peReader).Types,
+                candidate => candidate.FullName
+                    == "DiscoveryFixtures.NoSourceLink");
+            ApiMember method = Assert.Single(
+                type.Members,
+                candidate => candidate.Name == "Overloaded"
+                    && candidate.Signature?.Contains(
+                        "int value",
+                        StringComparison.Ordinal) == true);
+            string digest =
+                ApiMemberIdentity.GetMemberAnchor(type, method).Fingerprint;
+
+            var ordinal = await RunAppAsync(
+                "member", type.FullName, "Overloaded:1",
+                "--library", assemblyPath,
+                "--print", "--part", "signature", "--tips", "q");
+            var selected = await RunAppAsync(
+                "member", type.FullName, $"Overloaded~{digest}",
+                "--library", assemblyPath,
+                "--print", "--part", "signature", "--tips", "q");
+
+            Assert.Equal(0, ordinal.Exit);
+            Assert.Equal(ordinal, selected);
+            Assert.Contains("Overloaded(int value)", selected.Output);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("1", true)]
+    [InlineData("first", true)]
+    [InlineData("last", true)]
+    [InlineData("2", false)]
+    public async Task Member_SourceParts_ExactRowSelectsOnlyItsSourceLocation(
+        string row,
+        bool valid)
+    {
+        var (assemblyPath, _, fixtureDir) = CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            var result = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink",
+                "Overloaded:1", "--library", assemblyPath,
+                "--print", "--part", "signature",
+                "--row", row, "--tips", "q");
+            if (valid)
+            {
+                Assert.Equal(0, result.Exit);
+                Assert.Contains(
+                    "Overloaded(int value)", result.Output);
+                Assert.Empty(result.Error);
+            }
+            else
+            {
+                Assert.Equal(1, result.Exit);
+                Assert.Empty(result.Output);
+                Assert.Contains(
+                    "row 2 is not in Source Locations.",
+                    result.Error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Member_PdbSource_ConstructorSelectorCasing_UsesTheResolvedMemberIdentity()
     {
         var canonical = await RunAppAsync(

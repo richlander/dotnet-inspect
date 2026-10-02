@@ -12,19 +12,24 @@ public sealed record MemberDocumentSelector
 {
     public MemberDocumentSelector(
         int? baselineOrdinal = null,
-        string? fingerprintPrefix = null)
+        string? fingerprintPrefix = null,
+        int? metadataToken = null)
     {
         bool hasOrdinal = baselineOrdinal.HasValue;
         bool hasFingerprint =
             !string.IsNullOrWhiteSpace(fingerprintPrefix);
-        if (hasOrdinal == hasFingerprint)
+        if ((hasOrdinal ? 1 : 0)
+            + (hasFingerprint ? 1 : 0)
+            + (metadataToken.HasValue ? 1 : 0) != 1)
         {
             throw new ArgumentException(
                 "An exact Member selector requires either one baseline "
-                    + "ordinal or one fingerprint prefix.");
+                    + "ordinal, fingerprint prefix, or Metadata token.");
         }
         if (baselineOrdinal is { } ordinal)
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ordinal);
+        if (metadataToken is { } token)
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(token);
         if (hasFingerprint
             && !fingerprintPrefix!.All(Uri.IsHexDigit))
         {
@@ -34,12 +39,14 @@ public sealed record MemberDocumentSelector
         }
 
         BaselineOrdinal = baselineOrdinal;
+        MetadataToken = metadataToken;
         FingerprintPrefix = hasFingerprint
             ? fingerprintPrefix!.ToLowerInvariant()
             : null;
     }
 
     public int? BaselineOrdinal { get; }
+    public int? MetadataToken { get; }
     public string? FingerprintPrefix { get; }
 }
 
@@ -131,6 +138,7 @@ public enum MemberDocumentInspectionRejection
     FingerprintNotFound,
     FingerprintAmbiguous,
     RowsRejected,
+    MetadataTokenNotFound,
 }
 
 public enum MemberDocumentInspectionFailure
@@ -421,6 +429,11 @@ public static class MemberDocumentInspectionOperation
                     .. rows.Items.Where(
                         row => row.BaselineOrdinal == ordinal),
                 ]
+                : selector.MetadataToken is { } token
+                    ? [
+                        .. rows.Items.Where(
+                            row => row.MetadataToken == token),
+                    ]
                 : [
                     .. rows.Items.Where(
                         row => row.Fingerprint.ToString().StartsWith(
@@ -433,8 +446,11 @@ public static class MemberDocumentInspectionOperation
                 selector.BaselineOrdinal.HasValue
                     ? MemberDocumentInspectionRejection
                         .BaselineOrdinalOutOfRange
-                    : MemberDocumentInspectionRejection
-                        .FingerprintNotFound);
+                    : selector.MetadataToken.HasValue
+                        ? MemberDocumentInspectionRejection
+                            .MetadataTokenNotFound
+                        : MemberDocumentInspectionRejection
+                            .FingerprintNotFound);
         }
         if (matches.Length > 1)
         {
