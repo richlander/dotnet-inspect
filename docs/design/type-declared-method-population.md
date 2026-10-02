@@ -242,9 +242,9 @@ physical result:
   `AssemblyInspectionSession` is alive.
 - Count and Rows execution return an allocation-free value result. Rows owns
   only its exact detached token array; Count visits no handles.
-- Queries owns the prepared session and source under the exact participant and
-  binding lifetime. It releases that derived resource before the participant's
-  immutable snapshot.
+- Queries owns one prepared session per participant and one source per exact
+  TypeDef binding. It releases those derived resources before the
+  participant's immutable snapshot.
 - Sections preparation establishes one disposable group borrow and settles the
   subject, binding, source, and failure state before QuerySpace execution.
 - Sections retains ownership of
@@ -257,19 +257,22 @@ dependency. QuerySpace plan selection stays outside Metadata; accepted Count
 and Rows plans select the corresponding source terminal without teaching the
 source about QuerySpace.
 
-Preparation is keyed by exact participant plus authenticated TypeDef binding,
-not display type name. A settled rejection or failure is retained under that
-same key so repeated execution cannot reacquire, readmit, or reauthenticate the
-same request. `maximumRows` remains an execution bound: a ready source can
-return visible incompleteness before allocating or traversing Rows.
+Source preparation is keyed by exact participant plus authenticated TypeDef
+binding, not display type name. The participant session is keyed only by the
+participant, so a type walk retains one metadata reader rather than one reader
+per TypeDef. A settled rejection or failure is retained under the source key so
+repeated execution cannot reacquire, readmit, or reauthenticate the same
+request. `maximumRows` remains an execution bound: a ready source can return
+visible incompleteness before allocating or traversing Rows.
 
-Queries performs exact-binding preparation with participant-local single-flight.
-It publishes a ready source into the group-owned store before the active
-snapshot callback ends, so concurrent group release either observes and
-disposes the prepared session or prevents its publication. Warm terminal
+Queries performs participant-session and exact-binding source preparation with
+participant-local single-flight. It publishes both into the group-owned store
+before the active snapshot callback ends, so concurrent group release either
+observes and disposes them or prevents publication. Sources remain lazy by
+requested TypeDef rather than eagerly walking the participant. Warm terminal
 preparation opens one execution lease over that owned store. Count and Rows
 then reuse the already-established borrow without reopening the snapshot or
 re-entering group lifetime synchronization. Disposing the prepared Sections
 inspection releases the borrow; group release waits for that lease, then closes
-the store and every prepared session before releasing any participant
+the store and each participant session before releasing any participant
 snapshot.

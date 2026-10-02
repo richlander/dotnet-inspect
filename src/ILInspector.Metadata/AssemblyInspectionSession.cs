@@ -854,6 +854,7 @@ public sealed class AssemblyInspectionSession :
         ArgumentNullException.ThrowIfNull(request);
         _image.EnsureAlive();
         return MetadataDeclaredMethodPopulationInspection.Inspect(
+            _image.PEReader,
             _image.GetMetadataReader(),
             request);
     }
@@ -870,6 +871,7 @@ public sealed class AssemblyInspectionSession :
         _image.EnsureAlive();
         return MetadataDeclaredMethodPopulationInspection.Prepare(
             this,
+            _image.PEReader,
             _image.GetMetadataReader(),
             type);
     }

@@ -793,7 +793,21 @@ public sealed class AssemblyContextGroup : IDisposable
     internal void UnregisterOwnedResource(IDisposable resource)
     {
         lock (_lifetimeGate)
+        {
             _ownedResources.Remove(resource);
+            Type? registeredType = null;
+            foreach ((Type type, IDisposable candidate)
+                in _ownedResourceByType)
+            {
+                if (ReferenceEquals(candidate, resource))
+                {
+                    registeredType = type;
+                    break;
+                }
+            }
+            if (registeredType is not null)
+                _ownedResourceByType.Remove(registeredType);
+        }
     }
 
     public AssemblyImageSpanResult GetAssemblyImageSpan(
@@ -866,6 +880,13 @@ public sealed class AssemblyContextGroup : IDisposable
         }
 
         return registered;
+    }
+
+    internal void ValidateParticipant(
+        AssemblyContextParticipant participant)
+    {
+        ArgumentNullException.ThrowIfNull(participant);
+        _ = FindExactParticipant(participant);
     }
 
     SnapshotAccess GetSnapshot(ParticipantState participant)

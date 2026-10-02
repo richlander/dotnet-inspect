@@ -46,6 +46,40 @@ public sealed class AssemblyContextDeclaredMethodPopulationQueryTests
     }
 
     [Fact]
+    public async Task PreparedTypesShareOneParticipantSession()
+    {
+        string path = typeof(System.Text.Json.JsonSerializer)
+            .Assembly.Location;
+        MetadataTypeDefinitionBinding serializer =
+            Binding(path, "JsonSerializer");
+        MetadataTypeDefinitionBinding document =
+            Binding(path, "JsonDocument");
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, path);
+        AssemblyContextParticipant participant = group.Participants[0];
+
+        var first = Assert.IsType<
+            AssemblyContextDeclaredMethodPopulationPreparation.Ready>(
+                AssemblyContextDeclaredMethodPopulationQuery
+                    .PrepareParticipant(
+                        group,
+                        participant,
+                        serializer,
+                        TestContext.Current.CancellationToken));
+        var second = Assert.IsType<
+            AssemblyContextDeclaredMethodPopulationPreparation.Ready>(
+                AssemblyContextDeclaredMethodPopulationQuery
+                    .PrepareParticipant(
+                        group,
+                        participant,
+                        document,
+                        TestContext.Current.CancellationToken));
+
+        Assert.NotSame(first, second);
+        Assert.Same(first.Session, second.Session);
+    }
+
+    [Fact]
     public async Task BindingRejectionIsSettledOnce()
     {
         string path = typeof(System.Text.Json.JsonSerializer)
@@ -200,7 +234,9 @@ public sealed class AssemblyContextDeclaredMethodPopulationQueryTests
                     NoResolverAssemblyBindingPolicy.Instance),
             ]);
 
-    private static MetadataTypeDefinitionBinding Binding(string path)
+    private static MetadataTypeDefinitionBinding Binding(
+        string path,
+        string typeName = "JsonSerializer")
     {
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.Open(path);
@@ -210,7 +246,7 @@ public sealed class AssemblyContextDeclaredMethodPopulationQueryTests
                         MetadataTypeDefinitionNameResult.Valid>(
                         MetadataTypeDefinitionName.Create(
                             "System.Text.Json",
-                            ["JsonSerializer"]))
+                            [typeName]))
                     .Name));
         return new(session.ModuleVersionId(), defined.Definition);
     }

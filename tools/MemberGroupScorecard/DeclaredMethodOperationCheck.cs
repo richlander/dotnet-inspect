@@ -12,9 +12,15 @@ internal sealed record DeclaredMethodOperationScorecardCell(
     double Microseconds,
     long AllocatedBytes);
 
+internal sealed record DeclaredMethodPreparationScorecardCell(
+    double Microseconds,
+    long AllocatedBytes,
+    long RetainedBytes);
+
 internal sealed record DeclaredMethodOperationScorecardResult(
     string TypeName,
     int Count,
+    DeclaredMethodPreparationScorecardCell Preparation,
     IReadOnlyList<DeclaredMethodOperationScorecardCell> Cells);
 
 internal static class DeclaredMethodOperationCheck
@@ -101,6 +107,12 @@ internal static class DeclaredMethodOperationCheck
 
         MetadataTypeDefinitionBinding binding =
             Binding(path, type);
+        DeclaredMethodPreparationScorecardCell preparation =
+            await MeasurePreparationAsync(
+                path,
+                type,
+                binding,
+                cancellationToken);
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromPath(
                 path,
@@ -194,6 +206,7 @@ internal static class DeclaredMethodOperationCheck
         return new(
             DisplayName(type),
             count.Count,
+            preparation,
             [
                 Cell(
                     QuerySpaceTerminalRequirement.Count,
@@ -220,6 +233,19 @@ internal static class DeclaredMethodOperationCheck
             $"# QuerySpace operation — {result.TypeName}");
         writer.WriteLine(
             $"# answer: {result.Count:N0} declared MethodDefs");
+        writer.WriteLine(
+            "# first preparation starts from an already loaded "
+                + "participant snapshot");
+        writer.WriteLine(
+            "| Preparation | Elapsed | Allocated | "
+                + "Retained heap delta |");
+        writer.WriteLine("| --- | ---: | ---: | ---: |");
+        writer.WriteLine(
+            $"| Participant session + TypeDef source + execution borrow | "
+                + $"{result.Preparation.Microseconds:F3} us | "
+                + $"{result.Preparation.AllocatedBytes:N0} B | "
+                + $"{result.Preparation.RetainedBytes:N0} B |");
+        writer.WriteLine();
         writer.WriteLine(
             "| Terminal | Median | Allocated | Time vs Count | "
                 + "Allocation vs Count |");
@@ -254,6 +280,73 @@ internal static class DeclaredMethodOperationCheck
             type,
             binding,
             TypeDeclaredMethodPopulationQuery.CreateRequest(terminal));
+
+    private static async Task<DeclaredMethodPreparationScorecardCell>
+        MeasurePreparationAsync(
+            string path,
+            MetadataTypeDefinitionName type,
+            MetadataTypeDefinitionBinding binding,
+            CancellationToken cancellationToken)
+    {
+        _ = await MeasurePreparationOnceAsync(
+            path,
+            type,
+            binding,
+            cancellationToken);
+        return await MeasurePreparationOnceAsync(
+            path,
+            type,
+            binding,
+            cancellationToken);
+    }
+
+    private static async Task<DeclaredMethodPreparationScorecardCell>
+        MeasurePreparationOnceAsync(
+            string path,
+            MetadataTypeDefinitionName type,
+            MetadataTypeDefinitionBinding binding,
+            CancellationToken cancellationToken)
+    {
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "declared-method preparation scorecard"));
+        var participant = new AssemblyContextParticipant(
+            assembly,
+            NoResolverAssemblyBindingPolicy.Instance);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+        AssemblyImageSpanResult loaded =
+            group.GetAssemblyImageSpan(assembly);
+        if (!loaded.IsAvailable)
+        {
+            throw new InvalidOperationException(
+                "Declared-method preparation snapshot was unavailable.");
+        }
+
+        long retainedBefore = GC.GetTotalMemory(forceFullCollection: true);
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        long started = Stopwatch.GetTimestamp();
+        using TypeDeclaredMethodPopulationPreparedInspection prepared =
+            TypeDeclaredMethodPopulationInspectionOperation.Prepare(
+                group,
+                participant,
+                type,
+                binding,
+                cancellationToken);
+        long elapsed = Stopwatch.GetTimestamp() - started;
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+        long retainedAfter = GC.GetTotalMemory(forceFullCollection: true);
+        GC.KeepAlive(prepared);
+        return new(
+            elapsed * 1_000_000.0 / Stopwatch.Frequency,
+            allocated,
+            Math.Max(0, retainedAfter - retainedBefore));
+    }
 
     private static TypeDeclaredMethodPopulationOutcome Execute(
         TypeDeclaredMethodPopulationPreparedInspection prepared,

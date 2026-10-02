@@ -390,6 +390,33 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
             Name("System.Text.Json", "JsonSerializer");
         MetadataTypeDefinitionBinding binding = Binding(type);
         string path = CreateDescendingMethodRange(binding);
+        await AssertSettledFailure(
+            type,
+            binding,
+            path,
+            "descending MethodDef range");
+    }
+
+    [Fact]
+    public async Task OutOfRangeMethodRange_RemainsVisibleAsSettledFailure()
+    {
+        MetadataTypeDefinitionName type =
+            Name("System.Text.Json", "JsonSerializer");
+        MetadataTypeDefinitionBinding binding = Binding(type);
+        string path = CreateOutOfRangeMethodRange(binding);
+        await AssertSettledFailure(
+            type,
+            binding,
+            path,
+            "outside the method-list table");
+    }
+
+    private static async Task AssertSettledFailure(
+        MetadataTypeDefinitionName type,
+        MetadataTypeDefinitionBinding binding,
+        string path,
+        string expectedDetail)
+    {
         try
         {
             await using var workspace = new InspectionWorkspace();
@@ -429,7 +456,7 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
                 var failed = Assert.IsType<
                     TypeDeclaredMethodPopulationOutcome.Failed>(countOutcome);
                 Assert.Contains(
-                    "descending MethodDef range",
+                    expectedDetail,
                     failed.Detail.ToString(),
                     StringComparison.Ordinal);
             }
@@ -504,7 +531,21 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
     }
 
     private static string CreateDescendingMethodRange(
-        MetadataTypeDefinitionBinding binding)
+        MetadataTypeDefinitionBinding binding) =>
+        CreateMethodRange(
+            binding,
+            static (_, firstMethodRow) => firstMethodRow - 1);
+
+    private static string CreateOutOfRangeMethodRange(
+        MetadataTypeDefinitionBinding binding) =>
+        CreateMethodRange(
+            binding,
+            static (reader, _) =>
+                reader.GetTableRowCount(TableIndex.MethodDef) + 2);
+
+    private static string CreateMethodRange(
+        MetadataTypeDefinitionBinding binding,
+        Func<MetadataReader, int, int> nextMethodList)
     {
         byte[] image = File.ReadAllBytes(SystemTextJsonPath());
         using var pe = new PEReader(
@@ -534,18 +575,20 @@ public sealed class TypeDeclaredMethodPopulationInspectionOperationTests
             image.AsSpan(
                 nextTypeRowOffset + typeRowSize - methodIndexSize,
                 methodIndexSize);
-        int descendingStart = firstMethodRow - 1;
+        int nextMethodStart = nextMethodList(
+            reader,
+            firstMethodRow);
         if (methodIndexSize == sizeof(ushort))
         {
             BinaryPrimitives.WriteUInt16LittleEndian(
                 methodList,
-                checked((ushort)descendingStart));
+                checked((ushort)nextMethodStart));
         }
         else
         {
             BinaryPrimitives.WriteUInt32LittleEndian(
                 methodList,
-                checked((uint)descendingStart));
+                checked((uint)nextMethodStart));
         }
 
         string path = Path.Combine(

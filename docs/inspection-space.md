@@ -413,7 +413,9 @@ but it never attempts to revoke or recycle an already returned span or retained
 descriptor. A query may also turn one admitted owned resource into an explicit
 disposable borrow before repeated execution; that lease participates in the
 same active-callback count, so terminal execution need not re-enter lifetime
-synchronization and group release still waits for the borrow to end.
+synchronization and group release still waits for the borrow to end. The host
+must dispose that explicit borrow: abandoning it keeps terminal group release
+waiting because the group cannot infer that repeated execution has ended.
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
 isolation, callback and span lifetimes, concurrent disposal, bounded retention,
 per-participant single-flight acquisition, and typed acquisition failures.

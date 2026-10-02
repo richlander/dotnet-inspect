@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
 namespace ILInspector.Metadata;
@@ -254,13 +255,16 @@ internal static class MetadataDeclaredMethodPopulationInspection
             ProjectedRows: 0);
 
     internal static MetadataDeclaredMethodPopulationOutcome Inspect(
+        PEReader peReader,
         MetadataReader reader,
         MetadataDeclaredMethodPopulationRequest request)
     {
+        ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(request);
 
         if (!TryPrepare(
+                peReader,
                 reader,
                 request.Type,
                 out MethodDefinitionHandleCollection methods,
@@ -305,10 +309,12 @@ internal static class MetadataDeclaredMethodPopulationInspection
 
     internal static MetadataDeclaredMethodPopulationPreparation Prepare(
         AssemblyInspectionSession session,
+        PEReader peReader,
         MetadataReader reader,
         MetadataTypeDefinitionBinding type)
     {
         if (!TryPrepare(
+                peReader,
                 reader,
                 type,
                 out MethodDefinitionHandleCollection methods,
@@ -369,6 +375,7 @@ internal static class MetadataDeclaredMethodPopulationInspection
             ProjectedRows: count);
 
     private static bool TryPrepare(
+        PEReader peReader,
         MetadataReader reader,
         MetadataTypeDefinitionBinding type,
         out MethodDefinitionHandleCollection methods,
@@ -414,14 +421,63 @@ internal static class MetadataDeclaredMethodPopulationInspection
                     "The TypeDef declares a descending MethodDef range.";
                 return false;
             }
+            TypeDefinitionHandle definition =
+                (TypeDefinitionHandle)entity;
+            int methodList = ReadMethodList(
+                peReader,
+                reader,
+                definition);
+            int methodListRowCount = reader.GetTableRowCount(
+                reader.GetTableRowCount(TableIndex.MethodPtr) == 0
+                    ? TableIndex.MethodDef
+                    : TableIndex.MethodPtr);
+            if (methodList <= 0
+                || methodList > methodListRowCount + 1
+                || (long)methodList + methods.Count
+                    > (long)methodListRowCount + 1)
+            {
+                methods = default;
+                failure =
+                    "The TypeDef declares a MethodDef range outside "
+                    + "the method-list table.";
+                return false;
+            }
             return true;
         }
         catch (Exception exception)
             when (exception is BadImageFormatException
-                or ArgumentOutOfRangeException)
+                or ArgumentOutOfRangeException
+                or OverflowException)
         {
             failure = exception.Message;
             return false;
         }
+    }
+
+    private static int ReadMethodList(
+        PEReader peReader,
+        MetadataReader reader,
+        TypeDefinitionHandle type)
+    {
+        int methodListRowCount = reader.GetTableRowCount(
+            reader.GetTableRowCount(TableIndex.MethodPtr) == 0
+                ? TableIndex.MethodDef
+                : TableIndex.MethodPtr);
+        int methodIndexSize =
+            methodListRowCount <= ushort.MaxValue
+                ? sizeof(ushort)
+                : sizeof(uint);
+        int rowSize = reader.GetTableRowSize(TableIndex.TypeDef);
+        int rowOffset = checked(
+            reader.GetTableMetadataOffset(TableIndex.TypeDef)
+            + ((MetadataTokens.GetRowNumber(type) - 1) * rowSize)
+            + rowSize
+            - methodIndexSize);
+        BlobReader methodList = peReader.GetMetadata().GetReader(
+            rowOffset,
+            methodIndexSize);
+        return methodIndexSize == sizeof(ushort)
+            ? methodList.ReadUInt16()
+            : checked((int)methodList.ReadUInt32());
     }
 }
