@@ -91,7 +91,7 @@ stream.
 
 ## Validation scenarios
 
-The [network observation workflow](../../docs/workflows/advanced/network-guard.md)
+The [network observation workflow](../../../docs/workflows/advanced/network-guard.md)
 shows Debug logging and offline enforcement. The
-[offline usage workflow](../../docs/workflows/advanced/offline-usage.md)
+[offline usage workflow](../../../docs/workflows/advanced/offline-usage.md)
 validates `--offline` for platform and NuGet packages.

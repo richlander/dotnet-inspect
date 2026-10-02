@@ -123,6 +123,13 @@ behavior or work, show that it remains inside the named product target, and
 show that the overall intent still holds. Otherwise the candidate is not
 merge-ready.
 
+Performance evidence is asymmetric. A valid single-machine result that
+credibly misses the stated goal or shows a regression — especially by a large
+margin — is enough to reject the current candidate and stop for operator
+direction. Do not spend another review round or a second machine confirming a
+bad state. Additional machines validate that apparently good performance is
+real; a single good run does not establish success or outweigh a bad one.
+
 Use [#8411](https://github.com/richlander/dotnet-inspect/pull/8411) as the
 reporting precedent. It compared exact NativeAOT base/head apphosts for every
 supported terminal, verified result cardinality, reported median and p95, and
@@ -283,7 +290,9 @@ assets:
   owning contract requires them.
 - Mark each Planner cell as shipping in the candidate or measured only in an
   experiment.
-- Run on at least two machines, and exclude a loaded run with its reason.
+- To validate a good result, run on at least two machines and exclude a loaded
+  run with its reason. Stop after one valid machine shows a credible goal miss
+  or regression; do not use a second machine to seek a better verdict.
 
 Performance regression tracking uses only the NLinq ratio. It stays
 meaningful after Old is retired and cancels most machine differences. It
