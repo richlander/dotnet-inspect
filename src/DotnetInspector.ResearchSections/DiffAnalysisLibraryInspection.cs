@@ -19,11 +19,12 @@ public sealed record DiffAnalysisLibraryInspectionRequest(
     DiffAnalysisDocumentViews Views,
     IReadOnlySet<string> TypeFilters,
     IReadOnlyList<string> TypeNames,
-    IReadOnlySet<string>? MemberTargetIdentities,
+    IReadOnlySet<string>? ApiMemberTargetIdentities,
     IReadOnlyList<string> BeforePaths,
     IReadOnlyList<string> AfterPaths,
     Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>?
         PrepareBodySignals,
+    Func<ImplementationDiffResult>? PrepareImplementation,
     IReadOnlyList<DiffAnalysisHostUnavailability> HostUnavailability);
 
 /// <summary>
@@ -81,8 +82,9 @@ public static class DiffAnalysisLibraryInspection
                 request.AfterPaths,
                 request.TypeFilters,
                 request.TypeNames,
-                request.MemberTargetIdentities,
+                request.ApiMemberTargetIdentities,
                 request.PrepareBodySignals,
+                request.PrepareImplementation,
                 comparison.Comparison,
                 request.HostUnavailability);
         }
@@ -104,8 +106,9 @@ public static class DiffAnalysisLibraryInspection
             request.AfterPaths,
             request.TypeFilters,
             request.TypeNames,
-            request.MemberTargetIdentities,
+            request.ApiMemberTargetIdentities,
             request.PrepareBodySignals,
+            request.PrepareImplementation,
             unavailableAnalyses);
     }
 }

@@ -6,7 +6,8 @@
 
 Each `.md` file under `docs/workflows/` is a testable scenario document. It uses semantic code fences (`bash`, `expect`, `expect-not`, `expect-error`, `perf`) to define assertions against dotnet-inspect output. They serve as E2E smoke tests that catch regressions unit tests miss.
 
-The [format spec](../../docs/workflows/README.md) defines the code fence types and document structure.
+The [format spec](../../../docs/workflows/README.md) defines the code fence
+types and document structure.
 
 ## Evaluation rules
 

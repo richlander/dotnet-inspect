@@ -805,11 +805,15 @@ the extracted-file stream, while archive-less content is visibly unsupported.
 `PackageFileAcquisition` is the host-neutral exact-file operation above this
 pull capability. It accepts a pinned coordinate, safe relative path, House
 operation, source authorization, authority-scoped store plan, limits, transfer
-policy, and operation lease. It owns the
-[file demand](package-read-demand.md#exact-file-demand), ranged House request,
-cache-first and size-first execution, case-insensitive manifest resolution,
-actual-path preservation, and generation-bound `OpenRead()`. Hosts bind their
-environment and project the result; they do not recreate those steps.
+policy, and operation lease. It owns a package-wide semantic Files query,
+combined with File List over the same directory snapshot, case-insensitive
+manifest resolution, actual-path preservation, and generation-bound
+`OpenRead()`. PackageHouse owns cache-first and size-first ranged execution
+plus complete fallback; either path publishes only the exact queried entry
+even when the store retains the complete archive. The File List preserves the
+complete physical inventory for follow-on decisions such as legacy tool-wrapper
+redirection. Hosts bind their environment and project the result; they do not
+recreate those steps.
 
 The first production consumer is exact-version online CLI content for one
 literal root `README.md` or `skills/**/SKILL.md` path. The command calls

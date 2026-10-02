@@ -595,7 +595,9 @@ public sealed class QueryComparisonPopulationTests
         MethodInfo bodySignalExecute = Assert.Single(
             typeof(BodySignalComparisonQuery).GetMethods(),
             method => method.Name == nameof(BodySignalComparisonQuery.Execute));
-        Assert.Equal(typeof(ImplementationDiffResult), implementationExecute.ReturnType);
+        Assert.Equal(
+            typeof(ImplementationComparisonResult),
+            implementationExecute.ReturnType);
         Assert.Equal(typeof(BodySignalComparisonResult), bodySignalExecute.ReturnType);
 
         foreach (Type publicResult in new[]

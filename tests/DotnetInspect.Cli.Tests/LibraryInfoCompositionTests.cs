@@ -84,6 +84,20 @@ public sealed class LibraryInfoCompositionTests
     }
 
     [Fact]
+    public async Task LegacyJson_DoesNotContainSharedLibraryDocumentState()
+    {
+        (int exit, string output, string error) =
+            await RunAsync(
+                "library",
+                Asset("runtime", "System.Net.Sockets.dll"),
+                "--json");
+
+        Assert.True(exit == 0, error);
+        Assert.DoesNotContain("LibraryDocument", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("LibraryDocumentFailure", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LibraryInfoRowJson_CarriesTheSameValues()
     {
         // The structured form of Library Info rows is the field projection.

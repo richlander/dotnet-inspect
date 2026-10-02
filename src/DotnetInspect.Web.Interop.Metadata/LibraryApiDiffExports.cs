@@ -263,6 +263,7 @@ public static partial class MetadataExports
                                     BeforePaths: [],
                                     AfterPaths: [],
                                     PrepareBodySignals: null,
+                                    PrepareImplementation: null,
                                     HostUnavailability:
                                         BrowserHostUnavailability(selection)))));
         cancellationToken.ThrowIfCancellationRequested();

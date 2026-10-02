@@ -123,7 +123,14 @@ public partial class ApiCommand
                     section, StringComparer.OrdinalIgnoreCase))
                 .ToList();
         }
-        if (!ApplyTypeUnsafeMembersApplicability(
+        var bareDiscover = options.Discover is null or { Length: 0 };
+        HashSet<string> requestedDiscoverySections = bareDiscover
+            ? []
+            : GetRequestedMemberSections(filteredType, options);
+        if ((bareDiscover
+                || requestedDiscoverySections.Contains(
+                    SectionNames.UnsafeMembers))
+            && !ApplyTypeUnsafeMembersApplicability(
                 filteredType,
                 options,
                 effective))
@@ -132,10 +139,6 @@ public partial class ApiCommand
         }
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
         var unprobed = memberPipeline.GetUnprobedSections();
-        var bareDiscover = options.Discover is null or { Length: 0 };
-        HashSet<string> requestedDiscoverySections = bareDiscover
-            ? []
-            : GetRequestedMemberSections(filteredType, options);
         var discoveryRenderSections = bareDiscover
             ? options.BodyKindQuery.HasFilter
                 ? effective

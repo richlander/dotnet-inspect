@@ -170,6 +170,10 @@ Release gates in the CLI tests:
   Description, and Enabled rows shown above, and no Modified row;
 - a reference-pack assembly renders no Enabled row;
 - JSON output carries the same values as the Markdown rows;
+- the legacy unqualified `--json` compatibility model carries no Library
+  document or Library-document failure state;
+- package-wide Library Info row lowering keeps each Library document paired
+  with the package asset that produced it;
 - the IL-only `System.Runtime.CompilerServices.Unsafe` 6.0.0 package asset keeps
   `Compilation | CoreCLR`, `Architecture | AnyCPU`, `Signed | Yes`,
   `Reproducible | No`, and `File Size | 17.6 KB`;
