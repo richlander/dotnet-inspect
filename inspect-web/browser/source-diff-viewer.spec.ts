@@ -167,3 +167,60 @@ test("split additions retain both endpoint cells and change identity",
     await expect(row.getByRole("cell").nth(1))
       .toContainText("After; Added; line 2");
   });
+
+test("Next reveals a sole change below the viewport",
+  async ({ page }) => {
+    const before = Array.from({ length: 200 }, (_, index) => `before ${index}`);
+    const after = [...before];
+    after[190] = "after 190";
+    const diff = comparison(before, after, [{
+      before: { start: 190, count: 1 },
+      after: { start: 190, count: 1 },
+      innerMappings: [],
+      annotations: [],
+    }]);
+    await show(page, diff, "unified");
+    await page.locator("main").evaluate(main => {
+      main.style.height = "600px";
+      main.style.overflow = "auto";
+    });
+    await page.evaluate(async comparisonDiff => {
+      const sourceDiffViewer = await import("../src/source-diff-viewer.ts");
+      sourceDiffViewer.bindSourceDiffViewer(document, comparisonDiff, {
+        mode: "unified",
+        onModeChanged: () => undefined,
+        writeClipboardText: () => Promise.resolve(),
+      });
+    }, diff);
+
+    const viewer = page.locator("[data-source-diff-viewer]");
+    const change = page.locator('[data-source-diff-change="0"]').first();
+    await expect(viewer.locator("[data-source-diff-position]"))
+      .toHaveText("0 of 1");
+    await expect(viewer.locator("[data-source-diff-previous]")).toBeDisabled();
+    await expect(viewer.locator("[data-source-diff-next]")).toBeEnabled();
+    const beforeScroll = await page.locator("main").evaluate(main => ({
+      scrollTop: main.scrollTop,
+      bottom: main.getBoundingClientRect().bottom,
+    }));
+    const beforeChange = await change.boundingBox();
+    expect(beforeChange!.y).toBeGreaterThan(beforeScroll.bottom);
+
+    await viewer.focus();
+    await page.keyboard.press("n");
+
+    await expect(viewer.locator("[data-source-diff-position]"))
+      .toHaveText("1 of 1");
+    await expect(viewer.locator("[data-source-diff-previous]")).toBeDisabled();
+    await expect(viewer.locator("[data-source-diff-next]")).toBeDisabled();
+    await expect(change).toBeFocused();
+    const afterScroll = await page.locator("main").evaluate(main =>
+      main.scrollTop
+    );
+    expect(afterScroll).toBeGreaterThan(0);
+    const afterChange = await change.boundingBox();
+    const mainBox = await page.locator("main").boundingBox();
+    expect(afterChange!.y).toBeGreaterThanOrEqual(mainBox!.y);
+    expect(afterChange!.y + afterChange!.height)
+      .toBeLessThanOrEqual(mainBox!.y + mainBox!.height);
+  });

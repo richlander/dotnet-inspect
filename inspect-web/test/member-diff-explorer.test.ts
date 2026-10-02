@@ -832,6 +832,13 @@ test("identical Source does not upgrade a soft Member correspondence", () => {
   assert.match(html, /Member Diff · Changed/);
   assert.match(html, /Authored Source is identical/);
   assert.doesNotMatch(html, /Exact member match/);
+  assert.doesNotMatch(html, /data-source-diff-viewer/);
+  assert.doesNotMatch(html, /member-diff-source-line/);
+  assert.doesNotMatch(html, /Previous|Next|No navigable changes/);
+  assert.equal(
+    (html.match(/class="member-diff-source-endpoint"/g) ?? []).length,
+    2,
+  );
 });
 
 test("one-sided destinations omit that Source endpoint intentionally", () => {

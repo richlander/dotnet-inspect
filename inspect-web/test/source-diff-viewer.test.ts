@@ -162,9 +162,16 @@ test("viewer binding retains mode, navigates changes, and copies exact sides",
     });
 
     assert.equal(viewer.element.dataset.mode, "side-by-side");
+    assert.equal(position.element.textContent, "0 of 2");
+    assert.equal(previous.element.disabled, true);
+    assert.equal(next.element.disabled, false);
+
+    next.trigger("click");
     assert.equal(position.element.textContent, "1 of 2");
     assert.equal(previous.element.disabled, true);
     assert.equal(next.element.disabled, false);
+    assert.equal(focusedChange, 0);
+    assert.equal(scrolledChange, 0);
 
     next.trigger("click");
     assert.equal(position.element.textContent, "2 of 2");

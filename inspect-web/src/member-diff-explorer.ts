@@ -378,6 +378,7 @@ function renderComparedSource(
     ? compactComparisonNotices(value, context, escapeHtml)
     : "";
   if (value.status === "Compared" && value.diff !== null) {
+    if (value.isExact && !compact) return exact;
     return compact
       ? `${exact}${renderMemberSourceDiff(value.diff, escapeHtml, true)}`
       : `${exact}${renderMemberSourceDiff(
@@ -575,6 +576,7 @@ function readySourceDiff(
   return source.status === "ready"
       && source.result.kind === "Succeeded"
       && source.result.value?.status === "Compared"
+      && !source.result.value.isExact
     ? source.result.value.diff
     : null;
 }

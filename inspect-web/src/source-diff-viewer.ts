@@ -531,7 +531,7 @@ export function bindSourceDiffViewer(
   const viewer = root.querySelector<HTMLElement>("[data-source-diff-viewer]");
   if (viewer === null) return;
   viewer.dataset.mode = binding.mode;
-  let activeChange = diff.changes.length === 0 ? -1 : 0;
+  let activeChange = -1;
   const position = viewer.querySelector<HTMLElement>(
     "[data-source-diff-position]",
   );
@@ -546,18 +546,19 @@ export function bindSourceDiffViewer(
   );
   const updateNavigation = (): void => {
     if (position !== null) {
-      position.textContent = activeChange < 0
+      position.textContent = diff.changes.length === 0
         ? "No navigable changes"
+        : activeChange < 0
+          ? `0 of ${diff.changes.length}`
         : `${activeChange + 1} of ${diff.changes.length}`;
     }
     if (previous !== null)
       previous.disabled = activeChange <= 0;
     if (next !== null)
-      next.disabled = activeChange < 0
+      next.disabled = diff.changes.length === 0
         || activeChange >= diff.changes.length - 1;
   };
   const move = (delta: -1 | 1): void => {
-    if (activeChange < 0) return;
     const candidate = activeChange + delta;
     if (candidate < 0 || candidate >= diff.changes.length) return;
     activeChange = candidate;

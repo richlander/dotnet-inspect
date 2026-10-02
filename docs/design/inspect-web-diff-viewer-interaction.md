@@ -139,7 +139,9 @@ by the whitespace control, or rendered as context under **Hide**, is not
 navigable. **Previous** and **Next** move to
 the adjacent navigable change, scroll its first row into view, and move focus
 to it; they are disabled, not wrapped, at either end. The position reads
-`3 of 7`. With no navigable change, both are disabled and the position reads
+`3 of 7`. Before the first move, no change is selected, Previous is disabled,
+Next selects the first change, and the position reads `0 of 7`. With no
+navigable change, both are disabled and the position reads
 `No navigable changes`. Keys `n` and `p` do the same while focus is inside the viewer
 and not in a text field. Each move announces the position and the change's
 line ranges through a polite live region.
