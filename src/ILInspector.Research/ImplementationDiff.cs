@@ -21,8 +21,7 @@ public enum ImplementationDiffMechanism
 
 public sealed record ImplementationDiffOptions(
     ImplementationDiffMechanism Mechanisms = ImplementationDiffMechanism.All,
-    IReadOnlySet<string>? TypeFilters = null,
-    IReadOnlySet<string>? MemberTargetIdentities = null);
+    IReadOnlySet<string>? TypeFilters = null);
 
 public enum ImplementationComplexityChangeKind
 {
@@ -250,8 +249,7 @@ public static partial class ImplementationDiff
             newInput,
             new ResearchDiffOptions(
                 ToResearchMechanisms(options.Mechanisms),
-                TypeFilters: options.TypeFilters,
-                MemberTargetIdentities: options.MemberTargetIdentities)
+                TypeFilters: options.TypeFilters)
             {
                 RetainedComparisonDescriptorIds =
                     RetainedComparisonDescriptorIds(options.Mechanisms),
@@ -291,8 +289,7 @@ public static partial class ImplementationDiff
                                 static assembly => assembly.ProfileAnalysis)],
                             [.. newAssemblies.Select(
                                 static assembly => assembly.ProfileAnalysis)],
-                            options?.TypeFilters,
-                            options?.MemberTargetIdentities)),
+                            options?.TypeFilters)),
                 };
             }
             finally
@@ -347,7 +344,6 @@ public static partial class ImplementationDiff
                 })
             .Where(member => member.Changes.Count > 0 || member.SourceComparison is not null)
             .Where(member => ResearchDiff.MatchesTypeFilters(member.Subject.TypeName ?? "", options.TypeFilters))
-            .Where(member => MatchesMemberTargets(member.Subject, options.MemberTargetIdentities))
             .ToArray();
 
         return new ImplementationDiffResult(members, research);
@@ -766,11 +762,6 @@ public static partial class ImplementationDiff
             research |= ResearchChangeMechanism.IlBody;
         return research;
     }
-
-    static bool MatchesMemberTargets(ResearchSubjectKey subject, IReadOnlySet<string>? memberTargetIdentities)
-        => memberTargetIdentities is null
-           || memberTargetIdentities.Count == 0
-           || memberTargetIdentities.Contains(subject.Id);
 
     internal static ResearchChange FindingFailureChange(
         ResearchSubjectKey subject,
