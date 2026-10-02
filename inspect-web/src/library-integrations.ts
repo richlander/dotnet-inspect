@@ -1,5 +1,5 @@
 import type { BrowserPackageIntegrations } from "./facades/inspect-web-analysis.d.ts";
-import { renderIntegrationInspector } from "./integration-inspector.ts";
+import { renderAnalysisInspector } from "./analysis-inspector.ts";
 
 export interface LibraryIntegrationsOptions {
   libraryName: string;
@@ -66,7 +66,7 @@ export function renderLibraryIntegrationsSurface(options: LibraryIntegrationsOpt
       : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No ecosystem integrations detected</h2><p>The public surface of ${escapeHtml(libraryName)} shows no known DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting signals.</p></section>`;
     content = `${warning}${categories.length ? blocks : empty}`;
   }
-  return renderIntegrationInspector(options, "integrations", status, content);
+  return renderAnalysisInspector(options, "integrations", status, content);
 }
 
 // Split before parameter/generic lists so their dots cannot become the name boundary.
