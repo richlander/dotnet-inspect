@@ -4,6 +4,109 @@ namespace DotnetInspect.Cli.Tests;
 
 public sealed partial class ConfiguredPayloadAcquisitionTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        LibraryAddressCommand_ConfiguredPackageUsesHouseSelection(
+            bool pinned)
+    {
+        string id = $"Package.Address.{Guid.NewGuid():N}";
+        string source = Path.Combine(_root, "address-feed");
+        string assemblyPath =
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location;
+        string assemblyName = Path.GetFileName(assemblyPath);
+        int methodToken =
+            typeof(ConfiguredPayloadAcquisitionTests)
+                .GetMethod(nameof(Dispose))!
+                .MetadataToken;
+        WriteLocalPackage(
+            source,
+            id,
+            "Package Address fixture.",
+            library: await File.ReadAllBytesAsync(
+                assemblyPath,
+                TestContext.Current.CancellationToken),
+            libraryName: assemblyName);
+
+        var (exit, output, error) = await RunCommandAsync(
+            [
+                "library",
+                "address",
+                $"0x{methodToken:X8}+0x0",
+                "--package",
+                pinned ? $"{id}@{Version}" : id,
+                "--library",
+                $"lib/net11.0/{assemblyName}",
+                "--source",
+                source,
+                "-S",
+                "Context: Member",
+                "--tips",
+                "q",
+            ]);
+
+        Assert.True(exit == 0, $"Exit {exit}\n{output}\n{error}");
+        Assert.Empty(error);
+        Assert.Contains(nameof(Dispose), output);
+    }
+
+    [Fact]
+    public async Task
+        LibraryAddressCommand_SelectedPackageUsesVersionPriorAndEntryCache()
+    {
+        string id = $"Package.Address.Prior.{Guid.NewGuid():N}";
+        string source = Path.Combine(_root, "address-prior-feed");
+        string assemblyPath =
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location;
+        string assemblyName = Path.GetFileName(assemblyPath);
+        int methodToken =
+            typeof(ConfiguredPayloadAcquisitionTests)
+                .GetMethod(nameof(Dispose))!
+                .MetadataToken;
+        WriteLocalPackage(
+            source,
+            id,
+            "Package Address prior fixture.",
+            library: await File.ReadAllBytesAsync(
+                assemblyPath,
+                TestContext.Current.CancellationToken),
+            libraryName: assemblyName);
+        string[] args =
+        [
+            "library",
+            "address",
+            $"0x{methodToken:X8}+0x0",
+            "--package",
+            id,
+            "--library",
+            $"lib/net11.0/{assemblyName}",
+            "--source",
+            source,
+            "-S",
+            "Context: Member",
+            "--tips",
+            "q",
+        ];
+
+        var first = await RunCommandAsync(args);
+        Assert.True(
+            first.Exit == 0,
+            $"Exit {first.Exit}\n{first.Output}\n{first.Error}");
+        File.Delete(
+            Path.Combine(
+                source,
+                $"{id.ToLowerInvariant()}.{Version}.nupkg"));
+
+        var second = await RunCommandAsync(args);
+        Assert.True(
+            second.Exit == 0,
+            $"Exit {second.Exit}\n{second.Output}\n{second.Error}");
+        Assert.Empty(second.Error);
+        Assert.Equal(first.Output, second.Output);
+        Assert.Contains(nameof(Dispose), second.Output);
+    }
+
     [Fact]
     public async Task
         TypeCommand_ConfiguredRuntimeAssetPreservesInspectionWithoutDocumentation()

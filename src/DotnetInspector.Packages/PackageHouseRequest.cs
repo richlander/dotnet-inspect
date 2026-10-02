@@ -25,6 +25,13 @@ public enum PackageHouseLibraryHandoffMode
     SelectedLibraries,
 }
 
+/// <summary>Optional package-local content needed by selected Library consumers.</summary>
+public enum PackageHouseLibraryCompanionDemand
+{
+    None,
+    ImplementationPortablePdb,
+}
+
 /// <summary>Additional package-authored evidence one realization reads.</summary>
 public enum PackageHouseEvidenceDemand
 {
@@ -271,9 +278,43 @@ public sealed class PackageHouseRequest
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
         IEnumerable<string>? implementationNames = null,
-        PackageDocumentDemand? documentDemand = null,
+        PackageFileDemand? fileDemand = null,
         PackageHouseEvidenceDemand evidenceDemand =
-            PackageHouseEvidenceDemand.None)
+            PackageHouseEvidenceDemand.None,
+        PackageHouseLibraryCompanionDemand libraryCompanionDemand =
+            PackageHouseLibraryCompanionDemand.None,
+        PackageHouseContentQuery? contentQuery = null)
+        : this(
+            demand,
+            operation,
+            targetContext,
+            assetSelection,
+            libraryHandoff,
+            association,
+            assetDemand,
+            implementationNames,
+            fileDemand,
+            evidenceDemand,
+            libraryCompanionDemand,
+            contentQuery,
+            allowReferenceOnlyImplementationNames: false)
+    {
+    }
+
+    internal PackageHouseRequest(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext? targetContext,
+        PackageHouseAssetSelectionKind? assetSelection,
+        PackageHouseLibraryHandoffMode libraryHandoff,
+        PackageHouseRequestAssociation? association,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string>? implementationNames,
+        PackageFileDemand? fileDemand,
+        PackageHouseEvidenceDemand evidenceDemand,
+        PackageHouseLibraryCompanionDemand libraryCompanionDemand,
+        PackageHouseContentQuery? contentQuery,
+        bool allowReferenceOnlyImplementationNames)
     {
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(operation);
@@ -285,6 +326,11 @@ public sealed class PackageHouseRequest
             throw new ArgumentOutOfRangeException(nameof(assetDemand));
         if (!Enum.IsDefined(evidenceDemand))
             throw new ArgumentOutOfRangeException(nameof(evidenceDemand));
+        if (!Enum.IsDefined(libraryCompanionDemand))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(libraryCompanionDemand));
+        }
 
         bool realizes =
             operation.Profile == PackageHouseOperationProfile.Realize;
@@ -318,13 +364,45 @@ public sealed class PackageHouseRequest
                     nameof(implementationNames));
             }
         }
+        if (allowReferenceOnlyImplementationNames
+            && (implementationNames is null
+                || assetSelection
+                    != PackageHouseAssetSelectionKind.Compile
+                || libraryHandoff
+                    != PackageHouseLibraryHandoffMode.SelectedLibraries))
+        {
+            throw new ArgumentException(
+                "Reference-only implementation names require named compile implementation demand with selected Library handoffs.",
+                nameof(allowReferenceOnlyImplementationNames));
+        }
 
-        if (documentDemand is not null
+        if (fileDemand is not null
             && operation.Profile != PackageHouseOperationProfile.Acquire)
         {
             throw new ArgumentException(
-                "Only an Acquire operation carries a document demand.",
-                nameof(documentDemand));
+                "Only an Acquire operation carries a file demand.",
+                nameof(fileDemand));
+        }
+        if (contentQuery is not null
+            && operation.Profile != PackageHouseOperationProfile.Acquire)
+        {
+            throw new ArgumentException(
+                "Only an Acquire operation carries a semantic content query.",
+                nameof(contentQuery));
+        }
+        if (contentQuery is not null && fileDemand is not null)
+        {
+            throw new ArgumentException(
+                "A semantic content query and legacy file demand are mutually exclusive.",
+                nameof(contentQuery));
+        }
+        if (contentQuery?.Narrowing
+                is PackageHouseContentNarrowing.PackageWide
+            && targetContext is not null)
+        {
+            throw new ArgumentException(
+                "Package-wide content narrowing does not carry a target context.",
+                nameof(targetContext));
         }
 
         if (evidenceDemand != PackageHouseEvidenceDemand.None
@@ -335,6 +413,20 @@ public sealed class PackageHouseRequest
                 "Framework-reference evidence requires a compile Realize operation.",
                 nameof(evidenceDemand));
         }
+        if (libraryCompanionDemand
+                != PackageHouseLibraryCompanionDemand.None
+            && (!realizes
+                || assetSelection
+                    != PackageHouseAssetSelectionKind.Compile
+                || libraryHandoff
+                    != PackageHouseLibraryHandoffMode.SelectedLibraries
+                || assetDemand
+                    != PackageAssetDemand.SurfaceAndImplementation))
+        {
+            throw new ArgumentException(
+                "Library companion demand requires a compile Realize operation with selected Library handoffs and implementation assets.",
+                nameof(libraryCompanionDemand));
+        }
 
         Demand = demand;
         Operation = operation;
@@ -343,8 +435,12 @@ public sealed class PackageHouseRequest
         LibraryHandoff = libraryHandoff;
         Association = association;
         AssetDemand = assetDemand;
-        DocumentDemand = documentDemand;
+        FileDemand = fileDemand;
+        ContentQuery = contentQuery;
         EvidenceDemand = evidenceDemand;
+        LibraryCompanionDemand = libraryCompanionDemand;
+        AllowReferenceOnlyImplementationNames =
+            allowReferenceOnlyImplementationNames;
         ImplementationNames = implementationNames is null
             ? null
             : PackageImplementationNames.Create(
@@ -380,13 +476,27 @@ public sealed class PackageHouseRequest
     public PackageImplementationNames? ImplementationNames { get; }
 
     /// <summary>
-    /// The package documents an Acquire operation reads, or
+    /// Whether a named implementation demand is satisfied when the same name
+    /// selects an API asset whose owner-issued correspondence has no
+    /// implementation counterpart. Other unmatched names remain a visible
+    /// realization failure.
+    /// </summary>
+    internal bool AllowReferenceOnlyImplementationNames { get; }
+
+    /// <summary>
+    /// The package files an Acquire operation reads, or
     /// <see langword="null"/>. It bounds a ranged read, which an Acquire
     /// operation may take only with one, and every named entry and folder
     /// must be listed by the acquired archive's directory
-    /// (docs/design/package-read-demand.md#document-demand).
+    /// (docs/design/package-read-demand.md#exact-file-demand).
     /// </summary>
-    public PackageDocumentDemand? DocumentDemand { get; }
+    public PackageFileDemand? FileDemand { get; }
+
+    /// <summary>
+    /// The semantic package-content request carried by an Acquire operation,
+    /// or <see langword="null"/> for legacy operation-specific demand.
+    /// </summary>
+    public PackageHouseContentQuery? ContentQuery { get; }
 
     /// <summary>
     /// Additional package-authored evidence this compile realization reads.
@@ -394,4 +504,9 @@ public sealed class PackageHouseRequest
     /// compile entries.
     /// </summary>
     public PackageHouseEvidenceDemand EvidenceDemand { get; }
+
+    /// <summary>
+    /// Optional package-local content retained for selected Library handoffs.
+    /// </summary>
+    public PackageHouseLibraryCompanionDemand LibraryCompanionDemand { get; }
 }

@@ -238,7 +238,7 @@ public class MemberBodyProducerExpressionBodyTests
             }
             """);
 
-        string source = ComposeType(assembly.Path, "Handle");
+        string source = ComposeType(assembly.Path, "Handle", includeAll: true);
 
         Assert.Contains("~Handle() => _n = 0;", source);
         Assert.DoesNotContain("void Finalize", source);
@@ -256,7 +256,7 @@ public class MemberBodyProducerExpressionBodyTests
             }
             """);
 
-        string source = ComposeType(assembly.Path, "Handle");
+        string source = ComposeType(assembly.Path, "Handle", includeAll: true);
 
         Assert.Contains("~Handle()\n    {", source);
         Assert.DoesNotContain("void Finalize", source);
@@ -298,9 +298,14 @@ public class MemberBodyProducerExpressionBodyTests
             }
             """);
 
-        var member = ExtractMember(assembly.Path, "Handle", "Finalize");
+        var member = ExtractMember(
+            assembly.Path,
+            "Handle",
+            "Finalize",
+            includeAll: true);
         Assert.Equal("finalizer", member.Kind);
         Assert.True(member.IsFinalizer);
+        Assert.Equal("protected", member.Accessibility);
     }
 
     [Fact]
@@ -343,18 +348,24 @@ public class MemberBodyProducerExpressionBodyTests
         Assert.NotEqual("finalizer", derivedMember.Kind);
     }
 
-    static ApiMember ExtractMember(string path, string typeName, string memberName)
+    // A finalizer is protected, so it belongs to the complete population, not
+    // the public-facing default (docs/design/api-population-scope.md).
+    static ApiMember ExtractMember(
+        string path,
+        string typeName,
+        string memberName,
+        bool includeAll = false)
     {
         using var pe = new PEReader(File.OpenRead(path));
-        var surface = ApiSurfaceExtractor.Extract(pe);
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll);
         var type = Assert.Single(surface.Types, t => t.FullName == typeName);
         return Assert.Single(type.Members, m => m.Name == memberName);
     }
 
-    static string ComposeType(string path, string fullName)
+    static string ComposeType(string path, string fullName, bool includeAll = false)
     {
         using var pe = new PEReader(File.OpenRead(path));
-        var surface = ApiSurfaceExtractor.Extract(pe);
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll);
         var type = Assert.Single(surface.Types, t => t.FullName == fullName);
         var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(source);

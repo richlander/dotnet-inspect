@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   subjectTab,
   inspectorTab,
+  chooseInspector,
   chooseSubject,
   library,
   run,
@@ -10,6 +11,7 @@ import {
   other,
   surface,
   platformVersion,
+  alternatePlatformVersion,
   openProductDestination,
   installFacades,
   type BrowserAssemblySurface,
@@ -215,6 +217,50 @@ async function openHomeDemo(
   return share;
 }
 
+test("Ecosystems is a first-class product catalog destination", async ({
+  page,
+}, testInfo) => {
+  await installHomeDemo(page, "Methods", "package");
+  await page.goto("/");
+  await openProductDestination(page, "ecosystems");
+  await expect(page).toHaveURL("/ecosystems");
+  await expect(page.getByRole("heading", { name: "Ecosystems", exact: true }))
+    .toBeFocused();
+  await expect(page.locator(
+    "[data-ecosystem='ecosystem.fixture-platform']"
+      + " + [data-ecosystem='ecosystem.fixture-package']",
+  )).toBeVisible();
+  await expect(page.locator("[data-ecosystem='ecosystem.fixture-package']"))
+    .toContainText("3 core packages");
+  await expect(page.locator("[data-ecosystem='ecosystem.fixture-package']"))
+    .toContainText("Integration scanner");
+  await expect(page.locator(".ecosystem-catalog button, .ecosystem-catalog a"))
+    .toHaveCount(0);
+  await page.locator("[data-product-navigation-button]").click();
+  await expect(page.locator(
+    "[data-product-destination][aria-current='page']",
+  )).toHaveText(["Ecosystems"]);
+  await page.keyboard.press("Escape");
+  await page.screenshot({ path: testInfo.outputPath("ecosystems-wide.png") });
+
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await page.getByRole("link", { name: "Ecosystems", exact: true }).click();
+  await expect(page).toHaveURL("/ecosystems");
+  await page.reload();
+  await expect(page.locator(
+    "[data-ecosystem='ecosystem.fixture-platform']")).toBeVisible();
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await page.goBack();
+  await expect(page).toHaveURL("/ecosystems");
+  await expect(page.getByRole("heading", { name: "Ecosystems", exact: true }))
+    .toBeFocused();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth))
+    .toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("ecosystems-narrow.png") });
+});
+
 test("Demos is a dedicated page reached from Home and the data bar", async ({
   page,
 }, testInfo) => {
@@ -375,10 +421,16 @@ test("package Call Graph demo applies the returned member and graph", async ({
   });
 });
 
-test("Platform Methods demo uses its non-first engine surface without reloading it", async ({
+test("Platform Methods demo retains its non-first engine surface while loading forwarders", async ({
   page,
 }) => {
   const share = await openHomeDemo(page, "Methods", "platform");
+  const publishedUrl = page.url();
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-forwarder-view", /.+/);
+  await expect(page.getByText("Loading forwarded Types...", { exact: true }))
+    .toHaveCount(0);
+  await expect(page).toHaveURL(publishedUrl);
   await expect(subjectTab(page, "type"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".inspected-target"))
@@ -386,8 +438,6 @@ test("Platform Methods demo uses its non-first engine surface without reloading 
   await expect(page.locator(
     `[data-type="${platformFocusType.id}"]`,
   )).toBeVisible();
-  await expect(page.locator("html"))
-    .not.toHaveAttribute("data-platform-library-request", /.+/);
   expect(share).toMatchObject({
     tabs: [{
       kind: "group",
@@ -402,19 +452,34 @@ test("Platform Methods demo uses its non-first engine surface without reloading 
       libraries: [JSON.stringify(["netcore.app", "System.Text.Json.dll"])],
     },
   });
+
 });
 
 test("Platform Call Graph demo publishes the exact Library and member", async ({
   page,
 }) => {
   const share = await openHomeDemo(page, "Call Graph", "platform");
+  const publishedUrl = page.url();
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-forwarder-view", /.+/);
+  await expect(page.getByText("Loading forwarded Types...", { exact: true }))
+    .toHaveCount(0);
+  await expect(page).toHaveURL(publishedUrl);
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await expect(inspectorTab(page, "data-member-section", "call-graph"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#call-graph-diagram svg")).toBeVisible();
-  await expect(page.locator("html"))
-    .not.toHaveAttribute("data-platform-library-request", /.+/);
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+  await chooseInspector(page, "data-member-section", "source", "Source");
+  await expect(page.locator(".source-result")).toContainText(
+    "public void Run() {}",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-member-source-request",
+    /platform-demo-context/,
+  );
   expect(share).toMatchObject({
     view: {
       type: platformFocusType.id,
@@ -423,6 +488,34 @@ test("Platform Call Graph demo publishes the exact Library and member", async ({
       libraries: [JSON.stringify(["netcore.app", "System.Text.Json.dll"])],
     },
   });
+
+  await openProductDestination(page, "workspace");
+  await page.locator("[data-workspace-platform]").click();
+  await expect(subjectTab(page, "platform"))
+    .toHaveAttribute("aria-selected", "true");
+  await page.getByLabel("Platform version", { exact: true })
+    .selectOption(alternatePlatformVersion);
+  await expect(page.locator("#platform-version"))
+    .toHaveValue(alternatePlatformVersion);
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation/ },
+  ).click();
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-list [data-type]").first().click();
+  await chooseSubject(page, "member", "Member");
+  await chooseInspector(page, "data-member-section", "source", "Source");
+  await expect(page.locator(".source-result")).toContainText(
+    "public void Run() {}",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-member-source-request",
+    new RegExp(alternatePlatformVersion.replaceAll(".", "\\.")),
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-member-source-request",
+    /,null\]$/,
+  );
 });
 
 test("home demo history failure restores the catalog without publication", async ({
@@ -486,7 +579,7 @@ test("Activity catalog failure focuses the visible route heading", async ({
 
   await expect(page.locator(".query-navigation-error"))
     .toContainText("Package Activity catalog offline");
-  await expect(page.locator("#package-changes-package-set")).toBeDisabled();
+  await expect(page.locator("#package-changes-ecosystem")).toBeDisabled();
   await expect(page.getByRole("heading", {
     name: "Package Activity",
     exact: true,

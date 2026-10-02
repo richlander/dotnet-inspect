@@ -42,36 +42,9 @@ public sealed class PlatformLibraryContentSelection
         ArtifactContentReference content,
         ArtifactAssemblyProjection projection)
     {
-        ArgumentNullException.ThrowIfNull(content);
-        ArgumentNullException.ThrowIfNull(projection);
-        if (content.Provenance
-                is not PlatformLibraryArtifactProvenance provenance)
-        {
-            throw new ArgumentException(
-                "Selected Library content must retain its Platform source realization as Artifact provenance.",
-                nameof(content));
-        }
+        Evidence = new(content, projection);
         PlatformSourceContribution.Realization contribution =
-            provenance.Contribution;
-        if (!ReferenceEquals(
-                projection.Registration.Generation,
-                content.Generation)
-            || !ReferenceEquals(
-                projection.Registration.Artifact,
-                content.Artifact))
-        {
-            throw new ArgumentException(
-                "Selected Library content requires the Metadata projection issued for its exact Artifact.",
-                nameof(projection));
-        }
-        var assemblyIdentity =
-            new ManagedMetadataIdentity.Assembly(projection.Identity);
-        if (assemblyIdentity.Identity.Version is null)
-        {
-            throw new ArgumentException(
-                "Selected Library content requires an exact assembly version.",
-                nameof(assemblyIdentity));
-        }
+            Evidence.Contribution;
         if (contribution.Population
                 is not PlatformPopulationDemand.Library population
             || !OperationAcceptsSelection(
@@ -79,28 +52,27 @@ public sealed class PlatformLibraryContentSelection
                 population))
         {
             throw new ArgumentException(
-                "Selected Library content must retain one exact one-Library realization demand.",
+                "Selected Library content must retain one one-Library realization demand.",
                 nameof(contribution));
         }
-        if (!DemandMatches(population.Value, assemblyIdentity))
+        if (!DemandMatches(population.Value, Evidence.AssemblyIdentity))
         {
             throw new ArgumentException(
                 "Selected Library content does not identify the demanded Library.",
-                nameof(assemblyIdentity));
+                nameof(projection));
         }
 
-        Contribution = contribution;
         Demand = population.Value;
-        Content = content;
-        Projection = projection;
-        AssemblyIdentity = assemblyIdentity;
     }
 
-    public PlatformSourceContribution.Realization Contribution { get; }
+    internal PlatformLibraryContentSelectionEvidence Evidence { get; }
+    public PlatformSourceContribution.Realization Contribution =>
+        Evidence.Contribution;
     public PlatformLibraryDemand Demand { get; }
-    public ArtifactContentReference Content { get; }
-    public ArtifactAssemblyProjection Projection { get; }
-    public ManagedMetadataIdentity.Assembly AssemblyIdentity { get; }
+    public ArtifactContentReference Content => Evidence.Content;
+    public ArtifactAssemblyProjection Projection => Evidence.Projection;
+    public ManagedMetadataIdentity.Assembly AssemblyIdentity =>
+        Evidence.AssemblyIdentity;
 
     static bool OperationAcceptsSelection(
         PlatformSourceContribution.Realization contribution,
@@ -114,7 +86,9 @@ public sealed class PlatformLibraryContentSelection
             PlatformHouseOperationSnapshot.ResolveAssemblyReference operation =>
                 operation.RequiredView == PlatformViewDemand.Reference
                 && contribution.Facet == PlatformSourceFacet.Reference
-                && population.Value is PlatformLibraryDemand.Assembly,
+                && population.Value
+                    is PlatformLibraryDemand.Assembly
+                        or PlatformLibraryDemand.AssemblyReferenceBinding,
             _ => false,
         };
 
@@ -126,6 +100,10 @@ public sealed class PlatformLibraryContentSelection
             PlatformLibraryDemand.Assembly assembly =>
                 AssemblyReferenceIdentity.EquivalentComparer.Equals(
                     assembly.Identity,
+                    identity.Identity),
+            PlatformLibraryDemand.AssemblyReferenceBinding binding =>
+                PlatformAssemblyReferenceBindingPolicy.OwnsName(
+                    binding,
                     identity.Identity),
             PlatformLibraryDemand.PlatformLibrary => true,
             _ => false,
@@ -230,24 +208,13 @@ public sealed class PlatformLibraryViewCorrespondence :
 }
 
 /// <summary>
-/// Resource-free value for one completed exact Platform Library realization.
-/// </summary>
-public sealed class PlatformLibraryRealizationValue
-{
-    internal PlatformLibraryRealizationValue(LibraryReference reference) =>
-        Reference = reference;
-
-    public LibraryReference Reference { get; }
-}
-
-/// <summary>
 /// Resource-free one-Library receipt composed with the House settlement.
 /// </summary>
 public sealed class PlatformLibraryRealizationReceipt
 {
     internal PlatformLibraryRealizationReceipt(
         PlatformHouseReceipt houseReceipt,
-        LibraryReference? realizedLibrary = null)
+        PlatformLibraryReference? realizedLibrary = null)
     {
         ArgumentNullException.ThrowIfNull(houseReceipt);
         if ((houseReceipt.SettlementKind
@@ -264,7 +231,7 @@ public sealed class PlatformLibraryRealizationReceipt
     }
 
     public PlatformHouseReceipt HouseReceipt { get; }
-    public LibraryReference? RealizedLibrary { get; }
+    public PlatformLibraryReference? RealizedLibrary { get; }
 }
 
 /// <summary>
@@ -273,7 +240,7 @@ public sealed class PlatformLibraryRealizationReceipt
 public abstract class PlatformLibraryRealizationResult
 {
     private protected PlatformLibraryRealizationResult(
-        PlatformHouseOutcome<PlatformLibraryRealizationValue> outcome,
+        PlatformHouseOutcome<PlatformLibraryReference> outcome,
         PlatformLibraryRealizationReceipt receipt)
     {
         ArgumentNullException.ThrowIfNull(outcome);
@@ -289,7 +256,7 @@ public abstract class PlatformLibraryRealizationResult
         Receipt = receipt;
     }
 
-    public PlatformHouseOutcome<PlatformLibraryRealizationValue> Outcome
+    public PlatformHouseOutcome<PlatformLibraryReference> Outcome
     {
         get;
     }
@@ -299,7 +266,7 @@ public abstract class PlatformLibraryRealizationResult
     {
         internal Completed(
             PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Completed outcome,
+                PlatformLibraryReference>.Completed outcome,
             PlatformLibraryRealizationReceipt receipt,
             LibraryContentOwner owner)
             : base(outcome, receipt)
@@ -307,10 +274,10 @@ public abstract class PlatformLibraryRealizationResult
             ArgumentNullException.ThrowIfNull(owner);
             if (!ReferenceEquals(
                     receipt.RealizedLibrary,
-                    outcome.Value.Reference)
+                    outcome.Value)
                 || !ReferenceEquals(
                     owner.Reference,
-                    outcome.Value.Reference))
+                    outcome.Value.Library))
             {
                 throw new ArgumentException(
                     "The completed owner and value must match the receipt's exact realized Library.",
@@ -321,7 +288,7 @@ public abstract class PlatformLibraryRealizationResult
             Owner = owner;
         }
 
-        public PlatformLibraryRealizationValue Value { get; }
+        public PlatformLibraryReference Value { get; }
 
         /// <summary>
         /// Gets the caller-owned Library authority transferred by completion.
@@ -332,13 +299,13 @@ public abstract class PlatformLibraryRealizationResult
     public sealed class Terminal : PlatformLibraryRealizationResult
     {
         internal Terminal(
-            PlatformHouseOutcome<PlatformLibraryRealizationValue> outcome,
+            PlatformHouseOutcome<PlatformLibraryReference> outcome,
             PlatformLibraryRealizationReceipt receipt)
             : base(outcome, receipt)
         {
             if (outcome
                 is PlatformHouseOutcome<
-                    PlatformLibraryRealizationValue>.Completed)
+                    PlatformLibraryReference>.Completed)
             {
                 throw new ArgumentException(
                     "A completed outcome requires an owning realization result.",
@@ -728,6 +695,7 @@ public static class PlatformHouseLibraryRealizer
                 ? null
                 : implementation;
         LibraryReference library;
+        PlatformLibraryReference platformLibrary;
         PlatformHouseCompletion.Realization completion;
         PlatformHouseReceipt receipt;
         IReadOnlyList<ArtifactContentLease> children;
@@ -812,6 +780,19 @@ public static class PlatformHouseLibraryRealizer
                         && settlement.Contribution
                             is PlatformSourceContribution.Realization),
                 correspondence);
+            PlatformLibraryContentSelectionEvidence[] certificationSelections =
+            [
+                .. new[] { reference, implementation }
+                    .Where(static selection => selection is not null)
+                    .Select(static selection => selection!.Evidence)
+                    .Distinct<PlatformLibraryContentSelectionEvidence>(
+                        ReferenceEqualityComparer.Instance),
+            ];
+            platformLibrary = new PlatformLibraryReference(
+                library,
+                target,
+                certificationSelections,
+                correspondence?.Identity);
             receipt = new PlatformHouseReceipt(
                 request.Snapshot,
                 (PlatformTargetSettlement?)
@@ -893,15 +874,14 @@ public static class PlatformHouseLibraryRealizer
                 retainedSettlements);
         }
 
-        var value = new PlatformLibraryRealizationValue(library);
         return new PlatformLibraryRealizationResult.Completed(
             new PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Completed(
-                    completion.Bind(value),
+                PlatformLibraryReference>.Completed(
+                    completion.Bind(platformLibrary),
                     receipt),
             new PlatformLibraryRealizationReceipt(
                 receipt,
-                library),
+                platformLibrary),
             owner);
     }
 
@@ -1067,7 +1047,7 @@ public static class PlatformHouseLibraryRealizer
             termination: termination);
         return new PlatformLibraryRealizationResult.Terminal(
             new PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Rejected(
+                PlatformLibraryReference>.Rejected(
                     termination,
                     receipt),
             new PlatformLibraryRealizationReceipt(receipt));
@@ -1098,7 +1078,7 @@ public static class PlatformHouseLibraryRealizer
             termination: termination);
         return new PlatformLibraryRealizationResult.Terminal(
             new PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Unavailable(
+                PlatformLibraryReference>.Unavailable(
                     termination,
                     receipt),
             new PlatformLibraryRealizationReceipt(receipt));
@@ -1121,7 +1101,7 @@ public static class PlatformHouseLibraryRealizer
             termination: termination);
         return new PlatformLibraryRealizationResult.Terminal(
             new PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Incomplete(
+                PlatformLibraryReference>.Incomplete(
                     termination,
                     receipt),
             new PlatformLibraryRealizationReceipt(receipt));
@@ -1157,7 +1137,7 @@ public static class PlatformHouseLibraryRealizer
             termination: termination);
         return new PlatformLibraryRealizationResult.Terminal(
             new PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Failed(
+                PlatformLibraryReference>.Failed(
                     termination,
                     receipt),
             new PlatformLibraryRealizationReceipt(receipt));

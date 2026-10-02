@@ -10,6 +10,7 @@ import {
 import { validateAnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import { sampleViewerCatalog } from "./annotated-source-result-fixture.ts";
 import {
+  applyMemberDocumentationOutcome,
   cancelFindingCensusRequest,
   createMemberDetailInspectionCoordinator,
   type DocumentableMemberSurface,
@@ -40,6 +41,7 @@ import type {
 } from "../src/facades/inspect-web-package.d.ts";
 import type {
   BrowserMemberDeclaration,
+  DocumentationQueryOutcome as AttachedDocumentationQueryOutcome,
 } from "../src/facades/inspect-web-metadata.d.ts";
 import {
   memberFindingCensusFixture,
@@ -80,6 +82,7 @@ function wireMemberSurface(
     anchorDigest: "abc123",
     canonicalSignature: "void Example.Widget.Run(string value)",
     anchorTypeFullName: "Example.Widget",
+    declaringTypeDefinitionId: null,
     graphSelectorKey: "Run|System.String",
     bodySelectors: [],
     ...overrides,
@@ -327,6 +330,54 @@ function combinedDocumentation(): DocumentationQueryOutcome {
       samples: {
         kind: "Absent",
         requestedChannels: ["CompiledXml", "AuthoredSource"],
+        contributions: [],
+      },
+    },
+  };
+}
+
+function attachedDocumentation(): AttachedDocumentationQueryOutcome {
+  const absentText = {
+    kind: 3,
+    requestedChannels: [0],
+    contributions: [],
+  };
+  return {
+    kind: "completed",
+    subject: {
+      assembly: {
+        name: "Example.Package",
+        version: null,
+        culture: null,
+        publicKeyToken: null,
+      },
+      documentationId: "M:Example.Widget.Run(System.String)",
+    },
+    compiledXml: null,
+    authoredSource: null,
+    fields: {
+      summary: {
+        kind: 0,
+        requestedChannels: [0],
+        contributions: [{
+          channel: 0,
+          value: "Attached exact Member documentation.",
+        }],
+      },
+      remarks: absentText,
+      returns: absentText,
+      parameters: [{
+        name: "value",
+        evidence: absentText,
+      }],
+      exceptions: {
+        kind: 3,
+        requestedChannels: [0],
+        contributions: [],
+      },
+      samples: {
+        kind: 3,
+        requestedChannels: [0],
         contributions: [],
       },
     },
@@ -758,6 +809,17 @@ test("combined documentation applies ordered field settlement", async () => {
     overload.exceptions[0]?.type,
     "System.InvalidOperationException");
   assert.equal(state.memberDocumentationError, "");
+});
+
+test("attached exact Member documentation uses the shared hydration path", () => {
+  const overload = memberSurface();
+
+  const error =
+    applyMemberDocumentationOutcome(overload, attachedDocumentation());
+
+  assert.equal(error, "");
+  assert.equal(overload.summary, "Attached exact Member documentation.");
+  assert.equal(overload.documentationLoaded, true);
 });
 
 test("missing completed documentation fields remain visible and retryable", async () => {

@@ -498,7 +498,50 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    public void Evaluate_UsesProductWholeMemberForOrdinaryConstructors()
+    public void Evaluate_RoundTripsAutoPropertyDeclarationInitializer()
+    {
+        var assemblyPath = CompileFixture("""
+            public class AutoPropertyInitializerFixture
+            {
+                int Value { get; set; } = 42;
+            }
+            """);
+        try
+        {
+            var results = FidelityCheck.Evaluate(assemblyPath);
+            var ctor = Assert.Single(
+                results,
+                result => result.Type == "AutoPropertyInitializerFixture"
+                    && result.Method == ".ctor");
+            var accessors = results
+                .Where(result => result.Type == "AutoPropertyInitializerFixture"
+                    && result.Method is "get_Value" or "set_Value")
+                .ToArray();
+
+            Assert.True(
+                ctor.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"Status: {ctor.Status}; product member: {ctor.UsedProductWholeMember}; "
+                + $"original: {ctor.OriginalOpcodes}; recompiled: {ctor.RecompiledOpcodes}; "
+                + $"detail: {ctor.Detail}");
+            Assert.Equal(2, accessors.Length);
+            Assert.All(accessors, accessor =>
+            {
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, accessor.Status);
+                Assert.True(
+                    accessor.UsedProductWholeMember,
+                    $"{accessor.Method} status: {accessor.Status}; "
+                    + $"product member: {accessor.UsedProductWholeMember}; "
+                    + $"detail: {accessor.Detail}");
+            });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void Evaluate_PreservesPrivateConstructorArtifactAndReportsContextFailure()
     {
         var assemblyPath = CompileFixture("""
             using System;
@@ -596,7 +639,8 @@ public class FidelityCheckGeneratedFilterTests
                         && method.Overload == constructorOverload));
 
             Assert.True(result.UsedProductWholeMember);
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.Contains("CS0122", result.Detail, StringComparison.Ordinal);
         }
         finally
         {
@@ -935,6 +979,18 @@ public class FidelityCheckGeneratedFilterTests
             Assert.True(targetedRemover.UsedProductWholeMember);
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, targetedRemover.Status);
 
+            var explicitResults = FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "ExplicitEventFixture")
+                .Where(result => result.Method.Contains("Changed", StringComparison.Ordinal))
+                .ToList();
+            Assert.Equal(2, explicitResults.Count);
+            foreach (var result in explicitResults)
+            {
+                Assert.False(result.UsedProductWholeMember, result.Method);
+                Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            }
+
             var overrideResults = FidelityCheck.Evaluate(
                     assemblyPath,
                     typeName => typeName == "OverrideEventFixture",
@@ -1186,24 +1242,6 @@ public class FidelityCheckGeneratedFilterTests
         {
             DeleteFixture(assemblyPath);
         }
-    }
-
-    [Fact]
-    public void ConstructorShellAccessibility_PreservesBodySyntaxDiagnostics()
-    {
-        const string member = """
-                private Fixture()
-                {
-                    Consume(,);
-                }
-            """;
-
-        Assert.True(
-            FidelityCheck.TryForcePublicConstructorAccessibility(
-                member,
-                out string normalized));
-        Assert.Contains("public Fixture()", normalized, StringComparison.Ordinal);
-        Assert.Contains("Consume(,);", normalized, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -20,6 +20,10 @@ public readonly record struct RuntimeJsExportAttributeEvidence(
     public bool HasValidRow => ValidRowCount > 0;
 }
 
+public readonly record struct SetsRequiredMembersAttributeEvidence(
+    int Count,
+    bool HasMalformedRow);
+
 internal enum AttributeTypeIdentityDisposition
 {
     Match,
@@ -32,7 +36,10 @@ internal enum AttributeTypeIdentityDisposition
 /// </summary>
 public static partial class AttributeReader
 {
-    private const string EditorBrowsableAttributeName = "System.ComponentModel.EditorBrowsableAttribute";
+    private const string EditorBrowsableAttributeNamespace = "System.ComponentModel";
+    private const string EditorBrowsableAttributeSimpleName = "EditorBrowsableAttribute";
+    private const string EditorBrowsableAttributeName =
+        EditorBrowsableAttributeNamespace + "." + EditorBrowsableAttributeSimpleName;
     private const string ExtensionMarkerAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerAttribute";
     private const string ExtensionMarkerNameAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerNameAttribute";
     private const string ObsoleteAttributeName = "System.ObsoleteAttribute";
@@ -77,8 +84,14 @@ public static partial class AttributeReader
         "System.Text.Json.Serialization.JsonObjectCreationHandlingAttribute";
     private const string JsonObjectCreationHandlingTypeName =
         "System.Text.Json.Serialization.JsonObjectCreationHandling";
+    private const string JsonUnmappedMemberHandlingAttributeName =
+        "System.Text.Json.Serialization.JsonUnmappedMemberHandlingAttribute";
+    private const string JsonUnmappedMemberHandlingTypeName =
+        "System.Text.Json.Serialization.JsonUnmappedMemberHandling";
     private const string JsonExtensionDataAttributeName =
         "System.Text.Json.Serialization.JsonExtensionDataAttribute";
+    private const string JsonRequiredAttributeName =
+        "System.Text.Json.Serialization.JsonRequiredAttribute";
     private const string JsonKnownNamingPolicyTypeName =
         "System.Text.Json.Serialization.JsonKnownNamingPolicy";
     private static readonly IReadOnlyDictionary<string, PrimitiveTypeCode>
@@ -92,6 +105,8 @@ public static partial class AttributeReader
                 [JsonNumberHandlingTypeName] =
                     PrimitiveTypeCode.Int32,
                 [JsonObjectCreationHandlingTypeName] =
+                    PrimitiveTypeCode.Int32,
+                [JsonUnmappedMemberHandlingTypeName] =
                     PrimitiveTypeCode.Int32,
             };
     private const string RequiredMembersFeatureName = "RequiredMembers";
@@ -270,13 +285,15 @@ public static partial class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(
-                reader,
-                attr.Constructor,
-                beforeMaterialize);
-            if (attrTypeName == EditorBrowsableAttributeName
+            if (IsTopLevelAttributeType(
+                    reader,
+                    attr.Constructor,
+                    EditorBrowsableAttributeNamespace,
+                    EditorBrowsableAttributeSimpleName)
                 && IsEditorBrowsableNever(reader, attr, beforeMaterialize))
+            {
                 return true;
+            }
         }
         return false;
     }
@@ -362,6 +379,22 @@ public static partial class AttributeReader
             attributes,
             KnownAttributeNames.RequiredMemberAttribute,
             beforeMaterialize);
+
+    public static SetsRequiredMembersAttributeEvidence
+        ReadSetsRequiredMembersAttributes(
+            MetadataReader reader,
+            CustomAttributeHandleCollection attributes,
+            Action<int>? beforeMaterialize = null)
+    {
+        (int count, bool hasMalformedRow) =
+            ReadAuthenticMarkerAttributeRows(
+                reader,
+                attributes,
+                KnownAttributeNames.SetsRequiredMembersAttribute,
+                assemblyName: null,
+                beforeMaterialize);
+        return new(count, hasMalformedRow);
+    }
 
     /// <summary>
     /// Checks whether the member carries <c>RequiresUnsafeAttribute</c> — the
@@ -663,6 +696,57 @@ public static partial class AttributeReader
             attributes,
             beforeMaterialize);
 
+    public static JsonWireUnmappedMemberHandling
+        ReadJsonUnmappedMemberHandling(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+    {
+        bool found = false;
+        JsonWireUnmappedMemberHandling result =
+            JsonWireUnmappedMemberHandling.Skip;
+        foreach (CustomAttributeHandle attrHandle in attributes)
+        {
+            CustomAttribute attr = reader.GetCustomAttribute(attrHandle);
+            if (!IsFrameworkAttributeType(
+                    reader,
+                    attr.Constructor,
+                    JsonUnmappedMemberHandlingAttributeName,
+                    SystemTextJsonAssemblyName,
+                    beforeMaterialize))
+            {
+                continue;
+            }
+
+            if (found
+                || !HasExpectedConstructor(
+                    reader,
+                    attr.Constructor,
+                    FrameworkConstructorKind.JsonUnmappedMemberHandling,
+                    beforeMaterialize)
+                || AttributeDecoder.TryDecode(
+                    reader,
+                    attr,
+                    beforeMaterialize,
+                    JsonSourceGenerationExternalEnumUnderlyingTypes) is not
+                    {
+                        FixedArguments: [var handling],
+                        NamedArguments.Length: 0,
+                    }
+                || !TryReadInt32(handling.Value, out int rawValue)
+                || rawValue is not 0 and not 1)
+            {
+                return JsonWireUnmappedMemberHandling.Unsupported;
+            }
+
+            found = true;
+            result = rawValue == 1
+                ? JsonWireUnmappedMemberHandling.Disallow
+                : JsonWireUnmappedMemberHandling.Skip;
+        }
+        return result;
+    }
+
     public static bool HasUnsupportedJsonMemberWireAttributes(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
@@ -679,6 +763,11 @@ public static partial class AttributeReader
             reader,
             attributes,
             JsonExtensionDataAttributeName,
+            beforeMaterialize)
+        || HasFrameworkAttribute(
+            reader,
+            attributes,
+            JsonRequiredAttributeName,
             beforeMaterialize);
 
     public static ApiJsonPolymorphismEvidence? ReadJsonPolymorphism(
@@ -2070,6 +2159,7 @@ public static partial class AttributeReader
         JsonSerializerDefaults,
         JsonNumberHandling,
         JsonObjectCreationHandling,
+        JsonUnmappedMemberHandling,
     }
 
     internal static bool HasExpectedMarkerConstructor(
@@ -2302,6 +2392,16 @@ public static partial class AttributeReader
                         "System.Text.Json.Serialization",
                         "JsonObjectCreationHandling",
                         IsSystemTextJsonAssembly),
+                FrameworkConstructorKind.JsonUnmappedMemberHandling =>
+                    signature.ParameterTypes is
+                    [
+                        NamedTypeNode type,
+                    ]
+                    && IsExpectedTopLevelSignatureType(
+                        type,
+                        "System.Text.Json.Serialization",
+                        "JsonUnmappedMemberHandling",
+                        IsSystemTextJsonAssembly),
                 _ => false,
             };
         }
@@ -2415,6 +2515,49 @@ public static partial class AttributeReader
                 chargeRelationship: null,
                 out declaringType)
             == AttributeTypeIdentityDisposition.Match;
+    }
+
+    static bool IsTopLevelAttributeType(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string @namespace,
+        string name)
+    {
+        EntityHandle declaringType = constructor.Kind switch
+        {
+            HandleKind.MemberReference =>
+                reader.GetMemberReference(
+                    (MemberReferenceHandle)constructor).Parent,
+            HandleKind.MethodDefinition =>
+                reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)constructor)
+                    .GetDeclaringType(),
+            _ => default,
+        };
+        if (declaringType.Kind == HandleKind.TypeDefinition)
+        {
+            TypeDefinition type =
+                reader.GetTypeDefinition(
+                    (TypeDefinitionHandle)declaringType);
+            return type.GetDeclaringType().IsNil
+                && reader.StringComparer.Equals(
+                    type.Namespace,
+                    @namespace)
+                && reader.StringComparer.Equals(type.Name, name);
+        }
+        if (declaringType.Kind == HandleKind.TypeReference)
+        {
+            TypeReference type =
+                reader.GetTypeReference(
+                    (TypeReferenceHandle)declaringType);
+            return type.ResolutionScope.Kind
+                    is not HandleKind.TypeReference
+                && reader.StringComparer.Equals(
+                    type.Namespace,
+                    @namespace)
+                && reader.StringComparer.Equals(type.Name, name);
+        }
+        return false;
     }
 
     internal static AttributeTypeIdentityDisposition
@@ -3210,7 +3353,10 @@ public static partial class AttributeReader
             "Converters" or "TypeClassifiers" => true,
             "IgnoreReadOnlyFields"
                 or "IgnoreReadOnlyProperties"
-                or "IncludeFields" =>
+                or "IncludeFields"
+                or "PropertyNameCaseInsensitive"
+                or "RespectNullableAnnotations"
+                or "RespectRequiredConstructorParameters" =>
                 option.Value is not false,
             "DefaultIgnoreCondition" =>
                 !TryReadInt32(option.Value, out int ignoreCondition)
@@ -3220,7 +3366,8 @@ public static partial class AttributeReader
             "DictionaryKeyPolicy"
                 or "NumberHandling"
                 or "PreferredObjectCreationHandling"
-                or "ReferenceHandler" =>
+                or "ReferenceHandler"
+                or "UnmappedMemberHandling" =>
                 !TryReadInt32(option.Value, out int value) || value != 0,
             _ => false,
         };

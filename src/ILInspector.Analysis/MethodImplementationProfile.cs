@@ -218,7 +218,8 @@ internal static class MethodImplementationProfileAnalysis
         ImmutableArray<DirectCall> directCalls,
         IReadOnlyDictionary<int, MethodSignals> signals,
         ImmutableArray<OverloadCallRelationship> relationships,
-        MethodDefinitionMap methodMap)
+        MethodDefinitionMap methodMap,
+        IReadOnlyDictionary<int, int>? directInvocationCounts = null)
     {
         var incomingCallers = relationships
             .GroupBy(static relationship => relationship.Callee.MetadataToken)
@@ -258,6 +259,14 @@ internal static class MethodImplementationProfileAnalysis
                         body.EvidenceMethod.MetadataToken,
                         out DirectCall[]? calls);
                     calls ??= [];
+                    ImplementationMetricDirectCalls directCallMetrics =
+                        MeasureDirectCalls(
+                            directInvocationCounts?.GetValueOrDefault(
+                                body.EvidenceMethod.MetadataToken)
+                                ?? calls.Length,
+                            calls,
+                            methodMap,
+                            incompleteReason: null);
 
                     return new MethodImplementationProfile(
                         method,
@@ -276,10 +285,8 @@ internal static class MethodImplementationProfileAnalysis
                         body.FinallyCount,
                         body.FaultCount,
                         body.LocalCount,
-                        calls.Length,
-                        CountDistinctCallees(
-                            calls,
-                            methodMap),
+                        directCallMetrics.InvocationCount,
+                        directCallMetrics.DistinctTargetCount,
                         signal.Allocations,
                         signal.Throws,
                         body.IsAsync,
@@ -301,6 +308,34 @@ internal static class MethodImplementationProfileAnalysis
                 .ThenByDescending(static profile => profile.BasicBlockCount)
                 .ThenBy(static profile => profile.Method.MetadataToken),
         ];
+    }
+
+    internal static ImplementationMetricDirectCalls MeasureDirectCalls(
+        IEnumerable<DirectCall> calls,
+        MethodDefinitionMap methodMap,
+        string? incompleteReason)
+    {
+        DirectCall[] invocations =
+        [
+            .. calls.Where(static call => IsInvocation(call.Kind)),
+        ];
+        return MeasureDirectCalls(
+            invocations.Length,
+            invocations,
+            methodMap,
+            incompleteReason);
+    }
+
+    internal static ImplementationMetricDirectCalls MeasureDirectCalls(
+        int invocationCount,
+        IEnumerable<DirectCall> calls,
+        MethodDefinitionMap methodMap,
+        string? incompleteReason)
+    {
+        return new(
+            invocationCount,
+            CountDistinctCallees(calls, methodMap),
+            incompleteReason);
     }
 
     static int CountDistinctCallees(
@@ -339,8 +374,6 @@ internal static class MethodImplementationProfileAnalysis
             ImmutableArray<DirectCall> directCalls,
             MethodDefinitionMap methodMap)
     {
-        var methodsByToken = declaredMethods.ToDictionary(
-            static method => method.MetadataToken);
         var relationships =
             ImmutableArray.CreateBuilder<OverloadCallRelationship>();
         foreach (var call in directCalls)
@@ -350,9 +383,9 @@ internal static class MethodImplementationProfileAnalysis
 
             int calleeToken = methodMap.Resolve(call);
             if (calleeToken == 0
-                || !methodsByToken.TryGetValue(
-                    calleeToken,
-                    out MethodIdentity? callee)
+                || FindDeclaredMethod(
+                    declaredMethods,
+                    calleeToken) is not { } callee
                 || call.Caller.MetadataToken == callee.MetadataToken
                 || call.Caller.Name != callee.Name
                 || !SameDeclaringType(
@@ -379,6 +412,26 @@ internal static class MethodImplementationProfileAnalysis
                 .ThenBy(static relationship =>
                     relationship.Callee.MetadataToken),
         ];
+    }
+
+    static MethodIdentity? FindDeclaredMethod(
+        ImmutableArray<MethodIdentity> declaredMethods,
+        int metadataToken)
+    {
+        int low = 0;
+        int high = declaredMethods.Length - 1;
+        while (low <= high)
+        {
+            int middle = low + ((high - low) / 2);
+            MethodIdentity candidate = declaredMethods[middle];
+            if (candidate.MetadataToken == metadataToken)
+                return candidate;
+            if (candidate.MetadataToken < metadataToken)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+        return null;
     }
 
     static bool IsInvocation(CallKind kind)

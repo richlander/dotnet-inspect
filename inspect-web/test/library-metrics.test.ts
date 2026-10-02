@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderLibraryMetricsSurface, type LibraryMetricsOptions } from "../src/library-metrics.ts";
 import type { BrowserLibraryMetrics } from "../src/facades/inspect-web-analysis.d.ts";
+import { projectTypeLeverage } from "../src/type-leverage.ts";
 
 const data: BrowserLibraryMetrics = {
   outcome: "available",
@@ -66,6 +67,10 @@ function render(overrides: Partial<LibraryMetricsOptions> = {}) {
     loading: false,
     error: "",
     data,
+    salienceLoading: true,
+    salienceError: "",
+    salience: null,
+    selectedSalienceNamespace: null,
     escapeHtml: value => String(value).replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
@@ -101,6 +106,157 @@ test("renders the complexity and relationship visual evidence", () => {
   assert.match(html, /Example\.Core\.Engine/);
   assert.match(html, /Relationship Crossing/);
   assert.match(html, /Example\.Core\.Store/);
+});
+
+test("renders owner-issued structural salience orders and qualification", () => {
+  const salience = projectTypeLeverage({
+    schemaVersion: 1,
+    outcome: "available",
+    methodologyVersion: "structural-salience.v2",
+    evidenceMode: "signature",
+    namespaceIndex: {
+      disposition: "Qualified",
+      coverage: { considered: 5, examined: 4, unavailable: 1, limited: 0 },
+      namespaces: [{
+        namespace: "Example.Core",
+        typeCount: 2,
+        externalIncomingSourceTypeCount: 6,
+        topLeverage: true,
+      }],
+      diagnostics: ["One signature was unavailable."],
+    },
+    typeLeverageShards: [{
+      namespace: "Example.Core",
+      disposition: "complete",
+      coverage: { considered: 2, examined: 2, unavailable: 0, limited: 0 },
+      types: [{
+        typeDefinitionId: "Example.Core.Engine",
+        typeDisplay: "Example.Core.Engine",
+        designationEligible: true,
+        signatureIncomingDegree: 6,
+        signatureOutgoingDegree: 2,
+        role: "foundation",
+        pole: "SeaLevel",
+      }, {
+        typeDefinitionId: "Example.Core.Store",
+        typeDisplay: "Example.Core.Store",
+        designationEligible: true,
+        signatureIncomingDegree: 1,
+        signatureOutgoingDegree: 5,
+        role: "orchestrator",
+        pole: "MountainPeak",
+      }],
+      seaLevelOrder: ["Example.Core.Engine", "Example.Core.Store"],
+      mountainPeakOrder: ["Example.Core.Store", "Example.Core.Engine"],
+      diagnostics: [],
+    }],
+    failure: null,
+    compileLibrary: data.compileLibrary,
+  });
+  const html = render({
+    salienceLoading: false,
+    salience,
+  });
+
+  assert.match(html, /Structural Salience/);
+  assert.match(html, /Example\.Core · 6 external source Types · top leverage/);
+  assert.match(html, /Incoming peers/);
+  assert.match(html, /Engine/);
+  assert.match(html, /6 incoming peers · foundation/);
+  assert.match(html, /6 incoming peers · foundation · sea level/);
+  assert.match(html, /Outgoing peers/);
+  assert.match(html, /5 outgoing peers · orchestrator/);
+  assert.match(html, /5 outgoing peers · orchestrator · mountain peak/);
+  assert.match(html, /metrics-salience-type sea-level/);
+  assert.match(html, /metrics-salience-type mountain-peak/);
+  assert.match(html, /item-achievement-glyph sea-level/);
+  assert.match(html, /item-achievement-glyph mountain-peak/);
+  assert.match(html, /Structural salience is qualified/);
+  assert.match(html, /One signature was unavailable\./);
+  assert.match(html, /data-metrics-salience-retry>Retry/);
+  assert.match(
+    html,
+    /data-metrics-salience-type-key="Example\.Core\.Engine"/,
+  );
+});
+
+test("structural salience remains available when body metrics fail", () => {
+  const html = render({
+    error: "Body metrics failed.",
+    data: null,
+    salienceLoading: true,
+  });
+
+  assert.match(html, /Structural Salience/);
+  assert.match(html, /Body metrics failed\./);
+});
+
+test("a sole zero-leverage namespace remains explicitly selectable", () => {
+  const zeroLeverageIndex = {
+    schemaVersion: 1,
+    outcome: "available",
+    methodologyVersion: "structural-salience.v2",
+    evidenceMode: "signature",
+    namespaceIndex: {
+      disposition: "complete",
+      coverage: { considered: 4, examined: 4, unavailable: 0, limited: 0 },
+      namespaces: [{
+        namespace: "Only",
+        typeCount: 4,
+        externalIncomingSourceTypeCount: 0,
+        topLeverage: false,
+      }],
+      diagnostics: [],
+    },
+    typeLeverageShards: [{
+      namespace: "Only",
+      disposition: "complete",
+      coverage: { considered: 4, examined: 4, unavailable: 0, limited: 0 },
+      types: [],
+      seaLevelOrder: [],
+      mountainPeakOrder: [],
+      diagnostics: [],
+    }],
+    failure: null,
+    compileLibrary: data.compileLibrary,
+  } as const;
+  const salience = projectTypeLeverage(zeroLeverageIndex);
+  const html = render({
+    salienceLoading: false,
+    salience,
+  });
+
+  assert.match(
+    html,
+    /<option value="Only" selected>/,
+  );
+  assert.equal(
+    [...html.matchAll(/0 owner-issued rows/g)].length,
+    2,
+  );
+  assert.match(html, /1 exact namespace analyzed/);
+
+  const globalHtml = render({
+    salienceLoading: false,
+    salience: projectTypeLeverage({
+      ...zeroLeverageIndex,
+      namespaceIndex: {
+        ...zeroLeverageIndex.namespaceIndex,
+        namespaces: [{
+          ...zeroLeverageIndex.namespaceIndex.namespaces[0],
+          namespace: "",
+        }],
+      },
+      typeLeverageShards: [{
+        ...zeroLeverageIndex.typeLeverageShards[0],
+        namespace: "",
+      }],
+    }),
+  });
+  assert.match(
+    globalHtml,
+    /<option value="" selected>\(global namespace\)/,
+  );
 });
 
 test("keeps detailed distributions out of the website presentation", () => {

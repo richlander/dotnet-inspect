@@ -931,14 +931,33 @@ a bounded MethodDef handle, the Property/Event association, and observed
 association ordering; malformed layout, coded-index values, or row bounds
 produce typed mechanical rejection.
 
-Metadata then owns the semantic census for the requested property or event.
-Each row must contain exactly one legal role for its association kind and
-target a method on the aggregate's declaring type. Nonmonotonic association
-ordering rejects the census as malformed Metadata, while the same physical
-ordering with the sorted bit clear is rejected earlier by SRM reader
-construction. Duplicate getter, setter, add, remove, or raise roles are rejected
-rather than collapsed by last-write-wins projection. Only the validated bounded
-rows may construct the typed accessor aggregate.
+The direct PropertyDef/EventDef construction, signature grammar, validity,
+correspondence, and failure contract is owned by
+[Metadata accessor aggregate validity](metadata-accessor-aggregate-validity.md).
+This planning document owns the stage ordering only.
+
+The completed aggregate retains the exact root declaration shape and every
+physical MethodSemantics occurrence. Metadata distinguishes malformed owned
+rows and signatures from valid non-CLS correspondence and unavailable external
+type-category evidence. In particular, accessor accessibility and virtual,
+abstract, new-slot, or final differences remain exact per-MethodDef facts; they
+are not aggregate-wide Metadata validity requirements. CSharp consumes
+affirmative correspondence and exact flags under its own representability
+policy.
+
+The post composes the existing Metadata memory-safety owner rather than
+creating a reduced safety model. It retains the module rules, declaring-type
+layout, root declaration caller-contract and pointer evidence, and
+occurrence-bound caller-contract and pointer evidence for every associated
+MethodDef. The memory-safety index remains independently bounded and is built
+at most once per declaration session; the operation observer records that
+materialization and each retained safety read.
+
+This root-shape post does not provide the reverse join from an interface
+declaration MethodDef to its PropertyDef or EventDef aggregate. Explicit-
+interface accessor composition must consume a separately owner-issued join;
+it may not scan MethodSemantics, infer from accessor names, or silently broaden
+this root-shape contract across the MethodImpl boundary.
 
 `PropertyDefinition.GetAccessors()` and `EventDefinition.GetAccessors()` are
 not valid census inputs for untrusted metadata: those SRM convenience
@@ -1025,6 +1044,12 @@ reimplement the admission stages. The validation matrix gate must cover:
   including malformed and over-budget dependencies;
 - duplicate standard roles, invalid combined role flags, dangling method
   handles, and cross-declaring-type associations;
+- exact root names, raw attributes, property signatures, event types, and
+  memory-safety evidence on real compiler-produced declarations;
+- getter return, setter value, setter index-prefix, add/remove event-type,
+  staticness, and conventional declaration-modifier disagreement;
+- a valid raise method whose invocation parameters differ from the EventDef
+  type, proving that Metadata preserves rather than misclassifies it;
 - a retained row whose signature is rejected;
 - an aggregate with one rejected accessor;
 - a valid retained declaration that produces an empty presentation section.
@@ -1035,9 +1060,11 @@ Most exact implementation types remain deferred, but the facts have one
 Metadata owner. `MetadataMethodDeclarationEvidence.OperatorCandidate` posts
 the `SpecialName`-anchored operator candidacy fact without applying C# shape
 policy. `MetadataAccessorDeclarationEvidence` posts one complete property or
-event aggregate from the lossless association census, retaining every physical
-occurrence and its exact `MetadataMethodDeclarationEvidence`; typed rejection
-keeps census, ownership, dependency-posting, and budget failure visible.
+event aggregate from the lossless association census. It retains the exact
+root shape and safety evidence plus every physical occurrence, exact
+`MetadataMethodDeclarationEvidence`, and occurrence-bound safety evidence;
+typed rejection keeps root decode, correspondence, census, ownership,
+dependency-posting, and budget failure visible.
 
 | Fact | Required distinctions |
 | --- | --- |

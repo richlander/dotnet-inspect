@@ -206,7 +206,7 @@ public class CatalogCallGraphScopeTests
     }
 
     [Fact]
-    public void ResolvedCallsEnumeratesExactPairWithoutTraversalBounds()
+    public void ResolvedCallsConsumesFocusedResultsWithoutTraversalBounds()
     {
         LibraryBodyIndex caller = LibraryBodyIndex.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
@@ -218,7 +218,9 @@ public class CatalogCallGraphScopeTests
                 [target]);
 
         ImmutableArray<CatalogResolvedCallSite> calls =
-            scope.ResolvedCalls(caller, target);
+            scope.ResolvedCalls(
+                caller.CallGraphAnalysis,
+                target.CallGraphAnalysis);
 
         Assert.Contains(
             calls,
@@ -249,7 +251,10 @@ public class CatalogCallGraphScopeTests
                     call.SourceMethod.MetadataToken,
                     call.Call.Caller.MetadataToken);
             });
-        Assert.Empty(scope.ResolvedCalls(target, caller));
+        Assert.Empty(
+            scope.ResolvedCalls(
+                target.CallGraphAnalysis,
+                caller.CallGraphAnalysis));
     }
 
     [Fact]

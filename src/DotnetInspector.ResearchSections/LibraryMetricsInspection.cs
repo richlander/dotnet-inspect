@@ -3,8 +3,10 @@ using System.Text.Json;
 using DotnetInspector.Sections;
 
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using Inspector.Graph;
 
 namespace DotnetInspector.ResearchSections;
 
@@ -68,6 +70,11 @@ public static class LibraryMetricsInspectionJson
             WriteRelationship(writer, relationship);
         }
         writer.WriteEndArray();
+        writer.WritePropertyName("structuralSalience");
+        if (document.StructuralSalience is { } structuralSalience)
+            WriteStructuralSalience(writer, structuralSalience);
+        else
+            writer.WriteNullValue();
         writer.WritePropertyName("diagnostics");
         WriteDiagnostics(writer, document.Diagnostics);
         writer.WriteEndObject();
@@ -382,6 +389,450 @@ public static class LibraryMetricsInspectionJson
         AnalysisIdentityJson.WriteType(writer, type);
     }
 
+    private static void WriteStructuralSalience(
+        Utf8JsonWriter writer,
+        LibraryStructuralSalienceDocument salience)
+    {
+        var graphDocuments =
+            new Dictionary<GraphDocumentIdentity, string>(
+                ReferenceEqualityComparer.Instance);
+        writer.WriteStartObject();
+        writer.WriteString(
+            "methodologyVersion",
+            salience.MethodologyVersion);
+        writer.WriteString(
+            "evidenceMode",
+            salience.EvidenceMode.ToString());
+        writer.WritePropertyName("namespaceIndex");
+        WriteNamespaceIndex(writer, salience.NamespaceIndex);
+        writer.WritePropertyName("typeLeverageShards");
+        writer.WriteStartArray();
+        foreach (LibraryStructuralTypeLeverageShard shard
+            in salience.TypeLeverageShards)
+        {
+            WriteTypeLeverageShard(
+                writer,
+                shard,
+                graphDocuments);
+        }
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+    }
+
+    private static void WriteNamespaceIndex(
+        Utf8JsonWriter writer,
+        LibraryStructuralNamespaceLeverageIndex index)
+    {
+        writer.WriteStartObject();
+        writer.WriteString(
+            "methodologyVersion",
+            index.MethodologyVersion);
+        writer.WriteString(
+            "evidenceMode",
+            index.EvidenceMode.ToString());
+        writer.WriteString(
+            "disposition",
+            index.Disposition.ToString());
+        writer.WritePropertyName("rows");
+        writer.WriteStartArray();
+        foreach (LibraryStructuralNamespaceLeverageRow row
+            in index.Rows)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("namespace", row.Namespace);
+            writer.WriteNumber("typeCount", row.TypeCount);
+            writer.WriteNumber(
+                "externalIncomingSourceTypeCount",
+                row.ExternalIncomingSourceTypeCount);
+            writer.WriteBoolean(
+                "topLeverage",
+                row.TopLeverage);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WritePropertyName("signatureUse");
+        WriteSignatureUseQualification(writer, index.SignatureUse);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteTypeLeverageShard(
+        Utf8JsonWriter writer,
+        LibraryStructuralTypeLeverageShard leverage,
+        Dictionary<GraphDocumentIdentity, string> graphDocuments)
+    {
+        writer.WriteStartObject();
+        writer.WriteString(
+            "methodologyVersion",
+            leverage.MethodologyVersion);
+        writer.WriteString(
+            "evidenceMode",
+            leverage.EvidenceMode.ToString());
+        writer.WriteString("namespace", leverage.Namespace);
+        writer.WritePropertyName("rows");
+        writer.WriteStartArray();
+        foreach (LibraryStructuralTypeLeverageRow row in leverage.Rows)
+        {
+            writer.WriteStartObject();
+            writer.WritePropertyName("type");
+            WriteTypeAddress(writer, row.Type);
+            writer.WritePropertyName("name");
+            WriteTypeName(writer, row.Name);
+            writer.WriteString(
+                "classification",
+                row.Classification.ToString());
+            writer.WriteNumber(
+                "classificationMask",
+                (int)row.Classification);
+            writer.WriteBoolean(
+                "designationEligible",
+                row.DesignationEligible);
+            writer.WriteNumber(
+                "signatureIncomingDegree",
+                row.SignatureIncomingDegree);
+            writer.WriteNumber(
+                "signatureOutgoingDegree",
+                row.SignatureOutgoingDegree);
+            writer.WriteString("role", row.Role.ToString());
+            if (row.Pole is { } pole)
+                writer.WriteString("pole", pole.ToString());
+            else
+                writer.WriteNull("pole");
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WritePropertyName("seaLevel");
+        WriteTypeLeverageOrder(writer, leverage.SeaLevel);
+        writer.WritePropertyName("mountainPeak");
+        WriteTypeLeverageOrder(writer, leverage.MountainPeak);
+        writer.WriteString(
+            "roleDisposition",
+            leverage.RoleDisposition.ToString());
+        writer.WritePropertyName("signatureUse");
+        WriteSignatureUseQualification(
+            writer,
+            leverage.SignatureUse);
+        writer.WritePropertyName("graphWork");
+        writer.WriteStartObject();
+        writer.WritePropertyName("signatureIncomingDegree");
+        WriteGraphWorkReceipt(
+            writer,
+            leverage.GraphWork.SignatureIncomingDegree,
+            graphDocuments);
+        writer.WritePropertyName("signatureOutgoingDegree");
+        WriteGraphWorkReceipt(
+            writer,
+            leverage.GraphWork.SignatureOutgoingDegree,
+            graphDocuments);
+        writer.WriteEndObject();
+        writer.WriteEndObject();
+    }
+
+    private static void WriteTypeLeverageOrder(
+        Utf8JsonWriter writer,
+        LibraryStructuralTypeLeverageOrder order)
+    {
+        writer.WriteStartObject();
+        writer.WriteString(
+            "disposition",
+            order.Disposition.ToString());
+        writer.WritePropertyName("types");
+        writer.WriteStartArray();
+        foreach (MetadataTypeDefinitionAddress type in order.Types)
+            WriteTypeAddress(writer, type);
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+    }
+
+    private static void WriteSignatureUseQualification(
+        Utf8JsonWriter writer,
+        LibraryStructuralSignatureUseQualification qualification)
+    {
+        writer.WriteStartObject();
+        writer.WritePropertyName("receipt");
+        writer.WriteStartObject();
+        writer.WriteString(
+            "moduleVersionId",
+            qualification.Receipt.ModuleVersionId);
+        writer.WritePropertyName("assemblyIdentity");
+        WriteAssemblyIdentity(
+            writer,
+            qualification.Receipt.Assembly);
+        if (qualification.Receipt.ExactNamespace is { } exactNamespace)
+        {
+            writer.WriteString(
+                "exactNamespace",
+                exactNamespace);
+        }
+        else
+        {
+            writer.WriteNull("exactNamespace");
+        }
+        writer.WritePropertyName("counters");
+        WriteMetadataCounters(
+            writer,
+            qualification.Receipt.Counters);
+        writer.WriteEndObject();
+        writer.WriteString(
+            "disposition",
+            qualification.Disposition.ToString());
+        writer.WritePropertyName("coverage");
+        writer.WriteStartObject();
+        writer.WriteNumber(
+            "considered",
+            qualification.Coverage.Considered);
+        writer.WriteNumber(
+            "examined",
+            qualification.Coverage.Examined);
+        writer.WriteNumber(
+            "unavailable",
+            qualification.Coverage.Unavailable);
+        writer.WriteNumber(
+            "limited",
+            qualification.Coverage.Limited);
+        writer.WriteEndObject();
+        writer.WriteNumber(
+            "occurrenceCount",
+            qualification.OccurrenceCount);
+        writer.WritePropertyName("diagnostics");
+        writer.WriteStartArray();
+        foreach (MetadataLibrarySignatureUseDiagnostic diagnostic
+            in qualification.Diagnostics)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("kind", diagnostic.Kind.ToString());
+            WriteNumber(
+                writer,
+                "metadataToken",
+                diagnostic.MetadataToken);
+            writer.WriteString("detail", diagnostic.Detail);
+            WriteString(
+                writer,
+                "budgetDimension",
+                diagnostic.BudgetDimension?.ToString());
+            WriteNumber(
+                writer,
+                "budgetLimit",
+                diagnostic.BudgetLimit);
+            WriteNumber(
+                writer,
+                "attemptedCharge",
+                diagnostic.AttemptedCharge);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+    }
+
+    private static void WriteTypeAddress(
+        Utf8JsonWriter writer,
+        MetadataTypeDefinitionAddress address)
+    {
+        writer.WriteStartObject();
+        writer.WriteString(
+            "moduleVersionId",
+            address.ModuleVersionId);
+        writer.WriteNumber(
+            "definitionToken",
+            address.Definition.Value);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteTypeName(
+        Utf8JsonWriter writer,
+        MetadataTypeDefinitionName name)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("namespace", name.Namespace);
+        writer.WritePropertyName("segments");
+        writer.WriteStartArray();
+        foreach (string segment in name.Segments)
+            writer.WriteStringValue(segment);
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+    }
+
+    private static void WriteMetadataCounters(
+        Utf8JsonWriter writer,
+        MetadataOperationCounters counters)
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber(
+            "metadataRows",
+            counters.MetadataRows);
+        writer.WriteNumber(
+            "methodImplementationRows",
+            counters.MethodImplementationRows);
+        writer.WriteNumber(
+            "declarationCandidates",
+            counters.DeclarationCandidates);
+        writer.WriteNumber(
+            "relationshipEdges",
+            counters.RelationshipEdges);
+        writer.WriteNumber(
+            "signatureBytes",
+            counters.SignatureBytes);
+        writer.WriteNumber(
+            "genericSubstitutionNodes",
+            counters.GenericSubstitutionNodes);
+        writer.WriteNumber(
+            "structuredNodes",
+            counters.StructuredNodes);
+        writer.WriteNumber(
+            "retainedText",
+            counters.RetainedText);
+        writer.WriteNumber(
+            "interfaceImplementationRows",
+            counters.InterfaceImplementationRows);
+        writer.WriteNumber(
+            "retainedMethodSemanticsAssociations",
+            counters.RetainedMethodSemanticsAssociations);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteBodyUseCoverage(
+        Utf8JsonWriter writer,
+        AnalysisLibraryBodyUseCoverage coverage)
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber(
+            "bodiesConsidered",
+            coverage.BodiesConsidered);
+        writer.WriteNumber(
+            "bodiesExamined",
+            coverage.BodiesExamined);
+        writer.WriteNumber(
+            "bodiesPhysicalOnly",
+            coverage.BodiesPhysicalOnly);
+        writer.WriteNumber(
+            "bodiesUnavailable",
+            coverage.BodiesUnavailable);
+        writer.WriteNumber(
+            "bodiesLimited",
+            coverage.BodiesLimited);
+        writer.WriteNumber(
+            "operandsConsidered",
+            coverage.OperandsConsidered);
+        writer.WriteNumber(
+            "operandsExamined",
+            coverage.OperandsExamined);
+        writer.WriteNumber(
+            "operandsUnavailable",
+            coverage.OperandsUnavailable);
+        writer.WriteNumber(
+            "operandsLimited",
+            coverage.OperandsLimited);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteAnalysisWorkReceipt(
+        Utf8JsonWriter writer,
+        WorkReceipt receipt)
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber("unitsVisited", receipt.UnitsVisited);
+        writer.WritePropertyName("producers");
+        writer.WriteStartArray();
+        foreach (ProducerParticipation producer in receipt.Producers)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("producer", producer.Producer);
+            writer.WriteString(
+                "outcome",
+                producer.Outcome.ToString());
+            writer.WriteNumber(
+                "unitsAttempted",
+                producer.UnitsAttempted);
+            writer.WriteNumber(
+                "unitsCompleted",
+                producer.UnitsCompleted);
+            writer.WriteNumber(
+                "unitsFailed",
+                producer.UnitsFailed);
+            writer.WritePropertyName("layers");
+            writer.WriteStartArray();
+            foreach (ProducerLayerParticipation layer
+                in producer.Layers)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("layer", layer.Layer);
+                writer.WriteNumber("acquired", layer.Acquired);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WritePropertyName("critical");
+        if (receipt.Critical is { } critical)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("owner", critical.Owner);
+            writer.WriteString("budget", critical.Budget);
+            writer.WriteNumber("unitToken", critical.UnitToken);
+            writer.WriteString("unit", critical.Unit);
+            writer.WriteString("message", critical.Message);
+            writer.WriteEndObject();
+        }
+        else
+        {
+            writer.WriteNullValue();
+        }
+        writer.WriteBoolean(
+            "identityBudgetArmed",
+            receipt.IdentityBudgetArmed);
+        writer.WriteNumber(
+            "identityWorkCharged",
+            receipt.IdentityWorkCharged);
+        writer.WriteNumber(
+            "signatureShapeNodesWalked",
+            receipt.SignatureShapeNodesWalked);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteGraphWorkReceipt(
+        Utf8JsonWriter writer,
+        GraphExecutionWorkReceipt receipt,
+        Dictionary<GraphDocumentIdentity, string> graphDocuments)
+    {
+        if (!graphDocuments.TryGetValue(
+                receipt.SourceDocument,
+                out string? sourceDocument))
+        {
+            sourceDocument =
+                $"graph-document-{graphDocuments.Count + 1}";
+            graphDocuments.Add(
+                receipt.SourceDocument,
+                sourceDocument);
+        }
+
+        writer.WriteStartObject();
+        writer.WriteString(
+            "sourceDocument",
+            sourceDocument);
+        writer.WriteNumber(
+            "canonicalNodesExamined",
+            receipt.CanonicalNodesExamined);
+        writer.WriteNumber(
+            "canonicalEdgesExamined",
+            receipt.CanonicalEdgesExamined);
+        writer.WriteNumber(
+            "selectedEdgesIndexed",
+            receipt.SelectedEdgesIndexed);
+        writer.WriteNumber(
+            "structuralViewsBuilt",
+            receipt.StructuralViewsBuilt);
+        writer.WriteNumber(
+            "adjacencyEntriesExamined",
+            receipt.AdjacencyEntriesExamined);
+        writer.WriteNumber(
+            "nodesAdmitted",
+            receipt.NodesAdmitted);
+        writer.WriteBoolean(
+            "terminalSettled",
+            receipt.TerminalSettled);
+        writer.WriteEndObject();
+    }
+
     private static void WriteDiagnostics(
         Utf8JsonWriter writer,
         IEnumerable<AnalysisDiagnostic> diagnostics)
@@ -432,6 +883,17 @@ public static class LibraryMetricsInspectionJson
         Utf8JsonWriter writer,
         string propertyName,
         int? value)
+    {
+        if (value is { } number)
+            writer.WriteNumber(propertyName, number);
+        else
+            writer.WriteNull(propertyName);
+    }
+
+    private static void WriteNumber(
+        Utf8JsonWriter writer,
+        string propertyName,
+        long? value)
     {
         if (value is { } number)
             writer.WriteNumber(propertyName, number);

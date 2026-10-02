@@ -4,7 +4,10 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspect.Web.Interop.Metadata;
+using DotnetInspect.Web.Interop.Source;
 using ILInspector.Metadata;
 using NuGetFetch;
 using Analysis = ILInspector.Analysis;
@@ -27,6 +30,8 @@ public sealed class BrowserMemberDeclarationTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.dll";
     const string SpellingType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetySpellingFixture";
+    const string ExtensionType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyReceiverExtensions";
     const string ReadonlyPropertyType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyReadonlyPropertyFixture";
     const string ReadonlySetterPropertyType =
@@ -158,6 +163,245 @@ public sealed class BrowserMemberDeclarationTests
         JsonElement spellingType = Type(surfaceDocument.RootElement, SpellingType);
         JsonElement pointerFree = Member(spellingType, "PointerFreeUnsafeMethod");
         JsonElement pointerNone = Member(spellingType, "PointerNoneMethod");
+        BrowserMemberGroupDocumentInspection singletonGroup =
+            MemberGroupDocument(
+                await MetadataExports.QueryMemberGroupDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "PointerFreeUnsafeMethod"));
+        Assert.Equal(
+            BrowserMemberGroupDocumentOutcome.Available,
+            singletonGroup.Outcome);
+        BrowserMemberGroupDocument singletonDocument =
+            Assert.IsType<BrowserMemberGroupDocument>(
+                singletonGroup.Document);
+        Assert.Equal(SpellingType, singletonDocument.TypeIdentity);
+        Assert.Equal("PointerFreeUnsafeMethod", singletonDocument.MemberName);
+        Assert.Equal(1, singletonDocument.Count);
+        BrowserMemberGroupDocumentRow singletonRow =
+            Assert.Single(singletonDocument.Rows);
+        Assert.Equal(1, singletonRow.BaselineOrdinal);
+        Assert.Contains(
+            "PointerFreeUnsafeMethod",
+            singletonRow.DisplaySignature,
+            StringComparison.Ordinal);
+
+        BrowserMemberDocumentInspection ordinalMember =
+            MemberDocument(
+                await MetadataExports.QueryMemberDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "PointerFreeUnsafeMethod",
+                    singletonRow.BaselineOrdinal,
+                    ""));
+        BrowserMemberDocumentInspection fingerprintMember =
+            MemberDocument(
+                await MetadataExports.QueryMemberDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "PointerFreeUnsafeMethod",
+                    0,
+                    singletonRow.Fingerprint));
+        Assert.Equal(
+            BrowserMemberDocumentOutcome.Available,
+            ordinalMember.Outcome);
+        BrowserMemberDocument exactDocument =
+            Assert.IsType<BrowserMemberDocument>(
+                ordinalMember.Document);
+        Assert.Equal(SpellingType, exactDocument.TypeIdentity);
+        Assert.Equal(
+            "PointerFreeUnsafeMethod",
+            exactDocument.MemberName);
+        Assert.Equal(
+            singletonRow.MetadataToken,
+            exactDocument.MetadataToken);
+        Assert.Equal(
+            singletonRow.BaselineOrdinal,
+            exactDocument.BaselineOrdinal);
+        Assert.Equal(
+            singletonRow.CanonicalSignature,
+            exactDocument.CanonicalSignature);
+        Assert.Equivalent(
+            exactDocument,
+            Assert.IsType<BrowserMemberDocument>(
+                fingerprintMember.Document),
+            strict: true);
+
+        BrowserMemberDocumentInspection missingMember =
+            MemberDocument(
+                await MetadataExports.QueryMemberDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "PointerFreeUnsafeMethod",
+                    2,
+                    ""));
+        Assert.Equal(
+            BrowserMemberDocumentOutcome.Rejected,
+            missingMember.Outcome);
+        Assert.Null(missingMember.Document);
+        Assert.NotNull(missingMember.Detail);
+
+        BrowserMemberGroupDocumentInspection uploadedGroup =
+            MemberGroupDocument(
+                await MetadataExports.QueryUploadedLibraryMemberGroupDocument(
+                    AssemblyFileName,
+                    image,
+                    ExtensionType,
+                    "Examine"));
+        Assert.Equal(
+            BrowserMemberGroupDocumentOutcome.Available,
+            uploadedGroup.Outcome);
+        BrowserMemberGroupDocument uploadedDocument =
+            Assert.IsType<BrowserMemberGroupDocument>(
+                uploadedGroup.Document);
+        Assert.Equal(ExtensionType, uploadedDocument.TypeIdentity);
+        Assert.Equal("Examine", uploadedDocument.MemberName);
+        Assert.Equal(5, uploadedDocument.Count);
+        Assert.All(
+            uploadedDocument.Rows,
+            static row => Assert.Equal("Extension", row.Receiver));
+
+        BrowserTypeMemberPopulationInspection packagePopulation =
+            TypeMemberPopulation(
+                await MetadataExports.QueryTypeMemberPopulation(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "csharp",
+                    "public"));
+        Assert.Equal(
+            BrowserTypeMemberPopulationOutcome.Available,
+            packagePopulation.Outcome);
+        BrowserTypeMemberPopulation packageMembers =
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                packagePopulation.Population);
+        Assert.Equal(
+            packageMembers.Composition.Public,
+            packageMembers.Groups.Sum(group => group.Members.Length));
+        Assert.Equal(
+            packageMembers.SelectorCounts.Traits.All,
+            packageMembers.Groups.Sum(group => group.Members.Length));
+        Assert.Equal(
+            packageMembers.SelectorCounts.Traits.All,
+            packageMembers.SelectorCounts.Kinds.Sum(count => count.Count));
+        BrowserTypeMemberPopulationInspection metadataPopulation =
+            TypeMemberPopulation(
+                await MetadataExports.QueryTypeMemberPopulation(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "metadata",
+                    "public"));
+        BrowserTypeMemberPopulation metadataMembers =
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                metadataPopulation.Population);
+        BrowserTypeMemberPopulationGroup getter = Assert.Single(
+            metadataMembers.Groups,
+            group => group.Name == "get_Type");
+        Assert.All(
+            getter.Members,
+            static member => Assert.Null(member.BaselineOrdinal));
+        BrowserTypeMemberPopulationGroup metadataMethod = Assert.Single(
+            metadataMembers.Groups,
+            group => group.Name == "PointerFreeUnsafeMethod");
+        Assert.Equal<int?>(
+            [1],
+            metadataMethod.Members.Select(member => member.BaselineOrdinal));
+        BrowserTypeMemberPopulationInspection privatePopulation =
+            TypeMemberPopulation(
+                await MetadataExports.QueryTypeMemberPopulation(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "metadata",
+                    "private"));
+        BrowserTypeMemberPopulation privateMembers =
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                privatePopulation.Population);
+        BrowserMemberSurface[] privateRows =
+            [.. privateMembers.Groups.SelectMany(group => group.Members)];
+        Assert.NotEmpty(privateRows);
+        Assert.All(
+            privateRows,
+            static member => Assert.Null(member.BaselineOrdinal));
+
+        BrowserTypeMemberPopulationInspection allPopulation =
+            TypeMemberPopulation(
+                await MetadataExports.QueryTypeMemberPopulation(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "metadata",
+                    "all"));
+        BrowserTypeMemberPopulation allMembers =
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                allPopulation.Population);
+        Assert.Equal("All", allMembers.Accessibility);
+        Assert.Equal(
+            allMembers.Composition.Public
+                + allMembers.Composition.Protected
+                + allMembers.Composition.Internal
+                + allMembers.Composition.Private,
+            allMembers.Groups.Sum(group => group.Members.Length));
+
+        BrowserTypeMemberPopulationInspection uploadedPopulation =
+            TypeMemberPopulation(
+                await MetadataExports
+                    .QueryUploadedLibraryTypeMemberPopulation(
+                        AssemblyFileName,
+                        image,
+                        ExtensionType,
+                        "csharp",
+                        "public"));
+        Assert.Equal(
+            BrowserTypeMemberPopulationOutcome.Available,
+            uploadedPopulation.Outcome);
+        BrowserTypeMemberPopulation uploadedMembers =
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                uploadedPopulation.Population);
+        BrowserTypeMemberPopulationGroup examine = Assert.Single(
+            uploadedMembers.Groups,
+            group => group.Name == "Examine");
+        Assert.Equal(5, examine.Members.Length);
+        Assert.Equal(5, examine.CompleteCount);
+        Assert.Equal<int?>(
+            [1, 2, 3, 4, 5],
+            examine.Members.Select(member => member.BaselineOrdinal));
+
+        BrowserMemberGroupDocumentInspection missingGroup =
+            MemberGroupDocument(
+                await MetadataExports.QueryMemberGroupDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "MissingMethod"));
+        Assert.Equal(
+            BrowserMemberGroupDocumentOutcome.Rejected,
+            missingGroup.Outcome);
+        Assert.Null(missingGroup.Document);
+        Assert.NotNull(missingGroup.Detail);
 
         BrowserMemberDeclaration pointerFreeDeclaration =
             await Declaration(spellingType, pointerFree);
@@ -401,6 +645,372 @@ public sealed class BrowserMemberDeclarationTests
                 StringComparison.Ordinal);
             Assert.Null(declaration.Unavailable);
             Assert.False(declaration.Compatibility);
+
+            BrowserMemberGroupDocumentInspection group =
+                MemberGroupDocument(
+                    await MetadataExports.QueryPlatformMemberGroupDocument(
+                        framework,
+                        version,
+                        AssemblyFileName,
+                        "netcore.app",
+                        ExtensionType,
+                        "Examine"));
+            Assert.Equal(
+                BrowserMemberGroupDocumentOutcome.Available,
+                group.Outcome);
+            BrowserMemberGroupDocument document =
+                Assert.IsType<BrowserMemberGroupDocument>(group.Document);
+            Assert.Equal(ExtensionType, document.TypeIdentity);
+            Assert.Equal("Examine", document.MemberName);
+            Assert.Equal(5, document.Count);
+            Assert.Equal(5, document.Rows.Length);
+            Assert.Equal(
+                [1, 2, 3, 4, 5],
+                document.Rows.Select(static row => row.BaselineOrdinal));
+            Assert.Equal(
+                5,
+                document.Rows.Select(static row => row.MetadataToken)
+                    .Distinct()
+                    .Count());
+            Assert.All(
+                document.Rows,
+                static row => Assert.Equal("Extension", row.Receiver));
+
+            BrowserTypeMemberPopulationInspection population =
+                TypeMemberPopulation(
+                    await MetadataExports
+                        .QueryPlatformTypeMemberPopulation(
+                            framework,
+                            version,
+                            AssemblyFileName,
+                            "netcore.app",
+                            SpellingType,
+                            "csharp",
+                            "public"));
+            Assert.Equal(
+                BrowserTypeMemberPopulationOutcome.Available,
+                population.Outcome);
+            BrowserTypeMemberPopulation members =
+                Assert.IsType<BrowserTypeMemberPopulation>(
+                    population.Population);
+            Assert.Equal(
+                members.Composition.Public,
+                members.Groups.Sum(candidate => candidate.Members.Length));
+            Assert.Equal(requests, handler.Requests);
+        }
+        finally
+        {
+            await resolution.DisposeAsync();
+            await BrowserPackageWorkspace.RemoveScopeAsync(resolution.Scope);
+        }
+    }
+
+    [Fact]
+    public async Task SelectedPlatformMemberSourceUsesPlatformWorkspace()
+    {
+        const string framework = "net11.0";
+        const string version = "11.0.974";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        using var archiveBytes = new MemoryStream();
+        using (var archive = new ZipArchive(
+            archiveBytes,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using Stream entry = archive.CreateEntry(
+                $"runtimes/linux-x64/lib/net11.0/{AssemblyFileName}").Open();
+            entry.Write(image);
+        }
+
+        using var handler = new PlatformHandler(
+            version,
+            archiveBytes.ToArray());
+        using var client = new HttpClient(handler);
+        string assemblyName =
+            Path.GetFileNameWithoutExtension(AssemblyFileName);
+        var plan = new WorkspacePlan(
+            [],
+            [
+                new WorkspaceContextInput
+                {
+                    Framework = framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            assemblyName,
+                            version,
+                            framework),
+                    ],
+                },
+            ]);
+        BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenContextAsync(
+                plan,
+                plan.Contexts[0],
+                "runtime",
+                assemblyName,
+                client,
+                new UniformPackageSourceAuthorization(
+                    [PackageSource.NuGetOrg]),
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        try
+        {
+            ApiSurface surface = resolution.Scope.UseParticipant(
+                resolution.Participant,
+                BrowserMemberResolution.ImplementationSurface);
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate => candidate.FullName == SpellingType);
+            ApiMember member = Assert.Single(
+                type.Members,
+                candidate => candidate.Name == "PointerFreeUnsafeMethod");
+            int requests = handler.Requests;
+
+            string json =
+                await SourceExports.QueryPlatformMemberSource(
+                    framework,
+                    version,
+                    AssemblyFileName,
+                    "netcore.app",
+                    type.DefinitionName!.ToEscapedFullName(),
+                    member.Name,
+                    Analysis.CallGraphMemberResolver
+                        .CreateSelector(type, member).Key,
+                    member.MetadataToken ?? 0,
+                    "[]",
+                    Assert.IsType<string>(resolution.ContextId));
+            BrowserMemberSource source =
+                JsonSerializer.Deserialize(
+                    json,
+                    BrowserSourceJsonContext.Default.BrowserMemberSource)
+                ?? throw new InvalidOperationException(
+                    "The platform member Source export returned null.");
+
+            Assert.Equal("decompiled", source.Source.Provider);
+            Assert.Contains(
+                "PointerFreeUnsafeMethod",
+                source.Source.Text,
+                StringComparison.Ordinal);
+            Assert.Empty(source.Parts);
+            Assert.Equal(requests, handler.Requests);
+        }
+        finally
+        {
+            await resolution.DisposeAsync();
+            await BrowserPackageWorkspace.RemoveScopeAsync(resolution.Scope);
+        }
+    }
+
+    [Fact]
+    public async Task PlatformTypeSourceDecompilesSystemTextJsonJsonArray()
+    {
+        const string framework = "net11.0";
+        const string version = "11.0.976";
+        const string assemblyFileName = "System.Text.Json.dll";
+        byte[] image = File.ReadAllBytes(
+            typeof(System.Text.Json.Nodes.JsonArray).Assembly.Location);
+        using var archiveBytes = new MemoryStream();
+        using (var archive = new ZipArchive(
+            archiveBytes,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using Stream entry = archive.CreateEntry(
+                $"runtimes/linux-x64/lib/net11.0/{assemblyFileName}").Open();
+            entry.Write(image);
+        }
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                "microsoft.netcore.app.runtime.linux-x64",
+                version,
+                archiveBytes.ToArray(),
+                fromCache: false));
+
+        BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                framework,
+                version,
+                assemblyFileName,
+                "netcore.app",
+                TestContext.Current.CancellationToken);
+        try
+        {
+            ApiSurface surface = resolution.Scope.UseParticipant(
+                resolution.Participant,
+                BrowserMemberResolution.ImplementationSurface);
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate =>
+                    candidate.FullName
+                    == "System.Text.Json.Nodes.JsonArray");
+
+            BrowserTypeSourceResult result =
+                JsonSerializer.Deserialize(
+                    await SourceExports.QueryPlatformTypeSource(
+                        Guid.NewGuid().ToString(),
+                        framework,
+                        version,
+                        assemblyFileName,
+                        "netcore.app",
+                        type.DefinitionName!.ToEscapedFullName(),
+                        "[]",
+                        "decompiler-source"),
+                    BrowserSourceJsonContext.Default
+                        .BrowserTypeSourceResult)
+                ?? throw new InvalidOperationException(
+                    "The System.Text.Json platform Type Source export "
+                    + "returned null.");
+
+            Assert.Equal(
+                BrowserTypeSourceResultKind.Succeeded,
+                result.Kind);
+            var source =
+                Assert.IsType<BrowserTypeCodeView.Source>(result.Value);
+            Assert.Equal("decompiled", source.Value.Provider);
+            Assert.Contains(
+                "class JsonArray",
+                source.Value.Text,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                $"runtime {version} System.Text.Json",
+                source.Value.Provenance.ToString(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            await resolution.DisposeAsync();
+            await BrowserPackageWorkspace.RemoveScopeAsync(resolution.Scope);
+        }
+    }
+
+    [Fact]
+    public async Task SelectedPlatformTypeSourceUsesRetainedPlatformWorkspace()
+    {
+        const string framework = "net11.0";
+        const string version = "11.0.975";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        using var archiveBytes = new MemoryStream();
+        using (var archive = new ZipArchive(
+            archiveBytes,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using Stream entry = archive.CreateEntry(
+                $"runtimes/linux-x64/lib/net11.0/{AssemblyFileName}").Open();
+            entry.Write(image);
+        }
+
+        using var handler = new PlatformHandler(
+            version,
+            archiveBytes.ToArray());
+        using var client = new HttpClient(handler);
+        string assemblyName =
+            Path.GetFileNameWithoutExtension(AssemblyFileName);
+        var plan = new WorkspacePlan(
+            [],
+            [
+                new WorkspaceContextInput
+                {
+                    Framework = framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            assemblyName,
+                            version,
+                            framework),
+                    ],
+                },
+            ]);
+        BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenContextAsync(
+                plan,
+                plan.Contexts[0],
+                "runtime",
+                assemblyName,
+                client,
+                new UniformPackageSourceAuthorization(
+                    [PackageSource.NuGetOrg]),
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        try
+        {
+            ApiSurface surface = resolution.Scope.UseParticipant(
+                resolution.Participant,
+                BrowserMemberResolution.ImplementationSurface);
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate => candidate.FullName == SpellingType);
+            int requests = handler.Requests;
+            string contextId = Assert.IsType<string>(resolution.ContextId);
+
+            BrowserTypeSourceResult source =
+                JsonSerializer.Deserialize(
+                    await SourceExports.QueryPlatformTypeSource(
+                        Guid.NewGuid().ToString(),
+                        framework,
+                        version,
+                        AssemblyFileName,
+                        "netcore.app",
+                        type.DefinitionName!.ToEscapedFullName(),
+                        "[]",
+                        "decompiler-source",
+                        contextId),
+                    BrowserSourceJsonContext.Default
+                        .BrowserTypeSourceResult)
+                ?? throw new InvalidOperationException(
+                    "The platform Type Source export returned null.");
+
+            Assert.Equal(
+                BrowserTypeSourceResultKind.Succeeded,
+                source.Kind);
+            var sourceView =
+                Assert.IsType<BrowserTypeCodeView.Source>(source.Value);
+            Assert.Equal("decompiled", sourceView.Value.Provider);
+            Assert.Contains(
+                "MemorySafetySpellingFixture",
+                sourceView.Value.Text,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                $"runtime {version} {assemblyName}",
+                sourceView.Value.Provenance.ToString(),
+                StringComparison.Ordinal);
+            Assert.Null(sourceView.Value.PdbSourceLimitation);
+
+            BrowserTypeSourceResult declarations =
+                JsonSerializer.Deserialize(
+                    await SourceExports.QueryPlatformTypeSource(
+                        Guid.NewGuid().ToString(),
+                        framework,
+                        version,
+                        AssemblyFileName,
+                        "netcore.app",
+                        type.DefinitionName.ToEscapedFullName(),
+                        "[]",
+                        "api-declarations",
+                        contextId),
+                    BrowserSourceJsonContext.Default
+                        .BrowserTypeSourceResult)
+                ?? throw new InvalidOperationException(
+                    "The platform Type declarations export returned null.");
+            var declarationView =
+                Assert.IsType<BrowserTypeCodeView.ApiDeclarations>(
+                    declarations.Value);
+            Assert.Equal(
+                TypeApiDeclarationOutcome.Available,
+                declarationView.Inspection.Content.Outcome);
+            Assert.Equal(
+                TypeApiDeclarationScope.ApiVisible,
+                declarationView.Inspection.Content.Scope);
+            Assert.Contains(
+                "MemorySafetySpellingFixture",
+                Assert.IsType<string>(
+                    declarationView.Inspection.Content.Text),
+                StringComparison.Ordinal);
             Assert.Equal(requests, handler.Requests);
         }
         finally
@@ -450,6 +1060,33 @@ public sealed class BrowserMemberDeclarationTests
             ?? throw new InvalidOperationException(
                 "The browser declaration export returned null.");
     }
+
+    static BrowserMemberGroupDocumentInspection MemberGroupDocument(
+        string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            BrowserMetadataJsonContext.Default
+                .BrowserMemberGroupDocumentInspection)
+        ?? throw new InvalidOperationException(
+            "The browser member-group export returned null.");
+
+    static BrowserMemberDocumentInspection MemberDocument(
+        string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            BrowserMetadataJsonContext.Default
+                .BrowserMemberDocumentInspection)
+        ?? throw new InvalidOperationException(
+            "The browser Member export returned null.");
+
+    static BrowserTypeMemberPopulationInspection TypeMemberPopulation(
+        string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            BrowserMetadataJsonContext.Default
+                .BrowserTypeMemberPopulationInspection)
+        ?? throw new InvalidOperationException(
+            "The browser Type Member population export returned null.");
 
     static byte[] PackagePair(byte[] image)
     {

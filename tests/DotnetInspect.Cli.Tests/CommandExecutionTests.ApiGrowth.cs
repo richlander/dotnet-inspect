@@ -75,7 +75,7 @@ public partial class CommandExecutionTests
         "System.Decimal",
         "System.Runtime",
         "Explicit Interface Implementations",
-        99)]
+        88)]
     [InlineData(
         "System.Span<T>",
         "System.Runtime",
@@ -211,7 +211,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member",
             "System.Linq.Enumerable",
-            "ToArray:1",
+            "Where:1",
             "--platform",
             "System.Linq",
             "-S",
@@ -221,12 +221,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("## IL", output);
+        Assert.Contains("IL_0000:", output);
         int renderedLines =
             output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
         Assert.True(
-            renderedLines > 24,
-            $"Expected IL output to exceed 24 rendered lines; observed {renderedLines}.");
+            renderedLines > 16,
+            $"Expected IL output to exceed 16 rendered lines; observed {renderedLines}.");
     }
 
     [Theory]

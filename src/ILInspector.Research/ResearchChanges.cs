@@ -264,6 +264,38 @@ public sealed record ResearchChange
     public ImmutableArray<CSharpDiffDisplayRow> CSharpDisplayRows { get; }
     public CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow { get; }
     public FindingComparison<AllocationOccurrence>? AllocationComparison { get; }
+
+    internal ResearchChange WithSubject(ResearchSubjectKey subject)
+        => new(
+            subject,
+            Mechanism,
+            Descriptor,
+            Kind,
+            OldValue,
+            NewValue,
+            Delta,
+            OldIlOffset,
+            NewIlOffset,
+            Detail,
+            Category,
+            Signal,
+            Shape,
+            Magnitude,
+            DirectionScore,
+            SubjectInBoth,
+            InLoop,
+            ApiChange,
+            IlRow,
+            IlFailureRow,
+            CSharpRow,
+            CSharpFailureRow,
+            IlDisplayRows,
+            IlDisplayFailureRow,
+            IlMemberDiff,
+            IlBodyDiff,
+            CSharpDisplayRows,
+            CSharpDisplayFailureRow,
+            AllocationComparison);
 }
 
 public sealed record ResearchSubjectChanges
@@ -380,6 +412,10 @@ public sealed class RetainedFindingComparisonSet
 
     public int Count => Items.Length;
     public bool IsEmpty => Items.IsEmpty;
+
+    /// <summary>The retained Finding descriptor identities, in first-retained order.</summary>
+    public ImmutableArray<string> DescriptorIds =>
+        [.. Items.Select(comparison => comparison.Descriptor.Id).Distinct(StringComparer.Ordinal)];
 
     public ImmutableArray<RetainedFindingComparison<T>> Get<T>(FindingDescriptor descriptor)
         where T : notnull

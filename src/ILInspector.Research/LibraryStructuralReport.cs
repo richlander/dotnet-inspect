@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using ILInspector.Analysis;
+using ILInspector.Metadata;
 
 namespace ILInspector.Research;
 
@@ -45,7 +46,8 @@ public sealed record LibraryStructuralReportDocument(
     LibraryStructuralBooleanDisposition AsyncStateMachinePresence,
     ImmutableArray<LibraryStructuralTypeSummary> TypeSummaries,
     ImmutableArray<LibraryStructuralTypeRelationship> EntangledRelationships,
-    ImmutableArray<AnalysisDiagnostic> Diagnostics);
+    ImmutableArray<AnalysisDiagnostic> Diagnostics,
+    LibraryStructuralSalienceDocument? StructuralSalience = null);
 
 public sealed record LibraryStructuralTypeSummary(
     TypeRef Type,
@@ -100,9 +102,10 @@ public sealed record LibraryStructuralBooleanDisposition(
     int PresentCount,
     int AbsentCount);
 
-public static class LibraryStructuralReport
+public static partial class LibraryStructuralReport
 {
-    public const string CurrentMethodologyVersion = "library-metrics.v1";
+    private const string LegacyMethodologyVersion = "library-metrics.v1";
+    public const string CurrentMethodologyVersion = "library-metrics.v3";
     public const int MaximumEntangledTypeCount = 24;
 
     public static LibraryStructuralReportResult Execute(
@@ -112,6 +115,71 @@ public static class LibraryStructuralReport
         return Execute(
             analysis.ImplementationProfiles,
             analysis.CallGraph);
+    }
+
+    public static LibraryStructuralReportResult Execute(
+        LibraryBodyAnalysisExecution analysis,
+        LibraryStructuralSalienceDocument structuralSalience)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
+        ArgumentNullException.ThrowIfNull(structuralSalience);
+
+        return WithStructuralSalience(
+            Execute(
+                analysis.ImplementationProfiles,
+                analysis.CallGraph),
+            analysis.Receipt,
+            structuralSalience);
+    }
+
+    public static LibraryStructuralReportResult Execute(
+        LibraryImplementationProfileAnalysisResult analysis,
+        LibraryStructuralSalienceDocument structuralSalience)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
+        ArgumentNullException.ThrowIfNull(structuralSalience);
+
+        return WithStructuralSalience(
+            Execute(analysis, callGraph: null),
+            analysis.Receipt,
+            structuralSalience);
+    }
+
+    private static LibraryStructuralReportResult WithStructuralSalience(
+        LibraryStructuralReportResult result,
+        LibraryBodyAnalysisReceipt analysisReceipt,
+        LibraryStructuralSalienceDocument structuralSalience)
+    {
+        ValidateStructuralSalienceCorrespondence(
+            analysisReceipt,
+            structuralSalience);
+        return result is LibraryStructuralReportResult.Available available
+            ? new LibraryStructuralReportResult.Available(
+                available.Document with
+                {
+                    MethodologyVersion = CurrentMethodologyVersion,
+                    StructuralSalience = structuralSalience,
+                })
+            : result;
+    }
+
+    private static void ValidateStructuralSalienceCorrespondence(
+        LibraryBodyAnalysisReceipt analysisReceipt,
+        LibraryStructuralSalienceDocument structuralSalience)
+    {
+        LibraryBodyModuleIdentity identity = analysisReceipt.ModuleIdentity;
+        MetadataLibrarySignatureUseReceipt signatureReceipt =
+            structuralSalience.NamespaceIndex.SignatureUse.Receipt;
+        if (identity.AssemblyIdentity is null
+            || identity.ModuleVersionId
+                != signatureReceipt.ModuleVersionId
+            || identity.AssemblyIdentity
+                != signatureReceipt.Assembly)
+        {
+            throw new ArgumentException(
+                "Structural salience evidence must describe the exact "
+                    + "Library generation in the Analysis report.");
+        }
     }
 
     public static LibraryStructuralReportResult Execute(
@@ -166,7 +234,7 @@ public static class LibraryStructuralReport
             EntangledRelationships(completeProfiles, callGraph);
         var document = new LibraryStructuralReportDocument(
             analysis.Receipt,
-            CurrentMethodologyVersion,
+            LegacyMethodologyVersion,
             population,
             [
                 Distribution(

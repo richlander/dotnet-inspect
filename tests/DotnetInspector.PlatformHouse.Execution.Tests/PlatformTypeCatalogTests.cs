@@ -102,7 +102,7 @@ public partial class PlatformLibraryRealizationTests
                     && entry.Kind
                         == AssemblyTypeDeclarationKind.Definition);
             Assert.Same(
-                population.Value.Members[0].Library.ApiAssembly,
+                population.Value.Members[0].PlatformLibrary.Library.ApiAssembly,
                 jsonSerializer.ApiContent);
             Assert.NotEqual(Guid.Empty, jsonSerializer.ModuleVersionId);
 
@@ -1262,7 +1262,7 @@ public partial class PlatformLibraryRealizationTests
                 rejected.PopulationReceipt);
             using LibraryOperationLease remaining = Issued(
                 population.Owners[0],
-                population.Value.Members[0].Library);
+                population.Value.Members[0].PlatformLibrary.Library);
         }
         finally
         {

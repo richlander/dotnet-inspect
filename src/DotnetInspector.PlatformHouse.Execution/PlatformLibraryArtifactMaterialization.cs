@@ -72,7 +72,8 @@ public sealed class PlatformLibraryArtifactMaterializationItem
     internal long ContentLength { get; }
     internal Func<CancellationToken, Stream> OpenRead { get; }
     internal PlatformLibraryArtifactCompanionMaterializationItem?
-        CompiledXmlDocumentation { get; }
+        CompiledXmlDocumentation
+    { get; }
     internal ArtifactIdentity? ArtifactIdentity { get; set; }
 }
 
@@ -276,7 +277,7 @@ public abstract class PlatformLibraryArtifactMaterializationOutcome
             : base(library)
         {
             ArgumentNullException.ThrowIfNull(artifacts);
-            if (library.Value.Reference.Contents.Any(
+            if (library.Value.Library.Contents.Any(
                     content => !ReferenceEquals(
                         content.ArtifactReference.Generation,
                         artifacts.Generation)))
@@ -334,6 +335,31 @@ public static class PlatformHouseArtifactMaterializer
                 materializationCancellation:
                     request.CancellationToken)
             .ConfigureAwait(false);
+
+    public static async ValueTask<
+        PlatformLibraryArtifactMaterializationOutcome> MaterializeAsync(
+            PlatformHouseRequest request,
+            PlatformViewDemand view,
+            IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> items,
+            PlatformHouseConsumedWork consumedWork,
+            string identityPrefix,
+            Func<PlatformHouseConsumedWork> currentWork)
+    {
+        ArgumentNullException.ThrowIfNull(currentWork);
+        return await MaterializeCoreAsync(
+                request,
+                view,
+                items,
+                consumedWork,
+                identityPrefix,
+                targetSelection: null,
+                retainedSettlements: null,
+                currentWork,
+                materializationCancellation:
+                    request.CancellationToken)
+            .ConfigureAwait(false);
+    }
 
     internal static async ValueTask<
         PlatformLibraryArtifactMaterializationOutcome>
@@ -814,54 +840,54 @@ public static class PlatformHouseArtifactMaterializer
                 _ => throw new ArgumentOutOfRangeException(nameof(view)),
             }
             : view switch
-        {
-            PlatformViewDemand.Reference =>
-                PlatformHouseLibraryRealizer
-                    .RealizeSelectedReferenceWithCompanion(
-                    request,
-                    selections[0],
-                    leases[0],
-                    compiledXmlDocumentation,
-                    compiledXmlDocumentation is null
-                        ? null
-                        : leases[^1],
-                    consumedWork,
-                    targetSelection,
-                    retainedSettlements!),
-            PlatformViewDemand.ReferenceAndImplementation =>
-                PlatformHouseLibraryRealizer
-                    .RealizeSelectedReferenceAndImplementationWithCompanion(
+            {
+                PlatformViewDemand.Reference =>
+                    PlatformHouseLibraryRealizer
+                        .RealizeSelectedReferenceWithCompanion(
                         request,
                         selections[0],
                         leases[0],
-                        selections[1],
-                        leases[1],
                         compiledXmlDocumentation,
                         compiledXmlDocumentation is null
                             ? null
                             : leases[^1],
-                        new PlatformLibraryViewCorrespondence(
-                            selections[0],
-                            selections[1],
-                            $"{identityPrefix}-views"),
                         consumedWork,
                         targetSelection,
                         retainedSettlements!),
-            PlatformViewDemand.Implementation =>
-                PlatformHouseLibraryRealizer
-                    .RealizeSelectedImplementation(
-                    request,
-                    selections[0],
-                    leases[0],
-                    PlatformLibraryViewCorrespondence
-                        .CreateImplementationDeclarationSurface(
+                PlatformViewDemand.ReferenceAndImplementation =>
+                    PlatformHouseLibraryRealizer
+                        .RealizeSelectedReferenceAndImplementationWithCompanion(
+                            request,
                             selections[0],
-                            $"{identityPrefix}-declarations"),
-                    consumedWork,
-                    targetSelection,
-                    retainedSettlements!),
-            _ => throw new ArgumentOutOfRangeException(nameof(view)),
-        };
+                            leases[0],
+                            selections[1],
+                            leases[1],
+                            compiledXmlDocumentation,
+                            compiledXmlDocumentation is null
+                                ? null
+                                : leases[^1],
+                            new PlatformLibraryViewCorrespondence(
+                                selections[0],
+                                selections[1],
+                                $"{identityPrefix}-views"),
+                            consumedWork,
+                            targetSelection,
+                            retainedSettlements!),
+                PlatformViewDemand.Implementation =>
+                    PlatformHouseLibraryRealizer
+                        .RealizeSelectedImplementation(
+                        request,
+                        selections[0],
+                        leases[0],
+                        PlatformLibraryViewCorrespondence
+                            .CreateImplementationDeclarationSurface(
+                                selections[0],
+                                $"{identityPrefix}-declarations"),
+                        consumedWork,
+                        targetSelection,
+                        retainedSettlements!),
+                _ => throw new ArgumentOutOfRangeException(nameof(view)),
+            };
 
     static PlatformLibraryRealizationResult PublicationFailure(
         PlatformHouseRequest request,
@@ -918,7 +944,7 @@ public static class PlatformHouseArtifactMaterializer
         var failures = new List<PlatformHouseFailureKind>();
         if (primary.Outcome
             is PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Failed failed)
+                PlatformLibraryReference>.Failed failed)
         {
             failures.AddRange(failed.Evidence.Failures);
         }

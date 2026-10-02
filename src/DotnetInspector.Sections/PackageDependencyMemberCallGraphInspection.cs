@@ -5,6 +5,8 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using Inspector.Artifacts.Workspaces;
+using InspectionGraphFailure = Inspector.Graph.GraphFailure<DotnetInspector.Queries.InspectionGraphFailurePayload>;
+using InspectionGraphLimit = Inspector.Graph.GraphLimit<DotnetInspector.Queries.InspectionGraphLimitPayload>;
 using NuGetFetch;
 
 namespace DotnetInspector.Sections;
@@ -181,6 +183,7 @@ public sealed record PackageDependencyMemberCallGraphDocument(
     PackageDependencyTraversalSummary TraversalSummary,
     ImmutableArray<PackageDependencyMemberCallGraphInspectionRoute> Routes,
     PackageSupplyChainBaselineEvidence Baseline,
+    MemberCallGraphFocalScopeReceipt FocalScope,
     ImmutableArray<
         PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt>
         IntrinsicCoreLibraryContextNonParticipation,
@@ -490,6 +493,7 @@ public static class PackageDependencyMemberCallGraphInspection
                                 .. completed.Routes.Select(Project),
                             ],
                             completed.Baseline,
+                            completed.FocalScope,
                             completed
                                 .IntrinsicCoreLibraryContextNonParticipation,
                             [
@@ -597,7 +601,7 @@ public static class PackageDependencyMemberCallGraphInspection
 
         foreach (InspectionGraphLimit limit in document.Graph.Limits
             .Where(static limit =>
-                limit.Descriptor.Id
+                limit.Payload.Descriptor.Id
                     is not ("queries.neighborhood-depth-bound"
                         or "call.traversal-node-bound")))
         {
@@ -605,8 +609,8 @@ public static class PackageDependencyMemberCallGraphInspection
                 new InspectionDiagnostic(
                     "package-dependency-member-call-graph.graph-limit",
                     InspectionDiagnosticSeverity.Warning,
-                    $"Call-graph analysis reached limit {limit.Descriptor.Id}.",
-                    limit.Descriptor.Id));
+                    $"Call-graph analysis reached limit {limit.Payload.Descriptor.Id}.",
+                    limit.Payload.Descriptor.Id));
         }
 
         foreach (InspectionGraphFailure failure in document.Graph.Failures)
@@ -615,8 +619,8 @@ public static class PackageDependencyMemberCallGraphInspection
                 new InspectionDiagnostic(
                     "package-dependency-member-call-graph.graph-failure",
                     InspectionDiagnosticSeverity.Error,
-                    $"Call-graph analysis reported failure {failure.Descriptor.Id}.",
-                    failure.Descriptor.Id));
+                    $"Call-graph analysis reported failure {failure.Payload.Descriptor.Id}.",
+                    failure.Payload.Descriptor.Id));
         }
 
         return diagnostics.ToImmutable();

@@ -7,6 +7,8 @@ product output changes, use `docs/templates/decompiler-pr.md` instead and keep
 the relevant compile-back evidence from this template. The center of gravity
 here is the checkable population: what was uncheckable before, what became
 Exact or a classified fidelity difference after, and which frontier remains.
+Append `docs/templates/decompiler-adversarial-review-appendix.md` after the
+canonical adversarial-review prompt and completed review frame.
 Delete sections that do not apply.
 -->
 

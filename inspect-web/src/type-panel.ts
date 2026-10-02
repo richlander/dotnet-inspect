@@ -9,6 +9,12 @@ import {
   type TypeSourceView,
 } from "./source-inspection.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
+import { isForwardedType, type TypeInventoryRow } from "./platform-forwarders.ts";
+import {
+  itemAchievementClassNames,
+  renderItemAchievementRail,
+  type ItemAchievement,
+} from "./item-achievements.ts";
 
 export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
   "base · interfaces · derived — select a highlighted node to open";
@@ -44,6 +50,7 @@ export interface TypeSummary {
   accessibility?: string;
   assembly: string;
   definitionId?: string;
+  platformPack?: string | null;
 }
 
 export interface MemberOverloadSummary {
@@ -186,6 +193,35 @@ export interface MemberGroup {
   name: string;
   kind: string;
   overloads: readonly MemberOverloadSummary[];
+  completeCount?: number;
+  completeCountStatus?: "available" | "pending" | "failed";
+}
+
+export function familyOutsideMarkerHtml(
+  group: MemberGroup,
+  selectedAccessibility: string,
+  escapeHtml: EscapeHtml,
+  overloadFilterActive = false,
+): string {
+  if (group.overloads.some(overload => overload.graphOnly)) return "";
+  if (overloadFilterActive) return "";
+  const completeCountStatus = group.completeCountStatus
+    ?? (group.completeCount == null ? "pending" : "available");
+  if (completeCountStatus === "failed") {
+    const description =
+      `The out-of-view overload count is unavailable for the ${selectedAccessibility} view.`;
+    return ` <span class="family-outside-count unavailable" aria-label="${escapeHtml(description)}" title="${escapeHtml(description)}">+?</span>`;
+  }
+  if (completeCountStatus !== "available") return "";
+
+  const outsideCount = Math.max(
+    0,
+    (group.completeCount ?? group.overloads.length)
+      - group.overloads.length);
+  if (outsideCount === 0) return "";
+  const description =
+    `${outsideCount} more overloads are outside the ${selectedAccessibility} view.`;
+  return ` <span class="family-outside-count" aria-label="${escapeHtml(description)}" title="${escapeHtml(description)}">+${outsideCount}</span>`;
 }
 
 export type MemberNavEntry =
@@ -196,6 +232,7 @@ export interface TypePanelPackageContext {
   id: string;
   version: string;
   activeFramework: string;
+  platformContextId?: string | null;
 }
 
 export interface TypeParameterSummary {
@@ -279,9 +316,13 @@ export interface TypePanelBindingActions {
   onTypeSourceViewSelect: (view: TypeSourceView) => void;
   onExploreSource: () => void;
   onKindSelect: (kind: string) => void;
+  onTypeLeverageActivate?: () => void;
+  onTypeLeverageFilterSelect?: (filter: string) => void;
+  onTypeLeverageRetry: () => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
+  onMemberSpellingSelect: (spelling: string | undefined) => void;
   onMemberBack: () => void;
   onMemberCompositionAccessibilitySelect: (accessibility: string) => void;
   onMemberCompositionKindSelect: (kind: string) => void;
@@ -321,6 +362,18 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onKindSelect(button.dataset.kindFilter ?? "")));
+  root.querySelector("[data-type-leverage-activate]")?.addEventListener(
+    "click",
+    () => actions.onTypeLeverageActivate?.());
+  root.querySelector("[data-type-leverage-retry]")?.addEventListener(
+    "click",
+    actions.onTypeLeverageRetry);
+  root.querySelectorAll<HTMLElement>("[data-type-leverage-filter]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onTypeLeverageFilterSelect?.(
+          button.dataset.typeLeverageFilter ?? "")));
   root.querySelector("[data-type-nav-back]")?.addEventListener(
     "click",
     actions.onTypeNavBack);
@@ -358,24 +411,26 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onMemberOverloadOpen(Number(button.dataset.overload))));
-  root.querySelectorAll<HTMLElement>("[data-member-kind-filter]")
-    .forEach(button =>
-      button.addEventListener(
-        "click",
-        () => actions.onMemberKindFilterSelect(
-          button.dataset.memberKindFilter)));
-  root.querySelectorAll<HTMLElement>("[data-member-access-filter]")
-    .forEach(button =>
-      button.addEventListener(
-        "click",
-        () => actions.onMemberAccessibilityFilterSelect(
-          button.dataset.memberAccessFilter)));
-  root.querySelectorAll<HTMLElement>("[data-member-trait-filter]")
-    .forEach(button =>
-      button.addEventListener(
-        "click",
-        () => actions.onMemberTraitFilterSelect(
-          button.dataset.memberTraitFilter)));
+  root.querySelectorAll<HTMLSelectElement>("[data-member-kind-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onMemberKindFilterSelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-member-access-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onMemberAccessibilityFilterSelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-member-spelling]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onMemberSpellingSelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-member-trait-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onMemberTraitFilterSelect(select.value)));
   root.querySelector("#nav-to-types")?.addEventListener(
     "click",
     actions.onShowTypes);
@@ -496,35 +551,55 @@ export function bindTypePanel(
 }
 
 export interface TypeNavOptions {
-  current?: TypeSummary | null;
-  visible: readonly TypeSummary[];
-  typeGroups: ReadonlyMap<string, readonly TypeSummary[]>;
+  statusHtml?: string;
+  current?: TypeInventoryRow | null;
+  visible: readonly TypeInventoryRow[];
+  typeGroups: ReadonlyMap<string, readonly TypeInventoryRow[]>;
   typeFilter: string;
   namespaceFilter: string;
   kindFilter: string;
   namespaceCount: number;
   namespaceOptionsHtml: string;
+  namespaceSelectionValue?: (exactNamespace: string) => string;
   kindFilters: readonly string[];
   accessibilityControlHtml: string;
+  leverageControlHtml?: string;
   library: string;
   parentSubject: "package" | "platform" | "library" | null;
   filtersExpanded: boolean;
   filterSummary: string;
   escapeHtml: EscapeHtml;
-  typeDisplayName: (item: TypeSummary) => string;
-  typeLibraryLabel: (item: TypeSummary) => string;
+  typeDisplayName: (item: TypeInventoryRow) => string;
+  typeLibraryLabel: (item: TypeInventoryRow) => string;
   kindIcon: (kind: string) => string;
+  itemAchievements?: (
+    item: TypeInventoryRow,
+  ) => readonly ItemAchievement[];
+  namespaceLeverageCue?: (
+    exactNamespace: string,
+  ) => TypeNavNamespaceLeverageCue | null;
+}
+
+export interface TypeNavNamespaceLeverageCue {
+  topLeverage: boolean;
+  description: string;
 }
 
 export function renderTypeNav(options: TypeNavOptions): string {
   const {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
     namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
+    leverageControlHtml = "",
     library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
-    typeDisplayName, typeLibraryLabel, kindIcon,
+    typeDisplayName, typeLibraryLabel, kindIcon, statusHtml = "",
   } = options;
+  const itemAchievements = options.itemAchievements;
+  const namespaceLeverageCue =
+    options.namespaceLeverageCue ?? (() => null);
+  const namespaceSelectionValue =
+    options.namespaceSelectionValue ?? (namespace => namespace);
   return `
-    <aside id="content-navigation-pane" class="type-browser" aria-label="Public types">
+    <aside id="content-navigation-pane" class="type-browser${itemAchievements ? " has-item-achievement-rail" : ""}" aria-label="Public types">
       <div class="browser-head">
         <div>
           <span class="pane-label">PUBLIC TYPES</span>
@@ -559,26 +634,48 @@ export function renderTypeNav(options: TypeNavOptions): string {
             ${kindFilters.map(kind => `<button class="${kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
           </div>
           ${accessibilityControlHtml}
+          ${leverageControlHtml}
         </div>
       </details>
+      ${statusHtml}
       <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
-        ${[...typeGroups].map(([namespace, types]) => `
-          <section class="type-group">
-            <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
+        ${[...typeGroups].map(([namespace, types]) => {
+          const namespaceLeverage = types.some(
+            type => !isForwardedType(type),
+          )
+            ? namespaceLeverageCue(namespace)
+            : null;
+          const namespaceLeverageHtml = namespaceLeverage?.topLeverage
+            ? `<span class="namespace-leverage-cue" role="img" aria-label="${escapeHtml(namespaceLeverage.description)}" title="${escapeHtml(namespaceLeverage.description)}">◆</span>`
+            : "";
+          return `
+          <section class="type-group${namespaceLeverage?.topLeverage ? " top-leverage" : ""}">
+            <button class="namespace-row" data-namespace="${escapeHtml(namespaceSelectionValue(namespace))}">
               <span class="chevron">⌄</span>
               <span>${escapeHtml(namespace)}</span>
+              ${namespaceLeverageHtml}
               <small>${types.length}</small>
             </button>
             ${types.map(item => {
               const selected = item.id === current?.id;
               const definingLibrary = typeLibraryLabel(item);
-              return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
-                <span class="kind-icon">${kindIcon(item.kind)}</span>
+              const achievements = itemAchievements?.(item) ?? [];
+              const achievementClasses =
+                itemAchievementClassNames(achievements);
+              const achievementHtml = itemAchievements
+                ? renderItemAchievementRail(achievements, escapeHtml)
+                : "";
+              return `<button class="type-row ${selected ? "selected" : ""}${achievementClasses ? ` ${achievementClasses}` : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
+                ${achievementHtml}
+                <span class="kind-icon" aria-hidden="true">${isForwardedType(item) ? "↗" : kindIcon(item.kind)}</span>
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
-                <small title="${item.members} ${item.members === 1 ? "member" : "members"}">${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${item.members}</small>
+                ${isForwardedType(item)
+                  ? '<small class="forwarded-type-label">Forwarded</small>'
+                  : `<small title="${item.members} ${item.members === 1 ? "member" : "members"}">${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${item.members}</small>`}
               </button>`;
             }).join("")}
-          </section>`).join("") || '<div class="empty-list">No public types match this filter.</div>'}
+          </section>`;
+        }).join("") || '<div class="empty-list">No public types match this filter.</div>'}
       </div>
       <footer class="pane-footer"><span>↑↓ types</span><span>←→ lens</span><span>↵ open</span></footer>
     </aside>`;
@@ -590,7 +687,6 @@ export interface MemberNavHeatCue {
   tone: "progress" | "problem";
 }
 
-/** Implementation evidence for one nested overload row. */
 const valueMemberKinds = new Set(["property", "field", "event"]);
 
 // A single member's row says what it is, not which kind it is (the icon
@@ -623,8 +719,6 @@ export interface MemberNavOverloadHeat {
   heatStrength: number | null;
   hub: boolean;
   description: string;
-  /** The measured size, shown on the selected row. */
-  size: number | null;
 }
 
 export interface MemberNavOptions {
@@ -635,6 +729,8 @@ export interface MemberNavOptions {
   filterControlsHtml: string;
   selectedMemberKey: string;
   selectedOverloadIndex: number | null;
+  selectedAccessibility?: string;
+  overloadFilterActive?: boolean;
   escapeHtml: EscapeHtml;
   typeDisplayName: (item: TypeSummary) => string;
   shortKind: (kind: string) => string;
@@ -647,6 +743,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
   const {
     type, entries, memberCount, visibleMemberCount, filterControlsHtml,
     selectedMemberKey, selectedOverloadIndex,
+    selectedAccessibility = "public", overloadFilterActive = false,
     escapeHtml, typeDisplayName, shortKind, highlight,
     overloadHeat, familyHeatCue,
   } = options;
@@ -677,13 +774,21 @@ export function renderMemberNav(options: MemberNavOptions): string {
             const isMulti = group.overloads.length > 1;
             const graphOnly =
               group.overloads.some(overload => overload.graphOnly);
+            const outsideMarker = familyOutsideMarkerHtml(
+              group,
+              selectedAccessibility,
+              escapeHtml,
+              overloadFilterActive);
             const active = group.key === selectedMemberKey;
             const selected = active && (isMulti ? selectedOverloadIndex == null : true);
             const cue = active && isMulti ? familyHeatCue?.(group) ?? null : null;
+            // An overload family's name and count take their own color, so a
+            // row that holds several members reads apart from a single member.
+            const family = isMulti && !graphOnly;
             return `<button class="type-row member-row${graphOnly ? " graph-member-row" : ""} ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
               <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-              <span class="type-name">${graphOnly || isMulti ? escapeHtml(group.name) : singleMemberLabelHtml(group, escapeHtml, highlight)}</span>
-              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `${group.overloads.length}×` : singleMemberDetailHtml(group, escapeHtml, shortKind)}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
+              <span class="type-name${family ? " family-name" : ""}">${graphOnly || isMulti ? escapeHtml(group.name) : singleMemberLabelHtml(group, escapeHtml, highlight)}</span>
+              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${group.overloads.length}×</span>` : singleMemberDetailHtml(group, escapeHtml, shortKind)}${outsideMarker}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
             </button>`;
           }
           const selected = entry.group.key === selectedMemberKey && selectedOverloadIndex === entry.index;
@@ -701,11 +806,8 @@ export function renderMemberNav(options: MemberNavOptions): string {
           const heatDescription = heat === null
             ? ""
             : ` aria-description="${escapeHtml(heat.description)}" title="${escapeHtml(heat.description)}"`;
-          const size = selected && heat?.size != null
-            ? `<small class="overload-size" title="${heat.size} instructions">${heat.size}</small>`
-            : "";
-          return `<button class="type-row overload-nav-row${heatClasses} ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
-            <code>${overloadNavLabelHtml(entry.group.name, overload, escapeHtml, highlight)}</code>${size}
+          return `<button class="type-row overload-nav-row${heatClasses} ${selected ? " selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
+            <code>${overloadNavLabelHtml(entry.group.name, overload, escapeHtml, highlight)}</code>
           </button>`;
         }).join("") || '<div class="empty-list">No members match these filters.</div>'}
       </div>
@@ -976,6 +1078,8 @@ export function typeSourceSignature(
     packageContext.id,
     packageContext.version,
     packageContext.activeFramework,
+    packageContext.platformContextId ?? "",
+    item.platformPack ?? "",
     item.assembly,
     item.definitionId ?? item.id,
     view,

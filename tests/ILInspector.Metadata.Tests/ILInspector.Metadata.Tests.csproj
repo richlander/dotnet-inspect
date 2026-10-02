@@ -20,6 +20,8 @@
                      Version="[11.0.0-rc.1.26425.128]" />
     <PackageDownload Include="System.Net.Http.Json"
                      Version="[10.0.0]" />
+    <PackageDownload Include="System.Text.Json"
+                     Version="[10.0.0]" />
     <PackageDownload Include="Microsoft.NETCore.App.Ref"
                      Version="[11.0.0-rc.1.26425.128]" />
   </ItemGroup>
@@ -30,6 +32,9 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.net.http.json/10.0.0/lib/net10.0/System.Net.Http.Json.dll"
           Link="PinnedArtifacts\System.Net.Http.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.dll"
+          Link="PinnedArtifacts\packages\System.Text.Json.10.0.0.dll"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\11.0.0-rc.1.26425.128\runtimes\linux-x64\lib\net11.0\System.Net.Sockets.dll"
           Link="PinnedArtifacts\runtime\System.Net.Sockets.dll"
@@ -59,18 +64,23 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ILInspector.Metadata.LegacyOracles\ILInspector.Metadata.LegacyOracles.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="../../src/NuGetFetch/NuGetFetch.csproj" />
     <ProjectReference Include="../DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures/ILInspector.Metadata.AttributeEnumFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SignatureUseFixtures/ILInspector.Metadata.SignatureUseFixtures.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1/ILInspector.Metadata.ApiDeclarationCorrespondence.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2/ILInspector.Metadata.ApiDeclarationCorrespondence.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../src/CSharpText/CSharpText.csproj" />
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="../../src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
+    <ProjectReference Include="../ILInspector.Metadata.PerformanceOracles.Tests/ILInspector.Metadata.PerformanceOracles.Tests.csproj" />
     <ProjectReference Include="../../fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SourceProvenanceFixtures/ILInspector.Metadata.SourceProvenanceFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SourceProvenanceNetStandard/ILInspector.Metadata.SourceProvenanceNetStandard.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer/ILInspector.Metadata.TypeDependencyConsumer.csproj" ReferenceOutputAssembly="false" />
@@ -81,6 +91,7 @@
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.InterfaceImplContracts/ILInspector.Metadata.InterfaceImplContracts.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.InterfaceImplFixtures/ILInspector.Metadata.InterfaceImplFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures/ILInspector.Metadata.PublicMethodRootFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.VbInterfaceImplementations/ILInspector.Metadata.VbInterfaceImplementations.vbproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures/DotnetInspector.SourceLinkVisualBasicFixtures.vbproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj">
       <Aliases>extensionold</Aliases>

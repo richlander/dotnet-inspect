@@ -520,7 +520,7 @@ public partial class PackageCommand
                     packageArgs[0],
                     explicitVersion);
             int? houseResult =
-                await TryWriteLiteralHouseDocumentExportAsync(
+                await TryWriteLiteralHouseDocumentContentAsync(
                         [houseTarget],
                         options,
                         context)
@@ -1296,6 +1296,9 @@ public partial class PackageCommand
             if (options.PackageLibrary != null)
             {
                 return await ExecutePackageLibraryAsync(
+                    client,
+                    logger,
+                    target,
                     extractPath,
                     target.IsLocalFile,
                     target.OriginalArgument,

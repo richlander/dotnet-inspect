@@ -170,9 +170,11 @@ internal static class BrowserLibraryDocumentOperation
             cancellationToken);
     }
 
+    // Facts-only: the Browser lowers no Type population yet, so the plan
+    // requests none and the operation runs no declaration inventory.
     internal static LibraryInspectionPlan Plan(BrowserLibraryInspectionPlan plan) =>
         new(
-            new LibraryTypePopulationRequest(LibraryTypeAccessibility.Public, new()),
+            types: null,
             s_bounds,
             plan.Enablements ? new LibraryEnablementsRequest() : null);
 
@@ -185,13 +187,14 @@ internal static class BrowserLibraryDocumentOperation
             await AssemblyContextLibraryInspection.ExecuteAsync(
                     materialization,
                     (reference, owner) =>
-                        owner.IssueOperationLease(reference)
-                            is LibraryOperationLeaseIssueOutcome.Issued issued
-                            ? LibraryInspectionOperation.Execute(
-                                new(reference, plan),
-                                issued.Lease,
-                                cancellationToken)
-                            : null)
+                        AssemblyContextLibraryInspection.ExecuteOperation(
+                            reference,
+                            owner,
+                            lease =>
+                                LibraryInspectionOperation.Execute(
+                                    new(reference, plan),
+                                    lease,
+                                    cancellationToken)))
                 .ConfigureAwait(false);
         return BrowserLibraryDocumentProjection.Project(run);
     }

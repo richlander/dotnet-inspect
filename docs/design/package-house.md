@@ -19,6 +19,25 @@ House facade, request, settlement, result, receipts, and typed handoffs.
 Adjacent owners retain their identities, algorithms, failures, and lifetimes.
 Their adoption remains separately reviewed.
 
+[#8994](https://github.com/richlander/dotnet-inspect/issues/8994) adds the
+focused [semantic content-demand contract](package-house-semantic-content-demand.md).
+Callers declare one reusable package narrowing plus evidence terminals;
+PackageHouse owns cache, manifest, directory, ranged-entry, complete-transfer,
+and typed-fallback planning. Archive-backed planning derives every narrowing
+and terminal from one validated ZIP central-directory snapshot. The
+content-demand owner composes existing source, archive, asset-selection,
+Metadata, cache, and transfer owners without absorbing their algorithms.
+`GetLibraryAndInventoryForTarget` accepts a TFM-wide target context and returns
+one policy-selected DLL plus the complete logical Library inventory for that
+target, without acquiring PDB content. Every row preserves owner-issued
+implementation correspondence and typed evidence for a listed adjacent PDB. A
+later host-neutral PDB operation may request the exact implementation/PDB
+files or skip to an external provider. Raw File List remains a physical entry
+inventory rather than the owner of Library or PDB semantics. The current
+direct companion handoff remains transitional until the focused
+PDB-settlement owner tracked by
+[#9002](https://github.com/richlander/dotnet-inspect/issues/9002).
+
 [#7423](https://github.com/richlander/dotnet-inspect/issues/7423) extends that
 composition with package-slice policy. Its first focused slice defines only the
 package-local compile inventory and selected projection that PackageHouse
@@ -111,6 +130,7 @@ The owner defines:
 
 - the product-facing `PackageHouse` facade;
 - the package-demand envelope;
+- the semantic content-demand envelope and House-owned acquisition plan;
 - the package operation profile and common operation context;
 - the distinction between settlement, acquisition, and realization;
 - composition of owner-issued package source, version, pruning, payload,
@@ -761,12 +781,14 @@ A read may therefore surface decompression, size, or checksum failure. Early
 disposal means abandonment rather than successful completion. The caller owns
 and disposes the stream while the acquired payload generation remains live.
 
-The Browser/Wasm package store still retains the complete admitted `.nupkg` in
-memory, and a displayed document may ultimately remain resident in the pane.
-The bounded path avoids a second complete expanded-entry `byte[]`; it does not
-promise zero-copy acquisition. A CLI host can copy the same stream to stdout
-or a file with one bounded transfer buffer. A Browser host can decode
-progressively into its final resident representation.
+The Browser/Wasm package store retains complete archives for complete
+acquisition and directory plus entry records for ranged acquisition. A
+displayed document may ultimately remain resident in the pane. Its bounded
+path avoids a second complete expanded-entry `byte[]`; it does not promise
+zero-copy acquisition. The CLI's detached content inspection instead owns one
+complete expanded-entry array, which its projections reuse without a second
+entry-sized copy. A Browser host can decode progressively into its final
+resident representation.
 
 This capability belongs only to `PackageHouseSettlement.Acquired`. The legacy
 `PackageExtractor`, extracted-file, `PackageFileContent`, and Source paths gain
@@ -775,32 +797,45 @@ live House settlement rather than wrapping an already materialized `byte[]` or
 legacy file read in a stream. Package content that does not implement the
 internal House pull capability fails visibly; the House does not fall back to
 the legacy eager entry-opening contract. Ranged content implements it for its
-materialized entries, as [package read demand](package-read-demand.md#document-demand)
+materialized entries, as [package read demand](package-read-demand.md#exact-file-demand)
 owns. Filesystem content additionally
 requires a retained package archive: its declared entry size and CRC validate
 the extracted-file stream, while archive-less content is visibly unsupported.
 
-The first production consumer is exact-version online CLI export of one
-literal root `README.md` or `skills/**/SKILL.md` path to a file. The command
-acquires directly through the House, with ranged access and a
-[document demand](package-read-demand.md#document-demand) in the
-authority-scoped store, without invoking the legacy `PackageExtractor` route. A README copies progressively to the
-destination with the bounded exact-byte sink. A Skill decodes progressively
-into the existing containment-selected representation before that
-representation is written; it does not bypass Skill containment to preserve
-original bytes. Local archives, floating or range version selection, stdout,
-target-framework filters, path globs and roles, partial document scopes,
-.NET tool-wrapper redirection, and other package files retain their existing
-paths in this slice.
+`PackageFileAcquisition` is the host-neutral exact-file operation above this
+pull capability. It accepts a pinned coordinate, safe relative path, House
+operation, source authorization, authority-scoped store plan, limits, transfer
+policy, and operation lease. It owns a package-wide semantic Files query,
+combined with File List over the same directory snapshot, case-insensitive
+manifest resolution, actual-path preservation, and generation-bound
+`OpenRead()`. PackageHouse owns cache-first and size-first ranged execution
+plus complete fallback; either path publishes only the exact queried entry
+even when the store retains the complete archive. The File List preserves the
+complete physical inventory for follow-on decisions such as legacy tool-wrapper
+redirection. Hosts bind their environment and project the result; they do not
+recreate those steps.
+
+The first production consumer is exact-version online CLI content for one
+literal root `README.md` or `skills/**/SKILL.md` path. The command calls
+`DesktopPackageSourceComposition.AcquireFileAsync`, without invoking the
+legacy `PackageExtractor` route. The host-neutral file-content inspection
+drains the acquired file through EOF, so length and checksum validation
+complete, and returns detached immutable bytes up to the caller's explicit
+limit. The CLI applies its existing separator, raw, JSONL, or Skill projection.
+Exact README file output instead copies `OpenRead()` directly to its
+destination with one bounded buffer. Local archives, floating or range version
+selection, target-framework filters, path globs and roles, partial document
+scopes, and .NET tool-wrapper redirection retain their existing paths.
 
 The second production consumer is the Browser/Wasm viewer for exact root
-`README.md` and `skills/**/*.md` document-manifest entries. The managed export
-executes a focused House `Acquire` operation, opens the selected README or
-Skill through the settlement's pull stream, and incrementally decodes UTF-8
-through bounded pooled byte and character buffers. The admitted `.nupkg` and
-the final displayed string remain resident, but no second complete expanded
-entry `byte[]` is created. Root `PACKAGE.md` viewing retains its existing eager
-entry path in this slice, while the managed-to-TypeScript wire DTO and frontend
+`README.md`, root `PACKAGE.md`, and `skills/**/*.md` document entries. The host
+first validates that the path belongs to that browsable vocabulary, then calls
+`PackageFileAcquisition` and incrementally decodes the acquired file through
+bounded pooled UTF-8 buffers. The Browser package-entry store publishes the
+archive directory and selected expanded entries to Cache Storage, so a warm
+read after store recreation makes no package request. The final displayed
+string remains resident, but the complete `.nupkg` is not downloaded for an
+archive above the size cut. The managed-to-TypeScript wire DTO and frontend
 call site remain unchanged.
 
 `PackageHouseExecutionTests.ExactPayloadRead_IsColdAndPullsFromTheHouseGeneration`
@@ -812,10 +847,10 @@ gates the Browser/Wasm-relevant absence of an expanded-entry-sized allocation,
 nuget.org `System.Text.Json` package, and
 `PackageArchiveValidatorTests.CheckedPullRead_RejectsContentBeyondTheDeclaredLength`
 preserves lazy checked-read failure.
-`BrowserEngineBoundaryTests.PackageDocument_ReadmeAndSkillPullThroughHouseAcquisition`
-gates the production Browser route, multi-buffer UTF-8 decoding, Skill
-selection, cache reuse, package-only acquisition, and visible refusal of a
-non-manifest path.
+`BrowserEngineBoundaryTests.PackageDocument_ReadmePackageAndSkillUseExactFileAcquisition`
+gates the production Browser route, multi-buffer UTF-8 decoding, README,
+PACKAGE, and Skill selection, cache reuse, package-only acquisition, and
+visible refusal of a non-manifest path.
 
 ## Shared version-settlement inspection
 
@@ -904,7 +939,7 @@ The current execution floor binds stable host capabilities to the
 authority-and-producer-scoped store provider, payload limits, transfer policy,
 payload diagnostics, and payload access: complete, or ranged, which only a
 `Realize` operation, whose selection bounds the read, or an `Acquire` carrying
-a [document demand](package-read-demand.md#document-demand), which names the
+a [file demand](package-read-demand.md#exact-file-demand), which names the
 entries it reads, may use
 ([Ranged payload realization](package-source-model.md#ranged-payload-realization)). It carries no source lease, operation context,
 payload, or release obligation and does not take ownership of stores returned
@@ -1225,6 +1260,80 @@ The House does not choose one assembly because its file name resembles the
 package ID unless the asset-selection owner explicitly defines that role.
 Shared Library inspection begins only after this handoff.
 
+`PackageLibraryRealization` is the host-neutral exact-Library operation above
+this handoff. It accepts one exact or version-selecting package demand, exact
+target framework, typed Library selector, selection or implementation depth,
+optional companion demand, source authorization, authority-scoped ranged
+store plan, and operation lease. It owns compile `Realize` request
+construction, cache-first and size-first execution, named implementation
+demand, and resolution of exactly one settlement-issued compile handoff.
+Hosts bind their environment and consume the typed result; they do not
+recreate those steps.
+
+### Library Address operation composition
+
+[#8726](https://github.com/richlander/dotnet-inspect/issues/8726) composes one
+exact acquired settlement and one compile handoff issued by that settlement
+through the existing materializer and
+[Library Address inspection](library-address-inspection.md). The exact claim
+is:
+
+> Given one exact acquired PackageHouse settlement, one compile Library
+> handoff issued by that settlement, and one portable Library Address intent,
+> materialize only that selected Library, execute the existing Library Address
+> operation under a transferred exact Library lease, return its detached
+> `InspectionEnvelope<LibraryAddressInspectionOutcome>`, and retire Library
+> authority before Artifact authority on every terminal path.
+
+`PackageLibraryAddressInspection` requests the optional implementation
+Portable PDB only when the Address intent requests source-location evidence.
+It does not reselect the asset, infer correspondence from paths or names, or
+define another Address result. The existing materializer validates the exact
+settlement, handoff, and package-content generation, and the existing Address
+operation retains implementation targeting, content, Share, diagnostics, and
+operation-lease settlement.
+
+Typed materialization non-success becomes failed Address content with one
+diagnostic per owner-issued materialization failure. Completion, cancellation,
+exception, and operation failure retire the Library owner before the Artifact
+session. An optional PDB omission caused by its content limit, retained-byte
+limit, or unreadable content remains visible in the returned diagnostics.
+Cleanup failure cannot return a successful Address outcome.
+
+This composition does not parse host input, render output, expose a Browser
+facade, or retire the legacy package-to-Library continuation.
+
+The CLI is the first production adopter under
+[#8751](https://github.com/richlander/dotnet-inspect/issues/8751).
+Package-backed `library address` validates and plans its Address request before
+acquisition, then asks PackageHouse for one named implementation, selected
+Library handoffs, ranged `SurfaceAndImplementation` access, and the optional
+Portable PDB companion only when source-location evidence is selected. Exact
+configured coordinates and PackageHouse-owned version selection use the same
+desktop composition. A local `.nupkg` is admitted as one immutable exact-only
+source before the same realization request. The CLI consumes the detached
+Address envelope and lowers it through its existing Address section, terminal,
+row-selection, text, and diagnostic presentation. JSON retains the existing
+complete Library inspection path until the shared Address result owns the
+Library metadata required by that established schema; the CLI does not emit a
+success-shaped partial replacement. The adopter admits only a direct
+`ref/<tfm>/` or `lib/<tfm>/` Library path, and only when every selected section
+is owned by the Address result. Bare Library selections, other exact package
+paths, and mixed selections that require complete Library facts retain the
+legacy path rather than returning a selection failure or silently omitting
+requested sections. This includes runtime-only and `tools/` packages that
+cannot yield the compile handoff required by the shared operation. Bare
+discovery also retains complete Library inspection because its applicability
+catalog includes facts outside the Address result. Population row failures in
+ordinary output are lowered once as rows; the CLI does not repeat their
+portable diagnostics on stderr. Failed settlements preserve retained
+configured-source authority messages alongside the terminal reason.
+
+Other package-backed Library modes and Workspace-backed Address requests still
+use their existing paths. Browser/Wasm adoption and final removal of the
+legacy package-to-Library Address continuation remain later slices of
+[#8672](https://github.com/richlander/dotnet-inspect/issues/8672).
+
 ## Workspace boundary
 
 `Workspace` owns registration, transactions, revisions, admission, order,
@@ -1375,6 +1484,11 @@ Retirement is staged:
 No compatibility facade or obsolete CLI path is retained solely to preserve
 the old architecture. A direct path remains only while it is the shipping path
 for a supported scenario.
+
+The semantic-content-demand migration additionally removes
+`PackagePayloadAccess` and caller-owned range/complete fallback only after the
+last production caller adopts the House-owned plan. No new caller may add
+another transfer-mode choice during that migration.
 
 ## Composition evidence
 
@@ -1546,6 +1660,30 @@ separate package-slice sequence:
 Package Dependency Query scope, size measurements, traversal targets, and call
 graphs remain later #7423 sequences. This slice does not authorize or specify
 them.
+
+[#8994](https://github.com/richlander/dotnet-inspect/issues/8994) adds a
+seven-slice semantic-content-demand stack:
+
+1. lock the focused demand and House-owned planning contract;
+2. move existing nuspec, file-list, semantic exact-file, selected-asset,
+   selected-Library PDB companion, and whole-archive behavior behind semantic
+   queries with one production adopter while preserving the current direct
+   companion handoff;
+3. add reusable narrowing, Libraries, and
+   `GetLibraryAndInventoryForTarget` by composing asset-selection,
+   correspondence, and Metadata evidence;
+4. after #9002 locks and implements independent PDB settlement, consume
+   Library-inventory package-symbol evidence, compose later exact Files
+   acquisition, migrate one current PDB consumer, and retire direct companion
+   delivery for that route;
+5. adopt `GetLibraryAndInventoryForTarget` in Inspect Web Package Query;
+6. adopt the same demands in `find` and shared Workspace/declaration loading;
+   and
+7. migrate remaining callers, then remove `PackagePayloadAccess` and
+   caller-owned ranged/complete fallback.
+
+Each arm lands with a production caller. Other owners adopt the pattern in
+focused successor slices rather than broadening the owner document.
 
 ## Required gates
 

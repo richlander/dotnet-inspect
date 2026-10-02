@@ -23,6 +23,43 @@ namespace ILInspector.Analysis.Tests;
 
 public partial class LibraryBodyIndexTests
 {
+    [Fact]
+    public void DirectCallIncidence_GroupsByPhysicalMethodTokenInCallOrder()
+    {
+        MethodIdentity firstMethod =
+            LeverageMethod("First", 0x06000001);
+        MethodIdentity equivalentPhysicalMethod =
+            LeverageMethod("ProjectedFirst", 0x06000001);
+        MethodIdentity secondMethod =
+            LeverageMethod("Second", 0x06000002);
+        MethodIdentity callee =
+            LeverageMethod("Callee", 0x06000003);
+        DirectCall first = LeverageCall(firstMethod, callee);
+        DirectCall second =
+            LeverageCall(firstMethod, callee) with
+            {
+                EvidenceMethod = equivalentPhysicalMethod,
+                ILOffset = 4,
+            };
+        DirectCall third =
+            LeverageCall(secondMethod, callee) with
+            {
+                ILOffset = 8,
+            };
+
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>> incidence =
+            DirectCallIncidence.ByEvidenceMethod(
+                [first, second, third]);
+
+        Assert.Empty(DirectCallIncidence.ByEvidenceMethod([]));
+        Assert.Equal(
+            [first, second],
+            incidence[firstMethod.MetadataToken]);
+        Assert.Equal(
+            [third],
+            incidence[secondMethod.MetadataToken]);
+        Assert.DoesNotContain(0x06000004, incidence.Keys);
+    }
 
     [Fact]
     public void BuildCallerTree_RendersReverseEdgesForSelectedRoot()

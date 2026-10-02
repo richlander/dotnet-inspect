@@ -187,6 +187,7 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
       "../playwright.worker-cpu.config.ts",
       "../playwright.package-adoption.config.ts",
       "../playwright.published-benchmark.config.ts",
+      "../playwright.find-unit-cost.config.ts",
       "../playwright.source-comparison.config.ts",
     ],
   );
@@ -3035,6 +3036,7 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + "playwright.worker-cpu.config.ts "
       + "playwright.package-adoption.config.ts "
       + "playwright.published-benchmark.config.ts "
+      + "playwright.find-unit-cost.config.ts "
       + "playwright.source-comparison.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
@@ -3093,6 +3095,10 @@ test("the site artifact rejects a missing Vite output", (context) => {
   };
   const manifest: Record<string, ManifestEntry> = {
     "index.html": indexEntry,
+    "src/browser-package-entry-cache.ts": {
+      file: "browser-package-entry-cache.js",
+      isEntry: true,
+    },
     "src/dotnet-inspect.ts": {
       file: "assets/app.js",
       isDynamicEntry: true,
@@ -3110,6 +3116,7 @@ test("the site artifact rejects a missing Vite output", (context) => {
   writeFileSync(join(site, "assets/index.js"), "");
   writeFileSync(join(site, "assets/index.css"), "");
   writeFileSync(join(site, "assets/app.js"), "");
+  writeFileSync(join(site, "browser-package-entry-cache.js"), "");
 
   assert.doesNotThrow(() => verifySiteArtifact(site));
   writeFileSync(
@@ -3150,10 +3157,47 @@ test("the site artifact rejects a missing Vite output", (context) => {
     join(site, "index.html"),
     '<base href="/">'
       + '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html is missing the import map/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<base href="/">'
+      + '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<script type="importmap">{}</script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html places Vite entry 'assets\/index\.js' before the import map/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<base href="/">'
+      + '<link rel="preload" href="/_framework/dotnet.js">'
       + '<script type="importmap">{}</script>'
       + '<script type="module" src="/assets/index.js"></script>'
       + '<link rel="stylesheet" href="/assets/index.css">',
   );
+  manifest["src/browser-package-entry-cache.ts"] = {
+    file: "unexpected-root.js",
+    isEntry: true,
+  };
+  writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /manifest contains invalid asset 'unexpected-root\.js'/,
+  );
+
+  manifest["src/browser-package-entry-cache.ts"] = {
+    file: "browser-package-entry-cache.js",
+    isEntry: true,
+  };
   delete manifest["src/dotnet-inspect.ts"];
   writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   assert.throws(

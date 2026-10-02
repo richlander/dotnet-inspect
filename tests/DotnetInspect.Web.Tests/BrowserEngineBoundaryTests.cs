@@ -1,10 +1,12 @@
 using System.IO.Compression;
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Net.Http.Headers;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
@@ -574,11 +576,59 @@ public sealed partial class BrowserEngineBoundaryTests
                 ZipArchiveMode.Create,
                 leaveOpen: true))
         {
+            string prefix =
+                $"runtimes/linux-x64/lib/{framework}/";
+            string target =
+                $".NETCoreApp,Version=v{framework["net".Length..]}/linux-x64";
+            string runtimeAssets = string.Join(
+                ",",
+                assemblies.Select(assembly =>
+                    JsonSerializer.Serialize(assembly.Name) + ":{}"));
+            string dependencyManifest =
+                $$"""
+                  {
+                    "runtimeTarget":{"name":"{{target}}"},
+                    "targets":{
+                      "{{target}}":{
+                        "Fixture/1.0.0":{
+                          "runtime":{ {{runtimeAssets}} }
+                        }
+                      }
+                    }
+                  }
+                  """;
+            foreach (string platform in
+                new[]
+                {
+                    "Microsoft.NETCore.App",
+                    "Microsoft.AspNetCore.App",
+                })
+            {
+                using (Stream runtimeConfiguration = archive
+                    .CreateEntry(
+                        prefix + platform + ".runtimeconfig.json",
+                        CompressionLevel.NoCompression)
+                    .Open())
+                {
+                    runtimeConfiguration.Write(
+                        """{"runtimeOptions":{}}"""u8);
+                }
+
+                using Stream dependencies = archive
+                    .CreateEntry(
+                        prefix + platform + ".deps.json",
+                        CompressionLevel.NoCompression)
+                    .Open();
+                dependencies.Write(
+                    System.Text.Encoding.UTF8.GetBytes(
+                        dependencyManifest));
+            }
+
             foreach ((string name, byte[] bytes) in assemblies)
             {
                 using Stream entry = archive
                     .CreateEntry(
-                        $"runtimes/linux-x64/lib/{framework}/{name}",
+                        prefix + name,
                         CompressionLevel.NoCompression)
                     .Open();
                 entry.Write(bytes);
@@ -703,7 +753,9 @@ public sealed partial class BrowserEngineBoundaryTests
         string packageId,
         string version,
         string readme,
-        string skill)
+        string package,
+        string skill,
+        int paddingBytes = 0)
     {
         using var content = new MemoryStream();
         using (var archive = new ZipArchive(
@@ -727,15 +779,38 @@ public sealed partial class BrowserEngineBoundaryTests
                 readme);
             WritePackageText(
                 archive,
+                "PACKAGE.md",
+                package);
+            WritePackageText(
+                archive,
                 "skills/demo/SKILL.md",
                 skill);
             WritePackageText(
                 archive,
                 "content/notes.txt",
                 "Not browsable.");
+            if (paddingBytes > 0)
+            {
+                using Stream padding = archive
+                    .CreateEntry(
+                        "lib/net11.0/padding.bin",
+                        CompressionLevel.NoCompression)
+                    .Open();
+                padding.Write(new byte[paddingBytes]);
+            }
         }
 
         return content.ToArray();
+    }
+
+    static string ReadPackageText(byte[] package, string path)
+    {
+        using var archive = new ZipArchive(
+            new MemoryStream(package),
+            ZipArchiveMode.Read);
+        using Stream entry = archive.GetEntry(path)!.Open();
+        using var reader = new StreamReader(entry, Encoding.UTF8);
+        return reader.ReadToEnd();
     }
 
     static void WritePackageText(
@@ -952,6 +1027,10 @@ public sealed partial class BrowserEngineBoundaryTests
             $"https://globalcdn.nuget.org/packages/{packageId.ToLowerInvariant()}.{version}.nupkg";
 
         public List<string> Requested { get; } = [];
+        public int OrdinaryPackageResponses { get; private set; }
+        public int RangedPackageResponses { get; private set; }
+        public long PackageBytesServed { get; private set; }
+        public long ArchiveLength => archive.LongLength;
         public bool PayloadDisposed { get; private set; }
         public TaskCompletionSource PayloadReadStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1008,17 +1087,60 @@ public sealed partial class BrowserEngineBoundaryTests
             var response = new HttpResponseMessage(packageStatus);
             if (packageStatus == System.Net.HttpStatusCode.OK)
             {
+                RangeItemHeaderValue? range =
+                    request.Headers.Range?.Ranges.SingleOrDefault();
+                if (range is not null)
+                {
+                    long start;
+                    long end;
+                    if (range.From is null)
+                    {
+                        start = Math.Max(
+                            0,
+                            archive.LongLength - range.To!.Value);
+                        end = archive.LongLength - 1;
+                    }
+                    else
+                    {
+                        start = range.From.Value;
+                        end = Math.Min(
+                            range.To ?? archive.LongLength - 1,
+                            archive.LongLength - 1);
+                    }
+
+                    int count = checked((int)(end - start + 1));
+                    var content = new ByteArrayContent(
+                        archive,
+                        checked((int)start),
+                        count);
+                    content.Headers.ContentRange =
+                        new ContentRangeHeaderValue(
+                            start,
+                            end,
+                            archive.LongLength);
+                    response.StatusCode =
+                        System.Net.HttpStatusCode.PartialContent;
+                    response.Content = content;
+                    response.Headers.AcceptRanges.Add("bytes");
+                    RangedPackageResponses++;
+                    PackageBytesServed += count;
+                    return Task.FromResult(response);
+                }
+
                 response.Content = payloadRelease is not null
                     ? new StreamContent(new GatedPayloadStream(
-                        archive, PayloadReadStarted, payloadRelease))
-                    : omitContentLength
-                    ? new StreamContent(
+                        archive,
+                        PayloadReadStarted,
+                        payloadRelease,
+                        count => PackageBytesServed += count))
+                    : new StreamContent(
                         new TrackingPayloadStream(
                             archive,
-                            () => PayloadDisposed = true))
-                    : new ByteArrayContent(archive);
-                if (payloadRelease is not null)
+                            () => PayloadDisposed = true,
+                            count => PackageBytesServed += count));
+                if (!omitContentLength)
                     response.Content.Headers.ContentLength = archive.LongLength;
+                OrdinaryPackageResponses++;
             }
 
             return Task.FromResult(response);
@@ -1030,6 +1152,40 @@ public sealed partial class BrowserEngineBoundaryTests
                 {
                     Content = new StringContent(json),
                 });
+    }
+
+    sealed class MemoryPackageEntryPersistence
+        : IBrowserPackageEntryPersistence
+    {
+        readonly ConcurrentDictionary<string, byte[]> _items =
+            new(StringComparer.Ordinal);
+
+        public bool IsPersistent => true;
+
+        public bool ContainsEntry(string path)
+        {
+            string suffix =
+                "/entries/"
+                + PackageEntryStoreNames.EntryFileName(path);
+            return _items.Keys.Any(
+                key => key.EndsWith(
+                    suffix,
+                    StringComparison.Ordinal));
+        }
+
+        public ValueTask<byte[]?> ReadAsync(string key) =>
+            ValueTask.FromResult<byte[]?>(
+                _items.TryGetValue(key, out byte[]? content)
+                    ? content.ToArray()
+                    : null);
+
+        public ValueTask PublishAsync(
+            string key,
+            ReadOnlyMemory<byte> content)
+        {
+            _items.TryAdd(key, content.ToArray());
+            return ValueTask.CompletedTask;
+        }
     }
 
     sealed class GalleryVersionHandler : HttpMessageHandler
@@ -1207,7 +1363,8 @@ public sealed partial class BrowserEngineBoundaryTests
     sealed class GatedPayloadStream(
         byte[] bytes,
         TaskCompletionSource started,
-        Task release) : MemoryStream(bytes, writable: false)
+        Task release,
+        Action<int> onRead) : MemoryStream(bytes, writable: false)
     {
         public override bool CanSeek => false;
 
@@ -1217,14 +1374,51 @@ public sealed partial class BrowserEngineBoundaryTests
         {
             started.TrySetResult();
             await release.WaitAsync(cancellationToken);
-            return await base.ReadAsync(buffer, cancellationToken);
+            int read = await base.ReadAsync(
+                    buffer,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            onRead(read);
+            return read;
         }
     }
 
-    sealed class TrackingPayloadStream(byte[] bytes, Action onDispose)
+    sealed class TrackingPayloadStream(
+        byte[] bytes,
+        Action onDispose,
+        Action<int> onRead)
         : MemoryStream(bytes, writable: false)
     {
         public override bool CanSeek => false;
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count)
+        {
+            int read = base.Read(buffer, offset, count);
+            onRead(read);
+            return read;
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            int read = base.Read(buffer);
+            onRead(read);
+            return read;
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            int read = await base.ReadAsync(
+                    buffer,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            onRead(read);
+            return read;
+        }
 
         protected override void Dispose(bool disposing)
         {

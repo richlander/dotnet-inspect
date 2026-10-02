@@ -170,8 +170,8 @@ source operation.
 `Polly.Core@8.8.0` is the motivating real package:
 
 - the explicit root selects `netstandard2.0` and retains four declarations;
-- traversal uses `ProductDefault(net12.0)`;
-- a resolved destination execution requests package assets for `net12.0`;
+- traversal uses `ProductDefault(net11.0)`;
+- a resolved destination execution requests package assets for `net11.0`;
 - a compatible lower destination folder remains selected evidence rather than
   replacing the request; and
 - an exact Platform inventory may instead delegate a subsumed destination
@@ -182,9 +182,9 @@ The required boundary cases are:
 - a target projection with the same coordinate but another candidate
   correspondence is not interchangeable;
 - a source selected for `netstandard2.0` can realize a destination under
-  `net12.0` without changing source evidence;
-- a compatible `net11.0` destination selected for a `net12.0` request retains
-  both values;
+  `net11.0` without changing source evidence;
+- a configured `net12.0` request that selects a compatible `net11.0`
+  destination retains both values;
 - exact Platform subsumption produces delegation and zero package payload
   requests; and
 - non-candidate edges are rejected before PackageHouse work.
@@ -208,7 +208,7 @@ No external implementation or source code is transferred.
 
 | Property | Release gate |
 | --- | --- |
-| A real Polly.Core `netstandard2.0` root prepares a destination under `ProductDefault(net12.0)` without changing source selection. | `EdgeRealization_UsesTraversalTargetWithoutReselectingPollyRoot` |
+| A real Polly.Core `netstandard2.0` root prepares a destination under `ProductDefault(net11.0)` without changing source selection. | `EdgeRealization_UsesTraversalTargetWithoutReselectingPollyRoot` |
 | Exact Platform inventory is evaluated against the traversal target and may produce a retained delegating receipt. | `EdgeRealization_ComposesPlatformPruningAgainstTraversalTarget` |
 | Same-coordinate target projections with distinct candidate correspondences prepare distinct candidate-bound House requests. | `EdgeRealization_PreservesSameCoordinateCandidateCorrespondence` |
 | Direct, failed, budget, or otherwise non-candidate edges cannot prepare PackageHouse realization; a mismatched destination target is rejected. | `EdgeRealization_RejectsNonCandidateAndMismatchedTargetRequests` |

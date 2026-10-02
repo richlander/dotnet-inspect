@@ -28,6 +28,21 @@ using Inspector.Findings;
 using ILInspector.Metadata;
 using NuGetFetch;
 
+using BrowserMemberDocument =
+    DotnetInspect.Web.Interop.Metadata.BrowserMemberDocument;
+using BrowserMemberDocumentInspection =
+    DotnetInspect.Web.Interop.Metadata.BrowserMemberDocumentInspection;
+using BrowserMemberGroupDocument =
+    DotnetInspect.Web.Interop.Metadata.BrowserMemberGroupDocument;
+using BrowserMemberGroupDocumentInspection =
+    DotnetInspect.Web.Interop.Metadata.BrowserMemberGroupDocumentInspection;
+using BrowserMemberGroupDocumentRow =
+    DotnetInspect.Web.Interop.Metadata.BrowserMemberGroupDocumentRow;
+using AttachedDocumentationQueryOutcome =
+    DotnetInspect.Web.Interop.Metadata.Wire.DocumentationQueryOutcome;
+using MetadataExports =
+    DotnetInspect.Web.Interop.Metadata.MetadataExports;
+
 using DotnetInspect.Web.Interop.Package;
 using BrowserMetadataJsonContext = DotnetInspect.Web.Interop.Metadata.BrowserMetadataJsonContext;
 using BrowserAnalysisJsonContext = DotnetInspect.Web.Interop.Analysis.BrowserAnalysisJsonContext;
@@ -43,6 +58,8 @@ using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPack
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
 using BrowserLibraryMetrics = DotnetInspect.Web.Interop.Analysis.BrowserLibraryMetrics;
+using BrowserLibraryStructuralSalience = DotnetInspect.Web.Interop.Analysis.BrowserLibraryStructuralSalience;
+using BrowserLibraryTypeLeverageShard = DotnetInspect.Web.Interop.Analysis.BrowserLibraryTypeLeverageShard;
 using BrowserSource = DotnetInspect.Web.Interop.Source.BrowserSource;
 using BrowserCallGraph = DotnetInspect.Web.Interop.CallGraph.BrowserCallGraph;
 using BrowserCallGraphTarget = DotnetInspect.Web.Interop.CallGraph.BrowserCallGraphTarget;
@@ -140,7 +157,20 @@ public sealed partial class BrowserEngineBoundaryTests
     [Fact]
     public void PackageWireProjection_PreservesCoreValues()
     {
-        var stats = new BrowserPackageCacheSnapshot(1, 2, 12, 3, 4, 256, 5, 128, 64);
+        var stats = new BrowserPackageCacheSnapshot(
+            1,
+            2,
+            12,
+            3,
+            4,
+            256,
+            5,
+            128,
+            64,
+            "persistent",
+            7,
+            8,
+            null);
         var entry = new BrowserPackageDocumentEntry(
             "skill",
             "Inspect",
@@ -156,7 +186,20 @@ public sealed partial class BrowserEngineBoundaryTests
             "cG5n");
 
         Assert.Equal(
-            new BrowserPackageCacheStats(1, 2, 12, 3, 4, 256, 5, 128, 64),
+            new BrowserPackageCacheStats(
+                1,
+                2,
+                12,
+                3,
+                4,
+                256,
+                5,
+                128,
+                64,
+                "persistent",
+                7,
+                8,
+                null),
             BrowserPackageWireProjection.Project(stats));
         Assert.Equal(
             [
@@ -185,7 +228,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
     [Fact]
     public async Task
-        QueryMemberDocumentation_UsesSharedPackageDocumentationContract()
+        QueryMemberDocumentation_DottedAssemblyNameUsesSharedContract()
     {
         const string packageId = "System.Text.Json";
         const string version = "10.0.0";
@@ -209,7 +252,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     packageId,
                     version,
                     "net10.0",
-                    "System.Text.Json.dll",
+                    "System.Text.Json",
                     "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonDocument,System.Text.Json.JsonSerializerOptions)");
         DocumentationQueryOutcome outcome =
             Assert.IsAssignableFrom<DocumentationQueryOutcome>(
@@ -298,6 +341,24 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.True(
             json.Length <= 1_024,
             $"Platform absence JSON was {json.Length} UTF-16 code units.");
+    }
+
+    [Fact]
+    public async Task
+        QueryUnifiedPlatformMemberDocumentation_UsesSharedSettlement()
+    {
+        DocumentationQueryOutcome outcome =
+            await QueryUnifiedPlatformMemberDocumentationAsync(
+                "11.0.7148",
+                includeDocumentation: true);
+
+        var completed =
+            Assert.IsType<DocumentationQueryOutcome.Completed>(outcome);
+        Assert.Contains(
+            completed.Fields.Summary.Contributions,
+            static contribution =>
+                contribution.Value
+                    == "Reads documentation from a non-public type.");
     }
 
     [Fact]
@@ -412,6 +473,83 @@ public sealed partial class BrowserEngineBoundaryTests
             completed.AuthoredSource);
     }
 
+    [Fact]
+    public async Task
+        QueryMemberDocumentation_ReferenceOnlyLibraryRetainsCompiledDocumentation()
+    {
+        string packageId =
+            $"Browser.Documentation.ReferenceOnly.{Guid.NewGuid():N}";
+        const string assemblyName =
+            "DotnetInspect.Web.Interop.Package.dll";
+        const string summary =
+            "Searches package types from a reference-only Library.";
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                PackageEntries(
+                    ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                        $"""
+                         <package>
+                           <metadata>
+                             <id>{packageId}</id>
+                             <version>1.0.0</version>
+                             <authors>Tests</authors>
+                             <description>Reference-only documentation package.</description>
+                           </metadata>
+                         </package>
+                         """)),
+                    ($"ref/net11.0/{assemblyName}",
+                        File.ReadAllBytes(
+                            typeof(DotnetInspect.Web.Interop.Package
+                                .PackageExports).Assembly.Location)),
+                    ($"ref/net11.0/{Path.ChangeExtension(
+                        assemblyName,
+                        ".xml")}",
+                        Encoding.UTF8.GetBytes(
+                            $"""
+                             <?xml version="1.0"?>
+                             <doc>
+                               <assembly>
+                                 <name>DotnetInspect.Web.Interop.Package</name>
+                               </assembly>
+                               <members>
+                                 <member name="M:DotnetInspect.Web.Interop.Package.PackageExports.SearchTypes(System.String,System.String)">
+                                   <summary>{summary}</summary>
+                                 </member>
+                               </members>
+                             </doc>
+                             """))),
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        string json =
+            await DotnetInspect.Web.Interop.Package.PackageExports
+                .QueryMemberDocumentation(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    assemblyName,
+                    "M:DotnetInspect.Web.Interop.Package.PackageExports.SearchTypes(System.String,System.String)");
+        DocumentationQueryOutcome outcome =
+            Assert.IsAssignableFrom<DocumentationQueryOutcome>(
+                JsonSerializer.Deserialize(
+                    json,
+                    DocumentationQueryJsonContext.Default
+                        .DocumentationQueryOutcome));
+
+        var completed =
+            Assert.IsType<DocumentationQueryOutcome.Completed>(
+                outcome);
+        var available =
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                completed.CompiledXml);
+        Assert.Equal(summary, available.Documentation.Summary);
+        Assert.IsType<AuthoredDocumentationOutcome.Unavailable>(
+            completed.AuthoredSource);
+    }
+
     [Theory]
     [InlineData(
         "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
@@ -495,6 +633,86 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.IsType<CompiledDocumentationOutcome.Available>(
                 completed.CompiledXml);
         Assert.Equal(expectedSummary, available.Documentation.Summary);
+    }
+
+    [Fact]
+    public async Task
+        QueryMemberDocument_AttachesExactDocumentationOutcome()
+    {
+        string packageId =
+            $"Browser.MemberDocument.Documentation.{Guid.NewGuid():N}";
+        byte[] packageBytes = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                $"""
+                 <package>
+                   <metadata>
+                     <id>{packageId}</id>
+                     <version>1.0.0</version>
+                     <authors>Tests</authors>
+                     <description>Exact Member documentation attachment.</description>
+                   </metadata>
+                 </package>
+                 """)),
+            ("lib/net11.0/InspectWeb.DocumentationFixtures.dll",
+                File.ReadAllBytes(
+                    FixtureCatalog.InspectWebDocumentation.AssemblyPath())),
+            ("lib/net11.0/InspectWeb.DocumentationFixtures.xml",
+                File.ReadAllBytes(
+                    FixtureCatalog.InspectWebDocumentation.AssetPath(
+                        "documentation"))));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                packageBytes,
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        BrowserMemberGroupDocumentInspection group =
+            JsonSerializer.Deserialize(
+                await MetadataExports.QueryMemberGroupDocument(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    "InspectWeb.DocumentationFixtures.dll",
+                    "InspectWeb.DocumentationFixtures.WidgetExtensions",
+                    "Measure"),
+                BrowserMetadataJsonContext.Default
+                    .BrowserMemberGroupDocumentInspection)!;
+        BrowserMemberGroupDocumentRow row =
+            Assert.Single(
+                Assert.IsType<BrowserMemberGroupDocument>(group.Document)
+                    .Rows,
+                static candidate =>
+                    candidate.CanonicalSignature.Contains(
+                        "System.Int32",
+                        StringComparison.Ordinal));
+
+        BrowserMemberDocumentInspection inspection =
+            JsonSerializer.Deserialize(
+                await MetadataExports.QueryMemberDocument(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    "InspectWeb.DocumentationFixtures.dll",
+                    "InspectWeb.DocumentationFixtures.WidgetExtensions",
+                    "Measure",
+                    row.BaselineOrdinal,
+                    ""),
+                BrowserMetadataJsonContext.Default
+                    .BrowserMemberDocumentInspection)!;
+
+        BrowserMemberDocument document =
+            Assert.IsType<BrowserMemberDocument>(inspection.Document);
+        var completed =
+            Assert.IsType<AttachedDocumentationQueryOutcome.Completed>(
+                document.Documentation);
+        Assert.Contains(
+            completed.Fields.Summary.Contributions,
+            static contribution =>
+                contribution.Value
+                    == "Measures a widget through its declaring extension member.");
     }
 
     [Fact]
@@ -587,6 +805,106 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task
+        QueryMemberDocumentation_UsesRangeAndWarmEntryCache()
+    {
+        string packageId =
+            $"Browser.Documentation.Ranged.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        const string assemblyName =
+            "InspectWeb.DocumentationFixtures.dll";
+        const string documentationId =
+            "M:InspectWeb.DocumentationFixtures.WidgetExtensions.Measure"
+            + "(InspectWeb.DocumentationFixtures.Widget,System.Int32)";
+        string assemblyPath =
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath();
+        byte[] packageBytes = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                $"""
+                 <package>
+                   <metadata>
+                     <id>{packageId}</id>
+                     <version>{version}</version>
+                     <authors>Tests</authors>
+                     <description>Ranged browser documentation.</description>
+                   </metadata>
+                 </package>
+                 """)),
+            ($"ref/net11.0/{assemblyName}",
+                File.ReadAllBytes(assemblyPath)),
+            ("ref/net11.0/InspectWeb.DocumentationFixtures.xml",
+                File.ReadAllBytes(
+                    FixtureCatalog.InspectWebDocumentation.AssetPath(
+                        "documentation"))),
+            ($"lib/net11.0/{assemblyName}",
+                File.ReadAllBytes(assemblyPath)),
+            ("lib/net11.0/InspectWeb.DocumentationFixtures.pdb",
+                File.ReadAllBytes(
+                    FixtureCatalog.InspectWebDocumentation.AssetPath(
+                        "pdb"))),
+            ("lib/net11.0/Unrelated.dll", new byte[2 * MiB]),
+            ("content/padding.bin", new byte[2 * MiB]));
+        Assert.True(packageBytes.Length > 4 * MiB);
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            packageBytes);
+        using IPackageSourceClient source = Gallery(handler);
+        var persistence = new MemoryPackageEntryPersistence();
+        var store = new BrowserPackageWorkspace.BrowserSessionPackageStore(
+            source,
+            persistence);
+
+        Task<DocumentationQueryOutcome> Read(
+            BrowserPackageWorkspace.BrowserSessionPackageStore packageStore) =>
+            BrowserPackageWorkspace.QueryMemberDocumentationAsync(
+                packageId,
+                version,
+                "net11.0",
+                assemblyName,
+                documentationId,
+                source,
+                TimeSpan.FromSeconds(10),
+                TestContext.Current.CancellationToken,
+                packageStore);
+
+        DocumentationQueryOutcome first = await Read(store);
+        int requests = handler.Requested.Count;
+        Assert.True(
+            persistence.ContainsEntry(
+                "lib/net11.0/InspectWeb.DocumentationFixtures.pdb"));
+        Assert.False(
+            persistence.ContainsEntry(
+                "lib/net11.0/Unrelated.dll"));
+        var recreatedStore =
+            new BrowserPackageWorkspace.BrowserSessionPackageStore(
+                source,
+                persistence);
+        DocumentationQueryOutcome second = await Read(recreatedStore);
+
+        foreach (DocumentationQueryOutcome outcome in new[] { first, second })
+        {
+            var completed =
+                Assert.IsType<DocumentationQueryOutcome.Completed>(
+                    outcome);
+            var compiled =
+                Assert.IsType<CompiledDocumentationOutcome.Available>(
+                    completed.CompiledXml);
+            Assert.Contains(
+                "Measures a widget",
+                compiled.Documentation.Summary,
+                StringComparison.Ordinal);
+        }
+        Assert.Equal(requests, handler.Requested.Count);
+        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.True(handler.RangedPackageResponses > 0);
+        Assert.True(
+            handler.PackageBytesServed < 512 * 1024,
+            $"served {handler.PackageBytesServed} of "
+                + $"{packageBytes.Length} package bytes");
+    }
+
+    [Fact]
     public void UnconstrainedDependencyNavigation_SelectsLatestStableVersion()
     {
         Assert.Equal(
@@ -604,7 +922,52 @@ public sealed partial class BrowserEngineBoundaryTests
     private static async Task<CompiledDocumentationOutcome>
         QueryPlatformMemberDocumentationAsync(
             string version,
-            bool includeDocumentation)
+            bool includeDocumentation) =>
+        await QueryPlatformDocumentationAsync(
+            version,
+            includeDocumentation,
+            (workspaceClient, packageClient, sourceAuthorization) =>
+                BrowserPlatformWorkspace.QueryMemberDocumentationAsync(
+                    "net11.0",
+                    version,
+                    "InspectWeb.DocumentationFixtures.dll",
+                    "netcore.app",
+                    "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
+                    workspaceClient,
+                    packageClient,
+                    sourceAuthorization,
+                    TimeSpan.FromSeconds(10),
+                    TestContext.Current.CancellationToken));
+
+    private static async Task<DocumentationQueryOutcome>
+        QueryUnifiedPlatformMemberDocumentationAsync(
+            string version,
+            bool includeDocumentation) =>
+        await QueryPlatformDocumentationAsync(
+            version,
+            includeDocumentation,
+            (workspaceClient, packageClient, sourceAuthorization) =>
+                BrowserPlatformWorkspace
+                    .QueryUnifiedMemberDocumentationAsync(
+                        "net11.0",
+                        version,
+                        "InspectWeb.DocumentationFixtures.dll",
+                        "netcore.app",
+                        "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
+                        workspaceClient,
+                        packageClient,
+                        sourceAuthorization,
+                        TimeSpan.FromSeconds(10),
+                        TestContext.Current.CancellationToken));
+
+    private static async Task<T> QueryPlatformDocumentationAsync<T>(
+        string version,
+        bool includeDocumentation,
+        Func<
+            HttpClient,
+            IPackageSourceClient,
+            IPackageSourceAuthorization,
+            Task<T>> query)
     {
         const string assembly =
             "InspectWeb.DocumentationFixtures.dll";
@@ -651,18 +1014,10 @@ public sealed partial class BrowserEngineBoundaryTests
                     version,
                     referencePackage));
 
-        return await BrowserPlatformWorkspace
-            .QueryMemberDocumentationAsync(
-                "net11.0",
-                version,
-                assembly,
-                "netcore.app",
-                "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
-                workspaceClient,
-                packageClient,
-                sourceAuthorization,
-                TimeSpan.FromSeconds(10),
-                TestContext.Current.CancellationToken);
+        return await query(
+            workspaceClient,
+            packageClient,
+            sourceAuthorization);
     }
 
     private sealed class FixedPackageSourceAuthorization(
@@ -1829,6 +2184,31 @@ public sealed partial class BrowserEngineBoundaryTests
             BrowserAnalysisCompileLibraryStatus.Selected,
             metrics.CompileLibrary.Status);
 
+        BrowserLibraryStructuralSalience salience =
+            Assert.IsType<BrowserLibraryStructuralSalience>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPackageLibraryStructuralSalience(
+                            packageId,
+                            "1.0.0",
+                            "net11.0",
+                            surface.Asset.Id),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserLibraryStructuralSalience));
+        Assert.Equal("available", salience.Outcome);
+        Assert.Equal(
+            "structural-salience.v2",
+            salience.MethodologyVersion);
+        Assert.True(salience.NamespaceIndex?.Coverage.Considered > 0);
+        Assert.NotEmpty(salience.NamespaceIndex!.Namespaces);
+        Assert.Equal(
+            salience.NamespaceIndex.Namespaces.Length,
+            salience.TypeLeverageShards.Length);
+        Assert.Null(salience.Failure);
+        Assert.Equal(
+            BrowserAnalysisCompileLibraryStatus.Selected,
+            salience.CompileLibrary.Status);
+
         BrowserPackageIntegrations integrations = Assert.IsType<BrowserPackageIntegrations>(
             JsonSerializer.Deserialize(
                 await DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackageIntegrations(
@@ -1853,6 +2233,65 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(0, performance.TotalOpportunities);
         Assert.Empty(performance.Members);
         Assert.Null(performance.InspectionError);
+    }
+
+    [Fact]
+    public async Task
+        NamespaceTypeLeverage_PreservesExactGenericArityAcrossJson()
+    {
+        const string packageId = "Browser.Library.SurfaceLeverageIdentity";
+        string assemblyPath =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string assemblyName =
+            Assert.IsType<string>(
+                AssemblyName.GetAssemblyName(assemblyPath).Name);
+        _ = await Coordinate(
+            packageId,
+            Package(
+                File.ReadAllBytes(assemblyPath),
+                $"lib/net11.0/{assemblyName}.dll"));
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                "1.0.0",
+                "net11.0",
+                TestContext.Current.CancellationToken);
+        BrowserWorkspaceParticipant surface =
+            Assert.Single(scopeLease.Scope.SurfaceParticipants);
+
+        BrowserLibraryStructuralSalience salience =
+            Assert.IsType<BrowserLibraryStructuralSalience>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPackageLibraryStructuralSalience(
+                            packageId,
+                            "1.0.0",
+                            "net11.0",
+                            surface.Asset.Id),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserLibraryStructuralSalience));
+
+        Assert.Equal("available", salience.Outcome);
+        BrowserLibraryTypeLeverageShard leverage =
+            Assert.Single(
+                salience.TypeLeverageShards,
+                shard => shard.Namespace == "Target");
+        Assert.Contains(
+            leverage.Types,
+            type => type.TypeDefinitionId == "Target.Box`1");
+        Assert.Contains(
+            leverage.Types,
+            type => type.TypeDefinitionId == "Target.Box`2");
+        Assert.All(
+            leverage.SeaLevelOrder,
+            id => Assert.Contains(
+                leverage.Types,
+                type => type.TypeDefinitionId == id));
+        Assert.All(
+            leverage.MountainPeakOrder,
+            id => Assert.Contains(
+                leverage.Types,
+                type => type.TypeDefinitionId == id));
     }
 
     [Fact]

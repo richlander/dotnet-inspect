@@ -58,7 +58,7 @@ static class ValidityCheck
     // the diagnostic is an artifact of the constraint-free shell.
     internal static readonly HashSet<string> BindingNoise =
     [
-        "CS0103", "CS0117", "CS1061", "CS0246", "CS0234", "CS0122",
+        "CS0103", "CS0117", "CS1061", "CS0246", "CS0234", "CS0400", "CS0122",
         "CS0119", "CS1955", "CS0021", "CS0070", "CS0118", "CS1501",
         "CS1502", "CS1503", "CS7036", "CS1929", "CS1928", "CS0411",
         "CS1929", "CS0428", "CS1955", "CS1729", "CS0704",
@@ -379,7 +379,7 @@ static class ValidityCheck
             method => IrImporter.Import(source, method);
         return lowered
             ? CSharpPrinter.PrintLowered(function, importMethodBody)
-            : CSharpPrinter.PrintRaised(
+            : CSharpPrinter.PrintRaisedFullyQualified(
                 function,
                 importMethodBody,
                 typesProvablyDisjoint: source.AreProvablyDisjoint);

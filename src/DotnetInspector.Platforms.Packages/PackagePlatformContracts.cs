@@ -70,6 +70,18 @@ public abstract class PackageReferencePopulationDemand
         public AssemblyReferenceIdentity Identity { get; }
     }
 
+    public sealed class AssemblyReferenceBinding :
+        PackageReferencePopulationDemand
+    {
+        public AssemblyReferenceBinding(AssemblyReferenceIdentity identity)
+        {
+            ArgumentNullException.ThrowIfNull(identity);
+            Identity = identity;
+        }
+
+        public AssemblyReferenceIdentity Identity { get; }
+    }
+
     public sealed class CompletePopulation : PackageReferencePopulationDemand;
 }
 
@@ -293,6 +305,23 @@ public sealed record PackagePlatformSourceDiagnostic(
     string Summary,
     ImmutableArray<PackageAuthorityFailure> PackageFailures);
 
+/// <summary>Exact completed work retained by a terminal source outcome.</summary>
+public sealed record PackagePlatformSourceWork
+{
+    public PackagePlatformSourceWork(
+        int assemblies,
+        long bytes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(assemblies);
+        ArgumentOutOfRangeException.ThrowIfNegative(bytes);
+        Assemblies = assemblies;
+        Bytes = bytes;
+    }
+
+    public int Assemblies { get; }
+    public long Bytes { get; }
+}
+
 public abstract record PackagePlatformSourceOutcome<T> where T : notnull
 {
     private protected PackagePlatformSourceOutcome(PackagePlatformSourceGeneration generation) =>
@@ -311,10 +340,17 @@ public abstract record PackagePlatformSourceOutcome<T> where T : notnull
     public abstract record NotSucceeded : PackagePlatformSourceOutcome<T>
     {
         private protected NotSucceeded(
-            PackagePlatformSourceGeneration generation, PackagePlatformSourceDiagnostic diagnostic)
-            : base(generation) => Diagnostic = diagnostic;
+            PackagePlatformSourceGeneration generation,
+            PackagePlatformSourceDiagnostic diagnostic,
+            PackagePlatformSourceWork? sourceWork = null)
+            : base(generation)
+        {
+            Diagnostic = diagnostic;
+            SourceWork = sourceWork;
+        }
 
         public PackagePlatformSourceDiagnostic Diagnostic { get; private init; }
+        public PackagePlatformSourceWork? SourceWork { get; }
 
         internal NotSucceeded WithPackageFailures(ImmutableArray<PackageAuthorityFailure> failures) =>
             this with { Diagnostic = Diagnostic with { PackageFailures = failures } };
@@ -322,25 +358,37 @@ public abstract record PackagePlatformSourceOutcome<T> where T : notnull
 
     public sealed record Unavailable : NotSucceeded
     {
-        internal Unavailable(PackagePlatformSourceGeneration generation, PackagePlatformSourceDiagnostic diagnostic)
-            : base(generation, diagnostic) { }
+        internal Unavailable(
+            PackagePlatformSourceGeneration generation,
+            PackagePlatformSourceDiagnostic diagnostic,
+            PackagePlatformSourceWork? sourceWork = null)
+            : base(generation, diagnostic, sourceWork) { }
     }
 
     public sealed record Rejected : NotSucceeded
     {
-        internal Rejected(PackagePlatformSourceGeneration generation, PackagePlatformSourceDiagnostic diagnostic)
-            : base(generation, diagnostic) { }
+        internal Rejected(
+            PackagePlatformSourceGeneration generation,
+            PackagePlatformSourceDiagnostic diagnostic,
+            PackagePlatformSourceWork? sourceWork = null)
+            : base(generation, diagnostic, sourceWork) { }
     }
 
     public sealed record Incomplete : NotSucceeded
     {
-        internal Incomplete(PackagePlatformSourceGeneration generation, PackagePlatformSourceDiagnostic diagnostic)
-            : base(generation, diagnostic) { }
+        internal Incomplete(
+            PackagePlatformSourceGeneration generation,
+            PackagePlatformSourceDiagnostic diagnostic,
+            PackagePlatformSourceWork? sourceWork = null)
+            : base(generation, diagnostic, sourceWork) { }
     }
 
     public sealed record Failed : NotSucceeded
     {
-        internal Failed(PackagePlatformSourceGeneration generation, PackagePlatformSourceDiagnostic diagnostic)
-            : base(generation, diagnostic) { }
+        internal Failed(
+            PackagePlatformSourceGeneration generation,
+            PackagePlatformSourceDiagnostic diagnostic,
+            PackagePlatformSourceWork? sourceWork = null)
+            : base(generation, diagnostic, sourceWork) { }
     }
 }

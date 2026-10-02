@@ -147,11 +147,8 @@ public sealed class LibraryCallGraphAnalysisResult
     /// </summary>
     public IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
         DirectCallsByEvidenceMethod =>
-        _directCallsByEvidenceMethod ??= DirectCalls
-            .GroupBy(call => call.EvidenceMethod.MetadataToken)
-            .ToDictionary(
-                group => group.Key,
-                group => group.ToImmutableArray());
+        _directCallsByEvidenceMethod ??=
+            DirectCallIncidence.ByEvidenceMethod(DirectCalls);
 
     /// <summary>
     /// The Analysis-issued target of one direct call from this result. Calls

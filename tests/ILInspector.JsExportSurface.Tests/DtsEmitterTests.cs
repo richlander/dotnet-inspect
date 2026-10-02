@@ -41,11 +41,11 @@ public sealed class DtsEmitterTests
         using FileStream stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
-        var bodyIndex = LibraryBodyIndex.Open(
+        var bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
-        return JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+        return JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis);
     }
 
     private static ILInspector.JsExportSurface.JsExportSurface
@@ -68,11 +68,11 @@ public sealed class DtsEmitterTests
             }
         }
 
-        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
-        return JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+        return JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis);
     }
 
     [Fact]
@@ -3074,6 +3074,7 @@ public sealed class DtsEmitterTests
     [InlineData(nameof(NumberHandlingWireFixture))]
     [InlineData(nameof(TypeNumberHandlingWireFixture))]
     [InlineData(nameof(ExtensionDataWireFixture))]
+    [InlineData(nameof(JsonRequiredWireFixture))]
     public void Emit_BlocksUnsupportedWireShapingContracts(
         string typeName)
     {
@@ -3338,7 +3339,7 @@ public sealed class DtsEmitterTests
 
     [Fact]
     public void
-        Emit_BlocksContextDefaultWhenNullCapabilityIsUnresolved()
+        Emit_UsesRetainedSignatureKindForContextDefault()
     {
         using FileStream stream = File.OpenRead(
             typeof(UnresolvedCollectionJsonOptionsContext)
@@ -3362,21 +3363,32 @@ public sealed class DtsEmitterTests
 
         string dts = DtsEmitter.Emit(surface, diagnostics);
 
+        Assert.Empty(diagnostics.UnmappedTypes);
         Assert.Contains(
-            "export type UnresolvedCollectionPayload = unknown;",
+            """
+            export interface UnresolvedCollectionPayloadOutput {
+              readonly Items?: ReadonlyArray<string>;
+              readonly RequestId: string;
+              readonly Rejections: ReadonlyArray<string>;
+              readonly PreviousRejections?: ReadonlyArray<string>;
+            }
+            """,
             dts,
             StringComparison.Ordinal);
-        Assert.Contains(
-            diagnostics.UnmappedTypes,
-            diagnostic =>
-                diagnostic.Location
-                    == "UnresolvedCollectionPayload JSON wire shape"
-                && diagnostic.CSharpType
-                    == "unsupported wire-shaping attributes or inheritance");
         Assert.Equal(
-            "{}",
+            """{"RequestId":"00000000-0000-0000-0000-000000000000","Rejections":[]}""",
             JsonSerializer.Serialize(
                 new UnresolvedCollectionPayload(Items: null),
+                UnresolvedCollectionJsonOptionsContext.Default
+                    .UnresolvedCollectionPayload));
+        Assert.Equal(
+            """{"Items":["package.xml"],"RequestId":"00000000-0000-0000-0000-000000000000","Rejections":["missing XML entry"],"PreviousRejections":[]}""",
+            JsonSerializer.Serialize(
+                new UnresolvedCollectionPayload(Items: ["package.xml"])
+                {
+                    Rejections = ["missing XML entry"],
+                    PreviousRejections = [],
+                },
                 UnresolvedCollectionJsonOptionsContext.Default
                     .UnresolvedCollectionPayload));
     }
@@ -3770,7 +3782,7 @@ public sealed class DtsEmitterTests
                     or nameof(ConstructorBoundJsonContext)
                     or nameof(ConstructorBoundExports)),
         ];
-        var bodyIndex = LibraryBodyIndex.Open(
+        var bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
@@ -3779,7 +3791,7 @@ public sealed class DtsEmitterTests
         string dts = DtsEmitter.Emit(
             JsExportSurfaceBuilder.Build(
                 apiSurface,
-                bodyIndex),
+                bodyAnalysis),
             diagnostics);
 
         Assert.Contains(
@@ -3847,7 +3859,7 @@ public sealed class DtsEmitterTests
                             == nameof(
                                 PrivateSetterConstructorBoundInput)),
                     valueProperty));
-        var bodyIndex = LibraryBodyIndex.Open(
+        var bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures
@@ -3857,7 +3869,7 @@ public sealed class DtsEmitterTests
         string dts = DtsEmitter.Emit(
             JsExportSurfaceBuilder.Build(
                 apiSurface,
-                bodyIndex),
+                bodyAnalysis),
             diagnostics);
 
         Assert.Contains(
@@ -3883,13 +3895,13 @@ public sealed class DtsEmitterTests
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
             peReader,
             includeAll: false);
-        var bodyIndex = LibraryBodyIndex.Open(
+        var bodyAnalysis = WireContractTestAnalysis.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
 
         string dts = DtsEmitter.Emit(
-            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex),
+            JsExportSurfaceBuilder.Build(apiSurface, bodyAnalysis),
             diagnostics);
 
         Assert.Contains(

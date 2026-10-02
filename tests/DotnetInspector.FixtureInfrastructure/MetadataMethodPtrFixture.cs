@@ -50,7 +50,43 @@ public static class MetadataMethodPtrFixture
         return image;
     }
 
+    /// <summary>
+    /// MethodPtr rows [2, 1] with the first type's MethodList starting at 2 and
+    /// the second's at 4: the first enumerated method is MethodDef 1
+    /// (<c>&lt;Module&gt;::M0</c>) with <paramref name="firstMethodBody"/>, and
+    /// advancing past it reads beyond the MethodPtr table.
+    /// </summary>
+    public static byte[] BuildTrailingOutOfRange(
+        ReadOnlySpan<byte> firstMethodBody)
+    {
+        byte[] image = Build(2, 1);
+        WriteMethodListStart(image, typeDefRow: 0, start: 2);
+        WriteMethodListStart(image, typeDefRow: 1, start: 4);
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        int rva = peReader.GetMetadataReader()
+            .GetMethodDefinition(MetadataTokens.MethodDefinitionHandle(1))
+            .RelativeVirtualAddress;
+        SectionHeader section = peReader.PEHeaders.SectionHeaders.Single(
+            header => rva >= header.VirtualAddress
+                && rva < header.VirtualAddress + header.VirtualSize);
+        firstMethodBody.CopyTo(
+            image.AsSpan(
+                rva - section.VirtualAddress + section.PointerToRawData));
+        return image;
+    }
+
     public static byte[] Build(params ushort[] rows)
+        => Build(pointerSignatures: false, rows);
+
+    /// <summary>
+    /// As <see cref="Build(ushort[])"/>, with methods that return <c>int*</c>,
+    /// so a classification scan publishes a row for each in MethodPtr order.
+    /// </summary>
+    public static byte[] BuildPointerMethods(params ushort[] rows)
+        => Build(pointerSignatures: true, rows);
+
+    static byte[] Build(bool pointerSignatures, ushort[] rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
         if (rows.Length == 0
@@ -66,8 +102,8 @@ public static class MetadataMethodPtrFixture
         var bodies = new BlobBuilder();
         var encoder = new MethodBodyStreamEncoder(bodies);
         MethodDefinitionHandle first =
-            AddSyntheticMethod(metadata, encoder, "M0");
-        AddSyntheticMethod(metadata, encoder, "M1");
+            AddSyntheticMethod(metadata, encoder, "M0", pointerSignatures);
+        AddSyntheticMethod(metadata, encoder, "M1", pointerSignatures);
         metadata.AddAssembly(
             metadata.GetOrAddString("MethodPtrFixture"),
             new Version(1, 0, 0, 0),
@@ -402,7 +438,8 @@ public static class MetadataMethodPtrFixture
     static MethodDefinitionHandle AddSyntheticMethod(
         MetadataBuilder metadata,
         MethodBodyStreamEncoder bodies,
-        string name)
+        string name,
+        bool pointerSignature = false)
     {
         var code = new BlobBuilder();
         code.WriteByte(0x2A);
@@ -414,7 +451,13 @@ public static class MetadataMethodPtrFixture
             .MethodSignature(isInstanceMethod: false)
             .Parameters(
                 parameterCount: 0,
-                returnType => returnType.Void(),
+                returnType =>
+                {
+                    if (pointerSignature)
+                        returnType.Type().Pointer().Int32();
+                    else
+                        returnType.Void();
+                },
                 parameters => { });
         return metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,

@@ -204,7 +204,8 @@ public sealed record BrowserTypeSurface(
 /// <summary>
 /// One member overload. <see cref="StableSelector"/>, <see cref="AnchorDigest"/>,
 /// <see cref="CanonicalSignature"/>, and <see cref="AnchorTypeFullName"/> are the product's
-/// member anchor; <see cref="GraphSelectorKey"/> and <see cref="BodySelectors"/> are the product's
+/// member anchor; <see cref="DeclaringTypeDefinitionId"/> is the exact metadata declaring-Type
+/// identity; <see cref="GraphSelectorKey"/> and <see cref="BodySelectors"/> are the product's
 /// opaque call-graph correspondence. The host transports them and never parses them.
 /// </summary>
 public sealed record BrowserMemberSurface(
@@ -232,6 +233,7 @@ public sealed record BrowserMemberSurface(
     string AnchorDigest,
     string CanonicalSignature,
     string AnchorTypeFullName,
+    string? DeclaringTypeDefinitionId,
     string GraphSelectorKey,
     BrowserMemberBodySelector[] BodySelectors);
 
@@ -286,7 +288,11 @@ public sealed record BrowserPackageCacheStats(
     int MaxWorkspaceAssembliesPerRole,
     long ResidentBytes,
     long MaxResidentBytes,
-    long MaxWorkspaceRetainedImageBytes);
+    long MaxWorkspaceRetainedImageBytes,
+    string EntryStoreDurability,
+    long EntryStoreHits,
+    long EntryStoreWrites,
+    string? EntryStoreError);
 
 public sealed record BrowserPlatformCatalog(
     string Tfm,
@@ -707,6 +713,7 @@ public enum BrowserCapabilityCatalogSearchMatchSource
 {
     CanonicalKey,
     OwnerIdentity,
+    ExampleValue,
     ResourcePath,
     ResourceName,
     Summary,

@@ -1,8 +1,10 @@
 using System.CommandLine;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using QuerySpace.Rows;
 using DotnetInspector.Sections;
@@ -14,6 +16,14 @@ public class FindOptionsParserTests
 {
     private static IEnumerable<string> FindTipArgs(IEnumerable<Tip> tips)
         => tips.Where(t => t.Subcommand == FindCommand.Name).Select(t => t.Args);
+
+    [Fact]
+    public void EmptyProgrammaticScopeUsesPlatformWorkspacePlan()
+    {
+        Assert.Same(
+            EcosystemPackCatalog.CreatePlatformWorkspacePlan(),
+            FindSourceCollector.CreateWorkspacePlan(new FindOptions()));
+    }
 
     private static Task<(int ExitCode, string Output, string Error)> Run(params string[] args)
         => ConsoleCapture.RunAsync(() =>
@@ -196,6 +206,7 @@ public class FindOptionsParserTests
             ],
             options.EffectiveRowSelection!.Operations.Select(operation =>
                 operation.Kind));
+        Assert.Null(options.QueryPlan.InputRowLimit);
     }
 
     [Fact]

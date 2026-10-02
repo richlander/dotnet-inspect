@@ -264,6 +264,9 @@ actions in the result:
   [Inspect Web Type Explorer](inspect-web-type-explorer.md); this document owns
   only the action's placement. Member Source retains its existing contextual
   Settings destination; changing that destination is outside Type Explorer.
+  Member Source is available for package and platform implementation members;
+  the platform route resolves the selected implementation assembly through the
+  platform workspace rather than treating it as a package coordinate.
 - Annotated Source places `Copy` and `Explore` in the working-surface action
   region while product provenance stays attached to the bottom.
 - Member Diff places the viewer-owned mode control, `Previous`, current change
@@ -349,7 +352,7 @@ The persistent subject path remains the owner of that hierarchy.
 The Type API surface contains:
 
 ```text
-Members                         visible / total groups · overloads
+Members                                  visible / total members
 Filters                                            active restrictions
 member rows
                                                   select-row guidance
@@ -758,7 +761,8 @@ defined below. Loading and failure states stay visible and do not become
 success-shaped empty surfaces.
 
 At narrow widths, Type and Member header identity and status may elide, but the
-overload total or selected overload ordinal is not selectively hidden.
+member count, overload count, or selected overload ordinal is not selectively
+hidden.
 
 ### Type Metadata
 
@@ -1300,7 +1304,7 @@ query route, rows, and request intact.
 Package Activity is the routed `/activity` working surface beside `/query`. It
 has no package tab, peer-mode selector, or active inspection coordinate.
 [The Package Activity experience](package-activity-experience.md) owns its
-product-issued package-set scope, interval, progressive rows, cancellation,
+product-issued Ecosystem prefix scope, interval, progressive rows, cancellation,
 typed completion, bounded DOM, and session-local state.
 
 The page header contains the brand-triggered product-navigation control and
@@ -1728,7 +1732,7 @@ with the absence of a synthesized `Default feed` control.
    header, collapsed Filters row, member list, and bottom guidance exactly fill
    the inspector pane without page overflow.
 2. Apply member text and selector filters and confirm that the header reports
-   the live visible/total group count, the collapsed summary discloses the
+   the live visible/total member count, the collapsed summary discloses the
    restrictions, and no second result-count row or footer count appears.
 3. Open a member group with multiple overloads and confirm that the exact
    member name and overload count remain in the quiet header while the overload
@@ -1742,8 +1746,8 @@ with the absence of a synthesized `Default feed` control.
    returning to Type scope or restoring the inset Type heading.
 6. Repeat the Type list, overload picker, and selected-overload checks at a
    narrow viewport. Confirm that each surface retains its topology and creates
-   no page-level horizontal overflow while preserving the overload total or
-   selected overload ordinal in the rendered status.
+   no page-level horizontal overflow while preserving the member count,
+   overload count, or selected overload ordinal in the rendered status.
 
 ### Type Metadata working surface
 
@@ -1910,7 +1914,7 @@ with the absence of a synthesized `Default feed` control.
 ### Package Activity route
 
 1. Open Package Activity and confirm that `/activity` renders one level-one
-   `Package Activity` heading, the product-issued package-set selector, the
+   `Package Activity` heading, the product-issued Ecosystem selector, the
    interval and result-bound controls, and `Run report`.
 2. Confirm that neither `/activity` nor `/query` renders the retired
    `Packages | Activity` peer selector.

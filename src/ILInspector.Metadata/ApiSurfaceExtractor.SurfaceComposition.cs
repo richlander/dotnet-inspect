@@ -73,10 +73,24 @@ public static partial class ApiSurfaceExtractor
                     continue;
                 }
 
+                // Only consumers who can see the declaring Type can call an
+                // attached extension, so that bounds its bucket; its spelling
+                // keeps the declared modifier
+                // (docs/design/api-population-scope.md#spelling-within-api-visibility-scope).
+                string? attachedAccessibility = GetPopulationAccessibility(
+                    NarrowerAccess(
+                        AccessOf(extension.Accessibility),
+                        AccessOf(declaringType.Accessibility)));
                 var attached = new ApiMember
                 {
                     Name = extension.Name,
                     Kind = "extension-method",
+                    IsHidden = extension.IsHidden || declaringType.IsHidden,
+                    Accessibility = attachedAccessibility,
+                    DeclaredAccessibility =
+                        attachedAccessibility == extension.Accessibility
+                            ? null
+                            : extension.Accessibility ?? "public",
                     ReturnType = extension.ReturnType,
                     Signature = extension.Signature,
                     SignatureModel = extension.SignatureModel,
@@ -562,11 +576,7 @@ public static partial class ApiSurfaceExtractor
     /// positive-evidence checks applied by callers.
     /// </summary>
     static bool IsSurfaceableFieldName(string name, bool includeCompilerGenerated)
-    {
-        if (name.StartsWith('<'))
-            return includeCompilerGenerated;
-        return true;
-    }
+        => !IsExcludedCompilerNamedMember(name, includeCompilerGenerated);
 
     /// <summary>
     /// The field handles that make up a type's declarable field surface: ordinary fields,
@@ -593,11 +603,15 @@ public static partial class ApiSurfaceExtractor
         foreach (var fieldHandle in typeDef.GetFields())
         {
             var field = reader.GetFieldDefinition(fieldHandle);
-            if ((field.Attributes & FieldAttributes.FieldAccessMask) != FieldAttributes.Public && !includeAll)
+            if (!AdmitsMemberAccess(
+                    (field.Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.Public,
+                    includeAll))
+            {
                 continue;
+            }
 
             string fieldName = reader.GetString(field.Name);
-            if (isEnum && fieldName == "value__")
+            if (IsEnumStorageField(isEnum, fieldName))
                 continue; // An enum's storage slot is not a declarable field member
             if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
                 continue;
@@ -676,6 +690,121 @@ public static partial class ApiSurfaceExtractor
             derivedTypes.Sort(StringComparer.Ordinal);
             targetType.DerivedTypes = derivedTypes;
         }
+    }
+
+    /// <summary>
+    /// What <see cref="ExtensionReceiverDefinitionProvider"/> would name,
+    /// before its name is read: the TypeDef or same-module TypeRef row, or the
+    /// local primitive.
+    /// </summary>
+    internal readonly record struct ReceiverKey(
+        EntityHandle Handle,
+        PrimitiveTypeCode Primitive,
+        bool IsPrimitive)
+    {
+        public bool IsNone => Handle.IsNil && !IsPrimitive;
+    }
+
+    /// <summary>
+    /// <see cref="ExtensionReceiverDefinitionProvider"/>'s walk with rows in
+    /// place of names: every callback mirrors it, including the TypeSpec
+    /// guard and the same-module TypeRef scope walk, so the same signatures
+    /// decode or fail.
+    /// </summary>
+    sealed class ExtensionReceiverKeyProvider :
+        ISignatureTypeProvider<ReceiverKey, GenericContext?>
+    {
+        readonly bool primitivesAreLocal;
+
+        ExtensionReceiverKeyProvider(bool primitivesAreLocal) =>
+            this.primitivesAreLocal = primitivesAreLocal;
+
+        public static ExtensionReceiverKeyProvider WithLocalPrimitives { get; } =
+            new(primitivesAreLocal: true);
+
+        public static ExtensionReceiverKeyProvider WithoutLocalPrimitives { get; } =
+            new(primitivesAreLocal: false);
+
+        public ReceiverKey GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind)
+            => new(handle, default, IsPrimitive: false);
+
+        public ReceiverKey GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind)
+        {
+            Span<TypeReferenceHandle> rootToLeaf =
+                stackalloc TypeReferenceHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    rootToLeaf,
+                    out _,
+                    out EntityHandle terminal,
+                    out _)
+                || terminal.Kind != HandleKind.ModuleDefinition)
+            {
+                return default;
+            }
+
+            return new(handle, default, IsPrimitive: false);
+        }
+
+        public ReceiverKey GetTypeFromSpecification(
+            MetadataReader reader,
+            GenericContext? context,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind)
+        {
+            if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                return default;
+            using (scope)
+                return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+        }
+
+        public ReceiverKey GetGenericInstantiation(
+            ReceiverKey genericType,
+            ImmutableArray<ReceiverKey> typeArguments)
+            => genericType;
+
+        public ReceiverKey GetByReferenceType(ReceiverKey elementType)
+            => elementType;
+
+        public ReceiverKey GetModifiedType(
+            ReceiverKey modifier,
+            ReceiverKey unmodifiedType,
+            bool isRequired)
+            => unmodifiedType;
+
+        public ReceiverKey GetPinnedType(ReceiverKey elementType)
+            => elementType;
+
+        public ReceiverKey GetArrayType(ReceiverKey elementType, ArrayShape shape)
+            => default;
+
+        public ReceiverKey GetSZArrayType(ReceiverKey elementType)
+            => default;
+
+        public ReceiverKey GetPointerType(ReceiverKey elementType)
+            => default;
+
+        public ReceiverKey GetFunctionPointerType(MethodSignature<ReceiverKey> signature)
+            => default;
+
+        public ReceiverKey GetGenericMethodParameter(GenericContext? context, int index)
+            => default;
+
+        public ReceiverKey GetGenericTypeParameter(GenericContext? context, int index)
+            => default;
+
+        public ReceiverKey GetPrimitiveType(PrimitiveTypeCode typeCode)
+            => primitivesAreLocal
+                ? new(default, typeCode, IsPrimitive: true)
+                : default;
     }
 
     sealed class ExtensionReceiverDefinitionProvider :

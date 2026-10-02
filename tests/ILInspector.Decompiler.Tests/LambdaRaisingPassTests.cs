@@ -1,5 +1,8 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
+
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.DecompilerHarness;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using ArrayShape = System.Reflection.Metadata.ArrayShape;
@@ -16,6 +19,9 @@ public class LambdaRaisingPassTests
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_func = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`2"), [s_int, s_int]);
 
+    static int CountOccurrences(string text, string value)
+        => (text.Length - text.Replace(value, "", StringComparison.Ordinal).Length) / value.Length;
+
     static string PrintRaised(
         string methodName,
         Type? fixtureType = null,
@@ -31,6 +37,114 @@ public class LambdaRaisingPassTests
         Assert.NotNull(result.Output);
         inspectFunction?.Invoke(function!);
         return result.Output!.ReplaceLineEndings("\n").Trim();
+    }
+
+    [Fact]
+    public void PublishedSystemCommandLineNestedCapturingLambda_RaisesWithinOwnScope()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "NestedLambda",
+            "System.CommandLine.dll");
+        Assert.Equal(
+            "CA11ED514C992D6AD8127C154C7D921BEC2D98F1845E34325AF98E627D985793",
+            System.Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
+        using var metadata = CorpusMetadata.Create([path]);
+        using var source = MetadataSource.Open(path, context: metadata);
+        var function = IrImporter.Import(
+            source,
+            "System.CommandLine.Help.HelpBuilder",
+            "WriteColumns");
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method => IrImporter.Import(source, method));
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.Contains("Select", result.Output);
+        Assert.Contains("=>", result.Output);
+        Assert.DoesNotContain("___c__DisplayClass17_0", result.Output);
+        Assert.DoesNotContain("__WriteColumns_b__3", result.Output);
+        Assert.DoesNotContain("___WriteColumns_g__ZipWithEmpty_17_2_d", result.Output);
+        Assert.Contains("using (IEnumerator<string> enum1 = first.GetEnumerator())", result.Output);
+        Assert.Contains("using (IEnumerator<string> enum2 = second.GetEnumerator())", result.Output);
+        Assert.Contains("yield return", result.Output);
+        Assert.Contains("foreach (", result.Output);
+        Assert.DoesNotContain("iEnumerator =", result.Output);
+        Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
+    }
+
+    [Fact]
+    public void PublishedSystemCommandLineNestedForeachIterator_RaisesAuthoredLoops()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "NestedLambda",
+            "System.CommandLine.dll");
+        Assert.Equal(
+            "CA11ED514C992D6AD8127C154C7D921BEC2D98F1845E34325AF98E627D985793",
+            System.Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
+        using var metadata = CorpusMetadata.Create([path]);
+        using var source = MetadataSource.Open(path, context: metadata);
+        var function = IrImporter.Import(
+            source,
+            "System.CommandLine.Parsing.StringExtensions",
+            "<TryReadResponseFile>g__ExpandResponseFile|6_0");
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method => IrImporter.Import(source, method));
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.Equal(2, function!.Descendants.OfType<ForeachStatement>().Count());
+        Assert.Equal(2, function.Descendants.OfType<YieldReturn>().Count());
+        Assert.Single(function.Descendants.OfType<ForLoop>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), node => node.Opcode == "iterator");
+        Assert.Equal(2, CountOccurrences(result.Output!, "foreach ("));
+        Assert.Contains("for (", result.Output);
+        Assert.DoesNotContain("___TryReadResponseFile_g__ExpandResponseFile_6_0_d", result.Output);
+        Assert.DoesNotContain("GetEnumerator", result.Output);
+        // The generated method is inspected directly; composing its separate local-function
+        // dependency graph into TryReadResponseFile remains outside this focused slice.
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void PublishedRoslynNestedCapturingLambda_PreservesSharedHostLocalScope()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "PdbNestedLambda",
+            "Microsoft.CodeAnalysis.dll");
+        Assert.Equal(
+            "10F489DB67B8AC7489E58D392166C928302BA5698506DD652311DA5D89F0A0F8",
+            System.Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
+        using var metadata = CorpusMetadata.Create([path]);
+        using var source = MetadataSource.Open(path, context: metadata);
+        var function = IrImporter.Import(
+            source,
+            "Microsoft.CodeAnalysis.Compilation",
+            "CreateDebugDocuments");
+        Assert.NotNull(function);
+        Assert.Equal(DecompilerSymbolSource.Sidecar, source.Symbols);
+        Assert.Contains(
+            function!.LocalNames
+                .Where(name => name is not null)
+                .GroupBy(name => name, StringComparer.Ordinal),
+            group => group.Skip(1).Any());
+
+        var result = CSharpPrinter.PrintRaised(
+            function,
+            method => IrImporter.Import(source, method));
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.Contains("=>", result.Output);
+        function.CheckInvariant();
     }
 
     [Theory]
@@ -136,6 +250,50 @@ public class LambdaRaisingPassTests
 
         Assert.DoesNotContain("=>", output);
         Assert.Contains("new Func", output);
+    }
+
+    [Fact]
+    public void CapturingParameterWithNestedLambda_RaisesBothScopes()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.CapturingParameterWithNestedLambda));
+
+        Assert.Contains("return text =>", output);
+        Assert.Contains("character => character + 1", output);
+        Assert.Contains("offset", output);
+        Assert.DoesNotContain("DisplayClass", output);
+        Assert.DoesNotContain("new Func", output);
+    }
+
+    [Fact]
+    public void CapturingLocalWithNestedLambdaInBranch_MaterializesSourceBinder()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.CapturingLocalWithNestedLambdaInBranch));
+
+        Assert.Contains("firstColumnMaxWidth = maxWidth / 2", output);
+        Assert.Contains("text =>", output);
+        Assert.Contains("character => character + 1", output);
+        Assert.DoesNotContain("DisplayClass", output);
+        Assert.DoesNotContain("new Func", output);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void CapturingLocalWithNestedLambdaInBranch_CompilesBack()
+    {
+        var type = typeof(CfgSampleClass);
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            type.Assembly.Location,
+            candidate => candidate == type.FullName,
+            method => method.Method
+                == nameof(CfgSampleClass.CapturingLocalWithNestedLambdaInBranch)));
+
+        Assert.True(
+            result.Status is FidelityCheck.CompileBackStatus.Exact
+                or FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff,
+            $"{result.Method}: {result.Status}: {result.Detail}");
     }
 
     // A captured variable mutated after the lambda is created: the display-class
@@ -2503,9 +2661,9 @@ public class LambdaRaisingPassTests
     }
 
     // #1358 (adversarial review nit): the capture store is nested in an if-block —
-    // control flow, not a straight-line statement. When the branch is not taken the
+    // control flow, not a dominating definition. When the branch is not taken the
     // field keeps its default, so eliding the store and substituting its value is
-    // unsound. StatementIndex returns -1 for the nested store, declining the env.
+    // unsound.
     [Fact]
     public void ConditionalCaptureStore_StaysLowered()
     {

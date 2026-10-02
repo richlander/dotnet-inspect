@@ -107,11 +107,13 @@ session is disposed, while copied body data remains safe to retain.
   call-graph, and leverage results issued by one Analysis execution. CLI and
   Workspace/L1 composition supply it, so the producer never reopens Analysis.
 
-`ResearchAssemblyContext` is no longer a member-projection input. The
-Workspace/L1 query retains it only for residual query-owned callee evidence
-that still uses the compatibility index. The focused member input is not a
+`ResearchAssemblyContext` is no longer a member-projection input or an index
+owner. The Workspace/L1 query builds it from the same focused member input for
+residual query-owned callee evidence. The focused member input is not a
 universal Research result bag: its constructor names the four result families
-used by the default registry and requires one shared execution receipt.
+used by the default registry and requires one shared execution receipt. The
+query's separate compatibility index remains only for its later call-
+relationship, invocation-destination, and local-throw migration.
 
 This migration is tracked by
 [#2786](https://github.com/richlander/dotnet-inspect/issues/2786).
@@ -330,9 +332,12 @@ object binds the canonical context and Layer-1 query methods before other topic
 producers run. When allocation collection is selected, one scan populates that
 same object with both the discovered and escape-refined occurrences. The
 published allocation facts take the classified occurrences, and
-`OptimizationOpportunityAnalysis` reuses the discovered occurrences plus the
-query methods
+`OptimizationOpportunityAnalysis` reuses the classified occurrences, including
+their owner-issued lifetime verdicts, plus the query methods
 (`PathContextAt`, `PathConfidenceAt`, `PostDominanceAt`, `MultiplicityAt`).
+It does not run a second array escape analysis. The focused
+[Allocation Lifetime Analysis](allocation-lifetime-analysis.md) design owns
+the meaning and limits of those verdicts.
 `FactsBundlesBindContextOccurrencesAndQueries` gates the bundle's context,
 occurrence, and query coherence.
 `OptimizationOpportunityAnalysis` owns the per-method optimization instruction
@@ -957,8 +962,8 @@ comparison, implementation comparison, and PDB-source target indexing remain
 named compatibility consumers. Diff History Analysis uses shared PackageHouse
 cell inspection and the method-body session path.
 Separate `diff` phases may retain distinct executions and capability policies;
-`diff --finding analysis.*` still delegates path-backed acquisition to
-`ResearchDiff` until its focused migration.
+`diff --analysis` body analyses still delegate path-backed acquisition to
+`ResearchDiff` until their focused migration.
 
 ## Acceptance tests for the architecture
 

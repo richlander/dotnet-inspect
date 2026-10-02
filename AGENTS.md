@@ -44,9 +44,10 @@ development model and rationale. The binding summary:
   QuerySpace means the question reaches the work: building every row and then
   filtering, counting, or limiting it is LINQ in QuerySpace clothing unless the
   owning design names that as a reference slice.
-- **Modernization must satisfy intent, not only structure.** Wiring modern
-  substrate while retaining legacy work or cost is incomplete adoption. Report exact
-  base/head NativeAOT performance for every supported terminal, like Count; follow [the evidence contract](docs/evidence-and-validation.md#nativeaot-beforeafter-for-modernization).
+- **NativeAOT is the only accepted performance measurement.** The operator
+  requires exact base/head numbers for every supported terminal before merge;
+  publish them in the visible agent session and PR body, then follow the
+  [evidence contract](docs/evidence-and-validation.md#nativeaot-beforeafter-for-modernization).
 - **Choose rendering strategy deliberately.** Use Markout as the default
   host-neutral substrate for centralized, multi-format rendering, and call out
   host-specific rendering that bypasses it. Broad information domains such as
@@ -434,7 +435,7 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    Pending status follows [Bounded status
    waiting](docs/round-orchestration.md#bounded-status-waiting); non-boundary
    Markdown-only rounds substitute pre-commit `markdownlint`.
-7. **Six rounds, then stop** and ask for another block.
+7. **Continue until a clear result or block boundary;** pause sooner only for an unresolved design question.
 8. **Never merge without explicit user authorization** for that specific PR.
    A recorded exact-head merge authorization satisfies this rule; see the
    [user-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments).
@@ -503,14 +504,16 @@ Start every reviewer prompt with the complete canonical
 [adversarial-review prompt](docs/adversarial-review-prompt.md); do not omit,
 paraphrase, reorder, or precede it with domain instructions. Append the
 self-contained candidate instructions for the seat, directly or with the
-optional [fill-in template](docs/templates/adversarial-review-prompt.md). Follow
+optional [review frame checklist](docs/templates/adversarial-review-prompt.md). Follow
 [running a round](docs/round-orchestration.md#running-a-round) for mechanics
 and reporting.
 
 After every completed round and before any next round or approval prompt, emit
-this complete visible report as the assistant response. Fill every field,
-choose one feedback classification and recommendation, omit only empty
-`Blocked`/`Waiting` lines, and never replace it with a shorter summary:
+this complete visible report as a checkpoint, not a pause. Continue immediately
+when another round is clearly planned and authorized; pause review progression
+only for an unresolved design question or expired grant. Existing terminal
+decision prompts remain. Fill every field as specified, omit only empty
+`Blocked`/`Waiting` lines, and never shorten it:
 
 ```text
 Round <n> is complete for PR <number>.
@@ -544,10 +547,8 @@ anything outside them is a scope proposal unless the operator approves it.
 
 ### Stop after six rounds
 
-Review blocks hot-start. Rounds 1-6 begin automatically, and every fix-producing
-replacement within an authorized block dispatches without asking, setting
-`HELP`, or waiting for user input. Approval is required only before rounds 7,
-13, 19, and so on; each approval authorizes at most six more rounds.
+Review blocks hot-start: clearly planned, authorized rounds continue without
+asking or `HELP`; approval before rounds 7, 13, 19, and so on grants at most six rounds.
 
 At each block boundary, reviewer dispatch waits for approval after fresh green
 current-head CI and positive mergeability; round 12 and later presume splitting

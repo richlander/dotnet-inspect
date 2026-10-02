@@ -44,6 +44,9 @@ import { workspaceDependencyKey } from "../src/package-inspection.ts";
 import {
   isProductHomeDemosPath,
 } from "../src/product-home-demos.ts";
+import {
+  isProductEcosystemsPath,
+} from "../src/product-ecosystems.ts";
 import type { SavedWorkspace } from "../src/saved-workspaces.ts";
 import type { SpotlightPackageResult } from "../src/spotlight.ts";
 import type { WorkspaceFocusTarget } from "../src/workspace-subject.ts";
@@ -71,6 +74,10 @@ import {
   normalizeSpotlightPackageSearchSnapshot,
   type SpotlightPackageSearchResultState,
 } from "../src/spotlight-package-search.ts";
+import {
+  normalizeSpotlightCapabilitySearchSnapshot,
+  type SpotlightCapabilitySearchResultState,
+} from "../src/spotlight-capability-search.ts";
 import {
   normalizeSourceResultSnapshot,
   type SourceResultState,
@@ -356,10 +363,14 @@ function harness() {
     spotlightPackageSearch: {
       status: "idle",
     } as SpotlightPackageSearchResultState,
+    spotlightCapabilitySearch: {
+      status: "idle",
+    } as SpotlightCapabilitySearchResultState,
     history: [],
     spotlightOpen: false,
     memberCallGraph: null as object | null, memberCallGraphError: "", memberCallGraphKey: "",
     memberCallGraphLoading: false, memberCallGraphExpanding: false, memberCallGraphSeq: 0,
+    memberGroupDocumentLoading: false, memberGroupDocumentKey: "",
     memberSource: { status: "idle" } as SourceResultState,
     typeSource: { status: "idle" } as SourceResultState,
     typeMetadataGeneration: 0,
@@ -561,6 +572,7 @@ function harness() {
       value.status !== "closed",
     documentViewerIsOpen,
     normalizeDocumentViewerSnapshot,
+    normalizeSpotlightCapabilitySearchSnapshot,
     normalizeSpotlightPackageSearchSnapshot,
     normalizeSourceResultSnapshot,
     retainedWorkspaces: {
@@ -641,7 +653,8 @@ function harness() {
     },
     typeLensesFor, browserCreatedCallGraphTabIds,
     workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
-    parseWorkspaceLocation, parseWorkspaceLocationAsync, isProductHomeDemosPath,
+    parseWorkspaceLocation, parseWorkspaceLocationAsync,
+    isProductHomeDemosPath, isProductEcosystemsPath,
     inspectDecodeWorkspaceShareState: (value: string) =>
       controls.decodeWorkspace?.(value) ?? Promise.resolve(decode(value)),
     requestAnimationFrame: (action: () => void) => frames.push(action),
@@ -669,6 +682,7 @@ function harness() {
     retainFailedWorkspaceUrl: () => false,
     packageDisplayName: (pkg: Package) => pkg.id,
     selectedType: () => null,
+    currentPlatformForwarderView: () => null,
     selectedLibrary: () => null,
     selectedLibraryRequest: () => "asset:retained-library",
     isRuntimePackId: () => false,
@@ -954,6 +968,8 @@ test("capture settles a loading document viewer without claiming ready content",
   };
   h.state.docViewer = { status: "loading", request };
   h.state.memberSource = { status: "loading", signature: "member" };
+  h.state.memberGroupDocumentLoading = true;
+  h.state.memberGroupDocumentKey = "member-group";
   h.state.typeSource = {
     status: "failed",
     signature: "type",
@@ -970,6 +986,8 @@ test("capture settles a loading document viewer without claiming ready content",
   assert.ok(snapshotState !== null && typeof snapshotState === "object"
     && "docViewer" in snapshotState
     && "memberSource" in snapshotState
+    && "memberGroupDocumentLoading" in snapshotState
+    && "memberGroupDocumentKey" in snapshotState
     && "typeSource" in snapshotState);
 
   assert.deepEqual(snapshotState.docViewer, {
@@ -978,11 +996,15 @@ test("capture settles a loading document viewer without claiming ready content",
     error: "",
   });
   assert.deepEqual(snapshotState.memberSource, { status: "idle" });
+  assert.equal(snapshotState.memberGroupDocumentLoading, false);
+  assert.equal(snapshotState.memberGroupDocumentKey, "");
   assert.deepEqual(snapshotState.typeSource, h.state.typeSource);
   assert.equal(h.state.docViewer.status, "loading");
   assert.deepEqual(
     h.state.memberSource,
     { status: "loading", signature: "member" });
+  assert.equal(h.state.memberGroupDocumentLoading, true);
+  assert.equal(h.state.memberGroupDocumentKey, "member-group");
 });
 
 test("capture settles Spotlight package loading to cache or idle", () => {
@@ -1019,6 +1041,28 @@ test("capture settles Spotlight package loading to cache or idle", () => {
     assert.deepEqual(snapshotState.spotlightPackageSearch, expected, name);
     assert.equal(h.state.spotlightPackageSearch, loading, name);
   }
+});
+
+test("capture settles Spotlight capability loading to idle", () => {
+  const h = harness();
+  const loading = { status: "loading" as const, query: "literal" };
+  h.state.spotlightCapabilitySearch = loading;
+
+  const snapshot: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context,
+  );
+  assert.ok(snapshot !== null && typeof snapshot === "object"
+    && "state" in snapshot);
+  const snapshotState = snapshot.state;
+  assert.ok(snapshotState !== null && typeof snapshotState === "object"
+    && "spotlightCapabilitySearch" in snapshotState);
+
+  assert.deepEqual(
+    snapshotState.spotlightCapabilitySearch,
+    { status: "idle" },
+  );
+  assert.equal(h.state.spotlightCapabilitySearch, loading);
 });
 
 test("retained Workspace snapshots make cancelled Platform work retryable", () => {

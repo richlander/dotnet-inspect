@@ -440,6 +440,7 @@ internal static class BrowserPackageWireProjection
             member.AnchorDigest,
             member.CanonicalSignature,
             member.AnchorTypeFullName,
+            member.DeclaringTypeDefinitionId,
             member.GraphSelectorKey,
             [
                 .. member.BodySelectors.Select(selector => new BrowserMemberBodySelector(
@@ -460,7 +461,11 @@ internal static class BrowserPackageWireProjection
             snapshot.MaxWorkspaceAssembliesPerRole,
             snapshot.ResidentBytes,
             snapshot.MaxResidentBytes,
-            snapshot.MaxWorkspaceRetainedImageBytes);
+            snapshot.MaxWorkspaceRetainedImageBytes,
+            snapshot.EntryStoreDurability,
+            snapshot.EntryStoreHits,
+            snapshot.EntryStoreWrites,
+            snapshot.EntryStoreError);
     }
 
     internal static BrowserPackageDocument Project(BrowserPackageDocumentEntry document)

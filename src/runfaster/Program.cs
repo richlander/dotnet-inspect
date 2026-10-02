@@ -350,8 +350,13 @@ static bool TryLoadLibrary(string library, CorrelationResult result, out int exi
 
     try
     {
-        var index = LibraryBodyIndex.Open(path);
-        foreach (var group in index.GetAllocationOccurrences())
+        LibraryAllocationAnalysisResult allocations =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.Allocations))
+            .Allocations;
+        foreach (var group in allocations.Occurrences)
         {
             foreach (var occurrence in group.Value)
             {

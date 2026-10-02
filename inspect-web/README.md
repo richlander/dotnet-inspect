@@ -30,6 +30,14 @@ available through browser Back; only **Open demo** constructs a new Workspace.
 Package navigation retains the canonical `w` packet, so the exact coordinates
 and Package view survive refresh just as Library and Workspace views do.
 
+Ecosystems has its own `/ecosystems` page in product navigation and the shared
+data bar. The page projects the product-ordered `EcosystemPackCatalog` as inert
+descriptor metadata: identity, title, summary, and bounded capability
+counts/flags. Visiting the catalog preserves the active Workspace and does not
+activate an Ecosystem subject, acquire packages, or run package-prefix
+discovery. Those interactions remain future slices. No dedicated absence gate
+covers that boundary; by operator choice it is unverified beyond design review.
+
 The previous browser host was a single 4,103-line `Program.cs` that re-derived
 package acquisition, target-framework ranking, symbol acquisition, and member
 identity for itself, and opened assemblies wherever it needed one. It was not
@@ -46,22 +54,35 @@ generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
 `EngineCoreAssembly_OwnsSharedWorkspaceState`, and
 `EngineCoreAssembly_HasNoFacadeContracts` gate that boundary.
 
-The rule is enforced by the compiler, not by a convention.
-`src/DotnetInspect.Web/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
-`LibraryBodyIndex`, `AssemblyImageSnapshot`, raw metadata readers, descriptor
-factories, and the group's image and retained-descriptor accessors in this
-project, and `Directory.Build.targets` already escalates `RS0030` to an error
-for every project.
-`BrowserEngineLayeringTests` in `DotnetInspect.Web.Tests` pins that wiring and
-resolves every complete banned documentation id, including generic arity and
-parameter types — a renamed or malformed entry bans nothing and fails the gate.
-It also bans opening a retained descriptor, minting one, or invoking
-`AssemblyReader` in the host; descriptors may carry typed identity into a
-product query, but package selection, identity decoding, descriptor creation,
-and image content remain product-owned. A selected malformed entry receives an
-artifact-neutral, role-unique identity only as a rejection carrier, so the
-workspace returns its typed failure instead of silently shortening the
-selected assembly set.
+This boundary is enforced by the compiler, not by a convention.
+The `inspect-web-executable-stays-at-host-boundary` dependency-policy rule
+allows `DotnetInspect.Web` to reference only the .NET platform,
+`TsJsExport.Contracts`, Web Core, and the seven capability facades in both the
+evaluated project and compiled assembly graphs. This catches low-level product
+use even when SDK transitivity makes its assembly available to compile.
+`src/DotnetInspect.Web/PlatformHazards/BannedSymbols.txt` closes the part that
+project layering cannot express: raw platform PE/metadata decoding and runtime
+assembly loading or activation. `Directory.Build.targets` escalates `RS0030`
+to an error.
+
+The `inspect-web-call-graph-facade-stays-at-capability-boundary` rule similarly
+limits `DotnetInspect.Web.Interop.CallGraph` to the .NET platform, Web Core,
+Queries, and Sections in both graphs. Its project references declare that same
+set rather than relying on transitive access or retaining unused low-level
+projects, and it shares the narrow platform-hazard analyzer input.
+
+Web Core and the remaining capability facades still use the broader
+`src/DotnetInspect.Web/BannedSymbols.txt` while their positive component
+boundaries migrate under #8779. `BrowserEngineLayeringTests` pins both evaluated
+analyzer inputs and resolves every complete banned documentation ID, including
+generic arity and parameter types, so a renamed or malformed entry cannot
+silently become vacuous. The broad list continues to ban opening or minting a
+retained descriptor and invoking low-level inspection APIs in those projects.
+Descriptors may carry typed identity into a product operation, but package
+selection, identity decoding, descriptor creation, and image content remain
+product-owned. A selected malformed entry receives an artifact-neutral,
+role-unique identity only as a rejection carrier, so the workspace returns its
+typed failure instead of silently shortening the selected assembly set.
 
 The boundary is based on what the Browser host can bind and invoke, not on
 parameter names across referenced product assemblies. Desktop-only APIs and
@@ -1258,7 +1279,7 @@ the main thread.
 That entry also exposes `createEngineWorkerStartupClient(origin, options)` for
 the Worker-only adoption host. Its facade-grouped `client` provides Promise
 results for build identity, vocabulary, home demos, Package Query facets, and
-the product-issued Package Activity package-set catalog.
+the product-issued Package Activity Ecosystem catalog.
 Concurrent reads share one bootstrap without replacing one
 another, and disposal rejects outstanding reads. Generated JSON-shaped results
 use a bounded transport string (1,048,576 UTF-16 code units per result) and
@@ -1466,9 +1487,10 @@ outside this gesture.
 
 The routed `/activity` surface is the Browser's Package Activity entry beside
 `/query`; neither route renders the retired Packages/Activity peer selector.
-Package Activity discovers product-owned package sets from the managed startup
-catalog, submits the default 42-day interval or one validated paired UTC
-interval, and streams the existing `package-changes` Worker operation. That
+Package Activity discovers product Ecosystems and their recorded package
+prefixes from the managed startup catalog, submits the selected Ecosystem with
+the default 42-day interval or one validated paired UTC interval, and streams
+the existing `package-changes` Worker operation. That
 operation name, the same-origin bridge path, and the
 `BrowserPackageChanges*` wire records remain stable internal identifiers. Its
 bounded row window renders typed current-advisory, fixed-version, receipt,

@@ -110,6 +110,7 @@ public sealed record BrowserMemberSurface(
     string AnchorDigest,
     string CanonicalSignature,
     string AnchorTypeFullName,
+    string? DeclaringTypeDefinitionId,
     string GraphSelectorKey,
     BrowserMemberBodySelector[] BodySelectors);
 
@@ -208,40 +209,162 @@ public sealed record BrowserCallGraphScope(
     int CallerAssemblies,
     string CalleeScope);
 
-/// <summary>
-/// One vocabulary field's discoverable contract, mapped verbatim from
-/// <c>DotnetInspector.Vocabulary.VocabularyWireField</c>. Kept as a browser-local record (rather
-/// than reusing the product's wire type directly) so the TypeScript facade's JSON-wire-contract
-/// discovery — which only walks types physically defined in this assembly — can generate a real
-/// TypeScript interface for it instead of collapsing to <c>unknown</c>.
-/// </summary>
-public sealed record BrowserVocabularyField(
-    string Id,
-    string Label,
-    string Summary,
-    string Type,
-    string[] Operators);
+public sealed record BrowserVocabularyCatalogIdentity(string Value);
 
-/// <summary>One vocabulary section, mapped verbatim from <c>DotnetInspector.Vocabulary.VocabularyWireSection</c>.</summary>
-public sealed record BrowserVocabularySection(
-    string Id,
-    string Name,
-    string Summary,
-    [property: JsonPropertyName("accepted_by")]
-    string[] AcceptedBy,
-    BrowserVocabularyField[] Fields,
-    JsonElement[] Values);
+public sealed record BrowserVocabularyIdentity(
+    BrowserVocabularyCatalogIdentity Catalog,
+    string Value);
 
-/// <summary>
-/// The product-owned query vocabulary document, mapped verbatim from
-/// <c>DotnetInspector.Vocabulary.VocabularyWireDocument</c>. The browser receives the same
-/// section/field/value document as the CLI and retains no separate labels, ordering, defaults, or
-/// query semantics.
-/// </summary>
-public sealed record BrowserVocabularyDocument(
-    [property: JsonPropertyName("schema_version")]
-    int SchemaVersion,
-    BrowserVocabularySection[] Sections);
+public sealed record BrowserVocabularyTermIdentity(
+    BrowserVocabularyIdentity Vocabulary,
+    string Value);
+
+// Definitions are scoped by their containing snapshot or vocabulary. Their catalog and
+// vocabulary components are therefore carried once by the container instead of repeated in
+// every term and map entry.
+public sealed record BrowserVocabularyDefinitionIdentity(string Value);
+
+public sealed record BrowserVocabularyTermDefinitionIdentity(string Value);
+
+public sealed record BrowserVocabularyMapDefinitionIdentity(string Value);
+
+public sealed record BrowserVocabularySnapshotIdentity(string Value);
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(BrowserVocabularyScalarMapTarget), "scalar")]
+[JsonDerivedType(typeof(BrowserVocabularyTermsMapTarget), "terms")]
+public abstract record BrowserVocabularyMapTarget;
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserVocabularyScalarKind>))]
+public enum BrowserVocabularyScalarKind
+{
+    Text,
+    Integer,
+    Boolean,
+}
+
+public sealed record BrowserVocabularyScalarMapTarget(
+    BrowserVocabularyScalarKind ScalarKind)
+    : BrowserVocabularyMapTarget;
+
+public sealed record BrowserVocabularyTermsMapTarget(
+    BrowserVocabularyTermSetReference Reference)
+    : BrowserVocabularyMapTarget;
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(BrowserVocabularyLocalTermSetReference), "local")]
+[JsonDerivedType(typeof(BrowserVocabularyExternalTermSetReference), "external")]
+public abstract record BrowserVocabularyTermSetReference;
+
+public sealed record BrowserVocabularyLocalTermSetReference(
+    BrowserVocabularyDefinitionIdentity Vocabulary)
+    : BrowserVocabularyTermSetReference;
+
+public sealed record BrowserVocabularyExternalTermSetReference(
+    BrowserVocabularySnapshotIdentity Snapshot,
+    BrowserVocabularyIdentity Vocabulary)
+    : BrowserVocabularyTermSetReference;
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(BrowserVocabularyTextMapValue), "text")]
+[JsonDerivedType(typeof(BrowserVocabularyIntegerMapValue), "integer")]
+[JsonDerivedType(typeof(BrowserVocabularyBooleanMapValue), "boolean")]
+[JsonDerivedType(typeof(BrowserVocabularyTermMapValue), "term")]
+public abstract record BrowserVocabularyMapValue;
+
+public sealed record BrowserVocabularyTextMapValue(string Value)
+    : BrowserVocabularyMapValue;
+
+public sealed record BrowserVocabularyIntegerMapValue(long Value)
+    : BrowserVocabularyMapValue;
+
+public sealed record BrowserVocabularyBooleanMapValue(bool Value)
+    : BrowserVocabularyMapValue;
+
+public sealed record BrowserVocabularyTermMapValue(
+    BrowserVocabularyTermIdentity Identity)
+    : BrowserVocabularyMapValue;
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserVocabularyMapCardinality>))]
+public enum BrowserVocabularyMapCardinality
+{
+    ExactlyOne,
+    OptionalOne,
+    OneOrMore,
+    ZeroOrMore,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserVocabularyMapCoverage>))]
+public enum BrowserVocabularyMapCoverage
+{
+    Complete,
+    Partial,
+}
+
+public sealed record BrowserVocabularyMapDefinition(
+    BrowserVocabularyMapDefinitionIdentity Identity,
+    string DisplayLabel,
+    string Summary,
+    BrowserVocabularyMapTarget Target,
+    BrowserVocabularyMapCardinality Cardinality,
+    BrowserVocabularyMapCoverage Coverage);
+
+public sealed record BrowserVocabularyMapEntry(
+    BrowserVocabularyMapDefinitionIdentity Map,
+    BrowserVocabularyMapValue[] Values);
+
+public sealed record BrowserVocabularyTerm(
+    BrowserVocabularyTermDefinitionIdentity Identity,
+    string DisplayLabel,
+    string? Summary,
+    BrowserVocabularyMapEntry[] MapEntries);
+
+public sealed record BrowserVocabularyDefinition(
+    BrowserVocabularyDefinitionIdentity Identity,
+    string DisplayLabel,
+    string? Summary,
+    BrowserVocabularyMapDefinition[] Maps,
+    BrowserVocabularyTerm[] Terms);
+
+public sealed record BrowserVocabularySnapshot(
+    int FormatVersion,
+    BrowserVocabularyCatalogIdentity Catalog,
+    BrowserVocabularySnapshotIdentity Identity,
+    BrowserVocabularyDefinition[] Vocabularies);
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(BrowserVocabularyAvailableShare), "available")]
+[JsonDerivedType(typeof(BrowserVocabularyNonProjectableShare), "nonProjectable")]
+public abstract record BrowserVocabularyInspectionShare;
+
+public sealed record BrowserVocabularyAvailableShare(
+    string FullUrl,
+    string Packet)
+    : BrowserVocabularyInspectionShare;
+
+public sealed record BrowserVocabularyNonProjectableShare(
+    string Path,
+    string Reason)
+    : BrowserVocabularyInspectionShare;
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserVocabularyDiagnosticSeverity>))]
+public enum BrowserVocabularyDiagnosticSeverity
+{
+    Information,
+    Warning,
+    Error,
+}
+
+public sealed record BrowserVocabularyInspectionDiagnostic(
+    string Code,
+    BrowserVocabularyDiagnosticSeverity Severity,
+    string Summary,
+    string? Correspondence);
+
+public sealed record BrowserVocabularyInspection(
+    BrowserVocabularySnapshot Content,
+    BrowserVocabularyInspectionShare Share,
+    BrowserVocabularyInspectionDiagnostic[] Diagnostics);
 
 /// <summary>
 /// One product home-demo catalog row from <c>EcosystemPackCatalog</c>.
@@ -255,6 +378,24 @@ public sealed record BrowserHomeDemoCatalogEntry(
 /// <summary>Product home-demo catalog in display order.</summary>
 public sealed record BrowserHomeDemoCatalog(
     BrowserHomeDemoCatalogEntry[] Demos);
+
+/// <summary>One inert product Ecosystem catalog row.</summary>
+public sealed record BrowserEcosystemCatalogEntry(
+    string Id,
+    string Title,
+    string Summary,
+    int CorePackageCount,
+    int NamespaceRootCount,
+    int ToolPackageCount,
+    int DemoCount,
+    bool HasPackageSet,
+    bool HasScanner,
+    bool HasPopulationLoader,
+    bool HasWorkspaceRegistration);
+
+/// <summary>Product Ecosystem catalog in product order.</summary>
+public sealed record BrowserEcosystemCatalog(
+    BrowserEcosystemCatalogEntry[] Ecosystems);
 
 /// <summary>
 /// One workspace/navigation member coordinate projected for the browser.
@@ -582,6 +723,23 @@ public sealed record BrowserRetainedNavigationResult(
     string Synchronization,
     BrowserRetainedNavigationAuthority? Authority);
 
+public sealed record BrowserSpotlightTypeSelection(
+    string DefinitionId,
+    string AssemblyName);
+
+/// <summary>
+/// One settled opaque Spotlight action. Status is <c>navigation</c>,
+/// <c>frameworkType</c>, <c>frameworkLibrary</c>, or <c>blocked</c>.
+/// </summary>
+public sealed record BrowserSpotlightActionResult(
+    string Status,
+    BrowserRetainedNavigationResult? Navigation,
+    BrowserPackageSurface? Surface,
+    BrowserTypeSurface? SelectedType,
+    BrowserSpotlightTypeSelection? Selection,
+    string? ActivationStatus,
+    string? Reason);
+
 public sealed record BrowserRetainedWorkspacePackage(
     string NavigationId,
     int ContextIndex,
@@ -687,7 +845,7 @@ public sealed record BrowserRetainedWorkspacePosting(
     string RetainedDefinitionId,
     string Label,
     string CanonicalLocation,
-    string CanonicalPacket,
+    string? CanonicalPacket,
     string RealizationId,
     long PublicationOrdinal,
     BrowserRetainedWorkspaceDefinitionState Definition,
@@ -704,7 +862,7 @@ public sealed record BrowserRetainedWorkspacePreparedPosting(
     string RetainedDefinitionId,
     string Label,
     string CanonicalLocation,
-    string CanonicalPacket,
+    string? CanonicalPacket,
     BrowserRetainedWorkspaceDefinitionState Definition,
     BrowserRetainedNavigationResult Navigation,
     BrowserRetainedWorkspacePackageInventory[] Packages,
@@ -774,8 +932,9 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
     string Pat);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(BrowserVocabularyDocument))]
+[JsonSerializable(typeof(BrowserVocabularyInspection))]
 [JsonSerializable(typeof(BrowserHomeDemoCatalog))]
+[JsonSerializable(typeof(BrowserEcosystemCatalog))]
 [JsonSerializable(typeof(BrowserHomeDemoResolveResult))]
 [JsonSerializable(typeof(BrowserHomeDemoRunResult))]
 [JsonSerializable(typeof(BrowserWorkspaceShareState))]
@@ -787,6 +946,7 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSerializable(typeof(BrowserRetainedWorkspaceConsumerCompletionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePackageAdmissionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePlatformAdmissionResult))]
+[JsonSerializable(typeof(BrowserSpotlightActionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceDeactivationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceSettlementResult))]
 [JsonSerializable(typeof(Dictionary<

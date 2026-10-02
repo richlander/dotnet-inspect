@@ -904,10 +904,13 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
 #### Producers and views
 
 `--analysis` selects producers. `-S` selects views of the result. A Diff
-section never chooses a producer. It is a projection of the envelope Content
-that the selected analyses produced, which is the original role of sections.
-One request therefore runs each selected analysis's comparison once, and any
-combination of views may be selected over it.
+section never chooses a producer. It is a projection of the
+`DiffAnalysisDocument` Content that the selected analyses produced, which is
+the original role of sections. `DiffAnalysisInspection` dispatches each
+selected producer once, then constructs only the requested Changes, Summary,
+and Transitions payloads. Summary may compute transitions for its counts
+without retaining the Transitions payload. Hosts consume that same completed
+document rather than reconstructing comparison semantics.
 
 Diff's existing keyed comparisons become the first registered Compare
 participations. Each row names the owner-issued comparison the analysis
@@ -937,35 +940,41 @@ Diff offers these views over the result:
 | --- | --- |
 | `Summary` | One row per selected analysis: outcome and transition counts |
 | `Changes` | `api`'s compatibility-classified changes |
-| `Finding Transitions` | Each selected analysis's per-Finding transitions, including `Present`, in selection order, and within an analysis in descriptor declaration order |
+| `Transitions` | Each selected analysis's per-Finding transitions, including `Present`, in selection order, and within an analysis in descriptor declaration order |
 
 A view is admitted only when the selected set contains an analysis it
-projects. `Changes` requires `api`. `Finding Transitions` requires the Type
+projects. `Changes` requires `api`. `Transitions` requires the Type
 or Member surface and a selected analysis that supports it. Otherwise the request
 is rejected before execution, naming the view and the missing analysis. A view
 never adds an analysis and never renders an empty success.
 
-`Finding Transitions` is a view, not a route. Today it is a command-owned
-route: it declares no query, runs its own per-type API comparison, and must be
+`Transitions` is a view, not a route. It replaces today's `Finding
+Transitions` section, which is a command-owned route: it declares no query, runs its own per-type API comparison, and must be
 selected alone. As a view of the `api` result, its API rows follow the `api`
 producer's scope and member matching instead of that separate comparison,
 including under `-a`, and at Type it shows `api.type` and `api.member` rows
 together. That is an **intentionally breaking** change under
-[CLI change classification](cli-change-classification.md). The view stays
-available at the Type and Member surfaces, as today. Offering it at the
-Library surface is a later decision.
+[CLI change classification](cli-change-classification.md). The rename is part
+of the same change and gets no alias. `-S "Finding Transitions"` is rejected
+with guidance naming `-S Transitions`. The name matches Diff History's
+`Transitions` view of the same `PairFinding` transitions, because History is
+Diff's temporal mode. The view stays available at the Type and Member
+surfaces, as today. Offering it at the Library surface is a later decision.
 
 #### Retiring pairwise `--finding`
 
 For pairwise requests, `--analysis` replaces `--finding` without an alias,
 under [CLI change classification](cli-change-classification.md). A pairwise
 request that supplies `--finding` is rejected with guidance naming the
-equivalent `--analysis` identity.
+equivalent `--analysis` identity. The guidance maps each former descriptor,
+including its former case-insensitive spellings, to the one analysis identity.
+It never accepts the old spelling as input.
 
 `--history` requests keep `--finding` as the
 [History](diff-history.md) producer selector, unchanged. History is not a
 Compare participation in this adoption. It adopts analysis selection, and
-retires `--finding` entirely, in its own #8545 slice.
+retires `--finding` entirely, in its own #8545 slice. Until then,
+`--history --analysis` is rejected.
 
 The `Analysis Diff`, `Implementation Diff`, Complexity Context, and
 Structural Context routes are not keyed Finding comparisons and are
@@ -994,7 +1003,7 @@ not add it automatically.
 The default view follows the single-high-value-section rule:
 
 - With one selected analysis, the default view is `Changes` for `api`, and
-  `Finding Transitions` for any other analysis.
+  `Transitions` for any other analysis.
 - With more than one selected analysis, the default view is one `Summary`
   section.
   - It has one row per selected analysis, in selection order.
@@ -1002,45 +1011,118 @@ The default view follows the single-high-value-section rule:
     aggregated across the descriptors it declares for the request's surface.
   - Each analysis's detail view is available through `-S`.
 
-`Summary` projects no analysis-specific columns.
+`Summary` projects no analysis-specific columns. Its columns are the analysis
+identity, its outcome, and its `Added`, `Removed`, `Changed`, and `Present`
+transition counts, summed across the descriptors the analysis declares for the
+request's surface.
+
+API post-filters (`--breaking`, `--additive`, `--changed`, `--name-only`)
+refine the `Changes` view only. Selecting them with `Transitions` or `Summary`
+is rejected, as they are rejected with `Finding Transitions` today. A request
+without `--analysis`, including `-S @Diff`, keeps today's section selection
+and behavior.
 
 #### Content and failure
 
-A multi-analysis result is not a new Diff content type. Research already keeps
-typed comparisons in one descriptor-keyed container
-([Research composition](finding-nomenclature.md#research-composition)).
-Selecting analyses selects entries of that container, and each retains its
-native keyed comparison, such as `ApiFindingComparison` or
-`FindingComparison<T>`.
+`DiffAnalysisOperation` produces one internal `DiffAnalysisResult`: an ordered
+list of native per-analysis outcomes in selection order. It is Diff's
+producer result, not a universal diff type. `DiffAnalysisInspection` projects
+that result into one
+`InspectionEnvelope<DiffAnalysisDocument>` for host delivery. The Document
+retains the comparison context, selected analyses and views, flattened outcome
+state, typed API inspection failures independently of the selected view, the
+selected API Changes payload, selected Summary rows, and selected Transitions
+rows. A selected-Library composition may additionally retain the owner-issued
+`LibraryApiDiffOutcome`, including its exact endpoint summaries,
+`ComparisonDocument<LibraryApiTypeDiff>`, and non-success evidence. The
+generic operation and the rich Library presentation consume one
+`AssemblyContextApiComparisonResult`; a host must not rerun API comparison or
+reconstruct Type/member correspondence. API Changes retain both
+compatibility-classified rows and unmatched producer correspondence such as a
+changed Type definition or member without a compatibility classification.
+Each outcome names its analysis identity and is exactly one of:
 
-- Each analysis keeps its own typed outcome. An unavailable or failed analysis
-  is reported as that analysis's outcome, and it neither erases nor empties
-  another analysis's result.
-- An analysis with no observation at either endpoint is a successful empty
-  comparison only when both endpoint censuses are complete. Otherwise it keeps
-  its incomplete or failed inspection state.
-- `--envelope` carries the same composed Content. Browser/Wasm adoption
-  consumes the same validation and container, with C# and TypeScript call
-  sites.
+- **Compared.** The analysis's native keyed comparison, such as
+  `ApiFindingComparison` or `FindingComparison<T>`. Research keeps the
+  body, attribute, C#, and IL comparisons in its descriptor-keyed container
+  ([Research composition](finding-nomenclature.md#research-composition)).
+- **Unavailable.** The analysis could not run at this surface for these
+  endpoints. It keeps its owner-issued typed reason, such as API "not
+  compared". A host may resolve this state before dispatch when it cannot
+  construct the analysis on that platform. Such an outcome short-circuits the
+  producer and does not participate in shared body preparation.
+- **Failed.** The analysis's producer failed. It keeps its owner-issued typed
+  diagnostic.
+
+One analysis's outcome neither erases nor empties another's. An analysis with
+no observation at either endpoint is a successful empty comparison only when
+both endpoint censuses are complete. Otherwise it keeps its incomplete or
+failed inspection state.
+
+A member-target resolution failure is a request failure, not an analysis
+outcome. When a selected member resolves nothing, drifts across versions, is
+ambiguous, or selects no Analysis method, the request exits non-zero with the
+typed target diagnostic before any analysis runs.
+
+A request without analysis-set views keeps today's Content. The default
+single-`api` Library request still delivers
+`InspectionEnvelope<LibraryApiDiffOutcome>`, so default output does not change.
+An explicit `--analysis` request, or a request selecting Summary or
+Transitions, delivers `InspectionEnvelope<DiffAnalysisDocument>`.
+Unprojected `--json` writes that exact Content and `--envelope` writes the same
+Content with `result_kind` `diff-analysis`, schema version `2`, Share, and
+ordered diagnostics. Type and Member targets remain semantic request inputs;
+presentation-only columns, fields, row or line clipping, and tabular formats
+are rejected before acquisition. Inspect Web's Metadata facade consumes the
+same envelope for its existing Library-root Compare operation. Its production
+request selects Library surface, `api`, and Changes; Type and Member Compare
+continue to project from the retained `libraryApi` presentation. Browser-valid
+`api-attribute` requests execute, while body-dependent analyses retain typed
+host-resolved `Unavailable` outcomes without producer preparation.
+
+For rendered output, explicit `--analysis api` changes delivery ownership, not
+presentation intent. Without an explicit Changes section, table, TSV, and
+JSONL retain the established changed-Type summary rows; an explicit Changes
+section selects detailed compatibility and unclassified evidence rows.
+Member-surface Changes exclude unmatched Type-definition correspondence, and a
+classified whole-Type addition or removal subsumes unmatched constituent
+member additions or removals. Hosts order rows by the full Type identity before
+lowering the displayed Type name or applying a row window. `--name-only`
+continues to take precedence over table, TSV, and JSONL shape selection.
+Member filtering follows the owner-issued typed Member subject rather than a
+closed list of change kinds. Explicit Changes intent follows the resolved
+section selection, including wildcard selectors.
 
 #### Demo and evidence
 
 The motivating real case is the member-scoped request above, over
 `System.Text.Json@9.0.0..10.0.0`.
 
-Current production output for the equivalent single-descriptor
-`--finding analysis.call-site` request reports that no selected Finding exists
-at either endpoint. The member Finding Census for the same 10.0.0 body is also
-empty, although the annotated body source contains two direct `call`
-instructions (`GetTypeInfo` and `WriteString`). The call-site producer's
-result for this body must be diagnosed before this case can serve as the
-adoption demo. The complete-census rule under
-[Content and failure](#content-and-failure) forbids reporting an incomplete
-census as a successful empty comparison.
+Typed body-signal targeting
+([#8604](https://github.com/richlander/dotnet-inspect/pull/8604)) made this
+case work. The generic member now keeps its call-site Findings, `GetTypeInfo`
+and `WriteString`, which the former string target identity silently dropped
+([#8570](https://github.com/richlander/dotnet-inspect/issues/8570)).
 
 The neighboring case is filterless `diff --package
 System.Text.Json@9.0.0..10.0.0`. It selects the default set `api` at the
 Library surface and must produce today's `Changes` output unchanged.
+
+#### Adoption
+
+Two coherent steps deliver analysis selection to both production hosts:
+
+1. **CLI.** The analysis catalog and participation, `--analysis`, the
+   `Summary`, `Changes`, and `Transitions` views, the pairwise `--finding` and
+   `Finding Transitions` retirements, and discovery through `explain`, `-D`,
+   and help.
+2. **Transport and Browser/Wasm.** The JSON transport of
+   `DiffAnalysisDocument` and the website's adoption of the same validation,
+   catalog, and envelope, with C# and TypeScript call sites. Browser-host
+   availability is an input to the shared operation, not a second result model.
+
+Shipped product skills are updated once both have landed
+([#8611](https://github.com/richlander/dotnet-inspect/issues/8611)).
 
 ### Migration and production path
 
@@ -1231,16 +1313,16 @@ Pairwise confirmation:
 dotnet-inspect diff \
   --package System.Text.Json@8.0.4..8.0.5 \
   --type System.Text.Json.JsonSerializer \
-  -S "Finding Transitions"
+  -S Transitions
 ```
 
 The endpoints are the two cells. For a non-default producer, the confirmation
-must retain its descriptor:
+must name its analysis:
 
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
   --type Foo.Parser --member Parse \
-  --finding analysis.allocation
+  --analysis allocation -S Transitions
 ```
 
 ### Invalid or misleading range scenarios

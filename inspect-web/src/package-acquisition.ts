@@ -125,6 +125,8 @@ export interface AppMemberSurface
   returns: string | null;
   exceptions: InspectedExceptionSurface[];
   documentationLoaded?: boolean;
+  baselineOrdinal?: number | null;
+  isExplicitInterfaceImplementation?: boolean;
   graphOnly?: boolean;
   graphTarget?: BodyTarget;
   implementationBody?: InspectedMemberBodySelector;
@@ -167,6 +169,7 @@ export interface AppPackage {
   versionSettlement?: BrowserPackageVersionSettlementInspection;
   packageInfo?: BrowserPackageInfoMeasurementInspection;
   isRuntimePack: boolean;
+  platformContextId?: string | null;
   surfaceRevision?: number;
 }
 

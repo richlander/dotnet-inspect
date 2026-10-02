@@ -74,6 +74,7 @@ internal static class CSharpDeclarationWriter
         IReadOnlyList<string>? methodParameters = null)
     {
         options ??= new CSharpDeclarationOptions();
+        member = ExplicitAccessorShape(type, member);
         ApiMember? signatureMember = options.IncludeSignatureAttributes ? member : null;
         var attributeReferences = CollectAttributeTypeReferences(member.Attributes, signatureMember)
             .ToHashSet(StringComparer.Ordinal);
@@ -131,6 +132,7 @@ internal static class CSharpDeclarationWriter
         IReadOnlyList<string>? parameterNames = null)
     {
         options ??= new CSharpDeclarationOptions();
+        member = ExplicitAccessorShape(type, member);
         ApiMember? signatureMember = options.IncludeSignatureAttributes ? member : null;
         var attributeReferences = CollectAttributeTypeReferences(member.Attributes, signatureMember)
             .ToHashSet(StringComparer.Ordinal);
@@ -1254,7 +1256,8 @@ internal static class CSharpDeclarationWriter
             var omitInterfaceModifiers = options.OmitInterfaceMemberModifiers
                 && type.Kind == "interface"
                 && member.Kind == "method";
-            modifiers.Add(member.Accessibility ?? "public");
+            modifiers.Add(
+                member.DeclaredAccessibility ?? member.Accessibility ?? "public");
             if (member.IsConst)
                 modifiers.Add("const");
             else if (member.IsStatic && !omitInterfaceModifiers)
@@ -2048,6 +2051,31 @@ internal static class CSharpDeclarationWriter
             => string.IsNullOrWhiteSpace(name)
                || name == "this[]"
                || !name.Contains('.', StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An explicit implementation's property or event row renders as the
+    /// declaration spelled through its interface, without modifiers. A VB
+    /// implementation's accessor has no interface-qualified name to spell, so
+    /// its row keeps the ordinary property or event shape.
+    /// </summary>
+    static ApiMember ExplicitAccessorShape(ApiType type, ApiMember member)
+    {
+        if (!CSharpExplicitAccessorMembers.TryGetExplicitAccessorName(
+                member,
+                out string? name))
+        {
+            return member;
+        }
+
+        ApiMember snapshot =
+            CSharpTypePrinter.SnapshotTypeForRendering(type, [member]).Members[0];
+        CSharpExplicitAccessorMembers.ApplyExplicitShape(
+            snapshot,
+            name,
+            type.Namespace,
+            namespaces: null);
+        return snapshot;
     }
 
     static bool IsExplicitInterfaceProperty(ApiMember member)

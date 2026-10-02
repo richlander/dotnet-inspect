@@ -112,7 +112,7 @@ Current examples have different shapes:
   execution, and terminal composition.
 - `Inspector.Findings` owns Finding and comparison information structures,
   including `AnalysisDiff<T>`.
-- A future `Inspector.Graph` may own graph structures, reference traversal,
+- Target `Inspector.Graph` may own graph structures, reference traversal,
   focus/path algorithms, and terminal execution.
 
 These components form an operation **stratum**, not one
@@ -322,9 +322,11 @@ limits, and completion.
 
 ## Graph adoption boundary
 
-The first focused adopter is the future `Inspector.Graph` boundary. Its design
-may transfer one cohesive responsibility: domain-neutral graph structures and
-execution mechanics currently carried by `DotnetInspector.Queries`.
+The first focused adopter is the target
+[`Inspector.Graph` boundary](inspector-graph-library-boundary.md). Its first
+transfer is one cohesive responsibility: the domain-neutral structural
+document currently carried by `DotnetInspector.Queries`. Reference execution
+remains the next focused transfer.
 
 Candidate responsibilities for that focused transfer include:
 
@@ -400,8 +402,10 @@ not authorize a broad rename.
 
 `DotnetInspector.SourceDelegation` is a candidate for a separately reviewed
 family correction because its contract is generic and currently carries no
-domain dependency. `QueryOverflow` is instead a QuerySpace companion. Both
-need focused consumer and dependency censuses before any rename.
+domain dependency. Resumable QuerySpace and Source execution remains an
+investigation under
+[#8766](https://github.com/richlander/dotnet-inspect/issues/8766), not a
+current library naming candidate.
 
 ## Conventional basis
 
@@ -426,9 +430,10 @@ Relevant external references:
 Adoption is staged by owner:
 
 1. **Pattern:** this document locks the operation-kernel handoff.
-2. **Graph boundary:** a focused design establishes `Inspector.Graph`, its
-   dependencies, public contracts, direct external-consumer fixture, and
-   transfer from Queries.
+2. **Graph boundary:** the
+   [focused design](inspector-graph-library-boundary.md) establishes
+   `Inspector.Graph`, its dependencies, public contracts, direct
+   external-consumer fixture, and structural transfer from Queries.
 3. **Graph reference execution:** one focused slice migrates the complete
    document and current focus behavior without adding specialization.
 4. **QuerySpace bridge:** one focused slice binds a real Graph relationship
@@ -441,8 +446,7 @@ Adoption is staged by owner:
 7. **Diff census:** a separate issue determines whether reusable Diff execution
    mechanics exist beyond `Inspector.Findings`; no project is created without
    that evidence.
-8. **Naming audits:** Source Delegation and QueryOverflow are considered
-   independently.
+8. **Naming audit:** Source Delegation is considered independently.
 
 The OpenTelemetry external-focused call view is the first real Graph scenario.
 Its complete semantic document, edge Rows, and exact Count expose the terminal
@@ -502,7 +506,7 @@ This pattern does not:
 - add runtime plugins, reflection discovery, expression trees, or arbitrary
   executable portable content;
 - change CLI grammar, command defaults, output formats, or Workspace lifetime;
-- rename Source Delegation, QueryOverflow, or any existing project; or
+- rename Source Delegation or any existing project; or
 - authorize one PR to extract Graph, add QuerySpace execution, specialize
   terminals, migrate both hosts, and retire the old path.
 
@@ -510,8 +514,11 @@ This pattern does not:
 
 After this pattern locks:
 
-1. file the focused `Inspector.Graph` library-boundary design;
-2. file the Graph reference-execution and typed-provider design;
+1. implement the focused `Inspector.Graph`
+   [library boundary](inspector-graph-library-boundary.md);
+2. adopt the
+   [Inspector.Graph execution and derived-view
+   contract](inspector-graph-execution.md);
 3. file the Graph/QuerySpace composition adoption using the OpenTelemetry
    scenario;
 4. file the compiler-transparent terminal specialization only after the

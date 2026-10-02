@@ -188,8 +188,7 @@ internal static class MemberSourceLocationCollector
     private static IEnumerable<ApiMember> GetTargetMembers(ApiType apiType, MemberOptions options)
     {
         var members = apiType.Members
-            .Where(ApiMemberSectionDescriptors.IsBodyBacked)
-            .Where(m => !MemberFilters.IsCompilerGenerated(m.Name));
+            .Where(ApiMemberSectionDescriptors.IsBodyBacked);
 
         if (options.MemberFilter.Count > 0)
             members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter));

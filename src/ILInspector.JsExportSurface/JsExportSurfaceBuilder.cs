@@ -28,17 +28,27 @@ public static class JsExportSurfaceBuilder
     /// supplies Analysis body evidence.
     /// </summary>
     public static JsExportSurface Build(ApiSurface surface) =>
-        Build(surface, bodyIndex: null);
+        Build(surface, bodyAnalysis: null);
 
     public static JsExportSurface Build(
         ApiSurface surface,
-        LibraryBodyIndex? bodyIndex,
+        LibraryJsonWireContractAnalysisResult? bodyAnalysis,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>?
             referencedTypeDefinitions = null,
-        IReadOnlyDictionary<ApiType, LibraryBodyIndex>?
-            referencedBodyIndexes = null,
+        IReadOnlyDictionary<ApiType, LibraryJsonWireContractAnalysisResult>?
+            referencedBodyAnalyses = null,
         ApiAssemblyIdentity? jsonContractIdentity = null)
     {
+        EnsureWireContractAnalysisWasRequested(bodyAnalysis);
+        if (referencedBodyAnalyses is not null)
+        {
+            foreach (LibraryJsonWireContractAnalysisResult analysis
+                in referencedBodyAnalyses.Values)
+            {
+                EnsureWireContractAnalysisWasRequested(analysis);
+            }
+        }
+
         var typesByIdentity = surface.Types
             .SelectMany(type =>
                 new[] { type.Name, type.FullName, type.MetadataName }
@@ -85,7 +95,7 @@ public static class JsExportSurfaceBuilder
                         ApiType>();
 
         HashSet<int> incompleteBodyTokens =
-            bodyIndex is null ? [] : IncompleteBodyTokens(bodyIndex);
+            bodyAnalysis is null ? [] : IncompleteBodyTokens(bodyAnalysis);
 
         var functions = new List<JsExportFunction>();
         var functionTokens = new Dictionary<JsExportFunction, int>();
@@ -137,13 +147,13 @@ public static class JsExportSurfaceBuilder
                 string? runtimeDispatchKey = null;
                 IReadOnlyList<JsExportDelegateParameter>
                     delegateParameters = [];
-                if (bodyIndex is null
+                if (bodyAnalysis is null
                         ? member.HasRuntimeJsExportWrapperCandidate
                             == false
                         : member.HasRuntimeJsExportWrapperCandidate
                                 != true
                             || !TryGetAuthenticatedRuntimeJsExportWrapper(
-                                bodyIndex,
+                                bodyAnalysis,
                                 surface.AssemblyIdentity,
                                 type,
                                 member,
@@ -187,7 +197,7 @@ public static class JsExportSurfaceBuilder
                     DelegateParameters = delegateParameters,
                 };
 
-                if (bodyIndex is not null && member.MetadataToken is { } token)
+                if (bodyAnalysis is not null && member.MetadataToken is { } token)
                 {
                     if (incompleteBodyTokens.Contains(token))
                     {
@@ -237,7 +247,7 @@ public static class JsExportSurfaceBuilder
         HashSet<(string Assembly, string Namespace, string TypeName)>
             calledReferencedContextTypes =
         [
-            .. bodyIndex?.DirectCalls
+            .. bodyAnalysis?.DirectCalls
                 .Where(call =>
                     functionTokens.Values.Contains(
                         call.Caller.MetadataToken))
@@ -251,16 +261,16 @@ public static class JsExportSurfaceBuilder
         IEnumerable<(
             ApiType Type,
             ApiAssemblyIdentity? Assembly,
-            LibraryBodyIndex? Bodies)> serializerContextCandidates =
+            LibraryJsonWireContractAnalysisResult? Bodies)> serializerContextCandidates =
             surface.Types.Select(type => (
                 Type: type,
                 Assembly: surface.AssemblyIdentity,
-                Bodies: bodyIndex))
+                Bodies: bodyAnalysis))
             .Concat(
                 (referencedTypeDefinitions
                     ?? new Dictionary<ApiTypeReferenceIdentity, ApiType>())
                 .Where(candidate =>
-                    referencedBodyIndexes?.ContainsKey(candidate.Value)
+                    referencedBodyAnalyses?.ContainsKey(candidate.Value)
                         == true
                     && calledReferencedContextTypes.Contains(
                         ContextTypeIdentity(
@@ -269,8 +279,8 @@ public static class JsExportSurfaceBuilder
                 .Select(candidate => (
                     Type: candidate.Value,
                     Assembly: (ApiAssemblyIdentity?)candidate.Key.Assembly,
-                    Bodies: (LibraryBodyIndex?)
-                        referencedBodyIndexes![candidate.Value])))
+                    Bodies: (LibraryJsonWireContractAnalysisResult?)
+                        referencedBodyAnalyses![candidate.Value])))
             .DistinctBy(candidate => candidate.Type);
 
         foreach (var contextCandidate in serializerContextCandidates)
@@ -667,7 +677,7 @@ public static class JsExportSurfaceBuilder
             }
         }
 
-        if (bodyIndex is not null)
+        if (bodyAnalysis is not null)
         {
             IReadOnlyDictionary<
                 JsExportFunction,
@@ -697,7 +707,7 @@ public static class JsExportSurfaceBuilder
                 if (functionTokens.TryGetValue(function, out int token))
                 {
                     functions[index] = JsonWireContractResolver.Attach(
-                        bodyIndex,
+                        bodyAnalysis,
                         function,
                         token,
                         registeredJsonTypeInfoGetterModes,
@@ -738,7 +748,7 @@ public static class JsExportSurfaceBuilder
                 typesByScopedIdentity,
                 discovered,
                 polymorphicUnions,
-                bodyEvidenceAvailable: bodyIndex is not null);
+                bodyEvidenceAvailable: bodyAnalysis is not null);
         RejectReachedContextRelativeValueTypeAccessibility(
             functions,
             wireDirections,
@@ -754,7 +764,7 @@ public static class JsExportSurfaceBuilder
             Functions = functions,
             Records = records,
             Enums = enums,
-            Unions = DescribeUnions(unionTypes, bodyIndex),
+            Unions = DescribeUnions(unionTypes, bodyAnalysis),
             PolymorphicUnions = polymorphicUnions,
             AllTypes = surface.Types,
             ReferencedTypeDefinitions = referencedTypeDefinitions
@@ -763,6 +773,17 @@ public static class JsExportSurfaceBuilder
             ContextDefaultIgnoreConditions =
                 contextDefaultIgnoreConditions,
         };
+    }
+
+    static void EnsureWireContractAnalysisWasRequested(
+        LibraryJsonWireContractAnalysisResult? analysis)
+    {
+        if (analysis is { WasRequested: false })
+        {
+            throw new UnsupportedJsExportSurfaceException(
+                "assembly body analysis",
+                "JSON wire-contract flow was not requested");
+        }
     }
 
     static IReadOnlyDictionary<
@@ -1112,10 +1133,10 @@ public static class JsExportSurfaceBuilder
     }
 
     private static HashSet<int> IncompleteBodyTokens(
-        LibraryBodyIndex bodyIndex)
+        LibraryJsonWireContractAnalysisResult bodyAnalysis)
     {
         var tokens = new HashSet<int>();
-        foreach (AnalysisDiagnostic diagnostic in bodyIndex.Diagnostics)
+        foreach (AnalysisDiagnostic diagnostic in bodyAnalysis.Diagnostics)
         {
             tokens.Add(diagnostic.MethodToken);
             if (diagnostic.SourceMethodToken is { } sourceMethodToken)
@@ -1127,16 +1148,16 @@ public static class JsExportSurfaceBuilder
 
     static IReadOnlyList<JsExportUnion> DescribeUnions(
         IReadOnlyList<ApiType> unionTypes,
-        LibraryBodyIndex? bodyIndex)
+        LibraryJsonWireContractAnalysisResult? bodyAnalysis)
     {
         if (unionTypes.Count == 0)
             return [];
 
-        IReadOnlyDictionary<int, MethodIdentity> methods = bodyIndex is null
+        IReadOnlyDictionary<int, MethodIdentity> methods = bodyAnalysis is null
             ? new Dictionary<int, MethodIdentity>()
-            : bodyIndex.DeclaredMethods.ToDictionary(method => method.MetadataToken);
+            : bodyAnalysis.DeclaredMethods.ToDictionary(method => method.MetadataToken);
         return [.. unionTypes.Select(type =>
-            JsonUnionWireRules.Describe(type, bodyIndex, methods))];
+            JsonUnionWireRules.Describe(type, bodyAnalysis, methods))];
     }
 
     static IReadOnlyList<JsExportPolymorphicUnion>
@@ -1917,7 +1938,7 @@ public static class JsExportSurfaceBuilder
     /// gates that.
     /// </remarks>
     static bool TryGetAuthenticatedRuntimeJsExportWrapper(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         ApiAssemblyIdentity? assemblyIdentity,
         ApiType declaringType,
         ApiMember export,
@@ -1941,7 +1962,7 @@ public static class JsExportSurfaceBuilder
 
         IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
             callsByEvidenceMethod =
-                bodyIndex.GetDirectCallsByEvidenceMethod();
+                bodyAnalysis.DirectCallsByEvidenceMethod;
         foreach (ImmutableArray<DirectCall> wrapperCalls
             in callsByEvidenceMethod.Values)
         {
@@ -2655,7 +2676,7 @@ public static class JsExportSurfaceBuilder
         IsCoreType(type, "Void");
 
     static bool HasAuthenticatedGeneratedContextImplementation(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         ApiType context,
         ApiMember rootProperty,
         int rootGetterToken,
@@ -2669,11 +2690,11 @@ public static class JsExportSurfaceBuilder
             return false;
         }
 
-        MethodIdentity? rootGetter = bodyIndex.Methods.SingleOrDefault(
+        MethodIdentity? rootGetter = bodyAnalysis.Methods.SingleOrDefault(
             method => method.MetadataToken == rootGetterToken);
-        MethodIdentity? defaultGetter = bodyIndex.Methods.SingleOrDefault(
+        MethodIdentity? defaultGetter = bodyAnalysis.Methods.SingleOrDefault(
             method => method.MetadataToken == defaultGetterToken);
-        MethodIdentity? staticConstructor = bodyIndex.Methods.SingleOrDefault(
+        MethodIdentity? staticConstructor = bodyAnalysis.Methods.SingleOrDefault(
             method => method.Name == ".cctor"
                 && IsContextType(method.DeclaringType, context));
         if (rootGetter is null
@@ -2701,7 +2722,7 @@ public static class JsExportSurfaceBuilder
         }
 
         IReadOnlyDictionary<int, ImmutableArray<DirectCall>> callsByMethod =
-            bodyIndex.GetDirectCallsByEvidenceMethod();
+            bodyAnalysis.DirectCallsByEvidenceMethod;
         if (!callsByMethod.TryGetValue(
                 rootGetterToken,
                 out ImmutableArray<DirectCall> rootCalls)
@@ -2784,7 +2805,7 @@ public static class JsExportSurfaceBuilder
         }
 
         if (!HasAuthenticatedRootCacheFlow(
-                bodyIndex,
+                bodyAnalysis,
                 context,
                 rootGetterToken,
                 getTypeInfo.ILOffset))
@@ -2793,7 +2814,7 @@ public static class JsExportSurfaceBuilder
         }
 
         return HasAuthenticatedDefaultInstanceChain(
-            bodyIndex,
+            bodyAnalysis,
             context,
             defaultGetterToken,
             staticConstructor,
@@ -2827,14 +2848,14 @@ public static class JsExportSurfaceBuilder
     /// </para>
     /// </remarks>
     static bool HasAuthenticatedRootCacheFlow(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         ApiType context,
         int rootGetterToken,
         int typeInfoCallOffset)
     {
         FieldStoreFact[] stores =
         [
-            .. bodyIndex.FieldStores.Where(store =>
+            .. bodyAnalysis.FieldStores.Where(store =>
                 store.EvidenceMethod.MetadataToken == rootGetterToken),
         ];
         if (stores is not [var cacheStore]
@@ -2855,7 +2876,7 @@ public static class JsExportSurfaceBuilder
 
         FieldLoadFact[] loads =
         [
-            .. bodyIndex.FieldLoads.Where(load =>
+            .. bodyAnalysis.FieldLoads.Where(load =>
                 load.EvidenceMethod.MetadataToken == rootGetterToken),
         ];
         if (loads is not [var cacheLoad]
@@ -2869,7 +2890,7 @@ public static class JsExportSurfaceBuilder
         }
 
         return HasAuthenticatedRootReturnFlow(
-            bodyIndex,
+            bodyAnalysis,
             rootGetterToken,
             cacheField,
             cacheLoad.ILOffset,
@@ -2888,7 +2909,7 @@ public static class JsExportSurfaceBuilder
     /// describes. An unresolved fact, a null, or any third source fails closed.
     /// </remarks>
     static bool HasAuthenticatedRootReturnFlow(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         int rootGetterToken,
         FieldIdentity cacheField,
         int cacheLoadOffset,
@@ -2896,7 +2917,7 @@ public static class JsExportSurfaceBuilder
     {
         MethodReturnFlow[] flows =
         [
-            .. bodyIndex.ReturnFlows.Where(flow =>
+            .. bodyAnalysis.ReturnFlows.Where(flow =>
                 flow.EvidenceMethod.MetadataToken == rootGetterToken),
         ];
         if (flows is not [{ Value.IsResolved: true } returnFlow]
@@ -2952,7 +2973,7 @@ public static class JsExportSurfaceBuilder
     /// gates the constructor's own forwarding.
     /// </remarks>
     static bool HasAuthenticatedDefaultInstanceChain(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         ApiType context,
         int defaultGetterToken,
         MethodIdentity staticConstructor,
@@ -2961,7 +2982,7 @@ public static class JsExportSurfaceBuilder
     {
         MethodResultSink[] returns =
         [
-            .. bodyIndex.ResultSinks.Where(sink =>
+            .. bodyAnalysis.ResultSinks.Where(sink =>
                 sink.EvidenceMethod.MetadataToken == defaultGetterToken
                 && sink.Kind == MethodResultSinkKind.MethodReturn),
         ];
@@ -2980,7 +3001,7 @@ public static class JsExportSurfaceBuilder
         }
 
         if (!TryGetSingleStaticInitialization(
-                bodyIndex,
+                bodyAnalysis,
                 staticConstructor,
                 instanceField,
                 out ResolvedValueSource? instanceValue)
@@ -3013,7 +3034,7 @@ public static class JsExportSurfaceBuilder
                     ILOffset: var copyOffset,
                 }
             || !HasAuthenticatedContextConstructorForwarding(
-                bodyIndex,
+                bodyAnalysis,
                 context,
                 contextConstruction,
                 incompleteBodyTokens))
@@ -3040,7 +3061,7 @@ public static class JsExportSurfaceBuilder
         }
 
         if (!TryGetSingleStaticInitialization(
-                bodyIndex,
+                bodyAnalysis,
                 staticConstructor,
                 optionsField,
                 out ResolvedValueSource? optionsValue)
@@ -3085,7 +3106,7 @@ public static class JsExportSurfaceBuilder
     /// gates the unproven case.
     /// </remarks>
     static bool TryGetSingleStaticInitialization(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         MethodIdentity staticConstructor,
         FieldIdentity field,
         out ResolvedValueSource? value)
@@ -3093,7 +3114,7 @@ public static class JsExportSurfaceBuilder
         value = null;
         FieldStoreFact[] stores =
         [
-            .. bodyIndex.FieldStores.Where(store =>
+            .. bodyAnalysis.FieldStores.Where(store =>
                 store.IsStatic
                 && field.MightBeSameFieldAs(store.Identity)),
         ];
@@ -3130,7 +3151,7 @@ public static class JsExportSurfaceBuilder
     /// gates that boundary.
     /// </remarks>
     static bool HasAuthenticatedContextConstructorForwarding(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         ApiType context,
         DirectCall contextConstruction,
         IReadOnlySet<int> incompleteBodyTokens)
@@ -3142,7 +3163,7 @@ public static class JsExportSurfaceBuilder
             return false;
         }
 
-        MethodIdentity? constructor = bodyIndex.Methods.SingleOrDefault(
+        MethodIdentity? constructor = bodyAnalysis.Methods.SingleOrDefault(
             method => method.MetadataToken == constructorToken);
         if (constructor is null
             || constructor.IsStatic
@@ -3152,7 +3173,7 @@ public static class JsExportSurfaceBuilder
             return false;
         }
 
-        if (!bodyIndex.GetDirectCallsByEvidenceMethod().TryGetValue(
+        if (!bodyAnalysis.DirectCallsByEvidenceMethod.TryGetValue(
                 constructorToken,
                 out ImmutableArray<DirectCall> constructorCalls))
         {

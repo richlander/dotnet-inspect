@@ -16,8 +16,8 @@ using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
-using DotnetInspect.Cli.Views;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -951,7 +951,7 @@ public partial class MatchDiscoveryTests
         surface.Types.Add(forwarded);
         surface.Types.Add(local);
 
-        MatchDiscoveryNames names = MatchDiscoveryNames.Build(surface, image);
+        var names = MatchDiscovery.BuildNames(surface, image);
 
         var address = new MetadataMethodAddress(
             Guid.Empty,

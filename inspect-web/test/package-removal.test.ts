@@ -8,6 +8,8 @@ import {
   assemblyDescriptorForType,
   memberRequestKey,
   packageIdentityKey,
+  partitionGraphMembers,
+  searchableMemberGroups,
   workspacePackageRemovalKey,
 } from "../src/data.ts";
 import {
@@ -18,6 +20,7 @@ import {
 } from "../src/call-graph-inspection.ts";
 import type { BrowserCallGraph } from "../src/facades/inspect-web-call-graph.d.ts";
 import {
+  filterMemberGroups,
   invalidateGraphMemberNavigationWork,
   invalidateMemberCallGraphWork,
   memberScopeIsActive,
@@ -355,8 +358,13 @@ const graphHostNames = new Set([
   "finishPackageRemoval", "invalidateGraphMemberNavigation",
   "invalidateWorkspaceMembershipViews",
   "loadSelectedMemberCallGraph", "memberRequestSignature",
+  "platformDemoContextIdFor",
   "currentPackage", "selectedType", "selectedMember",
-  "memberGroups", "scope",
+  "groupMembers", "typeMemberPopulationKey",
+  "currentTypeMemberPopulation", "declaredMemberGroups",
+  "loadedMemberDeclarationsApplyToSelection",
+  "memberGroups", "memberGroupForCurrentFilters", "memberFilterState",
+  "selectedMemberGroups", "visibleMemberGroups", "scope",
 ]);
 const graphHostDeclarations = app.program.body
   .filter(node =>
@@ -386,6 +394,8 @@ function graphRemovalHarness() {
     home: false, workspaceSubjectOpen: false, atPackageRoot: false,
     lens: "api", selectedTypeId: type.id, selectedMemberKey: "Method:Run",
     memberBrowseTypeId: type.id, selectedOverloadIndex: 1, memberSection: "call-graph",
+    memberSpelling: "csharp", memberAccessibilityFilter: "public",
+    typeMemberPopulationKey: "", typeMemberPopulation: null,
     selectedBodyTarget: { metadataToken: 0x06000002, selectorKey: "Run|System.Int32" },
     workspaceShareBasis: null,
     graphMemberNavigationSeq: 0, graphMemberNavigationTitle: "",
@@ -453,7 +463,9 @@ function graphRemovalHarness() {
     {
       registerHost: (api: typeof host) => { host = api; },
       state, callGraphInspection: coordinator,
+      selectedForwarder: () => null,
       createPackageRemoval, packageIdentityKey, memberRequestKey,
+      partitionGraphMembers, searchableMemberGroups, filterMemberGroups,
       assemblyDescriptorForType, selectedConcreteOverload, memberScopeIsActive,
       memberRequestIsCurrent: () => true,
       invalidateMemberCallGraphWork,

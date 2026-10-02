@@ -1,5 +1,4 @@
 const INDEX_URL = "/assets/platform-index.json";
-export const DEFAULT_PLATFORM_FRAMEWORK = "net11.0";
 
 type PlatformPack = "netcore.app" | "aspnetcore.app" | "netstandard";
 type PlatformAssemblyKind = "impl" | "facade" | "ref";

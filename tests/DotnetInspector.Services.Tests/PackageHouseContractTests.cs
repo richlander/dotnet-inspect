@@ -47,6 +47,66 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void SemanticFilesQueryRetainsOnePackageWideExactDemand()
+    {
+        var files = new PackageHouseContentTerminal.Files(
+            ["README.md", "readme.md", "lib/net10.0/Contoso.Json.dll"]);
+        var query = new PackageHouseContentQuery(
+            new PackageHouseContentNarrowing.PackageWide(),
+            [files]);
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(Coordinate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            contentQuery: query);
+
+        Assert.Same(query, request.ContentQuery);
+        Assert.IsType<PackageHouseContentNarrowing.PackageWide>(
+            query.Narrowing);
+        Assert.Same(files, Assert.Single(query.Terminals));
+        Assert.Equal(
+            ["README.md", "lib/net10.0/Contoso.Json.dll"],
+            files.Entries);
+        Assert.Null(request.FileDemand);
+
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentTerminal.Files([]));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentTerminal.Files(["../README.md"]));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentQuery(
+                new PackageHouseContentNarrowing.PackageWide(),
+                []));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentQuery(
+                new PackageHouseContentNarrowing.PackageWide(),
+                [
+                    new PackageHouseContentTerminal.Files(["README.md"]),
+                    new PackageHouseContentTerminal.Files(["PACKAGE.md"]),
+                ]));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Settle),
+                contentQuery: query));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                fileDemand: PackageFileDemand.Create(["README.md"]),
+                contentQuery: query));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                targetContext: PackageHouseTargetContext.Exact("net10.0"),
+                contentQuery: query));
+    }
+
+    [Fact]
     public void FrameworkReferenceDemandRequiresCompileRealization()
     {
         var demand = new PackageHouseDemand.Exact(Coordinate);
@@ -875,6 +935,67 @@ public sealed class PackageHouseContractTests
                     PackageHouseOperationProfile.Settle),
                 libraryHandoff:
                     PackageHouseLibraryHandoffMode.SelectedLibraries));
+    }
+
+    [Fact]
+    public void RequestScopesLibraryCompanionDemandToImplementationHandoffs()
+    {
+        PackageHouseDemand demand = new PackageHouseDemand.Exact(Coordinate);
+        PackageHouseLibraryCompanionDemand companion =
+            PackageHouseLibraryCompanionDemand
+                .ImplementationPortablePdb;
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                libraryCompanionDemand:
+                    (PackageHouseLibraryCompanionDemand)42));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                libraryCompanionDemand: companion));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                PackageHouseTargetContext.OwnerDefault(),
+                PackageHouseAssetSelectionKind.Runtime,
+                PackageHouseLibraryHandoffMode.SelectedLibraries,
+                libraryCompanionDemand: companion));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                PackageHouseTargetContext.OwnerDefault(),
+                PackageHouseAssetSelectionKind.Compile,
+                libraryCompanionDemand: companion));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                PackageHouseTargetContext.OwnerDefault(),
+                PackageHouseAssetSelectionKind.Compile,
+                PackageHouseLibraryHandoffMode.SelectedLibraries,
+                assetDemand: PackageAssetDemand.Surface,
+                libraryCompanionDemand: companion));
+
+        PackageHouseRequest request = new(
+            demand,
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.OwnerDefault(),
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.SelectedLibraries,
+            libraryCompanionDemand: companion);
+
+        Assert.Equal(companion, request.LibraryCompanionDemand);
     }
 
     [Fact]
@@ -2077,6 +2198,27 @@ public sealed class PackageHouseContractTests
 
         Assert.All(results, result => Assert.Same(evidence, result.Evidence));
         Assert.All(results, result => Assert.Same(request, result.Request));
+    }
+
+    [Fact]
+    public void
+        PackageSourceAuthorizationPreservesHostAdmittedAssociation()
+    {
+        var source = new PackageSource(
+            "exact archive",
+            "/packages/sample.nupkg");
+        PackageSourceAssociation association =
+            PackageSourceAssociation.Create();
+
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.Authorize(
+                source,
+                association);
+
+        ConfiguredPackageAuthority authority =
+            Assert.Single(authorization.Authorities);
+        Assert.Equal(source, authority.Source);
+        Assert.Same(association, authority.Association);
     }
 
     [Fact]

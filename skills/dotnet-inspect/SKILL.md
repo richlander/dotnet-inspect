@@ -6,13 +6,16 @@ description: Find and share evidence instead of guessing about .NET packages, li
 
 # dotnet-inspect
 
-Use dotnet-inspect to find evidence about compiled .NET APIs, packages,
-libraries, dependencies, source, and version changes.
+Use dotnet-inspect to find evidence from direct local libraries, packages from
+configured sources, and Platform libraries, including APIs and dependencies.
 
 Run `dnx dotnet-inspect -y -- <command-or-target>`. `-y` skips confirmation,
 and `--` passes the remaining arguments to dotnet-inspect. Start by identifying
 the kind of result needed. If the intent or result space is unclear, use a bare
 target and let the router choose. Otherwise, enter the matching space directly.
+Platform queries use installed packs when the requested version is available;
+otherwise they use a package-backed source. For a non-conventional install,
+verify `<root>/packs` and set process-scoped `DOTNET_ROOT`, not `PATH`.
 
 ## Common starts
 
@@ -21,7 +24,7 @@ target and let the router choose. Otherwise, enter the matching space directly.
 | Discover an installed capability | When you know the task but not the command, key, or section, run `explain <task-text>` to similarity-search installed capabilities. For example, run `explain literal`, copy the result's `Explain` path into `explain <path>`, then follow its production binding: `package query Microsoft.Azure.SignalR --where "library-literal=https://" --tfm net8.0 -S "Literal Strings"`. Use `-D` or `-Q` directly when you already know the route. |
 | Discover or inspect a package | `package query Foo` discovers an exact package ID; use `package query 'Foo.*'` for a literal package-ID prefix. Then use `package <exact-id>` to inspect the known package. |
 | Discover an API symbol | Without an explicit scope, `find` searches installed .NET Runtime, ASP.NET Core, and .NET Standard platform populations, including Microsoft.Extensions assemblies shipped in the framework populations. Try `find JsonSerializer -n 5 --table`, `find ControllerBase -n 5 --table`, or `find OptionsBuilder -n 5 --table`. Package APIs enter scope through explicit `--package Foo@version`, a restored `--project path/to/project`, or `--package-prefix PREFIX` with a type/member pattern: `find IChatClient --package Microsoft.Extensions.AI.Abstractions -n 5 --table` returns `Microsoft.Extensions.AI.IChatClient`. Use `package query Pattern` to discover package IDs; add `--members` for member names. Explicit Package or Platform searches with `--tfm` preserve Find's Markdown, tips, tables, root-array JSON, exact implementation asset, and compatible TFM. |
-| Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden members. Select `-S Source` for authored-first source with explicit fallback context; `PDB Source` and `Decompiled Source` remain provider-specific views. |
+| Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden members. `-k` selects logical declaration kinds: explicit properties/events use `property`/`event`, while `explicit-interface-implementation` selects uncomposed explicit methods. Select `-S Source` for authored-first source with explicit fallback context; `PDB Source` and `Decompiled Source` remain provider-specific views. |
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
 | Correlate one member's Findings | `member Type Method:1 --package Foo -S "Finding Census" --json` returns one receipt-scoped Facts and annotated-source envelope. Load `skill query` for selection and format constraints. |

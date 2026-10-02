@@ -14,6 +14,7 @@ using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using Markout;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -84,6 +85,213 @@ public class MetricSectionTests
                     "ScopedAsyncAllocationHotspotLambdaOwner()",
                     StringComparison.Ordinal)
                 && line.Contains("MoveNext()", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task
+        LibraryMetrics_RendersResearchIssuedTypeLeverageOrders()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                AssemblyName =
+                    FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+                IncludeSections =
+                    [SectionNames.LibraryMetrics],
+                Markdown = true,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("Sea-Level Types", result.Output);
+        Assert.Contains("Mountain-Peak Types", result.Output);
+        Assert.Contains("Signature incoming", result.Output);
+        Assert.Contains("Signature outgoing", result.Output);
+        Assert.Contains("| Degree |", result.Output);
+        Assert.Contains("| Role |", result.Output);
+        Assert.True(
+            result.Output.IndexOf(
+                "Target.CustomAwaitable",
+                StringComparison.Ordinal)
+            < result.Output.IndexOf(
+                "Target.CustomAwaiter",
+                StringComparison.Ordinal));
+        int mountainPeak =
+            result.Output.IndexOf(
+                "| Mountain-Peak Types |",
+                StringComparison.Ordinal);
+        Assert.True(mountainPeak >= 0);
+        Assert.True(
+            result.Output.IndexOf(
+                "Target.RelationshipRankingHub",
+                mountainPeak,
+                StringComparison.Ordinal)
+            < result.Output.IndexOf(
+                "Target.AwaitCompletionPathApi",
+                mountainPeak,
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void
+        LibraryMetrics_RendersEachTypeLeverageShardQualification()
+    {
+        Guid moduleVersionId =
+            new("4b42dd61-f809-47a5-b0c4-2da4dba78989");
+        var assembly = new AssemblyReferenceIdentity(
+            "QualifiedFixture",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        MetadataTypeDefinitionAddress address =
+            MetadataTypeDefinitionAddress.FromToken(
+                moduleVersionId,
+                0x02000001);
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Example",
+                    ["Root"])).Name;
+        var type = new MetadataLibrarySignatureType(
+            address,
+            name,
+            AssemblyTypeDefinitionKind.Class,
+            MetadataLibraryTypeClassification.None);
+        var counters = new MetadataOperationCounters(0);
+        LibraryStructuralNamespaceLeverageIndex index =
+            LibraryStructuralReport.CreateNamespaceLeverageIndex(
+                new(
+                    new(
+                        moduleVersionId,
+                        assembly,
+                        ExactNamespace: null,
+                        counters),
+                    MetadataLibrarySignatureUseDisposition.Complete,
+                    [type],
+                    [],
+                    new(
+                        considered: 0,
+                        examined: 0,
+                        unavailable: 0,
+                        limited: 0),
+                    []));
+        LibraryStructuralTypeLeverageShard shard =
+            LibraryStructuralReport.CreateTypeLeverageShard(
+                new(
+                    new(
+                        moduleVersionId,
+                        assembly,
+                        ExactNamespace: "Example",
+                        counters),
+                    MetadataLibrarySignatureUseDisposition.Partial,
+                    [type],
+                    [],
+                    new(
+                        considered: 1,
+                        examined: 0,
+                        unavailable: 1,
+                        limited: 0),
+                    [
+                        new(
+                            MetadataLibrarySignatureUseDiagnosticKind
+                                .MalformedMetadata,
+                            0x02000001,
+                            "Signature fixture failed."),
+                    ]));
+        string output = RenderStructuralSalience(index, [shard]);
+
+        Assert.Contains("Type-Leverage Shard", output);
+        Assert.Contains(
+            "sea-level Qualified; mountain-peak Qualified; "
+                + "roles Qualified; signature Partial",
+            output);
+        Assert.Contains(
+            "sites 0/1; unavailable 1; limited 0; occurrences 0",
+            output);
+        Assert.Contains(
+            "MalformedMetadata [0x02000001]: "
+                + "Signature fixture failed.",
+            output);
+        Assert.Contains("| Example |", output);
+    }
+
+    [Fact]
+    public void
+        LibraryMetrics_RendersNamespaceIndexDiagnosticsWhenShardIsComplete()
+    {
+        Guid moduleVersionId =
+            new("4b42dd61-f809-47a5-b0c4-2da4dba78989");
+        var assembly = new AssemblyReferenceIdentity(
+            "QualifiedFixture",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        MetadataTypeDefinitionAddress address =
+            MetadataTypeDefinitionAddress.FromToken(
+                moduleVersionId,
+                0x02000001);
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Example",
+                    ["Root"])).Name;
+        var type = new MetadataLibrarySignatureType(
+            address,
+            name,
+            AssemblyTypeDefinitionKind.Class,
+            MetadataLibraryTypeClassification.None);
+        var counters = new MetadataOperationCounters(0);
+        LibraryStructuralNamespaceLeverageIndex index =
+            LibraryStructuralReport.CreateNamespaceLeverageIndex(
+                new(
+                    new(
+                        moduleVersionId,
+                        assembly,
+                        ExactNamespace: null,
+                        counters),
+                    MetadataLibrarySignatureUseDisposition.Partial,
+                    [type],
+                    [],
+                    new(
+                        considered: 1,
+                        examined: 0,
+                        unavailable: 0,
+                        limited: 1),
+                    [
+                        new(
+                            MetadataLibrarySignatureUseDiagnosticKind.Limit,
+                            0x02000001,
+                            "Declaration budget exhausted.",
+                            MetadataOperationDimension.DeclarationCandidates,
+                            BudgetLimit: 100,
+                            AttemptedCharge: 101),
+                    ]));
+        LibraryStructuralTypeLeverageShard shard =
+            LibraryStructuralReport.CreateTypeLeverageShard(
+                new(
+                    new(
+                        moduleVersionId,
+                        assembly,
+                        ExactNamespace: "Example",
+                        counters),
+                    MetadataLibrarySignatureUseDisposition.Complete,
+                    [type],
+                    [],
+                    new(
+                        considered: 0,
+                        examined: 0,
+                        unavailable: 0,
+                        limited: 0),
+                    []));
+
+        string output = RenderStructuralSalience(index, [shard]);
+
+        Assert.Contains("Namespace Leverage Diagnostic", output);
+        Assert.Contains(
+            "Limit [0x02000001]: Declaration budget exhausted.; "
+                + "budget DeclarationCandidates; limit 100; attempted 101",
+            output);
+        Assert.DoesNotContain("Type-Leverage Shard Diagnostic", output);
     }
 
     [Fact]
@@ -791,7 +999,7 @@ public class MetricSectionTests
 
         JsonElement root = content.RootElement;
         Assert.Equal(
-            LibraryStructuralReport.CurrentMethodologyVersion,
+            "library-metrics.v3",
             root.GetProperty("methodologyVersion").GetString());
         Assert.NotEmpty(
             root.GetProperty("population")
@@ -857,6 +1065,72 @@ public class MetricSectionTests
                     relationship
                         .GetProperty("callSiteCount")
                         .ValueKind);
+            });
+
+        JsonElement salience =
+            root.GetProperty("structuralSalience");
+        Assert.NotEmpty(
+            salience.GetProperty("namespaceIndex")
+                .GetProperty("rows")
+                .EnumerateArray());
+        JsonElement[] leverageShards =
+        [
+            .. salience.GetProperty("typeLeverageShards")
+                .EnumerateArray(),
+        ];
+        Assert.NotEmpty(leverageShards);
+        JsonElement[] leverageRows =
+        [
+            .. leverageShards.SelectMany(
+                shard => shard.GetProperty("rows").EnumerateArray()),
+        ];
+        Assert.NotEmpty(leverageRows);
+        Assert.All(
+            leverageRows,
+            row =>
+            {
+                Assert.Equal(
+                    JsonValueKind.Object,
+                    row.GetProperty("type").ValueKind);
+                Assert.Equal(
+                    JsonValueKind.Number,
+                    row.GetProperty("signatureIncomingDegree")
+                        .ValueKind);
+                Assert.Equal(
+                    JsonValueKind.Number,
+                    row.GetProperty("signatureOutgoingDegree")
+                        .ValueKind);
+            });
+        Assert.All(
+            leverageShards,
+            leverage =>
+            {
+                Assert.Equal(
+                    JsonValueKind.Object,
+                    leverage.GetProperty("signatureUse")
+                        .GetProperty("receipt")
+                        .ValueKind);
+                Assert.False(leverage.TryGetProperty("bodyUse", out _));
+                JsonElement graphWork = leverage.GetProperty("graphWork");
+                string[] graphQueries =
+                [
+                    "signatureIncomingDegree",
+                    "signatureOutgoingDegree",
+                ];
+                Assert.All(
+                    graphQueries,
+                    query =>
+                    {
+                        JsonElement receipt =
+                            graphWork.GetProperty(query);
+                        Assert.StartsWith(
+                            "graph-document-",
+                            receipt.GetProperty("sourceDocument")
+                                .GetString());
+                        Assert.True(
+                            receipt.GetProperty("terminalSettled")
+                                .GetBoolean());
+                    });
             });
     }
 
@@ -1026,4 +1300,66 @@ public class MetricSectionTests
                 root.Parse(processed),
                 processed);
         });
+
+    private static string RenderStructuralSalience(
+        LibraryStructuralNamespaceLeverageIndex index,
+        IEnumerable<LibraryStructuralTypeLeverageShard> shards)
+    {
+        LibraryStructuralSalienceDocument salience =
+            LibraryStructuralReport.CreateStructuralSalience(
+                index,
+                shards);
+        var coverage =
+            new ImplementationProfilePopulationCoverageReceipt(
+                WasRequested: true,
+                HasFullMethodEvidenceScope: true,
+                DeclaredMethods: [],
+                ManagedMethodBodies: [],
+                ProfiledEvidenceBodies: [],
+                UnavailableBodies: [],
+                Diagnostics: []);
+        var document = new LibraryStructuralReportDocument(
+            new(
+                "QualifiedFixture.dll",
+                null!,
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles,
+                HasFullMethodEvidenceScope: true,
+                Diagnostics: []),
+            LibraryStructuralReport.CurrentMethodologyVersion,
+            new(
+                coverage,
+                PhysicalEvidenceBodyCount: 0,
+                ProfiledPhysicalEvidenceBodyCount: 0,
+                LogicalOwnerCount: 0,
+                CompleteProfileCount: 0,
+                IncompleteProfileCount: 0,
+                IncompleteReasons: [],
+                UnavailableReasons: []),
+            Distributions: [],
+            new(
+                "Async state-machine bodies",
+                CompleteBodyCount: 0,
+                PresentCount: 0,
+                AbsentCount: 0),
+            TypeSummaries: [],
+            EntangledRelationships: [],
+            Diagnostics: [],
+            salience);
+        var view = new LibraryInspectionView(new LibraryInspection
+        {
+            FileName = "QualifiedFixture.dll",
+            LibraryMetricsQueryResult =
+                new LibraryMetricsResult.Available(document),
+        });
+
+        return MarkoutSerializer.Serialize(
+            view,
+            InspectionContext.Default,
+            new MarkoutWriterOptions
+            {
+                IncludeSections = [SectionNames.LibraryMetrics],
+            });
+    }
 }

@@ -319,13 +319,13 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.implementationBodySelected\)/);
   assert.match(
     documentationLoader,
-    /const signature = memberRequestSignature\(type, overload\)/);
+    /const signature = memberRequestSignature\(type, overload\);\s*const pkg = currentPackage\(\);\s*const platformCoordinates = pkg\.isRuntimePack\s*\?\s*\(\(\) => \{\s*const row = platformLibraryForRequest\(pkg, type\.assemblyId\);\s*return \{\s*assemblyFileName: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*\};\s*\}\)\(\)\s*:\s*null;\s*const assembly = platformCoordinates\?\.assemblyFileName \?\? type\.assembly;\s*const platformPack = platformCoordinates\?\.pack \?\? ""/);
   assert.match(
     documentationLoader,
-    /await Promise\.all\(\[\s*memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*platformPack: pkg\.isRuntimePack\s*\?\s*platformPackForAssembly\(type\.assembly, type\.platformPack\) \?\? ""\s*:\s*"",\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+    /await Promise\.all\(\[\s*memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly,\s*platformPack,\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
   assert.match(
     documentationLoader,
-    /memberDetailInspection\.loadDeclaration\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*isRuntimePack: pkg\.isRuntimePack,\s*platformPack: pkg\.isRuntimePack\s*\?\s*platformPackForAssembly\(type\.assembly, type\.platformPack\) \?\? ""\s*:\s*"",\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: overload\.name,\s*selectorKey: overload\.graphSelectorKey,\s*metadataToken:\s*overload\.declarationMetadataToken \?\? overload\.metadataToken \?\? 0,\s*implementationMember: Boolean\(overload\.graphOnly\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+    /memberDetailInspection\.loadDeclaration\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly,\s*isRuntimePack: pkg\.isRuntimePack,\s*platformPack,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: overload\.name,\s*selectorKey: overload\.graphSelectorKey,\s*metadataToken:\s*overload\.declarationMetadataToken \?\? overload\.metadataToken \?\? 0,\s*implementationMember: Boolean\(overload\.graphOnly\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
   assert.match(
     annotatedLoader,
     /loadFindingCensus\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\)/);
@@ -340,7 +340,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /Promise\.all\(\[\s*loadSelectedMemberFacts\(\),\s*loadSelectedMemberAnnotatedSource\(\),\s*\]\)/);
   assert.equal(
     [...appSource.matchAll(/loadSelectedMemberFactsSurface\(\)/g)].length,
-    4);
+    3);
   assert.match(
     annotatedAction,
     /case "source-select":[\s\S]*?const next = selectAnnotatedNode\(session, node\.id\);\s*setSession\(next\);\s*syncFindingSelectionFromAnnotatedSession\(next\)/);
@@ -652,11 +652,12 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
     ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method" }, true),
+    ["overview", "call-graph", "source"]);
 });
 
-// Arrowing between members keeps ordinary sections sticky. Implementation Profiles is
-// retained only for an exact family that was already activated, so navigation itself
-// cannot authorize expensive analysis for another family.
+// Arrowing between members keeps ordinary sections sticky.
 test("moving between members keeps sections sticky without section-driven profile activation", () => {
   const openMemberGroupBody =
     appSource.match(/function openMemberGroup\(key: string\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
@@ -667,7 +668,7 @@ test("moving between members keeps sections sticky without section-driven profil
     /const preserveSection =\s*state\.memberBrowseTypeId === type\?\.id && Boolean\(state\.selectedMemberKey\)/);
   assert.match(
     openMemberGroupBody,
-    /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(!preserveSection\) \{\s*state\.memberSection = "overview"/);
+    /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview"/);
   assert.match(
     openMemberGroupBody,
     /state\.memberSection !== "overview"[\s\S]*group\.overloads\.length > 1[\s\S]*state\.selectedOverloadIndex = 0;[\s\S]*retainMemberSectionIfSupported\(group\)/);
@@ -740,6 +741,10 @@ test("source requests carry exact type and member identities", () => {
     generatedFacadeSource("inspect-web-source")
       .match(/export async function queryMemberSource\([\s\S]*?\n}/)?.[0]
     ?? "";
+  const platformMemberBridge =
+    generatedFacadeSource("inspect-web-source")
+      .match(/export async function queryPlatformMemberSource\([\s\S]*?\n}/)?.[0]
+    ?? "";
   const memberLoader =
     appSource.match(/async function loadSelectedMemberSource\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
@@ -747,8 +752,11 @@ test("source requests carry exact type and member identities", () => {
     memberBridge,
     /typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson/);
   assert.match(
+    platformMemberBridge,
+    /targetFramework, platformVersion, assemblyName, pack,[\s\S]*typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson, contextId/);
+  assert.match(
     memberLoader,
-    /type\.definitionId \?\? type\.id,[\s\S]*?state\.selectedBodyTarget\?\.memberName[\s\S]*?state\.selectedBodyTarget\?\.selectorKey[\s\S]*?state\.selectedBodyTarget\?\.metadataToken/);
+    /type\.definitionId \?\? type\.id,[\s\S]*?state\.selectedBodyTarget\?\.memberName[\s\S]*?state\.selectedBodyTarget\?\.selectorKey[\s\S]*?state\.selectedBodyTarget\?\.metadataToken[\s\S]*pkg\.isRuntimePack[\s\S]*kind: "platform"[\s\S]*platformAssemblyRequest\(row\)[\s\S]*pack: row\.pack,[\s\S]*contextId: platformDemoContextIdFor\(pkg\)[\s\S]*kind: "package"/);
   assert.doesNotMatch(memberLoader, /signature:/);
 });
 

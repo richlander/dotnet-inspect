@@ -314,6 +314,60 @@ public sealed record BrowserLibraryMetricsRelationship(
     int SourceDegree,
     int TargetDegree);
 
+public sealed record BrowserLibraryStructuralSalience(
+    int SchemaVersion,
+    string Outcome,
+    string? MethodologyVersion,
+    string? EvidenceMode,
+    BrowserLibraryNamespaceLeverageIndex? NamespaceIndex,
+    BrowserLibraryTypeLeverageShard[] TypeLeverageShards,
+    string? Failure,
+    BrowserCompileLibraryAvailability CompileLibrary);
+
+public sealed record BrowserLibraryNamespaceLeverageIndex(
+    string Disposition,
+    BrowserLibrarySignatureUseCoverage Coverage,
+    BrowserLibraryNamespaceLeverageRow[] Namespaces,
+    string[] Diagnostics);
+
+public sealed record BrowserLibraryNamespaceLeverageRow(
+    string Namespace,
+    int TypeCount,
+    int ExternalIncomingSourceTypeCount,
+    bool TopLeverage);
+
+public sealed record BrowserLibraryTypeLeverageShard(
+    string Namespace,
+    string Disposition,
+    BrowserLibrarySignatureUseCoverage Coverage,
+    BrowserLibraryTypeLeverageRow[] Types,
+    string[] SeaLevelOrder,
+    string[] MountainPeakOrder,
+    string[] Diagnostics);
+
+public sealed record BrowserLibrarySignatureUseCoverage(
+    int Considered,
+    int Examined,
+    int Unavailable,
+    int Limited);
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserLibraryStructuralTypePole>))]
+public enum BrowserLibraryStructuralTypePole
+{
+    SeaLevel,
+    MountainPeak,
+}
+
+public sealed record BrowserLibraryTypeLeverageRow(
+    string TypeDefinitionId,
+    string TypeDisplay,
+    bool DesignationEligible,
+    int SignatureIncomingDegree,
+    int SignatureOutgoingDegree,
+    string Role,
+    BrowserLibraryStructuralTypePole? Pole);
+
 public sealed record BrowserPerformanceMember(
     string Assembly,
     string TypeId,
@@ -347,6 +401,15 @@ public sealed record BrowserMethodSignals(
     string[] EvidenceOffsets,
     string[] ExceptionTypes);
 
+public sealed record BrowserAllocationLifetimeUse(
+    int ILOffset,
+    string Kind);
+
+public sealed record BrowserAllocationLifetimeLimitation(
+    string Kind,
+    int? ILOffset,
+    string? Operation);
+
 public sealed record BrowserAllocationFact(
     string Kind,
     string? Type,
@@ -358,7 +421,9 @@ public sealed record BrowserAllocationFact(
     string Escape,
     bool InLoop,
     int? EstimatedSizeBytes,
-    string? Detail);
+    string? Detail,
+    BrowserAllocationLifetimeUse[] LifetimeUses,
+    BrowserAllocationLifetimeLimitation[] LifetimeLimitations);
 
 public sealed record BrowserCallFact(
     string Callee,
@@ -440,6 +505,7 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserLibraryMetrics))]
+[JsonSerializable(typeof(BrowserLibraryStructuralSalience))]
 [JsonSerializable(typeof(BrowserImplementationProfiles))]
 [JsonSerializable(typeof(BrowserTypeImplementationHeat))]
 [JsonSerializable(typeof(BrowserAnalysisInspectionEnvelope))]

@@ -91,20 +91,26 @@ expansion or other realization. An empty package group, unrealized prefix, or
 unavailable explicit source is therefore `Explicit`; zero realized candidates
 do not reactivate `Broad`.
 
-The intent does not name or construct a candidate population. In the current
-four CLI search commands, an empty declaration continues to contribute only
-the platform frameworks below. New Find and Relations consumers tracked by
-[#6761](https://github.com/richlander/dotnet-inspect/issues/6761) will map
-`Broad` to their all-known ecosystem Workspace plan in their separately owned
-host-adoption slices. Existing commands do not change behavior merely because
-the normalized result now exposes this intent.
+The intent does not name or construct a candidate population. `find` maps
+`Broad` to the Ecosystem-provided platform Workspace in its separately owned
+[Find Workspace scope](find-workspace-scope.md) adoption. `implements`,
+`extensions`, and type-mode `depends` continue to consume the platform
+framework contribution below until their own host-adoption slices. Existing
+commands do not change behavior merely because the normalized result exposes
+this intent.
 
-With an empty source declaration, the normalizer returns no package sources
-and exactly these platform frameworks in order:
+With an empty source declaration, the normalizer still returns no package
+sources and exactly these platform frameworks in order:
 
 1. `runtime`
 2. `aspnetcore`
 3. `netstandard`
+
+For `find`, those framework rows are compatibility lowering only: the command
+uses the selection's `Broad` intent to realize the platform Workspace's
+Runtime and ASP.NET Core populations through PlatformHouse. It does not search
+.NET Standard. Other consumers continue to acquire the three lowered
+frameworks.
 
 Any explicit source selector suppresses that default. An explicit source that
 is empty, unavailable, or produces no matches does not fall back to platform

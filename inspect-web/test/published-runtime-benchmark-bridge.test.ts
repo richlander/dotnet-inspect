@@ -12,14 +12,18 @@ function unused(): never {
 
 const client = {
   host: { buildIdentity: unused },
-  package: { queryPackage: unused },
+  package: { queryPackage: unused, loadRuntimePack: unused },
   analysis: {
     queryMemberFacts: unused,
     queryPackagePerformance: unused,
   },
   source: {
-    queryMethodBodyComparison: unused,
-    queryMethodBodyComparisonTargets: unused,
+    queryRetainedMethodBodyComparison: unused,
+    queryRetainedMethodBodyComparisonTargets: unused,
+  },
+  catalog: {
+    activateRetainedWorkspaceDefinition: unused,
+    captureCompleteWorkspaceShareState: unused,
   },
 };
 
@@ -28,22 +32,34 @@ test("published runtime benchmark bridge exposes only owned operations", () => {
 
   assert.deepEqual(Object.keys(bridge).sort(), [
     "analysis",
+    "catalog",
     "host",
     "package",
     "source",
   ]);
   assert.deepEqual(Object.keys(bridge.host), ["buildIdentity"]);
-  assert.deepEqual(Object.keys(bridge.package), ["queryPackage"]);
+  assert.deepEqual(
+    Object.keys(bridge.package),
+    ["queryPackage", "loadRuntimePack"],
+  );
   assert.deepEqual(Object.keys(bridge.analysis).sort(), [
     "queryMemberFacts",
     "queryPackagePerformance",
   ]);
   assert.deepEqual(Object.keys(bridge.source).sort(), [
-    "queryMethodBodyComparison",
-    "queryMethodBodyComparisonTargets",
+    "queryRetainedMethodBodyComparison",
+    "queryRetainedMethodBodyComparisonTargets",
+  ]);
+  assert.deepEqual(Object.keys(bridge.catalog).sort(), [
+    "activateRetainedWorkspaceDefinition",
+    "captureCompleteWorkspaceShareState",
   ]);
   assert.equal(bridge.host.buildIdentity, client.host.buildIdentity);
   assert.equal(bridge.package.queryPackage, client.package.queryPackage);
+  assert.equal(
+    bridge.package.loadRuntimePack,
+    client.package.loadRuntimePack,
+  );
   assert.equal(
     bridge.analysis.queryMemberFacts,
     client.analysis.queryMemberFacts,
@@ -53,12 +69,20 @@ test("published runtime benchmark bridge exposes only owned operations", () => {
     client.analysis.queryPackagePerformance,
   );
   assert.equal(
-    bridge.source.queryMethodBodyComparison,
-    client.source.queryMethodBodyComparison,
+    bridge.source.queryRetainedMethodBodyComparison,
+    client.source.queryRetainedMethodBodyComparison,
   );
   assert.equal(
-    bridge.source.queryMethodBodyComparisonTargets,
-    client.source.queryMethodBodyComparisonTargets,
+    bridge.source.queryRetainedMethodBodyComparisonTargets,
+    client.source.queryRetainedMethodBodyComparisonTargets,
+  );
+  assert.equal(
+    bridge.catalog.activateRetainedWorkspaceDefinition,
+    client.catalog.activateRetainedWorkspaceDefinition,
+  );
+  assert.equal(
+    bridge.catalog.captureCompleteWorkspaceShareState,
+    client.catalog.captureCompleteWorkspaceShareState,
   );
 });
 

@@ -12,10 +12,11 @@ public class IteratorReconstructionPassTests
     // Reconstruction needs the cross-method seam (to import the state machine's
     // MoveNext); IrPasses.Run(function) uses PassContext.None and would leave the
     // kickoff for the acknowledgment fallback instead.
-    static IrFunction Raised(string methodName)
+    static IrFunction Raised(string methodName, Type? fixtureType = null)
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        var type = fixtureType ?? typeof(CfgSampleClass);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(source, type.FullName!, methodName);
         Assert.NotNull(function);
         var context = new PassContext(new Stepper(enabled: false),
             importMethodBody: method => IrImporter.Import(source, method));
@@ -24,7 +25,8 @@ public class IteratorReconstructionPassTests
         return function!;
     }
 
-    static string Print(string methodName) => CSharpPrinter.Print(Raised(methodName)).Output!;
+    static string Print(string methodName, Type? fixtureType = null)
+        => CSharpPrinter.Print(Raised(methodName, fixtureType)).Output!;
 
     static int CountOccurrences(string text, string value)
         => (text.Length - text.Replace(value, "", StringComparison.Ordinal).Length) / value.Length;
@@ -925,6 +927,390 @@ public class IteratorReconstructionPassTests
         // The split disposal scaffolding is fully gone.
         Assert.DoesNotContain("Finally", output);
         Assert.DoesNotContain("GetEnumerator", output);
+    }
+
+    [Fact]
+    public void NestedForeachDelegationIterator_ReconstructsIndexedForAndForeachLoops()
+    {
+        var function = Raised(
+            nameof(IteratorUsingSamples.YieldNestedForeachDelegation),
+            typeof(IteratorUsingSamples));
+
+        Assert.Equal(2, function.Descendants.OfType<ForeachStatement>().Count());
+        Assert.Equal(2, function.Descendants.OfType<YieldReturn>().Count());
+        Assert.Single(function.Descendants.OfType<ForLoop>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), node => node.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void NestedForeachDelegationIterator_RendersIndexedForAndForeachLoops()
+    {
+        string output = Print(
+            nameof(IteratorUsingSamples.YieldNestedForeachDelegation),
+            typeof(IteratorUsingSamples));
+
+        Assert.Contains("for (", output);
+        Assert.Equal(2, CountOccurrences(output, "foreach ("));
+        Assert.Equal(2, CountOccurrences(output, "yield return"));
+        Assert.DoesNotContain("Finally", output);
+        Assert.DoesNotContain("GetEnumerator", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void NestedForeachDelegationIterator_RecompiledBodyIsValidCSharp()
+    {
+        string body = Print(
+            nameof(IteratorUsingSamples.YieldNestedForeachDelegation),
+            typeof(IteratorUsingSamples));
+        string source = $$"""
+            using System.Collections.Generic;
+
+            static class Gate
+            {
+                public static IEnumerable<string> M(IEnumerable<string>[] groups)
+                {
+            {{body}}
+                }
+
+                static IEnumerable<string> YieldCharacters(string value)
+                {
+                    yield break;
+                }
+            }
+            """;
+        var compilation = CSharpCompilation.Create(
+            "nested-foreach-delegation-iterator-gate",
+            [CSharpSyntaxTree.ParseText(
+                source,
+                new CSharpParseOptions(LanguageVersion.Preview),
+                cancellationToken: TestContext.Current.CancellationToken)],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var image = new MemoryStream();
+        var emit = compilation.Emit(
+            image,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
+    }
+
+    [Theory]
+    [InlineData("inner-yield-skips-inner-helper")]
+    [InlineData("outer-yield-enters-inner-helper")]
+    [InlineData("inner-resume-restores-outer-state")]
+    [InlineData("missing-inner-reset")]
+    [InlineData("outer-yield-state-not-dispatched")]
+    [InlineData("fault-range-excludes-move-next")]
+    public void NestedForeachDelegationIterator_MalformedStateResourceRouteDeclines(string shape)
+    {
+        using var source = MetadataSource.Open(typeof(IteratorUsingSamples).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(IteratorUsingSamples).FullName!,
+            nameof(IteratorUsingSamples.YieldNestedForeachDelegation));
+        Assert.NotNull(function);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method =>
+            {
+                var imported = IrImporter.Import(source, method);
+                if (imported is null)
+                    return null;
+
+                if (shape == "inner-yield-skips-inner-helper"
+                    && method.Name == "System.IDisposable.Dispose")
+                {
+                    var branch = Assert.Single(
+                        imported.Descendants.OfType<ConditionalBranch>(),
+                        candidate => candidate.Condition is Comparison
+                        {
+                            Kind: ComparisonKind.Equal,
+                            Right: Constant { Value: 1 },
+                        });
+                    var block = Assert.IsType<Block>(branch.Parent);
+                    var blocks = imported.Body.Blocks;
+                    var blockIndex = blocks.ToList().IndexOf(block);
+                    var outerLeave = blocks[blockIndex + 1];
+                    var condition = (IrExpression)branch.DetachChildren()[0];
+                    var replacement = new ConditionalBranch(
+                        condition,
+                        outerLeave.StartOffset,
+                        branch.Origin);
+                    replacement.InheritSourceOffset(branch);
+                    branch.ReplaceWith(replacement);
+                }
+                else if (shape == "outer-yield-enters-inner-helper"
+                    && method.Name == "System.IDisposable.Dispose")
+                {
+                    var comparison = Assert.Single(
+                        imported.Descendants.OfType<Comparison>(),
+                        candidate => candidate is
+                        {
+                            Kind: ComparisonKind.Equal,
+                            Right: Constant { Value: 1 },
+                        });
+                    comparison.Right.ReplaceWith(new Constant(2, comparison.Right.ResultType!));
+                }
+                else if (shape == "inner-resume-restores-outer-state"
+                    && method.Name == "MoveNext")
+                {
+                    var resume = Assert.Single(
+                        imported.Descendants.OfType<StoreField>(),
+                        store => store is
+                        {
+                            Field.Name: "<>1__state",
+                            Value: Constant { Value: -4 },
+                            Parent: Block { Children.Count: 1 },
+                        });
+                    resume.Value.ReplaceWith(new Constant(-3, resume.Field.Type));
+                }
+                else if (shape == "missing-inner-reset"
+                    && method.Name == "MoveNext")
+                {
+                    var helper = Assert.Single(
+                        imported.Descendants.OfType<Call>(),
+                        call => call.Callee.Name == "<>m__Finally2");
+                    var statement = Assert.IsType<ExpressionStatement>(helper.Parent);
+                    var block = Assert.IsType<Block>(statement.Parent);
+                    var helperIndex = block.Children.ToList().IndexOf(statement);
+                    Assert.IsType<StoreField>(block.Children[helperIndex + 1]).Detach();
+                }
+                else if (shape == "outer-yield-state-not-dispatched"
+                    && method.Name == "MoveNext")
+                {
+                    var stateStore = Assert.Single(
+                        imported.Descendants.OfType<StoreField>(),
+                        store => store is
+                        {
+                            Field.Name: "<>1__state",
+                            Value: Constant { Value: 2 },
+                        });
+                    stateStore.Value.ReplaceWith(new Constant(3, stateStore.Field.Type));
+                }
+                else if (shape == "fault-range-excludes-move-next"
+                    && method.Name == "MoveNext")
+                {
+                    var region = Assert.Single(imported.Regions);
+                    var firstMoveNext = imported.Descendants.OfType<Call>()
+                        .Where(call => call.Callee.Name == "MoveNext")
+                        .OrderBy(call => call.SourceOffset)
+                        .First();
+                    int shortenedStart = imported.Body.Blocks
+                        .Select(block => block.StartOffset)
+                        .First(offset => offset > firstMoveNext.SourceOffset);
+                    int originalEnd = region.TryOffset + region.TryLength;
+                    imported.Regions =
+                    [
+                        region with
+                        {
+                            TryOffset = shortenedStart,
+                            TryLength = originalEnd - shortenedStart,
+                        },
+                    ];
+                }
+
+                return imported;
+            });
+
+        IrPasses.Run(function!, IrPasses.Default, context);
+        function!.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        Assert.Single(function.Descendants.OfType<UnsupportedNode>(), node => node.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void TwoEnumeratorUsingIterator_ReconstructsNestedUsingScopes()
+    {
+        var function = Raised(
+            nameof(IteratorUsingSamples.YieldZipWithEmpty),
+            typeof(IteratorUsingSamples));
+
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        var outer = Assert.Single(function.Body.Descendants.OfType<UsingStatement>(),
+            statement => function.LocalNames[statement.LocalIndex] == "enum1");
+        var inner = Assert.Single(outer.Body.Descendants.OfType<UsingStatement>());
+        Assert.Equal("enum2", function.LocalNames[inner.LocalIndex]);
+        Assert.Equal(["Dispose"], outer.ConsumedMemberRefs.Select(method => method.Name));
+        Assert.Equal(["Dispose"], inner.ConsumedMemberRefs.Select(method => method.Name));
+        Assert.Contains(inner.Body.Descendants.OfType<WhileLoop>(), _ => true);
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), node => node.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void TwoEnumeratorUsingIterator_RendersUsingLoopAndYield()
+    {
+        var output = Print(
+            nameof(IteratorUsingSamples.YieldZipWithEmpty),
+            typeof(IteratorUsingSamples));
+
+        Assert.Equal(2, CountOccurrences(output, "using ("));
+        Assert.Contains("enum1 = first.GetEnumerator()", output);
+        Assert.Contains("enum2 = second.GetEnumerator()", output);
+        Assert.Contains("while (", output);
+        Assert.Contains("yield return", output);
+        Assert.DoesNotContain("Finally", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void TwoEnumeratorUsingIterator_RecompiledBodyIsValidCSharp()
+    {
+        string body = Print(
+            nameof(IteratorUsingSamples.YieldZipWithEmpty),
+            typeof(IteratorUsingSamples));
+        string source = $$"""
+            using System.Collections.Generic;
+
+            static class Gate
+            {
+                public static IEnumerable<(string, string)> M(
+                    IEnumerable<string> first,
+                    IEnumerable<string> second)
+                {
+            {{body}}
+                }
+            }
+            """;
+        var compilation = CSharpCompilation.Create(
+            "two-enumerator-using-iterator-gate",
+            [CSharpSyntaxTree.ParseText(
+                source,
+                new CSharpParseOptions(LanguageVersion.Preview),
+                cancellationToken: TestContext.Current.CancellationToken)],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var image = new MemoryStream();
+        var emit = compilation.Emit(
+            image,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
+    }
+
+    [Theory]
+    [InlineData("missing-helper")]
+    [InlineData("missing-state-dispose")]
+    [InlineData("extra-helper-statement")]
+    [InlineData("dispose-omits-helper")]
+    [InlineData("dispose-wrong-helper-receiver")]
+    [InlineData("dispose-helper-outside-finally")]
+    [InlineData("dispose-yield-state-skips-inner-helper")]
+    [InlineData("yield-state-not-dispatched")]
+    public void TwoEnumeratorUsingIterator_MalformedDisposalEvidenceDeclines(string shape)
+    {
+        using var source = MetadataSource.Open(typeof(IteratorUsingSamples).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(IteratorUsingSamples).FullName!,
+            nameof(IteratorUsingSamples.YieldZipWithEmpty));
+        Assert.NotNull(function);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method =>
+            {
+                if (shape == "missing-helper" && method.Name == "<>m__Finally2"
+                    || shape == "missing-state-dispose" && method.Name == "System.IDisposable.Dispose")
+                {
+                    return null;
+                }
+
+                var imported = IrImporter.Import(source, method);
+                if (imported is null)
+                    return null;
+
+                if (shape == "extra-helper-statement" && method.Name == "<>m__Finally2")
+                {
+                    var block = imported.Body.Blocks[0];
+                    var branch = block.Children[^1];
+                    branch.Detach();
+                    var intType = TypeRef.CoreLib("System", "Int32");
+                    int local = imported.AddLocal(intType, "extra");
+                    block.Add(new StoreLocal(local, intType, new Constant(0, intType)));
+                    block.Add(branch);
+                }
+                else if (shape == "dispose-omits-helper"
+                    && method.Name == "System.IDisposable.Dispose")
+                {
+                    var call = Assert.Single(
+                        imported.Descendants.OfType<Call>(),
+                        candidate => candidate.Callee.Name == "<>m__Finally2");
+                    Assert.IsType<ExpressionStatement>(call.Parent).Detach();
+                }
+                else if (shape == "dispose-wrong-helper-receiver"
+                    && method.Name == "System.IDisposable.Dispose")
+                {
+                    var call = Assert.Single(
+                        imported.Descendants.OfType<Call>(),
+                        candidate => candidate.Callee.Name == "<>m__Finally2");
+                    var receiver = Assert.Single(call.Arguments);
+                    receiver.ReplaceWith(new Constant(null, receiver.ResultType!));
+                }
+                else if (shape == "dispose-helper-outside-finally"
+                    && method.Name == "System.IDisposable.Dispose")
+                {
+                    var call = Assert.Single(
+                        imported.Descendants.OfType<Call>(),
+                        candidate => candidate.Callee.Name == "<>m__Finally2");
+                    var statement = Assert.IsType<ExpressionStatement>(call.Parent);
+                    var entry = imported.Body.Blocks[0];
+                    var terminal = entry.Children[^1];
+                    statement.Detach();
+                    terminal.Detach();
+                    call.SetSourceOffset(entry.StartOffset);
+                    entry.Add(statement);
+                    entry.Add(terminal);
+                }
+                else if (shape == "dispose-yield-state-skips-inner-helper"
+                    && method.Name == "System.IDisposable.Dispose")
+                {
+                    var branch = Assert.Single(
+                        imported.Descendants.OfType<ConditionalBranch>(),
+                        candidate => candidate.Condition is Comparison
+                        {
+                            Kind: ComparisonKind.Equal,
+                            Right: Constant { Value: 1 },
+                        });
+                    var block = Assert.IsType<Block>(branch.Parent);
+                    var blocks = imported.Body.Blocks;
+                    var blockIndex = blocks.ToList().IndexOf(block);
+                    var outerLeave = blocks[blockIndex + 1];
+                    Assert.IsType<Leave>(Assert.Single(outerLeave.Children));
+                    var condition = (IrExpression)branch.DetachChildren()[0];
+                    var replacement = new ConditionalBranch(
+                        condition,
+                        outerLeave.StartOffset,
+                        branch.Origin);
+                    replacement.InheritSourceOffset(branch);
+                    branch.ReplaceWith(replacement);
+                }
+                else if (shape == "yield-state-not-dispatched"
+                    && method.Name == "MoveNext")
+                {
+                    var current = Assert.Single(
+                        imported.Descendants.OfType<StoreField>(),
+                        store => store.Field.Name == "<>2__current");
+                    var block = Assert.IsType<Block>(current.Parent);
+                    var currentIndex = block.Children.ToList().IndexOf(current);
+                    var stateStore = Assert.IsType<StoreField>(block.Children[currentIndex + 1]);
+                    stateStore.Value.ReplaceWith(new Constant(2, stateStore.Field.Type));
+                }
+
+                return imported;
+            });
+
+        IrPasses.Run(function!, IrPasses.Default, context);
+        function!.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        Assert.Single(function.Descendants.OfType<UnsupportedNode>(), node => node.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
 
     [Fact]

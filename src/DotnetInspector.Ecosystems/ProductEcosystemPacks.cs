@@ -56,12 +56,7 @@ internal static class ProductEcosystemPacks
             ])
         {
             NamespaceRoots = ["Microsoft.Extensions"],
-            CorePackages =
-            [
-                new("Microsoft.Extensions.DependencyInjection.Abstractions"),
-                new("Microsoft.Extensions.Configuration.Abstractions"),
-                new("Microsoft.Extensions.Logging.Abstractions"),
-            ],
+            DependsOn = EcosystemPackIds.Runtime,
         }, "ecosystem.microsoft-extensions",
         [
             new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
@@ -77,11 +72,7 @@ internal static class ProductEcosystemPacks
             PopulationLoader: ProductEcosystemPopulationLoaders.AspNetCore)
         {
             NamespaceRoots = ["Microsoft.AspNetCore"],
-            CorePackages =
-            [
-                new("Microsoft.AspNetCore.OpenApi"),
-                new("Microsoft.AspNetCore.Authentication.JwtBearer"),
-            ],
+            DependsOn = EcosystemPackIds.MicrosoftExtensions,
         }, "ecosystem.aspnetcore",
         [
             new WorkspaceEcosystemPopulationDeclaration.Platform(
@@ -102,7 +93,12 @@ internal static class ProductEcosystemPacks
             Scanner: EcosystemIntegrationScanner.AspireBinding)
         {
             NamespaceRoots = ["Aspire"],
-            CorePackages = [new("Aspire.Hosting")],
+            DependsOn = EcosystemPackIds.AspNetCore,
+            CorePackages =
+            [
+                new("Aspire.Hosting"),
+                new("Aspire.Hosting.Testing"),
+            ],
             ToolPackages = [new("Aspire.Cli")],
         }, "ecosystem.aspire",
         [
@@ -112,15 +108,15 @@ internal static class ProductEcosystemPacks
         ProjectWorkspace(new(
             EcosystemPackIds.AI,
             "AI",
-            "AI abstractions, agents, vector data, and protocol packages.",
+            "AI model clients, abstractions, agents, and protocol packages.",
             500,
             PackageSet: null,
             [])
         {
+            DependsOn = EcosystemPackIds.MicrosoftExtensions,
             NamespaceRoots =
             [
                 "Microsoft.Extensions.AI",
-                "Microsoft.Extensions.VectorData",
                 "Microsoft.Agents.AI",
                 "ModelContextProtocol",
             ],
@@ -128,58 +124,16 @@ internal static class ProductEcosystemPacks
             [
                 new("Microsoft.Extensions.AI"),
                 new("Microsoft.Extensions.AI.Abstractions"),
-                new("Microsoft.Extensions.VectorData.Abstractions"),
-                new("Microsoft.Agents.AI"),
+                new("OpenAI"),
+                new("Anthropic"),
+                new("Google.GenAI"),
                 new("ModelContextProtocol"),
+                new("Microsoft.Agents.AI"),
             ],
         }, "ecosystem.ai",
         [
             new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
                 new PackagePrefixDeclaration("Microsoft.Extensions.AI")),
-            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
-                new PackagePrefixDeclaration("Microsoft.Extensions.VectorData")),
-            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
-                new PackagePrefixDeclaration("Microsoft.Agents.AI")),
-            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
-                new PackagePrefixDeclaration("ModelContextProtocol")),
-        ]),
-        ProjectWorkspace(new(
-            EcosystemPackIds.Azure,
-            "Azure",
-            "Azure client libraries, identity, and Microsoft.Extensions integration.",
-            600,
-            PackageSet: null,
-            [])
-        {
-            NamespaceRoots =
-            [
-                "Azure",
-                "Microsoft.Extensions.Azure",
-            ],
-            CorePackages =
-            [
-                new("Microsoft.Extensions.Azure"),
-                new("Azure.AI.OpenAI"),
-                new("Microsoft.Azure.SignalR"),
-                new("Aspire.Azure.AI.OpenAI"),
-                new("Aspire.Hosting.Azure.SignalR"),
-                new("Azure.Identity"),
-                new("Azure.Security.KeyVault.Secrets"),
-                new("Azure.Storage.Blobs"),
-                new("Azure.Messaging.ServiceBus"),
-            ],
-        }, "ecosystem.azure",
-        [
-            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
-                new PackagePrefixDeclaration("Azure.")),
-            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
-                new PackagePrefixDeclaration("Microsoft.Azure.")),
-            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
-                new PackagePrefixDeclaration("Microsoft.Extensions.Azure")),
-            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
-                new PackagePrefixDeclaration("Aspire.Azure.")),
-            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
-                new PackagePrefixDeclaration("Aspire.Hosting.Azure.")),
         ]),
         ProjectWorkspace(new(
             EcosystemPackIds.Blazor,
@@ -189,6 +143,7 @@ internal static class ProductEcosystemPacks
             PackageSet: null,
             [])
         {
+            DependsOn = EcosystemPackIds.AspNetCore,
             NamespaceRoots =
             [
                 "Microsoft.AspNetCore.Components",
@@ -216,6 +171,7 @@ internal static class ProductEcosystemPacks
             PackageSet: null,
             [])
         {
+            DependsOn = EcosystemPackIds.MicrosoftExtensions,
             NamespaceRoots =
             [
                 "Microsoft.Maui",
@@ -242,24 +198,11 @@ internal static class ProductEcosystemPacks
 
     internal static WorkspacePlan PlatformWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
         Registry,
-        [
-            EcosystemPackIds.Runtime,
-            EcosystemPackIds.AspNetCore,
-            EcosystemPackIds.MicrosoftExtensions,
-        ]);
+        Registry.ExpandLineages([EcosystemPackIds.AspNetCore]));
 
     internal static WorkspacePlan AllKnownWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
         Registry,
-        [
-            EcosystemPackIds.Runtime,
-            EcosystemPackIds.AspNetCore,
-            EcosystemPackIds.MicrosoftExtensions,
-            EcosystemPackIds.Aspire,
-            EcosystemPackIds.AI,
-            EcosystemPackIds.Azure,
-            EcosystemPackIds.Blazor,
-            EcosystemPackIds.Maui,
-        ],
+        Registry.ExpandLineages(Registry.Packs.Select(pack => pack.Id)),
         requireAllPacks: true);
 
     internal static EcosystemDependencyRecognitionProfile
@@ -299,27 +242,17 @@ internal static class ProductEcosystemPacks
                     EcosystemPackIds.AI,
                     [
                         PackageFamily("Microsoft.Extensions.AI"),
-                        PackageFamily("Microsoft.Extensions.VectorData"),
-                        PackageFamily("Microsoft.Agents.AI"),
-                        PackageFamily("ModelContextProtocol"),
                         AssemblyFamily("Microsoft.Extensions.AI"),
-                        AssemblyFamily("Microsoft.Extensions.VectorData"),
-                        AssemblyFamily("Microsoft.Agents.AI"),
-                        AssemblyFamily("ModelContextProtocol"),
-                    ]),
-                Dependencies(
-                    EcosystemPackIds.Azure,
-                    [
-                        PackageFamily("Azure"),
-                        PackageFamily("Microsoft.Azure"),
-                        PackageFamily("Microsoft.Extensions.Azure"),
-                        PackageFamily("Aspire.Azure"),
-                        PackageFamily("Aspire.Hosting.Azure"),
-                        AssemblyFamily("Azure"),
-                        AssemblyFamily("Microsoft.Azure"),
-                        AssemblyFamily("Microsoft.Extensions.Azure"),
-                        AssemblyFamily("Aspire.Azure"),
-                        AssemblyFamily("Aspire.Hosting.Azure"),
+                        ExactPackage("OpenAI"),
+                        ExactPackage("Anthropic"),
+                        ExactPackage("Google.GenAI"),
+                        ExactPackage("ModelContextProtocol"),
+                        ExactPackage("Microsoft.Agents.AI"),
+                        ExactAssembly("OpenAI"),
+                        ExactAssembly("Anthropic"),
+                        ExactAssembly("Google.GenAI"),
+                        ExactAssembly("ModelContextProtocol"),
+                        ExactAssembly("Microsoft.Agents.AI"),
                     ]),
                 Dependencies(
                     EcosystemPackIds.Blazor,
@@ -376,6 +309,9 @@ internal static class ProductEcosystemPacks
 
     private static EcosystemDependencyAssociation PackageFamily(string value) =>
         EcosystemDependencyAssociation.PackageIdFamily(value);
+
+    private static EcosystemDependencyAssociation ExactPackage(string value) =>
+        EcosystemDependencyAssociation.ExactPackageId(value);
 
     private static EcosystemDependencyAssociation AssemblyFamily(string value) =>
         EcosystemDependencyAssociation.AssemblyNameFamily(value);

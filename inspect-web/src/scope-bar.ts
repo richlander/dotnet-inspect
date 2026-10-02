@@ -387,12 +387,12 @@ export function restoreScopeBarFocus(
 
 function bindRovingTabs(tabs: readonly HTMLButtonElement[]): void {
   tabs.forEach((tab, index) => {
-    tab.addEventListener("focus", () => {
+    tab.onfocus = () => {
       tabs.forEach(candidate => {
         candidate.tabIndex = candidate === tab ? 0 : -1;
       });
-    });
-    tab.addEventListener("keydown", event => {
+    };
+    tab.onkeydown = event => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         const id = groupItemId(tab);
@@ -420,7 +420,7 @@ function bindRovingTabs(tabs: readonly HTMLButtonElement[]): void {
       if (!target) return;
       event.preventDefault();
       target.focus();
-    });
+    };
   });
 }
 
@@ -431,42 +431,58 @@ function navigationItemIsDisabled(item: HTMLButtonElement): boolean {
 function bindItemActions(
   root: ParentNode,
   actions: ScopeBarBindingActions,
+  controller: ScopeBarController | null,
 ): void {
   root.querySelectorAll<HTMLButtonElement>("[data-scope]").forEach(button =>
-    button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true"
-        || navigationItemIsDisabled(button)) return;
+    button.onclick = () => {
+      if (navigationItemIsDisabled(button)) return;
+      controller?.prepareItemActivation(button);
+      if (button.dataset.navigationCurrent === "true") return;
       const scope = button.dataset.scope;
-      if (isWorkspaceScope(scope)) actions.onScopeSelect(scope);
-    }));
+      if (isWorkspaceScope(scope)) {
+        actions.onScopeSelect(scope);
+      }
+    });
   root.querySelectorAll<HTMLButtonElement>("[data-package-lens]").forEach(
-    button => button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true"
-        || navigationItemIsDisabled(button)) return;
+    button => button.onclick = () => {
+      if (navigationItemIsDisabled(button)) return;
+      controller?.prepareItemActivation(button);
+      if (button.dataset.navigationCurrent === "true") return;
       const lens = button.dataset.packageLens;
-      if (isPackageLens(lens)) actions.onPackageLensSelect(lens);
-    }));
+      if (isPackageLens(lens)) {
+        actions.onPackageLensSelect(lens);
+      }
+    });
   root.querySelectorAll<HTMLButtonElement>("[data-library-lens]").forEach(
-    button => button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true"
-        || navigationItemIsDisabled(button)) return;
+    button => button.onclick = () => {
+      if (navigationItemIsDisabled(button)) return;
+      controller?.prepareItemActivation(button);
+      if (button.dataset.navigationCurrent === "true") return;
       const lens = button.dataset.libraryLens;
-      if (isLibraryLens(lens)) actions.onLibraryLensSelect(lens);
-    }));
+      if (isLibraryLens(lens)) {
+        actions.onLibraryLensSelect(lens);
+      }
+    });
   root.querySelectorAll<HTMLButtonElement>("[data-lens]").forEach(button =>
-    button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true"
-        || navigationItemIsDisabled(button)) return;
+    button.onclick = () => {
+      if (navigationItemIsDisabled(button)) return;
+      controller?.prepareItemActivation(button);
+      if (button.dataset.navigationCurrent === "true") return;
       const lens = button.dataset.lens;
-      if (isTypeLens(lens)) actions.onTypeLensSelect(lens);
-    }));
+      if (isTypeLens(lens)) {
+        actions.onTypeLensSelect(lens);
+      }
+    });
   root.querySelectorAll<HTMLButtonElement>("[data-member-section]").forEach(
-    button => button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true"
-        || navigationItemIsDisabled(button)) return;
+    button => button.onclick = () => {
+      if (navigationItemIsDisabled(button)) return;
+      controller?.prepareItemActivation(button);
+      if (button.dataset.navigationCurrent === "true") return;
       const section = button.dataset.memberSection;
-      if (isMemberSection(section)) actions.onMemberSectionSelect(section);
-    }));
+      if (isMemberSection(section)) {
+        actions.onMemberSectionSelect(section);
+      }
+    });
 }
 
 export function bindScopeBar(
@@ -483,7 +499,7 @@ export function bindScopeBar(
   bindRovingTabs([
     ...root.querySelectorAll<HTMLButtonElement>("[data-inspector-tab]"),
   ]);
-  bindItemActions(root, actions);
+  bindItemActions(root, actions, controller);
   return {
     disconnect() {
       controller?.disconnect();
@@ -539,7 +555,7 @@ function tabButton(
       ? ` aria-controls="${escapeHtml(panelId)}"`
       : ""}`
     : "";
-  return `<button type="button" class="adaptive-navigation-tab lens ${current ? "active" : ""}" ${itemAttributes(id, attribute, current, escapeHtml)} data-navigation-item="tab" data-inspector-tab role="tab" aria-selected="${current}" tabindex="${tabStop ? "0" : "-1"}"${activeAttributes} aria-label="${escapedLabel}" title="${escapedLabel}"><span class="lens-label">${escapedLabel}</span></button>`;
+  return `<button type="button" class="adaptive-navigation-tab lens ${current ? "active" : ""}" ${itemAttributes(id, attribute, current, escapeHtml)} data-rendered-interaction-key="scope-bar:tab:${escapeHtml(attribute)}:${escapeHtml(id)}" data-navigation-item="tab" data-inspector-tab role="tab" aria-selected="${current}" tabindex="${tabStop ? "0" : "-1"}"${activeAttributes} aria-label="${escapedLabel}" title="${escapedLabel}"><span class="lens-label">${escapedLabel}</span></button>`;
 }
 
 function subjectTab(
@@ -551,7 +567,7 @@ function subjectTab(
   escapeHtml: (value: unknown) => string,
 ): string {
   const escapedLabel = escapeHtml(label);
-  return `<button type="button" class="adaptive-navigation-tab scope-seg ${current ? "active" : ""}" ${itemAttributes(id, "data-scope", current, escapeHtml)} data-navigation-item="tab" data-subject-tab role="tab" aria-selected="${current}" tabindex="${tabStop ? "0" : "-1"}"${current ? ' id="active-subject-tab"' : ""} aria-controls="${escapeHtml(subjectPanelId)}" aria-label="${escapedLabel}" title="${escapedLabel}"><span>${escapedLabel}</span></button>`;
+  return `<button type="button" class="adaptive-navigation-tab scope-seg ${current ? "active" : ""}" ${itemAttributes(id, "data-scope", current, escapeHtml)} data-rendered-interaction-key="scope-bar:tab:data-scope:${escapeHtml(id)}" data-navigation-item="tab" data-subject-tab role="tab" aria-selected="${current}" tabindex="${tabStop ? "0" : "-1"}"${current ? ' id="active-subject-tab"' : ""} aria-controls="${escapeHtml(subjectPanelId)}" aria-label="${escapedLabel}" title="${escapedLabel}"><span>${escapedLabel}</span></button>`;
 }
 
 function menuItem(
@@ -562,7 +578,7 @@ function menuItem(
   escapeHtml: (value: unknown) => string,
 ): string {
   const escapedLabel = escapeHtml(label);
-  return `<button type="button" class="adaptive-navigation-menu-item ${current ? "active" : ""}" ${itemAttributes(id, attribute, current, escapeHtml)} data-navigation-item="menuitem" role="menuitemradio" aria-checked="${current}" tabindex="-1" aria-label="${escapedLabel}" title="${escapedLabel}">${escapedLabel}</button>`;
+  return `<button type="button" class="adaptive-navigation-menu-item ${current ? "active" : ""}" ${itemAttributes(id, attribute, current, escapeHtml)} data-rendered-interaction-key="scope-bar:menuitem:${escapeHtml(attribute)}:${escapeHtml(id)}" data-navigation-item="menuitem" role="menuitemradio" aria-checked="${current}" tabindex="-1" aria-label="${escapedLabel}" title="${escapedLabel}">${escapedLabel}</button>`;
 }
 
 function descriptorStateLabel(state: string): string {
@@ -1297,44 +1313,47 @@ class ScopeBarController implements ScopeBarBinding {
     return group.menu.ownerDocument.activeElement === target;
   }
 
+  prepareItemActivation(item: HTMLButtonElement): void {
+    const group = this.subject?.menu.contains(item)
+      ? this.subject
+      : this.inspector?.menu.contains(item)
+        ? this.inspector
+        : null;
+    if (!group) return;
+    this.closeMenu(group, false);
+    if (item.dataset.localNavigationAction !== undefined) return;
+    const id = groupItemId(item);
+    const target = id
+      ? group.tabItems.find(tab => groupItemId(tab) === id)
+      : null;
+    if (group.form === "tabs" && target) {
+      target.focus({ preventScroll: true });
+    } else {
+      group.trigger.focus({ preventScroll: true });
+    }
+  }
+
   private bindGroup(group: AdaptiveNavigationGroup | null): void {
     if (!group) return;
-    group.trigger.addEventListener("click", () => {
+    group.trigger.onclick = () => {
       if (group.state.open) {
         this.closeMenu(group, true);
       } else {
         this.openMenu(group, true);
       }
-    });
-    group.trigger.addEventListener("keydown", event => {
+    };
+    group.trigger.onkeydown = event => {
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
       event.preventDefault();
       this.openMenu(group, true, event.key === "ArrowUp");
-    });
+    };
     group.menuItems.forEach(item => {
-      item.addEventListener("focus", () => {
+      item.onfocus = () => {
         group.state.focusedId = groupItemId(item);
-      });
-      item.addEventListener("click", () => {
-        if (navigationItemIsDisabled(item)) return;
-        const activates = item.dataset.navigationCurrent !== "true";
-        const localAction =
-          item.dataset.localNavigationAction !== undefined;
-        this.closeMenu(group, !activates);
-        if (!activates || localAction) return;
-        const id = groupItemId(item);
-        const target = id
-          ? group.tabItems.find(tab => groupItemId(tab) === id)
-          : null;
-        if (group.form === "tabs" && target) {
-          target.focus({ preventScroll: true });
-        } else {
-          group.trigger.focus({ preventScroll: true });
-        }
-      });
-      item.addEventListener("keydown", event => {
+      };
+      item.onkeydown = event => {
         this.handleMenuKey(group, item, event);
-      });
+      };
     });
   }
 

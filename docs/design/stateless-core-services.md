@@ -405,8 +405,6 @@ listed owners.
 | Browser retains several live Workspace scopes | Retained definitions with one materialized realization | Inspect Web retained host [#6757](https://github.com/richlander/dotnet-inspect/issues/6757) |
 | Spotlight activation preserves current realized content after registration removal | Current consumer requiring focused adaptation, not rollback here | Workspace Scope [#6751](https://github.com/richlander/dotnet-inspect/issues/6751) and retained host [#6757](https://github.com/richlander/dotnet-inspect/issues/6757) |
 | Artifact sessions, groups, snapshots, and query admissions | Correctness-bearing active-realization ownership | Artifact and Workspace owners |
-| `AnalysisIndexCache` survives Workspaces | Realization- or operation-owned derived evidence | Analysis [#6754](https://github.com/richlander/dotnet-inspect/issues/6754) |
-| `ResearchAssemblyContextCache` strongly retains exact indexes | Exact-index memoization without lifetime extension | Research [#6755](https://github.com/richlander/dotnet-inspect/issues/6755) |
 | `PlatformTypeCatalog` retains path-keyed filesystem inventory | Exact-generation realization state or recomputation | Platform [#6756](https://github.com/richlander/dotnet-inspect/issues/6756) |
 | Package acquisition single-flight removes settled entries | Behavior-transparent in-flight coordination | Package owner; retain if its equivalence contract remains satisfied |
 | Weak memoization keyed by an exact immutable reader | Behavior-transparent implementation detail | Focused format owner |
@@ -461,7 +459,7 @@ efforts:
 | Workspace Definitions [#6750](https://github.com/richlander/dotnet-inspect/issues/6750) | Distinguish a resource-free definition from each materialized realization identity. |
 | Workspace Scope [#6751](https://github.com/richlander/dotnet-inspect/issues/6751) | Define Add with `Added` and `AlreadyPresent`, keep components immutable, and remove update/removal/validation policy from Workspace. |
 | Workspace realization [#6752](https://github.com/richlander/dotnet-inspect/issues/6752) | Define and model candidate construction, cutover, admission closure, drainage, and visible settlement. |
-| Analysis [#6754](https://github.com/richlander/dotnet-inspect/issues/6754) | End `AnalysisIndexCache` history at an operation or exact Workspace realization boundary. |
+| Analysis [#6754](https://github.com/richlander/dotnet-inspect/issues/6754) | Keep path-backed Research execution operation-local by invoking the stateless Analysis service per request. |
 | Research [#6755](https://github.com/richlander/dotnet-inspect/issues/6755) | Stop exact-index memoization from extending index ownership across unrelated operations. |
 | Platform [#6756](https://github.com/richlander/dotnet-inspect/issues/6756) | Associate `PlatformTypeCatalog` observations with exact generation evidence or recompute them. |
 | Type dependencies [#6758](https://github.com/richlander/dotnet-inspect/issues/6758) | Pass explicit realization authority through one terminal operation already shared by the CLI and Browser/Wasm. |

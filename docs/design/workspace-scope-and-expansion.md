@@ -390,14 +390,37 @@ with their existing owners rather than becoming plan execution state.
 `WorkspacePlan.TraversalTargetPolicy` carries the non-null, host-neutral value
 owned by
 [Traversal target-framework policy](traversal-target-framework-policy.md).
-Existing constructors use its `ProductDefault(net12.0)` value; callers may
-supply a configured policy. The policy is immutable traversal intent retained
-by every Workspace created from the plan, and registration replacement
-preserves the exact instance.
+Existing constructors use its `ProductDefault(net11.0)` value; callers may
+supply a configured policy. The retained-plan shape is correct:
+the value is immutable traversal authority for every Workspace created from
+the plan, and registration replacement preserves the exact instance.
 
-This adoption does not consume the policy to select assets, rewrite explicit
-contexts, or begin acquisition or traversal. Those remain focused follow-on
-adoptions under the owners identified by the policy design.
+The policy keeps this plan value authoritative from Workspace
+construction through every traversal. It is available before any Package or
+Platform is realized. The product-curated default plan registers the .NET
+Runtime Ecosystem and can realize a matching .NET 11 Platform through an
+authorized package source. `WorkspacePlan.Empty` has no implicit registration
+or acquisition authority, but it retains the same `net11.0` target so a loaded
+package can be traversed coherently. A configured plan such as `net10.0`
+governs every traversal and permits only matching Platform composition. The
+same rule permits an explicitly configured `net12.0` plan to compose an
+authorized local .NET 12 layout even though `net12.0` is not the product
+default and its Platform is not available from the default package source.
+
+The product-curated plan's default target and default .NET Platform version
+must project one product-owned release line. `ProductDefault(net11.0)` can
+therefore compose an exact `11.0.*` Platform version, but never a .NET 10 or
+.NET 12 version. The exact servicing patch, feature band, and prerelease
+status remain Platform evidence. Workspace does not maintain an independent
+default version literal or infer correspondence from display text.
+
+This adoption does not consume the plan value to select a root package,
+rewrite explicit contexts, begin acquisition, or reconstruct a target from a
+realized member. Platform realization consumes the target and issues separate
+identity, membership, and generation evidence; it does not replace the target.
+The corrected product default and generated Browser Platform catalog
+correspondence are implemented. Realization-time Platform correspondence
+remains focused follow-on work under its owning design.
 
 ##### Request-to-plan adoption and evidence
 
@@ -445,7 +468,7 @@ claiming the corresponding property. The planned gates are:
 | Pinned equivalent inline document and programmatic intent preserve the same context/target associations. | Definitions lowering is gated by `InspectionDefinitionTests.ResolveScenario_LowersSupportedContextsIntoReusableWorkspacePlan`; **implemented by #6750**. |
 | CLI and Browser/Wasm inspect the same System.Text.Json subject through the shared plan path. | CLI is gated by `DemoCommandTests.ExecuteScenario_StjDefinitionAndProgrammaticPlanReturnSameMethods` under #6836. Browser/Wasm is gated by `BrowserEngineBoundaryTests.PlatformHomeDemo_DefinitionAndProgrammaticPlansReturnSameMethods` under #6855. |
 | A context-bearing plan remains reusable after close; a registration replacement preserves context intent and does not alter another live owner. | Expanded `WorkspacePlanTests` and public non-friend consumer; **implemented by #6810**. |
-| Every plan has one default target-framework policy, omitted configuration uses `ProductDefault(net11.0)`, independent owners retain the same value, and registration replacement cannot change it. | `WorkspacePlanTests.EmptyPlanIsReusableWithoutSharingLiveIdentity`, `ExplicitTargetPolicyIsCanonicalReusableConstructionIntent`, and `ReplacementChangesOneLivePlanWithoutMutatingSharedData`; **implemented by this slice under the policy defined by #7353**. |
+| Every plan has one target-framework policy, omitted configuration uses `ProductDefault(net11.0)`, the product-default Workspace .NET version shares that release line, independent owners retain the same value, and registration replacement cannot change it. | `WorkspacePlanTests.EmptyPlanIsReusableWithoutSharingLiveIdentity`, `ExplicitTargetPolicyIsCanonicalReusableConstructionIntent`, and `ReplacementChangesOneLivePlanWithoutMutatingSharedData` gate retention; the corrected default and product Workspace correspondence are **unverified until #7423 adoption**. |
 | Incompatible target declarations or an unsupported subscription remain explicit failures, not a successful partial composition or a silently selected context. | `InspectionDefinitionTests.ResolveScenario_DefersTargetValidationToPlanInvocation` and `Registry_RejectsSubscribeAndFilesystemCoordinates_AndCrossKindPeers`; **implemented by #6750**. |
 | Browser plan invocation preserves loader validation before acquisition; interactive demo graphs retain their selected composition rather than ordinary cumulative browsing. | `PlatformHomeDemo_ProductionValidatesBeforeAcquisition` and `PlatformHomeDemo_ExportRetainsExactContextAcrossReloadAndDrill` in the Release Browser suite; frontend activation/coordinator tests gate the exported request handoff. Browser retention and expiry remain under [Platform demo construction and retained selection](../../inspect-web/README.md#platform-demo-construction-and-retained-selection). |
 | Raw and definition-authored construction do not receive implicit Ecosystems curation; explicit catalog plans retain their authored registrations. | Definitions' raw plan is gated by `InspectionDefinitionTests.ResolveScenario_LowersSupportedContextsIntoReusableWorkspacePlan`; CLI plan parity and raw registrations are gated by `ExecuteScenario_StjDefinitionAndProgrammaticPlanReturnSameMethods`. Explicit catalog plans retain the existing `EcosystemWorkspaceConstructionTests` and public-consumer gates. Browser adoption is gated by `PlatformHomeDemo_DefinitionAndProgrammaticPlansReturnSameMethods`. |

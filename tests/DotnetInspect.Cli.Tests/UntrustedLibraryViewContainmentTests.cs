@@ -681,7 +681,10 @@ public class AttributeValueRetentionTests
         }
         else if (format == "--tsv")
         {
-            Assert.StartsWith($"name\tvalue{Environment.NewLine}", output, StringComparison.Ordinal);
+            Assert.StartsWith(
+                "name\tvalue\n",
+                output.ReplaceLineEndings("\n"),
+                StringComparison.Ordinal);
         }
         else
         {
@@ -1270,8 +1273,9 @@ public class UntrustedDeclarationSpellingContainmentTests : IDisposable
     [Fact]
     public async Task FinalizerShapeNode_WithHostileTypeName_RendersNoHazard()
     {
+        // A finalizer is protected, so it renders in the complete population.
         var (_, output, error) = await HostileCli.RunAsync(
-            "type", $"DeclNs.Bad{Hazard}INJECTEDCTOR", "--library", _path, "--tree");
+            "type", $"DeclNs.Bad{Hazard}INJECTEDCTOR", "--library", _path, "--tree", "--all");
 
         var combined = output + "\n" + error;
         // The finalizer node spells `~Bad<hazard>INJECTEDCTOR()`, so the marker
@@ -1517,7 +1521,6 @@ public class LibraryViewShapeDerivedContainmentTests
         "LibraryInspection.HealthChecks (List`1): computed projection still null after the walk",
         "LibraryInspection.Hosting (List`1): computed projection still null after the walk",
         "LibraryInspection.HttpClient (List`1): computed projection still null after the walk",
-        "LibraryInspection.InspectionFailures (List`1): computed projection still null after the walk",
         "LibraryInspection.Integrations (List`1): computed projection still null after the walk",
         "LibraryInspection.Logging (List`1): computed projection still null after the walk",
         "LibraryInspection.MetadataOverview (MetadataImageOverview): computed projection still null after the walk",
@@ -1981,6 +1984,13 @@ public class LibraryViewShapeDerivedContainmentTests
             if (type.IsArray)
             {
                 return Array.CreateInstance(type.GetElementType()!, 0);
+            }
+
+            // A version carries no text, but a null one would stop the walk at
+            // constructors that require it, such as LibraryAssemblyIdentity.
+            if (type == typeof(Version))
+            {
+                return new Version(1, 0, 0, 0);
             }
 
             if (IsImmutableArray(type))

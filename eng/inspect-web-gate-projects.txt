@@ -12,6 +12,7 @@ src/DotnetInspect.Web.Interop.Source
 src/Inspector.Artifacts
 src/Inspector.Artifacts.Local
 src/Inspector.Artifacts.Workspaces
+src/Inspector.Graph
 src/DotnetInspector.Cache
 src/DotnetInspector.DependencyManifests
 src/DotnetInspector.DocumentationHouse
@@ -39,6 +40,7 @@ src/DotnetInspector.Presentation
 src/DotnetInspector.Queries
 src/QuerySpace
 src/DotnetInspector.ResearchQueries
+src/DotnetInspector.ResearchSections
 src/DotnetInspector.Sections
 src/DotnetInspector.Services
 src/DotnetInspector.SourceHouse

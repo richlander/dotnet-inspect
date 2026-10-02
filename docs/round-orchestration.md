@@ -339,13 +339,15 @@ must not weaken or broaden the prompt's trust model and finding-admission rules.
 It also records the user purpose, convention or best-practice baseline,
 intentional divergence, analogous implementation evidence, pathological or
 boundary case and gate, complexity basis, consumer, production-host adoption,
-and retirement plan, rendering strategy, current slice and residual work, and
-the demo with a neighboring case. Use `Not applicable — <reason>` only when
-the reason names the relevant change classification and exact-head evidence;
-cite the owning design's exact section when it defines the boundary.
-Agents that prefer a structured composition aid may instead fill the optional
+and retirement plan, rendering strategy, shared and specialized work with its
+code-sharing rationale, current slice and residual work, and the demo with a
+neighboring case. Use `Not applicable — <reason>` only when the reason names
+the relevant change classification and exact-head evidence; cite the owning
+design's exact section when it defines the boundary.
+Agents that prefer a structured composition aid may fill the append-only
 [`docs/templates/adversarial-review-prompt.md`](templates/adversarial-review-prompt.md),
-which includes the same fixed prompt followed by candidate placeholders.
+then append it after the complete canonical prompt. The checklist contains only
+candidate placeholders; it never duplicates or replaces the fixed prompt.
 
 Do not dispatch with a generic or incoherent frame. The prompt must name one
 normative owner and exact claim, the supported actor or caller, the controlled
@@ -361,13 +363,17 @@ count, any applicable existing-architecture retirement plan, any recorded
 single-consumer or single-host approval and its exact scope, and the rendering
 strategy. Host-neutral components still require the counted path to observable
 host behavior; test infrastructure may name its harness as the production
-host. Reviewers judge the visible design's consistency with those supplied
-facts; they do not grant approvals or invent roadmap decisions. State the facts
-directly in the self-contained prompt; links may support them but do not
-replace them. For a correctness review without an untrusted actor, name the
-ordinary supported caller and input instead. Candidate formation must make
-every non-applicability explanation judgeable from the normative owner,
-changed surfaces, and exact-head diff. If required fields cannot be filled or
+host. A modernization, producer, query, or metadata-decoding change must also
+state the information each terminal and presented data require, the work
+avoided, the shared and specialized stages, rejected per-query and monolithic
+alternatives, and the evidence that justifies that boundary. Reviewers judge
+the visible design's consistency with those supplied facts; they do not grant
+approvals or invent roadmap decisions. State the facts directly in the
+self-contained prompt; links may support them but do not replace them. For a
+correctness review without an untrusted actor, name the ordinary supported
+caller and input instead. Candidate formation must make every
+non-applicability explanation judgeable from the normative owner, changed
+surfaces, and exact-head diff. If required fields cannot be filled or
 non-applicability cannot be established, return to design or scope
 clarification before spending a review round.
 
@@ -506,8 +512,13 @@ can evaluate, such as `check:<name>`, `checks`, `merge`, or `review`; it is not
 a blocker, and it clears only when every listed predicate clears.
 
 - `continue` means the next round is inside the current authorized six-round
-  block. Emit the report, then immediately begin the next candidate cycle. Do
-  not ask, set `HELP`, or wait for user input.
+  block. The report is a visible checkpoint, not a stopping point: immediately
+  begin the next candidate cycle without asking, setting `HELP`, or waiting for
+  user input. Pause before another review round only when the next step depends
+  on an unresolved design question or the six-round grant has expired. This
+  does not suppress the terminal or block-boundary decisions listed below.
+  Operational waits remain tool-evaluable waits, not requests for next-round
+  direction.
 - `wait` requires a non-empty `Blocked` or `Waiting` field. A retained
   `schedule` means the agent will check automatically; without one, the wait is
   passive and resumes only when a later user or workflow turn re-enters it.

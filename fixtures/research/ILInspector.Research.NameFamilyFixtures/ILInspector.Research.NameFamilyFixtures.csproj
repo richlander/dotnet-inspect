@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Scenario-adjacent fixture for Library name-family summaries (#8698).
+    Its assembly and embedded Portable PDB jointly supply exact Type identity,
+    suffix-family populations, word-breaking boundaries, and all four
+    source-provenance dispositions.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <DebugType>embedded</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+    <PathMap>$(MSBuildProjectDirectory)=/_</PathMap>
+  </PropertyGroup>
+
+</Project>

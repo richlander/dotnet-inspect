@@ -11,6 +11,7 @@ using ILInspector.Decompiler;
 using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using ClassifiedRow = ILInspector.Analysis.Classification.ClassifiedMethodRow;
 
 namespace DotnetInspect.Cli.Models;
 
@@ -63,7 +64,8 @@ public class LibraryInspection
 
     [JsonIgnore]
     public InspectionEnvelope<EcosystemDependencyRecognitionOutcome>?
-        EcosystemDependencyRecognitionInspection { get; set; }
+        EcosystemDependencyRecognitionInspection
+    { get; set; }
 
     /// <summary>
     /// Presentation-selected ecosystem-dependency pairs. Null retains the
@@ -71,7 +73,8 @@ public class LibraryInspection
     /// </summary>
     [JsonIgnore]
     public IReadOnlyList<EcosystemDependencyRecognitionEntry>?
-        EcosystemDependencyRows { get; set; }
+        EcosystemDependencyRows
+    { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public EcosystemDependencyRecognitionJson? EcosystemDependencies =>
@@ -180,13 +183,23 @@ public class LibraryInspection
     /// </summary>
     [JsonIgnore]
     public FindingInspection<AssemblySurfaceClassification>?
-        SurfaceClassificationInspection { get; set; }
+        SurfaceClassificationInspection
+    { get; set; }
 
     /// <summary>
-    /// File last modified timestamp.
+    /// The host-neutral Library document facts for a managed assembly
+    /// (<c>docs/design/library-info-composition.md</c>), or null for native and
+    /// manifestless images, which keep the legacy view path.
     /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public DateTime? LastModified { get; set; }
+    [JsonIgnore]
+    public LibraryDocument? LibraryDocument { get; set; }
+
+    /// <summary>
+    /// Why the Library document could not be read for a managed assembly.
+    /// Library Info reports it instead of document-sourced rows.
+    /// </summary>
+    [JsonIgnore]
+    public string? LibraryDocumentFailure { get; set; }
 
     /// <summary>
     /// Publisher identity from NuGet package author signature (CN).
@@ -430,19 +443,6 @@ public class LibraryInspection
             ref _extensionMethods,
             ProjectExtensionMethods);
 
-    private List<ClassifiedMethodSummary>? _unsafeMethods;
-
-    /// <summary>
-    /// Presentation rows for public methods with unsafe (pointer) signatures.
-    /// Classification semantics come from <see cref="ClassifiedMethodInspection"/>.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<ClassifiedMethodSummary>? UnsafeMethods
-    {
-        get => ClassifiedMethodInspection.Failure() is null ? _unsafeMethods : null;
-        set => _unsafeMethods = value;
-    }
-
     /// <summary>
     /// Members with unsafe signature or body-level unsafe evidence.
     /// P/Invoke-only methods are excluded and remain in P/Invoke Methods.
@@ -502,7 +502,8 @@ public class LibraryInspection
     /// <summary>CLI-owned member coordinates joined to typed leverage evidence.</summary>
     [JsonIgnore]
     public IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>?
-        TopLeverageDrillMap { get; set; }
+        TopLeverageDrillMap
+    { get; set; }
 
     /// <summary>
     /// Compatibility projection of methods ranked by call-graph leverage. Assembly-wide;
@@ -529,7 +530,8 @@ public class LibraryInspection
     /// <summary>CLI-owned member coordinates joined to implementation profiles.</summary>
     [JsonIgnore]
     public IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>?
-        ImplementationProfilesDrillMap { get; set; }
+        ImplementationProfilesDrillMap
+    { get; set; }
 
     private LibraryMetricsResult? _libraryMetricsQueryResult;
 
@@ -541,6 +543,20 @@ public class LibraryInspection
         set
         {
             _libraryMetricsQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    private LibraryNameFamilyQueryResult? _nameFamilyQueryResult;
+
+    /// <summary>Typed name-family inspection result.</summary>
+    [JsonIgnore]
+    public LibraryNameFamilyQueryResult? NameFamilyQueryResult
+    {
+        get => _nameFamilyQueryResult;
+        set
+        {
+            _nameFamilyQueryResult = value;
             ResetFindingProjectionCaches();
         }
     }
@@ -574,7 +590,8 @@ public class LibraryInspection
     /// </summary>
     [JsonIgnore]
     public ImmutableArray<OptimizationOpportunity>
-        PerformanceTriageOpportunities { get; set; } = [];
+        PerformanceTriageOpportunities
+    { get; set; } = [];
 
     /// <summary>
     /// Nested performance projection: the optimization opportunities bucketed by kind, mirroring
@@ -621,12 +638,14 @@ public class LibraryInspection
     /// <summary>CLI-filtered typed assessments retained through presentation.</summary>
     [JsonIgnore]
     public ImmutableArray<ResourceTriageAssessment>
-        ResourceTriageAssessments { get; set; } = [];
+        ResourceTriageAssessments
+    { get; set; } = [];
 
     /// <summary>CLI-owned member coordinates joined to typed resource triage evidence.</summary>
     [JsonIgnore]
     public IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>?
-        ResourceTriageDrillMap { get; set; }
+        ResourceTriageDrillMap
+    { get; set; }
 
     [JsonIgnore]
     public PerformanceTriageOptions PerformanceTriageOptions { get; set; } = PerformanceTriageOptions.Default;
@@ -690,66 +709,129 @@ public class LibraryInspection
     [JsonIgnore]
     public BodyKindQueryOptions BodyKindQueryOptions { get; set; } = BodyKindQueryOptions.Default;
 
+    private string? _methodClassificationFailure;
+    private Dictionary<MethodClassificationAnalyzer, string>? _analyzerFailures;
+
+    /// <summary>
+    /// Why the method classification request as a whole failed, such as an
+    /// image that could not be acquired, or null. It withholds every
+    /// classification count and row, and shows in Inspection Failures.
+    /// </summary>
+    [JsonIgnore]
+    public string? MethodClassificationFailure
+    {
+        get => _methodClassificationFailure;
+        set
+        {
+            _methodClassificationFailure = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    /// <summary>
+    /// Records that one analyzer failed or aborted, naming it and the method.
+    /// It withholds that analyzer's counts and rows only.
+    /// </summary>
+    public void FailMethodClassification(MethodClassificationAnalyzer analyzer, string reason)
+    {
+        _analyzerFailures ??= [];
+        _analyzerFailures.TryAdd(analyzer, reason);
+        ResetFindingProjectionCaches();
+    }
+
+    /// <summary>Why <paramref name="analyzer"/> has no answer, or null when it answered.</summary>
+    public string? MethodClassificationFailureOf(MethodClassificationAnalyzer analyzer) =>
+        _methodClassificationFailure
+        ?? (_analyzerFailures is { } failures && failures.TryGetValue(analyzer, out string? reason) ? reason : null);
+
     private List<ClassifiedMethodSummary>? _pInvokeMethods;
 
     /// <summary>
-    /// Presentation rows for public P/Invoke (DllImport/LibraryImport) methods.
-    /// Classification semantics come from <see cref="ClassifiedMethodInspection"/>.
+    /// Public P/Invoke (DllImport/LibraryImport) methods in model order, present
+    /// only when the P/Invoke Methods section asked for its rows.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<ClassifiedMethodSummary>? PInvokeMethods
     {
-        get => ClassifiedMethodInspection.Failure() is null ? _pInvokeMethods : null;
+        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.PInvoke) is null ? _pInvokeMethods : null;
         set => _pInvokeMethods = value;
     }
 
     private List<AsyncMethodSummary>? _asyncMethods;
 
     /// <summary>
-    /// Presentation rows for public runtime or classic state-machine async methods.
-    /// Classification semantics come from <see cref="ClassifiedMethodInspection"/>.
+    /// Public runtime or classic state-machine async methods in model order,
+    /// present only when the Async Methods section asked for its rows.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<AsyncMethodSummary>? AsyncMethods
     {
-        get => ClassifiedMethodInspection.Failure() is null ? _asyncMethods : null;
+        get => MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer) is null ? _asyncMethods : null;
         set => _asyncMethods = value;
     }
 
-    private FindingInspection<ClassifiedMethodObservation>? _classifiedMethodInspection;
+    private ImmutableArray<ClassifiedRow> _pInvokeMethodDisplayRows;
 
+    /// <summary>The P/Invoke rows in the Markdown display order; default when not asked.</summary>
     [JsonIgnore]
-    public FindingInspection<ClassifiedMethodObservation>? ClassifiedMethodInspection
+    public ImmutableArray<ClassifiedRow> PInvokeMethodDisplayRows
     {
-        get => _classifiedMethodInspection;
-        set
-        {
-            _classifiedMethodInspection = value;
-            ResetFindingProjectionCaches();
-        }
+        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.PInvoke) is null ? _pInvokeMethodDisplayRows : default;
+        set => _pInvokeMethodDisplayRows = value;
     }
 
-    [JsonIgnore]
-    public int UnsafeMethodCount =>
-        CountClassifiedMethods(MethodClassification.Unsafe, _unsafeMethods?.Count ?? 0);
+    private ImmutableArray<ClassifiedRow> _asyncMethodDisplayRows;
 
+    /// <summary>The async rows in the Markdown display order; default when not asked.</summary>
     [JsonIgnore]
-    public int PInvokeMethodCount =>
-        CountClassifiedMethods(MethodClassification.PInvoke, _pInvokeMethods?.Count ?? 0);
-
-    [JsonIgnore]
-    public int AsyncMethodCount
+    public ImmutableArray<ClassifiedRow> AsyncMethodDisplayRows
     {
-        get
-        {
-            if (ClassifiedMethodInspection is null)
-                return _asyncMethods?.Count ?? 0;
-
-            return ClassifiedMethodInspection.PayloadsForRendering().Count(
-                static method => method.Classification is MethodClassification.RuntimeAsync
-                    or MethodClassification.StateMachineAsync);
-        }
+        get => MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer) is null ? _asyncMethodDisplayRows : default;
+        set => _asyncMethodDisplayRows = value;
     }
+
+    private int? _unsafeMethodCount;
+
+    /// <summary>
+    /// The number of public methods with pointer signatures, from the pointer
+    /// analyzer's Count; null when no consumer asked or the request failed.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? UnsafeMethodCount
+    {
+        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.PointerSignature) is null ? _unsafeMethodCount : null;
+        set => _unsafeMethodCount = value;
+    }
+
+    private int? _pInvokeMethodCount;
+
+    /// <summary>The number of public P/Invoke methods, from the P/Invoke analyzer's Count.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? PInvokeMethodCount
+    {
+        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.PInvoke) is null ? _pInvokeMethodCount : null;
+        set => _pInvokeMethodCount = value;
+    }
+
+    private int? _asyncMethodCount;
+
+    /// <summary>The number of public async methods, from the async analyzer's Count.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? AsyncMethodCount
+    {
+        get => MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer) is null ? _asyncMethodCount : null;
+        set => _asyncMethodCount = value;
+    }
+
+    /// <summary>Whether the async analyzer found any method, by its rows or its count.</summary>
+    [JsonIgnore]
+    public bool HasAsyncMethods =>
+        AsyncMethodDisplayRows is { IsDefault: false, IsEmpty: false } || AsyncMethodCount > 0;
+
+    /// <summary>Whether the P/Invoke analyzer found any method, by its rows or its count.</summary>
+    [JsonIgnore]
+    public bool HasPInvokeMethods =>
+        PInvokeMethodDisplayRows is { IsDefault: false, IsEmpty: false } || PInvokeMethodCount > 0;
 
     private FindingInspection<EcosystemIntegrationSignalInfo>? _ecosystemIntegrationInspection;
     private FindingInspection<OpenTelemetrySignalInfo>? _openTelemetryInspection;
@@ -945,118 +1027,145 @@ public class LibraryInspection
             ref _inspectionFailures,
             () =>
             {
-            List<LibraryInspectionFailureJson> failures = [];
-            AddFailure(failures, "References", AssemblyReferenceInspection);
-            AddFailure(failures, "Source Documents", SourceDocumentInspection);
-            AddFailure(failures, "Compilation Options", CompilationOptionInspection);
-            AddFailure(failures, "Compilation References", CompilationReferenceInspection);
-            AddFailure(failures, "Classified Methods", ClassifiedMethodInspection);
-            AddFailure(failures, SectionNames.UnsafeMembers, UnsafeEvidenceInspection);
-            if (TopLeverageQueryResult is TopLeverageResult.Failed leverageFailure)
-            {
-                failures.Add(new LibraryInspectionFailureJson(
-                    SectionNames.TopLeverage,
-                    TopLeverageQuery.Definition.Name,
-                    leverageFailure.Error.Message));
-            }
-            if (ImplementationProfilesQueryResult
-                is ImplementationProfilesResult.Failed profileFailure)
-            {
-                failures.Add(new LibraryInspectionFailureJson(
-                    SectionNames.MemberMetrics,
-                    ImplementationProfilesQuery.Definition.Name,
-                    profileFailure.Error.Message));
-            }
-            if (LibraryMetricsQueryResult
-                is LibraryMetricsResult.Failed libraryMetricsFailure)
-            {
-                failures.Add(new LibraryInspectionFailureJson(
-                    SectionNames.LibraryMetrics,
-                    LibraryMetricsQuery.Definition.Name,
-                    libraryMetricsFailure.Error.Message));
-            }
-            if (OptimizationOpportunitiesQueryResult
-                is OptimizationOpportunitiesResult.Failed optimizationFailure)
-            {
-                failures.Add(new LibraryInspectionFailureJson(
-                    SectionNames.PerformanceTriage,
-                    OptimizationOpportunitiesQuery.Definition.Name,
-                    optimizationFailure.Error.Message));
-                if (BodyKindQueryOptions.HasFilter
-                    && PerformanceTriageOptions.HasCandidateFilters)
+                List<LibraryInspectionFailureJson> failures = [];
+                AddFailure(failures, "References", AssemblyReferenceInspection);
+                AddFailure(failures, "Source Documents", SourceDocumentInspection);
+                AddFailure(failures, "Compilation Options", CompilationOptionInspection);
+                AddFailure(failures, "Compilation References", CompilationReferenceInspection);
+                if (MethodClassificationFailure is { } classificationFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        "Classified Methods",
+                        MethodClassificationQuery.Definition.Name,
+                        classificationFailure));
+                }
+                else if (_analyzerFailures is { } analyzerFailures)
+                {
+                    foreach (MethodClassificationAnalyzer analyzer in Enum.GetValues<MethodClassificationAnalyzer>())
+                    {
+                        if (analyzerFailures.TryGetValue(analyzer, out string? analyzerFailure))
+                        {
+                            failures.Add(new LibraryInspectionFailureJson(
+                                "Classified Methods",
+                                MethodClassificationQuery.Definition.Name,
+                                analyzerFailure));
+                        }
+                    }
+                }
+                AddFailure(failures, SectionNames.UnsafeMembers, UnsafeEvidenceInspection);
+                if (TopLeverageQueryResult is TopLeverageResult.Failed leverageFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.TopLeverage,
+                        TopLeverageQuery.Definition.Name,
+                        leverageFailure.Error.Message));
+                }
+                if (ImplementationProfilesQueryResult
+                    is ImplementationProfilesResult.Failed profileFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.MemberMetrics,
+                        ImplementationProfilesQuery.Definition.Name,
+                        profileFailure.Error.Message));
+                }
+                if (LibraryMetricsQueryResult
+                    is LibraryMetricsResult.Failed libraryMetricsFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.LibraryMetrics,
+                        LibraryMetricsQuery.Definition.Name,
+                        libraryMetricsFailure.Error.Message));
+                }
+                if (NameFamilyQueryResult
+                    is LibraryNameFamilyQueryResult.Failed nameFamilyFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.NameFamilies,
+                        LibraryNameFamilyQuery.Definition.Name,
+                        nameFamilyFailure.Error.Message));
+                }
+                if (OptimizationOpportunitiesQueryResult
+                    is OptimizationOpportunitiesResult.Failed optimizationFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.PerformanceTriage,
+                        OptimizationOpportunitiesQuery.Definition.Name,
+                        optimizationFailure.Error.Message));
+                    if (BodyKindQueryOptions.HasFilter
+                        && PerformanceTriageOptions.HasCandidateFilters)
+                    {
+                        failures.Add(new LibraryInspectionFailureJson(
+                            SectionNames.BodyShapes,
+                            OptimizationOpportunitiesQuery.Definition.Name,
+                            optimizationFailure.Error.Message));
+                    }
+                }
+                if (BodyShapesQueryResult is BodyShapesResult.Failed bodyShapesFailure)
                 {
                     failures.Add(new LibraryInspectionFailureJson(
                         SectionNames.BodyShapes,
-                        OptimizationOpportunitiesQuery.Definition.Name,
-                        optimizationFailure.Error.Message));
+                        BodyShapesQuery.Definition.Name,
+                        bodyShapesFailure.Error.Message));
                 }
-            }
-            if (BodyShapesQueryResult is BodyShapesResult.Failed bodyShapesFailure)
-            {
-                failures.Add(new LibraryInspectionFailureJson(
-                    SectionNames.BodyShapes,
-                    BodyShapesQuery.Definition.Name,
-                    bodyShapesFailure.Error.Message));
-            }
-            AddFailure(failures, "Extension Methods", ExtensionMemberInspection);
-            AddFailure(failures, LibraryIntegrationCatalog.RollupName, EcosystemIntegrationInspection);
-            AddFailure(failures, EcosystemIntegrationNames.OpenTelemetry, OpenTelemetryInspection);
-            AddFailure(failures, "Resources", ResourceInspection);
-            AddFailure(failures, "Custom Attributes", AssemblyAttributeInspection);
-            AddFailure(failures, "Type Forwarders", TypeForwarderInspection);
-            AddFailure(failures, "Union Types", UnionTypeInspection);
-            AddFailure(failures, "Switches", SwitchInspection);
-            switch (AssemblyIntegrationOpportunitiesEntry)
-            {
-                case AssemblyIntegrationOpportunitiesEntry.Rejected rejected:
-                    failures.Add(new LibraryInspectionFailureJson(
-                        IntegrationSectionNames.Opportunities,
-                        AssemblyContextIntegrationOpportunitiesQuery
-                            .Definition.Name,
-                        $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"));
-                    break;
+                AddFailure(failures, "Extension Methods", ExtensionMemberInspection);
+                AddFailure(failures, LibraryIntegrationCatalog.RollupName, EcosystemIntegrationInspection);
+                AddFailure(failures, EcosystemIntegrationNames.OpenTelemetry, OpenTelemetryInspection);
+                AddFailure(failures, "Resources", ResourceInspection);
+                AddFailure(failures, "Custom Attributes", AssemblyAttributeInspection);
+                AddFailure(failures, "Type Forwarders", TypeForwarderInspection);
+                AddFailure(failures, "Union Types", UnionTypeInspection);
+                AddFailure(failures, "Switches", SwitchInspection);
+                switch (AssemblyIntegrationOpportunitiesEntry)
+                {
+                    case AssemblyIntegrationOpportunitiesEntry.Rejected rejected:
+                        failures.Add(new LibraryInspectionFailureJson(
+                            IntegrationSectionNames.Opportunities,
+                            AssemblyContextIntegrationOpportunitiesQuery
+                                .Definition.Name,
+                            $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"));
+                        break;
 
-                case AssemblyIntegrationOpportunitiesEntry.Failed failed:
+                    case AssemblyIntegrationOpportunitiesEntry.Failed failed:
+                        failures.Add(new LibraryInspectionFailureJson(
+                            IntegrationSectionNames.Opportunities,
+                            AssemblyContextIntegrationOpportunitiesQuery
+                                .Definition.Name,
+                            failed.Error.Message));
+                        break;
+                }
+                if (MetadataImageResult is MetadataImageResult.Failed metadataFailure)
+                {
                     failures.Add(new LibraryInspectionFailureJson(
-                        IntegrationSectionNames.Opportunities,
-                        AssemblyContextIntegrationOpportunitiesQuery
-                            .Definition.Name,
-                        failed.Error.Message));
-                    break;
-            }
-            if (MetadataImageResult is MetadataImageResult.Failed metadataFailure)
-            {
-                failures.Add(new LibraryInspectionFailureJson(
-                    MetadataSectionNames.Image,
-                    MetadataImageQuery.Definition.Name,
-                    metadataFailure.Error.Message));
-            }
-            if (ReadyToRunImageResult is ReadyToRunImageResult.Failed readyToRunFailure)
-            {
-                failures.Add(new LibraryInspectionFailureJson(
-                    ReadyToRunSectionNames.Image,
-                    ReadyToRunImageQuery.Definition.Name,
-                    readyToRunFailure.Error.Message));
-            }
-            if (SourceAvailabilityQueryResult is SourceAvailabilityResult.Failed availabilityFailure)
-            {
-                failures.Add(new LibraryInspectionFailureJson(
-                    DotnetInspect.Cli.Sections.SectionNames.SourceLinkAvailability,
-                    SourceAvailabilityQuery.Definition.Name,
-                    availabilityFailure.Reason));
-            }
-            if (SourceIntegrityQueryResult is SourceIntegrityResult.Failed integrityFailure)
-            {
-                failures.Add(new LibraryInspectionFailureJson(
-                    DotnetInspect.Cli.Sections.SectionNames.SourceLinkIntegrity,
-                    SourceIntegrityQuery.Definition.Name,
-                    integrityFailure.Reason));
-            }
-            AddFailure(
-                failures,
-                DotnetInspect.Cli.Sections.SectionNames.ArrayPoolEscapes,
-                ResourceLifecycleInspection);
-            return NullIfEmpty(failures);
+                        MetadataSectionNames.Image,
+                        MetadataImageQuery.Definition.Name,
+                        metadataFailure.Error.Message));
+                }
+                if (ReadyToRunImageResult is ReadyToRunImageResult.Failed readyToRunFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        ReadyToRunSectionNames.Image,
+                        ReadyToRunImageQuery.Definition.Name,
+                        readyToRunFailure.Error.Message));
+                }
+                if (SourceAvailabilityQueryResult is SourceAvailabilityResult.Failed availabilityFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        DotnetInspect.Cli.Sections.SectionNames.SourceLinkAvailability,
+                        SourceAvailabilityQuery.Definition.Name,
+                        availabilityFailure.Reason));
+                }
+                if (SourceIntegrityQueryResult is SourceIntegrityResult.Failed integrityFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        DotnetInspect.Cli.Sections.SectionNames.SourceLinkIntegrity,
+                        SourceIntegrityQuery.Definition.Name,
+                        integrityFailure.Reason));
+                }
+                AddFailure(
+                    failures,
+                    DotnetInspect.Cli.Sections.SectionNames.ArrayPoolEscapes,
+                    ResourceLifecycleInspection);
+                return NullIfEmpty(failures);
             });
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1353,12 +1462,6 @@ public class LibraryInspection
         _switches = null;
     }
 
-    private int CountClassifiedMethods(MethodClassification classification, int fallback)
-        => ClassifiedMethodInspection is null
-            ? fallback
-            : ClassifiedMethodInspection.PayloadsForRendering().Count(
-                method => method.Classification == classification);
-
     private List<LibraryExtensionMethodJson>? ProjectExtensionMethods()
     {
         if (_extensionMemberDisplayOrder is null)
@@ -1444,7 +1547,7 @@ public sealed record LibraryExtensionMethodJson(
     int? Overloads);
 
 /// <summary>
-/// Summary of a classified method (unsafe or P/Invoke).
+/// Summary of a public P/Invoke method.
 /// </summary>
 public record class ClassifiedMethodSummary
 {

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -158,7 +159,7 @@ public sealed class ResearchTargetCorrespondenceKey :
         ResearchTargetScopeId scope,
         ResearchTargetDomainId domain,
         ResearchTargetRelationshipRole role,
-        ResearchTargetBodyIdentity? bodyIdentity,
+        MethodBodyIdentity? bodyIdentity,
         MemberAnchor? anchor)
     {
         if ((role == ResearchTargetRelationshipRole.None)
@@ -190,7 +191,7 @@ public sealed class ResearchTargetCorrespondenceKey :
 
     public ResearchTargetRelationshipRole Role { get; }
 
-    public ResearchTargetBodyIdentity? BodyIdentity { get; }
+    public MethodBodyIdentity? BodyIdentity { get; }
 
     public MemberAnchor? Anchor { get; }
 

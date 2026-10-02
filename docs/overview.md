@@ -123,8 +123,16 @@ producers that will extend that space.
   explicit-source suppression, and named platform/package scope expansion. Its
   [Find type-search service](design/find-search-service.md) owns the
   CLI-scoped boundary from host-authorized candidate collection through typed
-  exact, glob, namespace-prefix, partial, and miss classification; Metadata
-  retains candidate facts and the command retains presentation.
+  exact, glob, namespace-prefix, partial, and miss classification. Its
+  [Type Find population selection](design/type-find-population-selection.md)
+  dependency owns host-neutral first-nonempty Prefix, Substring, and Partial
+  settlement while retaining exact caller associations; Metadata retains
+  candidate facts and the command retains presentation.
+  [Ecosystem Find Search](design/ecosystem-find-search.md) owns the
+  host-neutral bounded-before-prefix scheduler that deduplicates concrete
+  source work, reduces owner-issued Find blocks to every admitting Ecosystem,
+  and preserves phase, membership, failure, and completion evidence for CLI
+  and Browser adoption.
   Its [ReadyToRun CLI projection](design/readytorun-cli-projection.md) owns the
   explicit ReadyToRun section lens and metadata-root subject selection while
   retaining PE and metadata interpretation in `ILInspector.Metadata`.
@@ -293,6 +301,11 @@ producers that will extend that space.
   Metadata's physical exception-region facts and Instructions' decoded
   exception-flow facts under the
   [exception facts composition](design/exception-facts-composition.md).
+  The target
+  [Assembly Analysis Operation](design/assembly-analysis-operation.md)
+  composes a resource-free producer description, exact owner-issued assembly
+  access, QuerySpace sources, stateless service execution, and detached
+  producer outcomes without taking ownership from those focused contracts.
   `AnalysisFindings` exposes reusable typed censuses and comparisons for
   allocations, call sites, unsafe operations, and unsafe declaration/body
   evidence.
@@ -812,6 +825,14 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Find type-search service](design/find-search-service.md): CLI-scoped
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
+- [Ecosystem Find Search](design/ecosystem-find-search.md): host-neutral
+  bounded-before-prefix scheduling, distinct-source deduplication,
+  cross-Ecosystem membership reduction, durable Find blocks, and terminal
+  completion for CLI and Browser adoption.
+- [Type Find population
+  selection](design/type-find-population-selection.md): host-neutral
+  first-nonempty Prefix, Substring, and Partial settlement over one complete
+  ordered population while retaining exact caller associations.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
 - [Inspection envelope](design/inspection-envelope.md): host-neutral terminal
   wrapper preserving owner-issued primary content and typed cross-host
@@ -834,6 +855,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   operation-scoped binding from one exact finite universe description and
   validated plan to owner-issued executable capabilities, deterministic
   population and context access, retained lifetimes, and visible failure.
+- [Evidence and metric coordination](design/evidence-metric-coordination.md):
+  prerequisite normalization, compatible acquisition and derivation sharing,
+  typed fact or edge handoff, metric and roll-up execution, and exact
+  population-bound work receipts without redefining producer or metric
+  semantics.
 - [`ts-jsexport` TypeScript facade generation](design/ts-jsexport.md): ownership,
   type views, compiler handoff, related generator categories, and migration from
   direct JavaScript plus declaration emission.

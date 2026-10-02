@@ -4,6 +4,9 @@ import {
   createTypeHeatCoordinator,
   familyHeatCue,
   familyHeatFor,
+  implementationHeatFamilyIsEligible,
+  implementationHeatVisibleFamilyIsEligible,
+  implementationHeatVisibleFamilyMatchesRequest,
   projectFamilyHeat,
   typeHeatCacheKey,
   type PackageTypeHeatRequest,
@@ -18,6 +21,146 @@ import type {
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 
 const typeId = "type:Example.Widget";
+
+test("heat admits only coherent ordinary or single-declarer extension families", () => {
+  const ordinary = {
+    name: "Parse",
+    kind: "method",
+    overloads: [{ accessibility: "public" }, { accessibility: "public" }],
+  };
+  const extensions = {
+    name: "Deserialize",
+    kind: "extension-method",
+    overloads: [
+      {
+        accessibility: "public",
+        anchorTypeFullName: "System.Text.Json.JsonDocument",
+        declaringTypeDefinitionId: "System.Text.Json.JsonSerializer",
+      },
+      {
+        accessibility: "public",
+        anchorTypeFullName: "System.Text.Json.JsonDocument",
+        declaringTypeDefinitionId: "System.Text.Json.JsonSerializer",
+      },
+    ],
+  };
+  const privateExtensions = {
+    name: "TryMakeArrayType",
+    kind: "extension-method",
+    overloads: [
+      {
+        accessibility: "private",
+        anchorTypeFullName: "System.Type",
+        declaringTypeDefinitionId:
+          "System.Reflection.SignatureTypeExtensions",
+      },
+      {
+        accessibility: "private",
+        anchorTypeFullName: "System.Type",
+        declaringTypeDefinitionId:
+          "System.Reflection.SignatureTypeExtensions",
+      },
+    ],
+  };
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      "public",
+      [ordinary, extensions],
+      ordinary),
+    true);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      "public",
+      [ordinary, extensions],
+      extensions),
+    true);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      "public",
+      [extensions],
+      { ...extensions, overloads: [extensions.overloads[0]!] }),
+    false);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      "public",
+      [extensions],
+      {
+        ...extensions,
+        overloads: [
+          extensions.overloads[0]!,
+          {
+            accessibility: "public",
+            anchorTypeFullName: "System.Text.Json.JsonDocument",
+            declaringTypeDefinitionId: "Example.OtherExtensions",
+          },
+        ],
+      }),
+    false);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      "public",
+      [ordinary, { ...extensions, name: ordinary.name }],
+      ordinary),
+    false);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      "public",
+      [privateExtensions],
+      privateExtensions),
+    false);
+  assert.equal(
+    implementationHeatFamilyIsEligible(
+      "internal",
+      [ordinary],
+      ordinary),
+    false);
+  assert.equal(
+    implementationHeatVisibleFamilyIsEligible(
+      [privateExtensions],
+      privateExtensions),
+    true);
+  assert.equal(
+    implementationHeatVisibleFamilyMatchesRequest(
+      ordinary,
+      {
+        ...ordinary,
+        overloads: ordinary.overloads.map(overload => ({
+          ...overload,
+          accessibility: "private",
+        })),
+      }),
+    true);
+  assert.equal(
+    implementationHeatVisibleFamilyMatchesRequest(
+      extensions,
+      {
+        ...privateExtensions,
+        name: extensions.name,
+        overloads: privateExtensions.overloads.map(overload => ({
+          ...overload,
+          declaringTypeDefinitionId:
+            "System.Text.Json.JsonSerializer",
+        })),
+      }),
+    true);
+  assert.equal(
+    implementationHeatVisibleFamilyMatchesRequest(
+      extensions,
+      {
+        ...privateExtensions,
+        name: extensions.name,
+        overloads: privateExtensions.overloads.map(overload => ({
+          ...overload,
+          declaringTypeDefinitionId: "Example.OtherExtensions",
+        })),
+      }),
+    false);
+  assert.equal(
+    implementationHeatVisibleFamilyMatchesRequest(
+      extensions,
+      ordinary),
+    false);
+});
 
 function method(
   metadataToken: number,
@@ -106,6 +249,15 @@ function request(typeDefinitionId = typeId): PackageTypeHeatRequest {
     assemblyName: "Example",
     typeDefinitionId,
   };
+}
+
+function visible(
+  ...members: ReadonlyArray<readonly [string, number]>
+) {
+  return members.map(([stableSelector, metadataToken]) => ({
+    stableSelector,
+    metadataToken,
+  }));
 }
 
 test("heat tints overloads at or above half the family maximum", () => {
@@ -206,18 +358,132 @@ test("the record decides eligibility by exact roster", () => {
     request: request(),
     isCurrent: () => true,
     families: new Map([["Run", projectFamilyHeat(family())]]),
-    rosters: new Map([["Run", ["Run(int)", "Run(string)"]]]),
   };
-  assert.notEqual(familyHeatFor(ready, "Run", ["Run(string)", "Run(int)"]), null);
-  assert.equal(familyHeatFor(ready, "Run", ["Run(int)"]), null);
-  assert.equal(familyHeatFor(ready, "Spin", ["Spin(int)", "Spin(string)"]), null);
+  assert.notEqual(
+    familyHeatFor(
+      ready,
+      "Run",
+      "public",
+      visible(["Run(string)", 2], ["Run(int)", 1])),
+    null);
+  assert.equal(
+    familyHeatFor(ready, "Run", "public", visible(["Run(int)", 1])),
+    null);
+  assert.equal(
+    familyHeatFor(
+      ready,
+      "Run",
+      "public",
+      visible(["Run(int)", 1], ["Run(other)", 2])),
+    null);
+  assert.equal(
+    familyHeatFor(
+      ready,
+      "Spin",
+      "public",
+      visible(["Spin(int)", 1], ["Spin(string)", 2])),
+    null);
+});
+
+test("non-public rows join exact analyzed MethodDef tokens", () => {
+  const projected = projectFamilyHeat(family({
+    methods: [
+      method(1, 80),
+      method(2, 5, { isTrivial: false }),
+      method(3, 70, { isRosterMember: false, isTrivial: false }),
+      method(4, 12, { isRosterMember: false, isTrivial: false }),
+    ],
+    relationships: [
+      { callerToken: 1, calleeToken: 2 },
+      { callerToken: 3, calleeToken: 4 },
+    ],
+  }));
+  const ready: TypeHeatState = {
+    status: "ready",
+    request: request(),
+    isCurrent: () => true,
+    families: new Map([["Run", projected]]),
+  };
+
+  const privateRows = familyHeatFor(
+    ready,
+    "Run",
+    "private",
+    visible(["Run(Guid)", 3], ["Run(DateTime)", 4]));
+  assert.notEqual(privateRows, null);
+  assert.equal(privateRows?.maximum, 80);
+  assert.equal(privateRows?.maximumIsUnlisted, true);
+  assert.deepEqual(
+    privateRows?.overloads.map(overload =>
+      [overload.metadataToken, overload.heatStrength, overload.hub]),
+    [[3, Math.sqrt(70 / 80), false], [4, null, true]],
+  );
+  assert.match(
+    privateRows?.overloads[0]?.description ?? "",
+    /largest body in this family, which is not a listed overload/,
+  );
+  assert.equal(
+    familyHeatFor(
+      ready,
+      "Run",
+      "private",
+      visible(["Run(Guid)", 3], ["Run(Missing)", 9])),
+    null);
+  assert.equal(
+    familyHeatFor(
+      ready,
+      "Run",
+      "private",
+      visible(["Run(Guid)", 3], ["Run(int)", 1])),
+    null);
+});
+
+test("all-access rows join public roster and non-public analyzed tokens", () => {
+  const projected = projectFamilyHeat(family({
+    methods: [
+      method(1, 80),
+      method(2, 5, { isTrivial: false }),
+      method(3, 70, { isRosterMember: false, isTrivial: false }),
+    ],
+  }));
+  const ready: TypeHeatState = {
+    status: "ready",
+    request: request(),
+    isCurrent: () => true,
+    families: new Map([["Run", projected]]),
+  };
+
+  const allRows = familyHeatFor(
+    ready,
+    "Run",
+    "all",
+    visible(["Run(int)", 1], ["Run(Guid)", 3]));
+
+  assert.deepEqual(
+    allRows?.overloads.map(overload =>
+      [overload.metadataToken, overload.heatStrength]),
+    [[1, 1], [3, Math.sqrt(70 / 80)]],
+  );
+  assert.equal(
+    familyHeatFor(
+      ready,
+      "Run",
+      "all",
+      visible(["Run(other)", 1], ["Run(Guid)", 3])),
+    null);
 });
 
 test("parent-row status text follows the Type request", () => {
-  const selectors = ["Run(int)", "Run(string)"];
-  assert.equal(familyHeatCue({ status: "idle" }, "Run", selectors), null);
+  const overloads = visible(["Run(int)", 1], ["Run(string)", 2]);
+  assert.equal(
+    familyHeatCue({ status: "idle" }, "Run", "public", overloads),
+    null);
   assert.deepEqual(
-    familyHeatCue({ status: "loading", request: request(), isCurrent: () => true }, "Run", selectors),
+    familyHeatCue(
+      { status: "loading", request: request(), isCurrent: () => true },
+      "Run",
+      "public",
+      overloads),
     { text: "measuring", tone: "progress" },
   );
   assert.deepEqual(
@@ -227,7 +493,7 @@ test("parent-row status text follows the Type request", () => {
       isCurrent: () => true,
       outcome: "failed",
       message: "boom",
-    }, "Run", selectors),
+    }, "Run", "public", overloads),
     { text: "heat unavailable", tone: "problem" },
   );
   const incomplete = projectFamilyHeat(family({
@@ -239,8 +505,7 @@ test("parent-row status text follows the Type request", () => {
       request: request(),
       isCurrent: () => true,
       families: new Map([["Run", incomplete]]),
-      rosters: new Map([["Run", selectors]]),
-    }, "Run", selectors),
+    }, "Run", "public", overloads),
     { text: "heat incomplete", tone: "problem" },
   );
 });

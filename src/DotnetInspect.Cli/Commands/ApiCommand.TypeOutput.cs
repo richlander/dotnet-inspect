@@ -3,7 +3,6 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Net;
 using DotnetInspect.Cli.CommandLine;
-using CSharpText.MemberSlicing;
 using DotnetInspect.Cli.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;
@@ -347,6 +346,12 @@ public partial class ApiCommand
 
         if (sourceJson)
             return WriteSourceJson(options);
+
+        if (TryWriteCallSiteCount(type, options, sink)
+            is { } directCallCountResult)
+        {
+            return directCallCountResult;
+        }
 
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
         EventsView? eventsView = null;

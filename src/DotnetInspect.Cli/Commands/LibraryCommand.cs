@@ -119,6 +119,13 @@ public partial class LibraryCommand
         new("References applicability", AssemblyReferencesQuery.Definition),
     ];
 
+    /// <summary>
+    /// The <c>--json</c> model dump shows every method classification count;
+    /// lists appear only when a row section asks for them.
+    /// </summary>
+    internal static readonly HostQueryDemand ModelDumpCountsDemand =
+        new("--json model counts", MethodClassificationDemand.ModelCounts);
+
     internal static readonly HostQueryDemand[]
         BareDiscoveryQueries =
         [
@@ -147,6 +154,8 @@ public partial class LibraryCommand
     {
         if (!ValidateLibraryMetricsTransport(options))
             return 1;
+        if (!ValidateNameFamilyTransport(options))
+            return 1;
 
         if (!LibrarySourceAdapter.TryBind(
                 options,
@@ -158,7 +167,9 @@ public partial class LibraryCommand
         }
 
         options = source!.ApplyTo(options);
-        if (DirectLibraryInspectionCommand.ShouldExecute(options))
+        if (DirectLibraryInspectionCommand.ShouldExecute(options)
+            && !(source.Selector is SourceSelector.PackageSource
+                && options.AddressRequest is not null))
         {
             return await DirectLibraryInspectionCommand.ExecuteAsync(
                     options,
@@ -171,7 +182,13 @@ public partial class LibraryCommand
         {
             return 1;
         }
+        bool packageAddress =
+            ShouldExecutePackageAddress(
+                options,
+                source,
+                preResolvedPackage: null);
         if (source.Selector is SourceSelector.PackageSource
+            && !packageAddress
             && (options.WorkspacePacket is not null
                 || options.NamesakeLibrary
                 || string.IsNullOrWhiteSpace(options.AssemblyName)
@@ -189,7 +206,76 @@ public partial class LibraryCommand
         return await ExecuteBoundAsync(
             options,
             source,
-            preResolvedPackage: null).ConfigureAwait(false);
+            preResolvedPackage: null,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static bool ShouldExecutePackageAddress(
+        LibraryOptions options,
+        LibrarySourceBinding source,
+        PackageExtractionResult? preResolvedPackage) =>
+        source.Selector is SourceSelector.PackageSource
+        && preResolvedPackage is null
+        && options.AddressRequest is not null
+        && options.WorkspacePacket is null
+        && !options.JsonOutput
+        && !options.NamesakeLibrary
+        && !string.IsNullOrWhiteSpace(options.AssemblyName)
+        && TryGetPackageCompileLibrarySelection(
+            options.AssemblyName,
+            out _)
+        && HasOnlyPackageAddressSections(options)
+        && options.Discover is not { Length: 0 }
+        && !string.Equals(
+            options.Tfm,
+            "all",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryGetPackageCompileLibrarySelection(
+        string assemblyName,
+        out string? targetFramework)
+    {
+        targetFramework = null;
+        string path = assemblyName.Replace('\\', '/');
+        if (!path.Contains('/'))
+            return false;
+        if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            path += ".dll";
+
+        string[] segments = path.Split('/');
+        if (segments.Length != 3
+            || (!segments[0].Equals(
+                    "lib",
+                    StringComparison.OrdinalIgnoreCase)
+                && !segments[0].Equals(
+                    "ref",
+                    StringComparison.OrdinalIgnoreCase))
+            || !TfmResolver.IsTfmLike(segments[1])
+            || Path.GetFileNameWithoutExtension(segments[^1]).Length == 0)
+        {
+            return false;
+        }
+
+        targetFramework = segments[1];
+        return true;
+    }
+
+    private static bool HasOnlyPackageAddressSections(
+        LibraryOptions options)
+    {
+        if (options.IncludeSections is not { Count: > 0 } sections)
+            return true;
+
+        return options.AddressRequest
+            is LibraryAddressRequest.HeapPoint
+                ? sections.All(section =>
+                    section.Equals(
+                        MetadataSectionNames.Heap,
+                        StringComparison.OrdinalIgnoreCase))
+                : sections.All(section =>
+                    ILCoordinateSections.Contains(
+                        section,
+                        StringComparer.OrdinalIgnoreCase));
     }
 
     internal static async Task<int> ExecuteResolvedPackageAsync(
@@ -218,13 +304,15 @@ public partial class LibraryCommand
         return await ExecuteBoundAsync(
             options,
             source,
-            resolution).ConfigureAwait(false);
+            resolution,
+            CancellationToken.None).ConfigureAwait(false);
     }
 
     static async Task<int> ExecuteBoundAsync(
         LibraryOptions options,
         LibrarySourceBinding source,
-        PackageExtractionResult? preResolvedPackage)
+        PackageExtractionResult? preResolvedPackage,
+        CancellationToken cancellationToken)
     {
         if (!options.Trace)
         {
@@ -232,7 +320,8 @@ public partial class LibraryCommand
                 options,
                 source,
                 trace: null,
-                preResolvedPackage).ConfigureAwait(false);
+                preResolvedPackage,
+                cancellationToken).ConfigureAwait(false);
         }
 
         // Rendered in a finally so a failed run still reports the work it did before failing —
@@ -255,7 +344,8 @@ public partial class LibraryCommand
                 options,
                 source,
                 trace,
-                preResolvedPackage).ConfigureAwait(false);
+                preResolvedPackage,
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -294,7 +384,8 @@ public partial class LibraryCommand
         LibraryOptions options,
         LibrarySourceBinding source,
         InspectionTrace? trace,
-        PackageExtractionResult? preResolvedPackage)
+        PackageExtractionResult? preResolvedPackage,
+        CancellationToken cancellationToken)
     {
         if (!LibraryNamespaceListingCommand.ValidateOptions(options))
             return 1;
@@ -519,7 +610,27 @@ public partial class LibraryCommand
             IncludeSections =
                 libraryMetricsSelection.Sections,
         };
+        var nameFamilySelection =
+            SelectResolver.NormalizeExactOnlySection(
+                options.Select,
+                options.IncludeSections,
+                options.ExactIncludeSections,
+                sections.SelectableSectionNames,
+                SectionNames.NameFamilies);
+        if (nameFamilySelection.Error is not null)
+        {
+            CommandError.Write(
+                nameFamilySelection.Error);
+            return 1;
+        }
+        options = options with
+        {
+            IncludeSections =
+                nameFamilySelection.Sections,
+        };
         if (!ValidateLibraryMetricsTransport(options))
+            return 1;
+        if (!ValidateNameFamilyTransport(options))
             return 1;
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
@@ -657,6 +768,7 @@ public partial class LibraryCommand
             && !options.Count
             && options.IncludeSections is { Count: > 0 }
             && !RequestsLibraryMetricsTransport(options)
+            && !RequestsNameFamilyTransport(options)
             && !LibraryOutputCapabilities.Catalog.Supports(
                 DiscoveryOutputMode.Json,
                 options.IncludeSections))
@@ -674,6 +786,14 @@ public partial class LibraryCommand
                 CommandError.Write(
                     "Document --json cannot represent Library Metrics analysis. "
                     + "Use --jsonl, --tsv, or --table.");
+            }
+            else if (options.IncludeSections.Contains(
+                    SectionNames.NameFamilies))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent projected Name "
+                    + "Families rows. Select exactly Name Families for "
+                    + "complete Content JSON.");
             }
             else
             {
@@ -961,6 +1081,8 @@ public partial class LibraryCommand
             discoveryInspection && !fullEffectiveDiscovery
                 ? false
                 : options.FixedOverview);
+        bool wantsLibraryDocument =
+            LibraryMetadataService.WantsLibraryDocument(sectionPlan, options);
         bool wantsEcosystemDependencies =
             sectionPlan.Demands.Any(
                 static demand =>
@@ -976,6 +1098,10 @@ public partial class LibraryCommand
                     "Body Shapes performance predicates",
                     OptimizationOpportunitiesQuery.Definition));
         }
+
+        if (!discoveryInspection
+            && LibraryMetadataService.WritesDefaultModelDump(options))
+            commandQueryDemand.Add(ModelDumpCountsDemand);
 
         HashSet<InspectionQueryDefinition> queries =
             sectionPlan.Activate(trace, commandQueryDemand);
@@ -1143,7 +1269,8 @@ public partial class LibraryCommand
                     integrationsEntry: integrations?.EntryFor(resolvedPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(resolvedPath!),
-                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
+                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace,
+                    readLibraryDocument: wantsLibraryDocument);
                 if (inspection == null)
                 {
                     CommandError.Write($"Could not read library: {resolvedPath}");
@@ -1196,6 +1323,10 @@ public partial class LibraryCommand
                 }
                 if (RequestsLibraryMetricsTransport(options))
                     return WriteLibraryMetricsTransport(inspection, options);
+                if (RequestsNameFamilyTransport(options))
+                    return WriteNameFamilyTransport(inspection, options);
+                if (RejectUnavailableNameFamilies(inspection, options))
+                    return 1;
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -1224,6 +1355,23 @@ public partial class LibraryCommand
             else if (source.Selector
                 is SourceSelector.PackageSource)
             {
+                if (ShouldExecutePackageAddress(
+                        options,
+                        source,
+                        preResolvedPackage))
+                {
+                    return await ExecutePackageAddressAsync(
+                        source.PackageTarget!,
+                        options,
+                        pipeline,
+                        userVerbosity,
+                        discoveryInspection,
+                        fullEffectiveDiscovery,
+                        discoveryExecutionScope,
+                        context,
+                        cancellationToken);
+                }
+
                 // Extract from package
                 var extractResult = await ExtractFromPackageAsync(
                     assemblyPath,
@@ -1390,7 +1538,7 @@ public partial class LibraryCommand
                     extractPath, context.HttpClient, signatureResult,
                     queryPlan, integrations,
                     discoveryInspection && !fullEffectiveDiscovery, trace,
-                    subjectSelections);
+                    subjectSelections, wantsLibraryDocument);
                 List<LibraryInspection> inspections =
                     collection.Inspections;
                 int descriptorSelectionExitCode =
@@ -1500,6 +1648,25 @@ public partial class LibraryCommand
                     return WriteLibraryMetricsTransport(
                         inspections[0],
                         options);
+                }
+                if (RequestsNameFamilyTransport(options))
+                {
+                    if (inspections.Count != 1)
+                    {
+                        CommandError.Write(
+                            "Name Families requires one exact Library.");
+                        return 1;
+                    }
+                    return WriteNameFamilyTransport(
+                        inspections[0],
+                        options);
+                }
+                if (inspections.Count == 1
+                    && RejectUnavailableNameFamilies(
+                        inspections[0],
+                        options))
+                {
+                    return 1;
                 }
                 if (options.Print)
                     return IntegrityExitCode(
@@ -1661,7 +1828,8 @@ public partial class LibraryCommand
                     integrationsEntry: integrations?.EntryFor(assemblyPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(assemblyPath!),
-                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
+                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace,
+                    readLibraryDocument: wantsLibraryDocument);
                 if (inspection == null)
                 {
                     CommandError.Write($"Could not read library: {assemblyPath}");
@@ -1713,6 +1881,10 @@ public partial class LibraryCommand
                 }
                 if (RequestsLibraryMetricsTransport(options))
                     return WriteLibraryMetricsTransport(inspection, options);
+                if (RequestsNameFamilyTransport(options))
+                    return WriteNameFamilyTransport(inspection, options);
+                if (RejectUnavailableNameFamilies(inspection, options))
+                    return 1;
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -2586,13 +2758,13 @@ public partial class LibraryCommand
         IReadOnlyList<EcosystemDependencyRecognitionEntry> rows =
             inspection.EcosystemDependencyRecognitionInspection?.Content
                 switch
-                {
-                    EcosystemDependencyRecognitionOutcome.Complete complete =>
-                        complete.Document.Classification.Recognized,
-                    EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
-                        incomplete.Document.Classification.Recognized,
-                    _ => [],
-                };
+            {
+                EcosystemDependencyRecognitionOutcome.Complete complete =>
+                    complete.Document.Classification.Recognized,
+                EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                    incomplete.Document.Classification.Recognized,
+                _ => [],
+            };
         if (!CliSemanticRowSelection.TrySelect(
                 intent,
                 rows,
@@ -2613,7 +2785,7 @@ public partial class LibraryCommand
         return true;
     }
 
-    private static void ApplyLibraryEcosystemDependencies(
+    internal static void ApplyLibraryEcosystemDependencies(
         LibraryInspection inspection,
         LibraryInspectionSubject subject,
         bool wantsEcosystemDependencies,
@@ -2630,18 +2802,24 @@ public partial class LibraryCommand
         }
         if (subject.AssemblyReference is not { } assembly)
         {
-            CommandError.WriteWarning(
-                "Library ecosystem recognition is unavailable because the "
-                + "selected input is not an assembly.");
+            if (discloseEmptyDetailDiagnostics)
+            {
+                CommandError.WriteWarning(
+                    "Library ecosystem recognition is unavailable because the "
+                    + "selected input is not an assembly.");
+            }
             return;
         }
         if (!TryCreateExactLibrarySourceCoordinate(
                 assembly,
                 out ExactLibrarySourceCoordinate? source))
         {
-            CommandError.WriteWarning(
-                "Library ecosystem recognition is unavailable because the "
-                + "selected source does not have an exact Library coordinate.");
+            if (discloseEmptyDetailDiagnostics)
+            {
+                CommandError.WriteWarning(
+                    "Library ecosystem recognition is unavailable because the "
+                    + "selected source does not have an exact Library coordinate.");
+            }
             return;
         }
 
@@ -2732,7 +2910,7 @@ public partial class LibraryCommand
         return false;
     }
 
-    private static bool RequiresLibraryEcosystemDiagnosticDisclosure(
+    internal static bool RequiresLibraryEcosystemDiagnosticDisclosure(
         LibraryOptions options) =>
         options.IncludeSections is { } sections
         && sections.Contains(SectionNames.EcosystemDependencies)
@@ -4372,7 +4550,8 @@ public partial class LibraryCommand
         AssemblyContextIntegrationsBatch? integrations = null,
         bool discoveryOnly = false, InspectionTrace? trace = null,
         IReadOnlyList<LibraryInspectionSubjectSelection>?
-            subjectSelections = null)
+            subjectSelections = null,
+        bool readLibraryDocument = true)
     {
         List<LibraryInspection> inspections = [];
         List<LibraryInspectionSubject> subjects = [];
@@ -4434,7 +4613,8 @@ public partial class LibraryCommand
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(targetPath),
                     discoveryOnly: discoveryOnly,
-                    trace: trace);
+                    trace: trace,
+                    readLibraryDocument: readLibraryDocument);
             }
             catch (
                 LibraryMetadataService
@@ -4640,9 +4820,11 @@ public partial class LibraryCommand
         return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
     }
 
-    private sealed record ToolPayloadResolution(PackageExtractionResult? Result, string? Error);
+    internal sealed record ToolPayloadResolution(
+        PackageExtractionResult? Result,
+        string? Error);
 
-    private static async Task<ToolPayloadResolution> TryResolveToolPayloadPackageAsync(
+    internal static async Task<ToolPayloadResolution> TryResolveToolPayloadPackageAsync(
         PackageExtractionResult package,
         PackageReferenceTarget originalPackageTarget,
         NuGetSourceOptions? sourceOptions,
@@ -4769,18 +4951,18 @@ internal sealed record LibraryInspectionSubject(
 
         return ResolvedAssemblyReference.SelectFromPath(path, provenance)
             switch
-            {
-                AssemblyDescriptorSelectionResult.Ready ready =>
-                    new LibraryInspectionSubjectSelection.Ready(
-                        new LibraryInspectionSubject(path, ready.Reference)),
-                AssemblyDescriptorSelectionResult.Descriptorless =>
-                    new LibraryInspectionSubjectSelection.Ready(
-                        new LibraryInspectionSubject(path, null)),
-                AssemblyDescriptorSelectionResult.Rejected rejected =>
-                    new LibraryInspectionSubjectSelection.Rejected(
-                        rejected.Failure),
-                _ => throw new UnreachableException(),
-            };
+        {
+            AssemblyDescriptorSelectionResult.Ready ready =>
+                new LibraryInspectionSubjectSelection.Ready(
+                    new LibraryInspectionSubject(path, ready.Reference)),
+            AssemblyDescriptorSelectionResult.Descriptorless =>
+                new LibraryInspectionSubjectSelection.Ready(
+                    new LibraryInspectionSubject(path, null)),
+            AssemblyDescriptorSelectionResult.Rejected rejected =>
+                new LibraryInspectionSubjectSelection.Rejected(
+                    rejected.Failure),
+            _ => throw new UnreachableException(),
+        };
     }
 
     internal SourceLinkService OpenSourceLink(Action<string>? log = null) =>

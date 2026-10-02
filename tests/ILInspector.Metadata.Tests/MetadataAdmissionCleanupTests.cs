@@ -898,6 +898,17 @@ public sealed class MetadataAdmissionCleanupTests
     }
 
     [Fact]
+    public void OpenPrefetched_RejectsInvalidReaderBeforeSessionPublication()
+    {
+        var stream = new DisposeCountingMemoryStream(
+            BuildOverflowingMetadataStreamCount());
+
+        Assert.Throws<OverflowException>(
+            () => AssemblyInspectionSession.OpenPrefetched(stream));
+        Assert.Equal(1, stream.DisposeCount);
+    }
+
+    [Fact]
     public void SurfaceClassification_PreservesMalformedRootReason()
     {
         string path = Path.Combine(
@@ -998,7 +1009,6 @@ public sealed class MetadataAdmissionCleanupTests
             stream => _ = ResourceScanner.ExtractAll(
                 stream,
                 Path.GetTempPath()),
-            stream => _ = MethodClassificationScanner.Scan(stream),
             stream => _ = ExtensionMethodScanner.FindAllExtensions(
                 stream).ToList(),
             stream => _ = ExtensionMethodScanner.FindExtensions(
@@ -1019,7 +1029,6 @@ public sealed class MetadataAdmissionCleanupTests
             stream => Assert.Empty(ResourceScanner.ExtractAll(
                 stream,
                 Path.GetTempPath())),
-            stream => Assert.Empty(MethodClassificationScanner.Scan(stream)),
             stream => Assert.Empty(
                 ExtensionMethodScanner.FindAllExtensions(stream)),
             stream => Assert.Empty(

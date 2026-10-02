@@ -3,7 +3,9 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using InertText;
+using QuerySpace.Rows;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspect.Cli.Sections;
@@ -53,7 +55,28 @@ public sealed class InspectionQueryContext : IDisposable
     public Analysis.LibraryBodyAnalysisRequest? BodyAnalysisRequest
     { get; init; }
 
+    /// <summary>
+    /// The queries this run requested, so the method classification consumers
+    /// among them run as one request. Null when the caller runs queries one by
+    /// one; each consumer then asks alone.
+    /// </summary>
+    public IReadOnlyCollection<InspectionQueryDefinition>? RequestedQueries { get; init; }
+
+    /// <summary>
+    /// <c>--count</c>: a row section asks for its count instead of its rows.
+    /// </summary>
+    public bool CountOnly { get; init; }
+
+    public LibraryNameFamilyPopulationKind NameFamilyPopulation
+    { get; init; } =
+        LibraryNameFamilyPopulationKind.AllTypes;
+
+    public RowSelectionIntent<string>? NameFamilyRowSelection
+    { get; init; }
+
     private MethodBodyInspectionSession? _bodySession;
+    private MethodClassificationBindingResult? _methodClassification;
+    private IReadOnlyList<ClassificationQuestion>? _methodClassificationQuestions;
     private AssemblyInspectionSession? _session;
     private Exception? _sessionOpenFailure;
     private bool _sessionOpenAttempted;
@@ -176,6 +199,43 @@ public sealed class InspectionQueryContext : IDisposable
             ?? throw new InvalidOperationException(
                 "Metadata session acquisition failed without recording an exception.");
         return failed(error);
+    }
+
+    /// <summary>
+    /// Answers <paramref name="demand"/>'s method classification questions,
+    /// running every requested consumer's questions as one
+    /// <see cref="MethodClassificationQuery"/> request on the shared session.
+    /// Later consumers of the same run read that one result.
+    /// </summary>
+    public MethodClassificationBindingResult MethodClassification(
+        InspectionQueryDefinition demand)
+    {
+        IReadOnlyList<ClassificationQuestion> questions =
+            MethodClassificationDemand.QuestionsFor(
+                [.. RequestedQueries ?? [], demand],
+                CountOnly);
+        if (_methodClassification is { } cached
+            && questions.All(_methodClassificationQuestions!.Contains))
+        {
+            return cached;
+        }
+
+        _methodClassificationQuestions = questions;
+        _methodClassification = Query<MethodClassificationBindingResult>(
+            session =>
+            {
+                try
+                {
+                    return new MethodClassificationBindingResult.Available(
+                        MethodClassificationQuery.Execute(session, questions));
+                }
+                catch (Exception ex) when (ex is not ILInspector.Analysis.Planning.ProducerContractException)
+                {
+                    return new MethodClassificationBindingResult.Failed(ex);
+                }
+            },
+            static ex => new MethodClassificationBindingResult.Failed(ex));
+        return _methodClassification;
     }
 
     /// <summary>

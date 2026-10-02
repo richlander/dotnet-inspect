@@ -643,47 +643,51 @@ internal static class DocumentationEnricher
             "inspect-cli-docs");
         await using DesktopPackageSourceComposition composition =
             source.Context.CreatePackageSourceComposition();
-        PackageHouseSettlement settlement =
-            await composition.RealizePinnedCompileAsync(
+        bool includeAuthoredSource =
+            AuthorizesAuthoredDocumentation(options);
+        string packageLibraryPath =
+            Path.GetRelativePath(
+                    source.PackageExtractPath!,
+                    assemblyPath)
+                .Replace('\\', '/');
+        PackageLibraryRealizationResult library =
+            await composition.RealizeLibraryAsync(
                     PackageSourceCoordinate.Create(
                         source.PackageName!,
                         source.PackageVersion!),
                     source.SelectedTfm!,
+                    new PackageLibrarySelector(
+                        packageLibraryPath,
+                        PackageLibrarySelectionKind.AssetPath),
+                    includeAuthoredSource
+                        ? PackageLibraryRealizationDepth.Implementation
+                        : PackageLibraryRealizationDepth.Selection,
                     stores.Get,
                     options.SourceOptions,
-                    source.PackageProducerKey,
                     source.Context.Logger.Log,
-                    cancellationToken)
+                    cancellationToken,
+                    requiredProducerKey: source.PackageProducerKey,
+                    companionDemand: includeAuthoredSource
+                        ? PackageHouseLibraryCompanionDemand
+                            .ImplementationPortablePdb
+                        : PackageHouseLibraryCompanionDemand.None)
                 .ConfigureAwait(false);
-        if (settlement is not PackageHouseSettlement.Acquired acquired
-            || settlement.Result is not PackageHouseResult.Settled
-            || settlement.Result.Evidence.Realization
-                is not PackageHouseRealizationReceipt.Compile realization)
+        if (library is not PackageLibraryRealizationResult.Realized realized)
         {
             throw new InvalidOperationException(
-                $"PackageHouse could not realize {source.PackageName} "
-                    + $"{source.PackageVersion} for {source.SelectedTfm} "
-                    + $"({DescribePackageHouseResult(settlement.Result)}).");
+                library.Status
+                    is PackageLibraryRealizationStatus.Missing
+                        or PackageLibraryRealizationStatus.Ambiguous
+                    ? $"'{assemblyPath}' did not select exactly one compile "
+                        + $"Library of {source.PackageName} "
+                        + $"{source.PackageVersion} ({library.Status})."
+                    : $"PackageHouse could not realize "
+                        + $"{source.PackageName} {source.PackageVersion} "
+                        + $"for {source.SelectedTfm} "
+                        + $"({DescribePackageHouseResult(
+                            library.Settlement.Result)}).");
         }
 
-        PackageCompileAsset? asset =
-            realization.Selection.Assets.FirstOrDefault(
-                candidate => PathComparer().Equals(
-                    AssetPath(source.PackageExtractPath!, candidate),
-                    Path.GetFullPath(assemblyPath)));
-        if (asset is null)
-        {
-            throw new InvalidOperationException(
-                $"'{assemblyPath}' is not a selected compile assembly of "
-                    + $"{source.PackageName} {source.PackageVersion}.");
-        }
-
-        PackageHouseLibraryHandoff.Compile handoff =
-            realization.LibraryHandoffs
-                .OfType<PackageHouseLibraryHandoff.Compile>()
-                .Single(candidate => ReferenceEquals(candidate.Asset, asset));
-        bool includeAuthoredSource =
-            AuthorizesAuthoredDocumentation(options);
         AssemblyContextSourceQueryContext? sourceContext =
             includeAuthoredSource
                 ? new(
@@ -709,8 +713,8 @@ internal static class DocumentationEnricher
             IReadOnlyDictionary<string, DocumentationQueryOutcome>>
             inspection =
                 await PackageDocumentationInspection.ExecuteManyAsync(
-                    acquired,
-                    handoff,
+                    realized.Acquired,
+                    realized.Handoff,
                     documentationIds,
                     includeAuthoredSource
                         ? DocumentationDemand

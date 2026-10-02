@@ -26,8 +26,8 @@ The operator explicitly approved this bounded cross-owner replacement:
 - the Workspace API defaults to an empty Workspace and has no curated option;
 - the Ecosystems API owns product curation: the initial platform composition
   contains .NET Runtime, ASP.NET Core, and Microsoft.Extensions; #6763 subsequently
-  approved separate all-known construction, now including Aspire, AI, Azure,
-  and Blazor, and #7001 adds construction from an explicit ordered ecosystem
+  approved separate all-known construction, now including Aspire, AI,
+  Blazor, and .NET MAUI, and #7001 adds construction from an explicit ordered ecosystem
   selection;
 - callers explicitly choose raw or curated construction according to their
   operation;
@@ -173,8 +173,11 @@ The Ecosystems API owns the current product manifests. The platform-curated
 registration sequence is:
 
 1. .NET Runtime
-2. ASP.NET Core
-3. Microsoft.Extensions
+2. Microsoft.Extensions
+3. ASP.NET Core
+
+That sequence is the lineage of ASP.NET Core in the
+[ecosystem hierarchy](ecosystem-hierarchy.md).
 
 Curated construction returns that complete sequence in a validated,
 resource-free `WorkspacePlan`. The caller explicitly constructs
@@ -182,7 +185,7 @@ resource-free `WorkspacePlan`. The caller explicitly constructs
 is not a shared live Workspace and confers no special registration,
 acquisition, traversal, persistence, or lifetime semantics.
 
-The separate all-known plan factory includes Aspire, AI, Azure, Blazor, and
+The separate all-known plan factory includes Aspire, AI, Blazor, and
 .NET MAUI, as required
 by [Subject Relations](subject-relations-workflows.md#broad-discovery-by-default).
 The focused handoff owns validation and construction for the two presets and
@@ -551,8 +554,8 @@ The following are required future outcome-level scenarios:
 | Scenario | Required observation |
 | --- | --- |
 | Construct directly through the Workspace API | The registration set is empty; no catalog lookup, acquisition, or analysis occurs |
-| Construct through the Ecosystems factories | The platform variant contains .NET Runtime, ASP.NET Core, and Microsoft.Extensions in order; all-known construction additionally contains Aspire, AI, Azure, Blazor, and .NET MAUI. Neither performs registration-triggered acquisition or analysis. |
-| Construct through selected ecosystems | The plan contains exactly the requested registrations in caller order. Find still searches only concrete content presented to the Workspace and does not expand package-prefix arms. |
+| Construct through the Ecosystems factories | The platform variant contains .NET Runtime, Microsoft.Extensions, and ASP.NET Core in order; all-known construction additionally contains Aspire, AI, Blazor, and .NET MAUI. Neither performs registration-triggered acquisition or analysis. |
+| Construct through selected ecosystems | The plan contains the requested registrations and their ancestors, root first, as defined by [Ecosystem hierarchy](ecosystem-hierarchy.md#workspace-plan-construction). Find still searches only concrete content presented to the Workspace and does not expand package-prefix arms. |
 | Remove one or all curated registrations, then navigate, open another subject, save, and restore | The exact registration set survives; the current curated composition does not reappear |
 | Change the curated manifest in a later product build | Later curated construction uses the new complete manifest; existing and restored Workspaces retain their exact registrations |
 | Run `find` for the real `System.Text.Json` overlap | The command explicitly chooses curated construction and can discover the Platform library without making curation intrinsic to Workspace |

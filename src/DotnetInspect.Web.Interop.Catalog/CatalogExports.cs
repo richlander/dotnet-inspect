@@ -5,6 +5,8 @@ using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Sections;
+using DotnetInspector.Vocabulary;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
@@ -25,15 +27,16 @@ namespace DotnetInspect.Web.Interop.Catalog;
 [SupportedOSPlatform("browser")]
 public static partial class CatalogExports
 {
-    // Vocabulary is product-owned static data. The browser receives the same section/field/value
-    // document as the CLI and retains no separate labels, ordering, defaults, or query semantics.
+    private static readonly Lazy<BrowserVocabularyInspection>
+        VocabularyInspection =
+            new(() => BrowserVocabulary.ToBrowserInspection(
+                ProductVocabularyInspection.Execute()));
+
     [JSExport]
-    public static string ListVocabulary() =>
+    public static string InspectVocabulary() =>
         JsonSerializer.Serialize(
-            BrowserVocabulary.ToBrowserDocument(
-                DotnetInspector.Vocabulary.VocabularyJson.ToWireDocument(
-                    DotnetInspector.Vocabulary.VocabularyCatalog.Document)),
-            BrowserCatalogJsonContext.Default.BrowserVocabularyDocument);
+            VocabularyInspection.Value,
+            BrowserCatalogJsonContext.Default.BrowserVocabularyInspection);
 
     // Home demos are product-owned closed presets. Catalog listing is metadata-only; resolve
     // allocates one demo's definition graph. The browser builds share links / runners from the
@@ -43,6 +46,12 @@ public static partial class CatalogExports
         JsonSerializer.Serialize(
             BrowserProductHomeDemos.ToCatalog(EcosystemPackCatalog.DiscoverDemos()),
             BrowserCatalogJsonContext.Default.BrowserHomeDemoCatalog);
+
+    [JSExport]
+    public static string ListEcosystems() =>
+        JsonSerializer.Serialize(
+            BrowserProductEcosystems.ToCatalog(EcosystemPackCatalog.Discover()),
+            BrowserCatalogJsonContext.Default.BrowserEcosystemCatalog);
 
     /// <summary>
     /// Resolves one product home demo. <c>found</c> is false when the id is unknown.

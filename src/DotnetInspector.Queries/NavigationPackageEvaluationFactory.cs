@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Packages;
 
 namespace DotnetInspector.Queries;
 
@@ -94,6 +95,70 @@ public static class NavigationPackageEvaluationFactory
             occurrence,
             binding,
             libraries,
+            surface);
+    }
+
+    /// <summary>
+    /// Builds bounded Navigation evidence from one exact Package member in an
+    /// owner-held Workspace declaration context.
+    /// </summary>
+    public static NavigationPackageEvaluation CreateFromContextLoad(
+        WorkspacePackageOccurrenceDescriptor occurrence,
+        PackageRootBinding binding,
+        AssemblyContextGroup group,
+        ImmutableArray<WorkspaceContextMember> libraries,
+        ApiSurfaceScope surfaceScope,
+        ApiSurfaceProjectionLimits surfaceLimits,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        ArgumentNullException.ThrowIfNull(binding);
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(surfaceLimits);
+        if (libraries.IsDefault
+            || libraries.Any(static library => library is null))
+        {
+            throw new ArgumentException(
+                "Package Libraries must be an initialized immutable array.",
+                nameof(libraries));
+        }
+        if (!Enum.IsDefined(surfaceScope))
+            throw new ArgumentOutOfRangeException(nameof(surfaceScope));
+        cancellationToken.ThrowIfCancellationRequested();
+
+        IReadOnlyList<PackageCompileAsset> assets =
+            binding.Root.AssetSelection.Assets;
+        if (libraries.Length != assets.Count)
+        {
+            throw new ArgumentException(
+                "The exact Package member must retain every selected asset.",
+                nameof(libraries));
+        }
+        ImmutableArray<NavigationLibraryEvaluation> evaluations =
+        [
+            .. libraries.Select(
+                (library, index) =>
+                    new NavigationLibraryEvaluation(
+                        binding.Coordinate,
+                        new PackageAssemblyRoleParticipant(
+                            binding.Root,
+                            assets[index],
+                            library.Participant))),
+        ];
+        AssemblyContextApiSurfaceResult surface =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                surfaceScope,
+                surfaceLimits,
+                [
+                    .. evaluations.Select(
+                        static library =>
+                            library.Library.Participant),
+                ]);
+        return new NavigationPackageEvaluation(
+            occurrence,
+            binding,
+            evaluations,
             surface);
     }
 }

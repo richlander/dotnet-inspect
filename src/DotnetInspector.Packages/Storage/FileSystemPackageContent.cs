@@ -22,13 +22,13 @@ namespace DotnetInspector.Packages;
 public sealed class FileSystemPackageContent :
     IPackageContent,
     IPackageContentEntryManifest,
+    IPackageArchiveEntryManifest,
     IPackageContentDigestSource,
     IPackageHousePayloadSource
 {
     private readonly string _root;
     private readonly PackageContentGenerationIdentity _generationIdentity = new();
-    private Dictionary<string, PackageArchiveEntryValidation>?
-        _archiveEntries;
+    private ArchiveManifest? _archiveManifest;
 
     public FileSystemPackageContent(
         string rootPath,
@@ -184,10 +184,10 @@ public sealed class FileSystemPackageContent :
                 "Filesystem PackageHouse payload reads require a retained package archive.");
         }
 
-        Dictionary<string, PackageArchiveEntryValidation>? entries =
-            Volatile.Read(ref _archiveEntries);
+        ArchiveManifest? manifest =
+            Volatile.Read(ref _archiveManifest);
         PackageArchiveEntryValidation entry;
-        if (entries is null)
+        if (manifest is null)
         {
             if (!TryReadArchiveEntry(
                     relativePath,
@@ -197,7 +197,9 @@ public sealed class FileSystemPackageContent :
                 return false;
             }
         }
-        else if (!entries.TryGetValue(relativePath, out entry))
+        else if (!manifest.ValidationByPath.TryGetValue(
+                     relativePath,
+                     out entry))
         {
             stream = null;
             return false;
@@ -209,30 +211,46 @@ public sealed class FileSystemPackageContent :
         }
 
         var file = new FileInfo(path);
-        if (!file.Exists)
+        Stream content;
+        IDisposable? owner = null;
+        if (file.Exists)
         {
-            stream = null;
-            return false;
+            if ((ulong)file.Length != entry.ExpandedLength)
+            {
+                throw new InvalidDataException(
+                    "Extracted package entry does not match its declared size.");
+            }
+
+            content = file.OpenRead();
         }
-        if ((ulong)file.Length != entry.ExpandedLength)
+        else
         {
-            throw new InvalidDataException(
-                "Extracted package entry does not match its declared size.");
+            if (!TryOpenRetainedArchiveEntry(
+                    relativePath,
+                    out Stream? archiveContent,
+                    out owner))
+            {
+                stream = null;
+                return false;
+            }
+
+            content = archiveContent;
         }
 
-        Stream content = file.OpenRead();
         try
         {
             stream = new PackageArchiveEntryReadStream(
                 content,
                 entry.ExpandedLength,
                 entry.Crc32,
-                maxExpandedBytes);
+                maxExpandedBytes,
+                owner);
             return true;
         }
         catch
         {
             content.Dispose();
+            owner?.Dispose();
             throw;
         }
     }
@@ -241,12 +259,23 @@ public sealed class FileSystemPackageContent :
         PackageArchivePayload archive)
     {
         ArgumentNullException.ThrowIfNull(archive);
-        Dictionary<string, PackageArchiveEntryValidation> entries =
-            archive.CreateEntryValidationIndex();
+        var manifest = new ArchiveManifest(
+            archive.GetEntries(),
+            archive.CreateEntryValidationIndex());
         Interlocked.CompareExchange(
-            ref _archiveEntries,
-            entries,
+            ref _archiveManifest,
+            manifest,
             comparand: null);
+    }
+
+    bool IPackageArchiveEntryManifest.TryGetArchiveEntries(
+        [NotNullWhen(true)]
+        out IReadOnlyList<PackageContentEntry>? entries)
+    {
+        ArchiveManifest? manifest =
+            Volatile.Read(ref _archiveManifest);
+        entries = manifest?.Entries;
+        return manifest is not null;
     }
 
     private bool TryReadArchiveEntry(
@@ -272,6 +301,43 @@ public sealed class FileSystemPackageContent :
             checked((ulong)entry.Length),
             entry.Crc32);
         return true;
+    }
+
+    private bool TryOpenRetainedArchiveEntry(
+        string relativePath,
+        [NotNullWhen(true)] out Stream? content,
+        [NotNullWhen(true)] out IDisposable? owner)
+    {
+        FileStream? package = File.OpenRead(NupkgPath!);
+        ZipArchive? archive = null;
+        try
+        {
+            archive = new ZipArchive(
+                package,
+                ZipArchiveMode.Read);
+            package = null;
+            ZipArchiveEntry? entry = archive.GetEntry(relativePath)
+                ?? archive.Entries.FirstOrDefault(candidate =>
+                    candidate.FullName.Equals(
+                        relativePath,
+                        StringComparison.OrdinalIgnoreCase));
+            if (entry is null)
+            {
+                content = null;
+                owner = null;
+                return false;
+            }
+
+            content = entry.Open();
+            owner = archive;
+            archive = null;
+            return true;
+        }
+        finally
+        {
+            archive?.Dispose();
+            package?.Dispose();
+        }
     }
 
     /// <inheritdoc />
@@ -344,4 +410,9 @@ public sealed class FileSystemPackageContent :
 
         public override void Dispose() => _files.Dispose();
     }
+
+    private sealed record ArchiveManifest(
+        IReadOnlyList<PackageContentEntry> Entries,
+        IReadOnlyDictionary<string, PackageArchiveEntryValidation>
+            ValidationByPath);
 }

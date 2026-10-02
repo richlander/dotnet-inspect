@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using Wire = DotnetInspect.Web.Interop.Metadata.Wire;
 
 namespace DotnetInspect.Web.Interop.Metadata;
 
@@ -250,6 +251,124 @@ public sealed record BrowserMemberDeclaration(
     string? Unavailable,
     bool Compatibility);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserMemberGroupDocumentOutcome>))]
+public enum BrowserMemberGroupDocumentOutcome
+{
+    Available,
+    Rejected,
+    Incomplete,
+    Failed,
+}
+
+public sealed record BrowserMemberGroupDocumentInspection(
+    BrowserMemberGroupDocumentOutcome Outcome,
+    string? Detail,
+    BrowserMemberGroupDocument? Document,
+    BrowserMemberGroupDocumentDiagnostic[] Diagnostics);
+
+public sealed record BrowserMemberGroupDocument(
+    string TypeIdentity,
+    string MemberName,
+    int Count,
+    BrowserMemberGroupDocumentRow[] Rows);
+
+public sealed record BrowserMemberGroupDocumentRow(
+    int MetadataToken,
+    int BaselineOrdinal,
+    string DisplaySignature,
+    string CanonicalSignature,
+    string Fingerprint,
+    string Accessibility,
+    string Receiver);
+
+public sealed record BrowserMemberGroupDocumentDiagnostic(
+    string Code,
+    string Severity,
+    string Summary,
+    string? Correspondence);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserMemberDocumentOutcome>))]
+public enum BrowserMemberDocumentOutcome
+{
+    Available,
+    Rejected,
+    Incomplete,
+    Failed,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeMemberPopulationOutcome>))]
+public enum BrowserTypeMemberPopulationOutcome
+{
+    Available,
+    Rejected,
+    Incomplete,
+    Failed,
+}
+
+public sealed record BrowserMemberDocumentInspection(
+    BrowserMemberDocumentOutcome Outcome,
+    string? Detail,
+    BrowserMemberDocument? Document,
+    BrowserMemberGroupDocumentDiagnostic[] Diagnostics);
+
+public sealed record BrowserMemberDocument(
+    string TypeIdentity,
+    string MemberName,
+    int MetadataToken,
+    int BaselineOrdinal,
+    string DisplaySignature,
+    string CanonicalSignature,
+    string Fingerprint,
+    string Accessibility,
+    string Receiver,
+    Wire.DocumentationQueryOutcome? Documentation);
+
+public sealed record BrowserTypeMemberPopulationInspection(
+    BrowserTypeMemberPopulationOutcome Outcome,
+    string? Detail,
+    BrowserTypeMemberPopulation? Population,
+    string[] Diagnostics);
+
+public sealed record BrowserTypeMemberPopulation(
+    string TypeIdentity,
+    string Spelling,
+    string Accessibility,
+    BrowserTypeMemberComposition Composition,
+    BrowserTypeMemberSelectorCounts SelectorCounts,
+    BrowserTypeMemberPopulationGroup[] Groups);
+
+public sealed record BrowserTypeMemberComposition(
+    int Public,
+    int Protected,
+    int Internal,
+    int Private,
+    int Static,
+    int This,
+    int Extension);
+
+public sealed record BrowserTypeMemberFacetCount(
+    string Value,
+    int Count);
+
+public sealed record BrowserTypeMemberTraitCounts(
+    int All,
+    int Static,
+    int Instance,
+    int Virtual,
+    int Interface,
+    int Extensions);
+
+public sealed record BrowserTypeMemberSelectorCounts(
+    BrowserTypeMemberFacetCount[] Kinds,
+    BrowserTypeMemberTraitCounts Traits);
+
+public sealed record BrowserTypeMemberPopulationGroup(
+    string Key,
+    string Name,
+    string Kind,
+    int CompleteCount,
+    BrowserMemberSurface[] Members);
+
 /// <summary>
 /// One type row projected for a graph target. See the package facade's declaration for the
 /// identity rules these fields carry; this facade owns its own copy of the transport.
@@ -298,8 +417,11 @@ public sealed record BrowserMemberSurface(
     string AnchorDigest,
     string CanonicalSignature,
     string AnchorTypeFullName,
+    string? DeclaringTypeDefinitionId,
     string GraphSelectorKey,
-    BrowserMemberBodySelector[] BodySelectors);
+    BrowserMemberBodySelector[] BodySelectors,
+    int? BaselineOrdinal = null,
+    bool IsExplicitInterfaceImplementation = false);
 
 public sealed record BrowserMemberBodySelector(
     int Token,
@@ -331,6 +453,73 @@ public sealed record BrowserExceptionSurface(
     TypeInfoPropertyName = "TypeDependencyInspectionEnvelope")]
 [JsonSerializable(typeof(BrowserGraphMemberSurface))]
 [JsonSerializable(typeof(BrowserMemberDeclaration))]
+[JsonSerializable(typeof(BrowserMemberGroupDocumentInspection))]
+[JsonSerializable(typeof(BrowserMemberDocumentInspection))]
+[JsonSerializable(
+    typeof(Wire.DocumentationQueryOutcome),
+    TypeInfoPropertyName = "DocumentationQueryOutcome")]
+[JsonSerializable(
+    typeof(Wire.DocumentationQueryOutcome.Completed),
+    TypeInfoPropertyName = "DocumentationQueryCompleted")]
+[JsonSerializable(
+    typeof(Wire.DocumentationQueryOutcome.RequestRejected),
+    TypeInfoPropertyName = "DocumentationQueryRequestRejected")]
+[JsonSerializable(
+    typeof(Wire.DocumentationQueryOutcome.Failed),
+    TypeInfoPropertyName = "DocumentationQueryFailed")]
+[JsonSerializable(
+    typeof(Wire.DocumentationQueryOutcome.Incomplete),
+    TypeInfoPropertyName = "DocumentationQueryIncomplete")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.Available),
+    TypeInfoPropertyName = "CompiledDocumentationAvailable")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.Absent),
+    TypeInfoPropertyName = "CompiledDocumentationAbsent")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.Unavailable),
+    TypeInfoPropertyName = "CompiledDocumentationUnavailable")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.Ambiguous),
+    TypeInfoPropertyName = "CompiledDocumentationAmbiguous")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.ContributionsRejected),
+    TypeInfoPropertyName = "CompiledDocumentationContributionsRejected")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.MalformedOrUnreadableDocument),
+    TypeInfoPropertyName =
+        "CompiledDocumentationMalformedOrUnreadableDocument")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.Incomplete),
+    TypeInfoPropertyName = "CompiledDocumentationIncomplete")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.RequestRejected),
+    TypeInfoPropertyName = "CompiledDocumentationRequestRejected")]
+[JsonSerializable(
+    typeof(Wire.CompiledDocumentationOutcome.ContentAccessFailed),
+    TypeInfoPropertyName = "CompiledDocumentationContentAccessFailed")]
+[JsonSerializable(
+    typeof(Wire.AuthoredDocumentationOutcome.Available),
+    TypeInfoPropertyName = "AuthoredDocumentationAvailable")]
+[JsonSerializable(
+    typeof(Wire.AuthoredDocumentationOutcome.Absent),
+    TypeInfoPropertyName = "AuthoredDocumentationAbsent")]
+[JsonSerializable(
+    typeof(Wire.AuthoredDocumentationOutcome.Unavailable),
+    TypeInfoPropertyName = "AuthoredDocumentationUnavailable")]
+[JsonSerializable(
+    typeof(Wire.AuthoredDocumentationOutcome.Ambiguous),
+    TypeInfoPropertyName = "AuthoredDocumentationAmbiguous")]
+[JsonSerializable(
+    typeof(Wire.AuthoredDocumentationOutcome.Rejected),
+    TypeInfoPropertyName = "AuthoredDocumentationRejected")]
+[JsonSerializable(
+    typeof(Wire.AuthoredDocumentationOutcome.Failed),
+    TypeInfoPropertyName = "AuthoredDocumentationFailed")]
+[JsonSerializable(
+    typeof(Wire.AuthoredDocumentationOutcome.Incomplete),
+    TypeInfoPropertyName = "AuthoredDocumentationIncomplete")]
+[JsonSerializable(typeof(BrowserTypeMemberPopulationInspection))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(
     typeof(InspectionEnvelope<JsonElement>),

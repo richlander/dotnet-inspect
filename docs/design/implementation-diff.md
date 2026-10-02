@@ -83,6 +83,37 @@ legacy comparison APIs or their native C#/IL producers.
 
 ### Structural body comparison
 
+Analysis owns `MethodBodyIdentity`, the version-stable structural identity for
+one physical method body. It is built from the open declaring type, physical
+method name, generic arity, open parameter types, open return type, and
+extension-method role. It also retains the top-level method signature header
+and vararg required-parameter count. Signature structure includes custom
+modifier kind and type plus function-pointer header, generic arity, required
+parameter count, return type, and parameter types. Named types retain defining
+assembly, namespace, and exact nested metadata segments; generic parameters
+retain only their type- or method-parameter position. Module version, metadata
+token, table-row numbers, signature-blob bytes, generic-parameter names, and
+tuple names never participate.
+
+Research consumes that owner-issued identity when it forms target
+correspondence keys. Decompiler consumes the same identity when
+`CSharpBodyDiff` must distinguish methods that share its API-facing raw key.
+The method index groups and pairs on the structural value itself, not on a hash
+of a metadata signature blob. Its stable textual key carries only a full
+SHA-256 fingerprint of the owner-issued canonical identity, not the canonical
+text itself. Callers do not parse that fingerprint to recover semantics. This
+lets unchanged methods survive ordinary TypeDef, TypeRef, and TypeSpec row
+renumbering between builds without collapsing structurally distinct overloads.
+
+`MethodBodyIdentityTests` gates the identity projection, physical return-type
+and calling-convention distinctions, deliberate erasures, and parity between
+structured Analysis evidence and guarded metadata issuance.
+`CompareAssemblies_SystemTextJsonMethodsPairAcrossMetadataRowChurn`
+uses System.Text.Json 9.0.0 and 10.0.0 to gate the pathological cross-build
+case. Existing generic-arity, nested-generic, conversion-operator, explicit
+implementation, extension-method, custom-modifier, function-pointer, and
+identity-failure tests remain the nearest-neighbor gates.
+
 `CSharpBodyDiff.IssueCorrespondence` is the product correspondence owner for
 two exact `AnnotatedSourceDocument` values describing the same physical method
 body. Each product document carries assembly name, MVID, MethodDef token, body
@@ -273,9 +304,9 @@ source-level C# cyclomatic-complexity value and does not imply a quality score.
 
 `ImplementationComplexityService` accepts the focused profile results from both
 Implementation Diff endpoints and pairs those observations by the existing
-stable member identity plus physical evidence-method identity. The typed result retains
-unchanged, changed, added, removed, and incomplete observations, including
-old/new values and completeness flags. If either endpoint did not request
+stable member identity plus physical evidence-method identity. The typed result
+retains unchanged, changed, added, removed, and incomplete observations,
+including old/new values and completeness flags. If either endpoint did not request
 profiles, or requested them over a scoped (not whole-assembly) method-evidence
 population, the complexity lane is unavailable rather than silently treated as
 a complete comparison. Assemblies present on only one side of a multi-assembly
@@ -300,6 +331,16 @@ non-unchanged complexity observations alongside its existing C#, IL, and PDB
 Source evidence lanes; broad PDB-source enrichment preserves an already
 computed complexity lane rather than resetting it to unavailable. Quality
 shades remain a later consumer.
+
+For a focused member comparison, Research correspondence replaces independent
+profile-key pairing. The complexity request carries the matching admitted
+population and target resolution as one typed context. Each correspondence
+supplies the authoritative subject and exact endpoint MethodDef addresses;
+complexity selects the Analysis logical-owner profiles at those addresses and
+pairs a single physical observation per endpoint directly, without rebuilding
+identity from generic-parameter spelling or another profile-local string.
+Logical owners with several physical evidence bodies retain the existing
+conservative evidence-method pairing and Incomplete result.
 
 Every change with a non-null `Delta` also carries an
 `ImplementationComplexityPopulationContext` (`PopulationSize`,
@@ -437,7 +478,7 @@ PDB source is unavailable.
 ## Research admission and target-correspondence boundary
 
 **Status:** target design for #4771 with the Research target-resolution boundary
-implemented through complete correspondence.
+implemented through complete correspondence and producer-session execution.
 [Research admission and identity](#research-admission-and-identity) and
 [Side-local requests and attempts](#side-local-requests-and-attempts), plus
 complete census, correspondence keys and outcomes, positive absence proof, and
@@ -448,7 +489,7 @@ implemented and verified by their named gates in
 and the owning sections. The native C# and IL producer adapters and their
 inspection-topology classification are implemented and verified by their
 owning sections. The Research local producer-session and completion boundary
-is specified below but remains unimplemented.
+is implemented for typed implementation comparison.
 
 This design proposes one place to answer the target question before comparison
 work begins: which member, if any, did each side select; can those targets
@@ -471,36 +512,58 @@ owns Queries population sealing and the correspondence receipt.
 imports those typed facts; it does not parse their display text, reconstruct
 their identity, or change their failure meaning.
 
-### Current target-resolution gap
+### Delivered target-resolution boundary
 
-The current CLI resolves one member selector independently against the old and
-new `ApiSurface` values, then flattens stable selectors, canonical signatures,
-and Research body aliases into one `HashSet<string>`.
-`ImplementationComparisonInput`, `ImplementationDiffOptions`, and
-`ResearchDiffOptions` pass that untyped set through to mechanism-specific
-filters. This loses the selection occurrence, side, admitted input, resolution
-attempt, typed diagnostic, accessor role, and proof that a one-sided target is
-absent rather than unavailable. For generic members, the rebuilt text also
-fails to match the method side's own identity, so the member is silently
-dropped ([#8570](https://github.com/richlander/dotnet-inspect/issues/8570)).
-Body-signal targeting has left this path. Implementation, complexity, and the
-IL and C# Finding routes remain on it until they migrate.
+Implementation comparison, Complexity and Structural Context, the exact-pair
+document, and retained C# and IL Finding routes now carry semantic
+`ComparisonMemberSelection` values into the Queries-owned population boundary.
+Queries seals the population, invokes `QueryResearchTargetPlanner`, and passes
+one `ResearchTargetResolution` to the Research producer session. C# and IL run
+over the same correspondence work bases; their native completion is projected
+to one correspondence-issued subject, including one-sided Findings and
+unavailable or failed inspection topology when no two-sided semantic diff
+exists. Complexity matches the resolved module and MethodDef address to each
+profile's Analysis-issued logical owner, then retains every associated physical
+evidence method, including generated state-machine bodies. Return-type
+collision qualification considers the declared methods from both endpoint
+populations in the correspondence domain, so native and complexity evidence
+use the same subject when a collision exists on only one endpoint. Complexity
+also consumes the correspondence-issued endpoint pairing, so generic-parameter
+renames and other profile-local spelling differences cannot turn one paired
+logical method into separate Added and Removed observations.
 
-The body paths then disagree about missing evidence. Semantic IL comparison
-intersects method keys and can omit a one-sided member; retained IL Finding
-comparison unions them and synthesizes absence. A method whose RVA is zero is
-reported as a decode failure in one path, while another path translates
-old-body-missing and new-body-missing failures into added and removed changes.
-Properties and events are excluded from the body-identity bridge rather than
-preserving the selected accessor.
+Repeated selection occurrences remain distinct in the target resolution and
+portable request. When two occurrences resolve to the same physical endpoint
+pair, producer, and subject, implementation-result projection retains that
+evidence once in the subject-keyed result rather than duplicating rows or
+failing document construction.
 
-Those body decisions are producer inspection topology, not cross-input target
+Every requested member scope must resolve to an Analysis-issued body identity
+on at least one endpoint and must produce evaluable correspondence rather than
+`CounterpartUnavailable` or `DomainUnavailable`. Otherwise
+`ImplementationComparisonQuery` returns the typed
+`ImplementationComparisonResult.TargetFailed` arm with the side-local attempt
+and correspondence outcomes. It never returns an empty successful comparison
+for that request. The CLI completes this preflight before dispatching any
+selected generic Diff producer and turns typed non-success into a visible
+request failure; the exact-pair inspection creates no document or envelope for
+a pre-comparison failure.
+
+`ImplementationComparisonInput`, `ImplementationDiffOptions`,
+`ResearchDiffOptions`, and the exact-pair document expose no string-keyed
+implementation member identity bag. Generic Diff's retained C# and IL routes
+consume the same typed implementation result through their host callback.
+API comparison remains separate: `DiffAnalysisInput.ApiMemberTargetIdentities`
+contains only Metadata/API presentation identities and is never consumed by
+implementation, complexity, C#, or IL targeting.
+
+Producer inspection topology remains distinct from cross-input target
 correspondence. The shared
 [Finding inspection topology](finding-nomenclature.md#typed-inspection-topology)
 distinguishes a proven missing subject from an existing subject with no
 applicable producer input. The target contract supplies exact endpoint or
-absence evidence to that lower contract; it does not replace the current result
-or producer models in this slice.
+absence evidence to that lower contract; it does not replace native producer
+results.
 
 ### Research admission and identity
 
@@ -586,7 +649,7 @@ Both profiles supply the same Metadata-owned target evidence: an admitted
 descriptor and resolver that Research opens, validates against the Analysis
 module identity, and resolves through Metadata's `MemberTargetResolver`. They
 also supply the Analysis method population from which Research issues the
-`ResearchTargetBodyIdentity`. A body-signal occurrence additionally carries
+Analysis-owned `MethodBodyIdentity`. A body-signal occurrence additionally carries
 the focused Analysis results its producer compares. Research does not
 reimplement Metadata selection over Analysis identity, and it does not derive
 body-signal member identity from display or canonical-signature text.
@@ -602,8 +665,8 @@ population is a typed body-signal failure. The body-signal producer
 classifies inspection topology over those endpoints under
 [Finding inspection topology](finding-nomenclature.md#typed-inspection-topology).
 
-The body-signal path is host-neutral. The CLI `diff` Finding Transitions and
-Analysis Diff routes adopt it first. Browser/Wasm adopts the same query
+The body-signal path is host-neutral. The CLI `diff --analysis` body analyses
+and the Analysis Diff route adopt it first. Browser/Wasm adopts the same query
 through the website Implementation Diff track, with no second targeting
 path.
 
@@ -849,32 +912,36 @@ owner-issued target evidence:
   method. A non-method-like target instead retains its exact `MemberAnchor`
   with role `None`; and
 - the correspondence key retains scope, domain, relationship role, and a
-  Research-owned body identity projected from the exact Analysis-issued
+  `MethodBodyIdentity` projected from the exact Analysis-issued
   `MethodIdentity` for the resolved MethodDef. It erases side, admitted-input
   identity, assembly version, MVID, MethodDef token, and generic-parameter
   names. For role `None`, it retains the exact API `MemberAnchor` canonical
   identity because no body identity exists.
 
-The Research body identity projects the structured physical declaring and
-signature `TypeRef` shapes into Research-owned inert type identity. The
+The Analysis body identity projects the structured physical declaring and
+signature `TypeRef` shapes into Analysis-owned inert type identity. The
 projection retains only the simple assembly name, exact metadata definition
 name, structural element and argument shapes, generic kind and position, and
 array rank; it does not retain Analysis resolution provenance or generic
 parameter display names. The body identity also preserves the selected
-declaration name and open parameter shape normalized for its accessor role,
-generic arity, conversion return shape, and the Analysis-issued extension
-projection. Analysis generic parameters participate by kind and position, and
-exact metadata definition names preserve namespace
-and nested-type segments separately. Distinct assembly domains, overload
-shapes, relationship roles, extension bodies, and nested types therefore
-remain distinct even when
-a display name matches.
+declaration name and open parameter shape that Research supplies after
+normalizing the accessor relationship, plus generic arity, open return shape,
+top-level signature header, vararg required-parameter count, and the
+Analysis-issued extension projection. Setter projection uses the removed value
+parameter as the selected property's return shape, so its declaration identity
+matches the corresponding getter while relationship role still distinguishes
+the physical accessors. Analysis generic
+parameters participate by kind and position, and exact metadata definition
+names preserve namespace and nested-type segments separately. Distinct
+assembly domains, overload shapes, relationship roles, extension bodies, and
+nested types therefore remain distinct even when a display name matches.
 
-The key grammar and constructors are Research-owned. Metadata does not group
-targets into Research correspondence domains, and callers do not author or
-parse either key. Rendered assembly identities, list position, normalized
-display text, selector strings, and `ResearchSubjectKey.Id` are not
-correspondence keys.
+The strict and correspondence key grammar and constructors remain
+Research-owned. The nested body-identity grammar and constructors are
+Analysis-owned. Metadata does not group targets into Research correspondence
+domains, and callers do not author or parse either key. Rendered assembly
+identities, list position, normalized display text, selector strings, and
+`ResearchSubjectKey.Id` are not correspondence keys.
 
 If Metadata selection succeeds but the admitted Analysis index has no complete
 structured `MethodIdentity` for that MethodDef, the attempt remains `Resolved`.
@@ -1050,10 +1117,11 @@ Migration preserves owner and dependency direction:
    design is specified below, but its Research implementation remains
    unimplemented. Producer adapters classify endpoint topology and retain their
    native typed results; Research adds no generic body disposition.
-6. Body-signal targeting migrates to the typed target path, and its
-   string-keyed identity bag is removed. Rank 6 later migrates the
-   implementation-comparison public path, and the IL and C# Finding routes,
-   from string target identities and publishes the outer result.
+6. Body-signal targeting and the implementation-comparison public path have
+   migrated to the typed target path. Their string-keyed identity bags are
+   removed. The exact-pair document, Complexity and Structural Context, and the
+   IL and C# Finding routes consume the same correspondence result, and
+   implementation comparison publishes its typed outer result.
 
 The admission, scope, domain, request, and attempt gates have landed and are
 listed under
@@ -2153,7 +2221,7 @@ keeps that richer row and suppresses the duplicate generic Finding failure.
 Synthetic add/remove rows from the same failed C# hunk are omitted; genuine
 body absence and independently decoded partial IL evidence remain visible.
 
-The `diff --finding csharp.line` and `diff --finding il.op` focused lenses read
+The `diff --analysis csharp` and `diff --analysis il` analyses read
 those retained comparisons and render native `PairFinding` cases. Missing
 members and methods without bodies remain distinct inspection states. IL
 retention pairs the union of declared method identities, so added, removed, and
@@ -2199,14 +2267,19 @@ The document contains:
   transition facts and the producer-owned C# and IL rows or typed failures that
   support them. When the ordinary API anchor collides, return type participates
   in the body currency so valid ECMA-335 return-type-only overloads remain
-  distinct. Each per-hunk IL change retains only its own hunk rows, while failure
-  changes retain only their directly associated typed failure; added and
-  removed methods additionally retain their one-sided typed IL Finding
-  comparison, including endpoint topology and canonical operations, because no
-  two-sided semantic IL hunk exists to project;
+  distinct; collision qualification uses both exact-pair endpoint populations.
+  Repeated selectors for one physical target remain present in the request but
+  contribute one subject and one copy of its evidence. Each per-hunk IL change
+  retains only its own hunk rows, while failure changes retain only their
+  directly associated typed failure; added and removed methods additionally
+  retain their one-sided typed IL Finding comparison, including endpoint
+  topology and canonical operations, because no two-sided semantic IL hunk
+  exists to project;
 - complexity changes with endpoint completeness and image-issued method
   evidence coordinates plus the owner-issued local population context for
-  delta-bearing changes; and
+  delta-bearing changes. Focused complexity changes reuse the same
+  correspondence-issued subject and endpoint pair as native evidence rather
+  than re-deriving either from profile-local display identity; and
 - per-mechanism coverage that distinguishes evaluated, exact, changed,
   unavailable, incomplete, and failed work. Every `*SubjectCount` is the
   distinct count of `Subject.Id` values in that category; a subject with
@@ -2232,6 +2305,11 @@ document as Content and initially reports Share as non-projectable at
 `comparison/endpoints`; Inspect Web does not yet have a route that can restore
 the ordered pair faithfully. Diagnostics remain envelope-level operation
 diagnostics, not a second home for member evidence.
+
+The portable transport is `implementation-diff` schema 2. Schema 2 records
+semantic `memberSelections` as declaring-type and selector pairs; it replaces
+schema 1's internal `memberTargetIdentities`, which were not a portable request
+currency.
 
 The first host adoption is complete CLI transport for
 `diff --library before.dll..after.dll -S "Implementation Diff" --json` and

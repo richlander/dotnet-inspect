@@ -1,8 +1,16 @@
-name: CI
+name: PR CI
 
 on:
-  push:
-    branches: [main]
+  # Main pushes enter through main-ci.yml so GitHub can display a distinct
+  # workflow name while this file remains the single owner of CI jobs.
+  workflow_call:
+    inputs:
+      event-name:
+        required: true
+        type: string
+      base-sha:
+        required: true
+        type: string
   # Deliberately unfiltered by base branch. A base-branch filter decides whether
   # a *stacked* PR gets CI at all: a PR retargeted from `main` onto a long-lived
   # branch silently stops matching, so it reports no checks rather than failing
@@ -104,7 +112,7 @@ jobs:
           set -euo pipefail
           evidence_directory="${RUNNER_TEMP}/ci-plan"
           mkdir -p "$evidence_directory"
-          case "$GITHUB_EVENT_NAME" in
+          case "$CI_EVENT_NAME" in
             pull_request)
               event_name="pull-request"
               base_sha=$(git rev-parse --verify 'HEAD^1')
@@ -118,7 +126,7 @@ jobs:
               base_sha="$CI_EVENT_BASE_SHA"
               ;;
             *)
-              echo "Unsupported CI planning event: $GITHUB_EVENT_NAME" >&2
+              echo "Unsupported CI planning event: $CI_EVENT_NAME" >&2
               exit 1
               ;;
           esac
@@ -143,7 +151,8 @@ jobs:
           # The runner honors BASH_ENV even with --noprofile and --norc.
           # Clear inherited workflow/job values before executing this gate.
           BASH_ENV: ""
-          CI_EVENT_BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.before }}
+          CI_EVENT_NAME: ${{ inputs.event-name || github.event_name }}
+          CI_EVENT_BASE_SHA: ${{ inputs.base-sha || github.event.merge_group.base_sha || github.event.before }}
 
       - name: Upload TLA+ scope evidence
         if: fromJSON(steps.plan.outputs.plan).validations.tla
@@ -668,23 +677,7 @@ jobs:
               "X-Frame-Options": "DENY",
               "Strict-Transport-Security": "max-age=63072000; includeSubDomains"
             }' "$site/staticwebapp.config.json" >/dev/null
-          manifest="$site/manifest.json"
-          test -f "$manifest"
-          jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
-          vite_assets=$(jq -er '[to_entries[].value | .file, (.css[]?), (.assets[]?)] | unique | if length > 0 then join("\n") else error("empty Vite manifest") end' "$manifest")
-          while IFS= read -r asset; do
-            [[ "$asset" =~ ^assets/([A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]
-            test -f "$site/$asset"
-          done <<< "$vite_assets"
-          vite_entry=$(jq -er '.["index.html"].file' "$manifest")
-          grep -Fq "src=\"/$vite_entry\"" "$index"
-          vite_stylesheets=$(jq -er '.["index.html"].css | if length > 0 then join("\n") else error("missing Vite stylesheet") end' "$manifest")
-          while IFS= read -r stylesheet; do
-            grep -Fq "href=\"/$stylesheet\"" "$index"
-          done <<< "$vite_stylesheets"
-          dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
-          test -n "$dotnet_module"
-          test -f "$site/_framework/$dotnet_module"
+          node inspect-web/scripts/verify-site-artifact.ts "$site"
           for host_only in \
             ILInspector.JsExportSurface \
             ILInspector.TypeScriptGeneration \
@@ -696,9 +689,6 @@ jobs:
               exit 1
             fi
           done
-          import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
-          module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
-          test "$import_map_line" -lt "$module_line"
 
       - name: Test published browser application
         run: eng/test-inspect-web-published-application.sh
@@ -906,6 +896,14 @@ jobs:
       - name: Validate dependency policy
         if: matrix.shard == 'host-policy'
         run: dotnet run --project eng/DependencyPolicy -c Release --no-build
+
+      - name: Run Library name-family Research tests
+        if: matrix.shard == 'host-policy'
+        run: >-
+          dotnet run --project tests/ILInspector.Research.Tests -c Release
+          --no-build --
+          --filter-class
+          'ILInspector.Research.Tests.LibraryNameFamilySummaryTests'
 
       - name: Test CLI runtime flavor across publish modes
         if: matrix.shard == 'host-policy'
@@ -1115,6 +1113,10 @@ jobs:
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/Inspector.Artifacts.Tests -c Release
 
+      - name: Run Graph contract tests
+        if: matrix.shard == 'contracts'
+        run: dotnet run --project tests/Inspector.Graph.Tests -c Release
+
       - name: Run Library contract tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Libraries.Tests -c Release
@@ -1167,9 +1169,9 @@ jobs:
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
 
-      - name: Run QueryOverflow tests
+      - name: Run performance-oracle fixture tests
         if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/QueryOverflow.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.PerformanceOracles.Tests -c Release
 
       - name: Run decoded-text tests
         if: matrix.shard == 'contracts'

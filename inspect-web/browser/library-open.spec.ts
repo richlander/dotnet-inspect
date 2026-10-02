@@ -1,9 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
+  chooseSubject,
   installLibraryUploadFacades,
   openProductDestination,
   releaseFacade,
+  run,
   root,
+  surface,
   subjectTab,
 } from "./library-hierarchy.support.ts";
 
@@ -51,9 +54,9 @@ async function dropLibraryAndReadDefaultPrevented(
   }, { fileName: name, content: bytes });
 }
 
-async function waitForWorkspaceReady(page: Page) {
-  await expect(page.locator("#app"))
-    .not.toHaveAttribute("aria-busy", "true");
+async function waitForExamplePackageReady(page: Page) {
+  await expect(page.locator("#inspector-panel h1"))
+    .toHaveText("Example.Package", { timeout: 15_000 });
 }
 
 async function openLibraryFromBrandMenu(page: Page) {
@@ -68,9 +71,9 @@ async function openLibraryFromBrandMenu(page: Page) {
 test("global drop keeps managed-image rejection visible", async ({ page }) => {
   await installLibraryUploadFacades(page, "rejected");
   await page.goto(root);
+  await waitForExamplePackageReady(page);
   await expect(subjectTab(page, "package"))
     .toHaveAttribute("aria-selected", "true");
-  await waitForWorkspaceReady(page);
 
   await dropLibrary(page, "native.dll", [0x4d, 0x5a, 0, 1]);
 
@@ -90,7 +93,7 @@ test("Open dismissal restores its logical invoker", async ({ page }) => {
   await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
 
   await page.goto(root);
-  await waitForWorkspaceReady(page);
+  await waitForExamplePackageReady(page);
   await openLibraryFromBrandMenu(page);
   await page.keyboard.press("Escape");
   await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
@@ -107,7 +110,7 @@ test("global drop replaces another modal and inerts its surface", async ({
 }) => {
   await installLibraryUploadFacades(page, "rejected");
   await page.goto(root);
-  await waitForWorkspaceReady(page);
+  await waitForExamplePackageReady(page);
   await page.locator("#application-menu-button").click();
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await expect(page.locator("#settings-dialog")).toBeVisible();
@@ -167,7 +170,7 @@ test("Open progress does not render raw Unicode controls from File.name", async 
 }) => {
   await installLibraryUploadFacades(page, "deferred");
   await page.goto(root);
-  await waitForWorkspaceReady(page);
+  await waitForExamplePackageReady(page);
   const declaredName = "invoice\u202Egpj\u2028.exe";
 
   await dropLibrary(page, declaredName, [1, 2, 3, 4]);
@@ -187,9 +190,9 @@ test("Open progress does not render raw Unicode controls from File.name", async 
 test("routed navigation retires an in-flight upload", async ({ page }) => {
   await installLibraryUploadFacades(page, "deferred");
   await page.goto(root);
+  await waitForExamplePackageReady(page);
   await expect(subjectTab(page, "package"))
     .toHaveAttribute("aria-selected", "true");
-  await waitForWorkspaceReady(page);
   await page.evaluate(() => history.pushState(null, "", "/demos"));
 
   await dropLibrary(page, "Deferred.dll", [1, 2, 3, 4]);
@@ -224,6 +227,7 @@ test("routed navigation retires an in-flight upload", async ({ page }) => {
 test("successful upload replaces stale Package URL with Home", async ({ page }) => {
   await installLibraryUploadFacades(page, "available");
   await page.goto(root);
+  await waitForExamplePackageReady(page);
   await expect(subjectTab(page, "package"))
     .toHaveAttribute("aria-selected", "true");
 
@@ -241,13 +245,111 @@ test("successful upload replaces stale Package URL with Home", async ({ page }) 
     .toHaveText("Inspect .NET packages and libraries in your browser.");
 });
 
+test("uploaded Library method family renders owner-backed receiver kinds", async ({
+  page,
+}) => {
+  const widget = surface.types.find(
+    candidate => candidate.definitionId === "Example.Widget",
+  );
+  if (!widget) throw new Error("The upload fixture has no Widget Type.");
+  const staticRun = {
+    ...run,
+    signature: "void Run(int value)",
+    isStatic: true,
+    metadataToken: 0x06000002,
+    declarationMetadataToken: 0x06000002,
+    stableSelector: "Run:1",
+    anchorDigest: "widget-run-static",
+    canonicalSignature: "M:Example.Widget.Run(System.Int32)",
+    bodySelectors: [{
+      token: 0x06000002,
+      memberName: "Run",
+      selectorKey: "Run:1",
+    }],
+  };
+  const extensionRun = {
+    ...run,
+    signature: "void Run(Example.Widget value)",
+    isStatic: true,
+    isExtension: true,
+    metadataToken: 0x06000003,
+    declarationMetadataToken: 0x06000003,
+    stableSelector: "Run:2",
+    anchorDigest: "widget-run-extension",
+    canonicalSignature: "M:Example.Widget.Run(Example.Widget)",
+    bodySelectors: [{
+      token: 0x06000003,
+      memberName: "Run",
+      selectorKey: "Run:2",
+    }],
+  };
+  const uploadedSurface = {
+    ...surface,
+    assemblies: [{
+      ...surface.assemblies[0]!,
+      publicTypes: 1,
+      publicMembers: 2,
+    }],
+    types: [{
+      ...widget,
+      members: 2,
+      api: [staticRun, extensionRun],
+    }],
+    accessibility: [{
+      id: "public",
+      label: "Public",
+      order: 0,
+      isDefault: true,
+      count: 2,
+    }],
+    totalMembers: 2,
+  };
+  await installLibraryUploadFacades(
+    page,
+    "available",
+    {},
+    uploadedSurface,
+  );
+  await page.goto(root);
+  await waitForExamplePackageReady(page);
+
+  await dropLibrary(page, "Uploaded.Library.dll", [1, 2, 3, 4]);
+  await expect(page.getByText("Browser upload", { exact: true }))
+    .toBeVisible();
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    `#type-list [data-type="${widget.id}"]`,
+  ).click();
+  await page.locator("[data-member]", { hasText: "Run" }).click();
+
+  await expect(page.locator("#member-surface-title")).toHaveText("Run");
+  await expect(page.locator(".member-surface-list"))
+    .toContainText("public static void Run(int value)");
+  await expect(page.locator(".member-surface-list"))
+    .toContainText("public extension void Run(Example.Widget value)");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-uploaded-type-member-population-request",
+    JSON.stringify([
+      "Uploaded.Library.dll",
+      4,
+      "Example.Widget",
+      "csharp",
+      "public",
+    ]),
+  );
+  await expect(page.locator("html")).not.toHaveAttribute(
+    "data-uploaded-library-member-group-document-request",
+    /.+/,
+  );
+});
+
 test("successful upload is excluded from retained Workspace restoration", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await installLibraryUploadFacades(page, "available");
   await page.goto(root);
-  await waitForWorkspaceReady(page);
+  await waitForExamplePackageReady(page);
 
   await dropLibrary(page, "Uploaded.Library.dll", [1, 2, 3, 4]);
   await expect(page.getByText("Browser upload", { exact: true }))
@@ -276,6 +378,7 @@ test("upload retires an older in-flight Package transition", async ({ page }) =>
     versions: ["1.0.1", "1.0.0"],
   });
   await page.goto(root);
+  await waitForExamplePackageReady(page);
 
   await page.locator("#package-version").selectOption("1.0.1");
   await expect(page.locator("html")).toHaveAttribute(
@@ -301,9 +404,9 @@ test("failed Package open restores the uploaded Library", async ({ page }) => {
     versions: ["1.0.1", "1.0.0"],
   });
   await page.goto(root);
+  await waitForExamplePackageReady(page);
   await expect(subjectTab(page, "package"))
     .toHaveAttribute("aria-selected", "true");
-  await waitForWorkspaceReady(page);
 
   await dropLibrary(page, "Uploaded.Library.dll", [1, 2, 3, 4]);
   await expect(page.getByText("Browser upload", { exact: true }))
@@ -330,9 +433,9 @@ test("failed Package open restores the uploaded Library", async ({ page }) => {
 test("history does not alias replaced same-name uploads", async ({ page }) => {
   await installLibraryUploadFacades(page, "available");
   await page.goto(root);
+  await waitForExamplePackageReady(page);
   await expect(subjectTab(page, "package"))
     .toHaveAttribute("aria-selected", "true");
-  await waitForWorkspaceReady(page);
 
   await dropLibrary(page, "Uploaded.Library.dll", [1, 2, 3, 4]);
   await expect(page.getByText("Browser upload", { exact: true }))

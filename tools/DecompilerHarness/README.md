@@ -1713,9 +1713,15 @@ remains a candidate next axis.
 
 Validity renders through the same metadata-backed first product projection:
 sibling-method import is available to cross-method raises, and the assembly's
-type-disjointness oracle is available to guarded pattern raises. The lowered
-selector keeps its intentionally reduced pass set while retaining sibling
-import; it does not broaden lowered raising with a separate disjointness seam.
+type-disjointness oracle is available to guarded pattern raises. The semantic
+lane compiles the product printer's fully qualified type artifact before
+host-owned collision-aware shortening. A fully qualified target-assembly
+namespace unavailable to the isolated shell is classified as shell-visibility
+noise (`CS0400`); the harness does not reference the inspected assembly because
+its runtime closure may already contain a different version of that product
+assembly. The lowered selector keeps its intentionally reduced pass set while
+retaining sibling import; it does not broaden lowered raising with a separate
+disjointness seam.
 
 Shell-noise classification uses diagnostic IDs, source spans, syntax, and
 semantic symbols rather than localized diagnostic prose. If a supported
@@ -1749,6 +1755,12 @@ while PR quality cards keep capped validity for cost.
 *Defect tracking — prove a fix regressed nothing.* A raw count (e.g. "CS0266: 263") tells you a bucket shrank but not *which* methods changed, so it cannot distinguish a real fix from a fix that also broke something else. `--emit-validity-defects <file>` writes the per-method defect map (one `Type::Method<TAB>CODE,CODE` row per method) before your change; after the change, `--diff-validity-defects <file>` re-runs the check and prints the differential against that baseline — **REGRESSED** (methods that gained a code) and **IMPROVED** (methods that lost one), per code. A clean fix shows entries only under IMPROVED with an empty REGRESSED; any REGRESSED row is a method your change broke. Only methods checked in *both* runs are compared (cap-boundary methods are excluded), so keep `--compile-cap` identical across the baseline and diff runs. This is the regression-proof loop behind a "N→M occurrences, 0 regressions" claim.
 
 **Fidelity check** (`--fidelity-check`): the *semantic-fidelity* check — `--gaps` is *completeness*, the validity check is *validity*, and this is *does it still mean the same thing*. It closes the round trip named in [docs/decompiler.md](../../docs/decompiler.md): decompile → recompile → compare IL. A body that parses, binds, and reads plausibly but recompiles to a different contract body changed the measured program shape, invisible to every other check because they never run the output back through a compiler. Each member is recompiled inside a reconstructed **whole-module skeleton** — every top-level type stubbed (fields present, sibling and nested members as throwing stubs) with the one target carrying its real decompiled body, the C# analog of the IL round-trip suite's `IlasmScaffold.BuildCompilationUnit`. With fields and sibling types in scope, a dropped or mis-bound field access surfaces as a body diff rather than a bind error. The recompiled method is disassembled and compared with the original using a harness-owned contract bundle of product-owned `IlBodyDiffNormalization`: `Exact` requires matching normalized opcode families, values, symbolic targets, and branch topology; `OpcodeDiff` identifies an opcode-name change; `OperandDiff` identifies a value, target, or topology change with matching opcode names; and `FidelityUnavailable` keeps comparison failures visible. The contract tolerates local/argument macro and slot-layout changes, normalizes current and platform assembly scopes, and remains EH-blind. `Full`-fidelity diffs are the docket. References are the running runtime plus the target's sibling DLLs, minus the target itself (it is reconstructed, not referenced). Recompile failures here overlap `--validity-check` (an un-bindable body cannot be compared) and are reported separately, not as diffs. Compiler/source-generated implementation details — generated-code attributes, compiler-synthesized names, and `JsonSerializerContext` helper types — are skipped because their emitted members are not actionable source-shape fixes; source-spellable auto-property accessors still remain in scope. `CB_TYPE=<substr>` filters to a type; `CB_DUMP=1` prints the first failing compilation units. `--compile-cap N` bounds the slow recompile pass before collecting and compiling a type, so cap-boundary types do not compile more target bodies than the remaining budget. Add `--fidelity-timings` to print phase timings for collect/render, skeleton emit, parse, compilation creation, emit, and body comparison. Add `--fidelity-zero-signal-guard N` for large exploratory runs: it probes the first `N` methods and stops early when the probe has no `Exact`/`OpcodeDiff`/`OperandDiff` rows and one failure bucket dominates, reporting the population as zero-signal/uncheckable instead of scaling the same failure to the full cap.
+
+When the product supplies a whole-member target artifact, the skeleton changes
+only indentation. It does not normalize constructor accessibility or otherwise
+repair the target before compilation. A target that cannot compile remains a
+visible failure; a legacy harness-spelled target is reported without
+product-whole-member provenance.
 
 Add `--fidelity-method-delta <delta.json>` when the question is "did the
 methods this PR changed still compile back faithfully?" The input is the

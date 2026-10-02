@@ -19,11 +19,14 @@ function isList(value: unknown): value is readonly unknown[] {
 
 const assetPattern
   = /^assets\/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*\/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+const rootEntryAssets = new Set([
+  "browser-package-entry-cache.js",
+]);
 
 function validateAsset(asset: unknown): string {
   if (
     typeof asset !== "string"
-    || !assetPattern.test(asset)
+    || (!assetPattern.test(asset) && !rootEntryAssets.has(asset))
     || asset.split("/").some(segment => segment === "." || segment === "..")
   ) {
     throw new Error(`The Vite manifest contains invalid asset '${String(asset)}'.`);
@@ -76,6 +79,9 @@ export function verifySiteArtifact(siteArgument: string): void {
   if (importMapIndex >= 0 && baseIndex > importMapIndex) {
     throw new Error('index.html places <base href="/"> after the import map.');
   }
+  if (importMapIndex < 0) {
+    throw new Error("index.html is missing the import map.");
+  }
 
   const assets = new Set<string>();
 
@@ -113,8 +119,12 @@ export function verifySiteArtifact(siteArgument: string): void {
     }
   }
 
-  if (!index.includes(`src="/${indexFile}"`)) {
+  const entryIndex = index.indexOf(`src="/${indexFile}"`);
+  if (entryIndex < 0) {
     throw new Error(`index.html does not load Vite entry '${indexFile}'.`);
+  }
+  if (entryIndex < importMapIndex) {
+    throw new Error(`index.html places Vite entry '${indexFile}' before the import map.`);
   }
 
   // The loop above already validated every asset the manifest declares, so this mapping

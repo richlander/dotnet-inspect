@@ -239,7 +239,7 @@ function unavailableExactTypeInspection(
   };
 }
 
-function typeDisplayName(item: TypeSummary) {
+function typeDisplayName(item: { name: string; displayName?: string }) {
   return item?.displayName || item?.name || "";
 }
 
@@ -318,6 +318,7 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push("explore-source");
     },
     onKindSelect: value => calls.push(`kind:${value}`),
+    onTypeLeverageRetry: () => calls.push("type-leverage-retry"),
     onTypeNavBack: () => calls.push("type-nav-back"),
     onListKeyDown: event => {
       calls.push(`list:${event.key}`);
@@ -325,6 +326,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     },
     onMemberAccessibilityFilterSelect: value =>
       calls.push(`member-access:${value}`),
+    onMemberSpellingSelect: value =>
+      calls.push(`member-spelling:${value}`),
     onMemberBack: () => calls.push("member-back"),
     onMemberCompositionAccessibilitySelect: value =>
       calls.push(`member-jump-access:${value}`),
@@ -356,22 +359,34 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
   };
 }
 
+test("type panel binds the qualified Type leverage retry", () => {
+  const root = new FakeRoot();
+  const retry = root.add(
+    "[data-type-leverage-retry]",
+    new FakeElement(),
+  );
+  const calls: string[] = [];
+  bindPanel(root, recordingActions(calls));
+
+  retry.dispatch("click");
+
+  assert.deepEqual(calls, ["type-leverage-retry"]);
+});
+
 test("type panel bindings dispatch member filters without eager work", () => {
   const root = new FakeRoot();
-  const allKinds = new FakeElement({ memberKindFilter: "all" });
-  const kind = new FakeElement({ memberKindFilter: "method" });
-  const allAccessibilities =
-    new FakeElement({ memberAccessFilter: "all" });
-  const accessibility =
-    new FakeElement({ memberAccessFilter: "protected" });
-  const allTraits = new FakeElement({ memberTraitFilter: "all" });
-  const trait = new FakeElement({ memberTraitFilter: "isStatic" });
-  root.addAll("[data-member-kind-filter]", allKinds, kind);
-  root.addAll(
-    "[data-member-access-filter]",
-    allAccessibilities,
-    accessibility);
-  root.addAll("[data-member-trait-filter]", allTraits, trait);
+  const kind = new FakeElement();
+  kind.value = "method";
+  const accessibility = new FakeElement();
+  accessibility.value = "protected";
+  const spelling = new FakeElement();
+  spelling.value = "metadata";
+  const trait = new FakeElement();
+  trait.value = "static";
+  root.addAll("[data-member-kind-filter]", kind);
+  root.addAll("[data-member-access-filter]", accessibility);
+  root.addAll("[data-member-spelling]", spelling);
+  root.addAll("[data-member-trait-filter]", trait);
   const filter = root.add("#member-filter", new FakeElement());
   filter.value = "parse";
   const disclosure = root.add(
@@ -383,18 +398,25 @@ test("type panel bindings dispatch member filters without eager work", () => {
   const keybindings = bindPanel(root, recordingActions(calls));
 
   assert.deepEqual(calls, []);
-  kind.dispatch("click");
+  kind.dispatch("change");
   assert.deepEqual(calls, ["member-kind:method"]);
-  accessibility.dispatch("click");
+  accessibility.dispatch("change");
   assert.deepEqual(calls, [
     "member-kind:method",
     "member-access:protected",
   ]);
-  trait.dispatch("click");
+  spelling.dispatch("change");
   assert.deepEqual(calls, [
     "member-kind:method",
     "member-access:protected",
-    "member-trait:isStatic",
+    "member-spelling:metadata",
+  ]);
+  trait.dispatch("change");
+  assert.deepEqual(calls, [
+    "member-kind:method",
+    "member-access:protected",
+    "member-spelling:metadata",
+    "member-trait:static",
   ]);
   filter.dispatch("input");
   disclosure.open = true;
@@ -405,7 +427,8 @@ test("type panel bindings dispatch member filters without eager work", () => {
   assert.deepEqual(calls, [
     "member-kind:method",
     "member-access:protected",
-    "member-trait:isStatic",
+    "member-spelling:metadata",
+    "member-trait:static",
     "member-filter:parse",
     "member-filter-disclosure:true",
     "member-filter-key:ArrowDown:parse",
@@ -559,7 +582,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
   const defaultJumpKind = new FakeElement();
   const jumpAccess = new FakeElement({ memberJumpAccess: "protected" });
   const defaultJumpAccess = new FakeElement();
-  const jumpTrait = new FakeElement({ memberJumpTrait: "isStatic" });
+  const jumpTrait = new FakeElement({ memberJumpTrait: "static" });
   const defaultJumpTrait = new FakeElement();
   const member = new FakeElement({ member: "M:Parse" });
   const defaultMember = new FakeElement();
@@ -610,7 +633,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
     "member-jump-kind:all",
     "member-jump-access:protected",
     "member-jump-access:all",
-    "member-jump-trait:isStatic",
+    "member-jump-trait:static",
     "member-jump-trait:",
     "member-open:M:Parse",
     "member-open:",
@@ -730,6 +753,42 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.doesNotMatch(html, /· class</);
 });
 
+test("the type nav preserves the host selection value for the global namespace", () => {
+  const globalType = {
+    ...jsonSerializer,
+    id: "GlobalType",
+    definitionId: "GlobalType",
+    name: "GlobalType",
+    displayName: "GlobalType",
+    namespace: "",
+  };
+  const html = renderTypeNav({
+    current: globalType,
+    visible: [globalType],
+    typeGroups: new Map([["", [globalType]]]),
+    typeFilter: "",
+    namespaceFilter: "__global__",
+    kindFilter: "",
+    namespaceCount: 1,
+    namespaceOptionsHtml: '<option value="__global__">global namespace · 1</option>',
+    namespaceSelectionValue: namespace =>
+      namespace === "" ? "__global__" : namespace,
+    kindFilters: ["class"],
+    accessibilityControlHtml: "",
+    library: "GlobalFixture",
+    parentSubject: "library",
+    filtersExpanded: false,
+    filterSummary: "global namespace",
+    escapeHtml,
+    typeDisplayName,
+    typeLibraryLabel: noTypeLibraryLabel,
+    kindIcon,
+  });
+
+  assert.match(html, /class="namespace-row" data-namespace="__global__"/);
+  assert.doesNotMatch(html, /class="namespace-row" data-namespace=""/);
+});
+
 test("the type nav reports no matches for an empty filtered group", () => {
   const html = renderTypeNav({
     current: jsonSerializer,
@@ -754,6 +813,81 @@ test("the type nav reports no matches for an empty filtered group", () => {
 
   assert.match(html, /No public types match this filter\./);
   assert.match(html, /data-type-filter-disclosure open/);
+});
+
+test("the type nav renders exclusive accessible pole cues", () => {
+    const html = renderTypeNav({
+      current: jsonSerializer,
+      visible: [jsonSerializer, jsonDocument],
+      typeGroups: new Map([["System.Text.Json", [jsonSerializer, jsonDocument]]]),
+      typeFilter: "",
+      namespaceFilter: "",
+      kindFilter: "",
+      namespaceCount: 1,
+      namespaceOptionsHtml: "",
+      kindFilters: ["class"],
+      accessibilityControlHtml: "",
+      leverageControlHtml:
+        '<button data-type-leverage-filter="sea-level">sea level</button>',
+      library: "System.Text.Json",
+      parentSubject: "library",
+      filtersExpanded: true,
+      filterSummary: "sea level",
+      escapeHtml,
+      typeDisplayName,
+      typeLibraryLabel: noTypeLibraryLabel,
+      kindIcon,
+      namespaceLeverageCue: namespace =>
+        namespace === "System.Text.Json"
+          ? {
+              topLeverage: true,
+              description:
+                "8 external source Types; top-leverage namespace",
+            }
+          : null,
+      itemAchievements: item => {
+        if (item.id === jsonSerializer.id) {
+          return [{
+            kind: "sea-level",
+            description:
+              "8 incoming Type peers; 6 outgoing Type peers; sea-level Type",
+          }];
+        }
+        if (item.id === jsonDocument.id) {
+          return [{
+            kind: "mountain-peak",
+            description:
+              "4 incoming Type peers; 9 outgoing Type peers; mountain-peak Type",
+          }];
+        }
+        return [];
+      },
+    });
+
+    assert.match(html, /data-type-leverage-filter="sea-level"/);
+    assert.match(html, /type-row selected sea-level/);
+    assert.match(html, /class="item-achievement-glyph sea-level"/);
+    assert.match(html, /class="item-achievement-glyph mountain-peak"/);
+    assert.match(html, /class="item-achievement-rail"/);
+    assert.doesNotMatch(html, /[▁▲]/);
+    assert.match(
+      html,
+      /role="img" aria-label="8 incoming Type peers; 6 outgoing Type peers/,
+    );
+    assert.doesNotMatch(html, /class="sr-only"/);
+    assert.match(html, /class="namespace-leverage-cue"/);
+    assert.match(
+      html,
+      /aria-label="8 external source Types; top-leverage namespace"/,
+    );
+    const seaRow = html.match(
+      /class="type-row selected sea-level"[^>]*data-type="System\.Text\.Json\.JsonSerializer"[\s\S]*?<\/button>/,
+    )?.[0] ?? "";
+    const peakRow = html.match(
+      /class="type-row  mountain-peak"[^>]*data-type="System\.Text\.Json\.JsonDocument"[\s\S]*?<\/button>/,
+    )?.[0] ?? "";
+    assert.doesNotMatch(seaRow, /mountain-peak/);
+    assert.doesNotMatch(peakRow, /sea-level/);
 });
 
 test("the type nav omits a parent action when the Library has no visible parent", () => {
@@ -839,6 +973,8 @@ test("the member nav marks the active group and its selected overload", () => {
   });
 
   assert.match(html, /class="type-row member-row active-group [^"]*" data-nav-member="method:Serialize"/);
+  assert.match(html, /<span class="type-name family-name">Serialize<\/span>/);
+  assert.match(html, /<span class="family-count">2×<\/span>/);
   assert.match(html, /id="content-navigation-pane"/);
   assert.match(
     html,
@@ -885,6 +1021,181 @@ test("the member nav labels a selected graph-only target", () => {
   assert.match(html, /class="type-row member-row graph-member-row active-group/);
   assert.match(html, /graph target · method/);
   assert.match(html, /0 of 0/);
+  assert.doesNotMatch(html, /family-name|family-count/);
+});
+
+test("only an overload family's row takes the family color", () => {
+  const single = {
+    key: "property:RootElement",
+    name: "RootElement",
+    kind: "property",
+    overloads: [{ signature: "JsonElement RootElement { get; }" }],
+  };
+  const family = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    overloads: [
+      { signature: "JsonDocument Parse(string json)" },
+      { signature: "JsonDocument Parse(Stream utf8Json)" },
+    ],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [
+      { kind: "member", group: family },
+      { kind: "member", group: single },
+    ],
+    memberCount: 3,
+    visibleMemberCount: 3,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(html, /<span class="type-name family-name">Parse<\/span>/);
+  assert.match(html, /<span class="family-count">2×<\/span>/);
+  assert.equal(html.match(/family-name/g)?.length, 1);
+  assert.equal(html.match(/family-count/g)?.length, 1);
+});
+
+test("member families show product-issued out-of-view counts", () => {
+  const group = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    completeCount: 7,
+    overloads: [
+      { signature: "JsonDocument Parse(string json)" },
+      { signature: "JsonDocument Parse(Stream utf8Json)" },
+      { signature: "JsonDocument Parse(ReadOnlyMemory<byte> utf8Json)" },
+      { signature: "JsonDocument Parse(ReadOnlySequence<byte> utf8Json)" },
+      { signature: "JsonDocument ParseValue(ref Utf8JsonReader reader)" },
+    ],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 5,
+    visibleMemberCount: 5,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    selectedAccessibility: "public",
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(html, /<span class="family-count">5×<\/span>/);
+  assert.match(html, />\+2<\/span>/);
+  assert.match(
+    html,
+    /aria-label="2 more overloads are outside the public view\."/);
+});
+
+test("Trait-filtered families hide accessibility-only out-of-view counts", () => {
+  const group = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    completeCount: 7,
+    overloads: [
+      { signature: "static JsonDocument Parse(string json)" },
+    ],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 7,
+    visibleMemberCount: 1,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    selectedAccessibility: "public",
+    overloadFilterActive: true,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.doesNotMatch(html, /family-outside-count/);
+});
+
+test("member families disclose unavailable out-of-view counts", () => {
+  const group = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    completeCount: 2,
+    completeCountStatus: "failed" as const,
+    overloads: [
+      { signature: "JsonDocument Parse(string json)" },
+      { signature: "JsonDocument Parse(Stream utf8Json)" },
+    ],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 2,
+    visibleMemberCount: 2,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    selectedAccessibility: "public",
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(html, /class="family-outside-count unavailable"/);
+  assert.match(html, />\+\?<\/span>/);
+  assert.match(
+    html,
+    /aria-label="The out-of-view overload count is unavailable for the public view\."/);
+});
+
+test("member families do not guess out-of-view counts while loading", () => {
+  const group = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    completeCount: 2,
+    completeCountStatus: "pending" as const,
+    overloads: [
+      { signature: "JsonDocument Parse(string json)" },
+      { signature: "JsonDocument Parse(Stream utf8Json)" },
+    ],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "member", group }],
+    memberCount: 2,
+    visibleMemberCount: 2,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    selectedAccessibility: "public",
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.doesNotMatch(html, /family-outside-count/);
+  assert.doesNotMatch(html, /\+\?/);
 });
 
 test("the member nav does not advertise sections without a selected member", () => {
@@ -1031,12 +1342,50 @@ test("type source signature routes through the shared decompiler-taste-aware key
       "System.Text.Json",
       "9.0.0",
       "net9.0",
+      "",
+      "",
       "System.Text.Json.dll",
       "T:System.Text.Json.JsonSerializer",
       "source",
     ],
     taste: ["identifier-casing"],
   }]);
+});
+
+test("platform type source identity includes pack and retained context", () => {
+  const item = {
+    ...jsonSerializer,
+    platformPack: "netcore.app",
+  };
+  const packageContext = {
+    id: ":Platform",
+    version: "11.0.0",
+    activeFramework: "net11.0",
+    platformContextId: "demo-context",
+  };
+  const requestKey = (parts: readonly string[], taste: readonly string[]) =>
+    JSON.stringify([parts, taste]);
+
+  const signature = typeSourceSignature(
+    item,
+    packageContext,
+    [],
+    requestKey);
+
+  assert.notEqual(
+    signature,
+    typeSourceSignature(
+      { ...item, platformPack: "aspnetcore.app" },
+      packageContext,
+      [],
+      requestKey));
+  assert.notEqual(
+    signature,
+    typeSourceSignature(
+      item,
+      { ...packageContext, platformContextId: null },
+      [],
+      requestKey));
 });
 
 test("type code view identity applies decompiler taste only to implementation source", () => {
@@ -1981,7 +2330,6 @@ test("member rows say what a member is rather than which kind it is", () => {
       heatStrength: index === 1 ? 1 : null,
       hub: false,
       description: index === 1 ? "33 instructions" : "8 instructions",
-      size: index === 1 ? 33 : 8,
     }),
   });
 
@@ -1989,10 +2337,11 @@ test("member rows say what a member is rather than which kind it is", () => {
   assert.match(html, /<span class="sig-name">WriteTo<\/span><span class="sig-punct">\(<\/span><span class="sig-type">Utf8JsonWriter<\/span>/);
   assert.match(html, /RootElement<\/span>\s*<small><span class="sig-type">JsonElement<\/span><\/small>/);
   assert.doesNotMatch(html, /<small>method<\/small>|<small>property<\/small>/);
-  // Nested overloads have no branch glyph, color keyword types, and show the
-  // size only on the selected row.
+  // Nested overloads have no branch glyph, color keyword types, and retain
+  // accessible heat descriptions without rendering raw metric labels.
   assert.doesNotMatch(html, /↳|overload-branch/);
   assert.match(html, /<span class="sig-keyword">string<\/span>/);
-  assert.match(html, /<small class="overload-size" title="33 instructions">33<\/small>/);
-  assert.doesNotMatch(html, />8<\/small>/);
+  assert.match(html, /aria-description="8 instructions"/);
+  assert.match(html, /aria-description="33 instructions"/);
+  assert.doesNotMatch(html, /overload-size|>8IL<|>33IL</);
 });
