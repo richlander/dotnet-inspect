@@ -19,6 +19,7 @@ namespace DotnetInspector.Packages;
 public sealed class RangedPackageContent :
     IPackageContent,
     IPackageContentEntryManifest,
+    IPackageArchiveEntryManifest,
     IPackageHousePayloadSource
 {
     private readonly IReadOnlyList<PackageContentEntry> _entries;
@@ -194,6 +195,14 @@ public sealed class RangedPackageContent :
     /// <inheritdoc />
     public PackageContentEntryScanner CreateEntryScanner() =>
         PackageContentEntryScanner.From(_entries);
+
+    bool IPackageArchiveEntryManifest.TryGetArchiveEntries(
+        [NotNullWhen(true)]
+        out IReadOnlyList<PackageContentEntry>? entries)
+    {
+        entries = _entries;
+        return true;
+    }
 
     /// <inheritdoc />
     public IEnumerable<string> EnumerateEntries() =>

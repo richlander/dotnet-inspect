@@ -29,7 +29,8 @@ internal readonly record struct JsonContextGetterIdentity(
 /// <summary>
 /// Resolves each <c>[JSExport]</c> method's actual JSON wire-contract DTO type(s) by reading the
 /// <c>JsonSerializer.Serialize</c>/<c>Deserialize</c> call sites in the method's own IL body (via
-/// <see cref="LibraryBodyIndex.DirectCalls"/>), instead of inferring them from every DTO
+/// <see cref="LibraryJsonWireContractAnalysisResult.DirectCalls"/>), instead of
+/// inferring them from every DTO
 /// registered anywhere in the assembly's <c>JsonSerializerContext</c>.
 /// </summary>
 /// <remarks>
@@ -108,11 +109,11 @@ public static class JsonWireContractResolver
     /// <see cref="JsExportFunction.ReturnWireTypeShape"/>,
     /// <see cref="JsExportFunction.ParameterWireTypes"/>, and
     /// <see cref="JsExportFunction.ParameterWireBindings"/> populated from
-    /// the direct calls found in <paramref name="bodyIndex"/> for the method
+    /// the direct calls found in <paramref name="bodyAnalysis"/> for the method
     /// identified by <paramref name="metadataToken"/>.
     /// </summary>
     internal static JsExportFunction Attach(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         JsExportFunction function,
         int metadataToken,
         IReadOnlyDictionary<JsonContextGetterIdentity, JsonSourceGenerationMode>
@@ -154,7 +155,7 @@ public static class JsonWireContractResolver
                         ContextScopeKeys = binding.ContextScopeKeys,
                     }));
 
-        foreach (DirectCall call in bodyIndex.DirectCalls)
+        foreach (DirectCall call in bodyAnalysis.DirectCalls)
         {
             if (call.Caller.MetadataToken != metadataToken
                 || call.Callee.DeclaringType.Name != JsonSerializerTypeName
@@ -174,7 +175,7 @@ public static class JsonWireContractResolver
 
             bool hasAuthenticatedTypeInfo =
                 HasAuthenticatedJsonTypeInfoArgument(
-                    bodyIndex,
+                    bodyAnalysis,
                     call,
                     dto,
                     registeredJsonTypeInfoGetterModes,
@@ -193,7 +194,7 @@ public static class JsonWireContractResolver
                 parameterContextScopeKeys.UnionWith(contextScopeKeys);
                 if (authenticatedShape is not null
                     && TryResolveParameterIndex(
-                        bodyIndex,
+                        bodyAnalysis,
                         call,
                         function,
                         out int parameterIndex))
@@ -246,7 +247,7 @@ public static class JsonWireContractResolver
         }
 
         AuthenticatedWireType? returnType = ResolveCompleteReturnWireType(
-            bodyIndex,
+            bodyAnalysis,
             metadataToken,
             registeredJsonTypeInfoGetterModes,
             registeredJsonTypeInfoContextScopeKeys,
@@ -256,13 +257,13 @@ public static class JsonWireContractResolver
         bool hasUncertifiedReturnEvidence =
             returnType is null
             && HasReturnSerializerEvidence(
-                bodyIndex,
+                bodyAnalysis,
                 metadataToken);
         IReadOnlyList<AuthenticatedWireType> observedReturnTypes =
             declaredReturn is null
                 ? []
                 : ResolveObservedReturnWireTypes(
-                    bodyIndex,
+                    bodyAnalysis,
                     metadataToken,
                     registeredJsonTypeInfoGetterModes,
                     registeredJsonTypeInfoContextScopeKeys,
@@ -414,7 +415,7 @@ public static class JsonWireContractResolver
     }
 
     static bool TryResolveParameterIndex(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         DirectCall deserializerCall,
         JsExportFunction function,
         out int parameterIndex)
@@ -453,7 +454,7 @@ public static class JsonWireContractResolver
             && field.DeclaringType.Equals(
                 deserializerCall.EvidenceMethod.DeclaringType)
             && TryResolveHoistedParameterIndex(
-                bodyIndex,
+                bodyAnalysis,
                 deserializerCall,
                 field,
                 out int hoistedSourceIndex))
@@ -479,14 +480,14 @@ public static class JsonWireContractResolver
     }
 
     static bool TryResolveHoistedParameterIndex(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         DirectCall deserializerCall,
         FieldIdentity field,
         out int parameterIndex)
     {
         parameterIndex = -1;
         FieldStoreFact? sourceStore = null;
-        foreach (FieldStoreFact store in bodyIndex.FieldStores)
+        foreach (FieldStoreFact store in bodyAnalysis.FieldStores)
         {
             if (store.Caller != deserializerCall.Caller
                 || !field.MightBeSameFieldAs(store.Identity)
@@ -582,7 +583,7 @@ public static class JsonWireContractResolver
         ];
 
     static AuthenticatedWireType? ResolveCompleteReturnWireType(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         int metadataToken,
         IReadOnlyDictionary<JsonContextGetterIdentity, JsonSourceGenerationMode>
             registeredJsonTypeInfoGetterModes,
@@ -599,7 +600,7 @@ public static class JsonWireContractResolver
     {
         IReadOnlyList<MethodResultSink> sinks =
             ResolveAuthenticReturnSinks(
-                bodyIndex,
+                bodyAnalysis,
                 metadataToken);
 
         if (sinks.Count == 0)
@@ -621,7 +622,7 @@ public static class JsonWireContractResolver
             foreach (int sourceOffset in sourceCallOffsets)
             {
                 DirectCall? source = CallAt(
-                    bodyIndex,
+                    bodyAnalysis,
                     sink.EvidenceMethod,
                     sourceOffset);
                 TypeRef? sourceDto = source is null
@@ -630,7 +631,7 @@ public static class JsonWireContractResolver
                 if (source is null
                     || sourceDto is null
                     || !HasAuthenticatedJsonTypeInfoArgument(
-                        bodyIndex,
+                        bodyAnalysis,
                         source,
                         sourceDto,
                         registeredJsonTypeInfoGetterModes,
@@ -664,7 +665,7 @@ public static class JsonWireContractResolver
 
     static IReadOnlyList<AuthenticatedWireType>
         ResolveObservedReturnWireTypes(
-            LibraryBodyIndex bodyIndex,
+            LibraryJsonWireContractAnalysisResult bodyAnalysis,
             int metadataToken,
             IReadOnlyDictionary<JsonContextGetterIdentity, JsonSourceGenerationMode>
                 registeredJsonTypeInfoGetterModes,
@@ -681,14 +682,14 @@ public static class JsonWireContractResolver
     {
         var observed = new List<AuthenticatedWireType>();
         foreach (MethodResultSink sink in ResolveAuthenticReturnSinks(
-            bodyIndex,
+            bodyAnalysis,
             metadataToken))
         {
             foreach (int sourceOffset
                 in EnumerateKnownSourceCallOffsets(sink).Distinct())
             {
                 DirectCall? source = CallAt(
-                    bodyIndex,
+                    bodyAnalysis,
                     sink.EvidenceMethod,
                     sourceOffset);
                 TypeRef? sourceDto = source is null
@@ -697,7 +698,7 @@ public static class JsonWireContractResolver
                 if (source is null
                     || sourceDto is null
                     || !HasAuthenticatedJsonTypeInfoArgument(
-                        bodyIndex,
+                        bodyAnalysis,
                         source,
                         sourceDto,
                         registeredJsonTypeInfoGetterModes,
@@ -724,11 +725,11 @@ public static class JsonWireContractResolver
     }
 
     static IReadOnlyList<MethodResultSink> ResolveAuthenticReturnSinks(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         int metadataToken)
     {
         var sinks = new List<MethodResultSink>();
-        foreach (MethodResultSink sink in bodyIndex.ResultSinks)
+        foreach (MethodResultSink sink in bodyAnalysis.ResultSinks)
         {
             if (sink.Caller.MetadataToken != metadataToken)
                 continue;
@@ -736,11 +737,11 @@ public static class JsonWireContractResolver
             if (sink.Kind == MethodResultSinkKind.MethodReturn)
             {
                 if (IsAuthenticSynchronousResultSink(
-                        bodyIndex,
+                        bodyAnalysis,
                         sink,
                         metadataToken)
                     || IsAuthenticRuntimeAsyncResultSink(
-                        bodyIndex,
+                        bodyAnalysis,
                         sink,
                         metadataToken))
                 {
@@ -753,13 +754,13 @@ public static class JsonWireContractResolver
                 continue;
 
             DirectCall? consumer = CallAt(
-                bodyIndex,
+                bodyAnalysis,
                 sink.EvidenceMethod,
                 sink.ILOffset);
             if (consumer is not null
                 && IsTrustedAsyncResultSink(consumer.Callee)
                 && IsAuthenticStateMachineResultSink(
-                    bodyIndex,
+                    bodyAnalysis,
                     sink,
                     metadataToken))
             {
@@ -788,18 +789,18 @@ public static class JsonWireContractResolver
     }
 
     static bool HasReturnSerializerEvidence(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         int metadataToken)
     {
         foreach (MethodResultSink sink in ResolveAuthenticReturnSinks(
-            bodyIndex,
+            bodyAnalysis,
             metadataToken))
         {
             foreach (int sourceOffset
                 in EnumerateKnownSourceCallOffsets(sink))
             {
                 if (IsSerializerCall(
-                        bodyIndex,
+                        bodyAnalysis,
                         sink.EvidenceMethod,
                         sourceOffset))
                 {
@@ -811,12 +812,12 @@ public static class JsonWireContractResolver
     }
 
     static bool IsSerializerCall(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         MethodIdentity evidenceMethod,
         int sourceOffset)
     {
         DirectCall? source = CallAt(
-            bodyIndex,
+            bodyAnalysis,
             evidenceMethod,
             sourceOffset);
         return source is not null
@@ -847,19 +848,19 @@ public static class JsonWireContractResolver
     }
 
     static bool IsAuthenticSynchronousResultSink(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         MethodResultSink sink,
         int exportMetadataToken)
         => sink.Caller.MetadataToken == exportMetadataToken
             && sink.Caller == sink.EvidenceMethod
             && sink.AsyncBody is null
-            && bodyIndex.DeclaredMethods.Contains(
+            && bodyAnalysis.DeclaredMethods.Contains(
                 sink.EvidenceMethod)
             && IsTrustedSystemString(
                 sink.EvidenceMethod.ReturnType);
 
     internal static bool IsAuthenticRuntimeAsyncResultSink(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         MethodResultSink sink,
         int exportMetadataToken)
         => sink.Caller.MetadataToken == exportMetadataToken
@@ -869,13 +870,13 @@ public static class JsonWireContractResolver
                 Lowering: AsyncLoweringKind.Runtime,
             } asyncBody
             && asyncBody.SourceMethod == sink.Caller
-            && bodyIndex.DeclaredMethods.Contains(
+            && bodyAnalysis.DeclaredMethods.Contains(
                 sink.EvidenceMethod)
             && IsTrustedTaskOfString(
                 sink.EvidenceMethod.ReturnType);
 
     static bool IsAuthenticStateMachineResultSink(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         MethodResultSink sink,
         int exportMetadataToken)
         => sink.Caller.MetadataToken == exportMetadataToken
@@ -886,12 +887,12 @@ public static class JsonWireContractResolver
                 Lowering: AsyncLoweringKind.StateMachine,
             } asyncBody
             && asyncBody.SourceMethod == sink.Caller
-            && bodyIndex.ResolveDeclaredMethod(
+            && bodyAnalysis.ResolveDeclaredMethod(
                 sink.EvidenceMethod)
                 == sink.Caller;
 
     static bool HasAuthenticatedJsonTypeInfoArgument(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         DirectCall serializerCall,
         TypeRef dto,
         IReadOnlyDictionary<JsonContextGetterIdentity, JsonSourceGenerationMode>
@@ -926,7 +927,7 @@ public static class JsonWireContractResolver
         foreach (int sourceOffset in argument.SourceCallOffsets)
         {
             DirectCall? source = CallAt(
-                bodyIndex,
+                bodyAnalysis,
                 serializerCall.EvidenceMethod,
                 sourceOffset);
             if (source is null)
@@ -968,7 +969,7 @@ public static class JsonWireContractResolver
                     getterIdentity,
                     out JsonContextGetterIdentity defaultContextGetter)
                 && !HasAuthenticatedDefaultContextReceiver(
-                    bodyIndex,
+                    bodyAnalysis,
                     source,
                     defaultContextGetter))
             {
@@ -992,7 +993,7 @@ public static class JsonWireContractResolver
     }
 
     static bool HasAuthenticatedDefaultContextReceiver(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         DirectCall getterCall,
         JsonContextGetterIdentity defaultContextGetter)
     {
@@ -1009,7 +1010,7 @@ public static class JsonWireContractResolver
         foreach (int sourceOffset in receiver.SourceCallOffsets)
         {
             DirectCall? source = CallAt(
-                bodyIndex,
+                bodyAnalysis,
                 getterCall.EvidenceMethod,
                 sourceOffset);
             if (source is null
@@ -1080,10 +1081,10 @@ public static class JsonWireContractResolver
                 type.TypeArguments[0]);
 
     static DirectCall? CallAt(
-        LibraryBodyIndex bodyIndex,
+        LibraryJsonWireContractAnalysisResult bodyAnalysis,
         MethodIdentity evidenceMethod,
         int offset)
-        => bodyIndex.DirectCalls.FirstOrDefault(call =>
+        => bodyAnalysis.DirectCalls.FirstOrDefault(call =>
             call.EvidenceMethod == evidenceMethod
             && call.ILOffset == offset);
 
