@@ -141,12 +141,14 @@ public static class ExactLibraryApiInspectionOperation
         ExecuteToolEntryAsync(
             PackageInspectionInput input,
             ExactLibraryApiInspectionRequest request,
+            string selectedTargetFramework,
             PackageAssemblyContextRealizationOptions realizationOptions,
             ApiSurfaceProjectionLimits projectionLimits,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(selectedTargetFramework);
         ArgumentNullException.ThrowIfNull(realizationOptions);
         ArgumentNullException.ThrowIfNull(projectionLimits);
 
@@ -155,8 +157,8 @@ public static class ExactLibraryApiInspectionOperation
                 [
                     new(
                         request.Library,
-                        request.TargetFramework,
-                        request.TargetFramework),
+                        selectedTargetFramework,
+                        selectedTargetFramework),
                 ]);
         await using var workspace = new InspectionWorkspace();
         using PackageInspectionAssemblyContext realization =

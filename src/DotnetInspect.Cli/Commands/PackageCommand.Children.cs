@@ -240,40 +240,61 @@ public partial class PackageCommand
         string? targetFramework;
         if (result.IsToolPackage)
         {
-            TfmSelector.PackageLibraryResolution toolSelection =
-                TfmSelector.SelectPackageLibraries(
-                    extractPath,
+            PackageToolSliceSelection toolSelection =
+                PackageToolSliceMeasurementProjection.SelectEntries(
+                    Directory.EnumerateFiles(
+                            extractPath,
+                            "*",
+                            SearchOption.AllDirectories)
+                        .Select(path =>
+                            PackageAssetPath(extractPath, path)),
                     options.Tfm);
-            if (!toolSelection.IsSelected)
+            if (toolSelection.Status
+                != PackageToolSliceSelectionStatus.Selected)
             {
-                PackageChildrenDocument document = toolSelection.Status
-                    == TfmSelector.PackageLibraryResolutionStatus
-                        .NoMatchingTargetFramework
-                    ?
-                        PackageChildrenDocument.UnavailableLibraries(
-                            subject,
-                            PackageChildrenStatus.NoApplicableTarget,
-                            $"No tool Library slice matches target "
-                                + $"'{options.Tfm}'.")
-                    :
-                        PackageChildrenDocument.NoManagedLibraries(
+                PackageChildrenDocument document =
+                    toolSelection.Status switch
+                    {
+                        PackageToolSliceSelectionStatus.NoApplicableSlice =>
+                            PackageChildrenDocument.UnavailableLibraries(
+                                subject,
+                                PackageChildrenStatus.NoApplicableTarget,
+                                $"No tool Library slice matches target "
+                                    + $"'{options.Tfm}'."),
+                        PackageToolSliceSelectionStatus.InvalidSelection =>
+                            PackageChildrenDocument.UnavailableLibraries(
+                                subject,
+                                PackageChildrenStatus.InvalidSelection,
+                                toolSelection.Detail!),
+                        _ => PackageChildrenDocument.NoManagedLibraries(
                             subject,
                             "The selected tool payload contains no managed "
-                                + "Libraries.");
+                                + "Libraries."),
+                    };
                 return PackageChildrenPlan.FromDocument(document);
             }
 
-            targetFramework = toolSelection.Tfm;
+            targetFramework =
+                toolSelection.SelectedTargetFramework!;
+            subject = SubjectWithTargetFramework(
+                subject,
+                targetFramework);
+            if (toolSelection.SelectedEntries.IsEmpty)
+            {
+                return PackageChildrenPlan.FromDocument(
+                    PackageChildrenDocument.NoManagedLibraries(
+                        subject,
+                        "The selected tool payload contains no managed "
+                            + "Libraries."));
+            }
+
             HashSet<string> entryPoints =
                 ToolEntryPoints(extractPath);
             candidates =
             [
-                .. toolSelection.Paths
-                    .Select(path =>
+                .. toolSelection.SelectedEntries
+                    .Select(assetPath =>
                     {
-                        string assetPath = PackageAssetPath(
-                            extractPath,
-                            path);
                         bool entryPoint = entryPoints.Contains(
                             Path.GetFileName(assetPath));
                         return new PackageChildCandidate(
@@ -322,7 +343,14 @@ public partial class PackageCommand
             ];
         }
 
-        subject = new(
+        subject = SubjectWithTargetFramework(subject, targetFramework);
+        return new(subject, [.. candidates]);
+    }
+
+    private static PackageChildrenSubject SubjectWithTargetFramework(
+        PackageChildrenSubject subject,
+        string? targetFramework) =>
+        new(
             subject.PackageId,
             subject.PackageVersion,
             targetFramework is null
@@ -330,8 +358,6 @@ public partial class PackageCommand
                 : new InertText.InertString(
                     InertText.TextPolicy.Field,
                     targetFramework));
-        return new(subject, [.. candidates]);
-    }
 
     private static async ValueTask<PackageChildrenProjection>
         InspectPackageChildrenAsync(

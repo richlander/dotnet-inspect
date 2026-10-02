@@ -53,8 +53,8 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
   return {
     onPackageChildLibrarySelect: assetId =>
       calls.push(`package-child-library:${assetId}`),
-    onRuntimeIdentifierPackageLoad: packageId =>
-      calls.push(`package-child-package:${packageId}`),
+    onRuntimeIdentifierPackageLoad: (packageId, packageVersion) =>
+      calls.push(`package-child-package:${packageId}@${packageVersion}`),
     onDependencyGroupSelect: value => calls.push(`dependency-group:${value}`),
     onPruningEvaluate: () => calls.push("pruning-evaluate"),
     onPruningFamilySelect: family => calls.push(`pruning-family:${family}`),
@@ -109,6 +109,7 @@ test("package view bindings decode navigation controls without eager work", () =
   });
   const ridPackage = new FakeElement({
     packageChildPackage: "Example.linux-x64",
+    packageChildVersion: "1.2.3",
   });
   root.addAll("[data-package-child-library]", packageLibrary);
   root.addAll("[data-package-child-package]", ridPackage);
@@ -154,7 +155,7 @@ test("package view bindings decode navigation controls without eager work", () =
 
   assert.deepEqual(calls, [
     "package-child-library:tools/net10.0/any/Example.dll",
-    "package-child-package:Example.linux-x64",
+    "package-child-package:Example.linux-x64@1.2.3",
     "dependency-group:2",
     "dependency-group:NaN",
     "pruning-family:Microsoft.AspNetCore.App",

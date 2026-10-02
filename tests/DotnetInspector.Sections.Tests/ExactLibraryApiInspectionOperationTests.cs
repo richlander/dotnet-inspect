@@ -128,8 +128,9 @@ public sealed class ExactLibraryApiInspectionOperationTests
     [Fact]
     public async Task RetainedToolEntryReturnsExactDetachedLibrarySurface()
     {
+        const string selectedFramework = "net8.0";
         const string asset =
-            "tools/net11.0/any/DotnetInspector.Sections.dll";
+            "tools/net8.0/any/DotnetInspector.Sections.dll";
         var store = new InMemoryPackageStore();
         await CommitAsync(
             store,
@@ -161,6 +162,7 @@ public sealed class ExactLibraryApiInspectionOperationTests
                     Framework,
                     asset,
                     ExactLibraryApiSelectionKind.AssetId),
+                selectedFramework,
                 new()
                 {
                     MaxAssembliesPerRole = 1,
@@ -175,6 +177,15 @@ public sealed class ExactLibraryApiInspectionOperationTests
             ExactLibraryApiInspectionOutcome.Available,
             execution.Inspection.Content.Outcome);
         Assert.Equal(asset, execution.Inspection.Content.Asset?.Id);
+        Assert.Equal(
+            Framework,
+            execution.Inspection.Content.RequestedTargetFramework);
+        Assert.Equal(
+            Framework,
+            execution.Inspection.Content.Source?.Framework);
+        Assert.Equal(
+            selectedFramework,
+            execution.Inspection.Content.Asset?.TargetFramework);
         Assert.Equal(
             ExactLibraryApiAssetKind.Tool,
             execution.Inspection.Content.Asset?.Kind);

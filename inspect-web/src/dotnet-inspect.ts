@@ -10829,7 +10829,7 @@ function renderPackageChildren(pkg: AppPackage) {
       <div class="section-title"><h2>RID Packages</h2><span>${children.runtimeIdentifierPackages.length}</span></div>
       <ol class="package-child-tree" role="tree" aria-label="RID Packages">
         ${children.runtimeIdentifierPackages.map(child =>
-          `<li role="none"><button type="button" class="package-child-row" role="treeitem" data-package-child-package="${escapeHtml(child.packageId)}">
+          `<li role="none"><button type="button" class="package-child-row" role="treeitem" data-package-child-package="${escapeHtml(child.packageId)}" data-package-child-version="${escapeHtml(children.packageVersion)}">
             <span class="kind-icon">P</span>
             <span class="package-child-name">${escapeHtml(child.packageId)}</span>
             <small>${escapeHtml(child.runtimeIdentifier)}</small>
@@ -11800,10 +11800,10 @@ const packageViewActions: PackageViewBindingActions = {
     showContentDetailAfterRender();
     render();
   },
-  onRuntimeIdentifierPackageLoad: packageId => {
-    if (!packageId) return;
+  onRuntimeIdentifierPackageLoad: (packageId, packageVersion) => {
+    if (!packageId || !packageVersion) return;
     observeAsync(
-      openRuntimeIdentifierPackage(packageId),
+      openRuntimeIdentifierPackage(packageId, packageVersion),
       "Opening a RID Package");
   },
   onDependencyGroupSelect: index => {
@@ -20414,12 +20414,15 @@ async function openDependencyPackage(
   }
 }
 
-async function openRuntimeIdentifierPackage(packageId: string) {
+async function openRuntimeIdentifierPackage(
+  packageId: string,
+  packageVersion: string,
+) {
   closeGraphExplorerForNavigation();
   const navigationSeq = navigationSequence.begin();
   const model = await loadPackage(
     packageId,
-    "latest",
+    packageVersion,
     "",
     { navigationSeq });
   if (!model || !navigationSequence.isCurrent(navigationSeq)) return;

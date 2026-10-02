@@ -1772,6 +1772,87 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryPackage_CompatibleToolNavigationPreservesSelectedFramework()
+    {
+        const string packageId = "Tool.Compatible.Payload";
+        const string requestedFramework = "net10.0";
+        const string selectedFramework = "net8.0";
+        const string asset =
+            "tools/net8.0/any/DotnetInspect.Web.Interop.Package.dll";
+        byte[] package = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                """
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>Tool.Compatible.Payload</id>
+                    <version>1.0.0</version>
+                    <packageTypes>
+                      <packageType name="DotnetTool" />
+                    </packageTypes>
+                  </metadata>
+                </package>
+                """)),
+            ("tools/net8.0/any/DotnetToolSettings.xml",
+                Encoding.UTF8.GetBytes(
+                    """
+                    <DotNetCliTool Version="2">
+                      <Commands>
+                        <Command Name="tool-compatible" EntryPoint="DotnetInspect.Web.Interop.Package.dll" Runner="dotnet" />
+                      </Commands>
+                    </DotNetCliTool>
+                    """)),
+            (asset,
+                File.ReadAllBytes(
+                    typeof(DotnetInspect.Web.Interop.Package
+                        .PackageExports).Assembly.Location)));
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                package,
+                fromCache: false));
+
+        BrowserPackageLoadResult load =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Package
+                        .PackageExports.QueryPackage(
+                            packageId,
+                            "1.0.0",
+                            requestedFramework),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        BrowserPackageChildren children =
+            Assert.IsType<BrowserPackageChildrenInspection>(
+                load.PackageChildren).Content;
+        BrowserPackageLibraryChild library =
+            Assert.Single(children.Libraries);
+        Assert.Equal(selectedFramework, children.TargetFramework);
+
+        BrowserExactLibraryApiInspection api =
+            Assert.IsType<BrowserExactLibraryApiInspection>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Package
+                        .PackageExports.QueryLibraryApi(
+                            packageId,
+                            "1.0.0",
+                            requestedFramework,
+                            library.AssetId),
+                    BrowserPackageJsonContext.Default
+                        .BrowserExactLibraryApiInspection));
+        Assert.True(api.Content.IsAvailable);
+        Assert.Equal(
+            requestedFramework,
+            api.Content.RequestedTargetFramework);
+        Assert.Equal(requestedFramework, api.Content.Source?.Framework);
+        Assert.Equal(selectedFramework, api.Content.Asset?.TargetFramework);
+        Assert.Equal(
+            BrowserExactLibraryApiAssetKind.Tool,
+            api.Content.Asset?.Kind);
+    }
+
+    [Fact]
     public async Task QueryPackage_NativeToolPayloadStatesNoManagedLibraries()
     {
         const string packageId = "Tool.Native.Payload";

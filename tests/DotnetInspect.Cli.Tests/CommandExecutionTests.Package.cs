@@ -2418,6 +2418,93 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_ToolChildrenPreserveSelectedEmptyHigherTarget()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalToolPackageWithSelectedEmptyHigherTarget();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            using var document = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                "Available",
+                document.RootElement
+                    .GetProperty("status")
+                    .GetString());
+            Assert.Equal(
+                "NoManagedLibraries",
+                document.RootElement
+                    .GetProperty("kind")
+                    .GetString());
+            Assert.Equal(
+                "net10.0",
+                document.RootElement
+                    .GetProperty("target_framework")
+                    .GetString());
+            Assert.Empty(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            Assert.DoesNotContain(
+                "Fallback.Library.dll",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ToolChildrenExcludeNestedNativeLibraries()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalToolPackageWithNestedNativeLibrary();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            using var document = JsonDocument.Parse(result.Output);
+            JsonElement child = Assert.Single(
+                document.RootElement
+                    .GetProperty("children")
+                    .EnumerateArray());
+            Assert.Equal(
+                "tools/net10.0/any/Test.Tool.dll",
+                child.GetProperty("asset").GetString());
+            Assert.Equal(
+                1,
+                document.RootElement
+                    .GetProperty("total_count")
+                    .GetInt32());
+            Assert.DoesNotContain(
+                "Native.Helper.dll",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_DisagreeingToolSettingsRemainUnavailable()
     {
         var (packagePath, tempDir) =
@@ -4889,6 +4976,86 @@ public partial class CommandExecutionTests
         var packagePath = Path.Combine(
             tempDir,
             "Test.LargeTool.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalToolPackageWithSelectedEmptyHigherTarget()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"selected-empty-tool-package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string selectedToolsDir = Path.Combine(
+            packageRoot,
+            "tools",
+            "net10.0",
+            "any");
+        string fallbackToolsDir = Path.Combine(
+            packageRoot,
+            "tools",
+            "net8.0",
+            "any");
+        Directory.CreateDirectory(selectedToolsDir);
+        Directory.CreateDirectory(fallbackToolsDir);
+        File.WriteAllText(
+            Path.Combine(selectedToolsDir, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="empty-tool" EntryPoint="Missing.dll" Runner="dotnet" />
+              </Commands>
+            </DotNetCliTool>
+            """);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(fallbackToolsDir, "Fallback.Library.dll"));
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Test.SelectedEmptyTool.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalToolPackageWithNestedNativeLibrary()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"native-tool-package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string toolsDir = Path.Combine(
+            packageRoot,
+            "tools",
+            "net10.0",
+            "any");
+        string nativeDir = Path.Combine(
+            toolsDir,
+            "runtimes",
+            "linux-x64",
+            "native");
+        Directory.CreateDirectory(nativeDir);
+        File.WriteAllText(
+            Path.Combine(toolsDir, "DotnetToolSettings.xml"),
+            """
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="test-tool" EntryPoint="Test.Tool.dll" Runner="dotnet" />
+              </Commands>
+            </DotNetCliTool>
+            """);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(toolsDir, "Test.Tool.dll"));
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(nativeDir, "Native.Helper.dll"));
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Test.NativeTool.1.0.0.nupkg");
         ZipFile.CreateFromDirectory(packageRoot, packagePath);
         return (packagePath, tempDir);
     }

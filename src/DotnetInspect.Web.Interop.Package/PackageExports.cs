@@ -539,6 +539,7 @@ public static partial class PackageExports
                     .ExecuteToolEntryAsync(
                         coordinate.CreateInspectionInput(),
                         request,
+                        measured.Measurements.SelectedTargetFramework,
                         new()
                         {
                             MaxAssembliesPerRole =

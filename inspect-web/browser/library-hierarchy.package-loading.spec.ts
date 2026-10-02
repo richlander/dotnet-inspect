@@ -314,7 +314,7 @@ test("Package Overview opens an owner-issued RID Package child", async ({
 
   await expect(page.locator("html")).toHaveAttribute(
     "data-package-query-request",
-    JSON.stringify(["Tool.Pointer.linux-x64", "latest", ""]));
+    JSON.stringify(["Tool.Pointer.linux-x64", "10.0.0", ""]));
   await expect(page.locator(".package-overview-surface h1"))
     .toHaveText("Tool.Pointer.linux-x64");
 });
