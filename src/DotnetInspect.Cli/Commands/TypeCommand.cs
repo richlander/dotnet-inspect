@@ -722,35 +722,15 @@ public static class TypeCommand
                             : !string.IsNullOrEmpty(options.AssemblyPath) ? $"--library {options.AssemblyPath}"
                             : "";
 
-                        var simpleName = TypeMatcher.GetSimpleName(apiType.FullName);
-
-                        var overloadGroups = apiType.Members
-                            .Where(ApiMemberSectionDescriptors.IsMethodLike)
-                            .GroupBy(m => m.Name)
-                            .OrderByDescending(g => g.Count())
-                            .ToList();
-                        var exampleGroup = overloadGroups.FirstOrDefault();
-
-                        List<Tip> tips = [];
-
-                        if (exampleGroup != null)
-                        {
-                            var memberName = exampleGroup.Key == ".ctor" ? ".ctor" : exampleGroup.Key;
-                            tips.Add(new(MemberCommand.Name, $"{simpleName} {sourceFlag} {memberName}:1", "view member detail (source, IL)"));
-                        }
-
-                        if (overloadGroups.Any(g => g.Count() > 1))
-                            tips.Add(new(MemberCommand.Name, $"{simpleName} {sourceFlag} -S \"Member Index\"", "full selector/identity table"));
-
-                        tips.Add(new(Name, $"{simpleName} {sourceFlag} --tree", "view type tree"));
-                        tips.Add(new(MemberCommand.Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));
-
-                        if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
-                            tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..{packageVersion} -t {simpleName}", "compare API changes"));
-
-                        Hints.WriteTips(
+                        WriteTypeTips(
                             effectiveOptions.CompanionOutput,
-                            () => [.. tips]);
+                            apiType.FullName,
+                            apiType.Members.Select(
+                                static member =>
+                                    (member.Name, member.Kind)),
+                            sourceFlag,
+                            packageName,
+                            packageVersion);
                     }
 
                 }
@@ -1150,6 +1130,72 @@ public static class TypeCommand
             ]);
     }
 
+    static void WriteTypeTips(
+        CompanionOutput companionOutput,
+        string fullName,
+        IEnumerable<(string Name, string Kind)> members,
+        string sourceFlag,
+        string? packageName,
+        string? packageVersion)
+    {
+        string simpleName = TypeMatcher.GetSimpleName(fullName);
+        var overloadGroups = members
+            .Where(member =>
+                ApiMemberSectionDescriptors.IsMethodLike(member.Kind))
+            .GroupBy(member => member.Name)
+            .OrderByDescending(group => group.Count())
+            .ToList();
+        var exampleGroup = overloadGroups.FirstOrDefault();
+        List<Tip> tips = [];
+
+        if (exampleGroup is not null)
+        {
+            string memberName =
+                exampleGroup.Key == ".ctor"
+                    ? ".ctor"
+                    : exampleGroup.Key;
+            tips.Add(
+                new(
+                    MemberCommand.Name,
+                    $"{simpleName} {sourceFlag} {memberName}:1",
+                    "view member detail (source, IL)"));
+        }
+
+        if (overloadGroups.Any(group => group.Count() > 1))
+        {
+            tips.Add(
+                new(
+                    MemberCommand.Name,
+                    $"{simpleName} {sourceFlag} -S \"Member Index\"",
+                    "full selector/identity table"));
+        }
+
+        tips.Add(
+            new(
+                Name,
+                $"{simpleName} {sourceFlag} --tree",
+                "view type tree"));
+        tips.Add(
+            new(
+                MemberCommand.Name,
+                $"-m {simpleName}.{exampleGroup?.Key ?? "Method"} "
+                    + sourceFlag,
+                "dotted member syntax"));
+
+        if (!string.IsNullOrEmpty(packageName)
+            && !string.IsNullOrEmpty(packageVersion))
+        {
+            tips.Add(
+                new(
+                    DiffCommand.Name,
+                    $"--package {packageName}@<prev>..{packageVersion} "
+                        + $"-t {simpleName}",
+                    "compare API changes"));
+        }
+
+        Hints.WriteTips(companionOutput, () => [.. tips]);
+    }
+
     static Task<int> ExecuteSharedExactTypeAsync(
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
@@ -1191,6 +1237,21 @@ public static class TypeCommand
                 WriteExactTypeNonSuccess(envelope);
             else
                 WriteInspectionDiagnostics(envelope.Diagnostics);
+            if (wrote
+                && result.IsComplete
+                && options.CompanionOutput != CompanionOutput.None)
+            {
+                ExactTypeApi type = result.Type!;
+                WriteTypeTips(
+                    options.CompanionOutput,
+                    type.FullName,
+                    type.Members.Select(
+                        static member =>
+                            (member.Name, member.Kind)),
+                    $"--package {request.PackageId}",
+                    request.PackageId,
+                    request.Version);
+            }
             return wrote && result.IsComplete ? 0 : 1;
         }
 

@@ -1005,6 +1005,83 @@ public sealed class ExactTypeWorkspaceRouteTests
             root.GetProperty("share").GetProperty("kind").GetString());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredOutputPreservesExplicitTips(
+        bool envelopeOutput)
+    {
+        var store = await CachedStoreAsync();
+        using var client = new HttpClient(new FailingHandler());
+        var baseline = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(ApiType).FullName,
+            CompanionOutput = CompanionOutput.None,
+            JsonOutput = !envelopeOutput,
+            EnvelopeOutput = envelopeOutput,
+            CompactJson = true,
+            Format = OutputFormat.Json,
+            FormatExplicitlySet = true,
+            FormatFlagExplicitlySet = !envelopeOutput,
+        };
+        WorkspaceContextLoadOptions capabilities = new()
+        {
+            HttpClient = client,
+            SourceAuthorization =
+                new UniformPackageSourceAuthorization([Source]),
+            PackageStore = store,
+        };
+
+        (int withoutExit, string withoutOutput, string withoutError) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    baseline,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(baseline),
+                    capabilities));
+        TypeOptions withTips = baseline with
+        {
+            CompanionOutput = CompanionOutput.Tips,
+        };
+        (int withExit, string withOutput, string withError) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    withTips,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(withTips),
+                    capabilities));
+
+        Assert.Equal(0, withoutExit);
+        Assert.Equal(0, withExit);
+        Assert.Equal(withoutOutput, withOutput);
+        Assert.Empty(withoutError);
+        Assert.Contains("Tips:", withError, StringComparison.Ordinal);
+        Assert.Contains(
+            "member ApiType",
+            withError,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(withOutput);
+        if (envelopeOutput)
+        {
+            Assert.Equal(
+                "exact-type",
+                document.RootElement
+                    .GetProperty("result_kind")
+                    .GetString());
+        }
+        else
+        {
+            Assert.Equal(
+                typeof(ApiType).FullName,
+                document.RootElement
+                    .GetProperty("type")
+                    .GetProperty("fullName")
+                    .GetString());
+        }
+    }
+
     [Fact]
     public async Task UnavailableContentJsonRemainsVisible()
     {
@@ -1043,8 +1120,11 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.Contains("MalformedMetadata", error, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task EligibleRoutePreservesDiagnosticsAndIncompleteExit()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EligibleRoutePreservesDiagnosticsAndIncompleteExit(
+        bool jsonOutput)
     {
         var store = await CachedStoreAsync(
             ($"lib/{Framework}/PartiallyMalformed.dll",
@@ -1055,7 +1135,12 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = "Exact.Type.Good",
-            CompanionOutput = CompanionOutput.None,
+            CompanionOutput = CompanionOutput.Tips,
+            JsonOutput = jsonOutput,
+            Format = jsonOutput
+                ? OutputFormat.Json
+                : OutputFormat.Markdown,
+            FormatExplicitlySet = jsonOutput,
         };
 
         (int exitCode, string output, string error) =
@@ -1079,6 +1164,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             "MalformedMetadata",
             error,
             StringComparison.Ordinal);
+        Assert.DoesNotContain("Tips:", error, StringComparison.Ordinal);
     }
 
     [Fact]
