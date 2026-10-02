@@ -2172,18 +2172,15 @@ kbd {
 .member-diff-explorer-close { flex: none; padding: 5px 10px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--panel-raised); color: var(--text); cursor: pointer; }
 .member-diff-explorer button:focus-visible,
 .member-diff-explorer [tabindex="0"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.member-diff-explorer-panes { display: grid; flex: 1; min-width: 0; min-height: 0; grid-template-columns: minmax(230px, .72fr) minmax(230px, .72fr) minmax(360px, 1.56fr); align-content: start; overflow: auto; }
-.member-diff-explorer-pane { min-width: 0; min-height: 100%; padding: 18px; border-right: 1px solid var(--line); overflow-wrap: anywhere; }
-.member-diff-explorer-pane:last-child { border-right: 0; }
-.member-diff-explorer-pane h2 { margin: 0 0 14px; font-size: 15px; }
-.member-diff-declaration-unavailable,
+.member-diff-explorer-content { flex: 1; min-width: 0; min-height: 0; padding: 18px; overflow: auto; }
+.member-diff-explorer-source { min-width: 0; min-height: 100%; }
 .member-diff-source-unavailable,
 .member-diff-source-canceled,
 .member-diff-source-loading { color: var(--muted); }
 .member-diff-source-failure { color: var(--red); }
-.member-diff-source-exact,
-.member-diff-source-inexact { display: inline-block; margin-bottom: 12px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 3px; color: var(--green); font: 10px var(--mono); }
-.member-diff-source-inexact { color: var(--yellow); }
+.member-diff-source-exact { display: inline-block; margin-bottom: 12px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 3px; color: var(--green); font: 10px var(--mono); }
+.member-diff-source-actions { display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 8px; font: 11px var(--mono); }
+.member-diff-source-actions a { color: var(--blue); }
 .member-diff-source-endpoints { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
 .member-diff-source-endpoint { min-width: 0; padding: 10px; border: 1px solid var(--line); background: var(--panel); }
 .member-diff-source-endpoint h3,
@@ -2204,19 +2201,17 @@ kbd {
 .member-diff-source-line-correspondence { background: transparent; }
 .member-diff-source-number { padding: 0 6px; border-right: 1px solid var(--line); color: var(--dim); text-align: right; user-select: none; }
 .member-diff-source-marker { padding-left: 6px; color: var(--muted); user-select: none; }
+.member-diff-source-content { display: flex; min-width: max-content; align-items: baseline; }
 .member-diff-source-line code { padding: 0 10px 0 2px; white-space: pre; }
+.member-diff-source-terminator { flex: none; padding-right: 10px; color: var(--yellow); font-size: 10px; white-space: nowrap; user-select: none; }
 .member-diff-source-line mark { border-radius: 2px; background: color-mix(in srgb, var(--yellow) 30%, transparent); color: inherit; }
-.member-diff-source-terminators { color: var(--muted); font: 10px var(--mono); }
-.member-diff-source-evidence { color: var(--muted); font: 11px/1.5 var(--mono); }
-.member-diff-source-evidence summary { cursor: pointer; color: var(--text); }
 .member-diff-inline-source {
   margin: 6px 18px 0;
   padding: 12px 0 8px;
   border-top: 1px solid var(--line);
 }
 .member-diff-inline-source.library-api-diff-change-section h2 { margin-inline: 0; }
-.member-diff-inline-source .member-diff-source-exact,
-.member-diff-inline-source .member-diff-source-inexact {
+.member-diff-inline-source .member-diff-source-exact {
   margin-bottom: 8px;
   padding: 0;
   border: 0;
@@ -2240,8 +2235,7 @@ kbd {
 @media (max-width: 720px) {
   .member-diff-explorer-header { gap: 9px; padding: 10px; }
   .member-diff-explorer-header h1 { font-size: 14px; }
-  .member-diff-explorer-panes { display: block; }
-  .member-diff-explorer-pane { min-height: auto; padding: 14px 10px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .member-diff-explorer-content { padding: 10px; }
   .member-diff-source-endpoints { grid-template-columns: minmax(0, 1fr); }
 }
 
