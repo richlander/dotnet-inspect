@@ -806,7 +806,14 @@ export function renderMemberNav(options: MemberNavOptions): string {
           const heatDescription = heat === null
             ? ""
             : ` aria-description="${escapeHtml(heat.description)}" title="${escapeHtml(heat.description)}"`;
-          return `<button class="type-row overload-nav-row${heatClasses} ${selected ? " selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
+          const achievements: readonly ItemAchievement[] = heat?.hub
+            ? [{
+                kind: "implementation-hub",
+                description: "implementation hub",
+              }]
+            : [];
+          return `<button class="type-row overload-nav-row has-item-achievement-rail${heatClasses} ${selected ? " selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
+            ${renderItemAchievementRail(achievements, escapeHtml)}
             <code>${overloadNavLabelHtml(entry.group.name, overload, escapeHtml, highlight)}</code>
           </button>`;
         }).join("") || '<div class="empty-list">No members match these filters.</div>'}
