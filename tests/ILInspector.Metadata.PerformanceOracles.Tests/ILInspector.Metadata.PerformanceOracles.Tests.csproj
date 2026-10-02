@@ -16,6 +16,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../NLinq.Oracle/NLinq.Oracle.csproj" />
   </ItemGroup>

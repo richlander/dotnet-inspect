@@ -128,3 +128,33 @@ machinery. The raw result is the source-mechanics ceiling; only the
 equal-output-shape control supports a contract-level comparison with the
 Metadata kernel. If these conditions do not hold, the candidate is evidence
 against this physical pattern rather than a feature to preserve.
+
+## Ready-snapshot borrowing experiment
+
+The NLinq control also isolates borrowing from acquisition and metadata
+preparation. Experiment setup acquires the authoritative assembly-context
+snapshot once, opens one admitted session over that immutable snapshot, and
+resolves the authenticated TypeDef binding before measurement. No measured
+terminal reopens, copies, or readmits the image.
+
+Two entrance controls distinguish the existing general image-access API from a
+fully prepared execution substrate:
+
+- **ready image borrow** enters through
+  `AssemblyContextGroup.UseAssemblyImage`, then executes against the session
+  prepared from that group's authoritative snapshot; and
+- **prepared operation borrow** enters through the prepared session's
+  stack-only `SnapshotOperation` access before invoking the same NLinq source.
+
+Both controls must return the same raw and equal-output-shape Count and Rows
+answers and receipts as Metadata. The prepared operation borrow succeeds only
+when its raw and equal-output variants retain the direct NLinq allocation
+shapes. This tests the claim that borrowing can be an entrance condition rather
+than per-terminal metadata construction.
+
+The performance harness owns the prepared session in this experiment. That is
+not a production ownership decision. Production adoption requires the assembly
+context participant to publish an already admitted reusable execution
+substrate before QuerySpace execution, retain it under the existing snapshot
+and callback lifetime contract, and release it before releasing its immutable
+snapshot.

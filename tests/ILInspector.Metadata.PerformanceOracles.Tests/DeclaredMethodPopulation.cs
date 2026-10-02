@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
+using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using NLinq;
 
@@ -169,6 +170,22 @@ public static class DeclaredMethodPopulation
             asset.ExecuteNLinqOutcomeCount());
         var nlinqOutcomeRows = AssertRead(
             asset.ExecuteNLinqOutcomeRows());
+        int borrowedNLinqCount =
+            asset.ExecuteBorrowedNLinqCount();
+        ImmutableArray<int> borrowedNLinqRows =
+            asset.ExecuteBorrowedNLinqRows();
+        var borrowedNLinqOutcomeCount = AssertCounted(
+            asset.ExecuteBorrowedNLinqOutcomeCount());
+        var borrowedNLinqOutcomeRows = AssertRead(
+            asset.ExecuteBorrowedNLinqOutcomeRows());
+        int preparedBorrowNLinqCount =
+            asset.ExecutePreparedBorrowNLinqCount();
+        ImmutableArray<int> preparedBorrowNLinqRows =
+            asset.ExecutePreparedBorrowNLinqRows();
+        var preparedBorrowNLinqOutcomeCount = AssertCounted(
+            asset.ExecutePreparedBorrowNLinqOutcomeCount());
+        var preparedBorrowNLinqOutcomeRows = AssertRead(
+            asset.ExecutePreparedBorrowNLinqOutcomeRows());
         if (count.Count != rows.Count
             || count.Count != rows.Rows.Length)
         {
@@ -200,6 +217,34 @@ public static class DeclaredMethodPopulation
         {
             throw new InvalidOperationException(
                 "Output-shaped NLinq declared MethodDef results disagree.");
+        }
+        if (borrowedNLinqCount != count.Count
+            || !borrowedNLinqRows.AsSpan()
+                .SequenceEqual(rows.Rows.AsSpan())
+            || borrowedNLinqOutcomeCount.Count != count.Count
+            || borrowedNLinqOutcomeRows.Count != rows.Count
+            || !borrowedNLinqOutcomeRows.Rows.AsSpan()
+                .SequenceEqual(rows.Rows.AsSpan())
+            || borrowedNLinqOutcomeCount.Receipt != count.Receipt
+            || borrowedNLinqOutcomeRows.Receipt != rows.Receipt)
+        {
+            throw new InvalidOperationException(
+                "Ready-snapshot borrowed NLinq declared MethodDef "
+                    + "results disagree.");
+        }
+        if (preparedBorrowNLinqCount != count.Count
+            || !preparedBorrowNLinqRows.AsSpan()
+                .SequenceEqual(rows.Rows.AsSpan())
+            || preparedBorrowNLinqOutcomeCount.Count != count.Count
+            || preparedBorrowNLinqOutcomeRows.Count != rows.Count
+            || !preparedBorrowNLinqOutcomeRows.Rows.AsSpan()
+                .SequenceEqual(rows.Rows.AsSpan())
+            || preparedBorrowNLinqOutcomeCount.Receipt != count.Receipt
+            || preparedBorrowNLinqOutcomeRows.Receipt != rows.Receipt)
+        {
+            throw new InvalidOperationException(
+                "Prepared-borrow NLinq declared MethodDef "
+                    + "results disagree.");
         }
 
         return new(
@@ -251,6 +296,38 @@ public static class DeclaredMethodPopulation
             case DeclaredMethodScorecardCase.NLinqOutcomeRows:
                 GC.KeepAlive(asset.ExecuteNLinqOutcomeRows());
                 break;
+            case DeclaredMethodScorecardCase.BorrowedNLinqCount:
+                GC.KeepAlive(asset.ExecuteBorrowedNLinqCount());
+                break;
+            case DeclaredMethodScorecardCase.BorrowedNLinqRows:
+                GC.KeepAlive(asset.ExecuteBorrowedNLinqRows());
+                break;
+            case DeclaredMethodScorecardCase.BorrowedNLinqOutcomeCount:
+                GC.KeepAlive(
+                    asset.ExecuteBorrowedNLinqOutcomeCount());
+                break;
+            case DeclaredMethodScorecardCase.BorrowedNLinqOutcomeRows:
+                GC.KeepAlive(
+                    asset.ExecuteBorrowedNLinqOutcomeRows());
+                break;
+            case DeclaredMethodScorecardCase.PreparedBorrowNLinqCount:
+                GC.KeepAlive(
+                    asset.ExecutePreparedBorrowNLinqCount());
+                break;
+            case DeclaredMethodScorecardCase.PreparedBorrowNLinqRows:
+                GC.KeepAlive(
+                    asset.ExecutePreparedBorrowNLinqRows());
+                break;
+            case DeclaredMethodScorecardCase
+                .PreparedBorrowNLinqOutcomeCount:
+                GC.KeepAlive(
+                    asset.ExecutePreparedBorrowNLinqOutcomeCount());
+                break;
+            case DeclaredMethodScorecardCase
+                .PreparedBorrowNLinqOutcomeRows:
+                GC.KeepAlive(
+                    asset.ExecutePreparedBorrowNLinqOutcomeRows());
+                break;
             default:
                 throw new ArgumentOutOfRangeException(
                     nameof(measurementCase));
@@ -278,6 +355,26 @@ public static class DeclaredMethodPopulation
                 Measure(asset.ExecuteNLinqOutcomeCount),
             DeclaredMethodScorecardCase.NLinqOutcomeRows =>
                 Measure(asset.ExecuteNLinqOutcomeRows),
+            DeclaredMethodScorecardCase.BorrowedNLinqCount =>
+                Measure(asset.ExecuteBorrowedNLinqCount),
+            DeclaredMethodScorecardCase.BorrowedNLinqRows =>
+                Measure(asset.ExecuteBorrowedNLinqRows),
+            DeclaredMethodScorecardCase.BorrowedNLinqOutcomeCount =>
+                Measure(asset.ExecuteBorrowedNLinqOutcomeCount),
+            DeclaredMethodScorecardCase.BorrowedNLinqOutcomeRows =>
+                Measure(asset.ExecuteBorrowedNLinqOutcomeRows),
+            DeclaredMethodScorecardCase.PreparedBorrowNLinqCount =>
+                Measure(asset.ExecutePreparedBorrowNLinqCount),
+            DeclaredMethodScorecardCase.PreparedBorrowNLinqRows =>
+                Measure(asset.ExecutePreparedBorrowNLinqRows),
+            DeclaredMethodScorecardCase
+                .PreparedBorrowNLinqOutcomeCount =>
+                Measure(
+                    asset.ExecutePreparedBorrowNLinqOutcomeCount),
+            DeclaredMethodScorecardCase
+                .PreparedBorrowNLinqOutcomeRows =>
+                Measure(
+                    asset.ExecutePreparedBorrowNLinqOutcomeRows),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
         };
@@ -378,6 +475,21 @@ public static class DeclaredMethodPopulation
             DeclaredMethodScorecardCase.NLinqOutcomeCount
                 or DeclaredMethodScorecardCase.NLinqOutcomeRows =>
                 "NLinq outcome",
+            DeclaredMethodScorecardCase.BorrowedNLinqCount
+                or DeclaredMethodScorecardCase.BorrowedNLinqRows =>
+                "NLinq ready-borrow raw",
+            DeclaredMethodScorecardCase.BorrowedNLinqOutcomeCount
+                or DeclaredMethodScorecardCase.BorrowedNLinqOutcomeRows =>
+                "NLinq ready-borrow outcome",
+            DeclaredMethodScorecardCase.PreparedBorrowNLinqCount
+                or DeclaredMethodScorecardCase
+                    .PreparedBorrowNLinqRows =>
+                "NLinq prepared-borrow raw",
+            DeclaredMethodScorecardCase
+                    .PreparedBorrowNLinqOutcomeCount
+                or DeclaredMethodScorecardCase
+                    .PreparedBorrowNLinqOutcomeRows =>
+                "NLinq prepared-borrow outcome",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
         };
@@ -388,11 +500,25 @@ public static class DeclaredMethodPopulation
         {
             DeclaredMethodScorecardCase.MetadataCount
                 or DeclaredMethodScorecardCase.NLinqCount
-                or DeclaredMethodScorecardCase.NLinqOutcomeCount =>
+                or DeclaredMethodScorecardCase.NLinqOutcomeCount
+                or DeclaredMethodScorecardCase.BorrowedNLinqCount
+                or DeclaredMethodScorecardCase
+                    .BorrowedNLinqOutcomeCount
+                or DeclaredMethodScorecardCase
+                    .PreparedBorrowNLinqCount
+                or DeclaredMethodScorecardCase
+                    .PreparedBorrowNLinqOutcomeCount =>
                 "Count",
             DeclaredMethodScorecardCase.MetadataRows
                 or DeclaredMethodScorecardCase.NLinqRows
-                or DeclaredMethodScorecardCase.NLinqOutcomeRows =>
+                or DeclaredMethodScorecardCase.NLinqOutcomeRows
+                or DeclaredMethodScorecardCase.BorrowedNLinqRows
+                or DeclaredMethodScorecardCase
+                    .BorrowedNLinqOutcomeRows
+                or DeclaredMethodScorecardCase
+                    .PreparedBorrowNLinqRows
+                or DeclaredMethodScorecardCase
+                    .PreparedBorrowNLinqOutcomeRows =>
                 "Rows",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(measurementCase)),
@@ -406,6 +532,14 @@ public static class DeclaredMethodPopulation
         NLinqRows,
         NLinqOutcomeCount,
         NLinqOutcomeRows,
+        BorrowedNLinqCount,
+        BorrowedNLinqRows,
+        BorrowedNLinqOutcomeCount,
+        BorrowedNLinqOutcomeRows,
+        PreparedBorrowNLinqCount,
+        PreparedBorrowNLinqRows,
+        PreparedBorrowNLinqOutcomeCount,
+        PreparedBorrowNLinqOutcomeRows,
     }
 
     private readonly record struct Measurement(
@@ -414,18 +548,43 @@ public static class DeclaredMethodPopulation
 
     private sealed class Asset : IDisposable
     {
+        private readonly InspectionWorkspace _workspace;
+        private readonly AssemblyContextGroup _group;
+        private readonly ResolvedAssemblyReference _assembly;
         private readonly AssemblyInspectionSession _session;
         private readonly MetadataTypeDefinitionBinding _type;
         private readonly MetadataReader _reader;
+        private readonly AssemblyImageCallback<int>
+            _borrowedNLinqCount;
+        private readonly AssemblyImageCallback<ImmutableArray<int>>
+            _borrowedNLinqRows;
+        private readonly AssemblyImageCallback<
+            MetadataDeclaredMethodPopulationOutcome>
+            _borrowedNLinqOutcomeCount;
+        private readonly AssemblyImageCallback<
+            MetadataDeclaredMethodPopulationOutcome>
+            _borrowedNLinqOutcomeRows;
 
         private Asset(
+            InspectionWorkspace workspace,
+            AssemblyContextGroup group,
+            ResolvedAssemblyReference assembly,
             AssemblyInspectionSession session,
             MetadataTypeDefinitionBinding type,
             MetadataReader reader)
         {
+            _workspace = workspace;
+            _group = group;
+            _assembly = assembly;
             _session = session;
             _type = type;
             _reader = reader;
+            _borrowedNLinqCount = BorrowedNLinqCount;
+            _borrowedNLinqRows = BorrowedNLinqRows;
+            _borrowedNLinqOutcomeCount =
+                BorrowedNLinqOutcomeCount;
+            _borrowedNLinqOutcomeRows =
+                BorrowedNLinqOutcomeRows;
         }
 
         internal static Asset Open(
@@ -434,16 +593,35 @@ public static class DeclaredMethodPopulation
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(path);
             ArgumentNullException.ThrowIfNull(type);
-            AssemblyInspectionSession session =
-                AssemblyInspectionSession.Open(path);
+            ResolvedAssemblyReference assembly =
+                ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local(
+                        "ready-snapshot NLinq scorecard"));
+            var participant = new AssemblyContextParticipant(
+                assembly,
+                NoResolverAssemblyBindingPolicy.Instance);
+            var workspace = new InspectionWorkspace();
+            AssemblyContextGroup? group = null;
+            AssemblyInspectionSession? session = null;
             try
             {
+                group =
+                    workspace.CreateAssemblyContextGroup([participant]);
+                ResolvedAssemblyReference retained =
+                    Available(
+                        group.RetainAssemblyReference(assembly));
+                session =
+                    AssemblyInspectionSession.Open(retained);
                 TypeDeclarationResult.Defined defined =
                     session.ProbeDeclaration(type)
                         as TypeDeclarationResult.Defined
                     ?? throw new InvalidOperationException(
                         $"{DisplayName(type)} was not defined.");
                 return new(
+                    workspace,
+                    group,
+                    assembly,
                     session,
                     new(
                         session.ModuleVersionId(),
@@ -452,7 +630,12 @@ public static class DeclaredMethodPopulation
             }
             catch
             {
-                session.Dispose();
+                session?.Dispose();
+                group?.Dispose();
+                workspace.DisposeAsync()
+                    .AsTask()
+                    .GetAwaiter()
+                    .GetResult();
                 throw;
             }
         }
@@ -532,6 +715,115 @@ public static class DeclaredMethodPopulation
                     ProjectedRows: projectedRows.Length));
         }
 
+        internal int ExecuteBorrowedNLinqCount() =>
+            Available(
+                _group.UseAssemblyImage(
+                    _assembly,
+                    _borrowedNLinqCount));
+
+        internal ImmutableArray<int> ExecuteBorrowedNLinqRows() =>
+            Available(
+                _group.UseAssemblyImage(
+                    _assembly,
+                    _borrowedNLinqRows));
+
+        internal MetadataDeclaredMethodPopulationOutcome
+            ExecuteBorrowedNLinqOutcomeCount() =>
+                Available(
+                    _group.UseAssemblyImage(
+                        _assembly,
+                        _borrowedNLinqOutcomeCount));
+
+        internal MetadataDeclaredMethodPopulationOutcome
+            ExecuteBorrowedNLinqOutcomeRows() =>
+                Available(
+                    _group.UseAssemblyImage(
+                        _assembly,
+                        _borrowedNLinqOutcomeRows));
+
+        internal int ExecutePreparedBorrowNLinqCount() =>
+            _session.SnapshotOperation(
+                this,
+                static access =>
+                    access.Operation.ExecuteNLinqCount());
+
+        internal ImmutableArray<int>
+            ExecutePreparedBorrowNLinqRows() =>
+                _session.SnapshotOperation(
+                    this,
+                    static access =>
+                        access.Operation.ExecuteNLinqRows());
+
+        internal MetadataDeclaredMethodPopulationOutcome
+            ExecutePreparedBorrowNLinqOutcomeCount() =>
+                _session.SnapshotOperation(
+                    this,
+                    static access =>
+                        access.Operation.ExecuteNLinqOutcomeCount());
+
+        internal MetadataDeclaredMethodPopulationOutcome
+            ExecutePreparedBorrowNLinqOutcomeRows() =>
+                _session.SnapshotOperation(
+                    this,
+                    static access =>
+                        access.Operation.ExecuteNLinqOutcomeRows());
+
+        private int BorrowedNLinqCount(
+            scoped AssemblyImageView image)
+        {
+            ValidateBorrow(image);
+            return ExecuteNLinqCount();
+        }
+
+        private ImmutableArray<int> BorrowedNLinqRows(
+            scoped AssemblyImageView image)
+        {
+            ValidateBorrow(image);
+            return ExecuteNLinqRows();
+        }
+
+        private MetadataDeclaredMethodPopulationOutcome
+            BorrowedNLinqOutcomeCount(
+                scoped AssemblyImageView image)
+        {
+            ValidateBorrow(image);
+            return ExecuteNLinqOutcomeCount();
+        }
+
+        private MetadataDeclaredMethodPopulationOutcome
+            BorrowedNLinqOutcomeRows(
+                scoped AssemblyImageView image)
+        {
+            ValidateBorrow(image);
+            return ExecuteNLinqOutcomeRows();
+        }
+
+        private void ValidateBorrow(
+            scoped AssemblyImageView image)
+        {
+            if (!ReferenceEquals(image.Assembly, _assembly))
+            {
+                throw new InvalidOperationException(
+                    "The ready NLinq source belongs to another "
+                        + "assembly-context participant.");
+            }
+        }
+
+        private static T Available<T>(
+            AssemblyImageAccessResult<T> result) =>
+            result switch
+            {
+                AssemblyImageAccessResult<T>.Available available =>
+                    available.Value,
+                AssemblyImageAccessResult<T>.Rejected rejected =>
+                    throw new IOException(
+                        $"Assembly image unavailable "
+                            + $"({rejected.Failure.Kind}): "
+                            + rejected.Failure.Detail),
+                _ => throw new InvalidOperationException(
+                    "Unknown assembly image access result."),
+            };
+
         private MethodHandles Source()
         {
             Guid moduleVersionId =
@@ -564,7 +856,27 @@ public static class DeclaredMethodPopulation
                     .GetMethods());
         }
 
-        public void Dispose() => _session.Dispose();
+        public void Dispose()
+        {
+            try
+            {
+                _session.Dispose();
+            }
+            finally
+            {
+                try
+                {
+                    _group.Dispose();
+                }
+                finally
+                {
+                    _workspace.DisposeAsync()
+                        .AsTask()
+                        .GetAwaiter()
+                        .GetResult();
+                }
+            }
+        }
     }
 
     private struct MethodHandles
