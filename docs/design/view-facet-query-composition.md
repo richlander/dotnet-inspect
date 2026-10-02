@@ -62,7 +62,7 @@ The target CLI has one compact discovery, query, and companion-output model:
 | Gesture | Role |
 | --- | --- |
 | `-D` | Discover the registered facets available for the command or resolved subject. |
-| `-Q <facet>` | Execute one or more registered facets. |
+| `-Q <facet>` | Execute one or more registered facets by canonical ID or contextual dot notation. |
 | `-E` | Emit the complete default explanation for the executed request as a final `stderr` sidecar. |
 | `-E tips` | Emit only the bounded related-gesture projection from that explanation. |
 | `-E references` | Emit one owner-issued reusable reference per selected semantic row as the final `stderr` sidecar. |
@@ -75,19 +75,20 @@ For example:
 
 ```console
 dotnet-inspect library System.Text.Json \
-  -Q library.integration-opportunities \
+  -Q .integration-opportunities \
   --where "integration=integration.logging"
 ```
 
-The exact Integration Opportunities ID above is illustrative. The View Facet
-owner must mint an available ID under its append-only rules; the retired
-`library.opportunities` ID cannot be reused.
+The Integration Opportunities relative name above is illustrative. In a
+Library context it would expand to `library.integration-opportunities`; the
+View Facet owner must mint that available ID under its append-only rules. The
+retired `library.opportunities` ID cannot be reused.
 
 The same query can request an explanation sidecar:
 
 ```console
 dotnet-inspect library System.Text.Json \
-  -Q library.integration-opportunities \
+  -Q .integration-opportunities \
   --where "integration=integration.logging" \
   -E \
   > opportunities.tsv \
@@ -100,7 +101,7 @@ references:
 ```console
 dotnet-inspect member JsonSerializer Serialize \
   --package System.Text.Json \
-  -Q member.index \
+  -Q .index \
   --where "<member predicate>" \
   -E references \
   > members.tsv \
@@ -111,7 +112,7 @@ Or explain the registered query without executing its producer:
 
 ```console
 dotnet-inspect library \
-  -Q library.integration-opportunities \
+  -Q .integration-opportunities \
   --explain
 ```
 
@@ -184,6 +185,70 @@ by lowercasing, slugging, or otherwise normalizing a title. Existing tombstones
 remain known and cannot be repurposed for a current section with similar
 display text.
 
+### Contextual dot notation
+
+The CLI also accepts one exact relative-facet spelling:
+
+```text
+.<name>
+```
+
+`<name>` is the canonical name portion of a View Facet ID. The CLI recognizes
+the relative grammar and passes the literal name plus the typed structural
+subject kind already established by the command or resolved subject to a
+Registry-owned relative resolver:
+
+```text
+Library + .info        -> library.info
+Library + .references  -> library.references
+Type    + .info        -> type.info
+```
+
+The Registry owns the fixed kind-to-prefix mapping, validates the resulting
+complete View Facet ID grammar, and performs ordinary exact resolution. The
+CLI host never concatenates, parses, or rewrites an ID. Neither boundary trims,
+case-folds, slugs, abbreviates, title-matches, or searches for a suffix. If
+`library.info` is not registered, `-Q .info` in a Library context is Unknown.
+It never falls back to another subject kind or similarly titled facet.
+
+Dot notation is a contextual CLI spelling, not:
+
+- a `ViewFacetId`, Registry entry, alias, or compatibility identity;
+- a prefix abbreviation or suffix search;
+- a wildcard grammar;
+- a facet-set spelling;
+- a persisted query or reusable-reference identity; or
+- a Browser/Wasm selector contract.
+
+Discovery, explanation Content, structured output, saved definitions, reusable
+references, and cross-host descriptors retain the complete canonical ID. CLI
+completion and human-facing examples may offer dot notation when the command
+context establishes exactly one structural subject kind.
+
+Target-free command explanation may use dot notation when the command itself
+establishes one kind, for example:
+
+```console
+dotnet-inspect library -Q .references --explain
+```
+
+Execution additionally requires the command owner to resolve its ordinary
+exact subject. A command or operation without one Workspace, Package, Library,
+Type, or Member kind rejects dot notation before acquisition; it does not mint
+`diff.*`, `find.*`, `graph.*`, or another operation-kind facet. A full
+canonical ID remains available when a caller needs globally explicit syntax.
+
+Multiple selectors may mix canonical IDs, relative selectors, and facet sets.
+The Registry-owned resolver returns the canonical ID before the selection
+owner performs duplicate validation, so `.references;library.references` in
+one Library context is the same duplicate request rather than two executions.
+
+This follows the existing leading-dot CLI convention exemplified by
+`find '.Add*'`: the dot opts into interpretation relative to the current
+command context. The owners remain distinct. Find selects Member-pattern
+grammar and admits quoted globs; View Facet dot notation selects one exact
+facet name and admits no glob.
+
 ### Facets and rendered sections
 
 A selectable product facet and a rendered document section are separate:
@@ -234,7 +299,7 @@ shared string prefix.
 
 ```console
 dotnet-inspect library System.Text.Json \
-  -Q library.integration-opportunities \
+  -Q .integration-opportunities \
   --where "ecosystem=aspire"
 ```
 
@@ -252,7 +317,9 @@ portable intent, query vocabulary, row associations, effects, bounds,
 completion, and execution. A View Facet binding may consume those descriptors
 but never reconstructs them from section metadata.
 
-`-Q` requires one or more exact selectors. Bare command behavior comes from the
+`-Q` requires one or more exact selectors. A relative selector is exact after
+the Registry-owned resolver returns its complete canonical ID; it never
+changes exact Registry resolution. Bare command behavior comes from the
 command owner's registered default facet, not from a valueless `-Q`. `-D`
 remains the compact inventory gesture.
 
@@ -394,7 +461,7 @@ the same explanation contract:
 
 ```console
 dotnet-inspect library \
-  -Q library.integration-opportunities \
+  -Q .integration-opportunities \
   --explain
 ```
 
@@ -402,7 +469,7 @@ An executing request can obtain the same metadata as a sidecar:
 
 ```console
 dotnet-inspect library System.Text.Json \
-  -Q library.integration-opportunities \
+  -Q .integration-opportunities \
   --where "integration=integration.logging" \
   -E
 ```
@@ -501,7 +568,7 @@ does not render CLI command text or interpret `-E`.
 
 | Concern | Owner | Role in this composition |
 | --- | --- | --- |
-| Stable facet identity, title, purpose, subject kind, applicability, availability, and exact resolution | [View Facet Registry](view-facet-registry.md) | Supplies the identity joined across discovery, execution, defaults, and explanation. |
+| Stable facet identity, title, purpose, subject kind, applicability, availability, exact resolution, and typed relative-name resolution | [View Facet Registry](view-facet-registry.md) | Supplies the identity joined across discovery, execution, defaults, and explanation without host ID construction. |
 | Facet execution binding | Each facet and operation owner | Maps exact facet resolution to one owner-issued request and Content contract. |
 | Operation and row-query capability | [Query Operation Infrastructure](query-operation-infrastructure.md), [Query Space Composition](query-space-composition.md), and row-query owners | Supply query terms, operators, stages, orders, effects, bounds, completion, and typed execution. |
 | Structural sections and items | [Schema Query](schema-query.md) and [Section Model](section-model.md) | Retain document structure and migrate selectable sections/categories to facet bindings and facet sets. |
@@ -510,7 +577,7 @@ does not render CLI command text or interpret `-E`.
 | Natural omitted-format policy | Output Shapes and Progressive Disclosure focused adoption | Maps admitted complete semantic shapes to Markdown, TSV, or Tree without changing Content. |
 | Primary subject defaults and Info separation | [Primary Subject Views](primary-subject-views.md) and each command owner | Supply exact default and Info facet identities and subject-specific Content. |
 | Installed and contextual explanation | [Resource Explanation](resource-explanation.md) and [Contextual Resource Explanation](contextual-resource-explanation.md) | Compose owner-issued descriptors and provide terminal explanation, tips, and reusable-reference companion projections. |
-| CLI grammar and stream publication | CLI host | Owns `-D`, `-Q`, the `-E` companion family, display-title convenience, diagnostics, completion, and output ordering. |
+| CLI grammar and stream publication | CLI host | Owns `-D`, `-Q`, contextual dot-notation recognition and typed handoff, the `-E` companion family, display-title convenience, diagnostics, completion, and output ordering. |
 | Browser interaction | Inspect Web owners | Bind the same descriptors to native controls and presentations. |
 
 This map transfers none of those internal responsibilities.
@@ -522,10 +589,11 @@ Each slice changes one focused owner and references this map.
 1. **Lock this composition map.** Record the target experience, identity
    currency, handoffs, sequencing, and retirement boundaries without changing
    product behavior.
-2. **Complete View Facet coverage.** Register every independently selectable
-   current surface that will survive migration, retain tombstones, and map
-   current sections to exact facet IDs. Record sections that will retire rather
-   than receive facets.
+2. **Complete View Facet coverage and relative resolution.** Register every
+   independently selectable current surface that will survive migration,
+   retain tombstones, map current sections to exact facet IDs, and add the
+   Registry-owned `(structural kind, relative name)` resolver. Record sections
+   that will retire rather than receive facets.
 3. **Issue facet-set identity.** Replace display-name category identity with
    stable authored sets whose membership references exact View Facet IDs.
 4. **Issue and classify semantic shapes.** Establish the focused Hierarchy
@@ -544,7 +612,8 @@ Each slice changes one focused owner and references this map.
    `--references` with additive `-E references`. Preserve lazy absent-demand
    behavior, selected-row reference order and cardinality, atomic companion
    materialization, and the stdout-before-sidecar publication contract.
-8. **Cut over CLI selection.** Reclaim `-Q` for exact facet execution, migrate
+8. **Cut over CLI selection.** Reclaim `-Q` for exact facet execution, add
+   contextual `.<name>` recognition and the typed Registry handoff, migrate
    `-S` selections and query-help examples, retain `-D` for discovery, and
    retire synthetic `Query: ...` companion sections.
 9. **Adopt primary subjects.** Bind Package, Library, Type, and Member defaults
@@ -573,37 +642,51 @@ Focused adoptions must demonstrate:
    section.
 3. **Title correction.** Changing a title does not change selection,
    persistence, explanation paths, or Browser binding.
-4. **Mixed facet set.** A set containing two unrelated Tables or a Table and a
+4. **Relative structural kind.** `-Q .info` lowers to `library.info` in a
+   Library context and `type.info` in a Type context without suffix search or
+   title matching.
+5. **Unknown relative facet.** A relative name whose expanded canonical ID is
+   not registered remains Unknown and does not fall back to another subject
+   kind.
+6. **Non-subject operation.** Diff, Find, Graph, and another route without one
+   structural subject kind reject relative facet notation before acquisition
+   and never mint an operation-kind ID.
+7. **Canonical duplicate.** `.references;library.references` in one Library
+   context is rejected as a duplicate after canonicalization rather than
+   executing one facet twice.
+8. **Exact, not glob.** `.source*` is invalid facet syntax even though
+   `find '.Add*'` admits a quoted Member glob under Find's separate owner.
+9. **Mixed facet set.** A set containing two unrelated Tables or a Table and a
    Hierarchy becomes a Document and defaults to Markdown rather than emitting
    concatenated TSV or selecting one member.
-5. **Homogeneous Table family.** Several owner-declared compatible facets form
+10. **Homogeneous Table family.** Several owner-declared compatible facets form
    one Table and default to TSV with one stable schema.
-6. **Empty and singleton results.** Runtime cardinality does not change shape
+11. **Empty and singleton results.** Runtime cardinality does not change shape
    or default presentation.
-7. **Hierarchy versus Graph.** A rooted occurrence hierarchy defaults to Tree;
+12. **Hierarchy versus Graph.** A rooted occurrence hierarchy defaults to Tree;
    identity-preserving topology retains Graph semantics even when a tree
    renderer is available.
-8. **Explicit alternate format.** A Table defaults to TSV but produces the same
+13. **Explicit alternate format.** A Table defaults to TSV but produces the same
    selected rows through explicit Markdown, pretty table, JSONL, and JSON
    where supported.
-9. **Unsupported format.** A multi-result Document rejects TSV before
+14. **Unsupported format.** A multi-result Document rejects TSV before
    acquisition rather than dropping context or choosing one Table.
-10. **Ambiguous title.** Human-title lookup fails with exact ID candidates and
+15. **Ambiguous title.** Human-title lookup fails with exact ID candidates and
     never chooses by registration order.
-11. **Query scope.** `--where` and ordering terms bind only to row sets declared
+16. **Query scope.** `--where` and ordering terms bind only to row sets declared
     by the exact selected facet; equal column labels do not transfer operators.
-12. **Reference correspondence.** `-E references` emits exactly one
+17. **Reference correspondence.** `-E references` emits exactly one
     owner-issued reference per selected semantic row in selected order, and
     every value is accepted unchanged by top-level `explain`.
-13. **Incomplete references.** One unreferenceable selected row prevents both
+18. **Incomplete references.** One unreferenceable selected row prevents both
     primary and companion publication rather than producing a partial reference
     file or ordinary-output fallback.
-14. **Companion failure.** Explicit `-E` does not publish primary output when
+19. **Companion failure.** Explicit `-E` does not publish primary output when
     the selected companion cannot be constructed, and emits no plausible empty
     sidecar.
-15. **Output ordering.** Successful primary output is flushed before the final
+20. **Output ordering.** Successful primary output is flushed before the final
     companion block is written to `stderr`.
-16. **Absent companion demand.** An invocation without `-E` realizes no
+21. **Absent companion demand.** An invocation without `-E` realizes no
     explanation-only registry, affordance, reference projection, ranking, or
     companion-rendering work.
 
@@ -616,6 +699,10 @@ The composition requires, across those slices:
   Facet ID;
 - append-only ID and tombstone compatibility;
 - exact-ID execution independent of title and section heading;
+- contextual dot-notation lowering to the same exact canonical ID;
+- non-subject rejection and post-expansion duplicate detection;
+- canonical identity in discovery, explanation, persistence, references, and
+  cross-host descriptors;
 - explicit and default facet equivalence;
 - semantic shape and complete-selection composition;
 - natural format and explicit-format equivalence over the same selected
@@ -641,6 +728,8 @@ This map does not:
 - change or relax permanent View Facet compatibility;
 - choose the final ID for every current section or category;
 - make title lookup a portable alias contract;
+- make contextual dot notation a Registry identity, alias, wildcard, or
+  Browser contract;
 - make every structural document section independently executable;
 - infer category membership from ID prefixes;
 - define operation, row, hierarchy, graph, or document internals;
