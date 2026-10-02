@@ -970,12 +970,13 @@ resolves the reference view.
 `--ecosystem` selects a named Ecosystem and its ancestors, searching each
 layer's named platform and core-package populations nearest first. Canonical
 IDs (`ecosystem.aspire`) and short names (`aspire`) are case-insensitive;
-repeat the option to select multiple lineages. An explicit Ecosystem cannot
-be combined with another Find source selector yet. `--tfm` still applies to
-core packages. Each result includes an `Ecosystem` column (or `ecosystem`
-JSON field) naming the layer that produced it; ordinary Find output is
-unchanged. A finite `-n` stops at a layer boundary and reports unsearched
-ancestors on stderr:
+separate multiple selections with commas (for example, `ai,blazor`) or repeat
+the option. `--ecosystem all` selects every shipped ecosystem. An explicit
+Ecosystem cannot be combined with another Find source selector yet.
+`--tfm` still applies to core packages. Each result includes an `Ecosystem`
+column (or `ecosystem` JSON field) naming the layer that produced it;
+ordinary Find output is unchanged. A finite `-n` stops at a layer boundary
+and reports unsearched ancestors on stderr:
 
 ```console
 dotnet-inspect find '.Add*' --ecosystem aspire -n 20

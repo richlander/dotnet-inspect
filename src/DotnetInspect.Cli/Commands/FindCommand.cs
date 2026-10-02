@@ -348,6 +348,8 @@ public class FindCommand
                 SourceSelection = null,
                 Packages = [.. layer.Declaration.CorePackages
                     .Select(package => package.PackageId)],
+                PlatformAssemblies = [],
+                PlatformFrameworks = [],
                 Limit = options.Limit is int window
                     ? window - types.Count - members.Count
                     : null,
@@ -396,9 +398,39 @@ public class FindCommand
                         explicitWorkspace);
                 List<MemberFindResult> band = foundMembers?.Rows ?? [];
                 foreach (TypeFindResult row in foundTypes.Rows)
-                    unansweredPatterns.Remove(row.Pattern);
+                {
+                    foreach (string pattern in patterns)
+                    {
+                        if (string.Equals(
+                                row.Pattern, pattern, StringComparison.Ordinal)
+                            || (row.Match is TypeFindMatchKind.Prefix
+                                    or TypeFindMatchKind.Namespace)
+                                && string.Equals(
+                                    row.Pattern,
+                                    $"{pattern}*",
+                                    StringComparison.Ordinal))
+                        {
+                            unansweredPatterns.Remove(pattern);
+                        }
+                    }
+                }
                 foreach (MemberFindResult row in band)
-                    unansweredPatterns.Remove(row.Pattern);
+                {
+                    foreach (string pattern in patterns)
+                    {
+                        if (string.Equals(
+                                row.Pattern,
+                                pattern,
+                                StringComparison.Ordinal)
+                            || string.Equals(
+                                row.Pattern,
+                                MemberPatternSentinel.Strip(pattern),
+                                StringComparison.Ordinal))
+                        {
+                            unansweredPatterns.Remove(pattern);
+                        }
+                    }
+                }
                 types.AddRange(WithoutSupersededWeakRows(foundTypes.Rows, band)
                     .Select(row => row with { Ecosystem = layer.Id.Value }));
                 members.AddRange(band.Select(row =>

@@ -201,10 +201,38 @@ public static class FindOptionsParser
 
         var selected = new List<EcosystemPackId>();
         var seen = new HashSet<EcosystemPackId>();
-        foreach (string value in parseResult.GetValue(option) ?? [])
+        var packs = EcosystemPackCatalog.Discover();
+        string[] values =
+        [
+            .. (parseResult.GetValue(option) ?? [])
+                .SelectMany(value => value.Split(','))
+                .Select(value => value.Trim()),
+        ];
+        if (values.Any(string.IsNullOrEmpty))
+        {
+            CommandError.Write(
+                "--ecosystem requires one or more comma-separated ecosystem names.");
+            ecosystems = null;
+            return false;
+        }
+        if (values.Any(value =>
+                value.Equals("all", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (values.Length != 1)
+            {
+                CommandError.Write(
+                    "'all' cannot be combined with other --ecosystem values.");
+                ecosystems = null;
+                return false;
+            }
+
+            values = [.. packs.Select(pack => pack.Id.Value)];
+        }
+
+        foreach (string value in values)
         {
             if (!EcosystemCommand.TryResolveFocus(
-                    value, EcosystemPackCatalog.Discover(), out var pack))
+                    value, packs, out var pack))
             {
                 ecosystems = null;
                 return false;

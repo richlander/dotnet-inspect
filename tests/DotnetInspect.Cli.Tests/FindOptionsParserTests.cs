@@ -78,6 +78,17 @@ public class FindOptionsParserTests
         Assert.DoesNotContain("Unknown ecosystem", result.Error);
     }
 
+    [Theory]
+    [InlineData("ai,blazor")]
+    [InlineData("AI,BlAzOr")]
+    [InlineData("all")]
+    public async Task Ecosystem_AcceptsCommaSeparatedSelections(string value)
+    {
+        var result = await Run("find", "AddProject", "--ecosystem", value, "-D");
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("Unknown ecosystem", result.Error);
+    }
+
     [Fact]
     public async Task Ecosystem_RejectsCompositionWithPackage()
     {

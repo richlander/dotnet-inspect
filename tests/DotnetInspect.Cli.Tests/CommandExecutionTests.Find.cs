@@ -56,6 +56,36 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_EcosystemCorePackageLayerDoesNotSearchDefaultPlatform()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "find", "JsonSerializer", "--ecosystem", "aspire", "-n", "3",
+            "--json", "--compact", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
+        Assert.NotEmpty(rows);
+        Assert.All(rows, row => Assert.Equal(
+            "ecosystem.aspnetcore",
+            row.GetProperty("ecosystem").GetString()));
+    }
+
+    [Fact]
+    public async Task Find_EcosystemNamespacePrefixDoesNotReportFalseMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "System.Text", "--ecosystem", "runtime", "-n", "3",
+            "--json", "--compact", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(3, document.RootElement.GetArrayLength());
+        Assert.DoesNotContain("matched no types", error);
+    }
+
+    [Fact]
     public async Task Find_DefaultOutputDoesNotAddEcosystemColumn()
     {
         var (exit, output, error) = await RunAppAsync(
