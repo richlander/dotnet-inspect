@@ -739,25 +739,24 @@ public sealed class PackageHouse
                         && archiveManifest.TryGetArchiveEntries(
                             out IReadOnlyList<PackageContentEntry>? entries))
                     {
+                        RangedPackageContent directory =
+                            RangedPackageContent.CreateDirectory(
+                                entries,
+                                payload.Content.ProducerKey,
+                                payload.Content.GenerationIdentity);
                         contentNarrowingResolution =
                             plannedContentNarrowing is null
-                            || plannedContentNarrowing
-                                    .RetainedGeneration
-                                is { } retainedGeneration
-                                && !ReferenceEquals(
-                                    retainedGeneration,
-                                    payload.Content.GenerationIdentity)
+                            || !ReferenceEquals(
+                                plannedContentNarrowing
+                                    .DirectoryGeneration,
+                                payload.Content.GenerationIdentity)
                                 ? ResolveContentNarrowing(
                                     request,
                                     rangedPackageId,
-                                    payload.Content,
+                                    directory,
                                     [.. entries.Select(
-                                        static entry => entry.Path)],
-                                    useRetainedEvidence: false)
-                                : RetainContentNarrowing(
-                                    plannedContentNarrowing,
-                                    rangedPackageId,
-                                    payload.Content);
+                                        static entry => entry.Path)])
+                                : plannedContentNarrowing;
                         semanticEntries = SelectContentEntries(
                             entries,
                             contentNarrowingResolution.EntryPaths);
@@ -1589,29 +1588,18 @@ public sealed class PackageHouse
         PackageCompileAssetSelectionReceipt? TargetSelection,
         PackageHouseContentNarrowingCompletion Completion,
         InertString? Reason,
-        PackageContentGenerationIdentity? RetainedGeneration = null);
+        PackageContentGenerationIdentity DirectoryGeneration);
 
     private static PackageHouseContentNarrowingResolution
         ResolveContentNarrowing(
             PackageHouseRequest request,
             string packageId,
             IPackageContent directory,
-            IReadOnlyList<string> entryPaths,
-            bool useRetainedEvidence = true)
+            IReadOnlyList<string> entryPaths)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(entryPaths);
-        if (useRetainedEvidence
-            && request.ContentQuery?.RetainedFileList
-                is { } retainedFileList)
-        {
-            return RetainFileListNarrowing(
-                retainedFileList,
-                packageId,
-                directory,
-                entryPaths);
-        }
         return request.ContentQuery?.Narrowing switch
         {
             PackageHouseContentNarrowing.PackageWide =>
@@ -1619,7 +1607,8 @@ public sealed class PackageHouse
                     entryPaths,
                     TargetSelection: null,
                     PackageHouseContentNarrowingCompletion.Settled,
-                    Reason: null),
+                    Reason: null,
+                    directory.GenerationIdentity),
             PackageHouseContentNarrowing.TfmWide tfmWide =>
                 ResolveTfmContentNarrowing(
                     packageId,
@@ -1629,63 +1618,6 @@ public sealed class PackageHouse
                 "A semantic content query requires a known narrowing.",
                 nameof(request)),
         };
-    }
-
-    private static PackageHouseContentNarrowingResolution
-        RetainFileListNarrowing(
-            PackageHouseFileList fileList,
-            string packageId,
-            IPackageContent directory,
-            IReadOnlyList<string> entryPaths)
-    {
-        var available = new HashSet<string>(
-            entryPaths,
-            StringComparer.Ordinal);
-        if (fileList.Entries.Any(entry =>
-                !available.Contains(entry.Path)))
-        {
-            return fileList.Narrowing.Narrowing switch
-            {
-                PackageHouseContentNarrowing.PackageWide =>
-                    new(
-                        entryPaths,
-                        TargetSelection: null,
-                        PackageHouseContentNarrowingCompletion.Settled,
-                        Reason: null),
-                PackageHouseContentNarrowing.TfmWide tfmWide =>
-                    ResolveTfmContentNarrowing(
-                        packageId,
-                        directory,
-                        tfmWide),
-                _ => throw new InvalidOperationException(
-                    "The retained File List has an unknown content narrowing."),
-            };
-        }
-
-        PackageCompileAssetSelectionReceipt? targetSelection =
-            fileList.Narrowing.TargetSelection is { } prior
-                ? PackageCompileAssetSelector.RetainSelection(
-                    directory,
-                    packageId,
-                    prior.Policy,
-                    prior.Selection,
-                    prior.RequestedTargetFramework,
-                    prior.RequestedRuntimeIdentifier)
-                : null;
-        PackageCompileAssetSelection? selection =
-            targetSelection?.Selection;
-        PackageHouseContentNarrowingCompletion completion =
-            selection is null
-                ? PackageHouseContentNarrowingCompletion.Settled
-                : CompileSelectionCompletion(selection);
-        return new(
-            [.. fileList.Entries.Select(static entry => entry.Path)],
-            targetSelection,
-            completion,
-            completion == PackageHouseContentNarrowingCompletion.Settled
-                ? null
-                : CompileSelectionReason(selection!),
-            fileList.Narrowing.Generation);
     }
 
     private static PackageHouseContentNarrowingResolution
@@ -1715,29 +1647,8 @@ public sealed class PackageHouse
             completion,
             completion == PackageHouseContentNarrowingCompletion.Settled
                 ? null
-                : CompileSelectionReason(selection));
-    }
-
-    private static PackageHouseContentNarrowingResolution
-        RetainContentNarrowing(
-            PackageHouseContentNarrowingResolution resolution,
-            string packageId,
-            IPackageContent content)
-    {
-        if (resolution.TargetSelection is not { } targetSelection)
-            return resolution;
-
-        return resolution with
-        {
-            TargetSelection =
-                PackageCompileAssetSelector.RetainSelection(
-                    content,
-                    packageId,
-                    targetSelection.Policy,
-                    targetSelection.Selection,
-                    targetSelection.RequestedTargetFramework,
-                    targetSelection.RequestedRuntimeIdentifier),
-        };
+                : CompileSelectionReason(selection),
+            directory.GenerationIdentity);
     }
 
     private static PackageHouseContentNarrowingCompletion

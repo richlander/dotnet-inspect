@@ -93,8 +93,10 @@ Package-wide and TFM-wide Files and File List are implemented. Their results
 retain the exact acquired generation and, for TFM-wide narrowing, the existing
 compile/implementation asset-selection receipt. A File List can issue a later
 Files query only from entries in that exact narrowed inventory; the query
-retains the owner-issued narrowing evidence rather than reconstructing a path
-from display text.
+retains the owner-issued narrowing declaration and typed entries rather than
+reconstructing a path from display text. Before acquiring entry bodies, the
+later request resolves that narrowing against its current validated directory;
+a receipt from an older generation cannot admit bodies in the new generation.
 
 The content query does not contain an access mode, range selector, cache
 backend, source URL, or fallback preference. Network permission, source
@@ -136,10 +138,14 @@ The snapshot is the singular basis for:
 - the entry identities used to query which content the entry cache already
   holds.
 
-PackageHouse resolves the base narrowing once against that snapshot. Library
-inventory and selection consume that candidate space. PackageHouse joins
-owner-issued compile/implementation correspondence with the same snapshot to
-issue exact later file references and adjacent-PDB entry evidence. A terminal
+PackageHouse resolves the base narrowing once against that snapshot. A ranged
+plan may carry that resolution into the result only when the directory view and
+successful payload share one generation identity; source fallback or complete
+fallback otherwise resolves once against the successful payload's validated
+archive inventory. Library inventory and selection consume that candidate
+space. PackageHouse joins owner-issued compile/implementation correspondence
+with the same snapshot to issue exact later file references and adjacent-PDB
+entry evidence. A terminal
 cannot rescan the archive, construct a second path inventory, or resolve root
 preference independently.
 
