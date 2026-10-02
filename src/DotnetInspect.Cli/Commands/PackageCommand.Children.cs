@@ -376,35 +376,21 @@ public partial class PackageCommand
                         resolution.ProducerKey ?? packageName),
                     result.PackageName ?? packageName,
                     result.Version ?? version);
-        PackageInspectionSelection inspectionSelection =
-            input.SelectAssemblies(
-                candidates.Select(
-                    static candidate =>
-                        new PackageInspectionAssembly(
-                            candidate.AssetPath,
-                            candidate.TargetFramework,
-                            candidate.TargetFramework)));
-
-        await using var workspace = new InspectionWorkspace();
-        using PackageInspectionAssemblyContext realization =
-            await workspace.RealizePackageInspectionAsync(
-                    inspectionSelection,
-                    cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-        var outcomes = realization.Assemblies.ToDictionary(
-            static outcome => outcome.Selection.Path,
-            StringComparer.Ordinal);
-        PackageLibraryInspectionTarget[] targets =
+        PackageLibraryInspectionCandidate[] inspectionCandidates =
         [
             .. candidates.Select(candidate =>
-                CreateTarget(
-                    candidate,
-                    outcomes[candidate.AssetPath])),
+                new PackageLibraryInspectionCandidate(
+                    candidate.AssetId,
+                    candidate.AssetPath,
+                    candidate.AssemblyName,
+                    candidate.TargetFramework,
+                    candidate.Role)),
         ];
         InspectionEnvelope<PackageChildrenDocument> inspection =
-            await PackageChildrenInspection.ExecuteLibrariesAsync(
+            await PackageChildrenInspection.ExecutePackageEntriesAsync(
                     plan.Subject,
-                    targets,
+                    input,
+                    inspectionCandidates,
                     cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         return new(inspection, plan.Count, keepStart);
@@ -488,40 +474,6 @@ public partial class PackageCommand
                 PackageChildrenStatus.Unavailable,
                 selection.Message
                     ?? "The compile Library population is unavailable."),
-        };
-
-    private static PackageLibraryInspectionTarget CreateTarget(
-        PackageChildCandidate candidate,
-        PackageInspectionAssemblyOutcome outcome) =>
-        outcome switch
-        {
-            PackageInspectionAssemblyOutcome.Available available =>
-                new(
-                    candidate.AssetId,
-                    candidate.AssetPath,
-                    candidate.Role,
-                    available.Group,
-                    available.Participant),
-            PackageInspectionAssemblyOutcome.WithoutAssembly =>
-                PackageLibraryInspectionTarget.CreateUnavailable(
-                    candidate.AssetId,
-                    candidate.AssetPath,
-                    candidate.AssemblyName,
-                    candidate.Role,
-                    PackageLibraryChildUnavailableReason.NotManagedAssembly,
-                    "The selected Package Library is not a managed "
-                        + "assembly."),
-            PackageInspectionAssemblyOutcome.Unavailable unavailable =>
-                PackageLibraryInspectionTarget.CreateUnavailable(
-                    candidate.AssetId,
-                    candidate.AssetPath,
-                    candidate.AssemblyName,
-                    candidate.Role,
-                    PackageLibraryChildUnavailableReason
-                        .AssemblyUnavailable,
-                    unavailable.Reason),
-            _ => throw new InvalidOperationException(
-                "Unknown Package inspection assembly outcome."),
         };
 
     private static HashSet<string> ToolEntryPoints(

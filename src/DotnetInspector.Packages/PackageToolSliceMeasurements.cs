@@ -32,9 +32,23 @@ public sealed class PackageToolDeclarationEvidence
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(payload);
+        return await TryCreateAsync(
+                payload.Coordinate,
+                payload.Content,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public static async ValueTask<PackageToolDeclarationEvidence?> TryCreateAsync(
+        PackageSourceCoordinate coordinate,
+        IPackageContent content,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(content);
         string[] nuspecEntries =
         [
-            .. payload.Content.EnumerateEntries()
+            .. content.EnumerateEntries()
                 .Where(static entry =>
                     !string.IsNullOrWhiteSpace(entry)
                     && !entry.Contains('/')
@@ -45,7 +59,7 @@ public sealed class PackageToolDeclarationEvidence
                 .Take(2),
         ];
         if (nuspecEntries.Length != 1
-            || !payload.Content.TryOpenEntry(
+            || !content.TryOpenEntry(
                 nuspecEntries[0],
                 PackageExtractor.MaxNuspecBytes,
                 out Stream? stream))
@@ -63,8 +77,8 @@ public sealed class PackageToolDeclarationEvidence
             return bytes is null
                 ? null
                 : TryCreate(
-                    payload.Coordinate,
-                    payload.Content,
+                    coordinate,
+                    content,
                     bytes);
         }
     }

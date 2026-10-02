@@ -4,8 +4,8 @@ export interface LibrarySubjectNavItem {
   id: string;
   name: string;
   asset: string;
-  types: number;
-  members: number;
+  types: number | null;
+  members: number | null;
   unavailableDetail?: string | null;
 }
 
@@ -73,6 +73,15 @@ export function renderLibrarySubjectNav(
 ): string {
   const { libraries, selectedLibraryId, escapeHtml } = options;
   const displayLabels = librarySubjectDisplayLabels(libraries);
+  const countDetail = (library: LibrarySubjectNavItem) => {
+    const types = library.types === null
+      ? "Type Count unavailable"
+      : `${library.types} type${library.types === 1 ? "" : "s"}`;
+    const members = library.members === null
+      ? "Member Count unavailable"
+      : `${library.members.toLocaleString()} members`;
+    return `${types} · ${members}`;
+  };
   const subjects = [
     {
       value: aggregateValue,
@@ -84,7 +93,7 @@ export function renderLibrarySubjectNav(
       value: library.id,
       name: displayLabels.get(library.id) ?? library.name,
       detail: library.unavailableDetail
-        ?? `${library.types} type${library.types === 1 ? "" : "s"} · ${library.members.toLocaleString()} members`,
+        ?? countDetail(library),
       selected: library.id === selectedLibraryId,
     })),
   ];

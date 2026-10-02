@@ -51,6 +51,10 @@ class FakeRoot {
 
 function recordingActions(calls: string[]): PackageViewBindingActions {
   return {
+    onPackageChildLibrarySelect: assetId =>
+      calls.push(`package-child-library:${assetId}`),
+    onRuntimeIdentifierPackageLoad: packageId =>
+      calls.push(`package-child-package:${packageId}`),
     onDependencyGroupSelect: value => calls.push(`dependency-group:${value}`),
     onPruningEvaluate: () => calls.push("pruning-evaluate"),
     onPruningFamilySelect: family => calls.push(`pruning-family:${family}`),
@@ -100,6 +104,14 @@ test("package view bindings decode navigation controls without eager work", () =
     perfType: "Example.Type",
   });
   const defaultPerformance = new FakeElement();
+  const packageLibrary = new FakeElement({
+    packageChildLibrary: "tools/net10.0/any/Example.dll",
+  });
+  const ridPackage = new FakeElement({
+    packageChildPackage: "Example.linux-x64",
+  });
+  root.addAll("[data-package-child-library]", packageLibrary);
+  root.addAll("[data-package-child-package]", ridPackage);
   root.addAll("[data-dep-group]", group, defaultGroup);
   root.addAll("[data-pruning-family]", pruningFamily);
   root.addAll("[data-pruning-evaluate]", pruningEvaluate);
@@ -117,6 +129,8 @@ test("package view bindings decode navigation controls without eager work", () =
     recordingActions(calls));
 
   assert.deepEqual(calls, []);
+  packageLibrary.dispatch("click");
+  ridPackage.dispatch("click");
   group.dispatch("click");
   defaultGroup.dispatch("click");
   pruningFamily.dispatch("change");
@@ -139,6 +153,8 @@ test("package view bindings decode navigation controls without eager work", () =
   defaultPerformance.dispatch("click");
 
   assert.deepEqual(calls, [
+    "package-child-library:tools/net10.0/any/Example.dll",
+    "package-child-package:Example.linux-x64",
     "dependency-group:2",
     "dependency-group:NaN",
     "pruning-family:Microsoft.AspNetCore.App",

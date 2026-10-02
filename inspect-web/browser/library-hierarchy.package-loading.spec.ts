@@ -222,6 +222,103 @@ for (const width of [1280, 390]) {
   });
 }
 
+test("Package Overview opens an owner-issued tool Library child", async ({
+  page,
+}) => {
+  const asset = "tools/net10.0/any/Tool.Payload.dll";
+  await installPackageLoadingFacades(page, {
+    deferChanges: false,
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "Available",
+        packageId: "System.Text.Json",
+        packageVersion: "10.0.0",
+        targetFramework: "net10.0",
+        libraries: [{
+          assetId: asset,
+          assetPath: asset,
+          assemblyName: "Tool.Payload",
+          role: "ToolEntryPoint",
+          publicTypeDeclarations: 17,
+          countStatus: "Counted",
+          detail: null,
+        }],
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+  });
+  await page.goto(frameworkRoot);
+
+  const row = page.locator(`[data-package-child-library="${asset}"]`);
+  await expect(row).toContainText("Tool.Payload");
+  await expect(row).toContainText("17 Type declarations · entry point");
+  await row.click();
+
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected",
+    "true");
+  await expect(page.getByText(/Tool\.Payload/).first()).toBeVisible();
+
+  await selectLibrary(page, "all");
+  await expect(page.locator(".library-overview-surface .api-surface-head p"))
+    .toHaveText("17 types · Member Count unavailable");
+});
+
+test("Package Overview opens an owner-issued RID Package child", async ({
+  page,
+}) => {
+  await installPackageLoadingFacades(page, {
+    deferChanges: false,
+    packageChildren: {
+      content: {
+        kind: "RuntimeIdentifierPackages",
+        status: "Available",
+        packageId: "System.Text.Json",
+        packageVersion: "10.0.0",
+        targetFramework: null,
+        libraries: [],
+        runtimeIdentifierPackages: [{
+          runtimeIdentifier: "linux-x64",
+          packageId: "Tool.Pointer.linux-x64",
+        }],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+  });
+  await page.goto(frameworkRoot);
+
+  const row = page.locator(
+    '[data-package-child-package="Tool.Pointer.linux-x64"]');
+  await expect(row).toContainText("linux-x64");
+  await row.click();
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-package-query-request",
+    JSON.stringify(["Tool.Pointer.linux-x64", "latest", ""]));
+  await expect(page.locator(".package-overview-surface h1"))
+    .toHaveText("Tool.Pointer.linux-x64");
+});
+
 for (const change of packageCoordinateChanges) {
   test(`package ${change.name} replacement preserves latent exact Library selection`, async ({ page }) => {
     await installPackageLoadingFacades(page);

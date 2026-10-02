@@ -55,6 +55,30 @@ public sealed class PackageInspectionInput
             coordinate: null, sourceCoordinate: payload.Coordinate);
     }
 
+    /// <summary>
+    /// Consumes an admitted resolved payload without interpreting its producer
+    /// as cache authority.
+    /// </summary>
+    public static PackageInspectionInput CreateFromPayload(
+        AcquiredPackagePayload payload)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        if (!payload.ProducerKey.Equals(
+                payload.Content.ProducerKey,
+                StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "The acquired payload and retained content name different producers.",
+                nameof(payload));
+        }
+
+        return new PackageInspectionInput(
+            payload.Content,
+            payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            coordinate: null);
+    }
+
     /// <summary>Retains the exact content and producer of an acquisition-issued binding.</summary>
     public static PackageInspectionInput CreateFromBinding(PackageRootBinding binding)
     {

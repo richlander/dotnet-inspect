@@ -4,6 +4,23 @@ using UntrustedDocuments;
 
 namespace DotnetInspector.Services;
 
+public sealed record DotnetToolSettingsContent(
+    string Path,
+    string Content);
+
+public enum DotnetToolSettingsProjectionStatus
+{
+    Available,
+    Missing,
+    Invalid,
+    Ambiguous,
+}
+
+public sealed record DotnetToolSettingsProjection(
+    DotnetToolSettingsProjectionStatus Status,
+    DotnetToolSettingsData? Settings,
+    string Detail);
+
 /// <summary>
 /// Locates and parses a NuGet tool package's <c>DotnetToolSettings.xml</c> manifest.
 /// Sibling to <see cref="NuspecParser"/> / <c>DepsJsonParser</c>: the CLI orchestration
@@ -199,6 +216,61 @@ public static class DotnetToolSettingsParser
         }
 
         return [.. candidates];
+    }
+
+    public static DotnetToolSettingsProjection ProjectContents(
+        IEnumerable<DotnetToolSettingsContent> contents)
+    {
+        ArgumentNullException.ThrowIfNull(contents);
+        DotnetToolSettingsContent[] candidates = [.. contents];
+        if (candidates.Length == 0)
+        {
+            return new(
+                DotnetToolSettingsProjectionStatus.Missing,
+                null,
+                "The declared tool Package contains no DotnetToolSettings.xml manifest.");
+        }
+
+        DotnetToolSettingsData? projected = null;
+        foreach (DotnetToolSettingsContent candidate in candidates)
+        {
+            DotnetToolSettingsData? parsed;
+            try
+            {
+                parsed = ParseContentOrThrow(candidate.Content);
+            }
+            catch (System.Xml.XmlException exception)
+            {
+                return new(
+                    DotnetToolSettingsProjectionStatus.Invalid,
+                    null,
+                    $"The tool settings manifest '{candidate.Path}' is invalid: {exception.Message}");
+            }
+
+            if (parsed is null)
+            {
+                return new(
+                    DotnetToolSettingsProjectionStatus.Invalid,
+                    null,
+                    $"The tool settings manifest '{candidate.Path}' uses an unsupported shape.");
+            }
+
+            if (projected is not null
+                && !Equivalent(projected, parsed))
+            {
+                return new(
+                    DotnetToolSettingsProjectionStatus.Ambiguous,
+                    null,
+                    "The declared tool Package contains disagreeing DotnetToolSettings.xml manifests.");
+            }
+
+            projected = parsed;
+        }
+
+        return new(
+            DotnetToolSettingsProjectionStatus.Available,
+            projected,
+            "Tool settings are available.");
     }
 
     private static bool Equivalent(

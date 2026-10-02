@@ -157,6 +157,26 @@ public static partial class PackageExports
     {
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(coordinate);
+        BrowserToolPackageProjection? tool =
+            await coordinate.Package.ProjectToolPackageAsync(
+                    string.IsNullOrWhiteSpace(coordinate.Framework)
+                        ? null
+                        : coordinate.Framework,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (tool is not null)
+        {
+            var toolSubject = new PackageChildrenSubject(
+                coordinate.PackageId,
+                coordinate.Version);
+            return await InspectToolPackageChildrenAsync(
+                    coordinate,
+                    toolSubject,
+                    tool,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         PackageCompileAssetSelection selection =
             coordinate.Selection;
         var subject = new PackageChildrenSubject(
@@ -256,6 +276,162 @@ public static partial class PackageExports
                 cancellationToken)
             .ConfigureAwait(false);
     }
+
+    static async ValueTask<InspectionEnvelope<PackageChildrenDocument>>
+        InspectToolPackageChildrenAsync(
+            BrowserPackageCoordinate coordinate,
+            PackageChildrenSubject subject,
+            BrowserToolPackageProjection projection,
+            CancellationToken cancellationToken)
+    {
+        if (projection.Settings.Status
+            != BrowserToolSettingsProjectionStatus.Available
+            || projection.Settings.Settings is not { } settings)
+        {
+            return PackageChildrenEnvelope(
+                PackageChildrenDocument.UnavailableLibraries(
+                    subject,
+                    PackageChildrenStatus.Unavailable,
+                    projection.Settings.Detail));
+        }
+
+        if (settings.IsRidSpecificPointerPackage)
+        {
+            return PackageChildrenEnvelope(
+                PackageChildrenDocument.FromRuntimeIdentifierPackages(
+                    subject,
+                    settings.RuntimeIdentifierPackages?.Select(
+                        static package =>
+                            new PackageRuntimeIdentifierChild(
+                                package.RuntimeIdentifier,
+                                package.PackageId))
+                        ?? []));
+        }
+
+        return projection.Measurement switch
+        {
+            PackageToolSliceMeasurementOutcome.Measured measured =>
+                await InspectToolLibrariesAsync(
+                        coordinate,
+                        subject,
+                        measured.Measurements,
+                        settings,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+            PackageToolSliceMeasurementOutcome.SelectedEmpty selectedEmpty =>
+                PackageChildrenEnvelope(
+                    PackageChildrenDocument.NoManagedLibraries(
+                        SubjectWithTargetFramework(
+                            subject,
+                            selectedEmpty.Measurements
+                                .SelectedTargetFramework),
+                        "The selected tool payload contains no managed Libraries.")),
+            PackageToolSliceMeasurementOutcome.NoToolSlices =>
+                PackageChildrenEnvelope(
+                    PackageChildrenDocument.NoManagedLibraries(
+                        subject,
+                        "The declared tool Package contains no managed tool Library slices.")),
+            PackageToolSliceMeasurementOutcome.NoApplicableSlice =>
+                PackageChildrenEnvelope(
+                    PackageChildrenDocument.UnavailableLibraries(
+                        subject,
+                        PackageChildrenStatus.NoApplicableTarget,
+                        "No tool Library slice matches the requested target framework.")),
+            PackageToolSliceMeasurementOutcome.InvalidSelection invalid =>
+                PackageChildrenEnvelope(
+                    PackageChildrenDocument.UnavailableLibraries(
+                        subject,
+                        PackageChildrenStatus.InvalidSelection,
+                        invalid.Reason)),
+            PackageToolSliceMeasurementOutcome.Unavailable unavailable =>
+                PackageChildrenEnvelope(
+                    PackageChildrenDocument.UnavailableLibraries(
+                        subject,
+                        PackageChildrenStatus.Unavailable,
+                        $"Tool Package measurement is unavailable: {unavailable.Reason}.")),
+            _ => throw new InvalidOperationException(
+                "Unknown tool Package measurement outcome."),
+        };
+    }
+
+    static ValueTask<InspectionEnvelope<PackageChildrenDocument>>
+        InspectToolLibrariesAsync(
+            BrowserPackageCoordinate coordinate,
+            PackageChildrenSubject subject,
+            PackageToolSliceMeasurements measurements,
+            DotnetToolSettingsData settings,
+            CancellationToken cancellationToken)
+    {
+        HashSet<string> entryPoints =
+        [
+            .. settings.CommandEntries?
+                .Select(static command => command.EntryPoint)
+                .Where(static entryPoint =>
+                    !string.IsNullOrWhiteSpace(entryPoint))
+                .Select(static entryPoint =>
+                    Path.GetFileName(entryPoint!))
+                ?? [],
+        ];
+        PackageLibraryInspectionCandidate[] candidates =
+        [
+            .. measurements.SelectedEntries
+                .Select(path =>
+                {
+                    string fileName = Path.GetFileName(path);
+                    return new PackageLibraryInspectionCandidate(
+                        path,
+                        path,
+                        Path.GetFileNameWithoutExtension(path),
+                        measurements.SelectedTargetFramework,
+                        entryPoints.Contains(fileName)
+                            ? PackageLibraryChildRole.ToolEntryPoint
+                            : PackageLibraryChildRole.ToolLibrary);
+                })
+                .OrderBy(static candidate =>
+                    candidate.Role
+                        == PackageLibraryChildRole.ToolEntryPoint
+                            ? 0
+                            : 1)
+                .ThenBy(
+                    static candidate => candidate.AssetPath,
+                    StringComparer.Ordinal),
+        ];
+        return PackageChildrenInspection.ExecutePackageEntriesAsync(
+            SubjectWithTargetFramework(
+                subject,
+                measurements.SelectedTargetFramework),
+            coordinate.CreateInspectionInput(),
+            candidates,
+            new()
+            {
+                MaxAssembliesPerRole =
+                    BrowserInspectionScope.MaxAssembliesPerRole,
+                MaxAggregateRetainedImageBytes =
+                    BrowserInspectionScope.MaxRetainedImageBytes,
+                MaxAssemblyEntryBytes =
+                    BrowserInspectionScope.MaxRetainedImageBytes,
+                RequireDeclaredEntryLengths = true,
+            },
+            new()
+            {
+                MaxLibraries = BrowserInspectionScope.MaxAssembliesPerRole,
+                Materialization = new(
+                    BrowserInspectionScope.MaxRetainedImageBytes,
+                    BrowserInspectionScope.MaxRetainedImageBytes),
+                Extraction = BrowserApiSurfacePolicy.ExtractionBounds,
+            },
+            cancellationToken);
+    }
+
+    static PackageChildrenSubject SubjectWithTargetFramework(
+        PackageChildrenSubject subject,
+        string targetFramework) =>
+        new(
+            subject.PackageId,
+            subject.PackageVersion,
+            new InertText.InertString(
+                InertText.TextPolicy.Field,
+                targetFramework));
 
     private static InspectionEnvelope<PackageChildrenDocument>
         PackageChildrenEnvelope(PackageChildrenDocument document) =>

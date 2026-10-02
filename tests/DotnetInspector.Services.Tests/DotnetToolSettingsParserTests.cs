@@ -99,6 +99,45 @@ public class DotnetToolSettingsParserTests
     }
 
     [Fact]
+    public void ProjectContents_DistinguishesInvalidAndDisagreeingManifests()
+    {
+        DotnetToolSettingsProjection invalid =
+            DotnetToolSettingsParser.ProjectContents(
+            [
+                new(
+                    "tools/DotnetToolSettings.xml",
+                    "<DotNetCliTool>"),
+            ]);
+        Assert.Equal(
+            DotnetToolSettingsProjectionStatus.Invalid,
+            invalid.Status);
+        Assert.Null(invalid.Settings);
+
+        DotnetToolSettingsProjection ambiguous =
+            DotnetToolSettingsParser.ProjectContents(
+            [
+                new(
+                    "tools/DotnetToolSettings.xml",
+                    """
+                    <DotNetCliTool Version="1">
+                      <Commands><Command Name="first" /></Commands>
+                    </DotNetCliTool>
+                    """),
+                new(
+                    "tools/net10.0/any/DotnetToolSettings.xml",
+                    """
+                    <DotNetCliTool Version="1">
+                      <Commands><Command Name="second" /></Commands>
+                    </DotNetCliTool>
+                    """),
+            ]);
+        Assert.Equal(
+            DotnetToolSettingsProjectionStatus.Ambiguous,
+            ambiguous.Status);
+        Assert.Null(ambiguous.Settings);
+    }
+
+    [Fact]
     public void FindSettings_LocatesFileAtRootOneAndTwoLevelsDeep()
     {
         var root = Path.Combine(Path.GetTempPath(), $"tool-settings-{Guid.NewGuid():N}");

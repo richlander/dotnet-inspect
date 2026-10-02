@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import type {
   BrowserAssemblySurface,
   BrowserMemberSurface,
+  BrowserPackageChildrenInspection,
   BrowserPackageSurface,
   BrowserTypeSurface,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -265,6 +266,7 @@ interface PackageLoadingFixture {
   failVersionOnce?: string;
   versions?: readonly string[];
   activityCatalogFailure?: boolean;
+  packageChildren?: BrowserPackageChildrenInspection;
 }
 
 type LibraryUploadFixture = "available" | "rejected" | "deferred";
@@ -690,6 +692,8 @@ async function installFacades(
         return result;
       }
       export async function queryPackage(id, version, framework) {
+        document.documentElement.dataset.packageQueryRequest =
+          JSON.stringify([id, version, framework]);
         const defaultSurface = surfaceFor(id);
         const surface = surfaceFor(id, version, framework);
         if (packageLoading.deferInitial || (packageLoading.deferChanges
@@ -764,7 +768,7 @@ async function installFacades(
             },
             diagnostics: [],
           },
-          packageChildren: {
+          packageChildren: packageLoading.packageChildren ?? {
             content: {
               kind: "Libraries",
               status: surface.compileLibrary.status === "NoCompileAssets"

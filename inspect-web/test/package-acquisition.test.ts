@@ -518,6 +518,7 @@ test("Package children retain navigable Libraries missing from the broad surface
   assert.equal(libraries.length, 1);
   assert.equal(libraries[0]?.id, "example-core");
   assert.equal(libraries[0]?.types, 17);
+  assert.equal(libraries[0]?.members, null);
   assert.equal(libraries[0]?.surfaceAvailable, false);
   assert.equal(
     libraries[0]?.unavailableDetail,

@@ -149,6 +149,26 @@ test("Library navigation makes unavailable surface details visible", () => {
   assert.doesNotMatch(html, /17 types · 0 members/);
 });
 
+test("Library navigation renders unknown Counts instead of zero", () => {
+  const html = renderLibrarySubjectNav({
+    libraries: [{
+      id: "asset:unknown",
+      name: "Example.Unknown",
+      asset: "tools/net10.0/any/Example.Unknown.dll",
+      types: null,
+      members: null,
+      unavailableDetail: null,
+    }],
+    selectedLibraryId: "asset:unknown",
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /Type Count unavailable · Member Count unavailable/);
+  assert.doesNotMatch(html, /0 types|0 members/);
+});
+
 test("Library subjects sort alphabetically and prefer a case-insensitive namesake", () => {
   const libraries = [
     {

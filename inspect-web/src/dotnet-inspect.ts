@@ -9322,6 +9322,12 @@ function libraryIdentity(library: NonNullable<ReturnType<typeof selectedLibrary>
 function libraryHeading() {
   const library = selectedLibrary();
   if (!library) return "";
+  const types = library.types === null
+    ? "Count unavailable"
+    : library.types.toLocaleString();
+  const members = library.members === null
+    ? "Count unavailable"
+    : library.members.toLocaleString();
   return `<header class="type-heading">
     <div class="type-badge">◫</div>
     <div>
@@ -9329,7 +9335,7 @@ function libraryHeading() {
       <h1>${escapeHtml(library.name)}</h1>
       <code class="type-signature">${escapeHtml(libraryIdentity(library))}</code>
     </div>
-    <div class="type-metrics"><span><strong>${library.types}</strong> types</span><span><strong>${library.members.toLocaleString()}</strong> members</span></div>
+    <div class="type-metrics"><span><strong>${types}</strong> types</span><span><strong>${members}</strong> members</span></div>
   </header>`;
 }
 
@@ -10865,6 +10871,7 @@ function renderPackageOverview() {
           <div class="section-title"><h2>Package info</h2></div>
           <p class="empty-list">Package metadata is unavailable for this coordinate.</p>
         </section>`,
+    packageChildrenHtml: renderPackageChildren(pkg),
     comparisonHtml,
     documentsHtml: documentsSection,
   });
@@ -10883,6 +10890,74 @@ function renderPackageOverview() {
     contentHtml,
     escapeHtml,
   });
+}
+
+function renderPackageChildren(pkg: AppPackage) {
+  const children = pkg.packageChildren?.content;
+  if (!children) {
+    return `<section class="document-section package-children">
+      <div class="section-title"><h2>Children</h2></div>
+      <p class="empty-list">Package children are unavailable for this coordinate.</p>
+    </section>`;
+  }
+
+  if (children.runtimeIdentifierPackages.length) {
+    return `<section class="document-section package-children">
+      <div class="section-title"><h2>RID Packages</h2><span>${children.runtimeIdentifierPackages.length}</span></div>
+      <ol class="package-child-tree" role="tree" aria-label="RID Packages">
+        ${children.runtimeIdentifierPackages.map(child =>
+          `<li role="none"><button type="button" class="package-child-row" role="treeitem" data-package-child-package="${escapeHtml(child.packageId)}">
+            <span class="kind-icon">P</span>
+            <span class="package-child-name">${escapeHtml(child.packageId)}</span>
+            <small>${escapeHtml(child.runtimeIdentifier)}</small>
+          </button></li>`).join("")}
+      </ol>
+    </section>`;
+  }
+
+  if (children.libraries.length) {
+    return `<section class="document-section package-children">
+      <div class="section-title"><h2>Libraries</h2><span>${children.libraries.length}</span></div>
+      <ol class="package-child-tree" role="tree" aria-label="Libraries">
+        ${children.libraries.map(library => {
+          const entryPoint = library.role === "ToolEntryPoint"
+            ? " · entry point"
+            : "";
+          const count = library.publicTypeDeclarations === null
+            ? library.detail ?? "Type declaration Count unavailable"
+            : `${library.publicTypeDeclarations.toLocaleString()} Type declaration${library.publicTypeDeclarations === 1 ? "" : "s"}`;
+          return `<li role="none"><button type="button" class="package-child-row" role="treeitem" data-package-child-library="${escapeHtml(library.assetId)}">
+            <span class="kind-icon">L</span>
+            <span class="package-child-name">${escapeHtml(library.assemblyName)}</span>
+            <small>${escapeHtml(`${count}${entryPoint}`)}</small>
+          </button></li>`;
+        }).join("")}
+      </ol>
+    </section>`;
+  }
+
+  const heading = children.kind === "NoManagedLibraries"
+    ? "Libraries"
+    : "Children";
+  return `<section class="document-section package-children">
+    <div class="section-title"><h2>${heading}</h2></div>
+    <p class="empty-list">${escapeHtml(children.detail ?? "No Package children are available for this coordinate.")}</p>
+  </section>`;
+}
+
+function aggregateKnownCount(
+  libraries: readonly ReturnType<typeof packageLibraries>[number][],
+  selector: (
+    library: ReturnType<typeof packageLibraries>[number],
+  ) => number | null,
+) {
+  let total = 0;
+  for (const library of libraries) {
+    const value = selector(library);
+    if (value === null) return null;
+    total += value;
+  }
+  return total;
 }
 
 function renderLibraryCompositionOverview(
@@ -10961,11 +11036,13 @@ function renderLibraryCompositionOverview(
     packageVersion: pkg.version,
     activeFramework: pkg.activeFramework,
     totalTypes: library
-      ? library.types + forwarders.length
-      : libraries.reduce((sum, candidate) => sum + candidate.types, 0),
+      ? library.types === null
+        ? null
+        : library.types + forwarders.length
+      : aggregateKnownCount(libraries, candidate => candidate.types),
     totalMembers: library
       ? library.members
-      : libraries.reduce((sum, candidate) => sum + candidate.members, 0),
+      : aggregateKnownCount(libraries, candidate => candidate.members),
     contentHtml: `${platformForwarderInventoryStatus()}${contentHtml}`,
     escapeHtml,
   });
@@ -11817,6 +11894,17 @@ function annotatedSourceHighlighter(
 }
 
 const packageViewActions: PackageViewBindingActions = {
+  onPackageChildLibrarySelect: assetId => {
+    if (!assetId || !selectLibrarySubject(assetId)) return;
+    showContentDetailAfterRender();
+    render();
+  },
+  onRuntimeIdentifierPackageLoad: packageId => {
+    if (!packageId) return;
+    observeAsync(
+      openRuntimeIdentifierPackage(packageId),
+      "Opening a RID Package");
+  },
   onDependencyGroupSelect: index => {
     if (state.dependenciesGroupIndex === index) return;
     state.dependenciesGroupIndex = index;
@@ -20434,6 +20522,21 @@ async function openDependencyPackage(
       friendlyLoadError(error, packageId, versionRange).message);
     render();
   }
+}
+
+async function openRuntimeIdentifierPackage(packageId: string) {
+  closeGraphExplorerForNavigation();
+  const navigationSeq = navigationSequence.begin();
+  const model = await loadPackage(
+    packageId,
+    "latest",
+    "",
+    { navigationSeq });
+  if (!model || !navigationSequence.isCurrent(navigationSeq)) return;
+  state.atPackageRoot = true;
+  state.atLibraryRoot = false;
+  state.packageLens = "overview";
+  render();
 }
 
 async function loadSelectedMemberCallGraph() {

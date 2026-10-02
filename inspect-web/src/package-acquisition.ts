@@ -182,8 +182,8 @@ export interface AppPackageLibrary {
   version: string;
   culture: string | null;
   publicKeyToken: string | null;
-  types: number;
-  members: number;
+  types: number | null;
+  members: number | null;
   platformPack: string | null;
   surfaceAvailable: boolean;
   unavailableDetail: string | null;
@@ -224,8 +224,8 @@ export function packageLibrariesForModel(
         version: descriptor?.version ?? "",
         culture: descriptor?.culture ?? null,
         publicKeyToken: descriptor?.publicKeyToken ?? null,
-        types: library.publicTypeDeclarations ?? 0,
-        members: descriptor?.publicMembers ?? 0,
+        types: library.publicTypeDeclarations,
+        members: descriptor?.publicMembers ?? null,
         platformPack: descriptor?.platformPack ?? null,
         surfaceAvailable: descriptor !== undefined,
         unavailableDetail: descriptor

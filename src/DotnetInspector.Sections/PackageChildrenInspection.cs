@@ -399,8 +399,70 @@ public sealed class PackageLibraryInspectionTarget
     }
 }
 
+public sealed record PackageLibraryInspectionCandidate(
+    string AssetId,
+    string AssetPath,
+    string AssemblyName,
+    string? TargetFramework,
+    PackageLibraryChildRole Role);
+
 public static class PackageChildrenInspection
 {
+    public static async ValueTask<InspectionEnvelope<PackageChildrenDocument>>
+        ExecutePackageEntriesAsync(
+            PackageChildrenSubject subject,
+            PackageInspectionInput input,
+            IReadOnlyList<PackageLibraryInspectionCandidate> candidates,
+            PackageAssemblyContextRealizationOptions? realizationOptions = null,
+            PackageChildrenInspectionLimits? limits = null,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(candidates);
+        if (candidates.Count == 0)
+        {
+            return await ExecuteLibrariesAsync(
+                    subject,
+                    [],
+                    limits,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        PackageInspectionSelection selection =
+            input.SelectAssemblies(
+                candidates.Select(
+                    static candidate =>
+                        new PackageInspectionAssembly(
+                            candidate.AssetPath,
+                            candidate.TargetFramework,
+                            candidate.TargetFramework)));
+        await using var workspace = new InspectionWorkspace();
+        using PackageInspectionAssemblyContext realization =
+            await workspace.RealizePackageInspectionAsync(
+                    selection,
+                    options: realizationOptions,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        var outcomes = realization.Assemblies.ToDictionary(
+            static outcome => outcome.Selection.Path,
+            StringComparer.Ordinal);
+        PackageLibraryInspectionTarget[] targets =
+        [
+            .. candidates.Select(candidate =>
+                CreateTarget(
+                    candidate,
+                    outcomes[candidate.AssetPath])),
+        ];
+        return await ExecuteLibrariesAsync(
+                subject,
+                targets,
+                limits,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public static async ValueTask<InspectionEnvelope<PackageChildrenDocument>>
         ExecuteLibrariesAsync(
             PackageChildrenSubject subject,
@@ -492,6 +554,38 @@ public static class PackageChildrenInspection
                 complete),
             diagnostics.ToImmutable());
     }
+
+    private static PackageLibraryInspectionTarget CreateTarget(
+        PackageLibraryInspectionCandidate candidate,
+        PackageInspectionAssemblyOutcome outcome) =>
+        outcome switch
+        {
+            PackageInspectionAssemblyOutcome.Available available =>
+                new(
+                    candidate.AssetId,
+                    candidate.AssetPath,
+                    candidate.Role,
+                    available.Group,
+                    available.Participant),
+            PackageInspectionAssemblyOutcome.WithoutAssembly =>
+                PackageLibraryInspectionTarget.CreateUnavailable(
+                    candidate.AssetId,
+                    candidate.AssetPath,
+                    candidate.AssemblyName,
+                    candidate.Role,
+                    PackageLibraryChildUnavailableReason.NotManagedAssembly,
+                    "The selected Package Library is not a managed assembly."),
+            PackageInspectionAssemblyOutcome.Unavailable unavailable =>
+                PackageLibraryInspectionTarget.CreateUnavailable(
+                    candidate.AssetId,
+                    candidate.AssetPath,
+                    candidate.AssemblyName,
+                    candidate.Role,
+                    PackageLibraryChildUnavailableReason.AssemblyUnavailable,
+                    unavailable.Reason),
+            _ => throw new InvalidOperationException(
+                "Unknown Package inspection assembly outcome."),
+        };
 
     private static async ValueTask<PackageLibraryChild> InspectAsync(
         PackageLibraryInspectionTarget target,

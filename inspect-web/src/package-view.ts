@@ -16,6 +16,8 @@ export interface PackagePerformanceTarget {
 
 export interface PackageViewBindingActions
   extends PackageDependencyBindingActions {
+  onPackageChildLibrarySelect: (assetId: string) => void;
+  onRuntimeIdentifierPackageLoad: (packageId: string) => void;
   onDependencyGroupSelect: (index: number) => void;
   onPruningEvaluate: () => void;
   onPruningFamilySelect: (family: string) => void;
@@ -86,6 +88,16 @@ export function bindPackageView(
     button.addEventListener(
       "click",
       () => actions.onDependencyGroupSelect(Number(button.dataset.depGroup))));
+  root.querySelectorAll<HTMLElement>("[data-package-child-library]").forEach(
+    button => button.addEventListener(
+      "click",
+      () => actions.onPackageChildLibrarySelect(
+        button.dataset.packageChildLibrary ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-package-child-package]").forEach(
+    button => button.addEventListener(
+      "click",
+      () => actions.onRuntimeIdentifierPackageLoad(
+        button.dataset.packageChildPackage ?? "")));
   root.querySelectorAll<HTMLSelectElement>("[data-pruning-family]").forEach(select =>
     select.addEventListener(
       "change",
