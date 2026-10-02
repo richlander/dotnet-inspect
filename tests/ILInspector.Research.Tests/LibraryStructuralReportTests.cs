@@ -160,6 +160,52 @@ public sealed class LibraryStructuralReportTests
     }
 
     [Fact]
+    public void LibraryStructuralReport_AdmitsRelationshipsThroughGenericInstantiations()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCalleeResolution.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures.ImplementationProfiles));
+
+        var available = Assert.IsType<LibraryStructuralReportResult.Available>(
+            LibraryStructuralReport.Execute(execution));
+
+        // Every call from Consumer into Box<T> and Pair<,> is a MemberRef on a
+        // TypeSpec; raw definition-token matching admits none of them.
+        Assert.DoesNotContain(
+            execution.CallGraph.DirectCalls,
+            call => call.Caller.DeclaringType.Name == "Consumer"
+                && call.Callee.DeclaringType.Name is "Box`1" or "Pair`2"
+                && execution.CallGraph.DeclaredMethods.Any(method =>
+                    method.MetadataToken == call.CalleeDefinitionToken));
+        Assert.Contains(
+            available.Document.EntangledRelationships,
+            static relationship =>
+                relationship.Source.Name == "Consumer"
+                && relationship.Target.Name == "Box`1"
+                && relationship.CallSiteCount == 4);
+        Assert.Contains(
+            available.Document.EntangledRelationships,
+            static relationship =>
+                relationship.Source.Name == "Consumer"
+                && relationship.Target.Name == "Pair`2"
+                && relationship.CallSiteCount == 1);
+        Assert.Contains(
+            available.Document.EntangledRelationships,
+            static relationship =>
+                relationship.Source.Name == "Consumer"
+                && relationship.Target.Name == "Helper"
+                && relationship.CallSiteCount == 1);
+        Assert.DoesNotContain(
+            available.Document.EntangledRelationships,
+            static relationship =>
+                relationship.Source.Name == "Box`1"
+                && relationship.Target.Name == "Box`1");
+    }
+
+    [Fact]
     public void LibraryStructuralReport_ProjectsTypeAndEntangledRelationshipEvidence()
     {
         LibraryBodyAnalysisExecution execution =
