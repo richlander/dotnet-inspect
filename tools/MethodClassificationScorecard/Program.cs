@@ -60,7 +60,7 @@ try
         Scorecard.WriteTsv(cells, tsv);
     }
 
-    Console.Write(Scorecard.Report(cells, oracle.Name, shape));
+    Console.Write(Scorecard.Report(cells, "Planner", shape));
     return 0;
 }
 finally
