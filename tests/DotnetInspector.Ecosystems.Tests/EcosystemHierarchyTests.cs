@@ -76,6 +76,31 @@ public sealed class EcosystemHierarchyTests
             registry.ExpandLineages([EcosystemPackId.Create("ecosystem.unknown")]));
     }
 
+    [Theory]
+    [InlineData("aspire", "aspire,aspnetcore,microsoft-extensions,runtime")]
+    [InlineData("ai,blazor", "ai,blazor,aspnetcore,microsoft-extensions,runtime")]
+    [InlineData("aspire,aspnetcore", "aspire,aspnetcore,microsoft-extensions,runtime")]
+    public void LayeredFindOrdersChildrenBeforeParents(
+        string selection, string expected)
+    {
+        Assert.Equal(
+            Qualified(expected),
+            EcosystemPackCatalog.OrderLayeredFind(
+                Qualified(selection).Select(EcosystemPackId.Create))
+                .Select(id => id.Value));
+    }
+
+    [Fact]
+    public void LayeredFindRejectsDuplicateAndUnknownSelections()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            EcosystemPackCatalog.OrderLayeredFind(
+                [EcosystemPackIds.Aspire, EcosystemPackIds.Aspire]));
+        Assert.Throws<ArgumentException>(() =>
+            EcosystemPackCatalog.OrderLayeredFind(
+                [EcosystemPackId.Create("ecosystem.unknown")]));
+    }
+
     [Fact]
     public void ParentMayBeRegisteredAfterItsChild()
     {

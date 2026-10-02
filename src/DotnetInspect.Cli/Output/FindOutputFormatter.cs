@@ -36,6 +36,7 @@ public static class FindOutputFormatter
                 Field(r.Match == TypeFindMatchKind.NotFound ? "-" : r.Kind),
                 Field(r.Match == TypeFindMatchKind.NotFound ? "-" : r.Library),
                 r.Match == TypeFindMatchKind.NotFound ? Field("-") : Source(r.Source, r.SourceVersion),
+                r.Ecosystem is null ? null : Field(r.Ecosystem),
                 Field(r.Match.ToString().ToLowerInvariant()),
                 Field(r.Similarity.HasValue ? r.Similarity.Value.ToString("0.00") : "-")
             )).ToList()
@@ -64,7 +65,8 @@ public static class FindOutputFormatter
                 // hostile type spelling even when the member name is benign.
                 Field(r.Signature ?? ""),
                 Field(r.Library),
-                Source(r.Source, r.SourceVersion)
+                Source(r.Source, r.SourceVersion),
+                r.Ecosystem is null ? null : Field(r.Ecosystem)
             )).ToList()
         };
     }
