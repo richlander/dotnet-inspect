@@ -8,6 +8,7 @@ import {
   renderAnnotatedSource,
   renderAnnotatedSourceModal,
   renderAnnotatedSourcePageActions,
+  renderAnnotatedSourceRejectionModal,
   type AnnotatedSourceAction,
   type AnnotatedSourceBindingActions,
 } from "../src/annotated-source.ts";
@@ -265,6 +266,30 @@ function modalHtml(source: AnnotatedSourceResult = result): string {
     escapeHtml,
   });
 }
+
+test("annotated source modal uses the shared code evidence shell", () => {
+  const html = modalHtml();
+
+  assert.match(html, /code-evidence-viewer-backdrop annotated-modal-backdrop/);
+  assert.match(html, /code-evidence-viewer annotated-modal/);
+  assert.match(html, /code-evidence-viewer-workspace annotated-modal-workspace/);
+  assert.match(html, /code-evidence-viewer-content annotated-modal-source/);
+  assert.match(html, /code-evidence-viewer-rail annotated-modal-inspector/);
+  assert.match(html, /data-annotated-scroll="modal-source"/);
+  assert.match(html, /data-annotated-scroll="modal-inspector"/);
+});
+
+test("annotated source rejection uses the shared dismissible shell", () => {
+  const html = renderAnnotatedSourceRejectionModal(
+    "Document coordinates overlap.",
+    escapeHtml,
+  );
+
+  assert.match(html, /code-evidence-viewer-failure annotated-modal-failure/);
+  assert.match(html, /Annotated source document rejected/);
+  assert.match(html, /Document coordinates overlap\./);
+  assert.match(html, /data-annotated-action="close-modal"/);
+});
 
 test("annotated source renders the selected API signature", () => {
   const html = embeddedHtml();

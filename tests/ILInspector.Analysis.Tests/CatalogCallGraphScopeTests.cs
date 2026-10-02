@@ -30,7 +30,7 @@ public class CatalogCallGraphScopeTests
             [new(index, assembly)]))
         {
             CallTreeNode root = scope.BuildCallerTree(
-                index,
+                index.CallGraphAnalysis,
                 0x06000001);
 
             Assert.Equal(
@@ -85,7 +85,7 @@ public class CatalogCallGraphScopeTests
             && method.Name == nameof(LibraryBodyIndex.Open));
 
         CallTreeNode callers = scope.BuildCallerTree(
-            analysis,
+            analysis.CallGraphAnalysis,
             open.MetadataToken,
             maxDepth: 2,
             maxNodes: 200);
@@ -97,7 +97,7 @@ public class CatalogCallGraphScopeTests
         int storageEdges = scope.StorageEdgeCount;
 
         CallTreeNode callees = scope.BuildCallTree(
-            analysis,
+            analysis.CallGraphAnalysis,
             open.MetadataToken,
             maxDepth: 2,
             maxNodes: 200);
@@ -149,10 +149,10 @@ public class CatalogCallGraphScopeTests
         Assert.Equal(single.StorageNodeCount, repeated.StorageNodeCount);
         Assert.Equal(single.StorageEdgeCount, repeated.StorageEdgeCount);
         CallTreeNode throughFirst = single.BuildCallTree(
-            first,
+            first.CallGraphAnalysis,
             root.MetadataToken);
         CallTreeNode throughDuplicate = repeated.BuildCallTree(
-            duplicate,
+            duplicate.CallGraphAnalysis,
             root.MetadataToken);
         Assert.Equal(root.Name, throughDuplicate.Member.Name);
         Assert.Equal(2, throughFirst.Perf?.Fanout);
@@ -177,7 +177,7 @@ public class CatalogCallGraphScopeTests
             && method.Name == "RunTwice");
 
         CallTreeNode tree = scope.BuildCallTree(
-            caller,
+            caller.CallGraphAnalysis,
             root.MetadataToken);
         CallTreeNode callee = Assert.Single(tree.Children);
 
@@ -699,7 +699,7 @@ public class CatalogCallGraphScopeTests
             && method.ParameterTypes.Length == 0);
 
         CallTreeNode tree = scope.BuildCallerTree(
-            targetV2,
+            targetV2.CallGraphAnalysis,
             ping.MetadataToken);
         CatalogCallCensus census = scope.Census();
         CatalogCallCensus permutedCensus = permuted.Census();
@@ -774,9 +774,13 @@ public class CatalogCallGraphScopeTests
             && method.ParameterTypes.Length == 0);
 
         CallTreeNode root = scope.Detach(
-            scope.BuildCallTree(targetV2, pingV2.MetadataToken));
+            scope.BuildCallTree(
+                targetV2.CallGraphAnalysis,
+                pingV2.MetadataToken));
         CallTreeNode versionSkewed = scope.Detach(
-            scope.BuildCallTree(targetV1, pingV1.MetadataToken));
+            scope.BuildCallTree(
+                targetV1.CallGraphAnalysis,
+                pingV1.MetadataToken));
         scope.Dispose();
 
         Assert.NotNull(root.GraphEvidence);
@@ -825,7 +829,7 @@ public class CatalogCallGraphScopeTests
         GraphNodeIdentity externalIdentity =
             GraphNodeIdentity.FromMember(calls[0].Callee);
         CallTreeNode root = scope.BuildCallTree(
-            caller,
+            caller.CallGraphAnalysis,
             rootMethod.MetadataToken);
         Assert.Equal(
             2,
@@ -893,11 +897,11 @@ public class CatalogCallGraphScopeTests
             [new(second, secondAssembly)]);
         CallTreeNode callerRoot = firstScope.Detach(
             firstScope.BuildCallerTree(
-                first,
+                first.CallGraphAnalysis,
                 firstPing.MetadataToken));
         CallTreeNode calleeRoot = secondScope.Detach(
             secondScope.BuildCallTree(
-                second,
+                second.CallGraphAnalysis,
                 secondPing.MetadataToken));
 
         CallGraphProjection projection = CallGraphProjection.Create(
@@ -946,10 +950,10 @@ public class CatalogCallGraphScopeTests
             overloads.Select(method => method.GenericArity));
 
         CallTreeNode nonGeneric = scope.BuildCallerTree(
-            target,
+            target.CallGraphAnalysis,
             overloads[0].MetadataToken);
         CallTreeNode generic = scope.BuildCallerTree(
-            target,
+            target.CallGraphAnalysis,
             overloads[1].MetadataToken);
 
         Assert.Equal(1, nonGeneric.Perf?.Fanin);
@@ -990,10 +994,10 @@ public class CatalogCallGraphScopeTests
                 == SignatureCallingConvention.StdCall);
 
         CallTreeNode cdeclCallers = scope.BuildCallerTree(
-            target,
+            target.CallGraphAnalysis,
             cdecl.MetadataToken);
         CallTreeNode stdcallCallers = scope.BuildCallerTree(
-            target,
+            target.CallGraphAnalysis,
             stdcall.MetadataToken);
 
         Assert.Equal(
@@ -1200,7 +1204,7 @@ public class CatalogCallGraphScopeTests
             && method.Name == nameof(LibraryBodyIndex.Open));
 
         CallTreeNode callers = scope.BuildCallerTree(
-            analysis,
+            analysis.CallGraphAnalysis,
             open.MetadataToken,
             maxDepth: 2,
             maxNodes: 200);
@@ -1241,13 +1245,13 @@ public class CatalogCallGraphScopeTests
             [new(index, assembly)]);
         int token = index.DeclaredMethods.First().MetadataToken;
 
-        _ = scope.BuildCallTree(index, token);
+        _ = scope.BuildCallTree(index.CallGraphAnalysis, token);
         AssemblyCatalogGenerationId first =
             Assert.IsType<AssemblyCatalogGenerationId>(scope.Generation);
         scope.ReleaseGraph();
         Assert.Null(scope.Generation);
 
-        _ = scope.BuildCallerTree(index, token);
+        _ = scope.BuildCallerTree(index.CallGraphAnalysis, token);
         AssemblyCatalogGenerationId second =
             Assert.IsType<AssemblyCatalogGenerationId>(scope.Generation);
         Assert.NotEqual(first, second);

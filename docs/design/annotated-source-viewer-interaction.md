@@ -12,6 +12,8 @@ This document owns the viewer's disclosure, action vocabulary, selection,
 annotation, media, detail, Escape, and focus behavior. It consumes rather than
 redefines:
 
+- the shared full-bleed modal and two-region workspace composition in
+  [Inspect Web code evidence viewer](inspect-web-code-evidence-viewer.md);
 - the modal lifecycle and shell composition in
   [Inspect Web Shell Interaction](inspect-web-shell-interaction.md), and
   browser history and destination-focus rules in
