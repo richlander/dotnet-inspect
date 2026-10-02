@@ -125,6 +125,24 @@ public sealed record LibraryImplementationProfileAnalysisResult(
     public bool WasRequested =>
         Receipt.Features.HasFlag(
             LibraryBodyAnalysisFeatures.ImplementationProfiles);
+
+    internal LibraryImplementationProfileAnalysisResult
+        WithCompatibilityOverloadRelationships(
+            LibraryCallGraphAnalysisResult callGraph)
+    {
+        if (WasRequested || !OverloadRelationships.IsDefaultOrEmpty)
+            return this;
+
+        return this with
+        {
+            OverloadRelationships =
+                MethodImplementationProfileAnalysis
+                    .CollectOverloadRelationships(
+                        callGraph.DeclaredMethods,
+                        callGraph.DirectCalls,
+                        callGraph.DeclaredMethodMap),
+        };
+    }
 }
 
 /// <summary>
@@ -544,7 +562,9 @@ public sealed class LibraryBodyAnalysisExecution
             Receipt.HasFullMethodEvidenceScope,
             Optimization,
             CallGraph,
-            ImplementationProfiles);
+            ImplementationProfiles
+                .WithCompatibilityOverloadRelationships(
+                    CallGraph));
 
     private static bool HasFullMethodEvidenceScope(
         LibraryBodyAnalysisPlan plan) =>

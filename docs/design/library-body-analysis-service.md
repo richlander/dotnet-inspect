@@ -918,11 +918,14 @@ participants and tree operations accept only focused call-graph results.
 
 Compatibility-index implementation profiles delegate to
 `LibraryImplementationProfileAnalysisResult`; they do not retain a second
-profile projection over index-owned direct calls. Synthetic tests construct
-`LibraryBodyAnalysisExecution` and retain the focused result they exercise.
-The temporary `ILInspector.Analysis.App` harness likewise uses focused leverage
-for its unsafe ranking; its remaining compatibility-index reads are unrelated
-memory-safety summaries.
+profile projection over index-owned direct calls. Default compatibility-index
+acquisition preserves its legacy overload-relationship result through a
+result-owned compatibility projection over the focused call graph; an
+unrequested focused implementation-profile result remains constant-cost and
+empty. Synthetic tests construct `LibraryBodyAnalysisExecution` and retain the
+focused result they exercise. The temporary `ILInspector.Analysis.App` harness
+likewise uses focused leverage for its unsafe ranking; its remaining
+compatibility-index reads are unrelated memory-safety summaries.
 
 The Release solution build is the full absence gate for the deleted strongly
 typed surface. No source-scanning gate is added: the compiler proves that no
