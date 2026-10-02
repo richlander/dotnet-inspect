@@ -42,8 +42,12 @@ Boundaries, decided with the operator:
   anything.
 - The Extension Methods lane is the method half of the row. Extension
   properties from C# 14 extension blocks select through a private product path
-  over nested marker types; the Old column counts method-kind observations so
-  every column answers the same question.
+  over nested marker types; the Old column performs the production call and
+  counts its method-kind observations so every column answers the same
+  question. The production row counts both kinds, so it equals the lane only
+  on assets that declare no extension properties: System.Text.Json,
+  System.Linq, and System.Net.Http do not; CoreLib declares 50, and its row
+  reads 638 where the lane reads 588.
 - Fidelity is defined on Roslyn-produced assemblies and safety on any
   assembly. Exact agreement is required on the pinned assets; a hostile image
   must stay bounded and inert, and a wrong-but-contained count there is not a
@@ -77,8 +81,10 @@ case for correctness, not for timing claims.
 ## Results
 
 Exact agreement first: 15 answers compared across Old, LINQ ×3, NLinq ×3, and
-NLinq fused on the five assets, 0 mismatches, and the Old column equals the
-production `library -S "Library Info"` rows for every real asset.
+NLinq fused on the five assets, 0 mismatches. The Old column equals the
+production `library -S "Library Info"` rows on System.Text.Json, System.Linq,
+and System.Net.Http; on CoreLib the production Extension Methods row is 638
+because it also counts 50 extension properties outside the lane.
 
 Local osx-arm64 NativeAOT at head `9fc4fce87` (six rotated rounds, 2 s budget
 per cell; a development signal, not the accepted Linux measurement):
@@ -128,5 +134,7 @@ Two readings follow:
 - **Rows-then-count is the loss.** Old's gap to NLinq ×3 is the Extension
   Methods and Union Types rows being materialized with signatures and anchors
   and then counted: 4.0× and 4.4 MB on `System.Linq`, 1.9× and 12.8 MB on
-  CoreLib. Adopting those rows as Count terminals (slice 2) captures that win
-  without request sets.
+  CoreLib. The CoreLib Old cell also pays for the 50 extension properties the
+  lane excludes, so its ratio slightly overstates the rows-then-count cost of
+  the method half alone. Adopting those rows as Count terminals (slice 2)
+  captures that win without request sets.
